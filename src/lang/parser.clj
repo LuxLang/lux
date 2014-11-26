@@ -15,22 +15,52 @@
          ~match
          (~return left#)
          _#
-         (fail* "Unmatched token.")))))
+         (fail* (str "Unmatched token: " token#))))))
 
 ;; [Parsers]
+(defparser ^:private parse-int
+  [::&lexer/int ?int]
+  (return [::int (Long/parseLong ?int)]))
+
 (defparser ^:private parse-ident
   [::&lexer/ident ?ident]
   (return [::ident ?ident]))
 
-(defparser ^:private parse-int
-  [::&lexer/int ?int]
-  (return [::int (Long/parseLong ?int)]))
+(defparser ^:private parse-tuple
+  [::&lexer/tuple ?parts]
+  (exec [=parts (map-m (fn [arg] (apply-m parse-form (list arg)))
+                       ?parts)]
+    (return [::tuple =parts])))
 
 (defparser ^:private parse-def
   [::&lexer/list ([[::&lexer/ident "def"] ?name ?body] :seq)]
   (exec [=name (apply-m parse-form (list ?name))
          =body (apply-m parse-form (list ?body))]
     (return [::def =name =body])))
+
+(defparser ^:private parse-defdata
+  [::&lexer/list ([[::&lexer/ident "defdata"] ?type & ?cases] :seq)]
+  (exec [=type (apply-m parse-form (list ?type))
+         =cases (map-m (fn [arg]
+                         (match arg
+                           [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
+                           (exec [=data (apply-m parse-form (list ?data))]
+                             (return [::tagged ?tag =data]))
+                           ))
+                       ?cases)]
+    (return [::defdata =type =cases])))
+
+(defparser ^:private parse-if
+  [::&lexer/list ([[::&lexer/ident "if"] ?test ?then ?else] :seq)]
+  (exec [=test (apply-m parse-form (list ?test))
+         =then (apply-m parse-form (list ?then))
+         =else (apply-m parse-form (list ?else))]
+    (return [::if =test =then =else])))
+
+(defparser ^:private parse-tagged
+  [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
+  (exec [=data (apply-m parse-form (list ?data))]
+    (return [::tagged ?tag =data])))
 
 (defparser ^:private parse-fn-call
   [::&lexer/list ([?f & ?args] :seq)]
@@ -40,17 +70,21 @@
     (return [::fn-call =f =args])))
 
 (def ^:private parse-form
-  (try-all-m [parse-ident
-              parse-int
+  (try-all-m [parse-int
+              parse-ident
+              parse-tuple
               parse-def
+              parse-defdata
+              parse-if
+              parse-tagged
               parse-fn-call]))
 
 ;; [Interface]
-(defn parse [tokens]
-  (match (parse-form tokens)
-    [::&util/ok [?state ?datum]]
+(defn parse [text]
+  (match ((repeat-m parse-form) text)
+    [::&util/ok [?state ?forms]]
     (if (empty? ?state)
-      ?datum
+      ?forms
       (assert false (str "Unconsumed input: " ?state)))
     
     [::&util/failure ?message]
