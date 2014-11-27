@@ -81,6 +81,28 @@
          =else (apply-m compile-form (wrap ?else))]
     (return `(if ~=test ~=then ~=else))))
 
+(defcompiler compile-case-branch
+  [::&parser/case-branch [::&parser/tagged ?tag [::&parser/tuple ?bindings]] ?expr]
+  (exec [:let [=bindings (map (comp symbol unwrap-ident) ?bindings)
+               fn-env (into {} (for [a =bindings] [a nil]))]
+         =expr (apply-m compile-form (wrap* fn-env ?expr))]
+    (return [?tag =bindings =expr])))
+
+(defcompiler compile-case
+  [::&parser/case ?variant ?branches]
+  (exec [=variant (apply-m compile-form (wrap ?variant))
+         =branches (map-m #(apply-m compile-case-branch (wrap %))
+                          ?branches)
+         :let [g!variant (gensym "variant")
+               =case `(let [~g!variant ~=variant]
+                        (case (:tag ~g!variant)
+                          ~@(apply concat (for [[tag bindings expr] =branches]
+                                            [tag `(let [~(vec bindings) (:data ~g!variant)]
+                                                    ~expr)]))))
+               ;; _ (prn '=case =case)
+               ]]
+    (return =case)))
+
 (defcompiler compile-def
   [::&parser/def ?form ?body]
   (match ?form
@@ -117,6 +139,7 @@
               compile-tuple
               compile-tagged
               compile-if
+              compile-case
               compile-def
               compile-defdata
               compile-fn-call]))

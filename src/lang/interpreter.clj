@@ -63,7 +63,8 @@
              ;; (prn "output#" output#)
              output#)
            _#
-           (fail* (str "Unknown syntax: " (pr-str ~'*token*))))))))
+           (do ;; (println "Unknown syntax: " (pr-str ~'*token*))
+             (fail* (str "Unknown syntax: " (pr-str ~'*token*)))))))))
 
 (defeval eval-ident
   [::&parser/ident ?ident]
@@ -103,8 +104,11 @@
   [::&parser/fn-call ?fn ?args]
   (exec [state &util/get-state
          =fn (apply-m eval-form (wrap-in state ?fn))
-         =args (map-m (fn [arg] (apply-m eval-form (wrap arg)))
-                      ?args)]
+         ;; :let [_ (prn '=fn ?fn =fn)]
+         =args (map-m (fn [arg] (apply-m eval-form (wrap-in state arg)))
+                      ?args)
+         ;; :let [_ (prn '=args =args)]
+         ]
     (fn-call =fn =args)))
 
 (def eval-form
@@ -133,13 +137,14 @@
 (comment
   (let [source-code (slurp "src/example/test1.lang")
         tokens (&lexer/lex source-code)
-        _ (prn 'tokens tokens)
+        ;; _ (prn 'tokens tokens)
         syntax (&parser/parse tokens)
-        _ (prn 'syntax syntax)]
+        ;; _ (prn 'syntax syntax)
+        ]
     (eval (update-in +state+ [:forms] concat syntax)))
 
   
-
+  
   
 
   ;; (clojure.core/fn [base exp] (fold * 1 (repeat exp base)))
@@ -163,5 +168,7 @@
   ;; (def (** base exp)
   ;;   (fold * 1 (repeat exp base)))
 
-  
+  ;; Syntax for single-line comments ##
+  ;; Syntax for multi-line comments #( YOLO )#
+  ;; Syntax for chars: #"a"
   )

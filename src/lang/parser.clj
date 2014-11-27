@@ -57,6 +57,17 @@
          =else (apply-m parse-form (list ?else))]
     (return [::if =test =then =else])))
 
+(defparser ^:private parse-case
+  [::&lexer/list ([[::&lexer/ident "case"] ?variant & cases] :seq)]
+  (exec [=variant (apply-m parse-form (list ?variant))
+         =branches (do (assert (even? (count cases)))
+                     (map-m (fn [[destruct expr]]
+                              (exec [=destruct (apply-m parse-form (list destruct))
+                                     =expr (apply-m parse-form (list expr))]
+                                (return [::case-branch =destruct =expr])))
+                            (partition 2 cases)))]
+    (return [::case =variant =branches])))
+
 (defparser ^:private parse-tagged
   [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
   (exec [=data (apply-m parse-form (list ?data))]
@@ -76,6 +87,7 @@
               parse-def
               parse-defdata
               parse-if
+              parse-case
               parse-tagged
               parse-fn-call]))
 
