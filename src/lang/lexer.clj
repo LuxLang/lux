@@ -43,6 +43,12 @@
          _ (lex-str "]")]
     (return [::tuple members])))
 
+(def ^:private lex-record
+  (exec [_ (lex-str "{")
+         members lex-forms
+         _ (lex-str "}")]
+    (return [::record members])))
+
 (def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'][a-zA-Z0-9\-\+\_\=!@$%^&*<>\.,/\\\|']*)")
 
 (do-template [<name> <tag> <regex>]
@@ -103,6 +109,7 @@
                           lex-tag
                           lex-list
                           lex-tuple
+                          lex-record
                           lex-single-line-comment
                           lex-multi-line-comment])
          _ (try-m lex-white-space)]

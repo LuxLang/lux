@@ -65,6 +65,14 @@
                        ?elems)]
     (return (vec =elems))))
 
+(defcompiler compile-record
+  [::&parser/record ?kvs]
+  (exec [=kvs (map-m (fn [[?label ?value]]
+                       (exec [=value (apply-m compile-form (wrap ?value))]
+                         (return [?label =value])))
+                     ?kvs)]
+    (return (into {} =kvs))))
+
 (defcompiler compile-tagged
   [::&parser/tagged ?tag ?data]
   (exec [=data (apply-m compile-form (wrap ?data))]
@@ -92,6 +100,11 @@
          =expr (apply-m compile-form (wrap* fn-env ?expr))]
     (return [?tag =bindings =expr])))
 
+(defcompiler compile-let-binding
+  [::&parser/let-binding [::&parser/ident ?name] ?expr]
+  (exec [=expr (apply-m compile-form (wrap ?expr))]
+    (return [(symbol ?name) =expr])))
+
 (defcompiler compile-case
   [::&parser/case ?variant ?branches]
   (exec [=variant (apply-m compile-form (wrap ?variant))
@@ -106,6 +119,21 @@
                ;; _ (prn '=case =case)
                ]]
     (return =case)))
+
+(defcompiler compile-let
+  [::&parser/let ?bindings ?expr]
+  (exec [=expr (apply-m compile-form (wrap ?expr))
+         =bindings (map-m #(apply-m compile-let-binding (wrap %))
+                          ?bindings)
+         :let [;; _ (prn '=bindings =bindings)
+               =let (reduce (fn [inner [?name ?expr]]
+                              `(let [~?name ~?expr]
+                                 ~inner))
+                            =expr
+                            =bindings)
+               ;; _ (prn '=let =let)
+               ]]
+    (return =let)))
 
 (defcompiler compile-def
   [::&parser/def ?form ?body]
@@ -145,9 +173,11 @@
               compile-float
               compile-ident
               compile-tuple
+              compile-record
               compile-tagged
               compile-if
               compile-case
+              compile-let
               compile-def
               compile-defdata
               compile-fn-call]))

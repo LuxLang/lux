@@ -18,6 +18,8 @@
 
 (def <=' (fn [x] (fn [y] (<= x y))))
 (def -' (fn [x] (fn [y] (- x y))))
+(def +' (fn [x] (fn [y] (+ x y))))
+(def *' (fn [x] (fn [y] (* x y))))
 
 ;; [Utils]
 (def ^:private +state+
@@ -64,7 +66,7 @@
              output#)
            _#
            (do ;; (println "Unknown syntax: " (pr-str ~'*token*))
-             (fail* (str "Unknown syntax: " (pr-str ~'*token*)))))))))
+               (fail* (str "Unknown syntax: " (pr-str ~'*token*)))))))))
 
 (defeval eval-ident
   [::&parser/ident ?ident]
@@ -103,6 +105,23 @@
          ]
     (return nil)))
 
+(defeval eval-get
+  [::&parser/get ?tag [::&parser/ident ?record]]
+  (exec [=record (resolve ?record)]
+    (return (get =record ?tag))))
+
+(defeval eval-set
+  [::&parser/set ?tag ?value [::&parser/ident ?record]]
+  (exec [state &util/get-state
+         =value (apply-m eval-form (wrap-in state ?value))
+         =record (resolve ?record)]
+    (return (assoc =record ?tag =value))))
+
+(defeval eval-remove
+  [::&parser/remove ?tag [::&parser/ident ?record]]
+  (exec [=record (resolve ?record)]
+    (return (dissoc =record ?tag))))
+
 (defeval eval-fn-call
   [::&parser/fn-call ?fn ?args]
   (exec [state &util/get-state
@@ -120,6 +139,9 @@
               eval-ident
               eval-def
               eval-defdata
+              eval-get
+              eval-set
+              eval-remove
               eval-fn-call]))
 
 (defn eval [text]
@@ -150,4 +172,9 @@
   ;;   (fold * 1 (repeat exp base)))
 
   ;; Syntax for chars: #"a"
+
+
+  ;; (set@ {#z 30} bar) (set@ {#z 30 #w "YOLO"} bar)
+  ;; (remove@ [#x #y] bar)
+  ;; (get@ [#x #y] bar)
   )

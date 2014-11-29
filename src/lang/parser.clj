@@ -36,6 +36,16 @@
                        ?parts)]
     (return [::tuple =parts])))
 
+(defparser ^:private parse-record
+  [::&lexer/record ?parts]
+  (exec [=kvs (do (assert (even? (count ?parts)))
+                (map-m #(match %
+                          ([[::&lexer/tag ?label] ?value] :seq)
+                          (exec [=value (apply-m parse-form (list ?value))]
+                            (return [?label =value])))
+                       (partition 2 ?parts)))]
+    (return [::record =kvs])))
+
 (defparser ^:private parse-def
   [::&lexer/list ([[::&lexer/ident "def"] ?name ?body] :seq)]
   (exec [=name (apply-m parse-form (list ?name))
@@ -72,10 +82,37 @@
                             (partition 2 cases)))]
     (return [::case =variant =branches])))
 
+(defparser ^:private parse-let
+  [::&lexer/list ([[::&lexer/ident "let"] [::&lexer/tuple ?bindings] ?expr] :seq)]
+  (exec [=expr (apply-m parse-form (list ?expr))
+         =bindings (do (assert (even? (count ?bindings)))
+                     (map-m (fn [[destruct expr]]
+                              (exec [=destruct (apply-m parse-form (list destruct))
+                                     =expr (apply-m parse-form (list expr))]
+                                (return [::let-binding =destruct =expr])))
+                            (partition 2 ?bindings)))]
+    (return [::let =bindings =expr])))
+
 (defparser ^:private parse-tagged
   [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
   (exec [=data (apply-m parse-form (list ?data))]
     (return [::tagged ?tag =data])))
+
+(defparser ^:private parse-get
+  [::&lexer/list ([[::&lexer/ident "get@"] [::&lexer/tag ?tag] ?record] :seq)]
+  (exec [=record (apply-m parse-form (list ?record))]
+    (return [::get ?tag =record])))
+
+(defparser ^:private parse-remove
+  [::&lexer/list ([[::&lexer/ident "remove@"] [::&lexer/tag ?tag] ?record] :seq)]
+  (exec [=record (apply-m parse-form (list ?record))]
+    (return [::remove ?tag =record])))
+
+(defparser ^:private parse-set
+  [::&lexer/list ([[::&lexer/ident "set@"] [::&lexer/tag ?tag] ?value ?record] :seq)]
+  (exec [=value (apply-m parse-form (list ?value))
+         =record (apply-m parse-form (list ?record))]
+    (return [::set ?tag =value =record])))
 
 (defparser ^:private parse-fn-call
   [::&lexer/list ([?f & ?args] :seq)]
@@ -89,11 +126,16 @@
               parse-float
               parse-ident
               parse-tuple
+              parse-record
               parse-def
               parse-defdata
               parse-if
               parse-case
+              parse-let
               parse-tagged
+              parse-get
+              parse-set
+              parse-remove
               parse-fn-call]))
 
 ;; [Interface]
@@ -106,22 +148,3 @@
     
     [::&util/failure ?message]
     (assert false ?message)))
-
-(comment
-  ((comp parse list &lexer/lex) (slurp "src/example/test1.lang"))
-  
-  (&lexer/lex (slurp "src/example/test1.lang"))
-  "\n(def (** base exp)\n  (reduce * 1 (repeat exp base)))\n"
-  
-  [::list ([::ident "def"]
-             [::list ([::ident "**"] [::ident "base"] [::ident "exp"])]
-               [::list ([::ident "reduce"]
-                          [::ident "*"]
-                            [::int "1"]
-                              [::list ([::ident "repeat"]
-                                         [::ident "exp"]
-                                           [::ident "base"])])])]
-
-  (re-find #"^([a-zA-Z!@$%^&*<>\.,/\\\|][a-zA-Z0-9!@$%^&*<>\.,/\\\|]*)" "a9")
-  (re-find #"^([1-9][0-9]*)" "9")
-  )
