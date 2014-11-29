@@ -50,6 +50,7 @@
     (exec [token (lex-regex <regex>)]
       (return [<tag> token])))
 
+  ^:private lex-float ::float  #"^(0|[1-9][0-9]*)\.[0-9]+"
   ^:private lex-int   ::int    #"^(0|[1-9][0-9]*)"
   ^:private lex-ident ::ident  +ident-re+)
 
@@ -96,7 +97,8 @@
 
 (def ^:private lex-form
   (exec [_ (try-m lex-white-space)
-         form (try-all-m [lex-int
+         form (try-all-m [lex-float
+                          lex-int
                           lex-ident
                           lex-tag
                           lex-list

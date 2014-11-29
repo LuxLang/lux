@@ -74,6 +74,10 @@
   [::&parser/int ?int]
   (return ?int))
 
+(defeval eval-float
+  [::&parser/float ?float]
+  (return ?float))
+
 (defeval eval-def
   [::&parser/def ?form ?body]
   (exec [;; :let [_ (prn 'eval-defdata ?form ?cases)]
@@ -81,6 +85,9 @@
          ;; :let [_ (prn 'eval-def 'DONE =value)]
          :let [=name (match ?form
                        [::&parser/fn-call [::&parser/ident ?name] ?args]
+                       ?name
+
+                       [::&parser/ident ?name]
                        ?name)
                =value* (clojure.core/eval =value)
                ;; _ (prn '=value* =value*)
@@ -96,10 +103,6 @@
          ]
     (return nil)))
 
-;; [:lang.parser/defdata [:lang.parser/fn-call [:lang.parser/ident "List"] ([:lang.parser/ident "x"])]
-;;  ([:lang.parser/tagged "Nil" [:lang.parser/tuple ()]]
-;;     [:lang.parser/tagged "Cons" [:lang.parser/tuple ([:lang.parser/ident "x"] [:lang.parser/fn-call [:lang.parser/ident "List"] ([:lang.parser/ident "x"])])]])]
-
 (defeval eval-fn-call
   [::&parser/fn-call ?fn ?args]
   (exec [state &util/get-state
@@ -112,17 +115,12 @@
     (fn-call =fn =args)))
 
 (def eval-form
-  (try-all-m [eval-ident
-              eval-int
+  (try-all-m [eval-int
+              eval-float
+              eval-ident
               eval-def
               eval-defdata
               eval-fn-call]))
-
-;; [::def [::fn-call [::ident "**"] ([::ident "base"] [::ident "exp"])]
-;;  [::fn-call [::ident "reduce"] ([::ident "*"]
-;;                                 [::int 1]
-;;                                 [::fn-call [::ident "repeat"] ([::ident "exp"]
-;;                                                                [::ident "base"])])]]
 
 (defn eval [text]
   (match ((repeat-m eval-form) text)
@@ -144,31 +142,12 @@
     (eval (update-in +state+ [:forms] concat syntax)))
 
   
-  
-  
-
-  ;; (clojure.core/fn [base exp] (fold * 1 (repeat exp base)))
-
-  ;; (* 5 6)
-
   ;; (defdata (List x)
   ;;   (#Nil [])
   ;;   (#Cons [x] (List x)))
-
-  ;; (def (repeat n val)
-  ;;   (if (> v n)
-  ;;     (#Nil [])
-  ;;     (#Cons [val (repeat (- n 1) val)])))
-
-  ;; (def (fold f init inputs)
-  ;;   (case input
-  ;;     (#Nil _)            init
-  ;;     (#Cons [head tail]) (fold f (f init head) tail)))
-
+  
   ;; (def (** base exp)
   ;;   (fold * 1 (repeat exp base)))
 
-  ;; Syntax for single-line comments ##
-  ;; Syntax for multi-line comments #( YOLO )#
   ;; Syntax for chars: #"a"
   )

@@ -22,6 +22,10 @@
   [::&lexer/int ?int]
   (return [::int (Long/parseLong ?int)]))
 
+(defparser ^:private parse-float
+  [::&lexer/float ?float]
+  (return [::float (Double/parseDouble ?float)]))
+
 (defparser ^:private parse-ident
   [::&lexer/ident ?ident]
   (return [::ident ?ident]))
@@ -82,6 +86,7 @@
 
 (def ^:private parse-form
   (try-all-m [parse-int
+              parse-float
               parse-ident
               parse-tuple
               parse-def

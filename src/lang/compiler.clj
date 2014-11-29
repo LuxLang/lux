@@ -51,6 +51,10 @@
   [::&parser/int ?int]
   (return ?int))
 
+(defcompiler compile-float
+  [::&parser/float ?float]
+  (return ?float))
+
 (defcompiler compile-ident
   [::&parser/ident ?name]
   (return (symbol ?name)))
@@ -106,8 +110,8 @@
 (defcompiler compile-def
   [::&parser/def ?form ?body]
   (match ?form
-    [::&parser/fn-call ?name ?args]
-    (exec [:let [=name (symbol (unwrap-ident ?name))
+    [::&parser/fn-call [::&parser/ident ?name] ?args]
+    (exec [:let [=name (symbol ?name)
                  =args (map (comp symbol unwrap-ident) ?args)
                  fn-env (into {} (for [a =args] [a nil]))]
            =body (apply-m compile-form (wrap* fn-env ?body))
@@ -118,7 +122,10 @@
                           `(fn ~=name ~?arg ~?body))
                  ;; _ (prn 'fn-def fn-def)
                  ]]
-      (return fn-def))))
+      (return fn-def))
+
+    [::&parser/ident ?name]
+    (apply-m compile-form (wrap ?body))))
 
 (defcompiler compile-defdata
   [::&parser/defdata ?form ?cases]
@@ -135,6 +142,7 @@
 
 (def compile-form
   (try-all-m [compile-int
+              compile-float
               compile-ident
               compile-tuple
               compile-tagged
