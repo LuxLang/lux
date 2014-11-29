@@ -22,15 +22,24 @@
 ;; [Lexers]
 (def ^:private lex-white-space (lex-regex #"^(\s+)"))
 
+(def lex-forms
+  (exec [forms (repeat-m lex-form)]
+    (return (filter #(match %
+                       [::comment _]
+                       false
+                       _
+                       true)
+                    forms))))
+
 (def ^:private lex-list
   (exec [_ (lex-str "(")
-         members (repeat-m lex-form)
+         members lex-forms
          _ (lex-str ")")]
     (return [::list members])))
 
 (def ^:private lex-tuple
   (exec [_ (lex-str "[")
-         members (repeat-m lex-form)
+         members lex-forms
          _ (lex-str "]")]
     (return [::tuple members])))
 
@@ -44,6 +53,42 @@
   ^:private lex-int   ::int    #"^(0|[1-9][0-9]*)"
   ^:private lex-ident ::ident  +ident-re+)
 
+(def ^:private lex-single-line-comment
+  (exec [_ (lex-str "##")
+         comment (lex-regex #"^([^\n]*)")
+         _ (lex-regex #"^(\n?)")
+         ;; :let [_ (prn 'comment comment)]
+         ]
+    (return [::comment comment])))
+
+(def ^:private lex-multi-line-comment
+  (exec [_ (lex-str "#(")
+         ;; :let [_ (prn 'OPEN)]
+         ;; comment (lex-regex #"^(#\(.*\)#)")
+         comment (try-all-m [(lex-regex #"^((?!#\().)*?(?=\)#)")
+                             (exec [pre (lex-regex #"^(.+?(?=#\())")
+                                    ;; :let [_ (prn 'PRE pre)]
+                                    [_ inner] lex-multi-line-comment
+                                    ;; :let [_ (prn 'INNER inner)]
+                                    post (lex-regex #"^(.+?(?=\)#))")
+                                    ;:let [_ (prn 'POST post)]
+                                    ]
+                               (return (str pre "#(" inner ")#" post)))])
+         ;; :let [_ (prn 'COMMENT comment)]
+         _ (lex-str ")#")
+         ;; :let [_ (prn 'CLOSE)]
+         ;; :let [_ (prn 'multi-comment comment)]
+         ]
+    (return [::comment comment])))
+
+;; #"^(.*?!(#\()).*#\)"
+
+;; ;; UP TO #(
+;; #"^.+?(?=#\()"
+
+;; ;; UP TO )#
+;; #"^.+?(?=\)#)"
+
 (def ^:private lex-tag
   (exec [_ (lex-str "#")
          token (lex-regex +ident-re+)]
@@ -55,13 +100,15 @@
                           lex-ident
                           lex-tag
                           lex-list
-                          lex-tuple])
+                          lex-tuple
+                          lex-single-line-comment
+                          lex-multi-line-comment])
          _ (try-m lex-white-space)]
     (return form)))
 
 ;; [Interface]
 (defn lex [text]
-  (match ((repeat-m lex-form) text)
+  (match (lex-forms text)
     [::&util/ok [?state ?forms]]
     (if (empty? ?state)
       ?forms
