@@ -1,12 +1,16 @@
 (ns lang.compiler
   (:refer-clojure :exclude [compile])
-  (:require [clojure.core.match :refer [match]]
+  (:require [clojure.string :as string]
+            [clojure.core.match :refer [match]]
             (lang [util :as &util :refer [exec return* return fail fail*
                                           repeat-m try-m try-all-m map-m
                                           apply-m]]
                   [parser :as &parser]
                   [lexer :as &lexer])
-            :reload))
+            :reload)
+  (:import (org.objectweb.asm Opcodes
+                              ClassWriter
+                              MethodVisitor)))
 
 (declare compile-form)
 
@@ -168,30 +172,92 @@
           ]
       (return `(fn ~(symbol =name) ~(mapv symbol =args))))))
 
+;; (def compile-form
+;;   (try-all-m [compile-int
+;;               compile-float
+;;               compile-ident
+;;               compile-tuple
+;;               compile-record
+;;               compile-tagged
+;;               compile-if
+;;               compile-case
+;;               compile-let
+;;               compile-def
+;;               compile-defdata
+;;               compile-fn-call]))
+
+;; (defn compile [inputs]
+;;   (assert false)
+;;   (match ((repeat-m compile-form) inputs)
+;;     [::&util/ok [?state ?forms]]
+;;     (if (empty? (:forms ?state))
+;;       ?forms
+;;       (assert false (str "Unconsumed input: " ?state)))
+
+;;     [::&util/failure ?message]
+;;     (assert false ?message)))
+
+(def ^:dynamic *code*)
+
+(defcompiler compile-string
+  [::&parser/string ?string]
+  (do (doto *code*
+        (.visitLdcInsn ?string))
+    (return nil)))
+
+(defcompiler compile-static-access
+  [::&parser/static-access ?class ?member]
+  (let [?class* (string/replace ?class #"\." "/")]
+    (doto *code*
+      (.visitFieldInsn Opcodes/GETSTATIC ?class* ?member "Ljava/io/PrintStream;"))
+    (return nil)))
+
+(defcompiler compile-dynamic-access
+  [::&parser/dynamic-access ?object ?access]
+  (exec [=object (apply-m compile-form (wrap ?object))
+         [=method =args] (match ?access
+                           [::&parser/fn-call [::&parser/ident ?method] ?args]
+                           (exec [=args (map-m #(apply-m compile-form (wrap %))
+                                               ?args)]
+                             (return [?method =args])))]
+    (do (doto *code*
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" =method "(Ljava/lang/String;)V"))
+      (return nil))))
+
 (def compile-form
-  (try-all-m [compile-int
-              compile-float
-              compile-ident
-              compile-tuple
-              compile-record
-              compile-tagged
-              compile-if
-              compile-case
-              compile-let
-              compile-def
-              compile-defdata
-              compile-fn-call]))
+  (try-all-m [compile-string
+              compile-static-access
+              compile-dynamic-access]))
 
 (defn compile [inputs]
-  (match ((repeat-m compile-form) inputs)
-    [::&util/ok [?state ?forms]]
-    (if (empty? (:forms ?state))
-      ?forms
-      (assert false (str "Unconsumed input: " ?state)))
-    
-    [::&util/failure ?message]
-    (assert false ?message)))
-
-(comment
-  
-  )
+  (let [cw (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+             (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                     "output" nil "java/lang/Object" nil))]
+    (doto (.visitMethod cw Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
+      (.visitCode)
+      (.visitVarInsn Opcodes/ALOAD 0)
+      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+      (.visitInsn Opcodes/RETURN)
+      (.visitMaxs 0 0)
+      (.visitEnd))
+    (let [_main_ (doto (.visitMethod cw (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "main" "([Ljava/lang/String;)V" nil nil)
+                   (.visitCode)
+                   ;; (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;")
+                   ;; (.visitLdcInsn "Hello, World!")
+                   ;; (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "println" "(Ljava/lang/String;)V")
+                   )]
+      (binding [*code* _main_]
+        (match ((repeat-m compile-form) inputs)
+          [::&util/ok [?state ?forms]]
+          (if (empty? (:forms ?state))
+            ?forms
+            (assert false (str "Unconsumed input: " ?state)))
+          
+          [::&util/failure ?message]
+          (assert false ?message)))
+      (doto _main_
+        (.visitInsn Opcodes/RETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
+    (.visitEnd cw)
+    (.toByteArray cw)))

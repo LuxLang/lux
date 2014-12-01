@@ -49,7 +49,7 @@
          _ (lex-str "}")]
     (return [::record members])))
 
-(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'][a-zA-Z0-9\-\+\_\=!@$%^&*<>\.,/\\\|']*)")
+(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|']*)")
 
 (do-template [<name> <tag> <regex>]
   (def <name>
@@ -59,6 +59,15 @@
   ^:private lex-float ::float  #"^(0|[1-9][0-9]*)\.[0-9]+"
   ^:private lex-int   ::int    #"^(0|[1-9][0-9]*)"
   ^:private lex-ident ::ident  +ident-re+)
+
+(def lex-string
+  (exec [_ (lex-str "\"")
+         token (lex-regex #"^(.+?(?=\"))")
+         _ (lex-str "\"")
+         ]
+    (return [::string token])))
+
+;; (lex "(_. (_.. java.lang.System out) (println \"YOLO\"))")
 
 (def ^:private lex-single-line-comment
   (exec [_ (lex-str "##")
@@ -105,6 +114,7 @@
   (exec [_ (try-m lex-white-space)
          form (try-all-m [lex-float
                           lex-int
+                          lex-string
                           lex-ident
                           lex-tag
                           lex-list

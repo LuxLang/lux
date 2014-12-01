@@ -114,6 +114,20 @@
          =record (apply-m parse-form (list ?record))]
     (return [::set ?tag =value =record])))
 
+(defparser ^:private parse-static-access
+  [::&lexer/list ([[::&lexer/ident "_.."] [::&lexer/ident ?class] [::&lexer/ident ?member]] :seq)]
+  (return [::static-access ?class ?member]))
+
+(defparser ^:private parse-dynamic-access
+  [::&lexer/list ([[::&lexer/ident "_."] ?object ?call] :seq)]
+  (exec [=object (apply-m parse-form (list ?object))
+         =call (apply-m parse-form (list ?call))]
+    (return [::dynamic-access =object =call])))
+
+(defparser ^:private parse-string
+  [::&lexer/string ?string]
+  (return [::string ?string]))
+
 (defparser ^:private parse-fn-call
   [::&lexer/list ([?f & ?args] :seq)]
   (exec [=f (apply-m parse-form (list ?f))
@@ -124,6 +138,7 @@
 (def ^:private parse-form
   (try-all-m [parse-int
               parse-float
+              parse-string
               parse-ident
               parse-tuple
               parse-record
@@ -136,6 +151,8 @@
               parse-get
               parse-set
               parse-remove
+              parse-static-access
+              parse-dynamic-access
               parse-fn-call]))
 
 ;; [Interface]
@@ -144,7 +161,7 @@
     [::&util/ok [?state ?forms]]
     (if (empty? ?state)
       ?forms
-      (assert false (str "Unconsumed input: " ?state)))
+      (assert false (str "Unconsumed input: " (pr-str ?state))))
     
     [::&util/failure ?message]
     (assert false ?message)))
