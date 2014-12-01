@@ -16,16 +16,45 @@
 ;;   (do (alter-var-root #'clojure.core/prn
 ;;                       (constantly #(.println System/out (apply pr-str %&))))))
 
-(def <=' (fn [x] (fn [y] (<= x y))))
-(def -' (fn [x] (fn [y] (- x y))))
-(def +' (fn [x] (fn [y] (+ x y))))
-(def *' (fn [x] (fn [y] (* x y))))
+(defprotocol Function
+  (apply [f x]))
+
+(defrecord Tagged [tag data])
+
+;; (def <=' (fn [x] (fn [y] (<= x y))))
+;; (def -' (fn [x] (fn [y] (- x y))))
+;; (def +' (fn [x] (fn [y] (+ x y))))
+;; (def *' (fn [x] (fn [y] (* x y))))
 
 ;; [Utils]
 (def ^:private +state+
-  {:globals {"*" (fn [x] (fn [y] (* x y)))}
+  {:globals {"*" (reify Function
+                   (apply [f x]
+                     (reify Function
+                       (apply [f y]
+                         (* x y)))))
+             "-" (reify Function
+                   (apply [f x]
+                     (reify Function
+                       (apply [f y]
+                         (- x y)))))
+             "+" (reify Function
+                   (apply [f x]
+                     (reify Function
+                       (apply [f y]
+                         (+ x y)))))
+             "<=" (reify Function
+                    (apply [f x]
+                      (reify Function
+                        (apply [f y]
+                          (<= x y)))))}
    :stack {}
    :forms '()})
+
+;; (def ^:private +state+
+;;   {:globals {"*" (fn [x] (fn [y] (* x y)))}
+;;    :stack {}
+;;    :forms '()})
 
 (defn wrap [x]
   (update-in +state+ [:forms] conj x))
@@ -131,7 +160,9 @@
                       ?args)
          ;; :let [_ (prn '=args =args)]
          ]
-    (fn-call =fn =args)))
+    (return (reduce #(%1 %2) =fn =args))
+    ;; (fn-call =fn =args)
+    ))
 
 (def eval-form
   (try-all-m [eval-int
@@ -163,6 +194,9 @@
         ]
     (eval (update-in +state+ [:forms] concat syntax)))
 
+  ;; TODO: Add meta-data to top-level vars/fns.
+  ;; TODO: 
+  ;; TODO: 
   
   ;; (defdata (List x)
   ;;   (#Nil [])
@@ -177,4 +211,14 @@
   ;; (set@ {#z 30} bar) (set@ {#z 30 #w "YOLO"} bar)
   ;; (remove@ [#x #y] bar)
   ;; (get@ [#x #y] bar)
+
+  ;; (class (BiFunctor bf)
+  ;;        (: bimap (All [a b c d]
+  ;;                      (-> [(-> [a] b) (-> [c] d) (bf a c)] (bf b d)))))
+
+  ;; (instance (BiFunctor Either)
+  ;;           (def (bimap f1 f2 either)
+  ;;             (case either
+  ;;               (#Left l)  (#Left (f1 l))
+  ;;               (#Right r) (#Right (f2 r)))))
   )
