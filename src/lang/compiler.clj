@@ -6,7 +6,8 @@
                                           repeat-m try-m try-all-m map-m
                                           apply-m]]
                   [parser :as &parser]
-                  [lexer :as &lexer])
+                  [lexer :as &lexer]
+                  [type :as &type])
             :reload)
   (:import (org.objectweb.asm Opcodes
                               ClassWriter
@@ -18,10 +19,24 @@
 (def ^:private +state+
   {:globals {}
    :stack {}
-   :forms '()})
+   :forms '()
+   :classes {}})
+
+(defn define-class [class members]
+  (fn [state]
+    (return* (assoc-in state [:classes class] members) nil)))
+
+(defn find-class [class]
+  (fn [state]
+    (if-let [class-data (get-in state [:classes class])]
+      (return* state class-data)
+      (fail* (str "Unknown class: " class)))))
 
 (defn wrap [x]
   (update-in +state+ [:forms] conj x))
+
+(defn wrap-in [state x]
+  (assoc-in state [:forms] (list x)))
 
 (defn wrap* [env x]
   (-> +state+
@@ -205,29 +220,59 @@
         (.visitLdcInsn ?string))
     (return nil)))
 
+(defn ->java-class [class]
+  (string/replace class #"\." "/"))
+
+(defn ->java-class* [class]
+  (case class
+    "Void" "V"
+    ;; else
+    (str "L" (->java-class class) ";")))
+
+(defn method->signature [method]
+  (match method
+    [::&type/fn ?args ?return]
+    (str "(" (reduce str "" (map ->java-class* ?args)) ")" (->java-class* ?return))))
+
 (defcompiler compile-static-access
   [::&parser/static-access ?class ?member]
-  (let [?class* (string/replace ?class #"\." "/")]
-    (doto *code*
-      (.visitFieldInsn Opcodes/GETSTATIC ?class* ?member "Ljava/io/PrintStream;"))
-    (return nil)))
+  (exec [=class (find-class ?class)
+         :let [member-type (get-in =class [:fields ?member])
+               ?field-class (match member-type
+                              [::&type/object ?field-class _]
+                              ?field-class)]]
+    (do (doto *code*
+          (.visitFieldInsn Opcodes/GETSTATIC (->java-class ?class) ?member (->java-class* ?field-class)))
+      (return member-type))))
 
 (defcompiler compile-dynamic-access
   [::&parser/dynamic-access ?object ?access]
-  (exec [=object (apply-m compile-form (wrap ?object))
-         [=method =args] (match ?access
-                           [::&parser/fn-call [::&parser/ident ?method] ?args]
-                           (exec [=args (map-m #(apply-m compile-form (wrap %))
-                                               ?args)]
-                             (return [?method =args])))]
+  (exec [_state &util/get-state
+         =object (apply-m compile-form (wrap-in _state ?object))
+         :let [?oclass (match =object
+                         [::&type/object ?oclass _]
+                         ?oclass)]
+         =class (find-class ?oclass)
+         [method signature] (match ?access
+                              [::&parser/fn-call [::&parser/ident ?method] ?args]
+                              (exec [=args (map-m #(apply-m compile-form (wrap %))
+                                                  ?args)]
+                                (return [?method (method->signature (get-in =class [:methods ?method]))])))]
     (do (doto *code*
-          (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" =method "(Ljava/lang/String;)V"))
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->java-class ?oclass) method signature))
       (return nil))))
+
+(defcompiler compile-ann-class
+  [::&parser/ann-class ?class ?members]
+  (exec [_ (define-class ?class ?members)
+         _state &util/get-state]
+    (return nil)))
 
 (def compile-form
   (try-all-m [compile-string
               compile-static-access
-              compile-dynamic-access]))
+              compile-dynamic-access
+              compile-ann-class]))
 
 (defn compile [inputs]
   (let [cw (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)

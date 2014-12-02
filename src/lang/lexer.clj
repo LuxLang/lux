@@ -49,7 +49,7 @@
          _ (lex-str "}")]
     (return [::record members])))
 
-(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|']*)")
+(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':]*)")
 
 (do-template [<name> <tag> <regex>]
   (def <name>

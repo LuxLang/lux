@@ -11,7 +11,8 @@
 (def ^:private +state+
   {:globals {}
    :stack {}
-   :forms '()})
+   :forms '()
+   :classes {}})
 
 (comment
   (let [source-code (slurp "test2.lang")
