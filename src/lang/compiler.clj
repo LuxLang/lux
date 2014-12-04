@@ -10,6 +10,7 @@
                   [type :as &type])
             :reload)
   (:import (org.objectweb.asm Opcodes
+                              Label
                               ClassWriter
                               MethodVisitor)))
 
@@ -214,6 +215,13 @@
 
 (def ^:dynamic *code*)
 
+(defcompiler compile-boolean
+  [::&parser/boolean ?boolean]
+  (do (if ?boolean
+        (.visitLdcInsn *code* (int 1))
+        (.visitLdcInsn *code* (int 0)))
+    (return nil)))
+
 (defcompiler compile-string
   [::&parser/string ?string]
   (do (doto *code*
@@ -268,11 +276,30 @@
          _state &util/get-state]
     (return nil)))
 
+(defcompiler compile-if
+  [::&parser/if ?test ?then ?else]
+  (exec [_state &util/get-state
+         =test (apply-m compile-form (wrap-in _state ?test))
+         :let [else-label (new Label)
+               end-label (new Label)]
+         =then (do (doto *code*
+                     (.visitJumpInsn Opcodes/IFEQ else-label))
+                 (apply-m compile-form (wrap-in _state ?then)))
+         :let [_ (doto *code*
+                   (.visitJumpInsn Opcodes/GOTO end-label)
+                   (.visitLabel else-label))]
+         =else (apply-m compile-form (wrap-in _state ?else))]
+    (do (doto *code*
+          (.visitLabel end-label))
+      (return nil))))
+
 (def compile-form
-  (try-all-m [compile-string
+  (try-all-m [compile-boolean
+              compile-string
               compile-static-access
               compile-dynamic-access
-              compile-ann-class]))
+              compile-ann-class
+              compile-if]))
 
 (defn compile [inputs]
   (let [cw (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)

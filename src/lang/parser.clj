@@ -19,6 +19,10 @@
          (fail* (str "Unmatched token: " token#))))))
 
 ;; [Parsers]
+(defparser ^:private parse-boolean
+  [::&lexer/boolean ?boolean]
+  (return [::boolean (Boolean/parseBoolean ?boolean)]))
+
 (defparser ^:private parse-int
   [::&lexer/int ?int]
   (return [::int (Long/parseLong ?int)]))
@@ -162,7 +166,8 @@
     (return [::fn-call =f =args])))
 
 (def ^:private parse-form
-  (try-all-m [parse-int
+  (try-all-m [parse-boolean
+              parse-int
               parse-float
               parse-string
               parse-ident
