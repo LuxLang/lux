@@ -54,7 +54,9 @@
 (defcompiler ^:private compile-ident
   [::&parser/ident ?name]
   (doto *writer*
-    (.visitVarInsn Opcodes/ALOAD (int 0))))
+    (.visitVarInsn Opcodes/ALOAD (int 0)))
+  ;; nil
+  )
 
 (defcompiler ^:private compile-fn-call
   [::&parser/fn-call [::&parser/ident ?fn] ?args]
@@ -77,7 +79,7 @@
                        (compile-form *writer* arg))
                    ?method))]
     (doto *writer*
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") method "(Ljava/lang/String;)V"))))
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") method "(Ljava/lang/Object;)V"))))
 
 (defcompiler ^:private compile-ann-class
   [::&parser/ann-class ?class ?members]
