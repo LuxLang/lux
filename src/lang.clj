@@ -8,20 +8,18 @@
   (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
     (.write stream data)))
 
-(def ^:private +state+
-  {:globals {}
-   :stack {}
-   :forms '()
-   :classes {}})
-
 (comment
   (let [source-code (slurp "test2.lang")
         tokens (&lexer/lex source-code)
         _ (prn 'tokens tokens)
         syntax (&parser/parse tokens)
         _ (prn 'syntax syntax)
-        class-data (&compiler/compile (update-in +state+ [:forms] concat syntax))]
+        class-data (&compiler/compile syntax)]
     (write-file "output.class" class-data))
 
-  
+  (->> (slurp "test2.lang")
+       &lexer/lex
+       &parser/parse
+       &compiler/compile
+       (write-file "output.class"))
   )
