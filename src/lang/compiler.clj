@@ -103,28 +103,18 @@
   (match ?form
     [::&parser/fn-call [::&parser/ident ?name] ?args]
     (if (= "main" ?name)
-      (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "([Ljava/lang/String;)V" nil nil)
-                      (.visitCode))]
-        (compile-form =method ?body)
-        (doto =method
-          (.visitInsn Opcodes/RETURN)
-          (.visitMaxs 0 0)
-          (.visitEnd)))
-      (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
-                      (.visitCode))]
-        ;; (doto =method
-        ;;   (.visitFieldInsn Opcodes/GETSTATIC (->class "java.lang.System") "out" (->type-signature "java.io.PrintStream"))
-        ;;   (.visitLdcInsn "IN")
-        ;;   (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") "println" "(Ljava/lang/String;)V"))
-        (compile-form =method ?body)
-        ;; (doto =method
-        ;;   (.visitFieldInsn Opcodes/GETSTATIC (->class "java.lang.System") "out" (->type-signature "java.io.PrintStream"))
-        ;;   (.visitLdcInsn "OUT")
-        ;;   (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") "println" "(Ljava/lang/String;)V"))
-        (doto =method
-          (.visitInsn Opcodes/ARETURN)
-          (.visitMaxs 0 0)
-          (.visitEnd))))
+      (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "([Ljava/lang/String;)V" nil nil)
+        (.visitCode)
+        (compile-form ?body)
+        (.visitInsn Opcodes/RETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd))
+      (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
+        (.visitCode)
+        (compile-form ?body)
+        (.visitInsn Opcodes/ARETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
     ))
 
 (let [+compilers+ [compile-boolean

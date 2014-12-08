@@ -4,7 +4,7 @@
             [lang.util :as &util :refer [exec return* return fail fail*
                                          repeat-m try-m try-all-m]]))
 
-(declare lex-form)
+(declare lex-forms lex-list lex-tuple lex-record lex-tag)
 
 ;; [Utils]
 (defn ^:private lex-regex [regex]
@@ -21,33 +21,6 @@
 
 ;; [Lexers]
 (def ^:private lex-white-space (lex-regex #"^(\s+)"))
-
-(def lex-forms
-  (exec [forms (repeat-m lex-form)]
-    (return (filter #(match %
-                       [::comment _]
-                       false
-                       _
-                       true)
-                    forms))))
-
-(def ^:private lex-list
-  (exec [_ (lex-str "(")
-         members lex-forms
-         _ (lex-str ")")]
-    (return [::list members])))
-
-(def ^:private lex-tuple
-  (exec [_ (lex-str "[")
-         members lex-forms
-         _ (lex-str "]")]
-    (return [::tuple members])))
-
-(def ^:private lex-record
-  (exec [_ (lex-str "{")
-         members lex-forms
-         _ (lex-str "}")]
-    (return [::record members])))
 
 (def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':]*)")
 
@@ -67,8 +40,6 @@
          _ (lex-str "\"")
          ]
     (return [::string token])))
-
-;; (lex "(_. (_.. java.lang.System out) (println \"YOLO\"))")
 
 (def ^:private lex-single-line-comment
   (exec [_ (lex-str "##")
@@ -98,14 +69,6 @@
          ]
     (return [::comment comment])))
 
-;; #"^(.*?!(#\()).*#\)"
-
-;; ;; UP TO #(
-;; #"^.+?(?=#\()"
-
-;; ;; UP TO )#
-;; #"^.+?(?=\)#)"
-
 (def ^:private lex-tag
   (exec [_ (lex-str "#")
          token (lex-regex +ident-re+)]
@@ -126,6 +89,33 @@
                           lex-multi-line-comment])
          _ (try-m lex-white-space)]
     (return form)))
+
+(def lex-forms
+  (exec [forms (repeat-m lex-form)]
+    (return (filter #(match %
+                       [::comment _]
+                       false
+                       _
+                       true)
+                    forms))))
+
+(def ^:private lex-list
+  (exec [_ (lex-str "(")
+         members lex-forms
+         _ (lex-str ")")]
+    (return [::list members])))
+
+(def ^:private lex-tuple
+  (exec [_ (lex-str "[")
+         members lex-forms
+         _ (lex-str "]")]
+    (return [::tuple members])))
+
+(def ^:private lex-record
+  (exec [_ (lex-str "{")
+         members lex-forms
+         _ (lex-str "}")]
+    (return [::record members])))
 
 ;; [Interface]
 (defn lex [text]
