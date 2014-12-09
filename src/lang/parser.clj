@@ -115,6 +115,14 @@
                    [?class ?field]))]
     (return [::defclass ?name fields])))
 
+(defparser ^:private parse-definterface
+  [::&lexer/list ([[::&lexer/ident "definterface"] [::&lexer/ident ?name] & ?members] :seq)]
+  (let [members (for [field ?members]
+                  (match field
+                    [::&lexer/list ([[::&lexer/ident ":"] [::&lexer/ident ?member] [::&lexer/list ([[::&lexer/ident "->"] [::&lexer/tuple ?inputs] ?output] :seq)]] :seq)]
+                    [?member [(map ident->string ?inputs) (ident->string ?output)]]))]
+    (return [::definterface ?name members])))
+
 (defparser ^:private parse-tagged
   [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
   (exec [=data (apply-m parse-form (list ?data))]
@@ -199,6 +207,7 @@
               parse-ann-class
               parse-module
               parse-defclass
+              parse-definterface
               parse-fn-call]))
 
 ;; [Interface]

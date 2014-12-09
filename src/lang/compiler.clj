@@ -132,18 +132,31 @@
 
 (defcompiler ^:private compile-defclass
   [::&parser/defclass ?name ?fields]
-  (do (prn 'compile-defclass ?name ?fields)
-    (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                   (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                           (->class (str *name* "." ?name)) nil "java/lang/Object" nil))]
-      (doseq [[class field] ?fields]
-        (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature class) nil nil)
-          (.visitEnd)))
-      (.visitEnd =class)
-      (let [parent-dir (->class *name*)]
-        (.mkdirs (java.io.File. parent-dir))
-        (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
-          (.write stream (.toByteArray =class)))))))
+  (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                 (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                         (->class (str *name* "." ?name)) nil "java/lang/Object" nil))]
+    (doseq [[class field] ?fields]
+      (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature class) nil nil)
+        (.visitEnd)))
+    (.visitEnd =class)
+    (let [parent-dir (->class *name*)]
+      (.mkdirs (java.io.File. parent-dir))
+      (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
+        (.write stream (.toByteArray =class))))))
+
+(defcompiler ^:private compile-definterface
+  [::&parser/definterface ?name ?members]
+  (let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                     (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE)
+                             (->class (str *name* "." ?name)) nil "java/lang/Object" nil))]
+    (doseq [[?method [?args ?return]] ?members
+            :let [signature (str "(" (reduce str "" (map ->type-signature ?args)) ")" (->type-signature ?return))]]
+      (.visitMethod =interface (+ Opcodes/ACC_PUBLIC) ?method signature nil nil))
+    (.visitEnd =interface)
+    (let [parent-dir (->class *name*)]
+      (.mkdirs (java.io.File. parent-dir))
+      (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
+        (.write stream (.toByteArray =interface))))))
 
 (let [+compilers+ [compile-boolean
                    compile-string
@@ -155,7 +168,8 @@
                    compile-if
                    compile-def
                    compile-module
-                   compile-defclass]]
+                   compile-defclass
+                   compile-definterface]]
   (defn ^:private compile-form [state]
     (prn 'compile-form/state state)
     (some #(% state) +compilers+)))
