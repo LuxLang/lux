@@ -103,6 +103,10 @@
                             (partition 2 ?bindings)))]
     (return [::let =bindings =expr])))
 
+(defparser ^:private parse-module
+  [::&lexer/list ([[::&lexer/ident "module"]] :seq)]
+  (return [::module]))
+
 (defparser ^:private parse-tagged
   [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
   (exec [=data (apply-m parse-form (list ?data))]
@@ -185,6 +189,7 @@
               parse-static-access
               parse-dynamic-access
               parse-ann-class
+              parse-module
               parse-fn-call]))
 
 ;; [Interface]
