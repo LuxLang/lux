@@ -128,7 +128,22 @@
 (defcompiler ^:private compile-module
   [::&parser/module]
   (.visit *writer* Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-          *name* nil "java/lang/Object" nil))
+          (->class *name*) nil "java/lang/Object" nil))
+
+(defcompiler ^:private compile-defclass
+  [::&parser/defclass ?name ?fields]
+  (do (prn 'compile-defclass ?name ?fields)
+    (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                   (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                           (->class (str *name* "." ?name)) nil "java/lang/Object" nil))]
+      (doseq [[class field] ?fields]
+        (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature class) nil nil)
+          (.visitEnd)))
+      (.visitEnd =class)
+      (let [parent-dir (->class *name*)]
+        (.mkdirs (java.io.File. parent-dir))
+        (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
+          (.write stream (.toByteArray =class)))))))
 
 (let [+compilers+ [compile-boolean
                    compile-string
@@ -139,7 +154,8 @@
                    compile-ann-class
                    compile-if
                    compile-def
-                   compile-module]]
+                   compile-module
+                   compile-defclass]]
   (defn ^:private compile-form [state]
     (prn 'compile-form/state state)
     (some #(% state) +compilers+)))

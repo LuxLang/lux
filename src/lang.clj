@@ -37,5 +37,8 @@
   ;; TODO: Add signatures & structures.
   ;; TODO: Add type-system.
   ;; TODO: Allow defining constants.
+  ;; TODO: Allow importing Java classes.
+  ;; TODO: Allow using other modules.
+  ;; TODO: 
   ;; TODO: 
   )

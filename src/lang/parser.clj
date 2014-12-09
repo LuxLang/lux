@@ -107,6 +107,14 @@
   [::&lexer/list ([[::&lexer/ident "module"]] :seq)]
   (return [::module]))
 
+(defparser ^:private parse-defclass
+  [::&lexer/list ([[::&lexer/ident "defclass"] [::&lexer/ident ?name] [::&lexer/tuple ?fields]] :seq)]
+  (let [fields (for [field ?fields]
+                 (match field
+                   [::&lexer/tuple ([[::&lexer/ident ?class] [::&lexer/ident ?field]] :seq)]
+                   [?class ?field]))]
+    (return [::defclass ?name fields])))
+
 (defparser ^:private parse-tagged
   [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
   (exec [=data (apply-m parse-form (list ?data))]
@@ -190,6 +198,7 @@
               parse-dynamic-access
               parse-ann-class
               parse-module
+              parse-defclass
               parse-fn-call]))
 
 ;; [Interface]
