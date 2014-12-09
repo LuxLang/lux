@@ -69,7 +69,7 @@
   (do (doseq [arg ?args]
         (compile-form (assoc *state* :form arg)))
     (doto *writer*
-      (.visitMethodInsn Opcodes/INVOKESTATIC *name* ?fn "(Ljava/lang/Object;)Ljava/lang/Object;"))))
+      (.visitMethodInsn Opcodes/INVOKESTATIC (->class *name*) ?fn "(Ljava/lang/Object;)Ljava/lang/Object;"))))
 
 (defcompiler ^:private compile-static-access
   [::&parser/static-access ?class ?member]
@@ -123,6 +123,9 @@
           (.visitInsn Opcodes/ARETURN)
           (.visitMaxs 0 0)
           (.visitEnd))))
+    [::&parser/ident ?name]
+    (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "Ljava/lang/Object;" nil nil)
+      (.visitEnd))
     ))
 
 (defcompiler ^:private compile-module
@@ -192,5 +195,22 @@
     ;;   (.visitMaxs 0 0)
     ;;   (.visitEnd))
     (doall (map #(compile-form (assoc state :form %)) inputs))
+    (when-let [constants (seq (for [input inputs
+                                    :let [payload (match input
+                                                    [::&parser/def [::&parser/ident ?name] ?body]
+                                                    [?name ?body]
+                                                    _
+                                                    nil)]
+                                    :when payload]
+                                payload))]
+      (let [=init (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+                    (.visitCode))]
+        (doseq [[?name ?body] constants]
+          (do (compile-form (assoc state :writer =init :form ?body))
+            (.visitFieldInsn =init Opcodes/PUTSTATIC (->class class-name) ?name "Ljava/lang/Object;")))
+        (doto =init
+          (.visitInsn Opcodes/RETURN)
+          (.visitMaxs 0 0)
+          (.visitEnd))))
     (.visitEnd =class)
     (.toByteArray =class)))

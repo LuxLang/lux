@@ -11,9 +11,9 @@
 (comment
   (let [source-code (slurp "test2.lang")
         tokens (&lexer/lex source-code)
-        _ (prn 'tokens tokens)
+        ;; _ (prn 'tokens tokens)
         syntax (&parser/parse tokens)
-        _ (prn 'syntax syntax)
+        ;; _ (prn 'syntax syntax)
         class-data (&compiler/compile "test2" syntax)]
     (write-file "test2.class" class-data))
 
@@ -23,7 +23,6 @@
        (&compiler/compile "test2")
        (write-file "test2.class"))
 
-  ;; TODO: Define the Function abstract class.
   ;; TODO: Define functions as classes inheriting Function.
   ;; TODO: Add tuples.
   ;; TODO: Add let.
@@ -36,7 +35,6 @@
   ;; TODO: Add Java-interop.
   ;; TODO: Add signatures & structures.
   ;; TODO: Add type-system.
-  ;; TODO: Allow defining constants.
   ;; TODO: Allow importing Java classes.
   ;; TODO: Allow using other modules.
   ;; TODO: 
