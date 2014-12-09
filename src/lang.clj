@@ -27,7 +27,6 @@
   ;; TODO: Add tuples.
   ;; TODO: Add let.
   ;; TODO: Add pattern-matching.
-  ;; TODO: Add tagged values.
   ;; TODO: Do tail-call optimization.
   ;; TODO: Add macros.
   ;; TODO: Add type-level computations.
@@ -39,4 +38,8 @@
   ;; TODO: Allow using other modules.
   ;; TODO: 
   ;; TODO: 
+  
+  ;; jar cvf test2.jar test2 test2.class
+  ;; java -cp "test2.jar" test2
+  ;; jar cvf test2.jar test2 test2.class && java -cp "test2.jar" test2
   )

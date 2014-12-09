@@ -141,6 +141,13 @@
     (doseq [[class field] ?fields]
       (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature class) nil nil)
         (.visitEnd)))
+    (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
+      (.visitCode)
+      (.visitVarInsn Opcodes/ALOAD 0)
+      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+      (.visitInsn Opcodes/RETURN)
+      (.visitMaxs 0 0)
+      (.visitEnd))
     (.visitEnd =class)
     (let [parent-dir (->class *name*)]
       (.mkdirs (java.io.File. parent-dir))
@@ -161,6 +168,23 @@
       (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
         (.write stream (.toByteArray =interface))))))
 
+(let [+tagged+ "test2/Tagged"]
+  (defcompiler ^:private compile-tagged
+    [::&parser/tagged ?tag ?value]
+    (do (prn 'compile-tagged ?tag ?value)
+      (doto *writer*
+        (.visitTypeInsn Opcodes/NEW +tagged+)
+        (.visitInsn Opcodes/DUP)
+        (.visitMethodInsn Opcodes/INVOKESPECIAL +tagged+ "<init>" "()V")
+        (.visitInsn Opcodes/DUP)
+        (.visitLdcInsn ?tag)
+        (.visitFieldInsn Opcodes/PUTFIELD +tagged+ "tag" "Ljava/lang/String;")
+        (.visitInsn Opcodes/DUP))
+      (compile-form (assoc *state* :form ?value))
+      (doto *writer*
+        (.visitFieldInsn Opcodes/PUTFIELD +tagged+ "value" "Ljava/lang/Object;"))
+      )))
+
 (let [+compilers+ [compile-boolean
                    compile-string
                    compile-ident
@@ -172,7 +196,8 @@
                    compile-def
                    compile-module
                    compile-defclass
-                   compile-definterface]]
+                   compile-definterface
+                   compile-tagged]]
   (defn ^:private compile-form [state]
     (prn 'compile-form/state state)
     (some #(% state) +compilers+)))
@@ -194,7 +219,10 @@
     ;;   (.visitInsn Opcodes/RETURN)
     ;;   (.visitMaxs 0 0)
     ;;   (.visitEnd))
-    (doall (map #(compile-form (assoc state :form %)) inputs))
+    (doseq [input inputs]
+      (when (not (compile-form (assoc state :form input)))
+        (assert false input)))
+    ;; (doall (map #(compile-form (assoc state :form %)) inputs))
     (when-let [constants (seq (for [input inputs
                                     :let [payload (match input
                                                     [::&parser/def [::&parser/ident ?name] ?body]
