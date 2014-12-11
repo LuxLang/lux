@@ -112,3 +112,12 @@
 (def get-state
   (fn [state]
     (return* state state)))
+
+(defn within [slot monad]
+  (fn [state]
+    (let [=return (monad (get state slot))]
+      (match =return
+        [::ok [?state ?value]]
+        [::ok [(assoc state slot ?state) ?value]]
+        _
+        =return))))

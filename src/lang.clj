@@ -1,6 +1,8 @@
 (ns lang
   (:require (lang [lexer :as &lexer]
                   [parser :as &parser]
+                  [type :as &type]
+                  [analyser :as &analyser]
                   [compiler :as &compiler])
             :reload))
 
@@ -23,6 +25,31 @@
        (&compiler/compile "test2")
        (write-file "test2.class"))
 
+  (->> (slurp "test2.lang")
+       &lexer/lex
+       &parser/parse
+       (&analyser/analyse "test2"))
+
+  (let [source-code (slurp "test2.lang")
+        tokens (&lexer/lex source-code)
+        ;; _ (prn 'tokens tokens)
+        syntax (&parser/parse tokens)
+        ;; _ (prn 'syntax syntax)
+        ann-syntax (&analyser/analyse "test2" syntax)
+        _ (prn 'ann-syntax ann-syntax)
+        class-data (&compiler/compile "test2" syntax)]
+    (write-file "test2.class" class-data))
+
+  (let [source-code (slurp "test2.lang")
+        tokens (&lexer/lex source-code)
+        ;; _ (prn 'tokens tokens)
+        syntax (&parser/parse tokens)
+        ;; _ (prn 'syntax syntax)
+        ann-syntax (&analyser/analyse "test2" syntax)
+        _ (prn 'ann-syntax ann-syntax)
+        class-data (&compiler/compile "test2" ann-syntax)]
+    (write-file "test2.class" class-data))
+
   ;; TODO: Define functions as classes inheriting Function.
   ;; TODO: Add tuples.
   ;; TODO: Add let.
@@ -33,9 +60,11 @@
   ;; TODO: Add interpreter.
   ;; TODO: Add Java-interop.
   ;; TODO: Add signatures & structures.
-  ;; TODO: Add type-system.
   ;; TODO: Allow importing Java classes.
   ;; TODO: Allow using other modules.
+  ;; TODO: Add thunks.
+  ;; TODO: 
+  ;; TODO: 
   ;; TODO: 
   ;; TODO: 
   
