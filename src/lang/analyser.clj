@@ -10,9 +10,25 @@
 (declare analyse-form)
 
 ;; [Util]
-(defn ^:private with-env [env monad]
+(defn ^:private annotated [form type]
+  {:form form
+   :type type})
+
+(def ^:private module-name
   (fn [state]
-    (let [=return (monad (update-in state [:env] merge env))]
+    [::&util/ok [state (:name state)]]))
+
+(defn ^:private define [name desc]
+  (fn [state]
+    [::&util/ok [(-> state
+                     (assoc-in [:defs (:name state) name] desc)
+                     (assoc-in [:env :mappings name] (annotated [::global (:name state) name] (:type desc)))) nil]]))
+
+(defn ^:private with-local [name type body]
+  (fn [state]
+    (let [=return (body (update-in state [:env] #(-> %
+                                                     (update-in [:counter] inc)
+                                                     (assoc-in [:mappings name] (annotated [::local (:counter %)] type)))))]
       (match =return
         [::&util/ok [?state ?value]]
         [::&util/ok [(assoc ?state :env (:env state)) ?value]]
@@ -20,23 +36,11 @@
         _
         =return))))
 
-(def ^:private module-name
-  (fn [state]
-    [::&util/ok [state (:name state)]]))
-
 (defn ^:private resolve [ident]
   (fn [state]
-    (if-let [=ident (get-in state [:env ident])]
-      [::&util/ok [state =ident]]
+    (if-let [resolved (get-in state [:env :mappings ident])]
+      [::&util/ok [state resolved]]
       [::&util/failure (str "Unresolved identifier: " ident)])))
-
-(defn ^:private define [name desc]
-  (fn [state]
-    [::&util/ok [(assoc-in state [:defs (:name state) name] desc) nil]]))
-
-(defn ^:private annotated [form type]
-  {:form form
-   :type type})
 
 (defmacro ^:private defanalyser [name match return]
   `(def ~name
@@ -72,9 +76,8 @@
     (return (annotated [::variant ?tag =value] [::&type/variant ?tag (:type =value)]))))
 
 (defanalyser analyse-ident
-  [::&parser/ident ?name]
-  (exec [=ident (resolve ?name)]
-    (return (annotated [::ident ?name] =ident))))
+  [::&parser/ident ?ident]
+  (resolve ?ident))
 
 (defanalyser analyse-ann-class
   [::&parser/ann-class ?class ?members]
@@ -93,10 +96,10 @@
         (return (annotated [::dynamic-access =object [?method =args]] ::&type/nothing))))))
 
 (defanalyser analyse-fn-call
-  [::&parser/fn-call [::&parser/ident ?fn] ?args]
-  (exec [name module-name
+  [::&parser/fn-call ?fn ?args]
+  (exec [=fn (analyse-form* ?fn)
          =args (map-m analyse-form* ?args)]
-    (return (annotated [::call [name ?fn] =args] ::&type/nothing))))
+    (return (annotated [::call =fn =args] ::&type/nothing))))
 
 (defanalyser analyse-if
   [::&parser/if ?test ?then ?else]
@@ -130,7 +133,7 @@
     (exec [=value (analyse-form* ?value)
            _ (define ?name {:mode ::constant
                             :access ::public
-                            :type =value})]
+                            :type (:type =value)})]
       (return (annotated [::def ?name =value] ::&type/nothing)))
 
     [::&parser/fn-call [::&parser/ident ?name] ?args]
@@ -144,8 +147,10 @@
                            (assoc ?name =function)
                            (into (map vector args =args)))
                    _ (prn 'env env)]
-             =value (with-env env
-                      (analyse-form* ?value))
+             =value (reduce (fn [inner [label type]]
+                              (with-local label type inner))
+                            (analyse-form* ?value)
+                            (map vector args =args))
              :let [_ (prn '=value =value)]
              =function (within :types (exec [_ (&type/solve =return (:type =value))]
                                         (&type/clean =function)))
@@ -180,7 +185,8 @@
 (defn analyse [module-name tokens]
   (match ((repeat-m analyse-form) {:name module-name,
                                    :forms tokens
-                                   :env {}
+                                   :env {:counter 0
+                                         :mappings {}}
                                    :types &type/+init+})
     [::&util/ok [?state ?forms]]
     (if (empty? (:forms ?state))

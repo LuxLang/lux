@@ -59,11 +59,11 @@
   ;; TODO: Add type-level computations.
   ;; TODO: Add interpreter.
   ;; TODO: Add Java-interop.
-  ;; TODO: Add signatures & structures.
+  ;; TODO: Add signatures & structures OR type-classes.
   ;; TODO: Allow importing Java classes.
   ;; TODO: Allow using other modules.
   ;; TODO: Add thunks.
-  ;; TODO: 
+  ;; TODO: Re-implement compiler in language.
   ;; TODO: 
   ;; TODO: 
   ;; TODO: 

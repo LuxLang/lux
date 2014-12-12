@@ -18,7 +18,8 @@
 
 (defmacro ^:private defcompiler [name match body]
   `(defn ~name [~'*state*]
-     (let [~'*writer* (:writer ~'*state*)]
+     (let [~'*writer* (:writer ~'*state*)
+           ~'*type* (:type (:form ~'*state*))]
        (match (:form (:form ~'*state*))
          ~match
          (do ~body
@@ -71,17 +72,27 @@
         :else
         (assert false (str "[Unknown literal type] " ?literal " : " (class ?literal)))))
 
-(defcompiler ^:private compile-ident
-  [::&analyser/ident ?name]
-  (doto *writer*
-    (.visitVarInsn Opcodes/ALOAD (int 0))))
+(defcompiler ^:private compile-local
+  [::&analyser/local ?idx]
+  (do (prn 'LOCAL ?idx)
+    (doto *writer*
+      (.visitVarInsn Opcodes/ALOAD (int ?idx)))))
+
+(defcompiler ^:private compile-global
+  [::&analyser/global ?owner-class ?name]
+  (do (prn 'GLOBAL ?owner-class ?name *type*)
+    (doto *writer*
+      (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner-class) ?name (->java-sig *type*)))))
 
 (defcompiler ^:private compile-call
-  [::&analyser/call [?owner-class ?fn] ?args]
-  (do (doseq [arg ?args]
-        (compile-form (assoc *state* :form arg)))
-    (doto *writer*
-      (.visitMethodInsn Opcodes/INVOKESTATIC (->class ?owner-class) ?fn "(Ljava/lang/Object;)Ljava/lang/Object;"))))
+  [::&analyser/call ?fn ?args]
+  (do (prn 'compile-call ?fn)
+    (doseq [arg ?args]
+      (compile-form (assoc *state* :form arg)))
+    (match (:form ?fn)
+      [::&analyser/global ?owner-class ?fn-name]
+      (doto *writer*
+        (.visitMethodInsn Opcodes/INVOKESTATIC (->class ?owner-class) ?fn-name "(Ljava/lang/Object;)Ljava/lang/Object;")))))
 
 (defcompiler ^:private compile-static-access
   [::&analyser/static-access ?class ?member]
@@ -203,7 +214,8 @@
     ))
 
 (let [+compilers+ [compile-literal
-                   compile-ident
+                   compile-local
+                   compile-global
                    compile-call
                    compile-static-access
                    compile-dynamic-access
