@@ -24,6 +24,10 @@
                      (assoc-in [:defs (:name state) name] desc)
                      (assoc-in [:env :mappings name] (annotated [::global (:name state) name] (:type desc)))) nil]]))
 
+(def ^:private next-local-idx
+  (fn [state]
+    [::&util/ok [state (-> state :env :counter)]]))
+
 (defn ^:private with-local [name type body]
   (fn [state]
     (let [=return (body (update-in state [:env] #(-> %
@@ -108,6 +112,14 @@
          =else (analyse-form* ?else)]
     (return (annotated [::if =test =then =else] ::&type/nothing))))
 
+(defanalyser analyse-let
+  [::&parser/let ?label ?value ?body]
+  (exec [=value (analyse-form* ?value)
+         idx next-local-idx
+         =body (with-local ?label =value
+                 (analyse-form* ?body))]
+    (return (annotated [::let idx ?label =value =body] (:type =body)))))
+
 (defanalyser analyse-defclass
   [::&parser/defclass ?name ?fields]
   (let [=members {:fields (into {} (for [[class field] ?fields]
@@ -176,6 +188,7 @@
               analyse-dynamic-access
               analyse-fn-call
               analyse-if
+              analyse-let
               analyse-defclass
               analyse-definterface
               analyse-def

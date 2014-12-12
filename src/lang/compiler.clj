@@ -127,6 +127,19 @@
     (assert (compile-form (assoc *state* :form ?else)) "CAN't COMPILE ELSE")
     (.visitLabel *writer* end-label)))
 
+(defcompiler ^:private compile-let
+  [::&analyser/let ?idx ?label ?value ?body]
+  (let [start-label (new Label)
+        end-label (new Label)
+        ?idx (int ?idx)]
+    (.visitLocalVariable *writer* ?label (->java-sig (:type ?value)) nil start-label end-label ?idx)
+    (assert (compile-form (assoc *state* :form ?value)) "CAN't COMPILE LET-VALUE")
+    (doto *writer*
+      (.visitVarInsn Opcodes/ASTORE ?idx)
+      (.visitLabel start-label))
+    (assert (compile-form (assoc *state* :form ?body)) "CAN't COMPILE LET-BODY")
+    (.visitLabel *writer* end-label)))
+
 (defcompiler ^:private compile-def
   [::&analyser/def ?form ?body]
   (match ?form
@@ -221,6 +234,7 @@
                    compile-dynamic-access
                    compile-ann-class
                    compile-if
+                   compile-let
                    compile-def
                    compile-module
                    compile-defclass

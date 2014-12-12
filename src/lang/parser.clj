@@ -93,15 +93,10 @@
     (return [::case =variant =branches])))
 
 (defparser ^:private parse-let
-  [::&lexer/list ([[::&lexer/ident "let"] [::&lexer/tuple ?bindings] ?expr] :seq)]
-  (exec [=expr (apply-m parse-form (list ?expr))
-         =bindings (do (assert (even? (count ?bindings)))
-                     (map-m (fn [[destruct expr]]
-                              (exec [=destruct (apply-m parse-form (list destruct))
-                                     =expr (apply-m parse-form (list expr))]
-                                (return [::let-binding =destruct =expr])))
-                            (partition 2 ?bindings)))]
-    (return [::let =bindings =expr])))
+  [::&lexer/list ([[::&lexer/ident "let"] [::&lexer/ident ?label] ?value ?body] :seq)]
+  (exec [=value (apply-m parse-form (list ?value))
+         =body (apply-m parse-form (list ?body))]
+    (return [::let ?label =value =body])))
 
 (defparser ^:private parse-module
   [::&lexer/list ([[::&lexer/ident "module"]] :seq)]

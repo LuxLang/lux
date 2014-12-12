@@ -52,7 +52,6 @@
 
   ;; TODO: Define functions as classes inheriting Function.
   ;; TODO: Add tuples.
-  ;; TODO: Add let.
   ;; TODO: Add pattern-matching.
   ;; TODO: Do tail-call optimization.
   ;; TODO: Add macros.
