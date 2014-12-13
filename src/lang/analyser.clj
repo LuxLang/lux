@@ -173,11 +173,6 @@
         (return (annotated [::def [?name args] =value] ::&type/nothing))))
     ))
 
-(defanalyser analyse-module
-  [::&parser/module]
-  (exec [name module-name]
-    (return (annotated [::module name] ::&type/nothing))))
-
 (def ^:private analyse-form
   (try-all-m [analyse-boolean
               analyse-string
@@ -191,8 +186,7 @@
               analyse-let
               analyse-defclass
               analyse-definterface
-              analyse-def
-              analyse-module]))
+              analyse-def]))
 
 ;; [Interface]
 (defn analyse [module-name tokens]

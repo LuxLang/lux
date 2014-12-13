@@ -168,11 +168,6 @@
           (.visitEnd))))
     ))
 
-(defcompiler ^:private compile-module
-  [::&analyser/module ?name]
-  (.visit *writer* Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-          (->class ?name) nil "java/lang/Object" nil))
-
 (defcompiler ^:private compile-defclass
   [::&analyser/defclass [?package ?name] ?members]
   (let [parent-dir (->package ?package)
@@ -236,7 +231,6 @@
                    compile-if
                    compile-let
                    compile-def
-                   compile-module
                    compile-defclass
                    compile-definterface
                    compile-variant]]
@@ -248,7 +242,9 @@
 ;; [Interface]
 (defn compile [class-name inputs]
   (prn 'inputs inputs)
-  (let [=class (new ClassWriter ClassWriter/COMPUTE_MAXS)
+  (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                 (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                         (->class class-name) nil "java/lang/Object" nil))
         ;; (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
         ;;          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
         ;;                  "output" nil "java/lang/Object" nil))

@@ -53,19 +53,19 @@
   (exec [_ (lex-str "#(")
          ;; :let [_ (prn 'OPEN)]
          ;; comment (lex-regex #"^(#\(.*\)#)")
-         comment (try-all-m [(lex-regex #"^((?!#\().)*?(?=\)#)")
-                             (exec [pre (lex-regex #"^(.+?(?=#\())")
+         comment (try-all-m [(lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
+                             (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
                                     ;; :let [_ (prn 'PRE pre)]
                                     [_ inner] lex-multi-line-comment
                                     ;; :let [_ (prn 'INNER inner)]
-                                    post (lex-regex #"^(.+?(?=\)#))")
+                                    post (lex-regex #"(?is)^(.+?(?=\)#))")
                                     ;:let [_ (prn 'POST post)]
                                     ]
                                (return (str pre "#(" inner ")#" post)))])
          ;; :let [_ (prn 'COMMENT comment)]
          _ (lex-str ")#")
          ;; :let [_ (prn 'CLOSE)]
-         ;; :let [_ (prn 'multi-comment comment)]
+         :let [_ (prn 'multi-comment comment)]
          ]
     (return [::comment comment])))
 

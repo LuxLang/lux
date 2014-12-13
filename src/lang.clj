@@ -51,20 +51,20 @@
     (write-file "test2.class" class-data))
 
   ;; TODO: Define functions as classes inheriting Function.
-  ;; TODO: Add tuples.
-  ;; TODO: Add pattern-matching.
-  ;; TODO: Do tail-call optimization.
-  ;; TODO: Add macros.
-  ;; TODO: Add type-level computations.
-  ;; TODO: Add interpreter.
-  ;; TODO: Add Java-interop.
-  ;; TODO: Add signatures & structures OR type-classes.
   ;; TODO: Allow importing Java classes.
   ;; TODO: Allow using other modules.
+  ;; TODO: Add tuples.
   ;; TODO: Add thunks.
+  ;; TODO: Add pattern-matching.
+  ;; TODO: Add Java-interop.
+  ;; TODO: Do tail-call optimization.
+  ;; TODO: Add macros.
+  ;; TODO: Add signatures & structures OR type-classes.
+  ;; TODO: Add type-level computations.
+  ;; TODO: Add interpreter.
   ;; TODO: Re-implement compiler in language.
-  ;; TODO: 
-  ;; TODO: 
+  ;; TODO: Add all the missing literal types.
+  ;; TODO: Allow strings to have escape characters.
   ;; TODO: 
   
   ;; jar cvf test2.jar test2 test2.class
