@@ -98,9 +98,9 @@
          =body (apply-m parse-form (list ?body))]
     (return [::let ?label =value =body])))
 
-(defparser ^:private parse-module
-  [::&lexer/list ([[::&lexer/ident "module"]] :seq)]
-  (return [::module]))
+(defparser ^:private parse-import
+  [::&lexer/list ([[::&lexer/ident "import"] [::&lexer/ident ?class]] :seq)]
+  (return [::import ?class]))
 
 (defparser ^:private parse-defclass
   [::&lexer/list ([[::&lexer/ident "defclass"] [::&lexer/ident ?name] [::&lexer/tuple ?fields]] :seq)]
@@ -200,7 +200,7 @@
               parse-static-access
               parse-dynamic-access
               parse-ann-class
-              parse-module
+              parse-import
               parse-defclass
               parse-definterface
               parse-fn-call]))

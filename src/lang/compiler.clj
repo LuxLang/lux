@@ -74,19 +74,19 @@
 
 (defcompiler ^:private compile-local
   [::&analyser/local ?idx]
-  (do (prn 'LOCAL ?idx)
+  (do ;; (prn 'LOCAL ?idx)
     (doto *writer*
       (.visitVarInsn Opcodes/ALOAD (int ?idx)))))
 
 (defcompiler ^:private compile-global
   [::&analyser/global ?owner-class ?name]
-  (do (prn 'GLOBAL ?owner-class ?name *type*)
+  (do ;; (prn 'GLOBAL ?owner-class ?name *type*)
     (doto *writer*
       (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner-class) ?name (->java-sig *type*)))))
 
 (defcompiler ^:private compile-call
   [::&analyser/call ?fn ?args]
-  (do (prn 'compile-call ?fn)
+  (do ;; (prn 'compile-call ?fn)
     (doseq [arg ?args]
       (compile-form (assoc *state* :form arg)))
     (match (:form ?fn)
@@ -115,7 +115,7 @@
   [::&analyser/if ?test ?then ?else]
   (let [else-label (new Label)
         end-label (new Label)]
-    (println "PRE")
+    ;; (println "PRE")
     (assert (compile-form (assoc *state* :form ?test)) "CAN't COMPILE TEST")
     (doto *writer*
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Boolean") "booleanValue" "()Z")
@@ -145,7 +145,8 @@
   (match ?form
     (?name :guard string?)
     (let [=type (:type ?body)
-          _ (prn '?body ?body)]
+          ;; _ (prn '?body ?body)
+          ]
       (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name (->java-sig =type) nil nil)
         (.visitEnd)))
 
@@ -153,7 +154,7 @@
     (if (= "main" ?name)
       (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "([Ljava/lang/String;)V" nil nil)
                       (.visitCode))]
-        (prn 'FN/?body ?body)
+        ;; (prn 'FN/?body ?body)
         (assert (compile-form (assoc *state* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
         (doto =method
           (.visitInsn Opcodes/RETURN)
@@ -207,7 +208,7 @@
 (defcompiler ^:private compile-variant
   [::&analyser/variant ?tag ?value]
   (let [variant-class* (->class +variant-class+)]
-    (prn 'compile-variant ?tag ?value)
+    ;; (prn 'compile-variant ?tag ?value)
     (doto *writer*
       (.visitTypeInsn Opcodes/NEW variant-class*)
       (.visitInsn Opcodes/DUP)
@@ -221,7 +222,12 @@
       (.visitFieldInsn Opcodes/PUTFIELD variant-class* "value" "Ljava/lang/Object;"))
     ))
 
+(defcompiler compile-import
+  [::&analyser/import ?class]
+  nil)
+
 (let [+compilers+ [compile-literal
+                   compile-variant
                    compile-local
                    compile-global
                    compile-call
@@ -233,15 +239,15 @@
                    compile-def
                    compile-defclass
                    compile-definterface
-                   compile-variant]]
+                   compile-import]]
   (defn ^:private compile-form [state]
-    (prn 'compile-form/state state)
+    ;; (prn 'compile-form/state state)
     (or (some #(% state) +compilers+)
         (assert false (str "Can't compile: " (pr-str (:form state)))))))
 
 ;; [Interface]
 (defn compile [class-name inputs]
-  (prn 'inputs inputs)
+  ;; (prn 'inputs inputs)
   (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                          (->class class-name) nil "java/lang/Object" nil))
@@ -261,7 +267,7 @@
       (when (not (compile-form (assoc state :form input)))
         (assert false input)))
     ;; (doall (map #(compile-form (assoc state :form %)) inputs))
-    (prn 'inputs inputs)
+    ;; (prn 'inputs inputs)
     (when-let [constants (seq (for [input inputs
                                     :let [payload (match (:form input)
                                                     [::&analyser/def (?name :guard string?) ?body]

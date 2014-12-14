@@ -1,6 +1,7 @@
 (ns lang.analyser
   (:refer-clojure :exclude [resolve])
   (:require [clojure.core.match :refer [match]]
+            [clojure.string :as string]
             (lang [util :as &util :refer [exec return* return fail fail*
                                           repeat-m try-m try-all-m map-m
                                           apply-m within]]
@@ -39,6 +40,13 @@
         
         _
         =return))))
+
+(defn ^:private import-class [long-name short-name]
+  (fn [state]
+    (let [=class (annotated [::class long-name] ::&type/nothing)]
+      [::&util/ok [(update-in state [:env :mappings] merge {long-name =class,
+                                                            short-name =class})
+                   nil]])))
 
 (defn ^:private resolve [ident]
   (fn [state]
@@ -88,8 +96,12 @@
   (return (annotated [::ann-class ?class ?members] ::&type/nothing)))
 
 (defanalyser analyse-static-access
-  [::&parser/static-access ?class ?member]
-  (return (annotated [::static-access ?class ?member] ::&type/nothing)))
+  [::&parser/static-access ?target ?member]
+  (exec [=target (resolve ?target)
+         :let [_ (prn '=target ?target (:form =target))]]
+    (match (:form =target)
+      [::class ?class]
+      (return (annotated [::static-access ?class ?member] ::&type/nothing)))))
 
 (defanalyser analyse-dynamic-access
   [::&parser/dynamic-access ?object ?member]
@@ -173,6 +185,11 @@
         (return (annotated [::def [?name args] =value] ::&type/nothing))))
     ))
 
+(defanalyser analyse-import
+  [::&parser/import ?class]
+  (exec [_ (import-class ?class (last (string/split ?class #"\.")))]
+    (return (annotated [::import ?class] ::&type/nothing))))
+
 (def ^:private analyse-form
   (try-all-m [analyse-boolean
               analyse-string
@@ -186,7 +203,8 @@
               analyse-let
               analyse-defclass
               analyse-definterface
-              analyse-def]))
+              analyse-def
+              analyse-import]))
 
 ;; [Interface]
 (defn analyse [module-name tokens]
