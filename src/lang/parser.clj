@@ -102,6 +102,10 @@
   [::&lexer/list ([[::&lexer/ident "import"] [::&lexer/ident ?class]] :seq)]
   (return [::import ?class]))
 
+(defparser ^:private parse-require
+  [::&lexer/list ([[::&lexer/ident "require"] [::&lexer/string ?file] [::&lexer/ident "as"] [::&lexer/ident ?alias]] :seq)]
+  (return [::require ?file ?alias]))
+
 (defparser ^:private parse-defclass
   [::&lexer/list ([[::&lexer/ident "defclass"] [::&lexer/ident ?name] [::&lexer/tuple ?fields]] :seq)]
   (let [fields (for [field ?fields]
@@ -200,9 +204,10 @@
               parse-static-access
               parse-dynamic-access
               parse-ann-class
-              parse-import
               parse-defclass
               parse-definterface
+              parse-import
+              parse-require
               parse-fn-call]))
 
 ;; [Interface]

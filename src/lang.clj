@@ -96,7 +96,6 @@
                                       (STATIC-METHOD w x y z)))))))))
   
 
-  ;; TODO: Allow using other modules.
   ;; TODO: Define functions as classes inheriting Function.
   ;; TODO: Add tuples.
   ;; TODO: Add pattern-matching.
@@ -115,4 +114,5 @@
   ;; jar cvf test2.jar test2 test2.class
   ;; java -cp "test2.jar" test2
   ;; jar cvf test2.jar test2 test2.class && java -cp "test2.jar" test2
+  ;; jar cvf test2.jar test2 test2.class another.class && java -cp "test2.jar" test2
   )

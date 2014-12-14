@@ -1,7 +1,7 @@
 (ns lang.analyser
   (:refer-clojure :exclude [resolve])
-  (:require [clojure.core.match :refer [match]]
-            [clojure.string :as string]
+  (:require [clojure.string :as string]
+            [clojure.core.match :refer [match]]
             (lang [util :as &util :refer [exec return* return fail fail*
                                           repeat-m try-m try-all-m map-m
                                           apply-m within]]
@@ -48,11 +48,20 @@
                                                             short-name =class})
                    nil]])))
 
+(defn ^:private require-module [name alias]
+  (fn [state]
+    [::&util/ok [(assoc-in state [:deps alias] name)
+                 nil]]))
+
 (defn ^:private resolve [ident]
   (fn [state]
-    (if-let [resolved (get-in state [:env :mappings ident])]
-      [::&util/ok [state resolved]]
-      [::&util/failure (str "Unresolved identifier: " ident)])))
+    (if-let [[_ ?alias ?binding] (re-find #"^(.*)/(.*)$" ident)]
+      (let [?module (get-in state [:deps ?alias])]
+        (prn 'resolve ?module ?alias ?binding)
+        [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]])
+      (if-let [resolved (get-in state [:env :mappings ident])]
+        [::&util/ok [state resolved]]
+        [::&util/failure (str "Unresolved identifier: " ident)]))))
 
 (defmacro ^:private defanalyser [name match return]
   `(def ~name
@@ -190,6 +199,14 @@
   (exec [_ (import-class ?class (last (string/split ?class #"\.")))]
     (return (annotated [::import ?class] ::&type/nothing))))
 
+(defanalyser analyse-require
+  [::&parser/require ?file ?alias]
+  (let [_ (prn `[require ~?file ~?alias])
+        module-name (re-find #"[^/]+$" ?file)
+        _ (prn 'module-name module-name)]
+    (exec [_ (require-module module-name ?alias)]
+      (return (annotated [::require ?file ?alias] ::&type/nothing)))))
+
 (def ^:private analyse-form
   (try-all-m [analyse-boolean
               analyse-string
@@ -204,12 +221,14 @@
               analyse-defclass
               analyse-definterface
               analyse-def
-              analyse-import]))
+              analyse-import
+              analyse-require]))
 
 ;; [Interface]
 (defn analyse [module-name tokens]
   (match ((repeat-m analyse-form) {:name module-name,
                                    :forms tokens
+                                   :deps {}
                                    :env {:counter 0
                                          :mappings {}}
                                    :types &type/+init+})

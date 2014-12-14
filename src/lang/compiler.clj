@@ -3,6 +3,7 @@
   (:require [clojure.string :as string]
             [clojure.core.match :refer [match]]
             (lang [type :as &type]
+                  [lexer :as &lexer]
                   [parser :as &parser]
                   [analyser :as &analyser])
             :reload)
@@ -11,9 +12,14 @@
                               ClassWriter
                               MethodVisitor)))
 
-(declare compile-form)
+(declare compile-form
+         compile)
 
 ;; [Utils/General]
+(defn ^:private write-file [file data]
+  (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
+    (.write stream data)))
+
 (def ^:private +variant-class+ "test2.Tagged")
 
 (defmacro ^:private defcompiler [name match body]
@@ -86,7 +92,7 @@
 
 (defcompiler ^:private compile-call
   [::&analyser/call ?fn ?args]
-  (do ;; (prn 'compile-call ?fn)
+  (do (prn 'compile-call (:form ?fn) ?fn ?args)
     (doseq [arg ?args]
       (compile-form (assoc *state* :form arg)))
     (match (:form ?fn)
@@ -142,32 +148,33 @@
 
 (defcompiler ^:private compile-def
   [::&analyser/def ?form ?body]
-  (match ?form
-    (?name :guard string?)
-    (let [=type (:type ?body)
-          ;; _ (prn '?body ?body)
-          ]
-      (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name (->java-sig =type) nil nil)
-        (.visitEnd)))
-
-    [?name ?args]
-    (if (= "main" ?name)
-      (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "([Ljava/lang/String;)V" nil nil)
-                      (.visitCode))]
-        ;; (prn 'FN/?body ?body)
-        (assert (compile-form (assoc *state* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
-        (doto =method
-          (.visitInsn Opcodes/RETURN)
-          (.visitMaxs 0 0)
+  (do (prn 'compile-def ?form)
+    (match ?form
+      (?name :guard string?)
+      (let [=type (:type ?body)
+            ;; _ (prn '?body ?body)
+            ]
+        (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name (->java-sig =type) nil nil)
           (.visitEnd)))
-      (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
-                      (.visitCode))]
-        (compile-form (assoc *state* :writer =method :form ?body))
-        (doto =method
-          (.visitInsn Opcodes/ARETURN)
-          (.visitMaxs 0 0)
-          (.visitEnd))))
-    ))
+
+      [?name ?args]
+      (if (= "main" ?name)
+        (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "([Ljava/lang/String;)V" nil nil)
+                        (.visitCode))]
+          ;; (prn 'FN/?body ?body)
+          (assert (compile-form (assoc *state* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
+          (doto =method
+            (.visitInsn Opcodes/RETURN)
+            (.visitMaxs 0 0)
+            (.visitEnd)))
+        (let [=method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
+                        (.visitCode))]
+          (compile-form (assoc *state* :writer =method :form ?body))
+          (doto =method
+            (.visitInsn Opcodes/ARETURN)
+            (.visitMaxs 0 0)
+            (.visitEnd))))
+      )))
 
 (defcompiler ^:private compile-defclass
   [::&analyser/defclass [?package ?name] ?members]
@@ -226,6 +233,22 @@
   [::&analyser/import ?class]
   nil)
 
+(defcompiler compile-require
+  [::&analyser/require ?file ?alias]
+  (let [module-name (re-find #"[^/]+$" ?file)
+        _ (prn 'module-name module-name)
+        source-code (slurp (str module-name ".lang"))
+        _ (prn 'source-code source-code)
+        tokens (&lexer/lex source-code)
+        _ (prn 'tokens tokens)
+        syntax (&parser/parse tokens)
+        _ (prn 'syntax syntax)
+        ann-syntax (&analyser/analyse module-name syntax)
+        _ (prn 'ann-syntax ann-syntax)
+        class-data (compile module-name ann-syntax)]
+    (write-file (str module-name ".class") class-data)
+    nil))
+
 (let [+compilers+ [compile-literal
                    compile-variant
                    compile-local
@@ -239,7 +262,8 @@
                    compile-def
                    compile-defclass
                    compile-definterface
-                   compile-import]]
+                   compile-import
+                   compile-require]]
   (defn ^:private compile-form [state]
     ;; (prn 'compile-form/state state)
     (or (some #(% state) +compilers+)
