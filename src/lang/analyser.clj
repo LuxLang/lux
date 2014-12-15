@@ -96,6 +96,11 @@
   (exec [=value (analyse-form* ?value)]
     (return (annotated [::variant ?tag =value] [::&type/variant ?tag (:type =value)]))))
 
+(defanalyser analyse-tuple
+  [::&parser/tuple ?elems]
+  (exec [=elems (map-m analyse-form* ?elems)]
+    (return (annotated [::tuple =elems] [::&type/tuple (mapv :type =elems)]))))
+
 (defanalyser analyse-ident
   [::&parser/ident ?ident]
   (resolve ?ident))
@@ -211,6 +216,7 @@
   (try-all-m [analyse-boolean
               analyse-string
               analyse-variant
+              analyse-tuple
               analyse-ident
               analyse-ann-class
               analyse-static-access

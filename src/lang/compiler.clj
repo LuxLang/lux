@@ -79,6 +79,19 @@
         :else
         (assert false (str "[Unknown literal type] " ?literal " : " (class ?literal)))))
 
+(defcompiler ^:private compile-tuple
+  [::&analyser/tuple ?elems]
+  (let [num-elems (count ?elems)]
+    (let [tuple-class (str "test2/Tuple" num-elems)]
+      (doto *writer*
+        (.visitTypeInsn Opcodes/NEW tuple-class)
+        (.visitInsn Opcodes/DUP)
+        (.visitMethodInsn Opcodes/INVOKESPECIAL tuple-class "<init>" "()V"))
+      (dotimes [idx num-elems]
+        (.visitInsn *writer* Opcodes/DUP)
+        (compile-form (assoc *state* :form (nth ?elems idx)))
+        (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" idx) "Ljava/lang/Object;")))))
+
 (defcompiler ^:private compile-local
   [::&analyser/local ?idx]
   (do ;; (prn 'LOCAL ?idx)
@@ -329,6 +342,7 @@
 
 (let [+compilers+ [compile-literal
                    compile-variant
+                   compile-tuple
                    compile-local
                    compile-global
                    compile-call
