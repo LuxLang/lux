@@ -96,7 +96,6 @@
                                       (STATIC-METHOD w x y z)))))))))
   
 
-  ;; TODO: Define functions as classes inheriting Function.
   ;; TODO: Add tuples.
   ;; TODO: Add pattern-matching.
   ;; TODO: Add thunks.
@@ -109,10 +108,29 @@
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Add all the missing literal types.
   ;; TODO: Allow strings to have escape characters.
+  ;; TODO: Add lambdas.
+  ;; TODO: Add "do" expressions.
+  ;; TODO: Fold all closure classes into one.
+  ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
+  ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
   ;; TODO: 
+  ;; TODO: 
+
+  (let [source-code (slurp "test2.lang")
+        tokens (&lexer/lex source-code)
+        ;; _ (prn 'tokens tokens)
+        syntax (&parser/parse tokens)
+        ;; _ (prn 'syntax syntax)
+        ann-syntax (&analyser/analyse "test2" syntax)
+        ;; _ (prn 'ann-syntax ann-syntax)
+        class-data (&compiler/compile "test2" ann-syntax)]
+    (write-file "test2.class" class-data))
   
   ;; jar cvf test2.jar test2 test2.class
   ;; java -cp "test2.jar" test2
   ;; jar cvf test2.jar test2 test2.class && java -cp "test2.jar" test2
   ;; jar cvf test2.jar test2 test2.class another.class && java -cp "test2.jar" test2
+
+  ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
+
   )
