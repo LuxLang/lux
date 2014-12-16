@@ -55,7 +55,7 @@
                                                                                                   _
                                                                                                   true)]
                                                                                       [k v]))]
-                                                                   (prn 'ms ms 'ms* ms*)
+                                                                   ;; (prn 'ms ms 'ms* ms*)
                                                                    ms*))))))]
       (match =return
         [::&util/ok [?state ?value]]
@@ -80,7 +80,7 @@
   (fn [state]
     (if-let [[_ ?alias ?binding] (re-find #"^(.*)/(.*)$" ident)]
       (let [?module (get-in state [:deps ?alias])]
-        (prn 'resolve ?module ?alias ?binding)
+        ;; (prn 'resolve ?module ?alias ?binding)
         [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]])
       (if-let [resolved (get-in state [:env :mappings ident])]
         [::&util/ok [state resolved]]
@@ -96,10 +96,12 @@
          (fail* (str "Unmatched token: " token#))))))
 
 (defn analyse-form* [form]
-  (prn 'analyse-form* form)
+  ;; (prn 'analyse-form* form)
   (fn [state]
     (let [old-forms (:forms state)
-          =return (analyse-form (assoc state :forms (list form)))]
+          =return (analyse-form (assoc state :forms (list form)))
+          ;; _ (prn 'analyse-form*/=return =return)
+          ]
       (match =return
         [::&util/ok [?state ?value]]
         [::&util/ok [(assoc ?state :forms old-forms) ?value]]
@@ -121,7 +123,10 @@
 
 (defanalyser analyse-variant
   [::&parser/tagged ?tag ?value]
-  (exec [=value (analyse-form* ?value)]
+  (exec [;; :let [_ (prn 'analyse-variant [?tag ?value])]
+         =value (analyse-form* ?value)
+         ;; :let [_ (prn '=value =value)]
+         ]
     (return (annotated [::variant ?tag =value] [::&type/variant ?tag (:type =value)]))))
 
 (defanalyser analyse-tuple
@@ -132,7 +137,8 @@
 (defanalyser analyse-ident
   [::&parser/ident ?ident]
   (exec [_env (fn [state] [::&util/ok [state (:env state)]])
-         :let [_ (prn 'analyse-ident ?ident _env)]]
+         ;; :let [_ (prn 'analyse-ident ?ident _env)]
+         ]
     (resolve ?ident)))
 
 (defanalyser analyse-ann-class
@@ -142,7 +148,8 @@
 (defanalyser analyse-static-access
   [::&parser/static-access ?target ?member]
   (exec [=target (resolve ?target)
-         :let [_ (prn '=target ?target (:form =target))]]
+         ;; :let [_ (prn '=target ?target (:form =target))]
+         ]
     (match (:form =target)
       [::class ?class]
       (return (annotated [::static-access ?class ?member] ::&type/nothing)))))
@@ -157,28 +164,51 @@
 
 (defanalyser analyse-fn-call
   [::&parser/fn-call ?fn ?args]
-  (exec [:let [_ (prn 'PRE '?fn ?fn)]
+  (exec [;; :let [_ (prn 'PRE '?fn ?fn)]
          =fn (analyse-form* ?fn)
-         :let [_ (prn '=fn =fn)]
+         ;; :let [_ (prn '=fn =fn)]
          =args (map-m analyse-form* ?args)
-         :let [_ (prn '=args =args)]]
+         ;; :let [_ (prn '=args =args)]
+         ]
     (return (annotated [::call =fn =args] [::&type/object "java.lang.Object" []]))))
 
 (defanalyser analyse-if
   [::&parser/if ?test ?then ?else]
   (exec [=test (analyse-form* ?test)
-         :let [_ (prn '=test =test)]
-         :let [_ (prn 'PRE '?then ?then)]
+         ;; :let [_ (prn '=test =test)]
+         ;; :let [_ (prn 'PRE '?then ?then)]
          =then (analyse-form* ?then)
-         :let [_ (prn '=then =then)]
+         ;; :let [_ (prn '=then =then)]
          =else (analyse-form* ?else)
-         :let [_ (prn '=else =else)]]
+         ;; :let [_ (prn '=else =else)]
+         ]
     (return (annotated [::if =test =then =else] ::&type/nothing))))
 
 (defanalyser analyse-do
   [::&parser/do ?exprs]
   (exec [=exprs (map-m analyse-form* ?exprs)]
     (return (annotated [::do =exprs] (-> =exprs last :type)))))
+
+(defanalyser analyse-case
+  [::&parser/case ?variant ?branches]
+  (exec [;; :let [_ (prn '?variant ?variant)]
+         =variant (analyse-form* ?variant)
+         ;; :let [_ (prn '=variant =variant)]
+         =branches (map-m (fn [branch]
+                            ;; (prn 'branch branch)
+                            (match branch
+                              [::&parser/case-branch [::&parser/tagged ?tag [::&parser/ident ?label]] ?body]
+                              (exec [;; :let [_ (prn ?tag ?label '?body ?body)]
+                                     idx next-local-idx
+                                     =body (with-local ?label [::&type/object "java.lang.Object" []]
+                                             (analyse-form* ?body))
+                                     ;; :let [_ (prn ?tag ?label '=body =body)]
+                                     ]
+                                (return [?tag ?label idx =body]))))
+                          ?branches)
+         ;; :let [_ (prn '=branches =branches)]
+         ]
+    (return (annotated [::case =variant =branches] ::&type/nothing))))
 
 (defanalyser analyse-let
   [::&parser/let ?label ?value ?body]
@@ -222,7 +252,7 @@
                    [::&parser/ident ?ident]
                    ?ident))]
       (exec [[=function =args =return] (within :types (&type/fresh-function (count args)))
-             :let [_ (prn '[=function =args =return] [=function =args =return])]
+             ;; :let [_ (prn '[=function =args =return] [=function =args =return])]
              ;; :let [env (-> {}
              ;;               (assoc ?name =function)
              ;;               (into (map vector args =args)))
@@ -231,10 +261,10 @@
                               (with-local label type inner))
                             (analyse-form* ?value)
                             (reverse (map vector args =args)))
-             :let [_ (prn '=value =value)]
+             ;; :let [_ (prn '=value =value)]
              =function (within :types (exec [_ (&type/solve =return (:type =value))]
                                         (&type/clean =function)))
-             :let [_ (prn '=function =function)]
+             ;; :let [_ (prn '=function =function)]
              _ (define ?name {:mode ::function
                               :access ::public
                               :type =function})]
@@ -243,21 +273,22 @@
 
 (defanalyser analyse-lambda
   [::&parser/lambda ?args ?body]
-  (exec [:let [_ (prn 'analyse-lambda ?args ?body)]
+  (exec [;; :let [_ (prn 'analyse-lambda ?args ?body)]
          [=function =args =return] (within :types (&type/fresh-function (count ?args)))
-         :let [_ (prn '[=function =args =return] [=function =args =return])]
-         :let [_ (prn 'PRE/?body ?body)]
+         ;; :let [_ (prn '[=function =args =return] [=function =args =return])]
+         ;; :let [_ (prn 'PRE/?body ?body)]
          _env (fn [state] [::&util/ok [state (:env state)]])
-         :let [_ (prn 'analyse-lambda _env)]
+         ;; :let [_ (prn 'analyse-lambda _env)]
          =body (with-fresh-env
                  (reduce (fn [inner [label type]]
                            (with-local label type inner))
                          (analyse-form* ?body)
                          (reverse (map vector ?args =args))))
-         :let [_ (prn '=body =body)]
+         ;; :let [_ (prn '=body =body)]
          =function (within :types (exec [_ (&type/solve =return (:type =body))]
                                     (&type/clean =function)))
-         :let [_ (prn '=function =function)]]
+         ;; :let [_ (prn '=function =function)]
+         ]
     (return (annotated [::lambda ?args =body] =function))))
 
 (defanalyser analyse-import
@@ -267,9 +298,10 @@
 
 (defanalyser analyse-require
   [::&parser/require ?file ?alias]
-  (let [_ (prn `[require ~?file ~?alias])
+  (let [;; _ (prn `[require ~?file ~?alias])
         module-name (re-find #"[^/]+$" ?file)
-        _ (prn 'module-name module-name)]
+        ;; _ (prn 'module-name module-name)
+        ]
     (exec [_ (require-module module-name ?alias)]
       (return (annotated [::require ?file ?alias] ::&type/nothing)))))
 
@@ -289,6 +321,7 @@
               analyse-fn-call
               analyse-if
               analyse-do
+              analyse-case
               analyse-let
               analyse-defclass
               analyse-definterface

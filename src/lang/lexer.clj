@@ -74,12 +74,13 @@
 
 (def ^:private lex-string
   (exec [_ (lex-str "\"")
-         state &util/get-state
-         :let [_ (prn 'PRE state)]
+         ;; state &util/get-state
+         ;; :let [_ (prn 'PRE state)]
          token lex-string-body
          _ (lex-str "\"")
-         state &util/get-state
-         :let [_ (prn 'POST state)]]
+         ;; state &util/get-state
+         ;; :let [_ (prn 'POST state)]
+         ]
     (return [::string token])))
 
 (def ^:private lex-single-line-comment
@@ -106,7 +107,7 @@
          ;; :let [_ (prn 'COMMENT comment)]
          _ (lex-str ")#")
          ;; :let [_ (prn 'CLOSE)]
-         :let [_ (prn 'multi-comment comment)]
+         ;; :let [_ (prn 'multi-comment comment)]
          ]
     (return [::comment comment])))
 

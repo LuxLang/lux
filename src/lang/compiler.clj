@@ -142,7 +142,7 @@
 
 (defcompiler ^:private compile-call
   [::&analyser/call ?fn ?args]
-  (do (prn 'compile-call (:form ?fn) ?fn ?args)
+  (do ;; (prn 'compile-call (:form ?fn) ?fn ?args)
     (match (:form ?fn)
       [::&analyser/local _]
       (do (compile-form (assoc *state* :form ?fn))
@@ -198,7 +198,7 @@
     (doto *writer*
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Boolean") "booleanValue" "()Z")
       (.visitJumpInsn Opcodes/IFEQ else-label))
-    (prn 'compile-if/?then (:form ?then))
+    ;; (prn 'compile-if/?then (:form ?then))
     (assert (compile-form (assoc *state* :form ?then)) "CAN't COMPILE THEN")
     (doto *writer*
       (.visitJumpInsn Opcodes/GOTO end-label)
@@ -213,12 +213,45 @@
         (.visitInsn *writer* Opcodes/POP))
     (compile-form (assoc *state* :form (last ?exprs)))))
 
+(let [oclass (->class "java.lang.Object")
+      equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
+  (defcompiler ^:private compile-case
+    [::&analyser/case ?variant ?branches]
+    (do (compile-form (assoc *state* :form ?variant))
+      (let [end-label (new Label)]
+        (doseq [[?tag ?label ?idx ?body] ?branches]
+          ;; (prn '[?tag ?label ?idx ?body] [?tag ?label ?idx ?body])
+          (let [else-label (new Label)]
+            (doto *writer*
+              (.visitInsn Opcodes/DUP)
+              (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "tag" "Ljava/lang/String;")
+              (.visitLdcInsn ?tag)
+              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
+              (.visitJumpInsn Opcodes/IFEQ else-label))
+            (let [start-label (new Label)
+                  end-label (new Label)]
+              (doto *writer*
+                (.visitInsn Opcodes/DUP)
+                (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "value" (->type-signature "java.lang.Object")))
+              (.visitLocalVariable *writer* ?label (->type-signature "java.lang.Object") nil start-label end-label ?idx)
+              (doto *writer*
+                (.visitVarInsn Opcodes/ASTORE ?idx)
+                (.visitLabel start-label)
+                (.visitInsn Opcodes/POP))
+              (compile-form (assoc *state* :form ?body))
+              (.visitLabel *writer* end-label))
+            (doto *writer*
+              (.visitJumpInsn Opcodes/GOTO end-label)
+              (.visitLabel else-label))))
+        (.visitLabel *writer* end-label))
+      )))
+
 (defcompiler ^:private compile-let
   [::&analyser/let ?idx ?label ?value ?body]
   (let [start-label (new Label)
         end-label (new Label)
         ?idx (int ?idx)]
-    (prn '(:type ?value) (:type ?value) (->java-sig (:type ?value)))
+    ;; (prn '(:type ?value) (:type ?value) (->java-sig (:type ?value)))
     (.visitLocalVariable *writer* ?label (->java-sig (:type ?value)) nil start-label end-label ?idx)
     (assert (compile-form (assoc *state* :form ?value)) "CAN't COMPILE LET-VALUE")
     (doto *writer*
@@ -282,38 +315,38 @@
 
 (defcompiler ^:private compile-def
   [::&analyser/def ?form ?body]
-  (do (prn 'compile-def ?form)
-    (match ?form
-      (?name :guard string?)
-      (let [=type (:type ?body)
-            ;; _ (prn '?body ?body)
-            ]
-        (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name (->java-sig =type) nil nil)
-          (.visitEnd)))
+  (do ;; (prn 'compile-def ?form)
+      (match ?form
+        (?name :guard string?)
+        (let [=type (:type ?body)
+              ;; _ (prn '?body ?body)
+              ]
+          (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name (->java-sig =type) nil nil)
+            (.visitEnd)))
 
-      [?name ?args]
-      (do (prn 'compile-def `(~'def (~(symbol ?name) ~@(map symbol ?args))))
-        (if (= "main" ?name)
-          (let [signature "([Ljava/lang/String;)V"
-                =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
-                          (.visitCode))]
-            ;; (prn 'FN/?body ?body)
-            (assert (compile-form (assoc *state* :parent *writer* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
-            (doto =method
-              (.visitInsn Opcodes/RETURN)
-              (.visitMaxs 0 0)
-              (.visitEnd)))
-          (let [signature (str "(" (apply str (repeat (count ?args) "Ljava/lang/Object;")) ")" "Ljava/lang/Object;")
-                _ (prn 'signature signature)
-                =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
-                          (.visitCode))]
-            (compile-form (assoc *state* :parent *writer* :writer =method :form ?body))
-            (doto =method
-              (.visitInsn Opcodes/ARETURN)
-              (.visitMaxs 0 0)
-              (.visitEnd))
-            (compile-method-function *writer* *class-name* ?name (count ?args)))))
-      )))
+        [?name ?args]
+        (do ;; (prn 'compile-def `(~'def (~(symbol ?name) ~@(map symbol ?args))))
+            (if (= "main" ?name)
+              (let [signature "([Ljava/lang/String;)V"
+                    =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
+                              (.visitCode))]
+                ;; (prn 'FN/?body ?body)
+                (assert (compile-form (assoc *state* :parent *writer* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
+                (doto =method
+                  (.visitInsn Opcodes/RETURN)
+                  (.visitMaxs 0 0)
+                  (.visitEnd)))
+              (let [signature (str "(" (apply str (repeat (count ?args) "Ljava/lang/Object;")) ")" "Ljava/lang/Object;")
+                    ;; _ (prn 'signature signature)
+                    =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
+                              (.visitCode))]
+                (compile-form (assoc *state* :parent *writer* :writer =method :form ?body))
+                (doto =method
+                  (.visitInsn Opcodes/ARETURN)
+                  (.visitMaxs 0 0)
+                  (.visitEnd))
+                (compile-method-function *writer* *class-name* ?name (count ?args)))))
+        )))
 
 (defcompiler ^:private compile-lambda
   [::&analyser/lambda ?args ?body]
@@ -371,7 +404,7 @@
         (write-file (str current-class ".class") (.toByteArray =class))))
     (let [=method (doto (.visitMethod *parent* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "lambda_impl" real-signature nil nil)
                     (.visitCode))]
-      (prn '(:form ?body) (:form ?body))
+      ;; (prn '(:form ?body) (:form ?body))
       (compile-form (assoc *state* :parent *parent* :writer =method :form ?body))
       (doto =method
         (.visitInsn Opcodes/ARETURN)
@@ -448,15 +481,15 @@
 (defcompiler compile-require
   [::&analyser/require ?file ?alias]
   (let [module-name (re-find #"[^/]+$" ?file)
-        _ (prn 'module-name module-name)
+        ;; _ (prn 'module-name module-name)
         source-code (slurp (str module-name ".lang"))
-        _ (prn 'source-code source-code)
+        ;; _ (prn 'source-code source-code)
         tokens (&lexer/lex source-code)
-        _ (prn 'tokens tokens)
+        ;; _ (prn 'tokens tokens)
         syntax (&parser/parse tokens)
-        _ (prn 'syntax syntax)
+        ;; _ (prn 'syntax syntax)
         ann-syntax (&analyser/analyse module-name syntax)
-        _ (prn 'ann-syntax ann-syntax)
+        ;; _ (prn 'ann-syntax ann-syntax)
         class-data (compile module-name ann-syntax)]
     (write-file (str module-name ".class") class-data)
     nil))
@@ -472,6 +505,7 @@
                    compile-ann-class
                    compile-if
                    compile-do
+                   compile-case
                    compile-let
                    compile-lambda
                    compile-def

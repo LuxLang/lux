@@ -11,7 +11,6 @@
     (.write stream data)))
 
 (comment
-  ;; TODO: Add pattern-matching.
   ;; TODO: Fold all closure classes into one.
   ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
   ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
@@ -28,7 +27,7 @@
   ;; TODO: Adding metadata to global vars.
   ;; TODO: Add records.
   ;; TODO: throw, try, catch, finally
-  ;; TODO: 
+  ;; TODO: Finish implementing pattern matching.
   ;; TODO: 
   
   (let [source-code (slurp "test2.lang")
