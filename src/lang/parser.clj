@@ -56,6 +56,11 @@
                        (partition 2 ?parts)))]
     (return [::record =kvs])))
 
+(defparser ^:private parse-lambda
+  [::&lexer/list ([[::&lexer/ident "lambda"] [::&lexer/tuple ?args] ?body] :seq)]
+  (exec [=body (apply-m parse-form (list ?body))]
+    (return [::lambda (mapv ident->string ?args) =body])))
+
 (defparser ^:private parse-def
   [::&lexer/list ([[::&lexer/ident "def"] ?name ?body] :seq)]
   (exec [=name (apply-m parse-form (list ?name))
@@ -192,6 +197,7 @@
               parse-ident
               parse-tuple
               parse-record
+              parse-lambda
               parse-def
               parse-defdata
               parse-if

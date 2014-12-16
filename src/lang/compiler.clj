@@ -26,6 +26,7 @@
   `(defn ~name [~'*state*]
      (let [~'*class-name* (:class-name ~'*state*)
            ~'*writer* (:writer ~'*state*)
+           ~'*parent* (:parent ~'*state*)
            ~'*type* (:type (:form ~'*state*))]
        (match (:form (:form ~'*state*))
          ~match
@@ -61,7 +62,10 @@
     (->type-signature ?name)
 
     [::&type/variant ?tag ?value]
-    (->type-signature +variant-class+)))
+    (->type-signature +variant-class+)
+
+    [::&type/function ?args ?return]
+    (->java-sig [::&type/object "test2/Function" []])))
 
 ;; [Utils/Compilers]
 (defcompiler ^:private compile-literal
@@ -119,6 +123,20 @@
   [::&analyser/call ?fn ?args]
   (do (prn 'compile-call (:form ?fn) ?fn ?args)
     (match (:form ?fn)
+      [::&analyser/local _]
+      (do (compile-form (assoc *state* :form ?fn))
+        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
+          (doseq [arg ?args]
+            (compile-form (assoc *state* :form arg))
+            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
+      
+      [::&analyser/lambda _ ?body]
+      (do (compile-form (assoc *state* :form ?fn))
+        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
+          (doseq [arg ?args]
+            (compile-form (assoc *state* :form arg))
+            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
+      
       [::&analyser/global ?owner-class ?fn-name]
       (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
             signature "()V"
@@ -127,7 +145,7 @@
           (.visitTypeInsn Opcodes/NEW call-class)
           (.visitInsn Opcodes/DUP)
           (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" signature))
-        (doseq [arg (reverse ?args)]
+        (doseq [arg ?args]
           (compile-form (assoc *state* :form arg))
           (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
         ))))
@@ -143,7 +161,8 @@
     (doseq [arg ?args]
       (compile-form (assoc *state* :form arg)))
     (doto *writer*
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") ?method "(Ljava/lang/Object;)V"))))
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") ?method "(Ljava/lang/Object;)V")
+      (.visitInsn Opcodes/ACONST_NULL))))
 
 (defcompiler ^:private compile-ann-class
   [::&analyser/ann-class ?class ?members]
@@ -170,6 +189,7 @@
   (let [start-label (new Label)
         end-label (new Label)
         ?idx (int ?idx)]
+    (prn '(:type ?value) (:type ?value) (->java-sig (:type ?value)))
     (.visitLocalVariable *writer* ?label (->java-sig (:type ?value)) nil start-label end-label ?idx)
     (assert (compile-form (assoc *state* :form ?value)) "CAN't COMPILE LET-VALUE")
     (doto *writer*
@@ -249,7 +269,7 @@
                 =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
                           (.visitCode))]
             ;; (prn 'FN/?body ?body)
-            (assert (compile-form (assoc *state* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
+            (assert (compile-form (assoc *state* :parent *writer* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
             (doto =method
               (.visitInsn Opcodes/RETURN)
               (.visitMaxs 0 0)
@@ -258,13 +278,85 @@
                 _ (prn 'signature signature)
                 =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
                           (.visitCode))]
-            (compile-form (assoc *state* :writer =method :form ?body))
+            (compile-form (assoc *state* :parent *writer* :writer =method :form ?body))
             (doto =method
               (.visitInsn Opcodes/ARETURN)
               (.visitMaxs 0 0)
               (.visitEnd))
             (compile-method-function *writer* *class-name* ?name (count ?args)))))
       )))
+
+(defcompiler ^:private compile-lambda
+  [::&analyser/lambda ?args ?body]
+  (let [num-args (count ?args)
+        signature (str "(" (apply str (repeat num-args "Ljava/lang/Object;")) ")" "Ljava/lang/Object;")
+        outer-class (->class *class-name*)
+        clo-field-sig (->type-signature "java.lang.Object")
+        apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
+        real-signature (str "(" (apply str (repeat num-args "Ljava/lang/Object;")) ")" "Ljava/lang/Object;")]
+    (doseq [idx (range num-args)
+            :let [has-next? (not= idx (dec num-args))
+                  local-name (str "lambda_" idx)
+                  current-class (str outer-class "$" local-name)
+                  next-class (str outer-class "$" "lambda_" (inc idx))
+                  current-signature (str "(" (apply str (repeat idx "Ljava/lang/Object;")) ")" "V")
+                  next-signature (str "(" (apply str (repeat (inc idx) "Ljava/lang/Object;")) ")" "V")]]
+      (.visitInnerClass *parent* current-class outer-class local-name (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+      (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                     (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                             current-class nil "java/lang/Object" (into-array ["test2/Function"])))
+            _ (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" current-signature nil nil)
+                (.visitCode)
+                (.visitVarInsn Opcodes/ALOAD 0)
+                (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+                (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                      (.visitVarInsn Opcodes/ALOAD (inc clo_idx))
+                      (.visitFieldInsn Opcodes/PUTFIELD current-class field-name clo-field-sig))
+                    (->> (let [field-name (str "_" clo_idx)]
+                           (doto (.visitField =class Opcodes/ACC_PUBLIC field-name clo-field-sig nil nil)
+                             (.visitEnd)))
+                         (dotimes [clo_idx idx])))
+                (.visitInsn Opcodes/RETURN)
+                (.visitMaxs 0 0)
+                (.visitEnd))
+            =method (doto (.visitMethod =class Opcodes/ACC_PUBLIC "apply" apply-signature nil nil)
+                      (.visitCode))
+            _ (do (when has-next?
+                    (doto =method
+                      (.visitTypeInsn Opcodes/NEW next-class)
+                      (.visitInsn Opcodes/DUP)))
+                (doto =method
+                  (-> (doto (.visitVarInsn Opcodes/ALOAD (int 0))
+                        (.visitFieldInsn Opcodes/GETFIELD current-class (str "_" clo_idx) clo-field-sig))
+                      (->> (dotimes [clo_idx idx])))
+                  (.visitVarInsn Opcodes/ALOAD (int 1)))
+                (if has-next?
+                  (.visitMethodInsn =method Opcodes/INVOKESPECIAL next-class "<init>" next-signature)
+                  (.visitMethodInsn =method Opcodes/INVOKESTATIC outer-class "lambda_impl" real-signature))
+                (doto =method
+                  (.visitInsn Opcodes/ARETURN)
+                  (.visitMaxs 0 0)
+                  (.visitEnd))
+                (.visitEnd =class))]
+        (println "OUTPUT LAMBDA:" (str current-class ".class"))
+        (write-file (str current-class ".class") (.toByteArray =class))))
+    (let [=method (doto (.visitMethod *parent* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "lambda_impl" real-signature nil nil)
+                    (.visitCode))]
+      (prn '(:form ?body) (:form ?body))
+      (compile-form (assoc *state* :parent *parent* :writer =method :form ?body))
+      (doto =method
+        (.visitInsn Opcodes/ARETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd))
+      ;; (compile-form (assoc *state* :writer =method :form ?body))
+      ;; (compile-method-function *writer* *class-name* ?name (count ?args))
+      )
+    (let [init-class (str outer-class "$" "lambda_0")]
+      (doto *writer*
+        (.visitTypeInsn Opcodes/NEW init-class)
+        (.visitInsn Opcodes/DUP)
+        (.visitMethodInsn Opcodes/INVOKESPECIAL init-class "<init>" "()V")))
+    ))
 
 (defcompiler ^:private compile-defclass
   [::&analyser/defclass [?package ?name] ?members]
@@ -351,6 +443,7 @@
                    compile-ann-class
                    compile-if
                    compile-let
+                   compile-lambda
                    compile-def
                    compile-defclass
                    compile-definterface
@@ -372,7 +465,8 @@
         ;;                  "output" nil "java/lang/Object" nil))
         state {:class-name class-name
                :writer =class
-               :form nil}]
+               :form nil
+               :parent nil}]
     ;; (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
     ;;   (.visitCode)
     ;;   (.visitVarInsn Opcodes/ALOAD 0)

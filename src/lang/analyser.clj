@@ -41,6 +41,28 @@
         _
         =return))))
 
+(defn ^:private with-fresh-env [body]
+  (fn [state]
+    (let [=return (body (update-in state [:env]
+                                   #(-> %
+                                        (assoc :counter 0)
+                                        (update-in [:mappings] (fn [ms]
+                                                                 (let [ms* (into {} (for [[k v] ms
+                                                                                          :when (match (:form v)
+                                                                                                  [::local _]
+                                                                                                  false
+                                                                                                  _
+                                                                                                  true)]
+                                                                                      [k v]))]
+                                                                   (prn 'ms ms 'ms* ms*)
+                                                                   ms*))))))]
+      (match =return
+        [::&util/ok [?state ?value]]
+        [::&util/ok [(assoc ?state :env (:env state)) ?value]]
+        
+        _
+        =return))))
+
 (defn ^:private import-class [long-name short-name]
   (fn [state]
     (let [=class (annotated [::class long-name] ::&type/nothing)]
@@ -73,6 +95,7 @@
          (fail* (str "Unmatched token: " token#))))))
 
 (defn analyse-form* [form]
+  (prn 'analyse-form* form)
   (fn [state]
     (let [old-forms (:forms state)
           =return (analyse-form (assoc state :forms (list form)))]
@@ -103,7 +126,9 @@
 
 (defanalyser analyse-ident
   [::&parser/ident ?ident]
-  (resolve ?ident))
+  (exec [_env (fn [state] [::&util/ok [state (:env state)]])
+         :let [_ (prn 'analyse-ident ?ident _env)]]
+    (resolve ?ident)))
 
 (defanalyser analyse-ann-class
   [::&parser/ann-class ?class ?members]
@@ -127,15 +152,22 @@
 
 (defanalyser analyse-fn-call
   [::&parser/fn-call ?fn ?args]
-  (exec [=fn (analyse-form* ?fn)
-         =args (map-m analyse-form* ?args)]
-    (return (annotated [::call =fn =args] ::&type/nothing))))
+  (exec [:let [_ (prn 'PRE '?fn ?fn)]
+         =fn (analyse-form* ?fn)
+         :let [_ (prn '=fn =fn)]
+         =args (map-m analyse-form* ?args)
+         :let [_ (prn '=args =args)]]
+    (return (annotated [::call =fn =args] [::&type/object "java.lang.Object" []]))))
 
 (defanalyser analyse-if
   [::&parser/if ?test ?then ?else]
   (exec [=test (analyse-form* ?test)
+         :let [_ (prn '=test =test)]
+         :let [_ (prn 'PRE '?then ?then)]
          =then (analyse-form* ?then)
-         =else (analyse-form* ?else)]
+         :let [_ (prn '=then =then)]
+         =else (analyse-form* ?else)
+         :let [_ (prn '=else =else)]]
     (return (annotated [::if =test =then =else] ::&type/nothing))))
 
 (defanalyser analyse-let
@@ -181,14 +213,14 @@
                    ?ident))]
       (exec [[=function =args =return] (within :types (&type/fresh-function (count args)))
              :let [_ (prn '[=function =args =return] [=function =args =return])]
-             :let [env (-> {}
-                           (assoc ?name =function)
-                           (into (map vector args =args)))
-                   _ (prn 'env env)]
+             ;; :let [env (-> {}
+             ;;               (assoc ?name =function)
+             ;;               (into (map vector args =args)))
+             ;;       _ (prn 'env env)]
              =value (reduce (fn [inner [label type]]
                               (with-local label type inner))
                             (analyse-form* ?value)
-                            (map vector args =args))
+                            (reverse (map vector args =args)))
              :let [_ (prn '=value =value)]
              =function (within :types (exec [_ (&type/solve =return (:type =value))]
                                         (&type/clean =function)))
@@ -198,6 +230,25 @@
                               :type =function})]
         (return (annotated [::def [?name args] =value] ::&type/nothing))))
     ))
+
+(defanalyser analyse-lambda
+  [::&parser/lambda ?args ?body]
+  (exec [:let [_ (prn 'analyse-lambda ?args ?body)]
+         [=function =args =return] (within :types (&type/fresh-function (count ?args)))
+         :let [_ (prn '[=function =args =return] [=function =args =return])]
+         :let [_ (prn 'PRE/?body ?body)]
+         _env (fn [state] [::&util/ok [state (:env state)]])
+         :let [_ (prn 'analyse-lambda _env)]
+         =body (with-fresh-env
+                 (reduce (fn [inner [label type]]
+                           (with-local label type inner))
+                         (analyse-form* ?body)
+                         (reverse (map vector ?args =args))))
+         :let [_ (prn '=body =body)]
+         =function (within :types (exec [_ (&type/solve =return (:type =body))]
+                                    (&type/clean =function)))
+         :let [_ (prn '=function =function)]]
+    (return (annotated [::lambda ?args =body] =function))))
 
 (defanalyser analyse-import
   [::&parser/import ?class]
@@ -217,6 +268,7 @@
               analyse-string
               analyse-variant
               analyse-tuple
+              analyse-lambda
               analyse-ident
               analyse-ann-class
               analyse-static-access

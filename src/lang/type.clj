@@ -79,5 +79,8 @@
            =return (clean ?return)]
       (return [::function =args =return]))
 
+    ;; ::any
+    ;; (return [::object "java.lang.Object" []])
+    
     _
     (return type)))
