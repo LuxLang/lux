@@ -115,16 +115,9 @@
   analyse-boolean ::&parser/boolean "java.lang.Boolean"
   analyse-int     ::&parser/int     "java.lang.Integer"
   analyse-float   ::&parser/float   "java.lang.Float"
+  analyse-char    ::&parser/char    "java.lang.Character"
   analyse-string  ::&parser/string  "java.lang.String"
   )
-
-(defanalyser analyse-boolean
-  [::&parser/boolean ?boolean]
-  (return (annotated [::literal ?boolean] [::&type/object "java.lang.Boolean" []])))
-
-(defanalyser analyse-string
-  [::&parser/string ?string]
-  (return (annotated [::literal ?string] [::&type/object "java.lang.String" []])))
 
 (defanalyser analyse-variant
   [::&parser/tagged ?tag ?value]
@@ -284,6 +277,7 @@
   (try-all-m [analyse-boolean
               analyse-int
               analyse-float
+              analyse-char
               analyse-string
               analyse-variant
               analyse-tuple

@@ -13,11 +13,41 @@
       (return* (.substring text (.length match)) match)
       (fail* (str "Pattern failed: " regex " -- " text)))))
 
+(defn ^:private lex-regex2 [regex]
+  (fn [text]
+    (if-let [[match tok1 tok2] (re-find regex text)]
+      (return* (.substring text (.length match)) [tok1 tok2])
+      (fail* (str "Pattern failed: " regex " -- " text)))))
+
 (defn ^:private lex-str [prefix]
   (fn [text]
     (if (.startsWith text prefix)
       (return* (.substring text (.length prefix)) prefix)
       (fail* (str "String failed: " prefix " -- " text)))))
+
+(defn ^:private escape-char [escaped]
+  (condp = escaped
+    "\\t"  (return "\t")
+    "\\b"  (return "\b")
+    "\\n"  (return "\n")
+    "\\r"  (return "\r")
+    "\\f"  (return "\f")
+    "\\\"" (return "\"")
+    "\\\\" (return "\\")
+    ;; else
+    (fail (str "Unknown escape character: " escaped))))
+
+(def ^:private lex-string-body
+  (try-all-m [(exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
+                     ;; :let [_ (prn '[prefix escaped] [prefix escaped])]
+                     unescaped (escape-char escaped)
+                     ;; :let [_ (prn 'unescaped unescaped)]
+                     postfix lex-string-body
+                     ;; :let [_ (prn 'postfix postfix)]
+                     ;; :let [_ (prn 'FULL (str prefix unescaped postfix))]
+                     ]
+                (return (str prefix unescaped postfix)))
+              (lex-regex #"(?s)^([^\"\\]*)")]))
 
 ;; [Lexers]
 (def ^:private lex-white-space (lex-regex #"^(\s+)"))
@@ -34,11 +64,22 @@
   ^:private lex-int     ::int     #"^(0|[1-9][0-9]*)"
   ^:private lex-ident   ::ident   +ident-re+)
 
-(def lex-string
+(def ^:private lex-char
+  (exec [_ (lex-str "#\"")
+         token (try-all-m [(exec [escaped (lex-regex #"^(\\.)")]
+                             (escape-char escaped))
+                           (lex-regex #"^(.)")])
+         _ (lex-str "\"")]
+    (return [::char token])))
+
+(def ^:private lex-string
   (exec [_ (lex-str "\"")
-         token (lex-regex #"^(.+?(?=\"))")
+         state &util/get-state
+         :let [_ (prn 'PRE state)]
+         token lex-string-body
          _ (lex-str "\"")
-         ]
+         state &util/get-state
+         :let [_ (prn 'POST state)]]
     (return [::string token])))
 
 (def ^:private lex-single-line-comment
@@ -59,7 +100,7 @@
                                     [_ inner] lex-multi-line-comment
                                     ;; :let [_ (prn 'INNER inner)]
                                     post (lex-regex #"(?is)^(.+?(?=\)#))")
-                                    ;:let [_ (prn 'POST post)]
+                                        ;:let [_ (prn 'POST post)]
                                     ]
                                (return (str pre "#(" inner ")#" post)))])
          ;; :let [_ (prn 'COMMENT comment)]
@@ -79,6 +120,7 @@
          form (try-all-m [lex-boolean
                           lex-float
                           lex-int
+                          lex-char
                           lex-string
                           lex-ident
                           lex-tag

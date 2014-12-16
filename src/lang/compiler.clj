@@ -73,14 +73,23 @@
   (cond (instance? java.lang.Integer ?literal)
         (doto *writer*
           (.visitTypeInsn Opcodes/NEW (->class "java.lang.Integer"))
-          (.visitInsn Opcodes/DUP)(.visitLdcInsn ?literal)
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn ?literal)
           (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Integer") "<init>" "(I)V"))
 
         (instance? java.lang.Float ?literal)
         (doto *writer*
           (.visitTypeInsn Opcodes/NEW (->class "java.lang.Float"))
-          (.visitInsn Opcodes/DUP)(.visitLdcInsn ?literal)
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn ?literal)
           (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Float") "<init>" "(F)V"))
+
+        (instance? java.lang.Character ?literal)
+        (doto *writer*
+          (.visitTypeInsn Opcodes/NEW (->class "java.lang.Character"))
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn ?literal)
+          (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Character") "<init>" "(C)V"))
 
         (instance? java.lang.Boolean ?literal)
         (if ?literal

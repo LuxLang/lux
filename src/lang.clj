@@ -12,7 +12,6 @@
 
 (comment
   ;; TODO: Add pattern-matching.
-  ;; TODO: Allow strings to have escape characters.
   ;; TODO: Fold all closure classes into one.
   ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
   ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
@@ -28,7 +27,7 @@
   ;; TODO: Do tail-call optimization.
   ;; TODO: Adding metadata to global vars.
   ;; TODO: Add records.
-  ;; TODO: 
+  ;; TODO: throw, try, catch, finally
   ;; TODO: 
   ;; TODO: 
   
@@ -41,7 +40,10 @@
         ;; _ (prn 'ann-syntax ann-syntax)
         class-data (&compiler/compile "test2" ann-syntax)]
     (write-file "test2.class" class-data))
+
+
   
+  ;; ## (_. (_.. System out) (println "this\tis a\nstring"))
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
 
   )

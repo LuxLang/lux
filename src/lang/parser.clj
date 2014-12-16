@@ -1,5 +1,6 @@
 (ns lang.parser
-  (:require [clojure.core.match :refer [match]]
+  (:require [clojure.template :refer [do-template]]
+            [clojure.core.match :refer [match]]
             (lang [util :as &util :refer [exec return* return fail fail*
                                           repeat-m try-m try-all-m map-m
                                           apply-m]]
@@ -19,17 +20,20 @@
          (fail* (str "Unmatched token: " token#))))))
 
 ;; [Parsers]
-(defparser ^:private parse-boolean
-  [::&lexer/boolean ?boolean]
-  (return [::boolean (Boolean/parseBoolean ?boolean)]))
+(do-template [<name> <input-tag> <output-tag> <method>]
+  (defparser <name>
+    [<input-tag> ?value]
+    (return [<output-tag> (<method> ?value)]))
 
-(defparser ^:private parse-int
-  [::&lexer/int ?int]
-  (return [::int (Integer/parseInt ?int)]))
+  
+  ^:private parse-boolean ::&lexer/boolean ::boolean Boolean/parseBoolean
+  ^:private parse-int     ::&lexer/int     ::int     Integer/parseInt
+  ^:private parse-float   ::&lexer/float   ::float   Float/parseFloat
+  )
 
-(defparser ^:private parse-float
-  [::&lexer/float ?float]
-  (return [::float (Float/parseFloat ?float)]))
+(defparser ^:private parse-char
+    [::&lexer/char ?value]
+    (return [::char (.charAt ?value 0)]))
 
 (defn ident->string [ident]
   (match ident
@@ -199,6 +203,7 @@
   (try-all-m [parse-boolean
               parse-int
               parse-float
+              parse-char
               parse-string
               parse-ident
               parse-tuple
