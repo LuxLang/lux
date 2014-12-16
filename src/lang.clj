@@ -12,7 +12,6 @@
 
 (comment
   ;; TODO: Add pattern-matching.
-  ;; TODO: Add all the missing literal types.
   ;; TODO: Allow strings to have escape characters.
   ;; TODO: Fold all closure classes into one.
   ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
@@ -20,7 +19,7 @@
   ;; TODO: Tuple8 and Tuple8X (for arbitrary-size tuples).
   ;; TODO: Allow "lambdas" to be closures.
   ;; TODO: Add Java-interop.
-  ;; TODO: Add interpreter.
+  ;; TODO: Allow loading classes at runtime.
   ;; TODO: Add macros.
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Add signatures & structures OR type-classes.

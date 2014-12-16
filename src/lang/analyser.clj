@@ -1,6 +1,7 @@
 (ns lang.analyser
   (:refer-clojure :exclude [resolve])
-  (:require [clojure.string :as string]
+  (:require (clojure [string :as string]
+                     [template :refer [do-template]])
             [clojure.core.match :refer [match]]
             (lang [util :as &util :refer [exec return* return fail fail*
                                           repeat-m try-m try-all-m map-m
@@ -105,6 +106,17 @@
         
         _
         =return))))
+
+(do-template [<name> <tag> <class>]
+  (defanalyser <name>
+    [<tag> ?value]
+    (return (annotated [::literal ?value] [::&type/object <class> []])))
+
+  analyse-boolean ::&parser/boolean "java.lang.Boolean"
+  analyse-int     ::&parser/int     "java.lang.Integer"
+  analyse-float   ::&parser/float   "java.lang.Float"
+  analyse-string  ::&parser/string  "java.lang.String"
+  )
 
 (defanalyser analyse-boolean
   [::&parser/boolean ?boolean]
@@ -270,6 +282,8 @@
 
 (def ^:private analyse-form
   (try-all-m [analyse-boolean
+              analyse-int
+              analyse-float
               analyse-string
               analyse-variant
               analyse-tuple

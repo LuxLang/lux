@@ -70,8 +70,17 @@
 ;; [Utils/Compilers]
 (defcompiler ^:private compile-literal
   [::&analyser/literal ?literal]
-  (cond (string? ?literal)
-        (.visitLdcInsn *writer* ?literal)
+  (cond (instance? java.lang.Integer ?literal)
+        (doto *writer*
+          (.visitTypeInsn Opcodes/NEW (->class "java.lang.Integer"))
+          (.visitInsn Opcodes/DUP)(.visitLdcInsn ?literal)
+          (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Integer") "<init>" "(I)V"))
+
+        (instance? java.lang.Float ?literal)
+        (doto *writer*
+          (.visitTypeInsn Opcodes/NEW (->class "java.lang.Float"))
+          (.visitInsn Opcodes/DUP)(.visitLdcInsn ?literal)
+          (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Float") "<init>" "(F)V"))
 
         (instance? java.lang.Boolean ?literal)
         (if ?literal
@@ -79,6 +88,9 @@
           (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class "java.lang.Boolean") "TRUE" (->type-signature "java.lang.Boolean"))
           ;; (.visitLdcInsn *writer* (int 0))
           (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class "java.lang.Boolean") "FALSE" (->type-signature "java.lang.Boolean")))
+
+        (string? ?literal)
+        (.visitLdcInsn *writer* ?literal)
 
         :else
         (assert false (str "[Unknown literal type] " ?literal " : " (class ?literal)))))

@@ -25,11 +25,11 @@
 
 (defparser ^:private parse-int
   [::&lexer/int ?int]
-  (return [::int (Long/parseLong ?int)]))
+  (return [::int (Integer/parseInt ?int)]))
 
 (defparser ^:private parse-float
   [::&lexer/float ?float]
-  (return [::float (Double/parseDouble ?float)]))
+  (return [::float (Float/parseFloat ?float)]))
 
 (defn ident->string [ident]
   (match ident
