@@ -12,7 +12,6 @@
 
 (comment
   ;; TODO: Add pattern-matching.
-  ;; TODO: Add "do" expressions.
   ;; TODO: Add all the missing literal types.
   ;; TODO: Allow strings to have escape characters.
   ;; TODO: Fold all closure classes into one.

@@ -99,14 +99,14 @@
 (defcompiler ^:private compile-local
   [::&analyser/local ?idx]
   (do ;; (prn 'LOCAL ?idx)
-    (doto *writer*
-      (.visitVarInsn Opcodes/ALOAD (int ?idx)))))
+      (doto *writer*
+        (.visitVarInsn Opcodes/ALOAD (int ?idx)))))
 
 (defcompiler ^:private compile-global
   [::&analyser/global ?owner-class ?name]
   (do ;; (prn 'GLOBAL ?owner-class ?name *type*)
-    (doto *writer*
-      (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner-class) ?name (->java-sig *type*)))))
+      (doto *writer*
+        (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner-class) ?name (->java-sig *type*)))))
 
 ;; (defcompiler ^:private compile-call
 ;;   [::&analyser/call ?fn ?args]
@@ -177,12 +177,20 @@
     (doto *writer*
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Boolean") "booleanValue" "()Z")
       (.visitJumpInsn Opcodes/IFEQ else-label))
+    (prn 'compile-if/?then (:form ?then))
     (assert (compile-form (assoc *state* :form ?then)) "CAN't COMPILE THEN")
     (doto *writer*
       (.visitJumpInsn Opcodes/GOTO end-label)
       (.visitLabel else-label))
     (assert (compile-form (assoc *state* :form ?else)) "CAN't COMPILE ELSE")
     (.visitLabel *writer* end-label)))
+
+(defcompiler ^:private compile-do
+  [::&analyser/do ?exprs]
+  (do (doseq [expr (butlast ?exprs)]
+        (compile-form (assoc *state* :form expr))
+        (.visitInsn *writer* Opcodes/POP))
+    (compile-form (assoc *state* :form (last ?exprs)))))
 
 (defcompiler ^:private compile-let
   [::&analyser/let ?idx ?label ?value ?body]
@@ -442,6 +450,7 @@
                    compile-dynamic-access
                    compile-ann-class
                    compile-if
+                   compile-do
                    compile-let
                    compile-lambda
                    compile-def

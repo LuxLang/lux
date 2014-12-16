@@ -86,6 +86,12 @@
          =else (apply-m parse-form (list ?else))]
     (return [::if =test =then =else])))
 
+(defparser ^:private parse-do
+  [::&lexer/list ([[::&lexer/ident "do"] & ?exprs] :seq)]
+  (exec [=exprs (map-m #(apply-m parse-form (list %))
+                       ?exprs)]
+    (return [::do =exprs])))
+
 (defparser ^:private parse-case
   [::&lexer/list ([[::&lexer/ident "case"] ?variant & cases] :seq)]
   (exec [=variant (apply-m parse-form (list ?variant))
@@ -201,6 +207,7 @@
               parse-def
               parse-defdata
               parse-if
+              parse-do
               parse-case
               parse-let
               parse-tagged

@@ -170,6 +170,11 @@
          :let [_ (prn '=else =else)]]
     (return (annotated [::if =test =then =else] ::&type/nothing))))
 
+(defanalyser analyse-do
+  [::&parser/do ?exprs]
+  (exec [=exprs (map-m analyse-form* ?exprs)]
+    (return (annotated [::do =exprs] (-> =exprs last :type)))))
+
 (defanalyser analyse-let
   [::&parser/let ?label ?value ?body]
   (exec [=value (analyse-form* ?value)
@@ -275,6 +280,7 @@
               analyse-dynamic-access
               analyse-fn-call
               analyse-if
+              analyse-do
               analyse-let
               analyse-defclass
               analyse-definterface
