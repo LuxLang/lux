@@ -11,10 +11,6 @@
     (.write stream data)))
 
 (comment
-  ;; TODO: Fold all closure classes into one.
-  ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
-  ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
-  ;; TODO: Tuple8 and Tuple8X (for arbitrary-size tuples).
   ;; TODO: Allow "lambdas" to be closures.
   ;; TODO: Add Java-interop.
   ;; TODO: Allow loading classes at runtime.
@@ -28,6 +24,9 @@
   ;; TODO: Add records.
   ;; TODO: throw, try, catch, finally
   ;; TODO: Finish implementing pattern matching.
+  ;; TODO: Tuple8 and Tuple8X (for arbitrary-size tuples).
+  ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
+  ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
   ;; TODO: 
   
   (let [source-code (slurp "test2.lang")
@@ -40,9 +39,5 @@
         class-data (&compiler/compile "test2" ann-syntax)]
     (write-file "test2.class" class-data))
 
-
-  
-  ;; ## (_. (_.. System out) (println "this\tis a\nstring"))
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
-
   )

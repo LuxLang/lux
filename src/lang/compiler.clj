@@ -143,33 +143,39 @@
 (defcompiler ^:private compile-call
   [::&analyser/call ?fn ?args]
   (do ;; (prn 'compile-call (:form ?fn) ?fn ?args)
-    (match (:form ?fn)
-      [::&analyser/local _]
-      (do (compile-form (assoc *state* :form ?fn))
-        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
-          (doseq [arg ?args]
-            (compile-form (assoc *state* :form arg))
-            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
-      
-      [::&analyser/lambda _ ?body]
-      (do (compile-form (assoc *state* :form ?fn))
-        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
-          (doseq [arg ?args]
-            (compile-form (assoc *state* :form arg))
-            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
-      
-      [::&analyser/global ?owner-class ?fn-name]
-      (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
-            signature "()V"
-            call-class (str (->class ?owner-class) "$" ?fn-name "_0")]
-        (doto *writer*
-          (.visitTypeInsn Opcodes/NEW call-class)
-          (.visitInsn Opcodes/DUP)
-          (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" signature))
-        (doseq [arg ?args]
-          (compile-form (assoc *state* :form arg))
-          (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
-        ))))
+      (match (:form ?fn)
+        [::&analyser/global ?owner-class ?fn-name]
+        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
+              clo-field-sig (->type-signature "java.lang.Object")
+              counter-sig "I"
+              num-args (count ?args)
+              signature (if (> (count ?args) 1)
+                          (str "(" (apply str counter-sig (repeat (dec num-args) clo-field-sig)) ")" "V")
+                          (str "()" "V"))
+              call-class (str (->class ?owner-class) "$" ?fn-name)]
+          (doto *writer*
+            (.visitTypeInsn Opcodes/NEW call-class)
+            (.visitInsn Opcodes/DUP)
+            (-> (doto (.visitLdcInsn (-> ?args count dec int))
+                  ;; (.visitInsn Opcodes/ICONST_0)
+                  (-> (do (compile-form (assoc *state* :form arg)))
+                      (->> (doseq [arg (butlast ?args)]))))
+                (->> (when (> (count ?args) 1))))
+            (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" signature)
+            (do (compile-form (assoc *state* :form (last ?args))))
+            (.visitMethodInsn Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
+          ;; (doseq [arg ?args]
+          ;;   (compile-form (assoc *state* :form arg))
+          ;;   (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
+          )
+        
+        _
+        (do (compile-form (assoc *state* :form ?fn))
+          (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
+            (doseq [arg ?args]
+              (compile-form (assoc *state* :form arg))
+              (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
+        )))
 
 (defcompiler ^:private compile-static-access
   [::&analyser/static-access ?class ?member]
@@ -263,55 +269,101 @@
 (defn ^:private compile-method-function [writer class-name fn-name num-args]
   (let [outer-class (->class class-name)
         clo-field-sig (->type-signature "java.lang.Object")
+        counter-sig "I"
         apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
-        real-signature (str "(" (apply str (repeat num-args "Ljava/lang/Object;")) ")" "Ljava/lang/Object;")]
-    ;; (.mkdirs (java.io.File. class-name))
-    (doseq [idx (range num-args)
-            :let [has-next? (not= idx (dec num-args))
-                  local-name (str fn-name "_" idx)
-                  current-class (str outer-class "$" local-name)
-                  next-class (str outer-class "$" fn-name "_" (inc idx))
-                  current-signature (str "(" (apply str (repeat idx "Ljava/lang/Object;")) ")" "V")
-                  next-signature (str "(" (apply str (repeat (inc idx) "Ljava/lang/Object;")) ")" "V")]]
-      (.visitInnerClass writer current-class outer-class local-name (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
-      (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                     (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                             current-class nil "java/lang/Object" (into-array ["test2/Function"])))
-            _ (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" current-signature nil nil)
-                (.visitCode)
-                (.visitVarInsn Opcodes/ALOAD 0)
-                (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
-                (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                      (.visitVarInsn Opcodes/ALOAD (inc clo_idx))
-                      (.visitFieldInsn Opcodes/PUTFIELD current-class field-name clo-field-sig))
-                    (->> (let [field-name (str "_" clo_idx)]
-                           (doto (.visitField =class Opcodes/ACC_PUBLIC field-name clo-field-sig nil nil)
-                             (.visitEnd)))
-                         (dotimes [clo_idx idx])))
-                (.visitInsn Opcodes/RETURN)
-                (.visitMaxs 0 0)
-                (.visitEnd))
-            =method (doto (.visitMethod =class Opcodes/ACC_PUBLIC "apply" apply-signature nil nil)
-                      (.visitCode))
-            _ (do (when has-next?
-                    (doto =method
-                      (.visitTypeInsn Opcodes/NEW next-class)
-                      (.visitInsn Opcodes/DUP)))
-                (doto =method
-                  (-> (doto (.visitVarInsn Opcodes/ALOAD (int 0))
-                        (.visitFieldInsn Opcodes/GETFIELD current-class (str "_" clo_idx) clo-field-sig))
-                      (->> (dotimes [clo_idx idx])))
-                  (.visitVarInsn Opcodes/ALOAD (int 1)))
-                (if has-next?
-                  (.visitMethodInsn =method Opcodes/INVOKESPECIAL next-class "<init>" next-signature)
-                  (.visitMethodInsn =method Opcodes/INVOKESTATIC outer-class fn-name real-signature))
-                (doto =method
-                  (.visitInsn Opcodes/ARETURN)
+        real-signature (str "(" (apply str (repeat num-args clo-field-sig)) ")" "Ljava/lang/Object;")
+        current-class (str outer-class "$" fn-name)
+        num-captured (dec num-args)
+        init-signature (if (not= 0 num-captured)
+                         (str "(" (apply str counter-sig (repeat num-captured clo-field-sig)) ")" "V")
+                         (str "()" "V"))]
+    (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+    (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                   (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                           current-class nil "java/lang/Object" (into-array ["test2/Function"]))
+                   (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
+                         (.visitEnd))
+                       (->> (when (not= 0 num-captured)))))
+          =init (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" init-signature nil nil)
+                  (.visitCode)
+                  (.visitVarInsn Opcodes/ALOAD 0)
+                  (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+                  (-> (doto ;; (.visitFieldInsn Opcodes/GETSTATIC (->class "java.lang.System") "out" (->type-signature "java.io.PrintStream"))
+                          ;; (.visitTypeInsn Opcodes/NEW (->class "java.lang.Integer"))
+                          ;; (.visitInsn Opcodes/DUP)
+                          ;; (.visitVarInsn Opcodes/ALOAD 1)
+                          ;; ;; (.visitVarInsn Opcodes/ALOAD 0)
+                          ;; ;; (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
+                          ;; (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Integer") "<init>" "(I)V")
+                          ;; (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") "println" "(Ljava/lang/Object;)V")
+
+                          (.visitVarInsn Opcodes/ALOAD 0)
+                          (.visitVarInsn Opcodes/ILOAD 1)
+                        ;; (.visitInsn Opcodes/ICONST_0)
+                        
+                          (.visitFieldInsn Opcodes/PUTFIELD current-class "_counter" counter-sig)
+                        (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                              (.visitVarInsn Opcodes/ALOAD (+ clo_idx 2))
+                              (.visitFieldInsn Opcodes/PUTFIELD current-class field-name clo-field-sig))
+                            (->> (let [field-name (str "_" clo_idx)]
+                                   (doto (.visitField =class (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) field-name clo-field-sig nil nil)
+                                     (.visitEnd)))
+                                 (dotimes [clo_idx num-captured]))))
+                      (->> (when (not= 0 num-captured))))
+                  (.visitInsn Opcodes/RETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
-                (.visitEnd =class))]
-        ;; (write-file (str class-name "/" current-class ".class") (.toByteArray =class))
-        (write-file (str current-class ".class") (.toByteArray =class))))))
+          =method (let [default-label (new Label)
+                        branch-labels (for [_ (range num-captured)]
+                                        (new Label))
+                        ;; _ (prn 'branch-labels (count branch-labels) branch-labels)
+                        ;; end-label (new Label)
+                        ]
+                    (doto (.visitMethod =class Opcodes/ACC_PUBLIC "apply" apply-signature nil nil)
+                      (.visitCode)
+                      (-> (doto ;; (.visitFieldInsn Opcodes/GETSTATIC (->class "java.lang.System") "out" (->type-signature "java.io.PrintStream"))
+                              ;; (.visitTypeInsn Opcodes/NEW (->class "java.lang.Integer"))
+                              ;; (.visitInsn Opcodes/DUP)
+                              ;; (.visitVarInsn Opcodes/ALOAD 0)
+                              ;; (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
+                              ;; (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Integer") "<init>" "(I)V")
+                              ;; (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") "println" "(Ljava/lang/Object;)V")
+                              (.visitVarInsn Opcodes/ALOAD 0)
+                            (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
+                            (.visitTableSwitchInsn 0 (dec num-captured) default-label (into-array Label branch-labels))
+                            (-> (doto (.visitLabel branch-label)
+                                  (.visitTypeInsn Opcodes/NEW current-class)
+                                  (.visitInsn Opcodes/DUP)
+                                  (.visitVarInsn Opcodes/ALOAD 0)
+                                  (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
+                                  (.visitInsn Opcodes/ICONST_1)
+                                  (.visitInsn Opcodes/IADD)
+                                  (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                                        (.visitFieldInsn Opcodes/GETFIELD current-class (str "_" clo_idx) clo-field-sig))
+                                      (->> (dotimes [clo_idx current-captured])))
+                                  (.visitVarInsn Opcodes/ALOAD 1)
+                                  (-> (.visitInsn Opcodes/ACONST_NULL)
+                                      (->> (dotimes [clo_idx (- (dec num-captured) current-captured)])))
+                                  (.visitMethodInsn Opcodes/INVOKESPECIAL current-class "<init>" init-signature)
+                                  ;; (.visitJumpInsn Opcodes/GOTO end-label)
+                                  (.visitInsn Opcodes/ARETURN))
+                                (->> (doseq [[branch-label current-captured] (map vector branch-labels (range (count branch-labels)))
+                                             ;; :let [_ (prn '[branch-label current-captured] [branch-label current-captured])]
+                                             ])))
+                            (.visitLabel default-label)
+                            (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                                  (.visitFieldInsn Opcodes/GETFIELD current-class (str "_" clo_idx) clo-field-sig))
+                                (->> (dotimes [clo_idx num-captured]))))
+                          (->> (when (not= 0 num-captured))))
+                      (.visitVarInsn Opcodes/ALOAD 1)
+                      (.visitMethodInsn Opcodes/INVOKESTATIC outer-class fn-name real-signature)
+                      ;; (.visitLabel end-label)
+                      (.visitInsn Opcodes/ARETURN)
+                      (.visitMaxs 0 0)
+                      (.visitEnd)))
+          _ (.visitEnd =class)]
+      (write-file (str current-class ".class") (.toByteArray =class)))
+    ))
 
 (defcompiler ^:private compile-def
   [::&analyser/def ?form ?body]
