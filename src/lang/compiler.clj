@@ -118,10 +118,17 @@
         (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" idx) "Ljava/lang/Object;")))))
 
 (defcompiler ^:private compile-local
-  [::&analyser/local ?idx]
-  (do ;; (prn 'LOCAL ?idx)
+  [::&analyser/local ?env ?idx]
+  (do (prn 'LOCAL ?idx)
       (doto *writer*
         (.visitVarInsn Opcodes/ALOAD (int ?idx)))))
+
+(defcompiler ^:private compile-captured
+  [::&analyser/captured ?closure-id ?captured-id ?source]
+  (do (prn 'CAPTURED [?closure-id ?captured-id])
+    (doto *writer*
+      (.visitVarInsn Opcodes/ALOAD 0)
+      (.visitFieldInsn Opcodes/GETFIELD (str "test2" "$" "lambda") (str "__" (inc ?captured-id)) "Ljava/lang/Object;"))))
 
 (defcompiler ^:private compile-global
   [::&analyser/global ?owner-class ?name]
@@ -408,8 +415,9 @@
         )))
 
 (defcompiler ^:private compile-lambda
-  [::&analyser/lambda ?args ?body]
-  (let [num-args (count ?args)
+  [::&analyser/lambda ?frame ?args ?body]
+  (let [_ (prn '?frame ?frame)
+        num-args (count ?args)
         outer-class (->class *class-name*)
         clo-field-sig (->type-signature "java.lang.Object")
         counter-sig "I"
@@ -418,7 +426,9 @@
         current-class (str outer-class "$" "lambda")
         num-captured (dec num-args)
         init-signature (if (not= 0 num-captured)
-                         (str "(" (apply str counter-sig (repeat num-captured clo-field-sig)) ")" "V")
+                         (str "(" (apply str (repeat (count (:mappings ?frame)) clo-field-sig))
+                              counter-sig
+                              (apply str (repeat num-captured clo-field-sig)) ")" "V")
                          (str "()" "V"))]
     ;; (.visitInnerClass *parent* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
     (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -431,16 +441,27 @@
                   (.visitCode)
                   (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
-                  (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                        (.visitVarInsn Opcodes/ILOAD 1)
+                  (-> (doto (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                                  (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
+                                  (.visitFieldInsn Opcodes/PUTFIELD current-class captured-name clo-field-sig))
+                                (do (doto =class
+                                      (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
+                                      (.visitEnd)))
+                                (->> (let [captured-name (str "__" (inc ?captured-id))])
+                                     (match (:form ?captured)
+                                       [::&analyser/captured ?closure-id ?captured-id ?source])
+                                     (doseq [[?name ?captured] (:mappings ?frame)])))
+                        (.visitVarInsn Opcodes/ALOAD 0)
+                        (.visitVarInsn Opcodes/ILOAD (inc (count (:mappings ?frame))))
                         (.visitFieldInsn Opcodes/PUTFIELD current-class "_counter" counter-sig)
                         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                              (.visitVarInsn Opcodes/ALOAD (+ clo_idx 2))
+                              (.visitVarInsn Opcodes/ALOAD (+ clo_idx offset))
                               (.visitFieldInsn Opcodes/PUTFIELD current-class field-name clo-field-sig))
                             (->> (let [field-name (str "_" clo_idx)]
                                    (doto (.visitField =class (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) field-name clo-field-sig nil nil)
                                      (.visitEnd)))
-                                 (dotimes [clo_idx num-captured]))))
+                                 (dotimes [clo_idx num-captured])
+                                 (let [offset (+ 2 (count (:mappings ?frame)))]))))
                       (->> (when (not= 0 num-captured))))
                   (.visitInsn Opcodes/RETURN)
                   (.visitMaxs 0 0)
@@ -450,12 +471,16 @@
                                         (new Label))]
                     (doto (.visitMethod =class Opcodes/ACC_PUBLIC "apply" apply-signature nil nil)
                       (.visitCode)
+                      (.visitVarInsn Opcodes/ALOAD 0)
                       (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                             (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
                             (.visitTableSwitchInsn 0 (dec num-captured) default-label (into-array Label branch-labels))
                             (-> (doto (.visitLabel branch-label)
                                   (.visitTypeInsn Opcodes/NEW current-class)
                                   (.visitInsn Opcodes/DUP)
+                                  (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                                        (.visitFieldInsn Opcodes/GETFIELD current-class (str "__" (inc capt_idx)) clo-field-sig))
+                                      (->> (dotimes [capt_idx (count (:mappings ?frame))])))
                                   (.visitVarInsn Opcodes/ALOAD 0)
                                   (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
                                   (.visitInsn Opcodes/ICONST_1)
@@ -478,12 +503,14 @@
                                 (->> (dotimes [clo_idx num-captured]))))
                           (->> (when (not= 0 num-captured))))
                       (.visitVarInsn Opcodes/ALOAD 1)
-                      (.visitMethodInsn Opcodes/INVOKESTATIC current-class "impl" real-signature)
+                      (.visitMethodInsn Opcodes/INVOKEVIRTUAL current-class "impl" real-signature)
                       ;; (.visitLabel end-label)
                       (.visitInsn Opcodes/ARETURN)
                       (.visitMaxs 0 0)
                       (.visitEnd)))
-          =impl (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "impl" real-signature nil nil)
+          _ (prn 'LAMBDA/?body ?body)
+          =impl (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC ;; Opcodes/ACC_STATIC
+                                              ) "impl" real-signature nil nil)
                   (.visitCode)
                   (->> (assoc *state* :form ?body :writer)
                        compile-form)
@@ -495,6 +522,10 @@
     (doto *writer*
       (.visitTypeInsn Opcodes/NEW current-class)
       (.visitInsn Opcodes/DUP)
+      (-> (do (compile-form (assoc *state* :form ?source)))
+          (->> (match (:form ?captured)
+                 [::&analyser/captured ?closure-id ?captured-id ?source])
+               (doseq [[?name ?captured] (:mappings ?frame)])))
       (-> (doto (.visitInsn Opcodes/ICONST_0)
             ;; (.visitInsn Opcodes/ICONST_0)
             (-> (.visitInsn Opcodes/ACONST_NULL)
@@ -581,6 +612,7 @@
                    compile-variant
                    compile-tuple
                    compile-local
+                   compile-captured
                    compile-global
                    compile-call
                    compile-static-access

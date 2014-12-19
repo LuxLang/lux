@@ -13,7 +13,7 @@
 (comment
   ;; TODO: Allow "lambdas" to be closures.
   ;; TODO: Add Java-interop.
-  ;; TODO: Allow loading classes at runtime.
+  ;; TODO: Allow loading classes/modules at runtime.
   ;; TODO: Add macros.
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Add signatures & structures OR type-classes.

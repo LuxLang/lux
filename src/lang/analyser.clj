@@ -16,6 +16,12 @@
   {:form form
    :type type})
 
+(defn ^:private fresh-env [id]
+  {:id id
+   :counter 0
+   :mappings {}
+   :closure/id 0})
+
 (def ^:private module-name
   (fn [state]
     [::&util/ok [state (:name state)]]))
@@ -24,42 +30,52 @@
   (fn [state]
     [::&util/ok [(-> state
                      (assoc-in [:defs (:name state) name] desc)
-                     (assoc-in [:env :mappings name] (annotated [::global (:name state) name] (:type desc)))) nil]]))
+                     (assoc-in [:defs-env name] (annotated [::global (:name state) name] (:type desc))))
+                 nil]]))
 
 (def ^:private next-local-idx
   (fn [state]
-    [::&util/ok [state (-> state :env :counter)]]))
+    [::&util/ok [state (-> state :env first :counter)]]))
+
+(def ^:private my-frame
+  (fn [state]
+    [::&util/ok [state (-> state :env first)]]))
 
 (defn ^:private with-local [name type body]
   (fn [state]
-    (let [=return (body (update-in state [:env] #(-> %
-                                                     (update-in [:counter] inc)
-                                                     (assoc-in [:mappings name] (annotated [::local (:counter %)] type)))))]
+    (let [=return (body (update-in state [:env]
+                                   #(cons (-> (first %)
+                                              (update-in [:counter] inc)
+                                              (assoc-in [:mappings name] (annotated [::local (:id (first %)) (:counter (first %))] type)))
+                                          (rest %))))]
+      ;; =return
       (match =return
         [::&util/ok [?state ?value]]
-        [::&util/ok [(assoc ?state :env (:env state)) ?value]]
+        (do (prn 'POST-WITH-LOCAL name (-> ?state :env first))
+          [::&util/ok [(update-in ?state [:env] #(cons (-> (first %)
+                                                           (update-in [:counter] dec)
+                                                           (update-in [:mappings] dissoc name))
+                                                       (rest %)))
+                       ;; (update-in ?state [:env] (fn [[top & oframes]]
+                       ;;                            (prn 'NEW-FRAMES name (cons (-> state :env first (assoc :closure (-> top :closure))) oframes))
+                       ;;                            (cons (-> state :env first (assoc :closure (-> top :closure))) oframes)))
+                       ?value]])
         
         _
-        =return))))
+        =return)
+      )))
 
 (defn ^:private with-fresh-env [body]
   (fn [state]
-    (let [=return (body (update-in state [:env]
-                                   #(-> %
-                                        (assoc :counter 0)
-                                        (update-in [:mappings] (fn [ms]
-                                                                 (let [ms* (into {} (for [[k v] ms
-                                                                                          :when (match (:form v)
-                                                                                                  [::local _]
-                                                                                                  false
-                                                                                                  _
-                                                                                                  true)]
-                                                                                      [k v]))]
-                                                                   ;; (prn 'ms ms 'ms* ms*)
-                                                                   ms*))))))]
+    ;; (prn '(:env state) (:env state) (-> state :env first :id inc))
+    (let [=return (body (update-in state [:env] #(conj % (fresh-env (-> % first :id inc)))))
+          ;; _ (prn '=return =return)
+          ]
       (match =return
         [::&util/ok [?state ?value]]
-        [::&util/ok [(assoc ?state :env (:env state)) ?value]]
+        (do (prn 'PRE-LAMBDA (:env state))
+          (prn 'POST-LAMBDA (:env ?state) ?value)
+          [::&util/ok [(assoc ?state :env (:env state)) [(-> ?state :env first) ?value]]])
         
         _
         =return))))
@@ -67,8 +83,8 @@
 (defn ^:private import-class [long-name short-name]
   (fn [state]
     (let [=class (annotated [::class long-name] ::&type/nothing)]
-      [::&util/ok [(update-in state [:env :mappings] merge {long-name =class,
-                                                            short-name =class})
+      [::&util/ok [(update-in state [:imports] merge {long-name =class,
+                                                      short-name =class})
                    nil]])))
 
 (defn ^:private require-module [name alias]
@@ -76,15 +92,42 @@
     [::&util/ok [(assoc-in state [:deps alias] name)
                  nil]]))
 
+(defn ^:private close-over [ident register frame]
+  (prn 'close-over ident register)
+  (let [register* (annotated [::captured (:id frame) (:closure/id frame) register] (:type register))]
+    [register* (-> frame
+                   (update-in [:closure/id] inc)
+                   (assoc-in [:mappings ident] register*))]))
+
 (defn ^:private resolve [ident]
   (fn [state]
     (if-let [[_ ?alias ?binding] (re-find #"^(.*)/(.*)$" ident)]
       (let [?module (get-in state [:deps ?alias])]
         ;; (prn 'resolve ?module ?alias ?binding)
         [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]])
-      (if-let [resolved (get-in state [:env :mappings ident])]
-        [::&util/ok [state resolved]]
-        [::&util/failure (str "Unresolved identifier: " ident)]))))
+      (let [_ (prn 'resolve/_1 ident)
+            [inner outer] (split-with #(nil? (get-in % [:mappings ident])) (:env state))
+            ;; _ (prn ident '[inner outer] [inner outer])
+            _ (prn 'resolve/_2 '[inner outer] [inner outer])]
+        (cond (empty? inner)
+              [::&util/ok [state (-> state :env first :mappings (get ident))]]
+              
+              (empty? outer)
+              (if-let [global|import (or (get-in state [:defs-env ident])
+                                         (get-in state [:imports ident]))]
+                (do (prn 'resolve/_3 'global|import global|import)
+                  [::&util/ok [state global|import]])
+                [::&util/failure (str "Unresolved identifier: " ident)])
+
+              :else
+              (let [[=local inner*] (reduce (fn [[register new-inner] frame]
+                                              (let [[register* frame*] (close-over ident register frame)]
+                                                [register* (cons frame* new-inner)]))
+                                            [(-> outer first :mappings (get ident)) '()]
+                                            (reverse inner))
+                    _ (prn 'resolve/_4 '[=local inner*] =local inner*)]
+                [::&util/ok [(assoc state :env (concat inner* outer)) =local]])))
+      )))
 
 (defmacro ^:private defanalyser [name match return]
   `(def ~name
@@ -136,10 +179,13 @@
 
 (defanalyser analyse-ident
   [::&parser/ident ?ident]
-  (exec [_env (fn [state] [::&util/ok [state (:env state)]])
-         ;; :let [_ (prn 'analyse-ident ?ident _env)]
-         ]
-    (resolve ?ident)))
+  ;; (exec [_env (fn [state] [::&util/ok [state (:env state)]])
+  ;;        ;; :let [_ (prn 'analyse-ident ?ident _env)]
+  ;;        ]
+  ;;   (resolve ?ident))
+  (exec [=ident (resolve ?ident)
+         :let [_ (prn 'analyse-ident ?ident =ident)]]
+    (return =ident)))
 
 (defanalyser analyse-ann-class
   [::&parser/ann-class ?class ?members]
@@ -277,19 +323,22 @@
          [=function =args =return] (within :types (&type/fresh-function (count ?args)))
          ;; :let [_ (prn '[=function =args =return] [=function =args =return])]
          ;; :let [_ (prn 'PRE/?body ?body)]
-         _env (fn [state] [::&util/ok [state (:env state)]])
+         ;; _env (fn [state] [::&util/ok [state (:env state)]])
          ;; :let [_ (prn 'analyse-lambda _env)]
-         =body (with-fresh-env
-                 (reduce (fn [inner [label type]]
-                           (with-local label type inner))
-                         (analyse-form* ?body)
-                         (reverse (map vector ?args =args))))
+         [=frame =body] (with-fresh-env
+                          (reduce (fn [inner [label type]]
+                                    (exec [=inner (with-local label type inner)
+                                           =frame* my-frame
+                                           :let [_ (prn '=frame* =frame*)]]
+                                      (return =inner)))
+                                  (analyse-form* ?body)
+                                  (reverse (map vector ?args =args))))
          ;; :let [_ (prn '=body =body)]
          =function (within :types (exec [_ (&type/solve =return (:type =body))]
                                     (&type/clean =function)))
          ;; :let [_ (prn '=function =function)]
          ]
-    (return (annotated [::lambda ?args =body] =function))))
+    (return (annotated [::lambda =frame ?args =body] =function))))
 
 (defanalyser analyse-import
   [::&parser/import ?class]
@@ -334,8 +383,10 @@
   (match ((repeat-m analyse-form) {:name module-name,
                                    :forms tokens
                                    :deps {}
-                                   :env {:counter 0
-                                         :mappings {}}
+                                   :imports {}
+                                   :defs {}
+                                   :defs-env {}
+                                   :env (list (fresh-env 0))
                                    :types &type/+init+})
     [::&util/ok [?state ?forms]]
     (if (empty? (:forms ?state))
