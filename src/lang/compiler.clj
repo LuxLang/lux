@@ -125,7 +125,7 @@
 
 (defcompiler ^:private compile-captured
   [::&analyser/captured ?scope ?captured-id ?source]
-  (do (prn 'CAPTURED [?scope ?captured-id])
+  (do ;; (prn 'CAPTURED [?scope ?captured-id])
     (doto *writer*
       (.visitVarInsn Opcodes/ALOAD 0)
       (.visitFieldInsn Opcodes/GETFIELD (apply str (interpose "$" ?scope)) (str "__" ?captured-id) "Ljava/lang/Object;"))))
@@ -170,11 +170,7 @@
                 (->> (when (> (count ?args) 1))))
             (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" signature)
             (do (compile-form (assoc *state* :form (last ?args))))
-            (.visitMethodInsn Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
-          ;; (doseq [arg ?args]
-          ;;   (compile-form (assoc *state* :form arg))
-          ;;   (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
-          )
+            (.visitMethodInsn Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature)))
         
         _
         (do (compile-form (assoc *state* :form ?fn))
@@ -197,10 +193,6 @@
     (doto *writer*
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") ?method "(Ljava/lang/Object;)V")
       (.visitInsn Opcodes/ACONST_NULL))))
-
-(defcompiler ^:private compile-ann-class
-  [::&analyser/ann-class ?class ?members]
-  nil)
 
 (defcompiler ^:private compile-if
   [::&analyser/if ?test ?then ?else]
@@ -301,19 +293,8 @@
                   (.visitCode)
                   (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
-                  (-> (doto ;; (.visitFieldInsn Opcodes/GETSTATIC (->class "java.lang.System") "out" (->type-signature "java.io.PrintStream"))
-                          ;; (.visitTypeInsn Opcodes/NEW (->class "java.lang.Integer"))
-                          ;; (.visitInsn Opcodes/DUP)
-                          ;; (.visitVarInsn Opcodes/ALOAD 1)
-                          ;; ;; (.visitVarInsn Opcodes/ALOAD 0)
-                          ;; ;; (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
-                          ;; (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Integer") "<init>" "(I)V")
-                          ;; (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") "println" "(Ljava/lang/Object;)V")
-
-                          (.visitVarInsn Opcodes/ALOAD 0)
+                  (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                         (.visitVarInsn Opcodes/ILOAD 1)
-                        ;; (.visitInsn Opcodes/ICONST_0)
-                        
                         (.visitFieldInsn Opcodes/PUTFIELD current-class "_counter" counter-sig)
                         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                               (.visitVarInsn Opcodes/ALOAD (+ clo_idx 2))
@@ -328,20 +309,10 @@
                   (.visitEnd))
           =method (let [default-label (new Label)
                         branch-labels (for [_ (range num-captured)]
-                                        (new Label))
-                        ;; _ (prn 'branch-labels (count branch-labels) branch-labels)
-                        ;; end-label (new Label)
-                        ]
+                                        (new Label))]
                     (doto (.visitMethod =class Opcodes/ACC_PUBLIC "apply" apply-signature nil nil)
                       (.visitCode)
-                      (-> (doto ;; (.visitFieldInsn Opcodes/GETSTATIC (->class "java.lang.System") "out" (->type-signature "java.io.PrintStream"))
-                              ;; (.visitTypeInsn Opcodes/NEW (->class "java.lang.Integer"))
-                              ;; (.visitInsn Opcodes/DUP)
-                              ;; (.visitVarInsn Opcodes/ALOAD 0)
-                              ;; (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
-                              ;; (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Integer") "<init>" "(I)V")
-                              ;; (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") "println" "(Ljava/lang/Object;)V")
-                              (.visitVarInsn Opcodes/ALOAD 0)
+                      (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                             (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
                             (.visitTableSwitchInsn 0 (dec num-captured) default-label (into-array Label branch-labels))
                             (-> (doto (.visitLabel branch-label)
@@ -401,16 +372,6 @@
                   (.visitInsn Opcodes/RETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd)))
-              ;; (let [signature (str "(" (apply str (repeat (count ?args) "Ljava/lang/Object;")) ")" "Ljava/lang/Object;")
-              ;;       ;; _ (prn 'signature signature)
-              ;;       =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
-              ;;                 (.visitCode))]
-              ;;   (compile-form (assoc *state* :parent *writer* :writer =method :form ?body))
-              ;;   (doto =method
-              ;;     (.visitInsn Opcodes/ARETURN)
-              ;;     (.visitMaxs 0 0)
-              ;;     (.visitEnd))
-              ;;   (compile-method-function *writer* *class-name* ?name (count ?args) ?body))
               (compile-method-function *writer* *class-name* ?name (count ?args) ?body *state*)))
         )))
 
@@ -423,7 +384,7 @@
 
 (defcompiler ^:private compile-lambda
   [::&analyser/lambda ?scope ?frame ?args ?body]
-  (let [_ (prn '[?scope ?frame] ?scope ?frame)
+  (let [;; _ (prn '[?scope ?frame] ?scope ?frame)
         num-args (count ?args)
         outer-class (->class *class-name*)
         clo-field-sig (->type-signature "java.lang.Object")
@@ -441,8 +402,8 @@
                               (apply str counter-sig (repeat num-captured clo-field-sig)))
                             ")"
                             "V")
-        _ (prn current-class 'init-signature init-signature)
-        _ (prn current-class 'real-signature real-signature)
+        ;; _ (prn current-class 'init-signature init-signature)
+        ;; _ (prn current-class 'real-signature real-signature)
         =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                          current-class nil "java/lang/Object" (into-array ["test2/Function"]))
@@ -509,7 +470,6 @@
                                 (-> (.visitInsn Opcodes/ACONST_NULL)
                                     (->> (dotimes [clo_idx (- (dec num-captured) current-captured)])))
                                 (.visitMethodInsn Opcodes/INVOKESPECIAL current-class "<init>" init-signature)
-                                ;; (.visitJumpInsn Opcodes/GOTO end-label)
                                 (.visitInsn Opcodes/ARETURN))
                               (->> (doseq [[branch-label current-captured] (map vector branch-labels (range (count branch-labels)))
                                            ;; :let [_ (prn '[branch-label current-captured] [branch-label current-captured])]
@@ -521,13 +481,11 @@
                         (->> (when (not= 0 num-captured))))
                     (.visitVarInsn Opcodes/ALOAD 1)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL current-class "impl" real-signature)
-                    ;; (.visitLabel end-label)
                     (.visitInsn Opcodes/ARETURN)
                     (.visitMaxs 0 0)
                     (.visitEnd)))
         ;; _ (prn 'LAMBDA/?body ?body)
-        =impl (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC ;; Opcodes/ACC_STATIC
-                                            ) "impl" real-signature nil nil)
+        =impl (doto (.visitMethod =class Opcodes/ACC_PUBLIC "impl" real-signature nil nil)
                 (.visitCode)
                 (->> (assoc *state* :form ?body :writer)
                      compile-form)
@@ -536,10 +494,10 @@
                 (.visitEnd))
         _ (.visitEnd =class)]
     (write-file (str current-class ".class") (.toByteArray =class))
-    (apply prn 'LAMBDA ?scope ?args (->> (:mappings ?frame)
-                                         (map second)
-                                         (map :form)
-                                         (filter captured?)))
+    ;; (apply prn 'LAMBDA ?scope ?args (->> (:mappings ?frame)
+    ;;                                      (map second)
+    ;;                                      (map :form)
+    ;;                                      (filter captured?)))
     (doto *writer*
       (.visitTypeInsn Opcodes/NEW current-class)
       (.visitInsn Opcodes/DUP)
@@ -639,7 +597,6 @@
                    compile-call
                    compile-static-access
                    compile-dynamic-access
-                   compile-ann-class
                    compile-if
                    compile-do
                    compile-case
@@ -661,25 +618,13 @@
   (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                          (->class class-name) nil "java/lang/Object" nil))
-        ;; (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-        ;;          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-        ;;                  "output" nil "java/lang/Object" nil))
         state {:class-name class-name
                :writer =class
                :form nil
                :parent nil}]
-    ;; (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
-    ;;   (.visitCode)
-    ;;   (.visitVarInsn Opcodes/ALOAD 0)
-    ;;   (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
-    ;;   (.visitInsn Opcodes/RETURN)
-    ;;   (.visitMaxs 0 0)
-    ;;   (.visitEnd))
     (doseq [input inputs]
       (when (not (compile-form (assoc state :form input)))
         (assert false input)))
-    ;; (doall (map #(compile-form (assoc state :form %)) inputs))
-    ;; (prn 'inputs inputs)
     (when-let [constants (seq (for [input inputs
                                     :let [payload (match (:form input)
                                                     [::&analyser/def (?name :guard string?) ?body]

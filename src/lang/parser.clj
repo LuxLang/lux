@@ -168,26 +168,6 @@
          =call (apply-m parse-form (list ?call))]
     (return [::dynamic-access =object =call])))
 
-(defparser ^:private parse-ann-class
-  [::&lexer/list ([[::&lexer/ident "ann-class"] [::&lexer/ident ?class] & ?decl] :seq)]
-  (let [[_ class-data] (reduce (fn [[mode data] event]
-                                 (match event
-                                   [::&lexer/ident "methods"]
-                                   [:methods data]
-
-                                   [::&lexer/ident "fields"]
-                                   [:fields data]
-
-                                   [::&lexer/list ([[::&lexer/ident ":"] [::&lexer/ident ?field-name] [::&lexer/ident ?field-class]] :seq)]
-                                   [mode (assoc-in data [mode ?field-name] [::&type/object ?field-class []])]
-                                   
-                                   [::&lexer/list ([[::&lexer/ident ":"] [::&lexer/ident ?method-name] [::&lexer/list ([[::&lexer/ident "->"] [::&lexer/tuple ?args*] [::&lexer/ident ?return]] :seq)]] :seq)]
-                                   [mode (assoc-in data [mode ?method-name] [::&type/fn (map ident->string ?args*) ?return])]
-                                   ))
-                               [nil {}]
-                               ?decl)]
-    (return [::ann-class ?class class-data])))
-
 (defparser ^:private parse-string
   [::&lexer/string ?string]
   (return [::string ?string]))
@@ -221,7 +201,6 @@
               parse-remove
               parse-static-access
               parse-dynamic-access
-              parse-ann-class
               parse-defclass
               parse-definterface
               parse-import

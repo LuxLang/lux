@@ -55,14 +55,14 @@
 
 (defn ^:private with-lambda-scope [body]
   (fn [state]
-    (let [_ (prn 'with-lambda-scope (get-in state [:lambda-scope 0]) (get-in state [:lambda-scope 1]))
+    (let [;; _ (prn 'with-lambda-scope (get-in state [:lambda-scope 0]) (get-in state [:lambda-scope 1]))
           =return (body (-> state
                             (update-in [:lambda-scope 0] conj (get-in state [:lambda-scope 1]))
                             (assoc-in [:lambda-scope 1] 0)))]
       (match =return
         [::&util/ok [?state ?value]]
-        [::&util/ok [(do (prn [:lambda-scope 0] (get-in ?state [:lambda-scope 0]))
-                       (prn [:lambda-scope 1] (get-in ?state [:lambda-scope 1]))
+        [::&util/ok [(do ;; (prn [:lambda-scope 0] (get-in ?state [:lambda-scope 0]))
+                       ;; (prn [:lambda-scope 1] (get-in ?state [:lambda-scope 1]))
                        (-> ?state
                            (update-in [:lambda-scope 0] pop)
                            (assoc-in [:lambda-scope 1] (inc (get-in state [:lambda-scope 1])))))
@@ -118,8 +118,8 @@
             ]
         (match =return
           [::&util/ok [?state ?value]]
-          (do (prn 'PRE-LAMBDA (:env state))
-            (prn 'POST-LAMBDA (:env ?state) ?value)
+          (do ;; (prn 'PRE-LAMBDA (:env state))
+            ;; (prn 'POST-LAMBDA (:env ?state) ?value)
             [::&util/ok [(-> ?state
                              (update-in [:env] rest)
                              ;; (update-in [:lambda-scope 1] inc)
@@ -154,17 +154,18 @@
       (let [?module (get-in state [:deps ?alias])]
         ;; (prn 'resolve ?module ?alias ?binding)
         [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]])
-      (let [_ (prn 'resolve/_1 ident)
+      (let [;; _ (prn 'resolve/_1 ident)
             [inner outer] (split-with #(nil? (get-in % [:mappings ident])) (:env state))
             ;; _ (prn ident '[inner outer] [inner outer])
-            _ (prn 'resolve/_2 '[inner outer] [inner outer])]
+            ;; _ (prn 'resolve/_2 '[inner outer] [inner outer])
+            ]
         (cond (empty? inner)
               [::&util/ok [state (-> state :env first :mappings (get ident))]]
               
               (empty? outer)
               (if-let [global|import (or (get-in state [:defs-env ident])
                                          (get-in state [:imports ident]))]
-                (do (prn 'resolve/_3 'global|import global|import)
+                (do ;; (prn 'resolve/_3 'global|import global|import)
                   [::&util/ok [state global|import]])
                 [::&util/failure (str "Unresolved identifier: " ident)])
 
@@ -179,7 +180,8 @@
                                                       (iterate pop)
                                                       (take (count inner))
                                                       reverse)))
-                    _ (prn 'resolve/_4 '[=local inner*] =local inner*)]
+                    ;; _ (prn 'resolve/_4 '[=local inner*] =local inner*)
+                    ]
                 [::&util/ok [(assoc state :env (concat inner* outer)) =local]])))
       )))
 
@@ -239,13 +241,10 @@
   ;;   (resolve ?ident))
   (exec [=ident (resolve ?ident)
          ;; :let [_ (prn 'analyse-ident ?ident =ident)]
-         state &util/get-state
-         :let [_ (prn 'analyse-ident ?ident (:form =ident) (:env state))]]
+         ;; state &util/get-state
+         ;; :let [_ (prn 'analyse-ident ?ident (:form =ident) (:env state))]
+         ]
     (return =ident)))
-
-(defanalyser analyse-ann-class
-  [::&parser/ann-class ?class ?members]
-  (return (annotated [::ann-class ?class ?members] ::&type/nothing)))
 
 (defanalyser analyse-static-access
   [::&parser/static-access ?target ?member]
@@ -416,7 +415,6 @@
               analyse-tuple
               analyse-lambda
               analyse-ident
-              analyse-ann-class
               analyse-static-access
               analyse-dynamic-access
               analyse-fn-call
