@@ -11,7 +11,6 @@
     (.write stream data)))
 
 (comment
-  ;; TODO: Allow "lambdas" to be closures.
   ;; TODO: Add Java-interop.
   ;; TODO: Allow loading classes/modules at runtime.
   ;; TODO: Add macros.
