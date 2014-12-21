@@ -134,9 +134,9 @@
 (defcompiler ^:private compile-captured
   [::&analyser/captured ?scope ?captured-id ?source]
   (do ;; (prn 'CAPTURED [?scope ?captured-id])
-    (doto *writer*
-      (.visitVarInsn Opcodes/ALOAD 0)
-      (.visitFieldInsn Opcodes/GETFIELD (apply str (interpose "$" ?scope)) (str "__" ?captured-id) "Ljava/lang/Object;"))))
+      (doto *writer*
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (.visitFieldInsn Opcodes/GETFIELD (apply str (interpose "$" ?scope)) (str "__" ?captured-id) "Ljava/lang/Object;"))))
 
 (defcompiler ^:private compile-global
   [::&analyser/global ?owner-class ?name]
@@ -203,8 +203,8 @@
   (do ;; (prn 'compile-static-field ?owner ?field)
       ;; (assert false)
       (compile-form (assoc *state* :form ?target))
-      (doto *writer*
-        (.visitFieldInsn Opcodes/GETFIELD (->class ?owner) ?field (->java-sig *type*)))
+    (doto *writer*
+      (.visitFieldInsn Opcodes/GETFIELD (->class ?owner) ?field (->java-sig *type*)))
     ))
 
 (defcompiler ^:private compile-static-method
@@ -221,13 +221,13 @@
 (defcompiler ^:private compile-dynamic-method
   [::&analyser/dynamic-method ?target ?owner ?method-name ?method-type ?args]
   (do ;; (prn 'compile-dynamic-access ?target ?owner ?method-name ?method-type ?args)
-    ;; (assert false)
-    (do (compile-form (assoc *state* :form ?target))
-      (doseq [arg ?args]
-        (compile-form (assoc *state* :form arg)))
-      (doto *writer*
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class ?owner) ?method-name (method->sig ?method-type))
-        (.visitInsn Opcodes/ACONST_NULL)))
+      ;; (assert false)
+      (do (compile-form (assoc *state* :form ?target))
+        (doseq [arg ?args]
+          (compile-form (assoc *state* :form arg)))
+        (doto *writer*
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class ?owner) ?method-name (method->sig ?method-type))
+          (.visitInsn Opcodes/ACONST_NULL)))
     ))
 
 (defcompiler ^:private compile-if
@@ -681,4 +681,13 @@
       (when (not (compile-form (assoc state :form input)))
         (assert false input)))
     (.visitEnd =class)
-    (.toByteArray =class)))
+    (.toByteArray =class))
+
+  (comment
+    (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
+    (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2.Function"))
+    (let [test2 (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
+          main (first (.getDeclaredMethods test2))]
+      (.invoke main nil (to-array [nil])))
+    )
+  )

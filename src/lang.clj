@@ -11,7 +11,6 @@
     (.write stream data)))
 
 (comment
-  ;; TODO: Allow loading classes/modules at runtime.
   ;; TODO: Add macros.
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Add signatures & structures OR type-classes.
@@ -25,6 +24,7 @@
   ;; TODO: Tuple8 and Tuple8X (for arbitrary-size tuples).
   ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
   ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
+  ;; TODO: Add "new". Allow setting fields.
   ;; TODO: 
   
   (let [source-code (slurp "test2.lang")
