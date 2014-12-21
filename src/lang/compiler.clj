@@ -141,8 +141,10 @@
 (defcompiler ^:private compile-global
   [::&analyser/global ?owner-class ?name]
   (do ;; (prn 'GLOBAL ?owner-class ?name *type*)
+      ;; (prn 'compile-global (->class (str ?owner-class "$" ?name)) "_datum")
       (doto *writer*
-        (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner-class) ?name (->java-sig *type*)))))
+        (.visitFieldInsn Opcodes/GETSTATIC (->class (str ?owner-class "$" ?name)) "_datum" "Ljava/lang/Object;" ;; (->java-sig *type*)
+                         ))))
 
 ;; (defcompiler ^:private compile-call
 ;;   [::&analyser/call ?fn ?args]
@@ -310,7 +312,7 @@
         init-signature (if (not= 0 num-captured)
                          (str "(" (apply str counter-sig (repeat num-captured clo-field-sig)) ")" "V")
                          (str "()" "V"))]
-    ;; (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+    (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
     (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                    (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                            current-class nil "java/lang/Object" (into-array ["test2/Function"]))
@@ -383,16 +385,33 @@
       (write-file (str current-class ".class") (.toByteArray =class)))
     ))
 
+(defn compile-field [writer class-name ?name body state]
+  (let [outer-class (->class class-name)
+        datum-sig (->type-signature "java.lang.Object")
+        current-class (str outer-class "$" ?name)]
+    (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+    (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                   (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                           current-class nil "java/lang/Object" (into-array ["test2/Function"]))
+                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
+                       (doto (.visitEnd)))
+                   (-> (.visitMethod Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+                       (doto (.visitCode)
+                         (->> (assoc state :form body :writer) compile-form)
+                         (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
+                         (.visitInsn Opcodes/RETURN)
+                         (.visitMaxs 0 0)
+                         (.visitEnd)))
+                   (.visitEnd))]
+      (write-file (str current-class ".class") (.toByteArray =class)))
+    ))
+
 (defcompiler ^:private compile-def
   [::&analyser/def ?form ?body]
   (do ;; (prn 'compile-def ?form)
       (match ?form
         (?name :guard string?)
-        (let [=type (:type ?body)
-              ;; _ (prn '?body ?body)
-              ]
-          (doto (.visitField *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name (->java-sig =type) nil nil)
-            (.visitEnd)))
+        (compile-field *writer* *class-name* ?name ?body *state*)
 
         [?name ?args]
         (do ;; (prn 'compile-def `(~'def (~(symbol ?name) ~@(map symbol ?args))))
@@ -661,24 +680,5 @@
     (doseq [input inputs]
       (when (not (compile-form (assoc state :form input)))
         (assert false input)))
-    (when-let [constants (seq (for [input inputs
-                                    :let [payload (match (:form input)
-                                                    [::&analyser/def (?name :guard string?) ?body]
-                                                    [?name ?body]
-                                                    _
-                                                    nil)]
-                                    :when payload]
-                                payload))]
-      (let [=init (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-                    (.visitCode))
-            state* (assoc state :writer =init)
-            class-name* (->class class-name)]
-        (doseq [[?name ?body] constants]
-          (do (assert (compile-form (assoc state* :form ?body)) (str "Couldn't compile init: " (pr-str ?body)))
-            (.visitFieldInsn =init Opcodes/PUTSTATIC class-name* ?name (->java-sig (:type ?body)))))
-        (doto =init
-          (.visitInsn Opcodes/RETURN)
-          (.visitMaxs 0 0)
-          (.visitEnd))))
     (.visitEnd =class)
     (.toByteArray =class)))
