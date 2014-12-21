@@ -11,7 +11,6 @@
     (.write stream data)))
 
 (comment
-  ;; TODO: Add Java-interop.
   ;; TODO: Allow loading classes/modules at runtime.
   ;; TODO: Add macros.
   ;; TODO: Re-implement compiler in language.

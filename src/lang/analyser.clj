@@ -131,7 +131,7 @@
 
 (defn ^:private import-class [long-name short-name]
   (fn [state]
-    (let [=class (annotated [::class long-name] ::&type/nothing)]
+    (let [=class (annotated [::class long-name] [::&type/object long-name []])]
       [::&util/ok [(update-in state [:imports] merge {long-name =class,
                                                       short-name =class})
                    nil]])))
@@ -246,22 +246,105 @@
          ]
     (return =ident)))
 
-(defanalyser analyse-static-access
+(defanalyser analyse-access
   [::&parser/static-access ?target ?member]
-  (exec [=target (resolve ?target)
-         ;; :let [_ (prn '=target ?target (:form =target))]
-         ]
+  (exec [=target (resolve ?target)]
     (match (:form =target)
       [::class ?class]
       (return (annotated [::static-access ?class ?member] ::&type/nothing)))))
 
-(defanalyser analyse-dynamic-access
-  [::&parser/dynamic-access ?object ?member]
-  (exec [=object (analyse-form* ?object)]
-    (match ?member
-      [::&parser/fn-call [::&parser/ident ?method] ?args]
-      (exec [=args (map-m analyse-form* ?args)]
-        (return (annotated [::dynamic-access =object [?method =args]] ::&type/nothing))))))
+(defn extract-ident [ident]
+  (match ident
+    [::&parser/ident ?ident]
+    (return ?ident)
+
+    _
+    (fail "")))
+
+(defn extract-class [x]
+  (match x
+    [::class ?class]
+    (return ?class)
+
+    _
+    (fail "")))
+
+(defn class-type [x]
+  (match x
+    [::&type/object ?class []]
+    (return ?class)
+
+    _
+    (fail "")))
+
+(defn lookup-field [mode target field]
+  ;; (prn 'lookup-field mode target field)
+  (if-let [[[owner type]] (seq (for [=field (.getFields (Class/forName target))
+                                     ;; :let [_ (prn target (.getName =field) (if (java.lang.reflect.Modifier/isStatic (.getModifiers =field))
+                                     ;;                                         :static
+                                     ;;                                         :dynamic))]
+                                     :when (and (= field (.getName =field))
+                                                (case mode
+                                                  :static (java.lang.reflect.Modifier/isStatic (.getModifiers =field))
+                                                  :dynamic (not (java.lang.reflect.Modifier/isStatic (.getModifiers =field)))))]
+                                 [(.getDeclaringClass =field) (.getType =field)]))]
+    (exec [=type (&type/class->type type)]
+      (return [(.getName owner) =type]))
+    (fail (str "Field does not exist: " target field mode))))
+
+(defn lookup-method [mode target method args]
+  ;; (prn 'lookup-method mode target method args)
+  (if-let [methods (seq (for [=method (.getMethods (Class/forName target))
+                              ;; :let [_ (prn target (.getName =method) (if (java.lang.reflect.Modifier/isStatic (.getModifiers =method))
+                              ;;                                          :static
+                              ;;                                          :dynamic))]
+                              :when (and (= method (.getName =method))
+                                         (case mode
+                                           :static (java.lang.reflect.Modifier/isStatic (.getModifiers =method))
+                                           :dynamic (not (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))))]
+                          [(.getDeclaringClass =method) =method]))]
+    (map-m (fn [[owner method]]
+             (exec [=method (&type/method->type method)]
+               (return [(.getName owner) =method])))
+           methods)
+    (fail (str "Method does not exist: " target method mode))))
+
+(defanalyser analyse-access
+  [::&parser/access ?object ?member]
+  (match ?member
+    [::&parser/ident ?field] ;; Field
+    (try-all-m [(exec [?target (extract-ident ?object)
+                       =target (resolve ?target)
+                       ?class (extract-class (:form =target))
+                       [=owner =type] (lookup-field :static ?class ?field)
+                       ;; :let [_ (prn '=type =type)]
+                       ]
+                  (return (annotated [::static-field =owner ?field] =type)))
+                (exec [=target (analyse-form* ?object)
+                       ?class (class-type (:type =target))
+                       [=owner =type] (lookup-field :dynamic ?class ?field)
+                       ;; :let [_ (prn '=type =type)]
+                       ]
+                  (return (annotated [::dynamic-field =target =owner ?field] =type)))])
+    [::&parser/fn-call [::&parser/ident ?method] ?args] ;; Method
+    (exec [=args (map-m analyse-form* ?args)]
+      (try-all-m [(exec [?target (extract-ident ?object)
+                         =target (resolve ?target)
+                         ?class (extract-class (:form =target))
+                         =methods (lookup-method :static ?class ?method (map :type =args))
+                         ;; :let [_ (prn '=methods =methods)]
+                         [=owner =method] (within :types (&type/pick-matches =methods (map :type =args)))
+                         ;; :let [_ (prn '=method =owner ?method =method)]
+                         ]
+                    (return (annotated [::static-method =owner ?method =method =args] (&type/return-type =method))))
+                  (exec [=target (analyse-form* ?object)
+                         ?class (class-type (:type =target))
+                         =methods (lookup-method :dynamic ?class ?method (map :type =args))
+                         ;; :let [_ (prn '=methods =methods)]
+                         [=owner =method] (within :types (&type/pick-matches =methods (map :type =args)))
+                         ;; :let [_ (prn '=method =owner ?method =method)]
+                         ]
+                    (return (annotated [::dynamic-method =target =owner ?method =method =args] (&type/return-type =method))))]))))
 
 (defanalyser analyse-fn-call
   [::&parser/fn-call ?fn ?args]
@@ -415,8 +498,7 @@
               analyse-tuple
               analyse-lambda
               analyse-ident
-              analyse-static-access
-              analyse-dynamic-access
+              analyse-access
               analyse-fn-call
               analyse-if
               analyse-do

@@ -101,6 +101,11 @@
         [::failure _]
         output))))
 
+(defn assert! [test message]
+  (if test
+    (return nil)
+    (fail message)))
+
 (defn comp-m [f-m g-m]
   (exec [temp g-m]
     (f-m temp)))

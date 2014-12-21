@@ -158,15 +158,11 @@
          =record (apply-m parse-form (list ?record))]
     (return [::set ?tag =value =record])))
 
-(defparser ^:private parse-static-access
-  [::&lexer/list ([[::&lexer/ident "_.."] [::&lexer/ident ?class] [::&lexer/ident ?member]] :seq)]
-  (return [::static-access ?class ?member]))
-
-(defparser ^:private parse-dynamic-access
-  [::&lexer/list ([[::&lexer/ident "_."] ?object ?call] :seq)]
+(defparser ^:private parse-access
+  [::&lexer/list ([[::&lexer/ident "::"] ?object ?call] :seq)]
   (exec [=object (apply-m parse-form (list ?object))
          =call (apply-m parse-form (list ?call))]
-    (return [::dynamic-access =object =call])))
+    (return [::access =object =call])))
 
 (defparser ^:private parse-string
   [::&lexer/string ?string]
@@ -199,8 +195,7 @@
               parse-get
               parse-set
               parse-remove
-              parse-static-access
-              parse-dynamic-access
+              parse-access
               parse-defclass
               parse-definterface
               parse-import

@@ -67,6 +67,14 @@
     [::&type/function ?args ?return]
     (->java-sig [::&type/object "test2/Function" []])))
 
+(defn ^:private method->sig [method]
+  (match method
+    [::&type/function ?args ?return]
+    (str "(" (apply str (map ->java-sig ?args)) ")"
+         (if (= ::&type/nothing ?return)
+           "V"
+           (->java-sig ?return)))))
+
 ;; [Utils/Compilers]
 (defcompiler ^:private compile-literal
   [::&analyser/literal ?literal]
@@ -180,19 +188,45 @@
               (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
         )))
 
-(defcompiler ^:private compile-static-access
-  [::&analyser/static-access ?class ?member]
-  (doto *writer*
-    (.visitFieldInsn Opcodes/GETSTATIC (->class ?class) ?member (->type-signature "java.io.PrintStream"))))
+(defcompiler ^:private compile-static-field
+  [::&analyser/static-field ?owner ?field]
+  (do ;; (prn 'compile-static-field ?owner ?field)
+      ;; (assert false)
+      (doto *writer*
+        (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner) ?field (->java-sig *type*)))
+    ))
 
-(defcompiler ^:private compile-dynamic-access
-  [::&analyser/dynamic-access ?object [?method ?args]]
-  (do (compile-form (assoc *state* :form ?object))
-    (doseq [arg ?args]
-      (compile-form (assoc *state* :form arg)))
-    (doto *writer*
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.io.PrintStream") ?method "(Ljava/lang/Object;)V")
-      (.visitInsn Opcodes/ACONST_NULL))))
+(defcompiler ^:private compile-dynamic-field
+  [::&analyser/dynamic-field ?target ?owner ?field]
+  (do ;; (prn 'compile-static-field ?owner ?field)
+      ;; (assert false)
+      (compile-form (assoc *state* :form ?target))
+      (doto *writer*
+        (.visitFieldInsn Opcodes/GETFIELD (->class ?owner) ?field (->java-sig *type*)))
+    ))
+
+(defcompiler ^:private compile-static-method
+  [::&analyser/static-method ?owner ?method-name ?method-type ?args]
+  (do ;; (prn 'compile-dynamic-access ?target ?owner ?method-name ?method-type ?args)
+      ;; (assert false)
+      (do (doseq [arg ?args]
+            (compile-form (assoc *state* :form arg)))
+        (doto *writer*
+          (.visitMethodInsn Opcodes/INVOKESTATIC (->class ?owner) ?method-name (method->sig ?method-type))
+          (.visitInsn Opcodes/ACONST_NULL)))
+    ))
+
+(defcompiler ^:private compile-dynamic-method
+  [::&analyser/dynamic-method ?target ?owner ?method-name ?method-type ?args]
+  (do ;; (prn 'compile-dynamic-access ?target ?owner ?method-name ?method-type ?args)
+    ;; (assert false)
+    (do (compile-form (assoc *state* :form ?target))
+      (doseq [arg ?args]
+        (compile-form (assoc *state* :form arg)))
+      (doto *writer*
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class ?owner) ?method-name (method->sig ?method-type))
+        (.visitInsn Opcodes/ACONST_NULL)))
+    ))
 
 (defcompiler ^:private compile-if
   [::&analyser/if ?test ?then ?else]
@@ -595,8 +629,10 @@
                    compile-captured
                    compile-global
                    compile-call
-                   compile-static-access
-                   compile-dynamic-access
+                   compile-static-field
+                   compile-dynamic-field
+                   compile-static-method
+                   compile-dynamic-method
                    compile-if
                    compile-do
                    compile-case
