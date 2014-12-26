@@ -288,46 +288,87 @@
   (defcompiler ^:private compile-case
     ;; [::&analyser/case ?variant ?branches]
     [::&analyser/case ?base ?variant ?registers ?branches]
-    (do ;; (prn [:case ?base ?variant ?registers ?branches])
-      (match (:form ?base)
-        [::&analyser/local _ ?base-idx]
-        (let [start-label (new Label)
-              end-label (new Label)]
-          (dotimes [idx ?registers]
-            (.visitLocalVariable *writer* (str "__" idx "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx idx)))
-          (.visitLabel *writer* start-label)
-          (compile-form (assoc *state* :form ?variant))
-          (.visitVarInsn *writer* Opcodes/ASTORE ?base-idx)
-          (let [variant-class* (->class +variant-class+)]
+    (let [variant-class* (->class +variant-class+)]
+      ;; (prn [:case ?base ?variant ?registers ?branches])
+        (match (:form ?base)
+          [::&analyser/local _ ?base-idx]
+          (let [start-label (new Label)
+                end-label (new Label)
+                default-label (new Label)]
+            (dotimes [idx ?registers]
+              (.visitLocalVariable *writer* (str "__" idx "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx idx)))
+            (.visitLabel *writer* start-label)
+            (compile-form (assoc *state* :form ?variant))
+            (.visitTypeInsn *writer* Opcodes/CHECKCAST variant-class*)
+            (.visitVarInsn *writer* Opcodes/ASTORE ?base-idx)
             (doseq [?branch ?branches
                     :let [else-label (new Label)]]
               (match ?branch
                 [::&analyser/branch-adt ?tag ?members ?body]
-                (let [tuple-class (str "test2/Tuple" (count ?members))]
-                  (when (not (empty? ?members))
-                    (do (doto *writer*
-                          (.visitVarInsn Opcodes/ALOAD ?base-idx)
-                          (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
-                          (.visitTypeInsn Opcodes/CHECKCAST tuple-class))
-                      (doseq [[?tfield member] (map vector (range (count ?members)) ?members)]
-                        (match member
-                          [:lang.analyser/local 0 ?idx]
+                (doto *writer*
+                  (.visitVarInsn Opcodes/ALOAD ?base-idx)
+                  (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" (->type-signature "java.lang.String"))
+                  (.visitLdcInsn ?tag)
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
+                  (.visitJumpInsn Opcodes/IFEQ else-label)
+                  (do (when (not (empty? ?members))
+                        (let [tuple-class (str "test2/Tuple" (count ?members))
+                              mk-sub-fold (fn mk-sub-fold [cleanup-level default-label tuple-class]
+                                            (fn sub-fold [?tfield member]
+                                              (let [next-label (new Label)]
+                                                (match member
+                                                  [::&analyser/local 0 ?idx]
+                                                  (doto *writer*
+                                                    (.visitInsn Opcodes/DUP)
+                                                    (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
+                                                    (.visitVarInsn Opcodes/ASTORE ?idx))
+
+                                                  [::&analyser/subcase ?subtag ?submembers]
+                                                  (let [tuple-class* (str "test2/Tuple" (count ?submembers))
+                                                        cleanup-label (new Label)]
+                                                    (doto *writer*
+                                                      (.visitInsn Opcodes/DUP)
+                                                      (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
+                                                      (.visitTypeInsn Opcodes/CHECKCAST variant-class*)
+                                                      (.visitInsn Opcodes/DUP)
+                                                      (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" (->type-signature "java.lang.String"))
+                                                      (.visitLdcInsn ?subtag)
+                                                      (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
+                                                      (.visitJumpInsn Opcodes/IFEQ cleanup-label)
+                                                      (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
+                                                      (.visitTypeInsn Opcodes/CHECKCAST tuple-class*)
+                                                      (do (dorun (map (mk-sub-fold (inc cleanup-level) default-label tuple-class*)
+                                                                      (range (count ?submembers))
+                                                                      ?submembers)))
+                                                      (.visitInsn Opcodes/POP)
+                                                      (.visitJumpInsn Opcodes/GOTO next-label)
+                                                      (.visitLabel cleanup-label)
+                                                      (-> (doto (.visitInsn Opcodes/POP))
+                                                          (->> (dotimes [_ (inc cleanup-level)])))
+                                                      (.visitJumpInsn Opcodes/GOTO default-label)
+                                                      (.visitLabel next-label)
+                                                      ))))))]
                           (doto *writer*
-                            (.visitInsn Opcodes/DUP)
-                            (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
-                            (.visitVarInsn Opcodes/ASTORE ?idx))))
-                      (.visitInsn *writer* Opcodes/POP)))
-                  (doto *writer*
-                    (.visitVarInsn Opcodes/ALOAD ?base-idx)
-                    (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" (->type-signature "java.lang.String"))
-                    (.visitLdcInsn ?tag)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
-                    (.visitJumpInsn Opcodes/IFEQ else-label)
-                    (do (compile-form (assoc *state* :form ?body)))
-                    (.visitJumpInsn Opcodes/GOTO end-label)
-                    (.visitLabel else-label))))))
-          (.visitInsn *writer* Opcodes/ACONST_NULL)
-          (.visitLabel *writer* end-label)))
+                            (.visitVarInsn Opcodes/ALOAD ?base-idx)
+                            (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
+                            (.visitTypeInsn Opcodes/CHECKCAST tuple-class))
+                          (dorun (map (mk-sub-fold 1 default-label tuple-class)
+                                      (range (count ?members))
+                                      ?members))
+                          (.visitInsn *writer* Opcodes/POP)))
+                    (compile-form (assoc *state* :form ?body)))
+                  (.visitJumpInsn Opcodes/GOTO end-label)
+                  (.visitLabel else-label))))
+            ;; Default branch
+            (let [ex-class (->class "java.lang.IllegalStateException")]
+              (doto *writer*
+                (.visitLabel default-label)
+                (.visitInsn Opcodes/ACONST_NULL)
+                (.visitTypeInsn Opcodes/NEW ex-class)
+                (.visitInsn Opcodes/DUP)
+                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+                (.visitInsn Opcodes/ATHROW)))
+            (.visitLabel *writer* end-label)))
       )))
 
 (defcompiler ^:private compile-let

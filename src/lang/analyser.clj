@@ -445,21 +445,36 @@
                                                              (with-anon-locals num-members
                                                                (fn [=locals]
                                                                  ;; (prn '?branch/=locals (map :form =locals))
-                                                                 (exec [=members (reduce-m (fn [[locals-map =members] [?local ?member]]
-                                                                                             (match ?member
-                                                                                               [::&parser/ident ?name]
-                                                                                               (return [(assoc locals-map ?name ?local) (conj =members (:form ?local))])))
-                                                                                           [{} []]
-                                                                                           (map vector =locals ?members))
+                                                                 (exec [[inner-num locals+ members+] (reduce-m (fn member-fold [[?inner-num locals-map =members] [?local ?member]]
+                                                                                                                 (match ?member
+                                                                                                                   [::&parser/ident ?name]
+                                                                                                                   (return [?inner-num
+                                                                                                                            (assoc locals-map ?name ?local)
+                                                                                                                            (conj =members (:form ?local))])
+
+                                                                                                                   [::&parser/variant ?subtag ?submembers]
+                                                                                                                   (let [num-submembers (count ?submembers)]
+                                                                                                                     (with-anon-locals num-submembers
+                                                                                                                       (fn [=sublocals]
+                                                                                                                         (exec [[subinner-num sublocals+ submembers+] (reduce-m member-fold [0 {} []] (map vector =sublocals ?submembers))
+                                                                                                                                ;; :let [_ (prn 'subinner-num subinner-num 'sublocals+ sublocals+ 'submembers+ submembers+)]
+                                                                                                                                ]
+                                                                                                                           (return [(+ ?inner-num num-submembers subinner-num)
+                                                                                                                                    (merge locals-map sublocals+)
+                                                                                                                                    (conj =members [::subcase ?subtag submembers+])])))))
+                                                                                                                   ))
+                                                                                                               [0 {} []]
+                                                                                                               (map vector =locals ?members))
+                                                                        ;; :let [_ (prn 'inner-num inner-num 'locals+ locals+ 'members+ members+)]
                                                                         ;; :let [_ (prn (first =members) ?body)]
-                                                                        =body (with-locals (first =members)
+                                                                        =body (with-locals locals+
                                                                                 (analyse-form* ?body))
                                                                         ;; :let [_ (prn '?body ?body =body)]
                                                                         ]
-                                                                   (return [num-members [::branch-adt ?tag (second =members) =body]])))))))
+                                                                   (return [(+ num-members inner-num) [::branch-adt ?tag members+ =body]])))))))
                                                        ?branches)]
                                  (return [(first =locals) =branches]))))
-         :let [total-registers (reduce + 1 (map first =branches))
+         :let [total-registers (+ 1 (reduce max 0 (map first =branches)))
                ;; _ (prn '=branches total-registers (map second =branches))
                ;; _ (assert false)
                ]
