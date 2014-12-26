@@ -137,10 +137,19 @@
                     [?member [(map ident->string ?inputs) (ident->string ?output)]]))]
     (return [::definterface ?name members])))
 
-(defparser ^:private parse-tagged
-  [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
-  (exec [=data (apply-m parse-form (list ?data))]
-    (return [::tagged ?tag =data])))
+(defparser ^:private parse-variant
+  ?token
+  (match ?token
+    [::&lexer/tag ?tag]
+    (return [::variant ?tag '()])
+
+    [::&lexer/list ([[::&lexer/tag ?tag] & ?data] :seq)]
+    (exec [=data (map-m #(apply-m parse-form (list %))
+                        ?data)]
+      (return [::variant ?tag =data]))
+
+    _
+    (fail (str "Unmatched token: " ?token))))
 
 (defparser ^:private parse-get
   [::&lexer/list ([[::&lexer/ident "get@"] [::&lexer/tag ?tag] ?record] :seq)]
@@ -191,7 +200,7 @@
               parse-do
               parse-case
               parse-let
-              parse-tagged
+              parse-variant
               parse-get
               parse-set
               parse-remove

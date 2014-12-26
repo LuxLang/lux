@@ -59,14 +59,14 @@
     (match (monad state)
       [::ok [?state ?head]]
       (do ;; (prn 'repeat-m/?state ?state)
-        (match ((repeat-m monad) ?state)
-          [::ok [?state* ?tail]]
-          (do ;; (prn 'repeat-m/?state* ?state*)
-            (return* ?state* (cons ?head ?tail)))))
+          (match ((repeat-m monad) ?state)
+            [::ok [?state* ?tail]]
+            (do ;; (prn 'repeat-m/?state* ?state*)
+                (return* ?state* (cons ?head ?tail)))))
       
       [::failure ?message]
       (do ;; (println "Failed at last:" ?message)
-        (return* state '())))))
+          (return* state '())))))
 
 (defn try-all-m [monads]
   (fn [state]
@@ -88,6 +88,12 @@
     (exec [output (f (first inputs))
            outputs (map-m f (rest inputs))]
       (return (conj outputs output)))))
+
+(defn reduce-m [f init inputs]
+  (if (empty? inputs)
+    (return init)
+    (exec [init* (f init (first inputs))]
+      (reduce-m f init* (rest inputs)))))
 
 (defn apply-m [monad call-state]
   (fn [state]

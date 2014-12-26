@@ -20,7 +20,29 @@
   (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
     (.write stream data)))
 
-(def ^:private +variant-class+ "test2.Tagged")
+(defn ^:private normalize-char [char]
+  (case char
+    \* "_ASTER_"
+    \+ "_PLUS_"
+    \- "_DASH_"
+    \/ "_SLASH_"
+    \_ "_UNDERS_"
+    \% "_PERCENT_"
+    \$ "_DOLLAR_"
+    \! "_BANG_"
+    \' "_QUOTE_"
+    \` "_BQUOTE_"
+    \@ "_AT_"
+    \^ "_CARET_"
+    \& "_AMPERS_"
+    \= "_EQ_"
+    ;; default
+    char))
+
+(defn ^:private normalize-ident [ident]
+  (reduce str "" (map normalize-char ident)))
+
+(def ^:private +variant-class+ "test2.Variant")
 
 (defmacro ^:private defcompiler [name match body]
   `(defn ~name [~'*state*]
@@ -28,6 +50,7 @@
            ~'*writer* (:writer ~'*state*)
            ~'*parent* (:parent ~'*state*)
            ~'*type* (:type (:form ~'*state*))]
+       ;; (prn '~name (:form (:form ~'*state*)))
        (match (:form (:form ~'*state*))
          ~match
          (do ~body
@@ -58,6 +81,9 @@
 
 (defn ^:private ->java-sig [type]
   (match type
+    ::&type/any
+    (->java-sig [::&type/object "java.lang.Object" []])
+    
     [::&type/object ?name []]
     (->type-signature ?name)
 
@@ -143,7 +169,7 @@
   (do ;; (prn 'GLOBAL ?owner-class ?name *type*)
       ;; (prn 'compile-global (->class (str ?owner-class "$" ?name)) "_datum")
       (doto *writer*
-        (.visitFieldInsn Opcodes/GETSTATIC (->class (str ?owner-class "$" ?name)) "_datum" "Ljava/lang/Object;" ;; (->java-sig *type*)
+        (.visitFieldInsn Opcodes/GETSTATIC (->class (str ?owner-class "$" (normalize-ident ?name))) "_datum" "Ljava/lang/Object;" ;; (->java-sig *type*)
                          ))))
 
 ;; (defcompiler ^:private compile-call
@@ -169,7 +195,7 @@
               signature (if (> (count ?args) 1)
                           (str "(" (apply str counter-sig (repeat (dec num-args) clo-field-sig)) ")" "V")
                           (str "()" "V"))
-              call-class (str (->class ?owner-class) "$" ?fn-name)]
+              call-class (str (->class ?owner-class) "$" (normalize-ident ?fn-name))]
           (doto *writer*
             (.visitTypeInsn Opcodes/NEW call-class)
             (.visitInsn Opcodes/DUP)
@@ -220,14 +246,15 @@
 
 (defcompiler ^:private compile-dynamic-method
   [::&analyser/dynamic-method ?target ?owner ?method-name ?method-type ?args]
-  (do ;; (prn 'compile-dynamic-access ?target ?owner ?method-name ?method-type ?args)
+  (do ;; (prn 'compile-dynamic-method ?target ?owner ?method-name ?method-type ?args)
       ;; (assert false)
       (do (compile-form (assoc *state* :form ?target))
         (doseq [arg ?args]
           (compile-form (assoc *state* :form arg)))
         (doto *writer*
           (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class ?owner) ?method-name (method->sig ?method-type))
-          (.visitInsn Opcodes/ACONST_NULL)))
+          (.visitInsn Opcodes/ACONST_NULL)
+          ))
     ))
 
 (defcompiler ^:private compile-if
@@ -235,16 +262,18 @@
   (let [else-label (new Label)
         end-label (new Label)]
     ;; (println "PRE")
-    (assert (compile-form (assoc *state* :form ?test)) "CAN't COMPILE TEST")
+    (compile-form (assoc *state* :form ?test))
     (doto *writer*
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Boolean") "booleanValue" "()Z")
       (.visitJumpInsn Opcodes/IFEQ else-label))
     ;; (prn 'compile-if/?then (:form ?then))
-    (assert (compile-form (assoc *state* :form ?then)) "CAN't COMPILE THEN")
+    (compile-form (assoc *state* :form ?then))
+    ;; (.visitInsn *writer* Opcodes/POP)
     (doto *writer*
       (.visitJumpInsn Opcodes/GOTO end-label)
       (.visitLabel else-label))
-    (assert (compile-form (assoc *state* :form ?else)) "CAN't COMPILE ELSE")
+    (compile-form (assoc *state* :form ?else))
+    ;; (.visitInsn *writer* Opcodes/POP)
     (.visitLabel *writer* end-label)))
 
 (defcompiler ^:private compile-do
@@ -257,34 +286,48 @@
 (let [oclass (->class "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
   (defcompiler ^:private compile-case
-    [::&analyser/case ?variant ?branches]
-    (do (compile-form (assoc *state* :form ?variant))
-      (let [end-label (new Label)]
-        (doseq [[?tag ?label ?idx ?body] ?branches]
-          ;; (prn '[?tag ?label ?idx ?body] [?tag ?label ?idx ?body])
-          (let [else-label (new Label)]
-            (doto *writer*
-              (.visitInsn Opcodes/DUP)
-              (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "tag" "Ljava/lang/String;")
-              (.visitLdcInsn ?tag)
-              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
-              (.visitJumpInsn Opcodes/IFEQ else-label))
-            (let [start-label (new Label)
-                  end-label (new Label)]
-              (doto *writer*
-                (.visitInsn Opcodes/DUP)
-                (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "value" (->type-signature "java.lang.Object")))
-              (.visitLocalVariable *writer* ?label (->type-signature "java.lang.Object") nil start-label end-label ?idx)
-              (doto *writer*
-                (.visitVarInsn Opcodes/ASTORE ?idx)
-                (.visitLabel start-label)
-                (.visitInsn Opcodes/POP))
-              (compile-form (assoc *state* :form ?body))
-              (.visitLabel *writer* end-label))
-            (doto *writer*
-              (.visitJumpInsn Opcodes/GOTO end-label)
-              (.visitLabel else-label))))
-        (.visitLabel *writer* end-label))
+    ;; [::&analyser/case ?variant ?branches]
+    [::&analyser/case ?base ?variant ?registers ?branches]
+    (do ;; (prn [:case ?base ?variant ?registers ?branches])
+      (match (:form ?base)
+        [::&analyser/local _ ?base-idx]
+        (let [start-label (new Label)
+              end-label (new Label)]
+          (dotimes [idx ?registers]
+            (.visitLocalVariable *writer* (str "__" idx "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx idx)))
+          (.visitLabel *writer* start-label)
+          (compile-form (assoc *state* :form ?variant))
+          (.visitVarInsn *writer* Opcodes/ASTORE ?base-idx)
+          (let [variant-class* (->class +variant-class+)]
+            (doseq [?branch ?branches
+                    :let [else-label (new Label)]]
+              (match ?branch
+                [::&analyser/branch-adt ?tag ?members ?body]
+                (let [tuple-class (str "test2/Tuple" (count ?members))]
+                  (when (not (empty? ?members))
+                    (do (doto *writer*
+                          (.visitVarInsn Opcodes/ALOAD ?base-idx)
+                          (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
+                          (.visitTypeInsn Opcodes/CHECKCAST tuple-class))
+                      (doseq [[?tfield member] (map vector (range (count ?members)) ?members)]
+                        (match member
+                          [:lang.analyser/local 0 ?idx]
+                          (doto *writer*
+                            (.visitInsn Opcodes/DUP)
+                            (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
+                            (.visitVarInsn Opcodes/ASTORE ?idx))))
+                      (.visitInsn *writer* Opcodes/POP)))
+                  (doto *writer*
+                    (.visitVarInsn Opcodes/ALOAD ?base-idx)
+                    (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" (->type-signature "java.lang.String"))
+                    (.visitLdcInsn ?tag)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
+                    (.visitJumpInsn Opcodes/IFEQ else-label)
+                    (do (compile-form (assoc *state* :form ?body)))
+                    (.visitJumpInsn Opcodes/GOTO end-label)
+                    (.visitLabel else-label))))))
+          (.visitInsn *writer* Opcodes/ACONST_NULL)
+          (.visitLabel *writer* end-label)))
       )))
 
 (defcompiler ^:private compile-let
@@ -293,7 +336,7 @@
         end-label (new Label)
         ?idx (int ?idx)]
     ;; (prn '(:type ?value) (:type ?value) (->java-sig (:type ?value)))
-    (.visitLocalVariable *writer* ?label (->java-sig (:type ?value)) nil start-label end-label ?idx)
+    (.visitLocalVariable *writer* (normalize-ident ?label) (->java-sig (:type ?value)) nil start-label end-label ?idx)
     (assert (compile-form (assoc *state* :form ?value)) "CAN't COMPILE LET-VALUE")
     (doto *writer*
       (.visitVarInsn Opcodes/ASTORE ?idx)
@@ -307,7 +350,7 @@
         counter-sig "I"
         apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
         real-signature (str "(" (apply str (repeat num-args clo-field-sig)) ")" "Ljava/lang/Object;")
-        current-class (str outer-class "$" fn-name)
+        current-class (str outer-class "$" (normalize-ident fn-name))
         num-captured (dec num-args)
         init-signature (if (not= 0 num-captured)
                          (str "(" (apply str counter-sig (repeat num-captured clo-field-sig)) ")" "V")
@@ -420,7 +463,7 @@
                     =method (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) ?name signature nil nil)
                               (.visitCode))]
                 ;; (prn 'FN/?body ?body)
-                (assert (compile-form (assoc *state* :parent *writer* :writer =method :form ?body)) (str "Body couldn't compile: " (pr-str ?body)))
+                (compile-form (assoc *state* :parent *writer* :writer =method :form ?body))
                 (doto =method
                   (.visitInsn Opcodes/RETURN)
                   (.visitMaxs 0 0)
@@ -605,7 +648,7 @@
       (.write stream (.toByteArray =interface)))))
 
 (defcompiler ^:private compile-variant
-  [::&analyser/variant ?tag ?value]
+  [::&analyser/variant ?tag ?members]
   (let [variant-class* (->class +variant-class+)]
     ;; (prn 'compile-variant ?tag ?value)
     (doto *writer*
@@ -614,9 +657,18 @@
       (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
       (.visitInsn Opcodes/DUP)
       (.visitLdcInsn ?tag)
-      (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" "Ljava/lang/String;")
+      (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (->type-signature "java.lang.String"))
       (.visitInsn Opcodes/DUP))
-    (assert (compile-form (assoc *state* :form ?value)) (pr-str "Can't compile value: " ?value))
+    (let [tuple-class (str "test2/Tuple" (count ?members))]
+      (doto *writer*
+        (.visitTypeInsn Opcodes/NEW tuple-class)
+        (.visitInsn Opcodes/DUP)
+        (.visitMethodInsn Opcodes/INVOKESPECIAL tuple-class "<init>" "()V"))
+      (doseq [[?tfield ?member] (mapv vector (range (count ?members)) ?members)]
+        (doto *writer*
+          (.visitInsn Opcodes/DUP)
+          (do (compile-form (assoc *state* :form ?member)))
+          (.visitFieldInsn Opcodes/PUTFIELD tuple-class (str "_" ?tfield) "Ljava/lang/Object;"))))
     (doto *writer*
       (.visitFieldInsn Opcodes/PUTFIELD variant-class* "value" "Ljava/lang/Object;"))
     ))
@@ -681,13 +733,15 @@
       (when (not (compile-form (assoc state :form input)))
         (assert false input)))
     (.visitEnd =class)
-    (.toByteArray =class))
+    (let [=array (.toByteArray =class)]
+      ;; (prn 'compile class-name =array)
+      =array))
 
-  (comment
-    (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
-    (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2.Function"))
-    (let [test2 (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
-          main (first (.getDeclaredMethods test2))]
-      (.invoke main nil (to-array [nil])))
-    )
+  ;; (comment
+  ;;   (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
+  ;;   (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2.Function"))
+  ;;   (let [test2 (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
+  ;;         main (first (.getDeclaredMethods test2))]
+  ;;     (.invoke main nil (to-array [nil])))
+  ;;   )
   )
