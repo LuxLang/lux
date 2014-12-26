@@ -315,17 +315,32 @@
                         (let [tuple-class (str "test2/Tuple" (count ?members))
                               mk-sub-fold (fn mk-sub-fold [cleanup-level default-label tuple-class]
                                             (fn sub-fold [?tfield member]
-                                              (let [next-label (new Label)]
+                                              (let [next-label (new Label)
+                                                    cleanup-label (new Label)]
                                                 (match member
                                                   [::&analyser/local 0 ?idx]
                                                   (doto *writer*
                                                     (.visitInsn Opcodes/DUP)
                                                     (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
-                                                    (.visitVarInsn Opcodes/ASTORE ?idx))
+                                                    (.visitVarInsn Opcodes/ASTORE ?idx)
+                                                    (.visitLabel next-label))
+
+                                                  [::&analyser/match-text ?text]
+                                                  (doto *writer*
+                                                    (.visitInsn Opcodes/DUP)
+                                                    (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
+                                                    (.visitLdcInsn ?text)
+                                                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
+                                                    (.visitJumpInsn Opcodes/IFEQ cleanup-label)
+                                                    (.visitJumpInsn Opcodes/GOTO next-label)
+                                                    (.visitLabel cleanup-label)
+                                                    (-> (doto (.visitInsn Opcodes/POP))
+                                                        (->> (dotimes [_ cleanup-level])))
+                                                    (.visitJumpInsn Opcodes/GOTO default-label)
+                                                    (.visitLabel next-label))
 
                                                   [::&analyser/subcase ?subtag ?submembers]
-                                                  (let [tuple-class* (str "test2/Tuple" (count ?submembers))
-                                                        cleanup-label (new Label)]
+                                                  (let [tuple-class* (str "test2/Tuple" (count ?submembers))]
                                                     (doto *writer*
                                                       (.visitInsn Opcodes/DUP)
                                                       (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
@@ -352,7 +367,7 @@
                             (.visitVarInsn Opcodes/ALOAD ?base-idx)
                             (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
                             (.visitTypeInsn Opcodes/CHECKCAST tuple-class))
-                          (dorun (map (mk-sub-fold 1 default-label tuple-class)
+                          (dorun (map (mk-sub-fold 1 else-label tuple-class)
                                       (range (count ?members))
                                       ?members))
                           (.visitInsn *writer* Opcodes/POP)))

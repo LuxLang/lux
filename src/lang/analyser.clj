@@ -452,6 +452,11 @@
                                                                                                                             (assoc locals-map ?name ?local)
                                                                                                                             (conj =members (:form ?local))])
 
+                                                                                                                   [::&parser/string ?text]
+                                                                                                                   (return [?inner-num
+                                                                                                                            locals-map
+                                                                                                                            (conj =members [::match-text ?text])])
+
                                                                                                                    [::&parser/variant ?subtag ?submembers]
                                                                                                                    (let [num-submembers (count ?submembers)]
                                                                                                                      (with-anon-locals num-submembers
