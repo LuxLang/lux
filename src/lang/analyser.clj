@@ -535,6 +535,11 @@
          ;; :let [_ (prn 'analyse-case '$base $base)]
          [registers mappings tree] (exec [=branches (map-m (fn [?branch]
                                                              (match ?branch
+                                                               [::&parser/case-branch [::&parser/ident ?name] ?body]
+                                                               (exec [=body (with-locals {?name (annotated [::local $scope $base] [::&type/object "java.lang.Object" []])}
+                                                                              (analyse-form* ?body))]
+                                                                 (return [::&parser/case-branch [::&parser/ident ?name] =body]))
+
                                                                [::&parser/case-branch [::&parser/variant ?tag ?members] ?body]
                                                                (exec [[_ locals+] (reduce-m (fn member-fold [[$local locals-map] ?member]
                                                                                               (match ?member

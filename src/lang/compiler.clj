@@ -290,7 +290,7 @@
       +tuple-field-sig+ (->type-signature "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
   (defn compile-decision-tree [writer mappings cleanup-level next-label default-label decision-tree]
-    ;; (prn 'compile-decision-tree cleanup-level decision-tree)
+    (prn 'compile-decision-tree cleanup-level decision-tree)
     (match decision-tree
       [::test-text ?text $body]
       (let [$else (new Label)]
@@ -307,9 +307,11 @@
               (->> (dotimes [_ (inc cleanup-level)])))
           (.visitJumpInsn Opcodes/GOTO default-label)))
       
-      [::store [::&analyser/local 0 ?idx] _]
-      ;; object
-      (.visitVarInsn writer Opcodes/ASTORE ?idx) ;; 
+      [::store [::&analyser/local 0 ?idx] $body]
+      (doto writer
+        (.visitVarInsn Opcodes/ASTORE ?idx)
+        (-> (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+            (->> (when (nil? next-label)))))
       
       [::test-adt ?branches ?cases]
       (doto writer
@@ -323,7 +325,8 @@
               (.visitJumpInsn Opcodes/IFEQ tag-else-label) ;; variant, tag
               (.visitInsn Opcodes/POP) ;; variant
               (do (let [arity (-> ?subcases first (nth 2) count)
-                        tuple-class (str "test2/Tuple" arity)]
+                        tuple-class (str "test2/Tuple" arity)
+                        _ (prn ?tag arity tuple-class)]
                     (when (> arity 0)
                       (doto writer
                         (.visitInsn Opcodes/DUP) ;; variant, variant
@@ -352,14 +355,48 @@
               ;; variant, tag ->
               (.visitLabel tag-else-label))
             (->> (doseq [[?tag ?subcases] ?cases
+                         :let [_ (.print System/out (prn-str 'COMPILE-PATTERN ?tag ?subcases))]
                          :let [tag-else-label (new Label)]])))
         (-> (doto (.visitInsn Opcodes/POP))
             (->> (dotimes [_ (+ cleanup-level 2)])))
         (.visitJumpInsn Opcodes/GOTO default-label)))
     ))
 
+;; ([:lang.compiler/subcase 0 ([:lang.compiler/test-adt #{0} {"Symbol" ()}]
+;;                             [:lang.compiler/test-adt #{0} {"Nil" ([:lang.compiler/subcase 0 ()])}])]
+;;  [:lang.compiler/subcase 0 ([:lang.compiler/test-adt #{0} {"Symbol" ()}]
+;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])]
+;;  [:lang.compiler/subcase 0 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
+;;                             [:lang.compiler/test-adt #{0} {"Nil" ([:lang.compiler/subcase 0 ()])}])]
+;;  [:lang.compiler/subcase 0 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
+;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])]
+;;  [:lang.compiler/subcase 1 ([:lang.compiler/test-adt #{1} {"Symbol" ([:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 1])])}]
+;;                             [:lang.compiler/test-adt #{1} {"Nil" ()}])]
+;;  [:lang.compiler/subcase 1 ([:lang.compiler/test-adt #{1} {"Symbol" ([:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 1])])}]
+;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])]
+;;  [:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
+;;                             [:lang.compiler/test-adt #{0} {"Nil" ([:lang.compiler/subcase 0 ()])}])]
+;;  [:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
+;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])])
+
+;; ({:type :lang.analyser/adt*,
+;;   :patterns {"Cons" {:parts ({:type :lang.analyser/adt*,
+;;                               :patterns {"Symbol" {:parts ({:type :lang.analyser/defaults,
+;;                                                             :stores {[:lang.analyser/local 0 1] #{1}},
+;;                                                             :branches #{1}}),
+;;                                                    :branches #{1}}},
+;;                               :default [:lang.analyser/default [:lang.analyser/local 0 1] 0],
+;;                               :branches #{0 1}}
+;;                              {:type :lang.analyser/adt*,
+;;                               :patterns {"Nil" {:parts (), :branches #{0}}},
+;;                               :default [:lang.analyser/default [:lang.analyser/local 0 2] 1],
+;;                               :branches #{0 1}}),
+;;                      :branches #{0 1}}},
+;;   :default nil,
+;;   :branches #{0 1}})
+
 (defn sequence-parts [branches parts]
-  ;; (.print System/out (prn-str 'sequence-parts branches parts))
+  (.print System/out (prn-str 'sequence-parts branches parts))
   (if (empty? parts)
     '(())
     (let [[head & tail] parts
@@ -382,18 +419,37 @@
                                [[::store ?local ?body] #{?body}]))
 
                      ::&analyser/adt*
-                     (do (assert (nil? (:default head)))
-                       (list (list [::test-adt branches (into {} (for [[?tag ?struct] (:patterns head)
-                                                                       :let [?supports (:branches ?struct)]]
-                                                                   [?tag (for [?body (set/intersection branches ?supports)
-                                                                               subseq (sequence-parts #{?body} (:parts ?struct))]
-                                                                           [::subcase ?body subseq])]))])))
+                     (do ;; (prn '(:default head) (:default head))
+                         ;; (assert (nil? (:default head)))
+                         (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
+                                                               :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
+                                                               :let [?parts (:parts ?struct)
+                                                                     num-parts (count ?parts)
+                                                                     ?supports (:branches ?struct)
+                                                                     subcases (for [?body (set/intersection branches ?supports)
+                                                                                    subseq (sequence-parts #{?body} ?parts)
+                                                                                    :let [_ (when (= "Symbol" ?tag)
+                                                                                              (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
+                                                                                    :when (= num-parts (count subseq))]
+                                                                                [::subcase ?body subseq])]
+                                                               :when (not (empty? subcases))]
+                                                           [?tag subcases]))]
+                                   (if (empty? patterns)
+                                     '()
+                                     (list [[::test-adt branches patterns]
+                                            branches])))
+                                 (if-let [[_ ?local ?body] (:default head)]
+                                   (for [?body (set/intersection branches #{?body})]
+                                     [[::store ?local ?body] #{?body}])
+                                   '())))
                      )]
       (for [[step branches*] expanded
             tail* (sequence-parts branches* tail)
             ;; :let [_ (.print System/out (prn-str 'tail* tail*))]
             ]
         (cons step tail*)))))
+
+(def !case-vars (atom -1))
 
 (let [oclass (->class "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")
@@ -412,21 +468,22 @@
                        [label ?body]])
             mappings* (into {} (map first entries))]
         (dotimes [idx ?max-registers]
-          (.visitLocalVariable *writer* (str "__" idx "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
+          (.visitLocalVariable *writer* (str "__" (swap! !case-vars inc) "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
         (compile-form (assoc *state* :form ?variant))
         (.visitLabel *writer* start-label)
         (let [default-label (new Label)
               default-code (:default ?decision-tree)]
-          (compile-decision-tree *writer* mappings* 0 nil default-label
-                                 (-> (sequence-parts (:branches ?decision-tree) (list ?decision-tree))
-                                     first first))
+          ;; (prn 'sequence-parts
+          ;;      (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))
+          (doseq [decision-tree (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
+            (compile-decision-tree *writer* mappings* 0 nil default-label decision-tree))
           (.visitLabel *writer* default-label)
-          (if default-code
-            (do (prn 'default-code default-code)
-              (assert false)
-              ;; (.visitInsn Opcodes/POP) ;; ...
-              (compile-form (assoc *state* :form default-code))
-              (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+          (when (not default-code)
+            ;; (do (prn 'default-code default-code)
+            ;;   (assert false)
+            ;;   ;; (.visitInsn Opcodes/POP) ;; ...
+            ;;   (compile-form (assoc *state* :form default-code))
+            ;;   (.visitJumpInsn *writer* Opcodes/GOTO end-label))
             (doto *writer*
               ;; (.visitInsn Opcodes/POP)
               (.visitTypeInsn Opcodes/NEW ex-class)
