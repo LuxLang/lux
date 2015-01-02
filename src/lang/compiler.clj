@@ -1,6 +1,7 @@
 (ns lang.compiler
   (:refer-clojure :exclude [compile])
   (:require [clojure.string :as string]
+            [clojure.set :as set]
             [clojure.core.match :refer [match]]
             (lang [type :as &type]
                   [lexer :as &lexer]
@@ -283,108 +284,163 @@
         (.visitInsn *writer* Opcodes/POP))
     (compile-form (assoc *state* :form (last ?exprs)))))
 
-(let [oclass (->class "java.lang.Object")
+(let [+tag-sig+ (->type-signature "java.lang.String")
+      variant-class* (->class +variant-class+)
+      oclass (->class "java.lang.Object")
+      +tuple-field-sig+ (->type-signature "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
+  (defn compile-decision-tree [writer mappings cleanup-level next-label default-label decision-tree]
+    ;; (prn 'compile-decision-tree cleanup-level decision-tree)
+    (match decision-tree
+      [::test-text ?text $body]
+      (let [$else (new Label)]
+        (doto writer
+          ;; object
+          (.visitInsn Opcodes/DUP) ;; object, object
+          (.visitLdcInsn ?text) ;; object, object, text
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; object, B
+          (.visitJumpInsn Opcodes/IFEQ $else) ;; object
+          (.visitInsn Opcodes/POP) ;; 
+          (.visitJumpInsn Opcodes/GOTO next-label)
+          (.visitLabel $else)
+          (-> (doto (.visitInsn Opcodes/POP))
+              (->> (dotimes [_ (inc cleanup-level)])))
+          (.visitJumpInsn Opcodes/GOTO default-label)))
+      
+      [::store [::&analyser/local 0 ?idx] _]
+      ;; object
+      (.visitVarInsn writer Opcodes/ASTORE ?idx) ;; 
+      
+      [::test-adt ?branches ?cases]
+      (doto writer
+        ;; object
+        (.visitTypeInsn Opcodes/CHECKCAST variant-class*) ;; variant
+        (.visitInsn Opcodes/DUP) ;; variant, variant
+        (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" +tag-sig+) ;; variant, tag
+        (-> (doto (.visitInsn Opcodes/DUP) ;; variant, tag, tag
+              (.visitLdcInsn ?tag) ;; variant, tag, tag, text
+              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; variant, tag, B
+              (.visitJumpInsn Opcodes/IFEQ tag-else-label) ;; variant, tag
+              (.visitInsn Opcodes/POP) ;; variant
+              (do (let [arity (-> ?subcases first (nth 2) count)
+                        tuple-class (str "test2/Tuple" arity)]
+                    (when (> arity 0)
+                      (doto writer
+                        (.visitInsn Opcodes/DUP) ;; variant, variant
+                        (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" +tuple-field-sig+) ;; variant, object
+                        (.visitTypeInsn Opcodes/CHECKCAST tuple-class) ;; variant, tuple
+                        ))
+                    (doseq [subcase ?subcases
+                            :let [else-label (new Label)]]
+                      (match subcase
+                        [::subcase $body ?subseq]
+                        (do (when (not (empty? ?subseq))
+                              (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
+                                      :let [next-label (new Label)]]
+                                (doto writer
+                                  (.visitInsn Opcodes/DUP) ;; variant, tuple, tuple
+                                  (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?subidx) +tuple-field-sig+) ;; variant, tuple, object
+                                  (compile-decision-tree mappings cleanup-level next-label else-label ?subpart) ;; variant, tuple
+                                  (.visitLabel next-label))))
+                          (doto writer
+                            (-> (doto (.visitInsn Opcodes/POP))
+                                (->> (dotimes [_ (+ cleanup-level (if (> arity 0) 2 1))]))) ;; 
+                            (.visitJumpInsn Opcodes/GOTO (or next-label (get mappings $body)))
+                            (.visitLabel else-label)))
+                        ))
+                    ))
+              ;; variant, tag ->
+              (.visitLabel tag-else-label))
+            (->> (doseq [[?tag ?subcases] ?cases
+                         :let [tag-else-label (new Label)]])))
+        (-> (doto (.visitInsn Opcodes/POP))
+            (->> (dotimes [_ (+ cleanup-level 2)])))
+        (.visitJumpInsn Opcodes/GOTO default-label)))
+    ))
+
+(defn sequence-parts [branches parts]
+  ;; (.print System/out (prn-str 'sequence-parts branches parts))
+  (if (empty? parts)
+    '(())
+    (let [[head & tail] parts
+          expanded (case (:type head)
+                     ::&analyser/defaults
+                     (for [[?local ?supports] (:stores head)
+                           ?body (set/intersection branches ?supports)
+                           ;; :when (set/subset? branches ?supports)
+                           ]
+                       [[::store ?local ?body] #{?body}])
+
+                     ::&analyser/text-tests
+                     (concat (for [[?text ?supports] (:patterns head)
+                                   ?body (set/intersection branches ?supports)
+                                   ;; :when (set/subset? branches ?supports)
+                                   ]
+                               [[::test-text ?text ?body] #{?body}])
+                             (for [[_ ?local ?body] (:defaults head)
+                                   :when (contains? branches ?body)]
+                               [[::store ?local ?body] #{?body}]))
+
+                     ::&analyser/adt*
+                     (do (assert (nil? (:default head)))
+                       (list (list [::test-adt branches (into {} (for [[?tag ?struct] (:patterns head)
+                                                                       :let [?supports (:branches ?struct)]]
+                                                                   [?tag (for [?body (set/intersection branches ?supports)
+                                                                               subseq (sequence-parts #{?body} (:parts ?struct))]
+                                                                           [::subcase ?body subseq])]))])))
+                     )]
+      (for [[step branches*] expanded
+            tail* (sequence-parts branches* tail)
+            ;; :let [_ (.print System/out (prn-str 'tail* tail*))]
+            ]
+        (cons step tail*)))))
+
+(let [oclass (->class "java.lang.Object")
+      equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")
+      ex-class (->class "java.lang.IllegalStateException")]
   (defcompiler ^:private compile-case
     ;; [::&analyser/case ?variant ?branches]
-    [::&analyser/case ?base ?variant ?registers ?branches]
-    (let [variant-class* (->class +variant-class+)]
-      ;; (prn [:case ?base ?variant ?registers ?branches])
-        (match (:form ?base)
-          [::&analyser/local _ ?base-idx]
-          (let [start-label (new Label)
-                end-label (new Label)
-                default-label (new Label)]
-            (dotimes [idx ?registers]
-              (.visitLocalVariable *writer* (str "__" idx "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx idx)))
-            (.visitLabel *writer* start-label)
-            (compile-form (assoc *state* :form ?variant))
-            (.visitTypeInsn *writer* Opcodes/CHECKCAST variant-class*)
-            (.visitVarInsn *writer* Opcodes/ASTORE ?base-idx)
-            (doseq [?branch ?branches
-                    :let [else-label (new Label)]]
-              (match ?branch
-                [::&analyser/branch-adt ?tag ?members ?body]
-                (doto *writer*
-                  (.visitVarInsn Opcodes/ALOAD ?base-idx)
-                  (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" (->type-signature "java.lang.String"))
-                  (.visitLdcInsn ?tag)
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
-                  (.visitJumpInsn Opcodes/IFEQ else-label)
-                  (do (when (not (empty? ?members))
-                        (let [tuple-class (str "test2/Tuple" (count ?members))
-                              mk-sub-fold (fn mk-sub-fold [cleanup-level default-label tuple-class]
-                                            (fn sub-fold [?tfield member]
-                                              (let [next-label (new Label)
-                                                    cleanup-label (new Label)]
-                                                (match member
-                                                  [::&analyser/local 0 ?idx]
-                                                  (doto *writer*
-                                                    (.visitInsn Opcodes/DUP)
-                                                    (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
-                                                    (.visitVarInsn Opcodes/ASTORE ?idx)
-                                                    (.visitLabel next-label))
-
-                                                  [::&analyser/match-text ?text]
-                                                  (doto *writer*
-                                                    (.visitInsn Opcodes/DUP)
-                                                    (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
-                                                    (.visitLdcInsn ?text)
-                                                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
-                                                    (.visitJumpInsn Opcodes/IFEQ cleanup-label)
-                                                    (.visitJumpInsn Opcodes/GOTO next-label)
-                                                    (.visitLabel cleanup-label)
-                                                    (-> (doto (.visitInsn Opcodes/POP))
-                                                        (->> (dotimes [_ cleanup-level])))
-                                                    (.visitJumpInsn Opcodes/GOTO default-label)
-                                                    (.visitLabel next-label))
-
-                                                  [::&analyser/subcase ?subtag ?submembers]
-                                                  (let [tuple-class* (str "test2/Tuple" (count ?submembers))]
-                                                    (doto *writer*
-                                                      (.visitInsn Opcodes/DUP)
-                                                      (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?tfield) (->type-signature "java.lang.Object"))
-                                                      (.visitTypeInsn Opcodes/CHECKCAST variant-class*)
-                                                      (.visitInsn Opcodes/DUP)
-                                                      (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" (->type-signature "java.lang.String"))
-                                                      (.visitLdcInsn ?subtag)
-                                                      (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig)
-                                                      (.visitJumpInsn Opcodes/IFEQ cleanup-label)
-                                                      (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
-                                                      (.visitTypeInsn Opcodes/CHECKCAST tuple-class*)
-                                                      (do (dorun (map (mk-sub-fold (inc cleanup-level) default-label tuple-class*)
-                                                                      (range (count ?submembers))
-                                                                      ?submembers)))
-                                                      (.visitInsn Opcodes/POP)
-                                                      (.visitJumpInsn Opcodes/GOTO next-label)
-                                                      (.visitLabel cleanup-label)
-                                                      (-> (doto (.visitInsn Opcodes/POP))
-                                                          (->> (dotimes [_ (inc cleanup-level)])))
-                                                      (.visitJumpInsn Opcodes/GOTO default-label)
-                                                      (.visitLabel next-label)
-                                                      ))))))]
-                          (doto *writer*
-                            (.visitVarInsn Opcodes/ALOAD ?base-idx)
-                            (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" (->type-signature "java.lang.Object"))
-                            (.visitTypeInsn Opcodes/CHECKCAST tuple-class))
-                          (dorun (map (mk-sub-fold 1 else-label tuple-class)
-                                      (range (count ?members))
-                                      ?members))
-                          (.visitInsn *writer* Opcodes/POP)))
-                    (compile-form (assoc *state* :form ?body)))
-                  (.visitJumpInsn Opcodes/GOTO end-label)
-                  (.visitLabel else-label))))
-            ;; Default branch
-            (let [ex-class (->class "java.lang.IllegalStateException")]
-              (doto *writer*
-                (.visitLabel default-label)
-                (.visitInsn Opcodes/ACONST_NULL)
-                (.visitTypeInsn Opcodes/NEW ex-class)
-                (.visitInsn Opcodes/DUP)
-                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
-                (.visitInsn Opcodes/ATHROW)))
-            (.visitLabel *writer* end-label)))
-      )))
+    [::&analyser/case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree]
+    (do ;; (prn 'compile-case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree)
+      ;; (assert false)
+      (let [start-label (new Label)
+            end-label (new Label)
+            ;; default-label (new Label)
+            entries (for [[?branch ?body] ?branch-mappings
+                          :let [label (new Label)]]
+                      [[?branch label]
+                       [label ?body]])
+            mappings* (into {} (map first entries))]
+        (dotimes [idx ?max-registers]
+          (.visitLocalVariable *writer* (str "__" idx "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
+        (compile-form (assoc *state* :form ?variant))
+        (.visitLabel *writer* start-label)
+        (let [default-label (new Label)
+              default-code (:default ?decision-tree)]
+          (compile-decision-tree *writer* mappings* 0 nil default-label
+                                 (-> (sequence-parts (:branches ?decision-tree) (list ?decision-tree))
+                                     first first))
+          (.visitLabel *writer* default-label)
+          (if default-code
+            (do (prn 'default-code default-code)
+              (assert false)
+              ;; (.visitInsn Opcodes/POP) ;; ...
+              (compile-form (assoc *state* :form default-code))
+              (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+            (doto *writer*
+              ;; (.visitInsn Opcodes/POP)
+              (.visitTypeInsn Opcodes/NEW ex-class)
+              (.visitInsn Opcodes/DUP)
+              (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+              (.visitInsn Opcodes/ATHROW))))
+        ;; (compile-decision-tree *state* *writer* mappings* 1 nil (:branches ?decision-tree) ?decision-tree)
+        (doseq [[?label ?body] (map second entries)]
+          (.visitLabel *writer* ?label)
+          (compile-form (assoc *state* :form ?body))
+          (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+        (.visitLabel *writer* end-label)
+        ))
+    ))
 
 (defcompiler ^:private compile-let
   [::&analyser/let ?idx ?label ?value ?body]

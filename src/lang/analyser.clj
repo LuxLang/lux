@@ -117,22 +117,6 @@
         =return)
       )))
 
-(defn ^:private with-anon-locals [amount k]
-  (fn [state]
-    (let [env (-> state :env first)
-          $scope (:id env)
-          =locals (for [$local (take amount (iterate inc (:counter env)))]
-                    (annotated [::local $scope $local] [::&type/object "java.lang.Object" []]))
-          =return ((k =locals) (update-in state [:env] #(cons (update-in (first %) [:counter] + amount) (rest %))))]
-      (match =return
-        [::&util/ok [?state ?value]]
-        (do ;; (prn 'POST-WITH-LOCAL name (-> ?state :env first))
-            [::&util/ok [(update-in ?state [:env] #(cons (update-in (first %) [:counter] - amount) (rest %)))
-                         ?value]])
-        
-        _
-        =return))))
-
 (defn ^:private with-locals [mappings monad]
   (fn [state]
     (let [=return (monad (update-in state [:env] #(cons (update-in (first %) [:mappings] merge mappings)
@@ -423,142 +407,159 @@
   (exec [=exprs (map-m analyse-form* ?exprs)]
     (return (annotated [::do =exprs] (-> =exprs last :type)))))
 
+(let [fold-branches (fn [struct entry]
+                      (let [struct* (clojure.core.match/match (nth entry 0)
+                                      [::pm-text ?text]
+                                      (clojure.core.match/match (:type struct)
+                                        ::text-tests (update-in struct [:patterns ?text] (fn [bodies]
+                                                                                           (if bodies
+                                                                                             (conj bodies (nth entry 1))
+                                                                                             #{(nth entry 1)})))
+                                        nil (-> struct
+                                                (assoc :type ::text-tests)
+                                                (assoc-in [:patterns ?text] #{(nth entry 1)}))
+                                        _ (assert false "Can't do match."))
+                                      [::pm-variant ?tag ?members]
+                                      (clojure.core.match/match (:type struct)
+                                        ::adt (update-in struct [:patterns]
+                                                         (fn [branches]
+                                                           (if-let [{:keys [arity cases]} (get branches ?tag)]
+                                                             (if (= arity (count ?members))
+                                                               (-> branches
+                                                                   (update-in [?tag :cases] conj {:case ?members
+                                                                                                  :body (nth entry 1)})
+                                                                   (update-in [?tag :branches] conj (nth entry 1)))
+                                                               (assert false (str "Arity doesn't match. " (count ?members) "=/=" arity)))
+                                                             (assoc branches ?tag {:arity (count ?members)
+                                                                                   :cases [{:case ?members
+                                                                                            :body (nth entry 1)}]
+                                                                                   :branches #{(nth entry 1)}}))))
+                                        nil (-> struct
+                                                (assoc :type ::adt)
+                                                (assoc-in [:patterns ?tag] {:arity (count ?members)
+                                                                            :cases [{:case ?members
+                                                                                     :body (nth entry 1)}]
+                                                                            :branches #{(nth entry 1)}}))
+                                        _ (assert false "Can't do match."))
+
+                                      [::pm-local ?local]
+                                      (update-in struct [:defaults] conj [::default ?local (nth entry 1)]))]
+                        (update-in struct* [:branches] conj (nth entry 1))))
+      base-struct {:type nil
+                   :patterns {}
+                   :defaults []
+                   :branches #{}}
+      generate-branches (fn generate-branches [data]
+                          (let [branches* (reduce fold-branches base-struct data)]
+                            ;; (prn 'generate-branches data)
+                            ;; (prn 'branches* branches*)
+                            ;; (.print System/out (prn-str 'branches* branches*))
+                            ;; (.print System/out (prn-str '(:type branches*) (:type branches*)))
+                            (clojure.core.match/match (:type branches*)
+                              ::text-tests branches*
+                              ::adt (do (assert (<= (count (:defaults branches*)) 1))
+                                      {:type ::adt*
+                                       :patterns (into {} (for [[?tag ?struct] (:patterns branches*)
+                                                                ;; :let [_ (prn '(:patterns branches*) ?tag ?struct)]
+                                                                ]
+                                                            [?tag {:parts (let [grouped-parts (apply map list (for [{:keys [case body]} (:cases ?struct)]
+                                                                                                                (map #(vector % body) case)))]
+                                                                            (map generate-branches grouped-parts))
+                                                                   :branches (:branches ?struct)}]))
+                                       :default (-> branches* :defaults first)
+                                       :branches (:branches branches*)})
+                              nil {:type ::defaults,
+                                   :stores (reduce (fn [total [_ ?store ?body]]
+                                                     (update-in total [?store] (fn [mapping]
+                                                                                 (if mapping
+                                                                                   (conj mapping ?body)
+                                                                                   #{?body}))))
+                                                   {}
+                                                   (:defaults branches*))
+                                   :branches (:branches branches*)})))
+      get-vars (fn get-vars [pattern]
+                 (clojure.core.match/match pattern
+                   [::&parser/ident ?name]
+                   (list ?name)
+                   
+                   [::&parser/variant ?tag ?members]
+                   (mapcat get-vars ?members)
+
+                   [::&parser/string ?text]
+                   '()))
+      ->instructions (fn ->instructions [locals pattern]
+                       (clojure.core.match/match pattern
+                         [::&parser/variant ?tag ?members]
+                         [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
+                         
+                         [::&parser/ident ?name]
+                         [::pm-local (get locals ?name)]
+                         
+                         [::&parser/string ?text]
+                         [::pm-text ?text]
+                         ))]
+  (defn ->decision-tree [$scope $base branches]
+    (let [;; Step 1: Get all vars
+          vars+body (for [branch branches]
+                      (clojure.core.match/match branch
+                        [::&parser/case-branch ?pattern ?body]
+                        [(get-vars ?pattern) ?body]))
+          max-registers (reduce max 0 (map (comp count first) vars+body))
+          ;; Step 2: Analyse bodies
+          [_ branch-mappings branches*] (reduce (fn [[$link links branches*] branch]
+                                                  (clojure.core.match/match branch
+                                                    [::&parser/case-branch ?pattern ?body]
+                                                    [(inc $link) (assoc links $link ?body) (conj branches* [::&parser/case-branch ?pattern $link])]))
+                                                [0 {} []]
+                                                branches)
+          ;; Step 4: Pattens -> Instructions
+          branches** (for [[branch branch-vars] (map vector branches* (map first vars+body))
+                           :let [[_ locals] (reduce (fn [[$local =locals] $var]
+                                                      [(inc $local) (assoc =locals $var [::local $scope $local])])
+                                                    [$base {}] branch-vars)]]
+                       (clojure.core.match/match branch
+                         [::&parser/case-branch ?pattern ?body]
+                         [(->instructions locals ?pattern) ?body]))
+          ;; _ (prn branches**)
+          ;; Step 5: Re-structure branching
+          ]
+      [max-registers branch-mappings (generate-branches branches**)])))
+
 (defanalyser analyse-case
   [::&parser/case ?variant ?branches]
-  (exec [;; :let [_ (prn '?variant ?variant)]
-         =variant (analyse-form* ?variant)
-         ;; :let [_ (prn '=variant =variant)]
-         ;; {:registers 3,
-         ;;  :patterns {"Cons" {:arity 2, :branches [{:test [:lang/case-try "Cons" [[:lang/case-sub-bind 1] [:lang/case-sub-bind 2]]], :link 1}]},
-         ;;             "Nil" {:arity 0, :branches [{:test [:lang/case-try "Nil" []], :link 0}]}},
-         ;;  :paths {:total 2,
-         ;;          :links {1 [:lang.parser/variant "Cons" ([:lang.parser/ident "x"] [:lang.parser/fn-call [:lang.parser/ident "++"] ([:lang.parser/ident "xs*"] [:lang.parser/ident "ys"])])],
-         ;;                  0 [:lang.parser/ident "ys"]}}}
-         [$base =branches] (with-anon-locals 1
-                             (fn [=locals]
-                               ;; (prn 'analyse-case '=locals (map :form =locals))
-                               (exec [=branches (map-m (fn [?branch]
-                                                         ;; (prn '?branch ?branch)
-                                                         (match ?branch
-                                                           [::&parser/case-branch [::&parser/variant ?tag ?members] ?body]
-                                                           (let [num-members (count ?members)]
-                                                             (with-anon-locals num-members
-                                                               (fn [=locals]
-                                                                 ;; (prn '?branch/=locals (map :form =locals))
-                                                                 (exec [[inner-num locals+ members+] (reduce-m (fn member-fold [[?inner-num locals-map =members] [?local ?member]]
-                                                                                                                 (match ?member
-                                                                                                                   [::&parser/ident ?name]
-                                                                                                                   (return [?inner-num
-                                                                                                                            (assoc locals-map ?name ?local)
-                                                                                                                            (conj =members (:form ?local))])
+  (exec [=variant (analyse-form* ?variant)
+         ;; :let [_ (prn 'analyse-case '=variant =variant)]
+         $scope scope-id
+         ;; :let [_ (prn 'analyse-case '$scope $scope)]
+         $base next-local-idx
+         ;; :let [_ (prn 'analyse-case '$base $base)]
+         [registers mappings tree] (exec [=branches (map-m (fn [?branch]
+                                                             (match ?branch
+                                                               [::&parser/case-branch [::&parser/variant ?tag ?members] ?body]
+                                                               (exec [[_ locals+] (reduce-m (fn member-fold [[$local locals-map] ?member]
+                                                                                              (match ?member
+                                                                                                [::&parser/ident ?name]
+                                                                                                (return [(inc $local) (assoc locals-map ?name (annotated [::local $scope $local] [::&type/object "java.lang.Object" []]))])
 
-                                                                                                                   [::&parser/string ?text]
-                                                                                                                   (return [?inner-num
-                                                                                                                            locals-map
-                                                                                                                            (conj =members [::match-text ?text])])
+                                                                                                [::&parser/variant ?subtag ?submembers]
+                                                                                                (reduce-m member-fold [$local locals-map] ?submembers)
 
-                                                                                                                   [::&parser/variant ?subtag ?submembers]
-                                                                                                                   (let [num-submembers (count ?submembers)]
-                                                                                                                     (with-anon-locals num-submembers
-                                                                                                                       (fn [=sublocals]
-                                                                                                                         (exec [[subinner-num sublocals+ submembers+] (reduce-m member-fold [0 {} []] (map vector =sublocals ?submembers))
-                                                                                                                                ;; :let [_ (prn 'subinner-num subinner-num 'sublocals+ sublocals+ 'submembers+ submembers+)]
-                                                                                                                                ]
-                                                                                                                           (return [(+ ?inner-num num-submembers subinner-num)
-                                                                                                                                    (merge locals-map sublocals+)
-                                                                                                                                    (conj =members [::subcase ?subtag submembers+])])))))
-                                                                                                                   ))
-                                                                                                               [0 {} []]
-                                                                                                               (map vector =locals ?members))
-                                                                        ;; :let [_ (prn 'inner-num inner-num 'locals+ locals+ 'members+ members+)]
-                                                                        ;; :let [_ (prn (first =members) ?body)]
-                                                                        =body (with-locals locals+
-                                                                                (analyse-form* ?body))
-                                                                        ;; :let [_ (prn '?body ?body =body)]
-                                                                        ]
-                                                                   (return [(+ num-members inner-num) [::branch-adt ?tag members+ =body]])))))))
-                                                       ?branches)]
-                                 (return [(first =locals) =branches]))))
-         :let [total-registers (+ 1 (reduce max 0 (map first =branches)))
-               ;; _ (prn '=branches total-registers (map second =branches))
-               ;; _ (assert false)
-               ]
-         ;; ([::&parser/case-branch [::&parser/variant "Nil" ()]
-         ;;   [::&parser/ident "ys"]]
-         ;;    [::&parser/case-branch [::&parser/variant "Cons" ([::&parser/ident "x"] [::&parser/ident "xs*"])]
-         ;;     [::&parser/variant "Cons" ([::&parser/ident "x"] [::&parser/fn-call [::&parser/ident "++"] ([::&parser/ident "xs*"] [::&parser/ident "ys"])])]])
-         ;; :let [_ (prn '?branches ?branches)
-         ;;       case-analysis (let [gen-impl (fn gen-impl [offset pattern]
-         ;;                                      (clojure.core.match/match pattern
-         ;;                                        [::&parser/ident _]
-         ;;                                        [1 [::case-bind -1 offset]]
-                                                
-         ;;                                        [::&parser/variant ?tag ?members]
-         ;;                                        (let [regs+insns (mapv (fn [idx member]
-         ;;                                                                 (clojure.core.match/match member
-         ;;                                                                   [::&parser/ident _]
-         ;;                                                                   [1 [::case-sub-bind (+ offset (inc idx))]]))
-         ;;                                                               (range (count ?members))
-         ;;                                                               ?members)]
-         ;;                                          [(reduce + 1 (map first regs+insns)) [::case-try ?tag (mapv second regs+insns)]])
-         ;;                                        (reduce + (count ?members) (map gen-impl ?members))))]
-         ;;                       (reduce (fn [accum branch]
-         ;;                                 (clojure.core.match/match branch
-         ;;                                   [::&parser/case-branch ?pattern ?body]
-         ;;                                   (clojure.core.match/match ?pattern
-         ;;                                     [::&parser/variant ?tag ?members]
-         ;;                                     (let [[extra-registers impl] (gen-impl 0 ?pattern)
-         ;;                                           _ (prn 'impl extra-registers impl)
-         ;;                                           $branch (get-in accum [:paths :total])]
-         ;;                                       (-> accum
-         ;;                                           (update-in [:patterns]
-         ;;                                                      (fn [patterns]
-         ;;                                                        (if (contains? patterns ?tag)
-         ;;                                                          (if (= (get patterns [?tag :arity]) (count ?members))
-         ;;                                                            (update-in patterns [?tag :branches] conj {:test impl
-         ;;                                                                                                       :link $branch})
-         ;;                                                            (assert "Pattern arity doesn't match!"))
-         ;;                                                          (assoc patterns ?tag {:arity (count ?members)
-         ;;                                                                                :branches [{:test impl
-         ;;                                                                                            :link $branch}]}))))
-         ;;                                           (update-in [:paths]
-         ;;                                                      (fn [paths]
-         ;;                                                        (-> paths
-         ;;                                                            (update-in [:total] inc)
-         ;;                                                            (assoc-in [:links $branch] ?body))))
-         ;;                                           (update-in [:registers] + (dec extra-registers)))))
-         ;;                                   ))
-         ;;                               {:registers 1
-         ;;                                :patterns {}
-         ;;                                :paths {:total 0
-         ;;                                        :links {}}}
-         ;;                               ?branches))
-         ;;       _ (prn 'case-analysis case-analysis)
-         ;;       _ (assert false)]
-         ;; =branches (map-m identity ;; (fn [branch]
-         ;;                  ;;   ;; (prn 'branch branch)
-         ;;                  ;;   (match branch
-         ;;                  ;;     [::&parser/case-branch [::&parser/variant ?tag ?parts] ?body]
-         ;;                  ;;     (exec [;; :let [_ (prn ?tag ?label '?body ?body)]
-         ;;                  ;;            ;; (reduce-m (fn [?part]
-         ;;                  ;;            ;;             (match ?part
-         ;;                  ;;            ;;               [::&parser/ident ?label]
-         ;;                  ;;            ;;               (exec [idx next-local-idx
-         ;;                  ;;            ;;                      =body (with-local ?label [::&type/object "java.lang.Object" []]
-         ;;                  ;;            ;;                              (analyse-form* ?body))]
-         ;;                  ;;            ;;                 (return ...)))
-         ;;                  ;;            ;;             )
-         ;;                  ;;            ;;           ?parts)
-         ;;                  ;;            idx next-local-idx
-         ;;                  ;;            =body (with-local ?label [::&type/object "java.lang.Object" []]
-         ;;                  ;;                    (analyse-form* ?body))
-         ;;                  ;;            ;; :let [_ (prn ?tag ?label '=body =body)]
-         ;;                  ;;            ]
-         ;;                  ;;       (return [?tag ?label idx =body]))))
-         ;;                  ?branches)
-         ;; :let [_ (prn '=branches =branches)]
+                                                                                                _
+                                                                                                (return [$local locals-map])
+                                                                                                ))
+                                                                                            [$base {}]
+                                                                                            ?members)
+                                                                      ;; :let [_ (prn 'analyse-case 'locals+ locals+)]
+                                                                      =body (with-locals locals+
+                                                                              (analyse-form* ?body))
+                                                                      ;; :let [_ (prn 'analyse-case '=body =body)]
+                                                                      ]
+                                                                 (return [::&parser/case-branch [::&parser/variant ?tag ?members] =body]))))
+                                                           ?branches)]
+                                     (return (->decision-tree $scope $base =branches)))
+         ;; :let [_ (prn 'analyse-case '[registers mappings tree] [registers mappings tree])]
          ]
-    (return (annotated [::case $base =variant total-registers (map second =branches)] ::&type/nothing))))
+    (return (annotated [::case (dec $base) =variant registers mappings tree] ::&type/nothing))))
 
 (defanalyser analyse-let
   [::&parser/let ?label ?value ?body]

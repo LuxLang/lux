@@ -6,11 +6,6 @@
                   [compiler :as &compiler])
             :reload))
 
-(defn write-file [file data]
-  (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
-    ;; (prn 'write-file 'file file 'stream stream 'data data)
-    (.write stream data)))
-
 (comment
   ;; TODO: Add macros.
   ;; TODO: Re-implement compiler in language.
@@ -32,28 +27,6 @@
   ;; TODO: 
   ;; TODO: 
 
-  (let [test '([:lang.parser/case-branch [:lang.parser/variant "Nil" ()]
-                [:lang.parser/ident "yx"]]
-                 [:lang.parser/case-branch [:lang.parser/variant "Cons" ([:lang.parser/ident "x"] [:lang.parser/ident "xs*"])]
-                  [:lang.parser/variant "Cons" ([:lang.parser/ident "x"] [:lang.parser/fn-call [:lang.parser/ident "++"] ([:lang.parser/ident "xs*"] [:lang.parser/ident "ys"])])]])
-        convert (fn [cases]
-                  (list (reduce (fn [acc [_ shape body]]
-                                  (clojure.core.match/match shape
-                                    [::&parser/variant ?tag ?elems]
-                                    (let [=elems (map (fn [elem]
-                                                        (clojure.core.match/match elem
-                                                          [::&parser/ident ?ident]
-                                                          [::ident ?ident]))
-                                                      ?elems)]
-                                      (conj acc [?tag =elems body]))))
-                                []
-                                cases)))]
-    (convert test))
-
-  (enumerate (list (list '["Nil" [] branch-0]
-                         '["Cons" [x xs*] branch-1])))
-  
-  
   (let [source-code (slurp "test2.lang")
         tokens (&lexer/lex source-code)
         ;; _ (prn 'tokens tokens)
@@ -64,249 +37,171 @@
         class-data (&compiler/compile "test2" ann-syntax)
         ;; _ (prn 'class-data class-data)
         ]
-    (write-file "test2.class" class-data))
+    (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. "test2.class"))]
+      (.write stream class-data)))
 
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
   )
 
 (comment
-
-  (let [data '([::&parser/case-branch [::&parser/variant "Nil" ()]
-                [::&parser/ident "ys"]]
-                 [::&parser/case-branch [::&parser/variant "Cons" ([::&parser/ident "x"] [::&parser/ident "xs*"])]
-                  [::&parser/variant "Cons" ([::&parser/ident "x"] [::&parser/fn-call [::&parser/ident "++"] ([::&parser/ident "xs*"] [::&parser/ident "ys"])])]])
-        ;; count-registers (fn count-registers [pattern]
-        ;;                   (clojure.core.match/match pattern
-        ;;                     [::&parser/ident _]
-        ;;                     0
-        
-        ;;                     [::&parser/variant _ ?members]
-        ;;                     (reduce + (count ?members) (map count-registers ?members))))
-        gen-impl (fn gen-impl [offset pattern]
-                   (clojure.core.match/match pattern
-                     [::&parser/ident _]
-                     [1 [::case-bind -1 offset]]
+  ;; (let [branches '([::&parser/case-branch [::&parser/variant "Cons" ([::&parser/variant "Symbol" ([::&parser/string "~"])] [::&parser/variant "Cons" ([::&parser/ident "unquoted"] [::&parser/variant "Nil" ()])])] [::&parser/variant "Cons" ([::&parser/ident "unquoted"] [::&parser/fn-call [::&parser/ident "template"] ([::&parser/ident "tail"])])]]
+  ;;                    [::&parser/case-branch [::&parser/variant "Cons" ([::&parser/variant "Symbol" ([::&parser/string "~@"])] [::&parser/variant "Cons" ([::&parser/ident "spliced"] [::&parser/variant "Nil" ()])])] [::&parser/variant "Cons" ([::&parser/variant "Symbol" ([::&parser/string "++"])] [::&parser/variant "Cons" ([::&parser/ident "spliced"] [::&parser/fn-call [::&parser/ident "template"] ([::&parser/ident "tail"])])])]]
+  ;;                      [::&parser/case-branch [::&parser/ident "_"] [::&parser/variant "Cons" ([::&parser/ident "head"] [::&parser/fn-call [::&parser/ident "template"] ([::&parser/ident "tail"])])]])
+  ;;       ;; Step 1: Get all vars
+  ;;       get-vars (fn get-vars [pattern]
+  ;;                  (clojure.core.match/match pattern
+  ;;                    [::&parser/ident ?name]
+  ;;                    (list ?name)
                      
-                     [::&parser/variant ?tag ?members]
-                     (let [regs+insns (mapv (fn [idx member]
-                                              (clojure.core.match/match member
-                                                [::&parser/ident _]
-                                                [1 [::case-sub-bind (+ offset (inc idx))]]))
-                                            (range (count ?members))
-                                            ?members)]
-                       [(reduce + 1 (map first regs+insns)) [::case-try ?tag (mapv second regs+insns)]])
-                     (reduce + (count ?members) (map gen-impl ?members))))]
-    (reduce (fn [accum branch]
-              (clojure.core.match/match branch
-                [::&parser/case-branch ?pattern ?body]
-                (clojure.core.match/match ?pattern
-                  [::&parser/variant ?tag ?members]
-                  (let [[extra-registers impl] (gen-impl 0 ?pattern)
-                        _ (prn 'impl extra-registers impl)
-                        $branch (get-in accum [:paths :total])]
-                    (-> accum
-                        (update-in [:patterns]
-                                   (fn [patterns]
-                                     (if (contains? patterns ?tag)
-                                       (if (= (get patterns [?tag :arity]) (count ?members))
-                                         (update-in patterns [?tag :branches] conj {:test impl
-                                                                                    :link $branch})
-                                         (assert "Pattern arity doesn't match!"))
-                                       (assoc patterns ?tag {:arity (count ?members)
-                                                             :branches [{:test impl
-                                                                         :link $branch}]}))))
-                        (update-in [:paths]
-                                   (fn [paths]
-                                     (-> paths
-                                         (update-in [:total] inc)
-                                         (assoc-in [:links $branch] ?body))))
-                        (update-in [:registers] + (dec extra-registers)))))
-                ))
-            {:registers 1
-             :patterns {}
-             :paths {:total 0
-                     :links {}}}
-            data))
+  ;;                    [::&parser/variant ?tag ?members]
+  ;;                    (mapcat get-vars ?members)
 
-  '([::&parser/case-branch [::&parser/variant "Nil" ()]
-     [::&parser/ident "ys"]]
-    [::&parser/case-branch [::&parser/variant "Cons" ([::&parser/ident "x"] [::&parser/ident "xs*"])]
-     [::&parser/variant "Cons" ([::&parser/ident "x"] [::&parser/fn-call [::&parser/ident "++"] ([::&parser/ident "xs*"] [::&parser/ident "ys"])])]])
-
-  '([:try "Nil" []]
-    [:try "Cons" [[:bind 0 1] [:bind 1 2]]])
-  
-  (list '["Nil" [] branch-0]
-        '["Cons" [x xs*] branch-1])
-
-  [:if [% tag "Nil"]
-   branch-0
-   [:let [%0 %1]
-    branch-1]]
-  
-  (let [enumerate (fn [xs] (map vector (range (count xs)) xs))
-        cases (enumerate (list (list '["Nil" [] branch-0]
-                                     '["Cons" [x xs*] branch-1])))
-        classify-cases (fn [[idx cases]]
-                         [idx (reduce (fn [order [tag members branch]]
-                                        (if-let [{:keys [arity branches] :as sub-struct} (get order tag)]
-                                          (if (= arity (count members))
-                                            (update-in order [tag :branches] conj [members branch])
-                                            (assert (str "Arity doesn't match:" (count members) " != " arity)))
-                                          (assoc order tag {:arity (count members)
-                                                            :branches (vector [members branch])})))
-                                      {}
-                                      cases)])
-        ;; case->struct (fn [cases]
-        ;;                (let [struct (classify-case cases)
-        ;;                      struct* (seq struct)]
-        ;;                  (reduce (fn [inner [tag {:keys [arity branches]}]]
-        ;;                            [:if [% tag "Nil"]
-        ;;                             branch-0
-        ;;                             inner])
-        ;;                          (second (last struct*))
-        ;;                          (butlast struct*))
-        ;;                  ))
-        ]
-    ;; (classify-case cases)
-    (let [;; separated (apply map list cases)
-          classifications (map classify-cases cases)
-          classifications* (sort-by first > classifications)]
-      ((fn [[idx struct]]
-         (prn idx struct)
-         (if-let [default (get struct nil)]
-           (reduce (fn [[dbinds dbranch] [tag [binds branch]]]
-                     [:if tag
-                      [:let binds
-                       branch]
-                      [:let dbinds
-                       dbranch]])
-                   (-> default :branches first)
-                   (seq struct))
-           (let [struct* (seq struct)]
-             (reduce (fn [[dbinds dbranch] [tag sub-struct]]
-                       (let [[binds branch] (-> sub-struct :branches first)]
-                         [:if tag
-                          [:let binds
-                           branch]
-                          [:let dbinds
-                           dbranch]]))
-                     (-> struct* last second :branches first)
-                     (butlast struct*)))))
-       (first classifications*))
-      ))
-
-  ;; ([0 {"Cons" {:arity 2, :branches [[[x xs*] branch-1]]}, "Nil" {:arity 0, :branches [[[] branch-0]]}}])
-  
-
-  ;; {"Cons" {:arity 2, :branches [[[x xs*] branch-1]]},
-  ;;  "Nil" {:arity 0, :branches [[[] branch-0]]}}
-
-
-  ;; .........................
-
-  ;; (case elems
-  ;;   #Nil
-  ;;   elems
-
-  ;;   (#Cons head tail)
-  ;;   (case head
-  ;;     (#Cons (#Symbol "~") (#Cons unquoted #Nil))
-  ;;     (#Cons unquoted (template tail))
-
-  ;;     (#Cons (#Symbol "~@") (#Cons spliced #Nil))
-  ;;     (#Cons (#Symbol "++") (#Cons spliced (template tail)))
-
-  ;;     _
-  ;;     (#Cons head (template tail)))
-  ;;   )
-
-  ;; Total registers: 3
-  ;; [{:tag "Nil" :data [] :path path-1}
-  ;;  {:tag "Cons" :data [[:bind head] [:bind tail]] :path path-2}]
-
-  ;; {path-0 [:branch "Nil" []]
-  ;;  path-1 [:branch "Cons" [[:bind head] [:bind tail]]]}
-
-  ;; Total registers: 6
-  ;; {path-0 [:branch "Cons" [[:adt "Symbol" [[:string-cmp "~"]]] [:adt "Cons" [[:bind unquoted] [:adt "Nil" []]]]]]
-  ;;  path-1 [:branch "Cons" [[:adt "Symbol" [[:string-cmp "~@"]]] [:adt "Cons" [[:bind spliced] [:adt "Nil" []]]]]]
-  ;;  path-2 [:default _]}
-
-  ;; {"#default#" [:default path-2 _]
-  ;;  "Cons" [:branches [path-0 path-1]
-  ;;          [[[:adt "Symbol" [[:string-cmp "~"]]] [:adt "Cons" [[:bind unquoted] [:adt "Nil" []]]]]
-  ;;           [[:adt "Symbol" [[:string-cmp "~@"]]] [:adt "Cons" [[:bind spliced] [:adt "Nil" []]]]]]]}
-
-  ;; [:branches]
-  
-
-  ;; (case elems
-  ;;   #Nil
-  ;;   elems
-
-  ;;   (#Cons (list (' ~) unquoted) tail)
-  ;;   (list* unquoted (template tail))
-
-  ;;   (#Cons (list (' ~@) spliced) tail)
-  ;;   (list* "++" spliced (template tail))
-
-  ;;   _
-  ;;   (#Cons head (template tail))
-  ;;   )
-
-  ;; [{:tag "Nil" :data [] :path path-1}
-  ;;  {:tag "Cons" :data [[:bind head] [:bind tail]] :path path-2}]
-
-  ;; [[{:tag "Cons" :data [%0 %1] :path nil
-  ;;    :sub-cases [[{:tag "Symbol" :data [[:string-cmp "~"]] :path path-1}
-  ;;                 {:tag "Symbol" :data [[:string-cmp "~@"]] :path path-2}]
-  ;;                [{:tag "Cons" :data [[:bind unquoted] {:tag "Nil" :data []}] :path path-1}
-  ;;                 {:tag "Cons" :data [[:bind spliced] {:tag "Nil" :data []}] :path path-2}]]}
-  ;;   {:tag ::default :path path-3}]]
-
-  ;; [[["Cons" ["Symbol" "~"] ["Cons" unquoted ["Nil"]]]
-  ;;   ["Cons" ["Symbol" "~@"] ["Cons" spliced ["Nil"]]]
-  ;;   _]]
-
-  ;; [[["Symbol" "~"]
-  ;;   ["Symbol" "~@"]]
-  ;;  [["Cons" unquoted ["Nil"]]
-  ;;   ["Cons" spliced ["Nil"]]]]
-
-  ;; (if (= "Cons" (:: % tag))
-  ;;   (let [%0 (:: % _0)
-  ;;         %1 (:: % _1)]
-  ;;     (if (= "Symbol" (:: %0 tag))
-  ;;       (let [%0|0 (:: %0 _0)]
-  ;;         (if (= "~" %0|0)
-  ;;           (if (= "Cons" (:: %1 tag))
-  ;;             (let [%1|0 (:: %1 _0)
-  ;;                   %1|1 (:: %1 _1)]
-  ;;               (if (= "Nil" (:: %1|1 tag))
-  ;;                 (let [unquoted %1|0]
-  ;;                   <path-1>)
-  ;;                 <path-3>))
-  ;;             <path-3>)
-  ;;           (if (= "@~" %0|0)
-  ;;             (if (= "Cons" (:: %1 tag))
-  ;;               (let [%1|0 (:: %1 _0)
-  ;;                     %1|1 (:: %1 _1)]
-  ;;                 (if (= "Nil" (:: %1|1 tag))
-  ;;                   (let [unquoted %1|0]
-  ;;                     <path-2>)
-  ;;                   <path-3>))
-  ;;               <path-3>)
-  ;;             <path-3>)))
-  ;;       <path-3>))
-  ;;   <path-3>)
+  ;;                    [::&parser/string ?text]
+  ;;                    '()))
+  ;;       vars+body (for [branch branches]
+  ;;                   (clojure.core.match/match branch
+  ;;                     [::&parser/case-branch ?pattern ?body]
+  ;;                     [(get-vars ?pattern) ?body]))
+  ;;       ;; _ (prn 'vars+body vars+body)
+  ;;       max-registers (reduce max 0 (map (comp count first) vars+body))
+  ;;       ;; _ (prn 'max-registers max-registers)
+  ;;       ;; Step 2: Analyse bodies
+  ;;       ;; all-analysis (map (fn [[vars body]]
+  ;;       ;;                     (reduce #(with-local %2 [::&type/object "java.lang.Object" []] %1)
+  ;;       ;;                             (analyse-form* body)
+  ;;       ;;                             (reverse vars)))
+  ;;       ;;                   vars+body)
+  ;;       ;; Step 3: Extract bodies
+  ;;       [_ branch-mappings branches*] (reduce (fn [[$link links branches*] branch]
+  ;;                                               (clojure.core.match/match branch
+  ;;                                                 [::&parser/case-branch ?pattern ?body]
+  ;;                                                 [(inc $link) (assoc links $link ?body) (conj branches* [::&parser/case-branch ?pattern $link])]))
+  ;;                                             [0 {} []]
+  ;;                                             branches)
+  ;;       ;; Step 4: Pattens -> Instructions
+  ;;       ;; ->instructions (fn ->instructions [locals pattern]
+  ;;       ;;                  (clojure.core.match/match pattern
+  ;;       ;;                    [::&parser/variant ?tag ?members]
+  ;;       ;;                    [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
+                           
+  ;;       ;;                    [::&parser/ident ?name]
+  ;;       ;;                    [::pm-local (get locals ?name)]
+                           
+  ;;       ;;                    [::&parser/string ?text]
+  ;;       ;;                    [::pm-text ?text]
+  ;;       ;;                    ))
+  ;;       ;; $scope 0 ;; scope-id
+  ;;       ;; $local 11 ;; next-local-idx
+  ;;       ;; branches** (for [[branch branch-vars] (map vector branches* (map first vars+body))
+  ;;       ;;                  :let [[_ locals] (reduce (fn [[$local =locals] $var]
+  ;;       ;;                                             [(inc $local) (assoc =locals $var [::local $scope $local])])
+  ;;       ;;                                           [$local {}] branch-vars)]]
+  ;;       ;;              (clojure.core.match/match branch
+  ;;       ;;                [::&parser/case-branch ?pattern ?body]
+  ;;       ;;                [(->instructions locals ?pattern) ?body]))
+  ;;       ;; _ (prn branches**)
+  ;;       ;; Step 5: Re-structure branching
+  ;;       ]
+  ;;   ;; [branch-mappings branches**]
+  ;;   branches*)
 
   
+  
 
-  ;; (list (list '["Nil" [] ...]
-  ;;             '["Cons" [head tail] ...]))
+  
+  ;; (let [data '([[:lang/pm-variant "Cons" ([:lang/pm-variant "Symbol" ([:lang/pm-text "~"])]  [:lang/pm-variant "Cons" ([:lang/pm-local [:lang/local 0 11]] [:lang/pm-variant "Nil" ()])])] 0]
+  ;;                [[:lang/pm-variant "Cons" ([:lang/pm-variant "Symbol" ([:lang/pm-text "~@"])] [:lang/pm-variant "Cons" ([:lang/pm-local [:lang/local 0 11]] [:lang/pm-variant "Nil" ()])])] 1]
+  ;;                  [[:lang/pm-local [:lang/local 0 11]] 2])
+  ;;       classify-outer (fn [struct [branch $body]]
+  ;;                        (clojure.core.match/match branch
+  ;;                          [::pm-variant ?tag ?members]
+  ;;                          (update-in struct [:cases ?tag] conj {:members ?members
+  ;;                                                                :body $body})
+                           
+  ;;                          [::pm-text ?text]
+  ;;                          (update-in struct [:tests] conj {:test [::text ?text]
+  ;;                                                           :body $body})
 
-  ;; (list (list '["Cons" [["Symbol" ["~"]] ["Cons" [unquoted ["Nil" []]]]] ...]
-  ;;             '["Cons" [["Symbol" ["~@"]] ["Cons" [spliced ["Nil" []]]]] ...]))
+  ;;                          [::pm-local ?binding]
+  ;;                          (assoc struct :default {:storage ?binding
+  ;;                                                  :body $body})))
+  ;;       outer-classification (reduce classify-outer
+  ;;                                    {:cases {}
+  ;;                                     :tests '()
+  ;;                                     :default nil}
+  ;;                                    data)
+  ;;       full-classifier (fn full-classifier [global]
+  ;;                         (prn 'full-classifier global)
+  ;;                         (let [subcases (:cases global)]
+  ;;                           (if (empty? subcases)
+  ;;                             global
+  ;;                             (let [crossed (sort (fn [x1 x2] (> (-> x1 second :cases count) (-> x2 second :cases count)))
+  ;;                                                 (for [[tag subs] subcases
+  ;;                                                       :let [_ (prn 'subcases tag subs)]
+  ;;                                                       :let [parts (for [cross (apply map list (map :members subs))
+  ;;                                                                         :let [_ (prn 'cross tag cross)]
+  ;;                                                                         ;; :let [_ (prn '(map :body subs) (map :body subs))]
+  ;;                                                                         ;; :let [_ (prn (class cross)            (count cross)
+  ;;                                                                         ;;              (class (map :body subs)) (count (map :body subs)))]
+  ;;                                                                         :let [cross+ (map vector cross (map :body subs))]
+  ;;                                                                         ;; :let [_ (prn 'cross+ tag (class cross+) (count cross+))]
+  ;;                                                                         ;; :let [_ (prn 'cross+ tag cross+)]
+  ;;                                                                         :let [cross++ (reduce classify-outer
+  ;;                                                                                               {:cases {}
+  ;;                                                                                                :tests '()
+  ;;                                                                                                :default nil}
+  ;;                                                                                               cross+)]
+  ;;                                                                         ;; :let [_ (prn 'cross++ tag cross++)]
+  ;;                                                                         ]
+  ;;                                                                     cross++)]
+  ;;                                                       :let [_ (prn 'parts parts)]]
+  ;;                                                   [tag parts]))
+                                    
+  ;;                                   ]
+  ;;                               (assoc global :cases (reduce (fn [tree [tag subcases]]
+  ;;                                                              (update-in tree [tag] #(conj (or % []) (full-classifier subcases))))
+  ;;                                                            {}
+  ;;                                                            crossed))))))]
+  ;;   (full-classifier outer-classification))
   )
 
+(comment
+  [{2 [:lang.parser/variant "Cons" ([:lang.parser/ident "head"] [:lang.parser/fn-call [:lang.parser/ident "template"] ([:lang.parser/ident "tail"])])],
+    1 [:lang.parser/variant "Cons" ([:lang.parser/variant "Symbol" ([:lang.parser/string "++"])] [:lang.parser/variant "Cons" ([:lang.parser/ident "spliced"] [:lang.parser/fn-call [:lang.parser/ident "template"] ([:lang.parser/ident "tail"])])])],
+    0 [:lang.parser/variant "Cons" ([:lang.parser/ident "unquoted"] [:lang.parser/fn-call [:lang.parser/ident "template"] ([:lang.parser/ident "tail"])])]}
+   {:type :lang/adt*,
+    :patterns {"Cons" ({:type :lang/adt*,
+                        :patterns {"Symbol" ({:type :lang/text-tests,
+                                              :patterns {"~@" #{1},
+                                                         "~" #{0}},
+                                              :defaults [],
+                                              :branches #{0 1}})},
+                        :default nil,
+                        :branches #{0 1}}
+                       {:type :lang/adt*,
+                        :patterns {"Cons" ({:type :lang/defaults,
+                                            :stores {[:lang/local 0 11] #{0 1}},
+                                            :branches #{0 1}}
+                                           {:type :lang/adt*,
+                                            :patterns {"Nil" ()},
+                                            :default nil,
+                                            :branches #{0 1}})},
+                        :default nil,
+                        :branches #{0 1}})},
+    :default [:lang/default [:lang/local 0 11] 2],
+    :branches #{0 1 2}}]
+  
+  (let [data '([[:lang/pm-variant "Cons" ([:lang/pm-variant "Symbol" ([:lang/pm-text "~"])]  [:lang/pm-variant "Cons" ([:lang/pm-local [:lang/local 0 11]] [:lang/pm-variant "Nil" ()])])] 0]
+                 [[:lang/pm-variant "Cons" ([:lang/pm-variant "Symbol" ([:lang/pm-text "~@"])] [:lang/pm-variant "Cons" ([:lang/pm-local [:lang/local 0 11]] [:lang/pm-variant "Nil" ()])])] 1]
+                   [[:lang/pm-local [:lang/local 0 11]] 2])
+        ]
+    (generate-branches data))
+
+  ;; (def (workday? d)
+  ;;   (case d
+  ;;     (or [#Monday #Tuesday #Wednesday #Thursday #Friday]
+  ;;         true)
+  ;;     (or [#Saturday #Sunday]
+  ;;         false)))
+  
+  )
