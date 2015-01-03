@@ -23,7 +23,7 @@
 
 ;; [Utils/General]
 (defn ^:private write-file [file data]
-  (println 'write-file file (alength data))
+  ;; (println 'write-file file (alength data))
   (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
     (.write stream data))
   ;; (Thread/sleep 2000)
@@ -32,11 +32,11 @@
 (let [;; loader (proxy [ClassLoader] [])
       ]
   (defn load-class! [name file-name]
-    (println "Defining..." name "@" file-name ;; (alength bytecode)
-             )
+    ;; (println "Defining..." name "@" file-name ;; (alength bytecode)
+    ;;          )
     ;; (prn 'loader loader)
     (.loadClass loader name)
-    (println "SUCCESFUL LOAD!")
+    ;; (println "SUCCESFUL LOAD!")
     ;; (.defineClass loader name bytecode 0 (alength bytecode))
     ))
 
@@ -304,7 +304,7 @@
               (->> (dotimes [_ (inc cleanup-level)])))
           (.visitJumpInsn Opcodes/GOTO default-label)))
       
-      [::store [::&analyser/local 0 ?idx] $body]
+      [::store [::&analyser/local _ ?idx] $body]
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?idx)
         (-> (.visitJumpInsn Opcodes/GOTO (get mappings $body))
@@ -835,7 +835,7 @@
     nil))
 
 (defn quoted->token [quoted]
-  (prn 'quoted->token quoted)
+  ;; (prn 'quoted->token quoted)
   (match quoted
     [::&parser/string ?text]
     {:form [::&analyser/variant "Text" (list {:form [::&analyser/literal ?text]

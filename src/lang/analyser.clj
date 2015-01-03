@@ -39,9 +39,9 @@
 
 (defn ^:private is-macro? [name]
   (fn [state]
-    (prn 'is-macro? (nth name 1)
-         (get-in state [:defs (:name state) (nth name 1) :mode])
-          (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro))
+    ;; (prn 'is-macro? (nth name 1)
+    ;;      (get-in state [:defs (:name state) (nth name 1) :mode])
+    ;;       (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro))
     [::&util/ok [state (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro)]]))
 
 (def ^:private next-local-idx
@@ -407,7 +407,7 @@
                     (return (annotated [::dynamic-method =target =owner ?method =method =args] (&type/return-type =method))))]))))
 
 (defn ->token [x]
-  (prn '->token x)
+  ;; (prn '->token x)
   (let [variant (.newInstance (.loadClass loader "test2.Variant"))]
     (match x
       [::&parser/string ?text]
@@ -448,7 +448,7 @@
             (reverse xs))))
 
 (defn ->clojure-token [x]
-  (prn '->clojure-token x (.-tag x))
+  ;; (prn '->clojure-token x (.-tag x))
   (case (.-tag x)
     "Text" [::&parser/string (-> x .-value .-_0 (doto (-> string? assert)))]
     "Ident" [::&parser/ident (-> x .-value .-_0 (doto (-> string? assert)))]
@@ -457,43 +457,13 @@
     "Quote" [::&parser/quote (-> x .-value .-_0 ->clojure-token)]))
 
 (defn tokens->clojure [xs]
-  (prn 'tokens->clojure xs (.-tag xs))
+  ;; (prn 'tokens->clojure xs (.-tag xs))
   (case (.-tag xs)
     "Nil" '()
     "Cons" (let [tuple2 (.-value xs)]
              (cons (->clojure-token (.-_0 tuple2))
                    (tokens->clojure (.-_1 tuple2))))
     ))
-
-;; (defn ->clojure-tokens [xs]
-;;   (case (.-tag xs)
-;;     "Cons" (let [tuple2 (.-value xs)]
-;;              (cons (->clojure-token (.-_0 tuple2)) (->clojure-tokens (.-_1 tuple2))))
-;;     "Nil" '()))
-
-(comment
-  (-> (->token [::&parser/string "YOLO"])
-      .-value
-      .-_0)
-
-  (-> (->tokens (list [::&parser/string "YOLO"]))
-      ;; .-tag
-      .-value
-      .-_1
-      .-tag
-      )
-
-  (let [_ (prn 'loader loader)
-        macro (-> loader (.loadClass "test2$_QUOTE_") .newInstance)
-        tokens (->tokens (list [::&parser/string "YOLO"]))]
-    (prn macro)
-    (prn tokens)
-    (prn (.apply macro tokens))
-    (prn (->clojure-token (.apply macro tokens)))
-    )
-
-  
-  )
 
 (defanalyser analyse-fn-call
   [::&parser/fn-call ?fn ?args]
@@ -513,7 +483,7 @@
                         [::global ?module ?name]
                         (.newInstance (.loadClass loader (str ?module "$" (normalize-ident ?name)))))
                 output (->clojure-token (.apply macro (->tokens ?args)))]
-            (prn "MACRO CALL!" macro output)
+            ;; (prn "MACRO CALL!" macro output)
             (analyse-form* output)))
       (exec [=args (map-m analyse-form* ?args)]
         (return (annotated [::call =fn =args] [::&type/object "java.lang.Object" []]))))
