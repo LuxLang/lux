@@ -59,10 +59,10 @@
     (exec [token (lex-regex <regex>)]
       (return [<tag> token])))
 
-  ^:private lex-boolean ::boolean #"^(true|false)"
-  ^:private lex-float   ::float   #"^(0|[1-9][0-9]*)\.[0-9]+"
-  ^:private lex-int     ::int     #"^(0|[1-9][0-9]*)"
-  ^:private lex-ident   ::ident   +ident-re+)
+  ^:private lex-bool  ::bool  #"^(true|false)"
+  ^:private lex-real  ::real  #"^(0|[1-9][0-9]*)\.[0-9]+"
+  ^:private lex-int   ::int   #"^(0|[1-9][0-9]*)"
+  ^:private lex-ident ::ident +ident-re+)
 
 (def ^:private lex-char
   (exec [_ (lex-str "#\"")
@@ -72,7 +72,7 @@
          _ (lex-str "\"")]
     (return [::char token])))
 
-(def ^:private lex-string
+(def ^:private lex-text
   (exec [_ (lex-str "\"")
          ;; state &util/get-state
          ;; :let [_ (prn 'PRE state)]
@@ -81,7 +81,7 @@
          ;; state &util/get-state
          ;; :let [_ (prn 'POST state)]
          ]
-    (return [::string token])))
+    (return [::text token])))
 
 (def ^:private lex-single-line-comment
   (exec [_ (lex-str "##")
@@ -118,11 +118,11 @@
 
 (def ^:private lex-form
   (exec [_ (try-m lex-white-space)
-         form (try-all-m [lex-boolean
-                          lex-float
+         form (try-all-m [lex-bool
+                          lex-real
                           lex-int
                           lex-char
-                          lex-string
+                          lex-text
                           lex-ident
                           lex-tag
                           lex-list

@@ -837,7 +837,7 @@
 (defn quoted->token [quoted]
   ;; (prn 'quoted->token quoted)
   (match quoted
-    [::&parser/string ?text]
+    [::&parser/text ?text]
     {:form [::&analyser/variant "Text" (list {:form [::&analyser/literal ?text]
                                               :type [::&type/object "java.lang.String" []]})]
      :type [::&type/variant "Text" (list [::&type/object "java.lang.String" []])]}

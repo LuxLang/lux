@@ -26,9 +26,9 @@
     (return [<output-tag> (<method> ?value)]))
 
   
-  ^:private parse-boolean ::&lexer/boolean ::boolean Boolean/parseBoolean
-  ^:private parse-int     ::&lexer/int     ::int     Integer/parseInt
-  ^:private parse-float   ::&lexer/float   ::float   Float/parseFloat
+  ^:private parse-bool ::&lexer/bool ::bool Boolean/parseBoolean
+  ^:private parse-int  ::&lexer/int  ::int  Integer/parseInt
+  ^:private parse-real ::&lexer/real ::real Float/parseFloat
   )
 
 (defparser ^:private parse-char
@@ -124,7 +124,7 @@
   (return [::import ?class]))
 
 (defparser ^:private parse-require
-  [::&lexer/list ([[::&lexer/ident "require"] [::&lexer/string ?file] [::&lexer/ident "as"] [::&lexer/ident ?alias]] :seq)]
+  [::&lexer/list ([[::&lexer/ident "require"] [::&lexer/text ?file] [::&lexer/ident "as"] [::&lexer/ident ?alias]] :seq)]
   (return [::require ?file ?alias]))
 
 (defparser ^:private parse-defclass
@@ -179,9 +179,9 @@
          =call (apply-m parse-form (list ?call))]
     (return [::access =object =call])))
 
-(defparser ^:private parse-string
-  [::&lexer/string ?string]
-  (return [::string ?string]))
+(defparser ^:private parse-text
+  [::&lexer/text ?text]
+  (return [::text ?text]))
 
 (defparser ^:private parse-fn-call
   [::&lexer/list ([?f & ?args] :seq)]
@@ -191,11 +191,11 @@
     (return [::fn-call =f =args])))
 
 (def ^:private parse-form
-  (try-all-m [parse-boolean
+  (try-all-m [parse-bool
               parse-int
-              parse-float
+              parse-real
               parse-char
-              parse-string
+              parse-text
               parse-ident
               parse-tuple
               parse-record

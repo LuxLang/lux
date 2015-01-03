@@ -164,5 +164,4 @@
 (defn normalize-ident [ident]
   (reduce str "" (map normalize-char ident)))
 
-(defonce loader (doto (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader.)
-                  (->> (prn 'loader))))
+(defonce loader (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader.))

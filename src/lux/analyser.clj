@@ -271,11 +271,11 @@
     [<tag> ?value]
     (return (annotated [::literal ?value] [::&type/object <class> []])))
 
-  analyse-boolean ::&parser/boolean "java.lang.Boolean"
-  analyse-int     ::&parser/int     "java.lang.Integer"
-  analyse-float   ::&parser/float   "java.lang.Float"
-  analyse-char    ::&parser/char    "java.lang.Character"
-  analyse-string  ::&parser/string  "java.lang.String"
+  analyse-bool ::&parser/bool "java.lang.Boolean"
+  analyse-int  ::&parser/int  "java.lang.Integer"
+  analyse-real ::&parser/real "java.lang.Float"
+  analyse-char ::&parser/char "java.lang.Character"
+  analyse-text ::&parser/text "java.lang.String"
   )
 
 (defanalyser analyse-variant
@@ -410,7 +410,7 @@
   ;; (prn '->token x)
   (let [variant (.newInstance (.loadClass loader "test2.Variant"))]
     (match x
-      [::&parser/string ?text]
+      [::&parser/text ?text]
       (doto variant
         (-> .-tag (set! "Text"))
         (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
@@ -450,7 +450,7 @@
 (defn ->clojure-token [x]
   ;; (prn '->clojure-token x (.-tag x))
   (case (.-tag x)
-    "Text" [::&parser/string (-> x .-value .-_0 (doto (-> string? assert)))]
+    "Text" [::&parser/text (-> x .-value .-_0 (doto (-> string? assert)))]
     "Ident" [::&parser/ident (-> x .-value .-_0 (doto (-> string? assert)))]
     "Form" (let [[?fn & ?args] (-> x .-value .-_0 tokens->clojure)]
              [::&parser/fn-call ?fn ?args])
@@ -584,7 +584,7 @@
                    [::&parser/variant ?tag ?members]
                    (mapcat get-vars ?members)
 
-                   [::&parser/string ?text]
+                   [::&parser/text ?text]
                    '()))
       ->instructions (fn ->instructions [locals pattern]
                        (clojure.core.match/match pattern
@@ -594,7 +594,7 @@
                          [::&parser/ident ?name]
                          [::pm-local (get locals ?name)]
                          
-                         [::&parser/string ?text]
+                         [::&parser/text ?text]
                          [::pm-text ?text]
                          ))]
   (defn ->decision-tree [$scope $base branches]
@@ -779,11 +779,11 @@
   (return (annotated [::quote ?quoted] ::&type/nothing)))
 
 (def analyse-form
-  (try-all-m [analyse-boolean
+  (try-all-m [analyse-bool
               analyse-int
-              analyse-float
+              analyse-real
               analyse-char
-              analyse-string
+              analyse-text
               analyse-variant
               analyse-tuple
               analyse-lambda
