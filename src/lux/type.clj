@@ -1,9 +1,9 @@
-(ns lang.type
+(ns lux.type
   (:refer-clojure :exclude [resolve])
   (:require [clojure.core.match :refer [match]]
-            [lang.util :as &util :refer [exec return* return fail fail*
-                                         repeat-m try-m try-all-m map-m
-                                         apply-m assert!]]))
+            [lux.util :as &util :refer [exec return* return fail fail*
+                                        repeat-m try-m try-all-m map-m
+                                        apply-m assert!]]))
 
 ;; [Util]
 (def ^:private success (return nil))

@@ -1,17 +1,17 @@
-(ns lang.compiler
+(ns lux.compiler
   (:refer-clojure :exclude [compile])
   (:require [clojure.string :as string]
             [clojure.set :as set]
             [clojure.core.match :refer [match]]
-            (lang [util :as &util :refer [exec return* return fail fail*
-                                          repeat-m try-m try-all-m map-m reduce-m
-                                          apply-m within
-                                          normalize-ident
-                                          loader]]
-                  [type :as &type]
-                  [lexer :as &lexer]
-                  [parser :as &parser]
-                  [analyser :as &analyser])
+            (lux [util :as &util :refer [exec return* return fail fail*
+                                         repeat-m try-m try-all-m map-m reduce-m
+                                         apply-m within
+                                         normalize-ident
+                                         loader]]
+                 [type :as &type]
+                 [lexer :as &lexer]
+                 [parser :as &parser]
+                 [analyser :as &analyser])
             :reload)
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -423,45 +423,45 @@
     ;; [::&analyser/case ?variant ?branches]
     [::&analyser/case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree]
     (do ;; (prn 'compile-case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree)
-      ;; (assert false)
-      (let [start-label (new Label)
-            end-label (new Label)
-            ;; default-label (new Label)
-            entries (for [[?branch ?body] ?branch-mappings
-                          :let [label (new Label)]]
-                      [[?branch label]
-                       [label ?body]])
-            mappings* (into {} (map first entries))]
-        (dotimes [idx ?max-registers]
-          (.visitLocalVariable *writer* (str "__" (swap! !case-vars inc) "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
-        (compile-form (assoc *state* :form ?variant))
-        (.visitLabel *writer* start-label)
-        (let [default-label (new Label)
-              default-code (:default ?decision-tree)]
-          ;; (prn 'sequence-parts
-          ;;      (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))
-          (doseq [decision-tree (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
-            (compile-decision-tree *writer* mappings* 0 nil default-label decision-tree))
-          (.visitLabel *writer* default-label)
-          (when (not default-code)
-            ;; (do (prn 'default-code default-code)
-            ;;   (assert false)
-            ;;   ;; (.visitInsn Opcodes/POP) ;; ...
-            ;;   (compile-form (assoc *state* :form default-code))
-            ;;   (.visitJumpInsn *writer* Opcodes/GOTO end-label))
-            (doto *writer*
-              ;; (.visitInsn Opcodes/POP)
-              (.visitTypeInsn Opcodes/NEW ex-class)
-              (.visitInsn Opcodes/DUP)
-              (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
-              (.visitInsn Opcodes/ATHROW))))
-        ;; (compile-decision-tree *state* *writer* mappings* 1 nil (:branches ?decision-tree) ?decision-tree)
-        (doseq [[?label ?body] (map second entries)]
-          (.visitLabel *writer* ?label)
-          (compile-form (assoc *state* :form ?body))
-          (.visitJumpInsn *writer* Opcodes/GOTO end-label))
-        (.visitLabel *writer* end-label)
-        ))
+        ;; (assert false)
+        (let [start-label (new Label)
+              end-label (new Label)
+              ;; default-label (new Label)
+              entries (for [[?branch ?body] ?branch-mappings
+                            :let [label (new Label)]]
+                        [[?branch label]
+                         [label ?body]])
+              mappings* (into {} (map first entries))]
+          (dotimes [idx ?max-registers]
+            (.visitLocalVariable *writer* (str "__" (swap! !case-vars inc) "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
+          (compile-form (assoc *state* :form ?variant))
+          (.visitLabel *writer* start-label)
+          (let [default-label (new Label)
+                default-code (:default ?decision-tree)]
+            ;; (prn 'sequence-parts
+            ;;      (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))
+            (doseq [decision-tree (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
+              (compile-decision-tree *writer* mappings* 0 nil default-label decision-tree))
+            (.visitLabel *writer* default-label)
+            (when (not default-code)
+              ;; (do (prn 'default-code default-code)
+              ;;   (assert false)
+              ;;   ;; (.visitInsn Opcodes/POP) ;; ...
+              ;;   (compile-form (assoc *state* :form default-code))
+              ;;   (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+              (doto *writer*
+                ;; (.visitInsn Opcodes/POP)
+                (.visitTypeInsn Opcodes/NEW ex-class)
+                (.visitInsn Opcodes/DUP)
+                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+                (.visitInsn Opcodes/ATHROW))))
+          ;; (compile-decision-tree *state* *writer* mappings* 1 nil (:branches ?decision-tree) ?decision-tree)
+          (doseq [[?label ?body] (map second entries)]
+            (.visitLabel *writer* ?label)
+            (compile-form (assoc *state* :form ?body))
+            (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+          (.visitLabel *writer* end-label)
+          ))
     ))
 
 (defcompiler ^:private compile-let
@@ -821,7 +821,7 @@
   [::&analyser/require ?file ?alias]
   (let [module-name (re-find #"[^/]+$" ?file)
         ;; _ (prn 'module-name module-name)
-        source-code (slurp (str module-name ".lang"))
+        source-code (slurp (str module-name ".lux"))
         ;; _ (prn 'source-code source-code)
         tokens (&lexer/lex source-code)
         ;; _ (prn 'tokens tokens)

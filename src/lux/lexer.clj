@@ -1,8 +1,8 @@
-(ns lang.lexer
+(ns lux.lexer
   (:require [clojure.template :refer [do-template]]
             [clojure.core.match :refer [match]]
-            [lang.util :as &util :refer [exec return* return fail fail*
-                                         repeat-m try-m try-all-m]]))
+            [lux.util :as &util :refer [exec return* return fail fail*
+                                        repeat-m try-m try-all-m]]))
 
 (declare lex-forms lex-list lex-tuple lex-record lex-tag)
 

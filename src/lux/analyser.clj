@@ -1,15 +1,15 @@
-(ns lang.analyser
+(ns lux.analyser
   (:refer-clojure :exclude [resolve])
   (:require (clojure [string :as string]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lang [util :as &util :refer [exec return* return fail fail*
-                                          repeat-m try-m try-all-m map-m reduce-m
-                                          apply-m within
-                                          normalize-ident
-                                          loader]]
-                  [parser :as &parser]
-                  [type :as &type])))
+            (lux [util :as &util :refer [exec return* return fail fail*
+                                         repeat-m try-m try-all-m map-m reduce-m
+                                         apply-m within
+                                         normalize-ident
+                                         loader]]
+                 [parser :as &parser]
+                 [type :as &type])))
 
 (declare analyse-form
          ->tokens
@@ -64,7 +64,7 @@
           ;;      ?macro-name
           ;;      (get-in state [:lambda-scope 0])
           ;;      (some (partial = ?macro-name) (get-in state [:lambda-scope 0])))
-        [::&util/ok [state (some (partial = ?macro-name) (get-in state [:lambda-scope 0]))]])
+          [::&util/ok [state (some (partial = ?macro-name) (get-in state [:lambda-scope 0]))]])
 
       _
       [::&util/ok [state false]])
@@ -105,10 +105,10 @@
       (match =return
         [::&util/ok [?state ?value]]
         [::&util/ok [(do ;; (prn [:lambda-scope 0] (get-in ?state [:lambda-scope 0]))
-                       ;; (prn [:lambda-scope 1] (get-in ?state [:lambda-scope 1]))
-                       (-> ?state
-                           (update-in [:lambda-scope 0] pop)
-                           (assoc-in [:lambda-scope 1] (inc (get-in state [:lambda-scope 1])))))
+                         ;; (prn [:lambda-scope 1] (get-in ?state [:lambda-scope 1]))
+                         (-> ?state
+                             (update-in [:lambda-scope 0] pop)
+                             (assoc-in [:lambda-scope 1] (inc (get-in state [:lambda-scope 1])))))
                      ?value]]
         
         _
@@ -223,7 +223,7 @@
               (if-let [global|import (or (get-in state [:defs-env ident])
                                          (get-in state [:imports ident]))]
                 (do ;; (prn 'resolve/_3 'global|import global|import)
-                  [::&util/ok [state global|import]])
+                    [::&util/ok [state global|import]])
                 [::&util/failure (str "Unresolved identifier: " ident)])
 
               :else

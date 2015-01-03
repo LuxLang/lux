@@ -1,11 +1,11 @@
-(ns lang.parser
+(ns lux.parser
   (:require [clojure.template :refer [do-template]]
             [clojure.core.match :refer [match]]
-            (lang [util :as &util :refer [exec return* return fail fail*
-                                          repeat-m try-m try-all-m map-m
-                                          apply-m]]
-                  [lexer :as &lexer]
-                  [type :as &type])))
+            (lux [util :as &util :refer [exec return* return fail fail*
+                                         repeat-m try-m try-all-m map-m
+                                         apply-m]]
+                 [lexer :as &lexer]
+                 [type :as &type])))
 
 (declare parse-form)
 
@@ -32,8 +32,8 @@
   )
 
 (defparser ^:private parse-char
-    [::&lexer/char ?value]
-    (return [::char (.charAt ?value 0)]))
+  [::&lexer/char ?value]
+  (return [::char (.charAt ?value 0)]))
 
 (defn ident->string [ident]
   (match ident
