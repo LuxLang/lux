@@ -5,18 +5,22 @@
             [clojure.core.match :refer [match]]
             (lang [util :as &util :refer [exec return* return fail fail*
                                           repeat-m try-m try-all-m map-m reduce-m
-                                          apply-m within]]
+                                          apply-m within
+                                          normalize-ident
+                                          loader]]
                   [parser :as &parser]
                   [type :as &type])))
 
-(declare analyse-form)
+(declare analyse-form
+         ->tokens
+         tokens->clojure)
 
 ;; [Util]
 (defn ^:private annotated [form type]
   {:form form
    :type type})
 
-(defn ^:private fresh-env [id]
+(defn fresh-env [id]
   {:id id
    :counter 0
    :mappings {}
@@ -33,6 +37,13 @@
                      (assoc-in [:defs-env name] (annotated [::global (:name state) name] (:type desc))))
                  nil]]))
 
+(defn ^:private is-macro? [name]
+  (fn [state]
+    (prn 'is-macro? (nth name 1)
+         (get-in state [:defs (:name state) (nth name 1) :mode])
+          (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro))
+    [::&util/ok [state (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro)]]))
+
 (def ^:private next-local-idx
   (fn [state]
     [::&util/ok [state (-> state :env first :counter)]]))
@@ -45,7 +56,21 @@
   (fn [state]
     [::&util/ok [state (-> state :env first)]]))
 
-(defn ^:private with-scope [scope body]
+(defn ^:private in-scope? [scope]
+  (fn [state]
+    (match scope
+      [::&parser/ident ?macro-name]
+      (do ;; (prn 'in-scope?
+          ;;      ?macro-name
+          ;;      (get-in state [:lambda-scope 0])
+          ;;      (some (partial = ?macro-name) (get-in state [:lambda-scope 0])))
+        [::&util/ok [state (some (partial = ?macro-name) (get-in state [:lambda-scope 0]))]])
+
+      _
+      [::&util/ok [state false]])
+    ))
+
+(defn with-scope [scope body]
   (fn [state]
     (let [=return (body (-> state
                             (update-in [:lambda-scope 0] conj scope)
@@ -237,8 +262,9 @@
         [::&util/ok [?state ?value]]
         [::&util/ok [(assoc ?state :forms old-forms) ?value]]
         
-        _
-        =return))))
+        [::&util/failure ?message]
+        (do (prn 'analyse-form* ?message)
+          [::&util/failure ?message])))))
 
 (do-template [<name> <tag> <class>]
   (defanalyser <name>
@@ -380,15 +406,118 @@
                          ]
                     (return (annotated [::dynamic-method =target =owner ?method =method =args] (&type/return-type =method))))]))))
 
+(defn ->token [x]
+  (prn '->token x)
+  (let [variant (.newInstance (.loadClass loader "test2.Variant"))]
+    (match x
+      [::&parser/string ?text]
+      (doto variant
+        (-> .-tag (set! "Text"))
+        (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
+                            (-> .-_0 (set! ?text))))))
+      [::&parser/ident ?ident]
+      (doto variant
+        (-> .-tag (set! "Ident"))
+        (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
+                            (-> .-_0 (set! ?ident))))))
+      [::&parser/fn-call ?fn ?args]
+      (doto variant
+        (-> .-tag (set! "Form"))
+        (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
+                            (-> .-_0 (set! (->tokens (cons ?fn ?args))))))
+            ))
+      )))
+
+(defn ->tokens [xs]
+  (let [variant (.loadClass loader "test2.Variant")
+        tuple2 (.loadClass loader "test2.Tuple2")]
+    (reduce (fn [tail x]
+              ;; (prn 'tail (.-tag tail) 'x x)
+              (doto (.newInstance variant)
+                (-> .-tag (set! "Cons"))
+                (-> .-value (set! (doto (.newInstance tuple2)
+                                    (-> .-_0 (set! (->token x)))
+                                    (-> .-_1 (set! tail))
+                                    ;; (-> prn)
+                                    )))
+                ;; (-> prn)
+                ))
+            (doto (.newInstance variant)
+              (-> .-tag (set! "Nil"))
+              (-> .-value (set! (.newInstance (.loadClass loader "test2.Tuple0")))))
+            (reverse xs))))
+
+(defn ->clojure-token [x]
+  (prn '->clojure-token x (.-tag x))
+  (case (.-tag x)
+    "Text" [::&parser/string (-> x .-value .-_0 (doto (-> string? assert)))]
+    "Ident" [::&parser/ident (-> x .-value .-_0 (doto (-> string? assert)))]
+    "Form" (let [[?fn & ?args] (-> x .-value .-_0 tokens->clojure)]
+             [::&parser/fn-call ?fn ?args])
+    "Quote" [::&parser/quote (-> x .-value .-_0 ->clojure-token)]))
+
+(defn tokens->clojure [xs]
+  (prn 'tokens->clojure xs (.-tag xs))
+  (case (.-tag xs)
+    "Nil" '()
+    "Cons" (let [tuple2 (.-value xs)]
+             (cons (->clojure-token (.-_0 tuple2))
+                   (tokens->clojure (.-_1 tuple2))))
+    ))
+
+;; (defn ->clojure-tokens [xs]
+;;   (case (.-tag xs)
+;;     "Cons" (let [tuple2 (.-value xs)]
+;;              (cons (->clojure-token (.-_0 tuple2)) (->clojure-tokens (.-_1 tuple2))))
+;;     "Nil" '()))
+
+(comment
+  (-> (->token [::&parser/string "YOLO"])
+      .-value
+      .-_0)
+
+  (-> (->tokens (list [::&parser/string "YOLO"]))
+      ;; .-tag
+      .-value
+      .-_1
+      .-tag
+      )
+
+  (let [_ (prn 'loader loader)
+        macro (-> loader (.loadClass "test2$_QUOTE_") .newInstance)
+        tokens (->tokens (list [::&parser/string "YOLO"]))]
+    (prn macro)
+    (prn tokens)
+    (prn (.apply macro tokens))
+    (prn (->clojure-token (.apply macro tokens)))
+    )
+
+  
+  )
+
 (defanalyser analyse-fn-call
   [::&parser/fn-call ?fn ?args]
   (exec [;; :let [_ (prn 'PRE '?fn ?fn)]
+         macro? (is-macro? ?fn)
+         scoped? (in-scope? ?fn)
+         :let [;; _ (prn 'macro? ?fn macro?)
+               ;; _ (prn 'scoped? scoped?)
+               ]
          =fn (analyse-form* ?fn)
          ;; :let [_ (prn '=fn =fn)]
-         =args (map-m analyse-form* ?args)
          ;; :let [_ (prn '=args =args)]
          ]
-    (return (annotated [::call =fn =args] [::&type/object "java.lang.Object" []]))))
+    (if (and macro? (not scoped?))
+      (do ;; (prn "MACRO CALL!" ?fn ?args =fn)
+          (let [macro (match (:form =fn)
+                        [::global ?module ?name]
+                        (.newInstance (.loadClass loader (str ?module "$" (normalize-ident ?name)))))
+                output (->clojure-token (.apply macro (->tokens ?args)))]
+            (prn "MACRO CALL!" macro output)
+            (analyse-form* output)))
+      (exec [=args (map-m analyse-form* ?args)]
+        (return (annotated [::call =fn =args] [::&type/object "java.lang.Object" []]))))
+    ))
 
 (defanalyser analyse-if
   [::&parser/if ?test ?then ?else]
@@ -630,6 +759,20 @@
         (return (annotated [::def [?name args] =value] ::&type/nothing))))
     ))
 
+(defanalyser analyse-defmacro
+  [::&parser/defmacro [::&parser/fn-call [::&parser/ident ?name] ([[::&parser/ident ?tokens]] :seq)] ?value]
+  (exec [[=function =tokens =return] (within :types (&type/fresh-function 1))
+         =value (with-scope ?name
+                  (with-scoped-name ?name =function
+                    (with-local ?tokens =tokens
+                      (analyse-form* ?value))))
+         =function (within :types (exec [_ (&type/solve =return (:type =value))]
+                                    (&type/clean =function)))
+         _ (define ?name {:mode   ::macro
+                          :access ::public
+                          :type   =function})]
+    (return (annotated [::def [?name (list ?tokens)] =value] ::&type/nothing))))
+
 (defanalyser analyse-lambda
   [::&parser/lambda ?args ?body]
   (exec [;; :let [_ (prn 'analyse-lambda ?args ?body)]
@@ -661,7 +804,11 @@
     (exec [_ (require-module module-name ?alias)]
       (return (annotated [::require ?file ?alias] ::&type/nothing)))))
 
-(def ^:private analyse-form
+(defanalyser analyse-quote
+  [::&parser/quote ?quoted]
+  (return (annotated [::quote ?quoted] ::&type/nothing)))
+
+(def analyse-form
   (try-all-m [analyse-boolean
               analyse-int
               analyse-float
@@ -680,8 +827,10 @@
               analyse-defclass
               analyse-definterface
               analyse-def
+              analyse-defmacro
               analyse-import
-              analyse-require]))
+              analyse-require
+              analyse-quote]))
 
 ;; [Interface]
 (defn analyse [module-name tokens]

@@ -71,6 +71,12 @@
          =body (apply-m parse-form (list ?body))]
     (return [::def =name =body])))
 
+(defparser ^:private parse-defmacro
+  [::&lexer/list ([[::&lexer/ident "defmacro"] ?name ?body] :seq)]
+  (exec [=name (apply-m parse-form (list ?name))
+         =body (apply-m parse-form (list ?body))]
+    (return [::defmacro =name =body])))
+
 (defparser ^:private parse-defdata
   [::&lexer/list ([[::&lexer/ident "defdata"] ?type & ?cases] :seq)]
   (exec [=type (apply-m parse-form (list ?type))
@@ -195,6 +201,7 @@
               parse-record
               parse-lambda
               parse-def
+              parse-defmacro
               parse-defdata
               parse-if
               parse-do

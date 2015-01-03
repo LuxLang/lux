@@ -52,7 +52,7 @@
 ;; [Lexers]
 (def ^:private lex-white-space (lex-regex #"^(\s+)"))
 
-(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':]*)")
+(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~]*)")
 
 (do-template [<name> <tag> <regex>]
   (def <name>

@@ -3,7 +3,12 @@
   (:require [clojure.string :as string]
             [clojure.set :as set]
             [clojure.core.match :refer [match]]
-            (lang [type :as &type]
+            (lang [util :as &util :refer [exec return* return fail fail*
+                                          repeat-m try-m try-all-m map-m reduce-m
+                                          apply-m within
+                                          normalize-ident
+                                          loader]]
+                  [type :as &type]
                   [lexer :as &lexer]
                   [parser :as &parser]
                   [analyser :as &analyser])
@@ -18,30 +23,22 @@
 
 ;; [Utils/General]
 (defn ^:private write-file [file data]
+  (println 'write-file file (alength data))
   (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
-    (.write stream data)))
+    (.write stream data))
+  ;; (Thread/sleep 2000)
+  )
 
-(defn ^:private normalize-char [char]
-  (case char
-    \* "_ASTER_"
-    \+ "_PLUS_"
-    \- "_DASH_"
-    \/ "_SLASH_"
-    \_ "_UNDERS_"
-    \% "_PERCENT_"
-    \$ "_DOLLAR_"
-    \! "_BANG_"
-    \' "_QUOTE_"
-    \` "_BQUOTE_"
-    \@ "_AT_"
-    \^ "_CARET_"
-    \& "_AMPERS_"
-    \= "_EQ_"
-    ;; default
-    char))
-
-(defn ^:private normalize-ident [ident]
-  (reduce str "" (map normalize-char ident)))
+(let [;; loader (proxy [ClassLoader] [])
+      ]
+  (defn load-class! [name file-name]
+    (println "Defining..." name "@" file-name ;; (alength bytecode)
+             )
+    ;; (prn 'loader loader)
+    (.loadClass loader name)
+    (println "SUCCESFUL LOAD!")
+    ;; (.defineClass loader name bytecode 0 (alength bytecode))
+    ))
 
 (def ^:private +variant-class+ "test2.Variant")
 
@@ -290,7 +287,7 @@
       +tuple-field-sig+ (->type-signature "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
   (defn compile-decision-tree [writer mappings cleanup-level next-label default-label decision-tree]
-    (prn 'compile-decision-tree cleanup-level decision-tree)
+    ;; (prn 'compile-decision-tree cleanup-level decision-tree)
     (match decision-tree
       [::test-text ?text $body]
       (let [$else (new Label)]
@@ -326,7 +323,8 @@
               (.visitInsn Opcodes/POP) ;; variant
               (do (let [arity (-> ?subcases first (nth 2) count)
                         tuple-class (str "test2/Tuple" arity)
-                        _ (prn ?tag arity tuple-class)]
+                        ;; _ (prn ?tag arity tuple-class)
+                        ]
                     (when (> arity 0)
                       (doto writer
                         (.visitInsn Opcodes/DUP) ;; variant, variant
@@ -355,48 +353,15 @@
               ;; variant, tag ->
               (.visitLabel tag-else-label))
             (->> (doseq [[?tag ?subcases] ?cases
-                         :let [_ (.print System/out (prn-str 'COMPILE-PATTERN ?tag ?subcases))]
+                         ;; :let [_ (.print System/out (prn-str 'COMPILE-PATTERN ?tag ?subcases))]
                          :let [tag-else-label (new Label)]])))
         (-> (doto (.visitInsn Opcodes/POP))
             (->> (dotimes [_ (+ cleanup-level 2)])))
         (.visitJumpInsn Opcodes/GOTO default-label)))
     ))
 
-;; ([:lang.compiler/subcase 0 ([:lang.compiler/test-adt #{0} {"Symbol" ()}]
-;;                             [:lang.compiler/test-adt #{0} {"Nil" ([:lang.compiler/subcase 0 ()])}])]
-;;  [:lang.compiler/subcase 0 ([:lang.compiler/test-adt #{0} {"Symbol" ()}]
-;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])]
-;;  [:lang.compiler/subcase 0 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
-;;                             [:lang.compiler/test-adt #{0} {"Nil" ([:lang.compiler/subcase 0 ()])}])]
-;;  [:lang.compiler/subcase 0 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
-;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])]
-;;  [:lang.compiler/subcase 1 ([:lang.compiler/test-adt #{1} {"Symbol" ([:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 1])])}]
-;;                             [:lang.compiler/test-adt #{1} {"Nil" ()}])]
-;;  [:lang.compiler/subcase 1 ([:lang.compiler/test-adt #{1} {"Symbol" ([:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 1])])}]
-;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])]
-;;  [:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
-;;                             [:lang.compiler/test-adt #{0} {"Nil" ([:lang.compiler/subcase 0 ()])}])]
-;;  [:lang.compiler/subcase 1 ([:lang.compiler/store [:lang.analyser/local 0 1] 0]
-;;                             [:lang.compiler/store [:lang.analyser/local 0 2] 1])])
-
-;; ({:type :lang.analyser/adt*,
-;;   :patterns {"Cons" {:parts ({:type :lang.analyser/adt*,
-;;                               :patterns {"Symbol" {:parts ({:type :lang.analyser/defaults,
-;;                                                             :stores {[:lang.analyser/local 0 1] #{1}},
-;;                                                             :branches #{1}}),
-;;                                                    :branches #{1}}},
-;;                               :default [:lang.analyser/default [:lang.analyser/local 0 1] 0],
-;;                               :branches #{0 1}}
-;;                              {:type :lang.analyser/adt*,
-;;                               :patterns {"Nil" {:parts (), :branches #{0}}},
-;;                               :default [:lang.analyser/default [:lang.analyser/local 0 2] 1],
-;;                               :branches #{0 1}}),
-;;                      :branches #{0 1}}},
-;;   :default nil,
-;;   :branches #{0 1}})
-
 (defn sequence-parts [branches parts]
-  (.print System/out (prn-str 'sequence-parts branches parts))
+  ;; (.print System/out (prn-str 'sequence-parts branches parts))
   (if (empty? parts)
     '(())
     (let [[head & tail] parts
@@ -422,14 +387,14 @@
                      (do ;; (prn '(:default head) (:default head))
                          ;; (assert (nil? (:default head)))
                          (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
-                                                               :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
+                                                               ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
                                                                :let [?parts (:parts ?struct)
                                                                      num-parts (count ?parts)
                                                                      ?supports (:branches ?struct)
                                                                      subcases (for [?body (set/intersection branches ?supports)
                                                                                     subseq (sequence-parts #{?body} ?parts)
-                                                                                    :let [_ (when (= "Symbol" ?tag)
-                                                                                              (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
+                                                                                    ;; :let [_ (when (= "Symbol" ?tag)
+                                                                                    ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
                                                                                     :when (= num-parts (count subseq))]
                                                                                 [::subcase ?body subseq])]
                                                                :when (not (empty? subcases))]
@@ -593,8 +558,10 @@
                       (.visitInsn Opcodes/ARETURN)
                       (.visitMaxs 0 0)
                       (.visitEnd)))
-          _ (.visitEnd =class)]
-      (write-file (str current-class ".class") (.toByteArray =class)))
+          _ (.visitEnd =class)
+          bytecode (.toByteArray =class)]
+      (write-file (str current-class ".class") bytecode)
+      (load-class! (string/replace current-class #"/" ".") (str current-class ".class")))
     ))
 
 (defn compile-field [writer class-name ?name body state]
@@ -614,8 +581,10 @@
                          (.visitInsn Opcodes/RETURN)
                          (.visitMaxs 0 0)
                          (.visitEnd)))
-                   (.visitEnd))]
-      (write-file (str current-class ".class") (.toByteArray =class)))
+                   (.visitEnd))
+          bytecode (.toByteArray =class)]
+      (write-file (str current-class ".class") bytecode)
+      (load-class! (string/replace current-class #"/" ".") (str current-class ".class")))
     ))
 
 (defcompiler ^:private compile-def
@@ -757,8 +726,10 @@
                 (.visitInsn Opcodes/ARETURN)
                 (.visitMaxs 0 0)
                 (.visitEnd))
-        _ (.visitEnd =class)]
-    (write-file (str current-class ".class") (.toByteArray =class))
+        _ (.visitEnd =class)
+        bytecode (.toByteArray =class)]
+    (write-file (str current-class ".class") bytecode)
+    (load-class! (string/replace current-class #"/" ".") (str current-class ".class"))
     ;; (apply prn 'LAMBDA ?scope ?args (->> (:mappings ?frame)
     ;;                                      (map second)
     ;;                                      (map :form)
@@ -797,8 +768,8 @@
       (.visitEnd))
     (.visitEnd =class)
     (.mkdirs (java.io.File. parent-dir))
-    (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
-      (.write stream (.toByteArray =class)))))
+    (write-file (str parent-dir "/" ?name ".class") (.toByteArray =class))
+    (load-class! (string/replace (str parent-dir "/" ?name) #"/" ".") (str parent-dir "/" ?name ".class"))))
 
 (defcompiler ^:private compile-definterface
   [::&analyser/definterface [?package ?name] ?members]
@@ -813,8 +784,8 @@
       (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
     (.visitEnd =interface)
     (.mkdirs (java.io.File. parent-dir))
-    (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str parent-dir "/" ?name ".class")))]
-      (.write stream (.toByteArray =interface)))))
+    (write-file (str parent-dir "/" ?name ".class") (.toByteArray =interface))
+    (load-class! (string/replace (str parent-dir "/" ?name) #"/" ".") (str parent-dir "/" ?name ".class"))))
 
 (defcompiler ^:private compile-variant
   [::&analyser/variant ?tag ?members]
@@ -856,11 +827,39 @@
         ;; _ (prn 'tokens tokens)
         syntax (&parser/parse tokens)
         ;; _ (prn 'syntax syntax)
-        ann-syntax (&analyser/analyse module-name syntax)
+        ;; ann-syntax (&analyser/analyse module-name syntax)
         ;; _ (prn 'ann-syntax ann-syntax)
-        class-data (compile module-name ann-syntax)]
-    (write-file (str module-name ".class") class-data)
+        bytecode (compile module-name syntax)]
+    ;; (write-file (str module-name ".class") bytecode)
+    ;; (load-class! (string/replace module-name #"/" ".") (str module-name ".class"))
     nil))
+
+(defn quoted->token [quoted]
+  (prn 'quoted->token quoted)
+  (match quoted
+    [::&parser/string ?text]
+    {:form [::&analyser/variant "Text" (list {:form [::&analyser/literal ?text]
+                                              :type [::&type/object "java.lang.String" []]})]
+     :type [::&type/variant "Text" (list [::&type/object "java.lang.String" []])]}
+    
+    [::&parser/fn-call ?fn ?args]
+    (let [members* (quoted->token (cons ?fn ?args))]
+      {:form [::&analyser/variant "Form" (list members*)]
+       :type [::&type/variant "Form" (list (:type members*))]})
+
+    ([] :seq)
+    {:form [::&analyser/variant "Nil" '()]
+     :type [::&type/variant "Nil" '()]}
+    
+    ([head & tail] :seq)
+    (let [head* (quoted->token head)
+          tail* (quoted->token tail)]
+      {:form [::&analyser/variant "Cons" (list head* tail*)]
+       :type [::&type/variant "Nil" (list (:type head*) (:type tail*))]})))
+
+(defcompiler compile-quote
+  [::&analyser/quote ?quoted]
+  (compile-form (assoc *state* :form (quoted->token ?quoted))))
 
 (let [+compilers+ [compile-literal
                    compile-variant
@@ -882,7 +881,8 @@
                    compile-defclass
                    compile-definterface
                    compile-import
-                   compile-require]]
+                   compile-require
+                   compile-quote]]
   (defn ^:private compile-form [state]
     ;; (prn 'compile-form/state state)
     (or (some #(% state) +compilers+)
@@ -894,18 +894,39 @@
   (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                          (->class class-name) nil "java/lang/Object" nil))
-        state {:class-name class-name
-               :writer =class
-               :form nil
-               :parent nil}]
-    (doseq [input inputs]
-      (when (not (compile-form (assoc state :form input)))
-        (assert false input)))
+        compiler-state {:class-name class-name
+                        :writer =class
+                        :form nil
+                        :parent nil}]
+    (match ((repeat-m
+             (&analyser/with-scope class-name
+               (exec [ann-input &analyser/analyse-form
+                      :let [_ (when (not (compile-form (assoc compiler-state :form ann-input)))
+                                (assert false ann-input))]]
+                 (return ann-input))))
+            {:name class-name
+             :forms inputs
+             :deps {}
+             :imports {}
+             :defs {}
+             :defs-env {}
+             :lambda-scope [[] 0]
+             :env (list (&analyser/fresh-env 0))
+             :types &type/+init+})
+      [::&util/ok [?state ?forms]]
+      (if (empty? (:forms ?state))
+        ?forms
+        (assert false (str "Unconsumed input: " (pr-str (:forms ?state)))))
+      
+      [::&util/failure ?message]
+      (assert false ?message))
+    ;;;
     (.visitEnd =class)
-    (let [=array (.toByteArray =class)]
-      ;; (prn 'compile class-name =array)
-      =array))
-
+    (let [bytecode (.toByteArray =class)]
+      (write-file (str class-name ".class") bytecode)
+      (load-class! (string/replace class-name #"/" ".") (str class-name ".class"))
+      bytecode)
+    )
   ;; (comment
   ;;   (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
   ;;   (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2.Function"))

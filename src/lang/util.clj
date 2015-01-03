@@ -132,3 +132,28 @@
         [::ok [(assoc state slot ?state) ?value]]
         _
         =return))))
+
+(defn ^:private normalize-char [char]
+  (case char
+    \* "_ASTER_"
+    \+ "_PLUS_"
+    \- "_DASH_"
+    \/ "_SLASH_"
+    \_ "_UNDERS_"
+    \% "_PERCENT_"
+    \$ "_DOLLAR_"
+    \! "_BANG_"
+    \' "_QUOTE_"
+    \` "_BQUOTE_"
+    \@ "_AT_"
+    \^ "_CARET_"
+    \& "_AMPERS_"
+    \= "_EQ_"
+    ;; default
+    char))
+
+(defn normalize-ident [ident]
+  (reduce str "" (map normalize-char ident)))
+
+(defonce loader (doto (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader.)
+                  (->> (prn 'loader))))
