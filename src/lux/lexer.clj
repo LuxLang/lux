@@ -49,10 +49,10 @@
                 (return (str prefix unescaped postfix)))
               (lex-regex #"(?s)^([^\"\\]*)")]))
 
+(def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~\?]*)")
+
 ;; [Lexers]
 (def ^:private lex-white-space (lex-regex #"^(\s+)"))
-
-(def +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~\?]*)")
 
 (do-template [<name> <tag> <regex>]
   (def <name>
@@ -111,6 +111,10 @@
          ]
     (return [::comment comment])))
 
+(def ^:private lex-comment
+  (try-all-m [lex-single-line-comment
+              lex-multi-line-comment]))
+
 (def ^:private lex-tag
   (exec [_ (lex-str "#")
          token (lex-regex +ident-re+)]
@@ -128,8 +132,7 @@
                           lex-list
                           lex-tuple
                           lex-record
-                          lex-single-line-comment
-                          lex-multi-line-comment])
+                          lex-comment])
          _ (try-m lex-white-space)]
     (return form)))
 

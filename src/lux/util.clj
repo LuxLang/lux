@@ -35,10 +35,6 @@
   (reduce (fn [inner [label computation]]
             (case label
               :let `(let ~computation ~inner)
-              ;; :when (assert false "Can't use :when")
-              :when `(if ~computation
-                       ~inner
-                       zero)
               ;; else
               `(bind ~computation (fn [~label] ~inner))))
           return

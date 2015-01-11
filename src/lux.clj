@@ -17,14 +17,13 @@
   ;; TODO: Adding metadata to global vars.
   ;; TODO: Add records.
   ;; TODO: throw, try, catch, finally
-  ;; TODO: Tuple8 and Tuple8X (for arbitrary-size tuples).
   ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
   ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
   ;; TODO: Add "new". Allow setting fields.
   ;; TODO: Don't take into account newlines in strings unless they come from \n to allow better coding.
   ;; TODO: monitor enter & monitor exit.
-  ;; TODO: 
-  ;; TODO: 
+  ;; TODO: Reinplement "if" as a macro on top of case.
+  ;; TODO: Eliminate the reliance of variants upon tuples for storage.
   ;; TODO: 
 
   (let [source-code (slurp "test2.lux")

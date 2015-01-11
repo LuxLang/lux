@@ -77,18 +77,6 @@
          =body (apply-m parse-form (list ?body))]
     (return [::defmacro =name =body])))
 
-(defparser ^:private parse-defdata
-  [::&lexer/list ([[::&lexer/ident "defdata"] ?type & ?cases] :seq)]
-  (exec [=type (apply-m parse-form (list ?type))
-         =cases (map-m (fn [arg]
-                         (match arg
-                           [::&lexer/list ([[::&lexer/tag ?tag] ?data] :seq)]
-                           (exec [=data (apply-m parse-form (list ?data))]
-                             (return [::tagged ?tag =data]))
-                           ))
-                       ?cases)]
-    (return [::defdata =type =cases])))
-
 (defparser ^:private parse-if
   [::&lexer/list ([[::&lexer/ident "if"] ?test ?then ?else] :seq)]
   (exec [=test (apply-m parse-form (list ?test))
@@ -123,20 +111,22 @@
   [::&lexer/list ([[::&lexer/ident "import"] [::&lexer/ident ?class]] :seq)]
   (return [::import ?class]))
 
-(defparser ^:private parse-require
-  [::&lexer/list ([[::&lexer/ident "require"] [::&lexer/text ?file] [::&lexer/ident "as"] [::&lexer/ident ?alias]] :seq)]
-  (return [::require ?file ?alias]))
+(defparser ^:private parse-use
+  [::&lexer/list ([[::&lexer/ident "use"] [::&lexer/text ?file] [::&lexer/ident "as"] [::&lexer/ident ?alias]] :seq)]
+  (return [::use ?file ?alias]))
 
 (defparser ^:private parse-defclass
-  [::&lexer/list ([[::&lexer/ident "defclass"] [::&lexer/ident ?name] [::&lexer/tuple ?fields]] :seq)]
+  [::&lexer/list ([[::&lexer/ident "jvm/defclass"] [::&lexer/ident ?name]
+                   [::&lexer/ident ?super-class]
+                   [::&lexer/tuple ?fields]] :seq)]
   (let [fields (for [field ?fields]
                  (match field
                    [::&lexer/tuple ([[::&lexer/ident ?class] [::&lexer/ident ?field]] :seq)]
                    [?class ?field]))]
-    (return [::defclass ?name fields])))
+    (return [::defclass ?name ?super-class fields])))
 
 (defparser ^:private parse-definterface
-  [::&lexer/list ([[::&lexer/ident "definterface"] [::&lexer/ident ?name] & ?members] :seq)]
+  [::&lexer/list ([[::&lexer/ident "jvm/definterface"] [::&lexer/ident ?name] & ?members] :seq)]
   (let [members (for [field ?members]
                   (match field
                     [::&lexer/list ([[::&lexer/ident ":"] [::&lexer/ident ?member] [::&lexer/list ([[::&lexer/ident "->"] [::&lexer/tuple ?inputs] ?output] :seq)]] :seq)]
@@ -202,7 +192,6 @@
               parse-lambda
               parse-def
               parse-defmacro
-              parse-defdata
               parse-if
               parse-do
               parse-case
@@ -215,7 +204,7 @@
               parse-defclass
               parse-definterface
               parse-import
-              parse-require
+              parse-use
               parse-fn-call]))
 
 ;; [Interface]

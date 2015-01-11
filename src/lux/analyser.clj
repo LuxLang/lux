@@ -193,7 +193,7 @@
                                                       short-name =class})
                    nil]])))
 
-(defn ^:private require-module [name alias]
+(defn ^:private use-module [name alias]
   (fn [state]
     [::&util/ok [(assoc-in state [:deps alias] name)
                  nil]]))
@@ -408,61 +408,47 @@
 
 (defn ->token [x]
   ;; (prn '->token x)
-  (let [variant (.newInstance (.loadClass loader "test2.Variant"))]
-    (match x
-      [::&parser/text ?text]
-      (doto variant
-        (-> .-tag (set! "Text"))
-        (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
-                            (-> .-_0 (set! ?text))))))
-      [::&parser/ident ?ident]
-      (doto variant
-        (-> .-tag (set! "Ident"))
-        (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
-                            (-> .-_0 (set! ?ident))))))
-      [::&parser/fn-call ?fn ?args]
-      (doto variant
-        (-> .-tag (set! "Form"))
-        (-> .-value (set! (doto (.newInstance (.loadClass loader "test2.Tuple1"))
-                            (-> .-_0 (set! (->tokens (cons ?fn ?args))))))
-            ))
-      )))
+  (match x
+    [::&parser/text ?text]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Text"))
+      (-> .-_1 (set! ?text)))
+    [::&parser/ident ?ident]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Ident"))
+      (-> .-_1 (set! ?ident)))
+    [::&parser/fn-call ?fn ?args]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Form"))
+      (-> .-_1 (set! (->tokens (cons ?fn ?args)))))
+    ))
 
 (defn ->tokens [xs]
-  (let [variant (.loadClass loader "test2.Variant")
-        tuple2 (.loadClass loader "test2.Tuple2")]
-    (reduce (fn [tail x]
-              ;; (prn 'tail (.-tag tail) 'x x)
-              (doto (.newInstance variant)
-                (-> .-tag (set! "Cons"))
-                (-> .-value (set! (doto (.newInstance tuple2)
-                                    (-> .-_0 (set! (->token x)))
-                                    (-> .-_1 (set! tail))
-                                    ;; (-> prn)
-                                    )))
-                ;; (-> prn)
-                ))
-            (doto (.newInstance variant)
-              (-> .-tag (set! "Nil"))
-              (-> .-value (set! (.newInstance (.loadClass loader "test2.Tuple0")))))
-            (reverse xs))))
+  (reduce (fn [tail x]
+            ;; (prn 'tail (.-tag tail) 'x x)
+            (doto (.newInstance (.loadClass loader "test2.Variant2"))
+              (-> .-tag (set! "Cons"))
+              (-> .-_1 (set! (->token x)))
+              (-> .-_2 (set! tail))))
+          (doto (.newInstance (.loadClass loader "test2.Variant0"))
+            (-> .-tag (set! "Nil")))
+          (reverse xs)))
 
 (defn ->clojure-token [x]
   ;; (prn '->clojure-token x (.-tag x))
   (case (.-tag x)
-    "Text" [::&parser/text (-> x .-value .-_0 (doto (-> string? assert)))]
-    "Ident" [::&parser/ident (-> x .-value .-_0 (doto (-> string? assert)))]
-    "Form" (let [[?fn & ?args] (-> x .-value .-_0 tokens->clojure)]
+    "Text" [::&parser/text (-> x .-_1 (doto (-> string? assert)))]
+    "Ident" [::&parser/ident (-> x .-_1 (doto (-> string? assert)))]
+    "Form" (let [[?fn & ?args] (-> x .-_1 tokens->clojure)]
              [::&parser/fn-call ?fn ?args])
-    "Quote" [::&parser/quote (-> x .-value .-_0 ->clojure-token)]))
+    "Quote" [::&parser/quote (-> x .-_1 ->clojure-token)]))
 
 (defn tokens->clojure [xs]
   ;; (prn 'tokens->clojure xs (.-tag xs))
   (case (.-tag xs)
     "Nil" '()
-    "Cons" (let [tuple2 (.-value xs)]
-             (cons (->clojure-token (.-_0 tuple2))
-                   (tokens->clojure (.-_1 tuple2))))
+    "Cons" (cons (->clojure-token (.-_1 xs))
+                 (tokens->clojure (.-_2 xs)))
     ))
 
 (defanalyser analyse-fn-call
@@ -674,13 +660,13 @@
     (return (annotated [::let idx ?label =value =body] (:type =body)))))
 
 (defanalyser analyse-defclass
-  [::&parser/defclass ?name ?fields]
+  [::&parser/defclass ?name ?super-class ?fields]
   (let [=members {:fields (into {} (for [[class field] ?fields]
                                      [field {:access ::public
                                              :type class}]))}
         =class [::class ?name =members]]
     (exec [name module-name]
-      (return (annotated [::defclass [name ?name] =members] ::&type/nothing)))))
+      (return (annotated [::defclass [name ?name] ?super-class =members] ::&type/nothing)))))
 
 (defanalyser analyse-definterface
   [::&parser/definterface ?name ?members]
@@ -765,14 +751,14 @@
   (exec [_ (import-class ?class (last (string/split ?class #"\.")))]
     (return (annotated [::import ?class] ::&type/nothing))))
 
-(defanalyser analyse-require
-  [::&parser/require ?file ?alias]
-  (let [;; _ (prn `[require ~?file ~?alias])
+(defanalyser analyse-use
+  [::&parser/use ?file ?alias]
+  (let [;; _ (prn `[use ~?file ~?alias])
         module-name (re-find #"[^/]+$" ?file)
         ;; _ (prn 'module-name module-name)
         ]
-    (exec [_ (require-module module-name ?alias)]
-      (return (annotated [::require ?file ?alias] ::&type/nothing)))))
+    (exec [_ (use-module module-name ?alias)]
+      (return (annotated [::use ?file ?alias] ::&type/nothing)))))
 
 (defanalyser analyse-quote
   [::&parser/quote ?quoted]
@@ -799,7 +785,7 @@
               analyse-def
               analyse-defmacro
               analyse-import
-              analyse-require
+              analyse-use
               analyse-quote]))
 
 ;; [Interface]

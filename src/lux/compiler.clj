@@ -61,11 +61,6 @@
     [::&parser/ident ?label]
     ?label))
 
-(defn ^:private unwrap-tagged [ident]
-  (match ident
-    [::&parser/tagged ?tag ?data]
-    [?tag ?data]))
-
 (defn ^:private ->class [class]
   (string/replace class #"\." "/"))
 
@@ -147,7 +142,7 @@
       (dotimes [idx num-elems]
         (.visitInsn *writer* Opcodes/DUP)
         (compile-form (assoc *state* :form (nth ?elems idx)))
-        (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" idx) "Ljava/lang/Object;")))))
+        (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" (inc idx)) "Ljava/lang/Object;")))))
 
 (defcompiler ^:private compile-local
   [::&analyser/local ?env ?idx]
@@ -284,10 +279,10 @@
 (let [+tag-sig+ (->type-signature "java.lang.String")
       variant-class* (->class +variant-class+)
       oclass (->class "java.lang.Object")
-      +tuple-field-sig+ (->type-signature "java.lang.Object")
+      +variant-field-sig+ (->type-signature "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
-  (defn compile-decision-tree [writer mappings cleanup-level next-label default-label decision-tree]
-    ;; (prn 'compile-decision-tree cleanup-level decision-tree)
+  (defn compile-decision-tree [writer mappings default-label decision-tree]
+    ;; (prn 'compile-decision-tree decision-tree)
     (match decision-tree
       [::test-text ?text $body]
       (let [$else (new Label)]
@@ -297,18 +292,16 @@
           (.visitLdcInsn ?text) ;; object, object, text
           (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; object, B
           (.visitJumpInsn Opcodes/IFEQ $else) ;; object
-          (.visitInsn Opcodes/POP) ;; 
-          (.visitJumpInsn Opcodes/GOTO next-label)
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO (get mappings $body))
           (.visitLabel $else)
-          (-> (doto (.visitInsn Opcodes/POP))
-              (->> (dotimes [_ (inc cleanup-level)])))
+          (.visitInsn Opcodes/POP)
           (.visitJumpInsn Opcodes/GOTO default-label)))
-      
+
       [::store [::&analyser/local _ ?idx] $body]
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?idx)
-        (-> (.visitJumpInsn Opcodes/GOTO (get mappings $body))
-            (->> (when (nil? next-label)))))
+        (.visitJumpInsn Opcodes/GOTO (get mappings $body)))
       
       [::test-adt ?branches ?cases]
       (doto writer
@@ -322,41 +315,37 @@
               (.visitJumpInsn Opcodes/IFEQ tag-else-label) ;; variant, tag
               (.visitInsn Opcodes/POP) ;; variant
               (do (let [arity (-> ?subcases first (nth 2) count)
-                        tuple-class (str "test2/Tuple" arity)
-                        ;; _ (prn ?tag arity tuple-class)
+                        variant-class** (str variant-class* arity)
+                        ;; _ (prn ?tag arity variant-class**)
                         ]
-                    (when (> arity 0)
-                      (doto writer
-                        (.visitInsn Opcodes/DUP) ;; variant, variant
-                        (.visitFieldInsn Opcodes/GETFIELD variant-class* "value" +tuple-field-sig+) ;; variant, object
-                        (.visitTypeInsn Opcodes/CHECKCAST tuple-class) ;; variant, tuple
-                        ))
+                    (.visitTypeInsn writer Opcodes/CHECKCAST variant-class**) ;; variantN
                     (doseq [subcase ?subcases
-                            :let [else-label (new Label)]]
+                            :let [next-subcase (new Label)]]
                       (match subcase
                         [::subcase $body ?subseq]
-                        (do (when (not (empty? ?subseq))
-                              (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
-                                      :let [next-label (new Label)]]
-                                (doto writer
-                                  (.visitInsn Opcodes/DUP) ;; variant, tuple, tuple
-                                  (.visitFieldInsn Opcodes/GETFIELD tuple-class (str "_" ?subidx) +tuple-field-sig+) ;; variant, tuple, object
-                                  (compile-decision-tree mappings cleanup-level next-label else-label ?subpart) ;; variant, tuple
-                                  (.visitLabel next-label))))
+                        (do (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
+                                    :let [sub-next-elem (new Label)]]
+                              (doto writer
+                                (.visitInsn Opcodes/DUP) ;; variant, variant
+                                (.visitFieldInsn Opcodes/GETFIELD variant-class** (str "_" (inc ?subidx)) +variant-field-sig+) ;; variant, object
+                                (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; variant
+                                (.visitLabel sub-next-elem)))
                           (doto writer
-                            (-> (doto (.visitInsn Opcodes/POP))
-                                (->> (dotimes [_ (+ cleanup-level (if (> arity 0) 2 1))]))) ;; 
-                            (.visitJumpInsn Opcodes/GOTO (or next-label (get mappings $body)))
-                            (.visitLabel else-label)))
+                            (.visitInsn Opcodes/POP)
+                            (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+                            (.visitLabel next-subcase)))
                         ))
                     ))
+              (.visitInsn Opcodes/POP) ;; ->
+              (.visitJumpInsn Opcodes/GOTO default-label)
               ;; variant, tag ->
               (.visitLabel tag-else-label))
             (->> (doseq [[?tag ?subcases] ?cases
                          ;; :let [_ (.print System/out (prn-str 'COMPILE-PATTERN ?tag ?subcases))]
                          :let [tag-else-label (new Label)]])))
-        (-> (doto (.visitInsn Opcodes/POP))
-            (->> (dotimes [_ (+ cleanup-level 2)])))
+        ;; variant, tag ->
+        (.visitInsn Opcodes/POP) ;; variant ->
+        (.visitInsn Opcodes/POP) ;; ->
         (.visitJumpInsn Opcodes/GOTO default-label)))
     ))
 
@@ -386,27 +375,45 @@
                      ::&analyser/adt*
                      (do ;; (prn '(:default head) (:default head))
                          ;; (assert (nil? (:default head)))
-                         (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
-                                                               ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
-                                                               :let [?parts (:parts ?struct)
-                                                                     num-parts (count ?parts)
-                                                                     ?supports (:branches ?struct)
-                                                                     subcases (for [?body (set/intersection branches ?supports)
-                                                                                    subseq (sequence-parts #{?body} ?parts)
-                                                                                    ;; :let [_ (when (= "Symbol" ?tag)
-                                                                                    ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
-                                                                                    :when (= num-parts (count subseq))]
-                                                                                [::subcase ?body subseq])]
-                                                               :when (not (empty? subcases))]
-                                                           [?tag subcases]))]
-                                   (if (empty? patterns)
-                                     '()
-                                     (list [[::test-adt branches patterns]
-                                            branches])))
-                                 (if-let [[_ ?local ?body] (:default head)]
-                                   (for [?body (set/intersection branches #{?body})]
-                                     [[::store ?local ?body] #{?body}])
-                                   '())))
+                         ;; (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
+                         ;;                               ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
+                         ;;                               :let [?parts (:parts ?struct)
+                         ;;                                     num-parts (count ?parts)
+                         ;;                                     ?supports (:branches ?struct)
+                         ;;                                     subcases (for [?body (set/intersection branches ?supports)
+                         ;;                                                    subseq (sequence-parts #{?body} ?parts)
+                         ;;                                                    ;; :let [_ (when (= "Symbol" ?tag)
+                         ;;                                                    ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
+                         ;;                                                    :when (= num-parts (count subseq))]
+                         ;;                                                [::subcase ?body subseq])]
+                         ;;                               :when (not (empty? subcases))]
+                         ;;                           [?tag subcases]))]
+                         ;;   (if (empty? patterns)
+                         ;;     '()
+                         ;;     (list [[::test-adt branches patterns]
+                         ;;            branches])))
+                       (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
+                                                             ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
+                                                             :let [?parts (:parts ?struct)
+                                                                   num-parts (count ?parts)
+                                                                   ?supports (:branches ?struct)
+                                                                   subcases (for [?body (set/intersection branches ?supports)
+                                                                                  subseq (sequence-parts #{?body} ?parts)
+                                                                                  ;; :let [_ (when (= "Symbol" ?tag)
+                                                                                  ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
+                                                                                  :when (= num-parts (count subseq))]
+                                                                              [::subcase ?body subseq])]
+                                                             :when (not (empty? subcases))]
+                                                         [?tag subcases]))]
+                                 (if (empty? patterns)
+                                   '()
+                                   (list [[::test-adt branches patterns]
+                                          branches])))
+                               (if-let [[_ ?local ?body] (:default head)]
+                                 (for [?body (set/intersection branches #{?body})]
+                                   [[::default ?local ?body] #{?body}])
+                                 '()))
+                       )
                      )]
       (for [[step branches*] expanded
             tail* (sequence-parts branches* tail)
@@ -435,29 +442,48 @@
           (dotimes [idx ?max-registers]
             (.visitLocalVariable *writer* (str "__" (swap! !case-vars inc) "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
           (compile-form (assoc *state* :form ?variant))
-          (.visitLabel *writer* start-label)
+          (doto *writer*
+            (.visitInsn Opcodes/DUP)
+            (.visitLabel start-label))
           (let [default-label (new Label)
-                default-code (:default ?decision-tree)]
+                ;; default-code (:default ?decision-tree)
+                ]
             ;; (prn 'sequence-parts
             ;;      (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))
-            (doseq [decision-tree (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
-              (compile-decision-tree *writer* mappings* 0 nil default-label decision-tree))
+            (doseq [decision-tree (let [pieces (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
+                                    (if (:default ?decision-tree)
+                                      (butlast pieces)
+                                      pieces))]
+              (compile-decision-tree *writer* mappings* default-label decision-tree))
             (.visitLabel *writer* default-label)
-            (when (not default-code)
-              ;; (do (prn 'default-code default-code)
-              ;;   (assert false)
-              ;;   ;; (.visitInsn Opcodes/POP) ;; ...
-              ;;   (compile-form (assoc *state* :form default-code))
-              ;;   (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+            (if-let [[_ [_ _ ?idx] ?body] (:default ?decision-tree)]
               (doto *writer*
-                ;; (.visitInsn Opcodes/POP)
+                (.visitInsn Opcodes/DUP)
+                (.visitVarInsn Opcodes/ASTORE ?idx)
+                (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
+              (doto *writer*
+                (.visitInsn Opcodes/POP)
                 (.visitTypeInsn Opcodes/NEW ex-class)
                 (.visitInsn Opcodes/DUP)
                 (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
-                (.visitInsn Opcodes/ATHROW))))
+                (.visitInsn Opcodes/ATHROW)))
+            ;; (if default-code
+            ;;   ;; (do (prn 'default-code default-code)
+            ;;   ;;   (assert false)
+            ;;   ;;   ;; (.visitInsn Opcodes/POP) ;; ...
+            ;;   ;;   (compile-form (assoc *state* :form default-code))
+            ;;   ;;   (.visitJumpInsn *writer* Opcodes/GOTO end-label))
+            ;;   (doto *writer*
+            ;;     (.visitInsn Opcodes/POP)
+            ;;     (.visitTypeInsn Opcodes/NEW ex-class)
+            ;;     (.visitInsn Opcodes/DUP)
+            ;;     (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+            ;;     (.visitInsn Opcodes/ATHROW)))
+            )
           ;; (compile-decision-tree *state* *writer* mappings* 1 nil (:branches ?decision-tree) ?decision-tree)
           (doseq [[?label ?body] (map second entries)]
             (.visitLabel *writer* ?label)
+            (.visitInsn *writer* Opcodes/POP)
             (compile-form (assoc *state* :form ?body))
             (.visitJumpInsn *writer* Opcodes/GOTO end-label))
           (.visitLabel *writer* end-label)
@@ -751,18 +777,19 @@
     ))
 
 (defcompiler ^:private compile-defclass
-  [::&analyser/defclass [?package ?name] ?members]
+  [::&analyser/defclass [?package ?name] ?super-class ?members]
   (let [parent-dir (->package ?package)
+        super-class* (->class ?super-class)
         =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                         (str parent-dir "/" ?name) nil "java/lang/Object" nil))]
+                         (str parent-dir "/" ?name) nil super-class* nil))]
     (doseq [[field props] (:fields ?members)]
       (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature (:type props)) nil nil)
         (.visitEnd)))
     (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
       (.visitCode)
       (.visitVarInsn Opcodes/ALOAD 0)
-      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+      (.visitMethodInsn Opcodes/INVOKESPECIAL super-class* "<init>" "()V")
       (.visitInsn Opcodes/RETURN)
       (.visitMaxs 0 0)
       (.visitEnd))
@@ -789,7 +816,7 @@
 
 (defcompiler ^:private compile-variant
   [::&analyser/variant ?tag ?members]
-  (let [variant-class* (->class +variant-class+)]
+  (let [variant-class* (str (->class +variant-class+) (count ?members))]
     ;; (prn 'compile-variant ?tag ?value)
     (doto *writer*
       (.visitTypeInsn Opcodes/NEW variant-class*)
@@ -798,27 +825,18 @@
       (.visitInsn Opcodes/DUP)
       (.visitLdcInsn ?tag)
       (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (->type-signature "java.lang.String"))
-      (.visitInsn Opcodes/DUP))
-    (let [tuple-class (str "test2/Tuple" (count ?members))]
-      (doto *writer*
-        (.visitTypeInsn Opcodes/NEW tuple-class)
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKESPECIAL tuple-class "<init>" "()V"))
-      (doseq [[?tfield ?member] (mapv vector (range (count ?members)) ?members)]
-        (doto *writer*
-          (.visitInsn Opcodes/DUP)
-          (do (compile-form (assoc *state* :form ?member)))
-          (.visitFieldInsn Opcodes/PUTFIELD tuple-class (str "_" ?tfield) "Ljava/lang/Object;"))))
-    (doto *writer*
-      (.visitFieldInsn Opcodes/PUTFIELD variant-class* "value" "Ljava/lang/Object;"))
+      (-> (doto (.visitInsn Opcodes/DUP)
+            (do (compile-form (assoc *state* :form ?member)))
+            (.visitFieldInsn Opcodes/PUTFIELD variant-class* (str "_" (inc ?tfield)) "Ljava/lang/Object;"))
+          (->> (doseq [[?tfield ?member] (mapv vector (range (count ?members)) ?members)]))))
     ))
 
 (defcompiler compile-import
   [::&analyser/import ?class]
   nil)
 
-(defcompiler compile-require
-  [::&analyser/require ?file ?alias]
+(defcompiler compile-use
+  [::&analyser/use ?file ?alias]
   (let [module-name (re-find #"[^/]+$" ?file)
         ;; _ (prn 'module-name module-name)
         source-code (slurp (str module-name ".lux"))
@@ -881,7 +899,7 @@
                    compile-defclass
                    compile-definterface
                    compile-import
-                   compile-require
+                   compile-use
                    compile-quote]]
   (defn ^:private compile-form [state]
     ;; (prn 'compile-form/state state)
