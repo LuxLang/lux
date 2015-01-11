@@ -92,7 +92,7 @@
 (defn ^:private with-scoped-name [name type body]
   (fn [state]
     (let [=return (body (update-in state [:env]
-                                   #(cons (assoc-in (first %) [:mappings name] (annotated [::global (:name state) name] type))
+                                   #(cons (assoc-in (first %) [:mappings name] (annotated [::global-fn (:name state) name] type))
                                           (rest %))))]
       (match =return
         [::&util/ok [?state ?value]]
@@ -368,7 +368,7 @@
                               :when (and (= method (.getName =method))
                                          (case mode
                                            :static (java.lang.reflect.Modifier/isStatic (.getModifiers =method))
-                                           :dynamic (not (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))))]
+                                           :virtual (not (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))))]
                           [(.getDeclaringClass =method) =method]))]
     (map-m (fn [[owner method]]
              (exec [=method (&type/method->type method)]
@@ -376,42 +376,102 @@
            methods)
     (fail (str "Method does not exist: " target method mode))))
 
-(defanalyser analyse-access
-  [::&parser/access ?object ?member]
-  (match ?member
-    [::&parser/ident ?field] ;; Field
-    (try-all-m [(exec [?target (extract-ident ?object)
-                       =target (resolve ?target)
-                       ?class (extract-class (:form =target))
-                       [=owner =type] (lookup-field :static ?class ?field)
-                       ;; :let [_ (prn '=type =type)]
+(defn lookup-static-field [target field]
+  (if-let [type* (first (for [=field (.getFields target)
+                              :when (and (= target (.getDeclaringClass =field))
+                                         (= field (.getName =field))
+                                         (java.lang.reflect.Modifier/isStatic (.getModifiers =field)))]
+                          (.getType =field)))]
+    (exec [=type (&type/class->type type*)]
+      (return =type))
+    (fail (str "Field does not exist: " target field))))
+
+(defn lookup-virtual-method [target method-name args]
+  (prn 'lookup-virtual-method target method-name args)
+  (if-let [method (first (for [=method (.getMethods target)
+                               :when (and (= target (.getDeclaringClass =method))
+                                          (= method-name (.getName =method))
+                                          (not (java.lang.reflect.Modifier/isStatic (.getModifiers =method))))]
+                           =method))]
+    (do (prn 'lookup-virtual-method 'method method)
+      (exec [=method (&type/method->type method)]
+        (&type/return-type =method)))
+    (do (prn 'lookup-virtual-method (str "Virtual method does not exist: " target method-name))
+      (fail (str "Virtual method does not exist: " target method-name)))))
+
+(defn full-class-name [class]
+  ;; (prn 'full-class-name class)
+  (if (.contains class ".")
+    (return class)
+    (try-all-m [(exec [=class (resolve class)
+                       ;; :let [_ (prn '=class =class)]
                        ]
-                  (return (annotated [::static-field =owner ?field] =type)))
-                (exec [=target (analyse-form* ?object)
-                       ?class (class-type (:type =target))
-                       [=owner =type] (lookup-field :dynamic ?class ?field)
-                       ;; :let [_ (prn '=type =type)]
-                       ]
-                  (return (annotated [::dynamic-field =target =owner ?field] =type)))])
-    [::&parser/fn-call [::&parser/ident ?method] ?args] ;; Method
-    (exec [=args (map-m analyse-form* ?args)]
-      (try-all-m [(exec [?target (extract-ident ?object)
-                         =target (resolve ?target)
-                         ?class (extract-class (:form =target))
-                         =methods (lookup-method :static ?class ?method (map :type =args))
-                         ;; :let [_ (prn '=methods =methods)]
-                         [=owner =method] (within :types (&type/pick-matches =methods (map :type =args)))
-                         ;; :let [_ (prn '=method =owner ?method =method)]
-                         ]
-                    (return (annotated [::static-method =owner ?method =method =args] (&type/return-type =method))))
-                  (exec [=target (analyse-form* ?object)
-                         ?class (class-type (:type =target))
-                         =methods (lookup-method :dynamic ?class ?method (map :type =args))
-                         ;; :let [_ (prn '=methods =methods)]
-                         [=owner =method] (within :types (&type/pick-matches =methods (map :type =args)))
-                         ;; :let [_ (prn '=method =owner ?method =method)]
-                         ]
-                    (return (annotated [::dynamic-method =target =owner ?method =method =args] (&type/return-type =method))))]))))
+                  (match (:form =class)
+                    [::class ?full-name]
+                    (return ?full-name)
+                    _
+                    (fail "Unknown class.")))
+                (let [full-name* (str "java.lang." class)]
+                  (if-let [full-name (try (Class/forName full-name*)
+                                       full-name*
+                                       (catch Exception e
+                                         nil))]
+                    (return full-name)
+                    (fail "Unknown class.")))])))
+
+(defanalyser analyse-jvm-getstatic
+  [::&parser/jvm-getstatic ?class ?field]
+  (exec [=class (full-class-name ?class)
+         =type (lookup-static-field (Class/forName =class) ?field)]
+    (return (annotated [::jvm-getstatic =class ?field] =type))))
+
+(defanalyser analyse-jvm-invokevirtual
+  [::&parser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
+  (exec [=class (full-class-name ?class)
+         =classes (map-m full-class-name ?classes)
+         =return (lookup-virtual-method (Class/forName =class) ?method (map #(Class/forName %) =classes))
+         :let [_ (prn 'analyse-jvm-invokevirtual '=return =return)]
+         ;; =return =return
+         =object (analyse-form* ?object)
+         =args (map-m analyse-form* ?args)]
+    (return (annotated [::jvm-invokevirtual =class ?method =classes =object =args] =return))))
+
+;; (defanalyser analyse-access
+;;   [::&parser/access ?object ?member]
+;;   (match ?member
+;;     [::&parser/ident ?field] ;; Field
+;;     (try-all-m [(exec [?target (extract-ident ?object)
+;;                        =target (resolve ?target)
+;;                        ?class (extract-class (:form =target))
+;;                        [=owner =type] (lookup-field :static ?class ?field)
+;;                        ;; :let [_ (prn '=type =type)]
+;;                        ]
+;;                   (return (annotated [::static-field =owner ?field] =type)))
+;;                 (exec [=target (analyse-form* ?object)
+;;                        ?class (class-type (:type =target))
+;;                        [=owner =type] (lookup-field :dynamic ?class ?field)
+;;                        ;; :let [_ (prn '=type =type)]
+;;                        ]
+;;                   (return (annotated [::dynamic-field =target =owner ?field] =type)))])
+;;     [::&parser/fn-call [::&parser/ident ?method] ?args] ;; Method
+;;     (exec [=args (map-m analyse-form* ?args)]
+;;       (try-all-m [(exec [?target (extract-ident ?object)
+;;                          =target (resolve ?target)
+;;                          ?class (extract-class (:form =target))
+;;                          =methods (lookup-method :static ?class ?method (map :type =args))
+;;                          ;; :let [_ (prn '=methods =methods)]
+;;                          [=owner =method] (within :types (&type/pick-matches =methods (map :type =args)))
+;;                          ;; :let [_ (prn '=method =owner ?method =method)]
+;;                          ]
+;;                     (return (annotated [::static-method =owner ?method =method =args] (&type/return-type =method))))
+;;                   (exec [=target (analyse-form* ?object)
+;;                          ?class (class-type (:type =target))
+;;                          =methods (lookup-method :dynamic ?class ?method (map :type =args))
+;;                          ;; :let [_ (prn '=methods =methods)]
+;;                          [=owner =method] (within :types (&type/pick-matches =methods (map :type =args)))
+;;                          ;; :let [_ (prn '=method =owner ?method =method)]
+;;                          ]
+;;                     (return (annotated [::dynamic-method =target =owner ?method =method =args] (&type/return-type =method))))]))))
 
 (defn ->token [x]
   ;; (prn '->token x)
@@ -801,7 +861,6 @@
               analyse-tuple
               analyse-lambda
               analyse-ident
-              analyse-access
               analyse-fn-call
               analyse-if
               analyse-do
@@ -817,7 +876,9 @@
               analyse-jvm-i+
               analyse-jvm-i-
               analyse-jvm-i*
-              analyse-jvm-idiv]))
+              analyse-jvm-idiv
+              analyse-jvm-getstatic
+              analyse-jvm-invokevirtual]))
 
 ;; [Interface]
 (defn analyse [module-name tokens]

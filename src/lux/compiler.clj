@@ -75,6 +75,9 @@
 
 (defn ^:private ->java-sig [type]
   (match type
+    ::&type/nothing
+    "V"
+    
     ::&type/any
     (->java-sig [::&type/object "java.lang.Object" []])
 
@@ -218,8 +221,8 @@
             ))
         )))
 
-(defcompiler ^:private compile-static-field
-  [::&analyser/static-field ?owner ?field]
+(defcompiler ^:private compile-jvm-getstatic
+  [::&analyser/jvm-getstatic ?owner ?field]
   (do ;; (prn 'compile-static-field ?owner ?field)
       ;; (assert false)
       (doto *writer*
@@ -246,17 +249,22 @@
           (.visitInsn Opcodes/ACONST_NULL)))
     ))
 
-(defcompiler ^:private compile-dynamic-method
-  [::&analyser/dynamic-method ?target ?owner ?method-name ?method-type ?args]
-  (do ;; (prn 'compile-dynamic-method ?target ?owner ?method-name ?method-type ?args)
-      ;; (assert false)
-      (do (compile-form (assoc *state* :form ?target))
-        (doseq [arg ?args]
-          (compile-form (assoc *state* :form arg)))
-        (doto *writer*
-          (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class ?owner) ?method-name (method->sig ?method-type))
-          (.visitInsn Opcodes/ACONST_NULL)
-          ))
+(defcompiler ^:private compile-jvm-invokevirtual
+  [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
+  (let [_ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
+        method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
+    (compile-form (assoc *state* :form ?object))
+    (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
+    (doseq [[class-name arg] (map vector ?classes ?args)]
+      (do (compile-form (assoc *state* :form arg))
+        (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class class-name))))
+    (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
+    (match *type*
+      ::&type/nothing
+      (.visitInsn *writer* Opcodes/ACONST_NULL)
+      
+      [::&type/object ?oclass _]
+      nil)
     ))
 
 (defcompiler ^:private compile-if
@@ -917,10 +925,8 @@
                    compile-global
                    compile-static-call
                    compile-call
-                   compile-static-field
                    compile-dynamic-field
                    compile-static-method
-                   compile-dynamic-method
                    compile-if
                    compile-do
                    compile-case
@@ -935,7 +941,9 @@
                    compile-jvm-i+
                    compile-jvm-i-
                    compile-jvm-i*
-                   compile-jvm-idiv]]
+                   compile-jvm-idiv
+                   compile-jvm-getstatic
+                   compile-jvm-invokevirtual]]
   (defn ^:private compile-form [state]
     ;; (prn 'compile-form/state state)
     (or (some #(% state) +compilers+)

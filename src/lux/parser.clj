@@ -163,15 +163,29 @@
          =record (apply-m parse-form (list ?record))]
     (return [::set ?tag =value =record])))
 
-(defparser ^:private parse-access
-  [::&lexer/list ([[::&lexer/ident "::"] ?object ?call] :seq)]
-  (exec [=object (apply-m parse-form (list ?object))
-         =call (apply-m parse-form (list ?call))]
-    (return [::access =object =call])))
-
 (defparser ^:private parse-text
   [::&lexer/text ?text]
   (return [::text ?text]))
+
+;; (defparser ^:private parse-access
+;;   [::&lexer/list ([[::&lexer/ident "::"] ?object ?call] :seq)]
+;;   (exec [=object (apply-m parse-form (list ?object))
+;;          =call (apply-m parse-form (list ?call))]
+;;     (return [::access =object =call])))
+
+(defparser ^:private parse-jvm-getstatic
+  [::&lexer/list ([[::&lexer/ident "jvm/getstatic"] [::&lexer/ident ?class] [::&lexer/ident ?field]] :seq)]
+  (return [::jvm-getstatic ?class ?field]))
+
+(defparser ^:private parse-jvm-invokevirtual
+  [::&lexer/list ([[::&lexer/ident "jvm/invokevirtual"]
+                   [::&lexer/ident ?class] [::&lexer/text ?method] [::&lexer/tuple ?classes]
+                   ?object [::&lexer/tuple ?args]]
+                    :seq)]
+  (exec [=object (apply-m parse-form (list ?object))
+         =args (map-m #(apply-m parse-form (list %))
+                      ?args)]
+    (return [::jvm-invokevirtual ?class ?method (map ident->string ?classes) =object =args])))
 
 (defparser ^:private parse-fn-call
   [::&lexer/list ([?f & ?args] :seq)]
@@ -214,7 +228,6 @@
               parse-get
               parse-set
               parse-remove
-              parse-access
               parse-defclass
               parse-definterface
               parse-import
@@ -223,6 +236,8 @@
               parse-jvm-i-
               parse-jvm-i*
               parse-jvm-idiv
+              parse-jvm-getstatic
+              parse-jvm-invokevirtual
               parse-fn-call]))
 
 ;; [Interface]
