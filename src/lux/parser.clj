@@ -202,10 +202,11 @@
            =y (apply-m parse-form (list ?y))]
       (return [<tag> =x =y])))
 
-  ^:private parse-jvm-i+   "jvm/i+" ::jvm-i+
-  ^:private parse-jvm-i-   "jvm/i-" ::jvm-i-
-  ^:private parse-jvm-i*   "jvm/i*" ::jvm-i*
-  ^:private parse-jvm-idiv "jvm/i/" ::jvm-idiv
+  ^:private parse-jvm-i+   "jvm/i+"   ::jvm-i+
+  ^:private parse-jvm-i-   "jvm/i-"   ::jvm-i-
+  ^:private parse-jvm-i*   "jvm/i*"   ::jvm-i*
+  ^:private parse-jvm-idiv "jvm/i/"   ::jvm-idiv
+  ^:private parse-jvm-irem "jvm/irem" ::jvm-irem
   )
 
 (def ^:private parse-form
@@ -236,6 +237,7 @@
               parse-jvm-i-
               parse-jvm-i*
               parse-jvm-idiv
+              parse-jvm-irem
               parse-jvm-getstatic
               parse-jvm-invokevirtual
               parse-fn-call]))

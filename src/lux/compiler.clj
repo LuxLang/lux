@@ -81,6 +81,9 @@
     ::&type/any
     (->java-sig [::&type/object "java.lang.Object" []])
 
+    [::&type/primitive "boolean"]
+    "Z"
+
     [::&type/object ?name []]
     (->type-signature ?name)
 
@@ -169,6 +172,11 @@
         (.visitFieldInsn Opcodes/GETSTATIC (->class (str ?owner-class "$" (normalize-ident ?name))) "_datum" "Ljava/lang/Object;" ;; (->java-sig *type*)
                          ))))
 
+(defcompiler ^:private compile-global-fn
+  [::&analyser/global-fn ?owner-class ?name]
+  (let [fn-class (str ?owner-class "$" (normalize-ident ?name))]
+    (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class fn-class) "_datum" (->type-signature fn-class))))
+
 ;; (defcompiler ^:private compile-call
 ;;   [::&analyser/call ?fn ?args]
 ;;   (do (prn 'compile-call (:form ?fn) ?fn ?args)
@@ -249,23 +257,27 @@
           (.visitInsn Opcodes/ACONST_NULL)))
     ))
 
-(defcompiler ^:private compile-jvm-invokevirtual
-  [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
-  (let [_ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
-        method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
-    (compile-form (assoc *state* :form ?object))
-    (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
-    (doseq [[class-name arg] (map vector ?classes ?args)]
-      (do (compile-form (assoc *state* :form arg))
-        (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class class-name))))
-    (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
-    (match *type*
-      ::&type/nothing
-      (.visitInsn *writer* Opcodes/ACONST_NULL)
-      
-      [::&type/object ?oclass _]
-      nil)
-    ))
+(let [boolean-class "java.lang.Boolean"]
+  (defcompiler ^:private compile-jvm-invokevirtual
+    [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
+    (let [_ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
+          method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
+      (compile-form (assoc *state* :form ?object))
+      (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
+      (doseq [[class-name arg] (map vector ?classes ?args)]
+        (do (compile-form (assoc *state* :form arg))
+          (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class class-name))))
+      (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
+      (match *type*
+        ::&type/nothing
+        (.visitInsn *writer* Opcodes/ACONST_NULL)
+
+        [::&type/primitive "boolean"]
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class boolean-class) "valueOf" (str "(Z)" (->type-signature boolean-class)))
+        
+        [::&type/object ?oclass _]
+        nil)
+      )))
 
 (defcompiler ^:private compile-if
   [::&analyser/if ?test ?then ?else]
@@ -528,6 +540,7 @@
         apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
         real-signature (str "(" (apply str (repeat num-args clo-field-sig)) ")" "Ljava/lang/Object;")
         current-class (str outer-class "$" (normalize-ident fn-name))
+        self-sig (->type-signature current-class)
         num-captured (dec num-args)
         init-signature (if (not= 0 num-captured)
                          (str "(" (apply str counter-sig (repeat num-captured clo-field-sig)) ")" "V")
@@ -536,9 +549,10 @@
     (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                    (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                            current-class nil "java/lang/Object" (into-array ["test2/Function"]))
-                   (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
-                         (.visitEnd))
-                       (->> (when (not= 0 num-captured)))))
+                   (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_datum" self-sig nil nil)
+                   (-> (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
+                       (->> (when (not= 0 num-captured))))
+                   (.visitEnd))
           =impl (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "impl" real-signature nil nil)
                   (.visitCode)
                   (->> (assoc *state* :form body :writer) compile-form)
@@ -563,6 +577,19 @@
                   (.visitInsn Opcodes/RETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
+          =clinit (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+                    (.visitCode)
+                    (.visitTypeInsn Opcodes/NEW current-class)
+                    (.visitInsn Opcodes/DUP)
+                    (-> (doto (.visitLdcInsn (int 0))
+                          (-> (.visitInsn Opcodes/ACONST_NULL)
+                              (->> (dotimes [_ num-captured]))))
+                        (->> (when (> num-captured 0))))
+                    (.visitMethodInsn Opcodes/INVOKESPECIAL current-class "<init>" init-signature)
+                    (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" self-sig)
+                    (.visitInsn Opcodes/RETURN)
+                    (.visitMaxs 0 0)
+                    (.visitEnd))
           =method (let [default-label (new Label)
                         branch-labels (for [_ (range num-captured)]
                                         (new Label))]
@@ -661,7 +688,7 @@
 
 (defcompiler ^:private compile-lambda
   [::&analyser/lambda ?scope ?frame ?args ?body]
-  (let [;; _ (prn '[?scope ?frame] ?scope ?frame)
+  (let [_ (prn '[?scope ?frame] ?scope ?frame ?args)
         num-args (count ?args)
         outer-class (->class *class-name*)
         clo-field-sig (->type-signature "java.lang.Object")
@@ -915,6 +942,7 @@
     ^:private compile-jvm-i-   ::&analyser/jvm-i-   Opcodes/ISUB
     ^:private compile-jvm-i*   ::&analyser/jvm-i*   Opcodes/IMUL
     ^:private compile-jvm-idiv ::&analyser/jvm-idiv Opcodes/IDIV
+    ^:private compile-jvm-irem ::&analyser/jvm-irem Opcodes/IREM
     ))
 
 (let [+compilers+ [compile-literal
@@ -923,6 +951,7 @@
                    compile-local
                    compile-captured
                    compile-global
+                   compile-global-fn
                    compile-static-call
                    compile-call
                    compile-dynamic-field
@@ -942,6 +971,7 @@
                    compile-jvm-i-
                    compile-jvm-i*
                    compile-jvm-idiv
+                   compile-jvm-irem
                    compile-jvm-getstatic
                    compile-jvm-invokevirtual]]
   (defn ^:private compile-form [state]

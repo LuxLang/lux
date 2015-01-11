@@ -188,7 +188,9 @@
                                (update-in [:env] rest)
                                ;; (update-in [:lambda-scope 1] inc)
                                )
-                           [(get-in ?state [:lambda-scope 0]) (-> ?state :env first) ?value]]])
+                           [(get-in ?state [:lambda-scope 0])
+                            (-> ?state :env first (update-in [:mappings] #(reduce dissoc % args-vars)))
+                            ?value]]])
           
           _
           =return)))))
@@ -849,6 +851,7 @@
   ^:private analyse-jvm-i-   ::&parser/jvm-i-   ::jvm-i-
   ^:private analyse-jvm-i*   ::&parser/jvm-i*   ::jvm-i*
   ^:private analyse-jvm-idiv ::&parser/jvm-idiv ::jvm-idiv
+  ^:private analyse-jvm-irem ::&parser/jvm-irem ::jvm-irem
   )
 
 (def analyse-form
@@ -877,6 +880,7 @@
               analyse-jvm-i-
               analyse-jvm-i*
               analyse-jvm-idiv
+              analyse-jvm-irem
               analyse-jvm-getstatic
               analyse-jvm-invokevirtual]))
 
