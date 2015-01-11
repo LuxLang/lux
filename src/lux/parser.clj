@@ -180,6 +180,20 @@
                       ?args)]
     (return [::fn-call =f =args])))
 
+;; Java interop
+(do-template [<name> <ident> <tag>]
+  (defparser <name>
+    [::&lexer/list ([[::&lexer/ident <ident>] ?x ?y] :seq)]
+    (exec [=x (apply-m parse-form (list ?x))
+           =y (apply-m parse-form (list ?y))]
+      (return [<tag> =x =y])))
+
+  ^:private parse-jvm-i+   "jvm/i+" ::jvm-i+
+  ^:private parse-jvm-i-   "jvm/i-" ::jvm-i-
+  ^:private parse-jvm-i*   "jvm/i*" ::jvm-i*
+  ^:private parse-jvm-idiv "jvm/i/" ::jvm-idiv
+  )
+
 (def ^:private parse-form
   (try-all-m [parse-bool
               parse-int
@@ -205,6 +219,10 @@
               parse-definterface
               parse-import
               parse-use
+              parse-jvm-i+
+              parse-jvm-i-
+              parse-jvm-i*
+              parse-jvm-idiv
               parse-fn-call]))
 
 ;; [Interface]

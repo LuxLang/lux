@@ -1,7 +1,8 @@
 (ns lux.compiler
   (:refer-clojure :exclude [compile])
-  (:require [clojure.string :as string]
-            [clojure.set :as set]
+  (:require (clojure [string :as string]
+                     [set :as set]
+                     [template :refer [do-template]])
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
                                          repeat-m try-m try-all-m map-m reduce-m
@@ -76,7 +77,7 @@
   (match type
     ::&type/any
     (->java-sig [::&type/object "java.lang.Object" []])
-    
+
     [::&type/object ?name []]
     (->type-signature ?name)
 
@@ -879,6 +880,27 @@
   [::&analyser/quote ?quoted]
   (compile-form (assoc *state* :form (quoted->token ?quoted))))
 
+(let [+int-class+ (->class "java.lang.Integer")]
+  (do-template [<name> <tag> <opcode>]
+    (defcompiler <name>
+      [<tag> ?x ?y]
+      (do (compile-form (assoc *state* :form ?x))
+        (doto *writer*
+          (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I"))
+        (compile-form (assoc *state* :form ?y))
+        (doto *writer*
+          (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I")
+          (.visitInsn <opcode>)
+          (.visitMethodInsn Opcodes/INVOKESTATIC +int-class+ "valueOf" (str "(I)" (->type-signature "java.lang.Integer"))))))
+
+    ^:private compile-jvm-i+   ::&analyser/jvm-i+   Opcodes/IADD
+    ^:private compile-jvm-i-   ::&analyser/jvm-i-   Opcodes/ISUB
+    ^:private compile-jvm-i*   ::&analyser/jvm-i*   Opcodes/IMUL
+    ^:private compile-jvm-idiv ::&analyser/jvm-idiv Opcodes/IDIV
+    ))
+
 (let [+compilers+ [compile-literal
                    compile-variant
                    compile-tuple
@@ -900,7 +922,11 @@
                    compile-definterface
                    compile-import
                    compile-use
-                   compile-quote]]
+                   compile-quote
+                   compile-jvm-i+
+                   compile-jvm-i-
+                   compile-jvm-i*
+                   compile-jvm-idiv]]
   (defn ^:private compile-form [state]
     ;; (prn 'compile-form/state state)
     (or (some #(% state) +compilers+)

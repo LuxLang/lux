@@ -764,6 +764,19 @@
   [::&parser/quote ?quoted]
   (return (annotated [::quote ?quoted] ::&type/nothing)))
 
+(do-template [<name> <input-tag> <output-tag>]
+  (defanalyser <name>
+    [<input-tag> ?x ?y]
+    (exec [=x (analyse-form* ?x)
+           =y (analyse-form* ?y)]
+      (return (annotated [<output-tag> =x =y] [::&type/object "java.lang.Integer" []]))))
+
+  ^:private analyse-jvm-i+   ::&parser/jvm-i+   ::jvm-i+
+  ^:private analyse-jvm-i-   ::&parser/jvm-i-   ::jvm-i-
+  ^:private analyse-jvm-i*   ::&parser/jvm-i*   ::jvm-i*
+  ^:private analyse-jvm-idiv ::&parser/jvm-idiv ::jvm-idiv
+  )
+
 (def analyse-form
   (try-all-m [analyse-bool
               analyse-int
@@ -786,7 +799,11 @@
               analyse-defmacro
               analyse-import
               analyse-use
-              analyse-quote]))
+              analyse-quote
+              analyse-jvm-i+
+              analyse-jvm-i-
+              analyse-jvm-i*
+              analyse-jvm-idiv]))
 
 ;; [Interface]
 (defn analyse [module-name tokens]

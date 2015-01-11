@@ -65,15 +65,20 @@
                          _ (update ?id =top actual)]
                     success)]))
 
-    [[::primitive ?prim] _]
-    (let [as-obj (case ?prim
-                   "boolean" [:lang.type/object "java.lang.Boolean" []]
-                   "int"     [:lang.type/object "java.lang.Integer" []]
-                   "long"    [:lang.type/object "java.lang.Long" []]
-                   "char"    [:lang.type/object "java.lang.Character" []]
-                   "float"   [:lang.type/object "java.lang.Float" []]
-                   "double"  [:lang.type/object "java.lang.Double" []])]
-      (solve as-obj actual))
+    ;; [[::primitive ?prim] _]
+    ;; (let [as-obj (case ?prim
+    ;;                "boolean" [:lang.type/object "java.lang.Boolean" []]
+    ;;                "int"     [:lang.type/object "java.lang.Integer" []]
+    ;;                "long"    [:lang.type/object "java.lang.Long" []]
+    ;;                "char"    [:lang.type/object "java.lang.Character" []]
+    ;;                "float"   [:lang.type/object "java.lang.Float" []]
+    ;;                "double"  [:lang.type/object "java.lang.Double" []])]
+    ;;   (solve as-obj actual))
+
+    [[::primitive ?e-prim] [::primitive ?a-prim]]
+    (if (= ?e-prim ?a-prim)
+      success
+      (fail (str "Can't solve types: " (pr-str expected actual))))
 
     [[::object ?eclass []] [::object ?aclass []]]
     (if (.isAssignableFrom (Class/forName ?eclass) (Class/forName ?aclass))
