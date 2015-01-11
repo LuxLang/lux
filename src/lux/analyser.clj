@@ -37,6 +37,13 @@
                      (assoc-in [:defs-env name] (annotated [::global (:name state) name] (:type desc))))
                  nil]]))
 
+(defn ^:private define-fn [name desc]
+  (fn [state]
+    [::&util/ok [(-> state
+                     (assoc-in [:defs (:name state) name] desc)
+                     (assoc-in [:defs-env name] (annotated [::global-fn (:name state) name] (:type desc))))
+                 nil]]))
+
 (defn ^:private is-macro? [name]
   (fn [state]
     ;; (prn 'is-macro? (nth name 1)
@@ -453,24 +460,31 @@
 
 (defanalyser analyse-fn-call
   [::&parser/fn-call ?fn ?args]
-  (exec [;; :let [_ (prn 'PRE '?fn ?fn)]
-         macro? (is-macro? ?fn)
-         scoped? (in-scope? ?fn)
-         :let [;; _ (prn 'macro? ?fn macro?)
-               ;; _ (prn 'scoped? scoped?)
-               ]
-         =fn (analyse-form* ?fn)
-         ;; :let [_ (prn '=fn =fn)]
-         ;; :let [_ (prn '=args =args)]
-         ]
-    (if (and macro? (not scoped?))
-      (do ;; (prn "MACRO CALL!" ?fn ?args =fn)
-          (let [macro (match (:form =fn)
-                        [::global ?module ?name]
-                        (.newInstance (.loadClass loader (str ?module "$" (normalize-ident ?name)))))
-                output (->clojure-token (.apply macro (->tokens ?args)))]
-            ;; (prn "MACRO CALL!" macro output)
-            (analyse-form* output)))
+  (exec [=fn (analyse-form* ?fn)]
+    (match (:form =fn)
+      [::global-fn ?module ?name]
+      (exec [macro? (is-macro? ?fn)
+             scoped? (in-scope? ?fn)]
+        (if (and macro? (not scoped?))
+          (let [macro-class (str ?module "$" (normalize-ident ?name))]
+            (-> (.loadClass loader macro-class)
+                .newInstance
+                (.apply (->tokens ?args))
+                ->clojure-token
+                analyse-form*))
+          (exec [=args (map-m analyse-form* ?args)
+                 :let [[needs-num =return-type] (match (:type =fn)
+                                                  [::&type/function ?fargs ?freturn]
+                                                  (let [needs-num (count ?fargs)
+                                                        provides-num (count =args)]
+                                                    (if (> needs-num provides-num)
+                                                      [needs-num [::&type/function (drop provides-num ?fargs) ?freturn]]
+                                                      [needs-num [::&type/object "java.lang.Object" []]])))
+                       ;; _ (prn '[needs-num =return-type] [needs-num =return-type])
+                       ]]
+            (return (annotated [::static-call needs-num =fn =args] =return-type)))))
+
+      _
       (exec [=args (map-m analyse-form* ?args)]
         (return (annotated [::call =fn =args] [::&type/object "java.lang.Object" []]))))
     ))
@@ -709,9 +723,9 @@
              =function (within :types (exec [_ (&type/solve =return (:type =value))]
                                         (&type/clean =function)))
              ;; :let [_ (prn '=function =function)]
-             _ (define ?name {:mode   ::function
-                              :access ::public
-                              :type   =function})]
+             _ (define-fn ?name {:mode   ::function
+                                 :access ::public
+                                 :type   =function})]
         (return (annotated [::def [?name args] =value] ::&type/nothing))))
     ))
 
@@ -724,9 +738,9 @@
                       (analyse-form* ?value))))
          =function (within :types (exec [_ (&type/solve =return (:type =value))]
                                     (&type/clean =function)))
-         _ (define ?name {:mode   ::macro
-                          :access ::public
-                          :type   =function})]
+         _ (define-fn ?name {:mode   ::macro
+                             :access ::public
+                             :type   =function})]
     (return (annotated [::def [?name (list ?tokens)] =value] ::&type/nothing))))
 
 (defanalyser analyse-lambda

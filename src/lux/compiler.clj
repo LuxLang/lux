@@ -180,34 +180,42 @@
 (defcompiler ^:private compile-call
   [::&analyser/call ?fn ?args]
   (do ;; (prn 'compile-call (:form ?fn) ?fn ?args)
+      (do (compile-form (assoc *state* :form ?fn))
+        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
+          (doseq [arg ?args]
+            (compile-form (assoc *state* :form arg))
+            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))))
+
+(defcompiler ^:private compile-static-call
+  [::&analyser/static-call ?needs-num ?fn ?args]
+  (do ;; (prn 'compile-call (:form ?fn) ?fn ?args)
       (match (:form ?fn)
-        [::&analyser/global ?owner-class ?fn-name]
-        (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
-              clo-field-sig (->type-signature "java.lang.Object")
-              counter-sig "I"
-              num-args (count ?args)
-              signature (if (> (count ?args) 1)
-                          (str "(" (apply str counter-sig (repeat (dec num-args) clo-field-sig)) ")" "V")
-                          (str "()" "V"))
-              call-class (str (->class ?owner-class) "$" (normalize-ident ?fn-name))]
-          (doto *writer*
-            (.visitTypeInsn Opcodes/NEW call-class)
-            (.visitInsn Opcodes/DUP)
-            (-> (doto (.visitLdcInsn (-> ?args count dec int))
-                  ;; (.visitInsn Opcodes/ICONST_0)
-                  (-> (do (compile-form (assoc *state* :form arg)))
-                      (->> (doseq [arg (butlast ?args)]))))
-                (->> (when (> (count ?args) 1))))
-            (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" signature)
-            (do (compile-form (assoc *state* :form (last ?args))))
-            (.visitMethodInsn Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature)))
-        
-        _
-        (do (compile-form (assoc *state* :form ?fn))
-          (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
-            (doseq [arg ?args]
-              (compile-form (assoc *state* :form arg))
-              (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))
+        [::&analyser/global-fn ?owner-class ?fn-name]
+        (let [arg-sig (->type-signature "java.lang.Object")
+              call-class (str (->class ?owner-class) "$" (normalize-ident ?fn-name))
+              provides-num (count ?args)]
+          (if (>= provides-num ?needs-num)
+            (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
+                  impl-sig (str "(" (reduce str "" (repeat ?needs-num arg-sig)) ")" arg-sig)]
+              (doto *writer*
+                (-> (do (compile-form (assoc *state* :form arg)))
+                    (->> (doseq [arg (take ?needs-num ?args)])))
+                (.visitMethodInsn Opcodes/INVOKESTATIC call-class "impl" impl-sig)
+                (-> (doto (do (compile-form (assoc *state* :form arg)))
+                      (.visitMethodInsn Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
+                    (->> (doseq [arg (drop ?needs-num ?args)])))))
+            (let [counter-sig "I"
+                  init-signature (str "(" (apply str counter-sig (repeat (dec ?needs-num) arg-sig)) ")" "V")]
+              (doto *writer*
+                (.visitTypeInsn Opcodes/NEW call-class)
+                (.visitInsn Opcodes/DUP)
+                (.visitLdcInsn (int provides-num))
+                (-> (do (compile-form (assoc *state* :form arg)))
+                    (->> (doseq [arg ?args])))
+                (-> (.visitInsn Opcodes/ACONST_NULL)
+                    (->> (dotimes [_ (dec (- ?needs-num provides-num))])))
+                (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" init-signature)))
+            ))
         )))
 
 (defcompiler ^:private compile-static-field
@@ -907,6 +915,7 @@
                    compile-local
                    compile-captured
                    compile-global
+                   compile-static-call
                    compile-call
                    compile-static-field
                    compile-dynamic-field
