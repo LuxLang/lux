@@ -7,7 +7,7 @@
                  [lexer :as &lexer]
                  [type :as &type])))
 
-(declare parse-form)
+(declare parse-token)
 
 ;; [Utils]
 (defmacro ^:private defparser [name match return]
@@ -20,33 +20,23 @@
          (fail* (str "Unmatched token: " token#))))))
 
 ;; [Parsers]
-(do-template [<name> <input-tag> <output-tag> <method>]
-  (defparser <name>
-    [<input-tag> ?value]
-    (return [<output-tag> (<method> ?value)]))
+(let [first-char #(.charAt % 0)]
+  (do-template [<name> <input-tag> <output-tag> <method>]
+    (defparser <name>
+      [<input-tag> ?value]
+      (return [<output-tag> (<method> ?value)]))
 
-  
-  ^:private parse-bool ::&lexer/bool ::bool Boolean/parseBoolean
-  ^:private parse-int  ::&lexer/int  ::int  Integer/parseInt
-  ^:private parse-real ::&lexer/real ::real Float/parseFloat
-  )
-
-(defparser ^:private parse-char
-  [::&lexer/char ?value]
-  (return [::char (.charAt ?value 0)]))
-
-(defn ident->string [ident]
-  (match ident
-    [::&lexer/ident ?ident]
-    ?ident))
-
-(defparser ^:private parse-ident
-  [::&lexer/ident ?ident]
-  (return [::ident ?ident]))
+    ^:private parse-bool  ::&lexer/bool  ::bool  Boolean/parseBoolean
+    ^:private parse-int   ::&lexer/int   ::int   Integer/parseInt
+    ^:private parse-real  ::&lexer/real  ::real  Float/parseFloat
+    ^:private parse-char  ::&lexer/char  ::char  first-char
+    ^:private parse-text  ::&lexer/text  ::text  identity
+    ^:private parse-ident ::&lexer/ident ::ident identity
+    ))
 
 (defparser ^:private parse-tuple
   [::&lexer/tuple ?parts]
-  (exec [=parts (map-m (fn [arg] (apply-m parse-form (list arg)))
+  (exec [=parts (map-m (fn [arg] (apply-m parse-token (list arg)))
                        ?parts)]
     (return [::tuple =parts])))
 
@@ -55,161 +45,38 @@
   (exec [=kvs (do (assert (even? (count ?parts)))
                 (map-m #(match %
                           ([[::&lexer/tag ?label] ?value] :seq)
-                          (exec [=value (apply-m parse-form (list ?value))]
+                          (exec [=value (apply-m parse-token (list ?value))]
                             (return [?label =value])))
                        (partition 2 ?parts)))]
     (return [::record =kvs])))
 
-(defparser ^:private parse-lambda
-  [::&lexer/list ([[::&lexer/ident "lambda"] [::&lexer/tuple ?args] ?body] :seq)]
-  (exec [=body (apply-m parse-form (list ?body))]
-    (return [::lambda (mapv ident->string ?args) =body])))
+(defparser ^:private parse-tag
+  [::&lexer/tag ?tag]
+  (return [::tag ?tag]))
 
-(defparser ^:private parse-def
-  [::&lexer/list ([[::&lexer/ident "def"] ?name ?body] :seq)]
-  (exec [=name (apply-m parse-form (list ?name))
-         =body (apply-m parse-form (list ?body))]
-    (return [::def =name =body])))
+(defparser ^:private parse-form
+  [::&lexer/list ?elems]
+  (exec [=elems (map-m (fn [arg] (apply-m parse-token (list arg)))
+                       ?elems)]
+    (return [::form =elems])))
 
-(defparser ^:private parse-defmacro
-  [::&lexer/list ([[::&lexer/ident "defmacro"] ?name ?body] :seq)]
-  (exec [=name (apply-m parse-form (list ?name))
-         =body (apply-m parse-form (list ?body))]
-    (return [::defmacro =name =body])))
+;; (defparser ^:private parse-get
+;;   [::&lexer/list ([[::&lexer/ident "get@"] [::&lexer/tag ?tag] ?record] :seq)]
+;;   (exec [=record (apply-m parse-token (list ?record))]
+;;     (return [::get ?tag =record])))
 
-(defparser ^:private parse-if
-  [::&lexer/list ([[::&lexer/ident "if"] ?test ?then ?else] :seq)]
-  (exec [=test (apply-m parse-form (list ?test))
-         =then (apply-m parse-form (list ?then))
-         =else (apply-m parse-form (list ?else))]
-    (return [::if =test =then =else])))
+;; (defparser ^:private parse-remove
+;;   [::&lexer/list ([[::&lexer/ident "remove@"] [::&lexer/tag ?tag] ?record] :seq)]
+;;   (exec [=record (apply-m parse-token (list ?record))]
+;;     (return [::remove ?tag =record])))
 
-(defparser ^:private parse-do
-  [::&lexer/list ([[::&lexer/ident "do"] & ?exprs] :seq)]
-  (exec [=exprs (map-m #(apply-m parse-form (list %))
-                       ?exprs)]
-    (return [::do =exprs])))
+;; (defparser ^:private parse-set
+;;   [::&lexer/list ([[::&lexer/ident "set@"] [::&lexer/tag ?tag] ?value ?record] :seq)]
+;;   (exec [=value (apply-m parse-token (list ?value))
+;;          =record (apply-m parse-token (list ?record))]
+;;     (return [::set ?tag =value =record])))
 
-(defparser ^:private parse-case
-  [::&lexer/list ([[::&lexer/ident "case"] ?variant & cases] :seq)]
-  (exec [=variant (apply-m parse-form (list ?variant))
-         =branches (do (assert (even? (count cases)))
-                     (map-m (fn [[destruct expr]]
-                              (exec [=destruct (apply-m parse-form (list destruct))
-                                     =expr (apply-m parse-form (list expr))]
-                                (return [::case-branch =destruct =expr])))
-                            (partition 2 cases)))]
-    (return [::case =variant =branches])))
-
-(defparser ^:private parse-let
-  [::&lexer/list ([[::&lexer/ident "let"] [::&lexer/ident ?label] ?value ?body] :seq)]
-  (exec [=value (apply-m parse-form (list ?value))
-         =body (apply-m parse-form (list ?body))]
-    (return [::let ?label =value =body])))
-
-(defparser ^:private parse-import
-  [::&lexer/list ([[::&lexer/ident "import"] [::&lexer/ident ?class]] :seq)]
-  (return [::import ?class]))
-
-(defparser ^:private parse-use
-  [::&lexer/list ([[::&lexer/ident "use"] [::&lexer/text ?file] [::&lexer/ident "as"] [::&lexer/ident ?alias]] :seq)]
-  (return [::use ?file ?alias]))
-
-(defparser ^:private parse-defclass
-  [::&lexer/list ([[::&lexer/ident "jvm/defclass"] [::&lexer/ident ?name]
-                   [::&lexer/ident ?super-class]
-                   [::&lexer/tuple ?fields]] :seq)]
-  (let [fields (for [field ?fields]
-                 (match field
-                   [::&lexer/tuple ([[::&lexer/ident ?class] [::&lexer/ident ?field]] :seq)]
-                   [?class ?field]))]
-    (return [::defclass ?name ?super-class fields])))
-
-(defparser ^:private parse-definterface
-  [::&lexer/list ([[::&lexer/ident "jvm/definterface"] [::&lexer/ident ?name] & ?members] :seq)]
-  (let [members (for [field ?members]
-                  (match field
-                    [::&lexer/list ([[::&lexer/ident ":"] [::&lexer/ident ?member] [::&lexer/list ([[::&lexer/ident "->"] [::&lexer/tuple ?inputs] ?output] :seq)]] :seq)]
-                    [?member [(map ident->string ?inputs) (ident->string ?output)]]))]
-    (return [::definterface ?name members])))
-
-(defparser ^:private parse-variant
-  ?token
-  (match ?token
-    [::&lexer/tag ?tag]
-    (return [::variant ?tag '()])
-
-    [::&lexer/list ([[::&lexer/tag ?tag] & ?data] :seq)]
-    (exec [=data (map-m #(apply-m parse-form (list %))
-                        ?data)]
-      (return [::variant ?tag =data]))
-
-    _
-    (fail (str "Unmatched token: " ?token))))
-
-(defparser ^:private parse-get
-  [::&lexer/list ([[::&lexer/ident "get@"] [::&lexer/tag ?tag] ?record] :seq)]
-  (exec [=record (apply-m parse-form (list ?record))]
-    (return [::get ?tag =record])))
-
-(defparser ^:private parse-remove
-  [::&lexer/list ([[::&lexer/ident "remove@"] [::&lexer/tag ?tag] ?record] :seq)]
-  (exec [=record (apply-m parse-form (list ?record))]
-    (return [::remove ?tag =record])))
-
-(defparser ^:private parse-set
-  [::&lexer/list ([[::&lexer/ident "set@"] [::&lexer/tag ?tag] ?value ?record] :seq)]
-  (exec [=value (apply-m parse-form (list ?value))
-         =record (apply-m parse-form (list ?record))]
-    (return [::set ?tag =value =record])))
-
-(defparser ^:private parse-text
-  [::&lexer/text ?text]
-  (return [::text ?text]))
-
-;; (defparser ^:private parse-access
-;;   [::&lexer/list ([[::&lexer/ident "::"] ?object ?call] :seq)]
-;;   (exec [=object (apply-m parse-form (list ?object))
-;;          =call (apply-m parse-form (list ?call))]
-;;     (return [::access =object =call])))
-
-(defparser ^:private parse-jvm-getstatic
-  [::&lexer/list ([[::&lexer/ident "jvm/getstatic"] [::&lexer/ident ?class] [::&lexer/ident ?field]] :seq)]
-  (return [::jvm-getstatic ?class ?field]))
-
-(defparser ^:private parse-jvm-invokevirtual
-  [::&lexer/list ([[::&lexer/ident "jvm/invokevirtual"]
-                   [::&lexer/ident ?class] [::&lexer/text ?method] [::&lexer/tuple ?classes]
-                   ?object [::&lexer/tuple ?args]]
-                    :seq)]
-  (exec [=object (apply-m parse-form (list ?object))
-         =args (map-m #(apply-m parse-form (list %))
-                      ?args)]
-    (return [::jvm-invokevirtual ?class ?method (map ident->string ?classes) =object =args])))
-
-(defparser ^:private parse-fn-call
-  [::&lexer/list ([?f & ?args] :seq)]
-  (exec [=f (apply-m parse-form (list ?f))
-         =args (map-m (fn [arg] (apply-m parse-form (list arg)))
-                      ?args)]
-    (return [::fn-call =f =args])))
-
-;; Java interop
-(do-template [<name> <ident> <tag>]
-  (defparser <name>
-    [::&lexer/list ([[::&lexer/ident <ident>] ?x ?y] :seq)]
-    (exec [=x (apply-m parse-form (list ?x))
-           =y (apply-m parse-form (list ?y))]
-      (return [<tag> =x =y])))
-
-  ^:private parse-jvm-i+   "jvm/i+"   ::jvm-i+
-  ^:private parse-jvm-i-   "jvm/i-"   ::jvm-i-
-  ^:private parse-jvm-i*   "jvm/i*"   ::jvm-i*
-  ^:private parse-jvm-idiv "jvm/i/"   ::jvm-idiv
-  ^:private parse-jvm-irem "jvm/irem" ::jvm-irem
-  )
-
-(def ^:private parse-form
+(def ^:private parse-token
   (try-all-m [parse-bool
               parse-int
               parse-real
@@ -218,33 +85,12 @@
               parse-ident
               parse-tuple
               parse-record
-              parse-lambda
-              parse-def
-              parse-defmacro
-              parse-if
-              parse-do
-              parse-case
-              parse-let
-              parse-variant
-              parse-get
-              parse-set
-              parse-remove
-              parse-defclass
-              parse-definterface
-              parse-import
-              parse-use
-              parse-jvm-i+
-              parse-jvm-i-
-              parse-jvm-i*
-              parse-jvm-idiv
-              parse-jvm-irem
-              parse-jvm-getstatic
-              parse-jvm-invokevirtual
-              parse-fn-call]))
+              parse-tag
+              parse-form]))
 
 ;; [Interface]
 (defn parse [text]
-  (match ((repeat-m parse-form) text)
+  (match ((repeat-m parse-token) text)
     [::&util/ok [?state ?forms]]
     (if (empty? ?state)
       ?forms

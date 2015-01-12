@@ -140,7 +140,8 @@
 
 (defcompiler ^:private compile-tuple
   [::&analyser/tuple ?elems]
-  (let [num-elems (count ?elems)]
+  (let [;; _ (prn 'compile-tuple (count ?elems))
+        num-elems (count ?elems)]
     (let [tuple-class (str "test2/Tuple" num-elems)]
       (doto *writer*
         (.visitTypeInsn Opcodes/NEW tuple-class)
@@ -896,33 +897,6 @@
     ;; (load-class! (string/replace module-name #"/" ".") (str module-name ".class"))
     nil))
 
-(defn quoted->token [quoted]
-  ;; (prn 'quoted->token quoted)
-  (match quoted
-    [::&parser/text ?text]
-    {:form [::&analyser/variant "Text" (list {:form [::&analyser/literal ?text]
-                                              :type [::&type/object "java.lang.String" []]})]
-     :type [::&type/variant "Text" (list [::&type/object "java.lang.String" []])]}
-    
-    [::&parser/fn-call ?fn ?args]
-    (let [members* (quoted->token (cons ?fn ?args))]
-      {:form [::&analyser/variant "Form" (list members*)]
-       :type [::&type/variant "Form" (list (:type members*))]})
-
-    ([] :seq)
-    {:form [::&analyser/variant "Nil" '()]
-     :type [::&type/variant "Nil" '()]}
-    
-    ([head & tail] :seq)
-    (let [head* (quoted->token head)
-          tail* (quoted->token tail)]
-      {:form [::&analyser/variant "Cons" (list head* tail*)]
-       :type [::&type/variant "Nil" (list (:type head*) (:type tail*))]})))
-
-(defcompiler compile-quote
-  [::&analyser/quote ?quoted]
-  (compile-form (assoc *state* :form (quoted->token ?quoted))))
-
 (let [+int-class+ (->class "java.lang.Integer")]
   (do-template [<name> <tag> <opcode>]
     (defcompiler <name>
@@ -966,7 +940,6 @@
                    compile-definterface
                    compile-import
                    compile-use
-                   compile-quote
                    compile-jvm-i+
                    compile-jvm-i-
                    compile-jvm-i*
@@ -1007,7 +980,7 @@
       [::&util/ok [?state ?forms]]
       (if (empty? (:forms ?state))
         ?forms
-        (assert false (str "Unconsumed input: " (pr-str (:forms ?state)))))
+        (assert false (str "Unconsumed input: " (pr-str (first (:forms ?state))))))
       
       [::&util/failure ?message]
       (assert false ?message))

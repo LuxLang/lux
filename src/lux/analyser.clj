@@ -216,40 +216,31 @@
 
 (defn ^:private resolve [ident]
   (fn [state]
-    (if-let [[_ ?alias ?binding] (re-find #"^(.*)/(.*)$" ident)]
-      (let [?module (get-in state [:deps ?alias])]
-        ;; (prn 'resolve ?module ?alias ?binding)
-        [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]])
-      (let [;; _ (prn 'resolve/_1 ident)
-            [inner outer] (split-with #(nil? (get-in % [:mappings ident])) (:env state))
-            ;; _ (prn ident '[inner outer] [inner outer])
-            ;; _ (prn 'resolve/_2 '[inner outer] [inner outer])
-            ]
-        (cond (empty? inner)
-              [::&util/ok [state (-> state :env first :mappings (get ident))]]
-              
-              (empty? outer)
-              (if-let [global|import (or (get-in state [:defs-env ident])
-                                         (get-in state [:imports ident]))]
-                (do ;; (prn 'resolve/_3 'global|import global|import)
-                    [::&util/ok [state global|import]])
-                [::&util/failure (str "Unresolved identifier: " ident)])
+    (or (if-let [[_ ?alias ?binding] (re-find #"^(.*)/(.*)$" ident)]
+          (if-let [?module (get-in state [:deps ?alias])]
+            [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]]))
+        (let [[inner outer] (split-with #(nil? (get-in % [:mappings ident])) (:env state))]
+          (cond (empty? inner)
+                [::&util/ok [state (-> state :env first :mappings (get ident))]]
+                
+                (empty? outer)
+                (if-let [global|import (or (get-in state [:defs-env ident])
+                                           (get-in state [:imports ident]))]
+                  [::&util/ok [state global|import]]
+                  [::&util/failure (str "Unresolved identifier: " ident)])
 
-              :else
-              (let [[=local inner*] (reduce (fn [[register new-inner] [frame scope]]
-                                              (let [[register* frame*] (close-over scope ident register frame)]
-                                                [register* (cons frame* new-inner)]))
-                                            [(-> outer first :mappings (get ident)) '()]
-                                            (map vector
-                                                 (reverse inner)
-                                                 (->> (get-in state [:lambda-scope 0])
-                                                      (iterate pop)
-                                                      (take (count inner))
-                                                      reverse)))
-                    ;; _ (prn 'resolve/_4 '[=local inner*] =local inner*)
-                    ]
-                [::&util/ok [(assoc state :env (concat inner* outer)) =local]])))
-      )))
+                :else
+                (let [[=local inner*] (reduce (fn [[register new-inner] [frame scope]]
+                                                (let [[register* frame*] (close-over scope ident register frame)]
+                                                  [register* (cons frame* new-inner)]))
+                                              [(-> outer first :mappings (get ident)) '()]
+                                              (map vector
+                                                   (reverse inner)
+                                                   (->> (get-in state [:lambda-scope 0])
+                                                        (iterate pop)
+                                                        (take (count inner))
+                                                        reverse)))]
+                  [::&util/ok [(assoc state :env (concat inner* outer)) =local]]))))))
 
 (defmacro ^:private defanalyser [name match return]
   `(def ~name
@@ -272,7 +263,7 @@
         [::&util/ok [(assoc ?state :forms old-forms) ?value]]
         
         [::&util/failure ?message]
-        (do (prn 'analyse-form* ?message)
+        (do ;; (prn 'analyse-form* ?message)
           [::&util/failure ?message])))))
 
 (do-template [<name> <tag> <class>]
@@ -288,12 +279,17 @@
   )
 
 (defanalyser analyse-variant
-  [::&parser/variant ?tag ?data]
-  (exec [;; :let [_ (prn 'analyse-variant [?tag ?value])]
-         =data (map-m analyse-form* ?data)
-         ;; :let [_ (prn '=value =value)]
-         ]
-    (return (annotated [::variant ?tag =data] [::&type/variant ?tag (map :type =data)]))))
+  ?token
+  (match ?token
+    [::&parser/tag ?tag]
+    (return (annotated [::variant ?tag '()] [::&type/variant ?tag '()]))
+    
+    [::&parser/form ([[::&parser/tag ?tag] & ?data] :seq)]
+    (exec [=data (map-m analyse-form* ?data)]
+      (return (annotated [::variant ?tag =data] [::&type/variant ?tag (map :type =data)])))
+
+    _
+    (fail "")))
 
 (defanalyser analyse-tuple
   [::&parser/tuple ?elems]
@@ -389,16 +385,16 @@
     (fail (str "Field does not exist: " target field))))
 
 (defn lookup-virtual-method [target method-name args]
-  (prn 'lookup-virtual-method target method-name args)
+  ;; (prn 'lookup-virtual-method target method-name args)
   (if-let [method (first (for [=method (.getMethods target)
                                :when (and (= target (.getDeclaringClass =method))
                                           (= method-name (.getName =method))
                                           (not (java.lang.reflect.Modifier/isStatic (.getModifiers =method))))]
                            =method))]
-    (do (prn 'lookup-virtual-method 'method method)
+    (do ;; (prn 'lookup-virtual-method 'method method)
       (exec [=method (&type/method->type method)]
         (&type/return-type =method)))
-    (do (prn 'lookup-virtual-method (str "Virtual method does not exist: " target method-name))
+    (do ;; (prn 'lookup-virtual-method (str "Virtual method does not exist: " target method-name))
       (fail (str "Virtual method does not exist: " target method-name)))))
 
 (defn full-class-name [class]
@@ -422,17 +418,19 @@
                     (fail "Unknown class.")))])))
 
 (defanalyser analyse-jvm-getstatic
-  [::&parser/jvm-getstatic ?class ?field]
+  [::&parser/form ([[::&parser/ident "jvm/getstatic"] [::&parser/ident ?class] [::&parser/ident ?field]] :seq)]
   (exec [=class (full-class-name ?class)
          =type (lookup-static-field (Class/forName =class) ?field)]
     (return (annotated [::jvm-getstatic =class ?field] =type))))
 
 (defanalyser analyse-jvm-invokevirtual
-  [::&parser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
+  [::&parser/form ([[::&parser/ident "jvm/invokevirtual"] [::&parser/ident ?class] [::&parser/text ?method] [::&parser/tuple ?classes] ?object [::&parser/tuple ?args]] :seq)]
   (exec [=class (full-class-name ?class)
-         =classes (map-m full-class-name ?classes)
+         =classes (map-m #(exec [class* (extract-ident %)]
+                            (full-class-name class*))
+                         ?classes)
          =return (lookup-virtual-method (Class/forName =class) ?method (map #(Class/forName %) =classes))
-         :let [_ (prn 'analyse-jvm-invokevirtual '=return =return)]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual '=return =return)]
          ;; =return =return
          =object (analyse-form* ?object)
          =args (map-m analyse-form* ?args)]
@@ -478,6 +476,10 @@
 (defn ->token [x]
   ;; (prn '->token x)
   (match x
+    [::&parser/tag ?tag]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Tag"))
+      (-> .-_1 (set! ?tag)))
     [::&parser/text ?text]
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
       (-> .-tag (set! "Text"))
@@ -486,10 +488,10 @@
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
       (-> .-tag (set! "Ident"))
       (-> .-_1 (set! ?ident)))
-    [::&parser/fn-call ?fn ?args]
+    [::&parser/form ?elems]
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
       (-> .-tag (set! "Form"))
-      (-> .-_1 (set! (->tokens (cons ?fn ?args)))))
+      (-> .-_1 (set! (->tokens ?elems))))
     ))
 
 (defn ->tokens [xs]
@@ -506,11 +508,10 @@
 (defn ->clojure-token [x]
   ;; (prn '->clojure-token x (.-tag x))
   (case (.-tag x)
-    "Text" [::&parser/text (-> x .-_1 (doto (-> string? assert)))]
-    "Ident" [::&parser/ident (-> x .-_1 (doto (-> string? assert)))]
-    "Form" (let [[?fn & ?args] (-> x .-_1 tokens->clojure)]
-             [::&parser/fn-call ?fn ?args])
-    "Quote" [::&parser/quote (-> x .-_1 ->clojure-token)]))
+    "Text"  [::&parser/text (-> x .-_1)]
+    "Ident" [::&parser/ident (-> x .-_1)]
+    "Tag"   [::&parser/tag (-> x .-_1)]
+    "Form"  [::&parser/form (-> x .-_1 tokens->clojure)]))
 
 (defn tokens->clojure [xs]
   ;; (prn 'tokens->clojure xs (.-tag xs))
@@ -520,15 +521,22 @@
                  (tokens->clojure (.-_2 xs)))
     ))
 
-(defanalyser analyse-fn-call
-  [::&parser/fn-call ?fn ?args]
-  (exec [=fn (analyse-form* ?fn)]
+(defanalyser analyse-call
+  [::&parser/form ([?fn & ?args] :seq)]
+  (exec [=fn (analyse-form* ?fn)
+         :let [_ (prn 'analyse-call/=fn =fn)]]
     (match (:form =fn)
       [::global-fn ?module ?name]
       (exec [macro? (is-macro? ?fn)
-             scoped? (in-scope? ?fn)]
+             scoped? (in-scope? ?fn)
+             :let [_ (prn 'analyse-call [:global-fn ?module ?name] macro? scoped?)]]
         (if (and macro? (not scoped?))
-          (let [macro-class (str ?module "$" (normalize-ident ?name))]
+          (let [macro-class (str ?module "$" (normalize-ident ?name))
+                transformed (-> (.loadClass loader macro-class)
+                                .newInstance
+                                (.apply (->tokens ?args))
+                                ->clojure-token)
+                _ (prn 'analyse-call/transformed transformed)]
             (-> (.loadClass loader macro-class)
                 .newInstance
                 (.apply (->tokens ?args))
@@ -552,7 +560,7 @@
     ))
 
 (defanalyser analyse-if
-  [::&parser/if ?test ?then ?else]
+  [::&parser/form ([[::&parser/ident "if"] ?test ?then ?else] :seq)]
   (exec [=test (analyse-form* ?test)
          ;; :let [_ (prn '=test =test)]
          ;; :let [_ (prn 'PRE '?then ?then)]
@@ -564,7 +572,7 @@
     (return (annotated [::if =test =then =else] ::&type/nothing))))
 
 (defanalyser analyse-do
-  [::&parser/do ?exprs]
+  [::&parser/form ([[::&parser/ident "do"] & ?exprs] :seq)]
   (exec [=exprs (map-m analyse-form* ?exprs)]
     (return (annotated [::do =exprs] (-> =exprs last :type)))))
 
@@ -642,14 +650,26 @@
                  (clojure.core.match/match pattern
                    [::&parser/ident ?name]
                    (list ?name)
-                   
-                   [::&parser/variant ?tag ?members]
+
+                   [::&parser/tag _]
+                   '()
+
+                   [::&parser/form ([[::&parser/tag _] & ?members] :seq)]
                    (mapcat get-vars ?members)
 
+                   [::&parser/variant ?tag ?members]
+                   (mapcat get-vars ?members)
+                   
                    [::&parser/text ?text]
                    '()))
       ->instructions (fn ->instructions [locals pattern]
                        (clojure.core.match/match pattern
+                         [::&parser/tag ?tag]
+                         [::pm-variant ?tag '()]
+
+                         [::&parser/form ([[::&parser/tag ?tag] & ?members] :seq)]
+                         [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
+
                          [::&parser/variant ?tag ?members]
                          [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
                          
@@ -663,14 +683,14 @@
     (let [;; Step 1: Get all vars
           vars+body (for [branch branches]
                       (clojure.core.match/match branch
-                        [::&parser/case-branch ?pattern ?body]
+                        [::case-branch ?pattern ?body]
                         [(get-vars ?pattern) ?body]))
           max-registers (reduce max 0 (map (comp count first) vars+body))
           ;; Step 2: Analyse bodies
           [_ branch-mappings branches*] (reduce (fn [[$link links branches*] branch]
                                                   (clojure.core.match/match branch
-                                                    [::&parser/case-branch ?pattern ?body]
-                                                    [(inc $link) (assoc links $link ?body) (conj branches* [::&parser/case-branch ?pattern $link])]))
+                                                    [::case-branch ?pattern ?body]
+                                                    [(inc $link) (assoc links $link ?body) (conj branches* [::case-branch ?pattern $link])]))
                                                 [0 {} []]
                                                 branches)
           ;; Step 4: Pattens -> Instructions
@@ -679,7 +699,7 @@
                                                       [(inc $local) (assoc =locals $var [::local $scope $local])])
                                                     [$base {}] branch-vars)]]
                        (clojure.core.match/match branch
-                         [::&parser/case-branch ?pattern ?body]
+                         [::case-branch ?pattern ?body]
                          [(->instructions locals ?pattern) ?body]))
           ;; _ (prn branches**)
           ;; Step 5: Re-structure branching
@@ -687,27 +707,32 @@
       [max-registers branch-mappings (generate-branches branches**)])))
 
 (defanalyser analyse-case
-  [::&parser/case ?variant ?branches]
+  [::&parser/form ([[::&parser/ident "case"] ?variant & ?branches] :seq)]
   (exec [=variant (analyse-form* ?variant)
          ;; :let [_ (prn 'analyse-case '=variant =variant)]
          $scope scope-id
          ;; :let [_ (prn 'analyse-case '$scope $scope)]
          $base next-local-idx
          ;; :let [_ (prn 'analyse-case '$base $base)]
-         [registers mappings tree] (exec [=branches (map-m (fn [?branch]
-                                                             (match ?branch
-                                                               [::&parser/case-branch [::&parser/ident ?name] ?body]
+         [registers mappings tree] (exec [=branches (map-m (fn [[?pattern ?body]]
+                                                             ;; (prn '?branch ?branch)
+                                                             (match ?pattern
+                                                               [::&parser/ident ?name]
                                                                (exec [=body (with-locals {?name (annotated [::local $scope $base] [::&type/object "java.lang.Object" []])}
                                                                               (analyse-form* ?body))]
-                                                                 (return [::&parser/case-branch [::&parser/ident ?name] =body]))
+                                                                 (return [::case-branch [::&parser/ident ?name] =body]))
 
-                                                               [::&parser/case-branch [::&parser/variant ?tag ?members] ?body]
+                                                               [::&parser/tag ?tag]
+                                                               (exec [=body (analyse-form* ?body)]
+                                                                 (return [::case-branch [::&parser/variant ?tag '()] =body]))
+                                                               
+                                                               [::&parser/form ([[::&parser/tag ?tag] & ?members] :seq)]
                                                                (exec [[_ locals+] (reduce-m (fn member-fold [[$local locals-map] ?member]
                                                                                               (match ?member
                                                                                                 [::&parser/ident ?name]
                                                                                                 (return [(inc $local) (assoc locals-map ?name (annotated [::local $scope $local] [::&type/object "java.lang.Object" []]))])
 
-                                                                                                [::&parser/variant ?subtag ?submembers]
+                                                                                                [::&parser/form ([[::&parser/tag ?subtag] & ?submembers] :seq)]
                                                                                                 (reduce-m member-fold [$local locals-map] ?submembers)
 
                                                                                                 _
@@ -720,15 +745,16 @@
                                                                               (analyse-form* ?body))
                                                                       ;; :let [_ (prn 'analyse-case '=body =body)]
                                                                       ]
-                                                                 (return [::&parser/case-branch [::&parser/variant ?tag ?members] =body]))))
-                                                           ?branches)]
+                                                                 (return [::case-branch [::&parser/variant ?tag ?members] =body]))
+                                                               ))
+                                                           (partition 2 ?branches))]
                                      (return (->decision-tree $scope $base =branches)))
          ;; :let [_ (prn 'analyse-case '[registers mappings tree] [registers mappings tree])]
          ]
     (return (annotated [::case (dec $base) =variant registers mappings tree] ::&type/nothing))))
 
 (defanalyser analyse-let
-  [::&parser/let ?label ?value ?body]
+  [::&parser/form ([[::&parser/ident "let"] [::&parser/ident ?label] ?value ?body] :seq)]
   (exec [=value (analyse-form* ?value)
          idx next-local-idx
          =body (with-local ?label =value
@@ -736,25 +762,49 @@
     (return (annotated [::let idx ?label =value =body] (:type =body)))))
 
 (defanalyser analyse-defclass
-  [::&parser/defclass ?name ?super-class ?fields]
-  (let [=members {:fields (into {} (for [[class field] ?fields]
-                                     [field {:access ::public
-                                             :type class}]))}
-        =class [::class ?name =members]]
-    (exec [name module-name]
-      (return (annotated [::defclass [name ?name] ?super-class =members] ::&type/nothing)))))
+  [::&parser/form ([[::&parser/ident "jvm/defclass"] [::&parser/ident ?name] [::&parser/ident ?super-class] [::&parser/tuple ?fields]] :seq)]
+  (exec [;; :let [_ (prn 'analyse-defclass/?fields ?fields)]
+         ?fields (map-m (fn [?field]
+                          (match ?field
+                            [::&parser/tuple ([[::&parser/ident ?class] [::&parser/ident ?field-name]] :seq)]
+                            (return [?class ?field-name])
+                            
+                            _
+                            (fail "")))
+                        ?fields)
+         :let [;; _ (prn 'analyse-defclass/?fields ?fields)
+               =members {:fields (into {} (for [[class field] ?fields]
+                                            [field {:access ::public
+                                                    :type class}]))}]
+         name module-name]
+    (return (annotated [::defclass [name ?name] ?super-class =members] ::&type/nothing))))
 
 (defanalyser analyse-definterface
-  [::&parser/definterface ?name ?members]
-  (let [=members {:methods (into {} (for [[method [inputs output]] ?members]
-                                      [method {:access ::public
-                                               :type [inputs output]}]))}
-        =interface [::interface ?name =members]]
-    (exec [name module-name]
-      (return (annotated [::definterface [name ?name] =members] ::&type/nothing)))))
+  [::&parser/form ([[::&parser/ident "jvm/definterface"] [::&parser/ident ?name] & ?members] :seq)]
+  (exec [;; :let [_ (prn 'analyse-definterface/?members ?members)]
+         ?members (map-m #(match %
+                            [::&parser/form ([[::&parser/ident ":"] [::&parser/ident ?member-name]
+                                              [::&parser/form ([[::&parser/ident "->"] [::&parser/tuple ?inputs] [::&parser/ident ?output]] :seq)]]
+                                               :seq)]
+                            (exec [;; :let [_ (prn '[?member-name ?inputs ?output] [?member-name ?inputs ?output])]
+                                   ?inputs (map-m extract-ident ?inputs)
+                                   ;; :let [_ (prn '[?member-name ?inputs ?output] [?member-name ?inputs ?output])]
+                                   ]
+                              (return [?member-name [?inputs ?output]]))
+                            
+                            _
+                            (fail ""))
+                         ?members)
+         :let [;; _ (prn '?members ?members)
+               =members {:methods (into {} (for [[method [inputs output]] ?members]
+                                             [method {:access ::public
+                                                      :type [inputs output]}]))}
+               =interface [::interface ?name =members]]
+         name module-name]
+    (return (annotated [::definterface [name ?name] =members] ::&type/nothing))))
 
 (defanalyser analyse-def
-  [::&parser/def ?usage ?value]
+  [::&parser/form ([[::&parser/ident "def"] ?usage ?value] :seq)]
   (match ?usage
     [::&parser/ident ?name]
     (exec [=value (with-scope ?name
@@ -764,35 +814,33 @@
                             :type   (:type =value)})]
       (return (annotated [::def ?name =value] ::&type/nothing)))
 
-    [::&parser/fn-call [::&parser/ident ?name] ?args]
-    (let [args (for [a ?args]
-                 (match a
-                   [::&parser/ident ?ident]
-                   ?ident))]
-      (exec [[=function =args =return] (within :types (&type/fresh-function (count args)))
-             ;; :let [_ (prn '[=function =args =return] [=function =args =return])]
-             ;; :let [env (-> {}
-             ;;               (assoc ?name =function)
-             ;;               (into (map vector args =args)))
-             ;;       _ (prn 'env env)]
-             =value (with-scope ?name
-                      (with-scoped-name ?name =function
-                        (reduce (fn [inner [label type]]
-                                  (with-local label type inner))
-                                (analyse-form* ?value)
-                                (reverse (map vector args =args)))))
-             ;; :let [_ (prn '=value =value)]
-             =function (within :types (exec [_ (&type/solve =return (:type =value))]
-                                        (&type/clean =function)))
-             ;; :let [_ (prn '=function =function)]
-             _ (define-fn ?name {:mode   ::function
-                                 :access ::public
-                                 :type   =function})]
-        (return (annotated [::def [?name args] =value] ::&type/nothing))))
+    [::&parser/form ([[::&parser/ident ?name] & ?args] :seq)]
+    (exec [args (map-m extract-ident ?args)
+           ;; :let [_ (prn 'analyse-def/args args)]
+           [=function =args =return] (within :types (&type/fresh-function (count args)))
+           ;; :let [_ (prn '[=function =args =return] [=function =args =return])]
+           ;; :let [env (-> {}
+           ;;               (assoc ?name =function)
+           ;;               (into (map vector args =args)))
+           ;;       _ (prn 'env env)]
+           =value (with-scope ?name
+                    (with-scoped-name ?name =function
+                      (reduce (fn [inner [label type]]
+                                (with-local label type inner))
+                              (analyse-form* ?value)
+                              (reverse (map vector args =args)))))
+           ;; :let [_ (prn '=value =value)]
+           =function (within :types (exec [_ (&type/solve =return (:type =value))]
+                                      (&type/clean =function)))
+           ;; :let [_ (prn '=function =function)]
+           _ (define-fn ?name {:mode   ::function
+                               :access ::public
+                               :type   =function})]
+      (return (annotated [::def [?name args] =value] ::&type/nothing)))
     ))
 
 (defanalyser analyse-defmacro
-  [::&parser/defmacro [::&parser/fn-call [::&parser/ident ?name] ([[::&parser/ident ?tokens]] :seq)] ?value]
+  [::&parser/form ([[::&parser/ident "defmacro"] [::&parser/form ([[::&parser/ident ?name] [::&parser/ident ?tokens]] :seq)] ?value] :seq)]
   (exec [[=function =tokens =return] (within :types (&type/fresh-function 1))
          =value (with-scope ?name
                   (with-scoped-name ?name =function
@@ -806,52 +854,38 @@
     (return (annotated [::def [?name (list ?tokens)] =value] ::&type/nothing))))
 
 (defanalyser analyse-lambda
-  [::&parser/lambda ?args ?body]
-  (exec [;; :let [_ (prn 'analyse-lambda ?args ?body)]
+  [::&parser/form ([[::&parser/ident "lambda"] [::&parser/tuple ?args] ?body] :seq)]
+  (exec [?args (map-m extract-ident ?args)
          [=function =args =return] (within :types (&type/fresh-function (count ?args)))
-         ;; :let [_ (prn '[=function =args =return] [=function =args =return])]
-         ;; :let [_ (prn 'PRE/?body ?body)]
-         ;; _env (fn [state] [::&util/ok [state (:env state)]])
-         ;; :let [_ (prn 'analyse-lambda _env)]
          [=scope =frame =body] (with-fresh-env [?args =args]
                                  (analyse-form* ?body))
-         ;; :let [_ (prn '=body =body)]
          =function (within :types (exec [_ (&type/solve =return (:type =body))]
-                                    (&type/clean =function)))
-         ;; :let [_ (prn '=function =function)]
-         ]
+                                    (&type/clean =function)))]
     (return (annotated [::lambda =scope =frame ?args =body] =function))))
 
 (defanalyser analyse-import
-  [::&parser/import ?class]
+  [::&parser/form ([[::&parser/ident "import"] [::&parser/ident ?class]] :seq)]
   (exec [_ (import-class ?class (last (string/split ?class #"\.")))]
     (return (annotated [::import ?class] ::&type/nothing))))
 
 (defanalyser analyse-use
-  [::&parser/use ?file ?alias]
-  (let [;; _ (prn `[use ~?file ~?alias])
-        module-name (re-find #"[^/]+$" ?file)
-        ;; _ (prn 'module-name module-name)
-        ]
+  [::&parser/form ([[::&parser/ident "use"] [::&parser/text ?file] [::&parser/ident "as"] [::&parser/ident ?alias]] :seq)]
+  (let [module-name (re-find #"[^/]+$" ?file)]
     (exec [_ (use-module module-name ?alias)]
       (return (annotated [::use ?file ?alias] ::&type/nothing)))))
 
-(defanalyser analyse-quote
-  [::&parser/quote ?quoted]
-  (return (annotated [::quote ?quoted] ::&type/nothing)))
-
-(do-template [<name> <input-tag> <output-tag>]
+(do-template [<name> <ident> <output-tag>]
   (defanalyser <name>
-    [<input-tag> ?x ?y]
+    [::&parser/form ([[::&parser/ident <ident>] ?x ?y] :seq)]
     (exec [=x (analyse-form* ?x)
            =y (analyse-form* ?y)]
       (return (annotated [<output-tag> =x =y] [::&type/object "java.lang.Integer" []]))))
 
-  ^:private analyse-jvm-i+   ::&parser/jvm-i+   ::jvm-i+
-  ^:private analyse-jvm-i-   ::&parser/jvm-i-   ::jvm-i-
-  ^:private analyse-jvm-i*   ::&parser/jvm-i*   ::jvm-i*
-  ^:private analyse-jvm-idiv ::&parser/jvm-idiv ::jvm-idiv
-  ^:private analyse-jvm-irem ::&parser/jvm-irem ::jvm-irem
+  ^:private analyse-jvm-i+   "jvm/i+"   ::jvm-i+
+  ^:private analyse-jvm-i-   "jvm/i-"   ::jvm-i-
+  ^:private analyse-jvm-i*   "jvm/i*"   ::jvm-i*
+  ^:private analyse-jvm-idiv "jvm/i/"   ::jvm-idiv
+  ^:private analyse-jvm-irem "jvm/irem" ::jvm-irem
   )
 
 (def analyse-form
@@ -860,46 +894,26 @@
               analyse-real
               analyse-char
               analyse-text
-              analyse-variant
-              analyse-tuple
-              analyse-lambda
               analyse-ident
-              analyse-fn-call
-              analyse-if
+              analyse-tuple
+              analyse-variant
+              analyse-call
               analyse-do
-              analyse-case
+              analyse-if
               analyse-let
-              analyse-defclass
-              analyse-definterface
+              analyse-case
+              analyse-lambda
               analyse-def
               analyse-defmacro
-              analyse-import
+              analyse-defclass
+              analyse-definterface
               analyse-use
-              analyse-quote
+              analyse-import
               analyse-jvm-i+
               analyse-jvm-i-
               analyse-jvm-i*
               analyse-jvm-idiv
               analyse-jvm-irem
               analyse-jvm-getstatic
-              analyse-jvm-invokevirtual]))
-
-;; [Interface]
-(defn analyse [module-name tokens]
-  (match ((repeat-m (with-scope module-name
-                      analyse-form)) {:name module-name,
-                                      :forms tokens
-                                      :deps {}
-                                      :imports {}
-                                      :defs {}
-                                      :defs-env {}
-                                      :lambda-scope [[] 0]
-                                      :env (list (fresh-env 0))
-                                      :types &type/+init+})
-    [::&util/ok [?state ?forms]]
-    (if (empty? (:forms ?state))
-      ?forms
-      (assert false (str "Unconsumed input: " (pr-str (:forms ?state)))))
-    
-    [::&util/failure ?message]
-    (assert false ?message)))
+              analyse-jvm-invokevirtual
+              ]))
