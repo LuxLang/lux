@@ -156,7 +156,7 @@
       (match =return
         [::&util/ok [?state ?value]]
         (do ;; (prn 'POST-WITH-LOCAL name (-> ?state :env first))
-            [::&util/ok [(update-in ?state [:env] #(cons (assoc (first %) :mappings (-> state :env first :mappings))
+            [::&util/ok [(update-in ?state [:env] #(cons (update-in (first %) [:mappings] (fn [m] (apply dissoc m (keys mappings))))
                                                          (rest %)))
                          ?value]])
         
@@ -184,6 +184,8 @@
           [::&util/ok [?state ?value]]
           (do ;; (prn 'PRE-LAMBDA (:env state))
               ;; (prn 'POST-LAMBDA (:env ?state) ?value)
+              (prn 'POST-LAMBDA1 (get-in ?state [:lambda-scope 0]) (-> ?state :env first :mappings))
+            (prn 'POST-LAMBDA2 (get-in ?state [:lambda-scope 0]) (-> ?state :env first (update-in [:mappings] #(reduce dissoc % args-vars)) :mappings))
               [::&util/ok [(-> ?state
                                (update-in [:env] rest)
                                ;; (update-in [:lambda-scope 1] inc)
@@ -221,26 +223,30 @@
             [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]]))
         (let [[inner outer] (split-with #(nil? (get-in % [:mappings ident])) (:env state))]
           (cond (empty? inner)
-                [::&util/ok [state (-> state :env first :mappings (get ident))]]
+                (do (prn 'resolve/inner ident (get-in state [:lambda-scope 0]))
+                  [::&util/ok [state (-> state :env first :mappings (get ident))]])
                 
                 (empty? outer)
-                (if-let [global|import (or (get-in state [:defs-env ident])
-                                           (get-in state [:imports ident]))]
-                  [::&util/ok [state global|import]]
-                  [::&util/failure (str "Unresolved identifier: " ident)])
+                (do (prn 'resolve/outer ident (get-in state [:lambda-scope 0]))
+                  (if-let [global|import (or (get-in state [:defs-env ident])
+                                             (get-in state [:imports ident]))]
+                    [::&util/ok [state global|import]]
+                    [::&util/failure (str "Unresolved identifier: " ident)]))
 
                 :else
-                (let [[=local inner*] (reduce (fn [[register new-inner] [frame scope]]
-                                                (let [[register* frame*] (close-over scope ident register frame)]
-                                                  [register* (cons frame* new-inner)]))
-                                              [(-> outer first :mappings (get ident)) '()]
-                                              (map vector
-                                                   (reverse inner)
-                                                   (->> (get-in state [:lambda-scope 0])
-                                                        (iterate pop)
-                                                        (take (count inner))
-                                                        reverse)))]
-                  [::&util/ok [(assoc state :env (concat inner* outer)) =local]]))))))
+                (do (prn 'resolve/:else ident (get-in state [:lambda-scope 0]))
+                  (let [[=local inner*] (reduce (fn [[register new-inner] [frame scope]]
+                                                  (let [[register* frame*] (close-over scope ident register frame)]
+                                                    [register* (cons frame* new-inner)]))
+                                                [(-> outer first :mappings (get ident)) '()]
+                                                (map vector
+                                                     (reverse inner)
+                                                     (->> (get-in state [:lambda-scope 0])
+                                                          (iterate pop)
+                                                          (take (count inner))
+                                                          reverse)))]
+                    (prn 'resolve/inner* inner*)
+                    [::&util/ok [(assoc state :env (concat inner* outer)) =local]])))))))
 
 (defmacro ^:private defanalyser [name match return]
   `(def ~name
