@@ -80,7 +80,11 @@
     "double" "D"
     "char" "C"
     ;; else
-    (str "L" (->class class) ";")))
+    (let [class* (->class class)]
+      (if (.startsWith class* "[")
+        class*
+        (str "L" class* ";")))
+    ))
 
 (defn ^:private ->java-sig [type]
   (match type
@@ -101,6 +105,9 @@
 
     [::&type/object ?name []]
     (->type-signature ?name)
+
+    [::&type/array [::&type/object ?name _]]
+    (str "[" (->type-signature ?name))
 
     [::&type/variant ?tag ?value]
     (->type-signature +variant-class+)
@@ -276,69 +283,111 @@
           (.visitInsn Opcodes/ACONST_NULL)))
     ))
 
+(defn prepare-arg! [*writer* class-name]
+  (condp = class-name
+    "boolean" (let [wrapper-class (->class "java.lang.Boolean")]
+                (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "booleanValue" "()Z")))
+    "byte" (let [wrapper-class (->class "java.lang.Byte")]
+             (doto *writer*
+               (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "byteValue" "()B")))
+    "short" (let [wrapper-class (->class "java.lang.Short")]
+              (doto *writer*
+                (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+                (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "shortValue" "()S")))
+    "int" (let [wrapper-class (->class "java.lang.Integer")]
+            (doto *writer*
+              (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+              (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "intValue" "()I")))
+    "long" (let [wrapper-class (->class "java.lang.Long")]
+             (doto *writer*
+               (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "longValue" "()J")))
+    "float" (let [wrapper-class (->class "java.lang.Float")]
+              (doto *writer*
+                (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+                (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "floatValue" "()F")))
+    "double" (let [wrapper-class (->class "java.lang.Double")]
+               (doto *writer*
+                 (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "doubleValue" "()D")))
+    "char" (let [wrapper-class (->class "java.lang.Character")]
+             (doto *writer*
+               (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "charValue" "()C")))
+    ;; else
+    (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class class-name))))
+
 (let [boolean-class "java.lang.Boolean"
       integer-class "java.lang.Integer"
       char-class "java.lang.Character"]
-  (defcompiler ^:private compile-jvm-invokevirtual
-    [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
-    (let [_ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
-          method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
-      (compile-form (assoc *state* :form ?object))
-      (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
-      (doseq [[class-name arg] (map vector ?classes ?args)]
-        (do (compile-form (assoc *state* :form arg))
-          (condp = class-name
-            "boolean" (let [wrapper-class (->class "java.lang.Boolean")]
-                        (doto *writer*
-                          (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                          (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "booleanValue" "()Z")))
-            "byte" (let [wrapper-class (->class "java.lang.Byte")]
-                     (doto *writer*
-                       (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "byteValue" "()B")))
-            "short" (let [wrapper-class (->class "java.lang.Short")]
-                      (doto *writer*
-                        (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "shortValue" "()S")))
-            "int" (let [wrapper-class (->class "java.lang.Integer")]
-                    (doto *writer*
-                      (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                      (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "intValue" "()I")))
-            "long" (let [wrapper-class (->class "java.lang.Long")]
-                     (doto *writer*
-                       (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "longValue" "()J")))
-            "float" (let [wrapper-class (->class "java.lang.Float")]
-                      (doto *writer*
-                        (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "floatValue" "()F")))
-            "double" (let [wrapper-class (->class "java.lang.Double")]
-                       (doto *writer*
-                         (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "doubleValue" "()D")))
-            "char" (let [wrapper-class (->class "java.lang.Character")]
-                     (doto *writer*
-                       (.visitTypeInsn Opcodes/CHECKCAST wrapper-class)
-                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL wrapper-class "charValue" "()C")))
-            ;; else
-            (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class class-name)))))
-      (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
-      (match *type*
-        ::&type/nothing
-        (.visitInsn *writer* Opcodes/ACONST_NULL)
+  (defn prepare-return! [*writer* *type*]
+    (match *type*
+      ::&type/nothing
+      (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-        [::&type/primitive "char"]
-        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class char-class) "valueOf" (str "(C)" (->type-signature char-class)))
+      [::&type/primitive "char"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class char-class) "valueOf" (str "(C)" (->type-signature char-class)))
 
-        [::&type/primitive "int"]
-        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class integer-class) "valueOf" (str "(I)" (->type-signature integer-class)))
+      [::&type/primitive "int"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class integer-class) "valueOf" (str "(I)" (->type-signature integer-class)))
 
-        [::&type/primitive "boolean"]
-        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class boolean-class) "valueOf" (str "(Z)" (->type-signature boolean-class)))
-        
-        [::&type/object ?oclass _]
-        nil)
-      )))
+      [::&type/primitive "boolean"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (->class boolean-class) "valueOf" (str "(Z)" (->type-signature boolean-class)))
+      
+      [::&type/object ?oclass _]
+      nil)))
+
+(defcompiler ^:private compile-jvm-invokevirtual
+  [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
+  (let [_ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
+        method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
+    (compile-form (assoc *state* :form ?object))
+    (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
+    (doseq [[class-name arg] (map vector ?classes ?args)]
+      (do (compile-form (assoc *state* :form arg))
+        (prepare-arg! *writer* class-name)))
+    (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
+    (prepare-return! *writer* *type*)
+    ))
+
+(defcompiler ^:private compile-jvm-new
+  [::&analyser/jvm-new ?class ?classes ?args]
+  (let [init-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")V")
+        class* (->class ?class)]
+    (doto *writer*
+      (.visitTypeInsn Opcodes/NEW class*)
+      (.visitInsn Opcodes/DUP))
+    (doseq [[class-name arg] (map vector ?classes ?args)]
+      (do (compile-form (assoc *state* :form arg))
+        (prepare-arg! *writer* class-name)))
+    (doto *writer*
+      (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))
+    ))
+
+(defcompiler ^:private compile-jvm-new-array
+  [::&analyser/jvm-new-array ?class ?length]
+  (doto *writer*
+    (.visitLdcInsn (int ?length))
+    (.visitTypeInsn Opcodes/ANEWARRAY (->class ?class))))
+
+(defcompiler ^:private compile-jvm-aastore
+  [::&analyser/jvm-aastore ?array ?idx ?elem]
+  (doto *writer*
+    (do (compile-form (assoc *state* :form ?array)))
+    (.visitInsn Opcodes/DUP)
+    (.visitLdcInsn (int ?idx))
+    (do (compile-form (assoc *state* :form ?elem)))
+    (.visitInsn Opcodes/AASTORE)))
+
+(defcompiler ^:private compile-jvm-aaload
+  [::&analyser/jvm-aaload ?array ?idx]
+  (doto *writer*
+    (do (compile-form (assoc *state* :form ?array)))
+    (.visitLdcInsn (int ?idx))
+    (.visitInsn Opcodes/AALOAD)))
 
 (let [+bool-class+ (->class "java.lang.Boolean")]
   (defcompiler ^:private compile-if
@@ -1114,7 +1163,11 @@
                    compile-jvm-idiv
                    compile-jvm-irem
                    compile-jvm-getstatic
-                   compile-jvm-invokevirtual]]
+                   compile-jvm-invokevirtual
+                   compile-jvm-new
+                   compile-jvm-new-array
+                   compile-jvm-aastore
+                   compile-jvm-aaload]]
   (defn ^:private compile-form [state]
     ;; (prn 'compile-form/state state)
     (or (some #(% state) +compilers+)

@@ -332,6 +332,52 @@
     _
     (fail "")))
 
+(defn full-class [class]
+  ;; (prn 'full-class-name class)
+  (case class
+    "boolean" (return Boolean/TYPE)
+    "byte"    (return Byte/TYPE)
+    "short"   (return Short/TYPE)
+    "int"     (return Integer/TYPE)
+    "long"    (return Long/TYPE)
+    "float"   (return Float/TYPE)
+    "double"  (return Double/TYPE)
+    "char"    (return Character/TYPE)
+    ;; else
+    (if (.contains class ".")
+      (return (Class/forName class))
+      (try-all-m [(exec [=class (resolve class)
+                         ;; :let [_ (prn '=class =class)]
+                         ]
+                    (match (:form =class)
+                      [::class ?full-name]
+                      (return (Class/forName ?full-name))
+                      _
+                      (fail "Unknown class.")))
+                  (let [full-name* (str "java.lang." class)]
+                    (if-let [full-name (try (Class/forName full-name*)
+                                         full-name*
+                                         (catch Exception e
+                                           nil))]
+                      (return (Class/forName full-name))
+                      (fail "Unknown class.")))]))))
+
+(defn extract-jvm-param [token]
+  (match token
+    [::&parser/ident ?ident]
+    (full-class ?ident)
+
+    [::&parser/form ([[::&parser/ident "Array"] [::&parser/ident ?inner]] :seq)]
+    (exec [;; :let [_ (prn '?inner ?inner)]
+           =inner (full-class ?inner)
+           ;; :let [_ (prn '=inner =inner)
+           ;;       _ (prn '(.getName =inner) (.getName =inner))]
+           ]
+      (return (Class/forName (str "[L" (.getName =inner) ";"))))
+
+    _
+    (fail "")))
+
 (defn extract-class [x]
   (match x
     [::class ?class]
@@ -423,36 +469,6 @@
                     (return full-name)
                     (fail "Unknown class.")))])))
 
-(defn full-class [class]
-  ;; (prn 'full-class-name class)
-  (case class
-    "boolean" (return Boolean/TYPE)
-    "byte"    (return Byte/TYPE)
-    "short"   (return Short/TYPE)
-    "int"     (return Integer/TYPE)
-    "long"    (return Long/TYPE)
-    "float"   (return Float/TYPE)
-    "double"  (return Double/TYPE)
-    "char"    (return Character/TYPE)
-    ;; else
-    (if (.contains class ".")
-      (return class)
-      (try-all-m [(exec [=class (resolve class)
-                         ;; :let [_ (prn '=class =class)]
-                         ]
-                    (match (:form =class)
-                      [::class ?full-name]
-                      (return (Class/forName ?full-name))
-                      _
-                      (fail "Unknown class.")))
-                  (let [full-name* (str "java.lang." class)]
-                    (if-let [full-name (try (Class/forName full-name*)
-                                         full-name*
-                                         (catch Exception e
-                                           nil))]
-                      (return (Class/forName full-name))
-                      (fail "Unknown class.")))]))))
-
 (defanalyser analyse-jvm-getstatic
   [::&parser/form ([[::&parser/ident "jvm/getstatic"] [::&parser/ident ?class] [::&parser/ident ?field]] :seq)]
   (exec [=class (full-class-name ?class)
@@ -462,15 +478,36 @@
 (defanalyser analyse-jvm-invokevirtual
   [::&parser/form ([[::&parser/ident "jvm/invokevirtual"] [::&parser/ident ?class] [::&parser/text ?method] [::&parser/tuple ?classes] ?object [::&parser/tuple ?args]] :seq)]
   (exec [=class (full-class-name ?class)
-         =classes (map-m #(exec [class* (extract-ident %)]
-                            (full-class class*))
-                         ?classes)
+         =classes (map-m extract-jvm-param ?classes)
          =return (lookup-virtual-method (Class/forName =class) ?method =classes)
          :let [_ (prn 'analyse-jvm-invokevirtual ?class ?method  =classes '-> =return)]
          ;; =return =return
          =object (analyse-form* ?object)
          =args (map-m analyse-form* ?args)]
     (return (annotated [::jvm-invokevirtual =class ?method (map #(.getName %) =classes) =object =args] =return))))
+
+(defanalyser analyse-jvm-new
+  [::&parser/form ([[::&parser/ident "jvm/new"] [::&parser/ident ?class] [::&parser/tuple ?classes] [::&parser/tuple ?args]] :seq)]
+  (exec [=class (full-class-name ?class)
+         =classes (map-m extract-jvm-param ?classes)
+         =args (map-m analyse-form* ?args)]
+    (return (annotated [::jvm-new =class (map #(.getName %) =classes) =args] [::&type/object =class []]))))
+
+(defanalyser analyse-jvm-new-array
+  [::&parser/form ([[::&parser/ident "jvm/new-array"] [::&parser/ident ?class] [::&parser/int ?length]] :seq)]
+  (exec [=class (full-class-name ?class)]
+    (return (annotated [::jvm-new-array =class ?length] [::&type/array [::&type/object =class []]]))))
+
+(defanalyser analyse-jvm-aastore
+  [::&parser/form ([[::&parser/ident "jvm/aastore"] ?array [::&parser/int ?idx] ?elem] :seq)]
+  (exec [=array (analyse-form* ?array)
+         =elem (analyse-form* ?elem)]
+    (return (annotated [::jvm-aastore =array ?idx =elem] (:type =array)))))
+
+(defanalyser analyse-jvm-aaload
+  [::&parser/form ([[::&parser/ident "jvm/aaload"] ?array [::&parser/int ?idx]] :seq)]
+  (exec [=array (analyse-form* ?array)]
+    (return (annotated [::jvm-aaload =array ?idx] (-> =array :type (nth 1))))))
 
 ;; (defanalyser analyse-access
 ;;   [::&parser/access ?object ?member]
@@ -894,7 +931,7 @@
   [::&parser/form ([[::&parser/ident "let"] [::&parser/ident ?label] ?value ?body] :seq)]
   (exec [=value (analyse-form* ?value)
          idx next-local-idx
-         =body (with-local ?label =value
+         =body (with-local ?label (:type =value)
                  (analyse-form* ?body))]
     (return (annotated [::let idx ?label =value =body] (:type =body)))))
 
@@ -1053,4 +1090,8 @@
               analyse-jvm-irem
               analyse-jvm-getstatic
               analyse-jvm-invokevirtual
+              analyse-jvm-new
+              analyse-jvm-new-array
+              analyse-jvm-aastore
+              analyse-jvm-aaload
               ]))
