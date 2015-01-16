@@ -42,6 +42,7 @@
     ))
 
 (def ^:private +variant-class+ "test2.Variant")
+(def ^:private +tuple-class+ "test2.Tuple")
 
 (defmacro ^:private defcompiler [name match body]
   `(defn ~name [~'*state*]
@@ -308,6 +309,7 @@
 
 (let [+tag-sig+ (->type-signature "java.lang.String")
       variant-class* (->class +variant-class+)
+      tuple-class* (->class +tuple-class+)
       oclass (->class "java.lang.Object")
       +variant-field-sig+ (->type-signature "java.lang.Object")
       equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
@@ -333,6 +335,32 @@
         (.visitVarInsn Opcodes/ASTORE ?idx)
         (.visitJumpInsn Opcodes/GOTO (get mappings $body)))
       
+      [::test-tuple ?branches ?cases]
+      (let [[_ ?subcases] (first ?cases)
+            arity (-> ?subcases first (nth 2) count)
+            tuple-class** (str tuple-class* arity)]
+        (doto writer
+          ;; object
+          (.visitTypeInsn Opcodes/CHECKCAST tuple-class**) ;; tuple
+          (do (doseq [subcase ?subcases
+                      :let [next-subcase (new Label)]]
+                (match subcase
+                  [::subcase $body ?subseq]
+                  (do (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
+                              :let [sub-next-elem (new Label)]]
+                        (doto writer
+                          (.visitInsn Opcodes/DUP) ;; tuple, tuple
+                          (.visitFieldInsn Opcodes/GETFIELD tuple-class** (str "_" (inc ?subidx)) +variant-field-sig+) ;; tuple, object
+                          (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; tuple
+                          (.visitLabel sub-next-elem)))
+                    (doto writer
+                      (.visitInsn Opcodes/POP)
+                      (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+                      (.visitLabel next-subcase)))
+                  )))
+          (.visitInsn Opcodes/POP) ;; ->
+          (.visitJumpInsn Opcodes/GOTO default-label)))
+
       [::test-adt ?branches ?cases]
       (doto writer
         ;; object
@@ -402,6 +430,29 @@
                                    :when (contains? branches ?body)]
                                [[::store ?local ?body] #{?body}]))
 
+                     ::&analyser/tuple*
+                     (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
+                                                           ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
+                                                           :let [?parts (:parts ?struct)
+                                                                 num-parts (count ?parts)
+                                                                 ?supports (:branches ?struct)
+                                                                 subcases (for [?body (set/intersection branches ?supports)
+                                                                                subseq (sequence-parts #{?body} ?parts)
+                                                                                ;; :let [_ (when (= "Symbol" ?tag)
+                                                                                ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
+                                                                                :when (= num-parts (count subseq))]
+                                                                            [::subcase ?body subseq])]
+                                                           :when (not (empty? subcases))]
+                                                       [?tag subcases]))]
+                               (if (empty? patterns)
+                                 '()
+                                 (list [[::test-tuple branches patterns]
+                                        branches])))
+                             (if-let [[_ ?local ?body] (:default head)]
+                               (for [?body (set/intersection branches #{?body})]
+                                 [[::default ?local ?body] #{?body}])
+                               '()))
+
                      ::&analyser/adt*
                      (do ;; (prn '(:default head) (:default head))
                          ;; (assert (nil? (:default head)))
@@ -422,27 +473,27 @@
                          ;;     '()
                          ;;     (list [[::test-adt branches patterns]
                          ;;            branches])))
-                       (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
-                                                             ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
-                                                             :let [?parts (:parts ?struct)
-                                                                   num-parts (count ?parts)
-                                                                   ?supports (:branches ?struct)
-                                                                   subcases (for [?body (set/intersection branches ?supports)
-                                                                                  subseq (sequence-parts #{?body} ?parts)
-                                                                                  ;; :let [_ (when (= "Symbol" ?tag)
-                                                                                  ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
-                                                                                  :when (= num-parts (count subseq))]
-                                                                              [::subcase ?body subseq])]
-                                                             :when (not (empty? subcases))]
-                                                         [?tag subcases]))]
-                                 (if (empty? patterns)
-                                   '()
-                                   (list [[::test-adt branches patterns]
-                                          branches])))
-                               (if-let [[_ ?local ?body] (:default head)]
-                                 (for [?body (set/intersection branches #{?body})]
-                                   [[::default ?local ?body] #{?body}])
-                                 '()))
+                         (concat (let [patterns (into {} (for [[?tag ?struct] (:patterns head)
+                                                               ;; :let [_ (.print System/out (prn-str 'PATTERN ?tag ?struct))]
+                                                               :let [?parts (:parts ?struct)
+                                                                     num-parts (count ?parts)
+                                                                     ?supports (:branches ?struct)
+                                                                     subcases (for [?body (set/intersection branches ?supports)
+                                                                                    subseq (sequence-parts #{?body} ?parts)
+                                                                                    ;; :let [_ (when (= "Symbol" ?tag)
+                                                                                    ;;           (.print System/out (prn-str 'counting ?tag num-parts (count subseq) subseq)))]
+                                                                                    :when (= num-parts (count subseq))]
+                                                                                [::subcase ?body subseq])]
+                                                               :when (not (empty? subcases))]
+                                                           [?tag subcases]))]
+                                   (if (empty? patterns)
+                                     '()
+                                     (list [[::test-adt branches patterns]
+                                            branches])))
+                                 (if-let [[_ ?local ?body] (:default head)]
+                                   (for [?body (set/intersection branches #{?body})]
+                                     [[::default ?local ?body] #{?body}])
+                                   '()))
                        )
                      )]
       (for [[step branches*] expanded

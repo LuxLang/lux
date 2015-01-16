@@ -476,18 +476,38 @@
 (defn ->token [x]
   ;; (prn '->token x)
   (match x
-    [::&parser/tag ?tag]
+    [::&parser/bool ?bool]
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
-      (-> .-tag (set! "Tag"))
-      (-> .-_1 (set! ?tag)))
+      (-> .-tag (set! "Bool"))
+      (-> .-_1 (set! ?bool)))
+    [::&parser/int ?int]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Int"))
+      (-> .-_1 (set! ?int)))
+    [::&parser/real ?real]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Real"))
+      (-> .-_1 (set! ?real)))
+    [::&parser/char ?elem]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Char"))
+      (-> .-_1 (set! ?elem)))
     [::&parser/text ?text]
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
       (-> .-tag (set! "Text"))
       (-> .-_1 (set! ?text)))
+    [::&parser/tag ?tag]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Tag"))
+      (-> .-_1 (set! ?tag)))
     [::&parser/ident ?ident]
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
       (-> .-tag (set! "Ident"))
       (-> .-_1 (set! ?ident)))
+    [::&parser/tuple ?elems]
+    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+      (-> .-tag (set! "Tuple"))
+      (-> .-_1 (set! (->tokens ?elems))))
     [::&parser/form ?elems]
     (doto (.newInstance (.loadClass loader "test2.Variant1"))
       (-> .-tag (set! "Form"))
@@ -508,9 +528,14 @@
 (defn ->clojure-token [x]
   ;; (prn '->clojure-token x (.-tag x))
   (case (.-tag x)
+    "Bool"  [::&parser/bool (-> x .-_1)]
+    "Int"   [::&parser/int (-> x .-_1)]
+    "Real"  [::&parser/real (-> x .-_1)]
+    "Char"  [::&parser/char (-> x .-_1)]
     "Text"  [::&parser/text (-> x .-_1)]
-    "Ident" [::&parser/ident (-> x .-_1)]
     "Tag"   [::&parser/tag (-> x .-_1)]
+    "Ident" [::&parser/ident (-> x .-_1)]
+    "Tuple" [::&parser/tuple (-> x .-_1 tokens->clojure)]
     "Form"  [::&parser/form (-> x .-_1 tokens->clojure)]))
 
 (defn tokens->clojure [xs]
@@ -576,56 +601,87 @@
   (exec [=exprs (map-m analyse-form* ?exprs)]
     (return (annotated [::do =exprs] (-> =exprs last :type)))))
 
-(let [fold-branches (fn [struct entry]
-                      (let [struct* (clojure.core.match/match (nth entry 0)
-                                      [::pm-text ?text]
-                                      (clojure.core.match/match (:type struct)
-                                        ::text-tests (update-in struct [:patterns ?text] (fn [bodies]
-                                                                                           (if bodies
-                                                                                             (conj bodies (nth entry 1))
-                                                                                             #{(nth entry 1)})))
-                                        nil (-> struct
-                                                (assoc :type ::text-tests)
-                                                (assoc-in [:patterns ?text] #{(nth entry 1)}))
-                                        _ (assert false "Can't do match."))
-                                      [::pm-variant ?tag ?members]
-                                      (clojure.core.match/match (:type struct)
-                                        ::adt (update-in struct [:patterns]
-                                                         (fn [branches]
-                                                           (if-let [{:keys [arity cases]} (get branches ?tag)]
-                                                             (if (= arity (count ?members))
-                                                               (-> branches
-                                                                   (update-in [?tag :cases] conj {:case ?members
-                                                                                                  :body (nth entry 1)})
-                                                                   (update-in [?tag :branches] conj (nth entry 1)))
-                                                               (assert false (str "Arity doesn't match. " (count ?members) "=/=" arity)))
-                                                             (assoc branches ?tag {:arity (count ?members)
-                                                                                   :cases [{:case ?members
-                                                                                            :body (nth entry 1)}]
-                                                                                   :branches #{(nth entry 1)}}))))
-                                        nil (-> struct
-                                                (assoc :type ::adt)
-                                                (assoc-in [:patterns ?tag] {:arity (count ?members)
-                                                                            :cases [{:case ?members
-                                                                                     :body (nth entry 1)}]
-                                                                            :branches #{(nth entry 1)}}))
-                                        _ (assert false "Can't do match."))
-
-                                      [::pm-local ?local]
-                                      (update-in struct [:defaults] conj [::default ?local (nth entry 1)]))]
-                        (update-in struct* [:branches] conj (nth entry 1))))
+(let [fold-branch (fn [struct entry]
+                    (let [struct* (clojure.core.match/match (nth entry 0)
+                                    [::pm-text ?text]
+                                    (clojure.core.match/match (:type struct)
+                                      ::text-tests (update-in struct [:patterns ?text] (fn [bodies]
+                                                                                         (if bodies
+                                                                                           (conj bodies (nth entry 1))
+                                                                                           #{(nth entry 1)})))
+                                      nil (-> struct
+                                              (assoc :type ::text-tests)
+                                              (assoc-in [:patterns ?text] #{(nth entry 1)}))
+                                      _ (assert false "Can't do match."))
+                                    
+                                    [::pm-local ?local]
+                                    (update-in struct [:defaults] conj [::default ?local (nth entry 1)])
+                                    
+                                    [::pm-tuple ?members]
+                                    (clojure.core.match/match (:type struct)
+                                      ::tuple (update-in struct [:patterns]
+                                                         (fn [{:keys [arity cases] :as branch}]
+                                                           (if (= arity (count ?members))
+                                                             (-> branch
+                                                                 (update-in [:cases] conj {:case ?members
+                                                                                           :body (nth entry 1)})
+                                                                 (update-in [:branches] conj (nth entry 1)))
+                                                             (assert false (str "Arity doesn't match. " (count ?members) "=/=" arity)))))
+                                      nil (-> struct
+                                              (assoc :type ::tuple)
+                                              (assoc :patterns {:arity (count ?members)
+                                                                :cases [{:case ?members
+                                                                         :body (nth entry 1)}]
+                                                                :branches #{(nth entry 1)}}))
+                                      _ (assert false "Can't do match."))
+                                    
+                                    [::pm-variant ?tag ?members]
+                                    (clojure.core.match/match (:type struct)
+                                      ::adt (update-in struct [:patterns]
+                                                       (fn [branches]
+                                                         (if-let [{:keys [arity cases]} (get branches ?tag)]
+                                                           (if (= arity (count ?members))
+                                                             (-> branches
+                                                                 (update-in [?tag :cases] conj {:case ?members
+                                                                                                :body (nth entry 1)})
+                                                                 (update-in [?tag :branches] conj (nth entry 1)))
+                                                             (assert false (str "Arity doesn't match. " (count ?members) "=/=" arity)))
+                                                           (assoc branches ?tag {:arity (count ?members)
+                                                                                 :cases [{:case ?members
+                                                                                          :body (nth entry 1)}]
+                                                                                 :branches #{(nth entry 1)}}))))
+                                      nil (-> struct
+                                              (assoc :type ::adt)
+                                              (assoc-in [:patterns ?tag] {:arity (count ?members)
+                                                                          :cases [{:case ?members
+                                                                                   :body (nth entry 1)}]
+                                                                          :branches #{(nth entry 1)}}))
+                                      _ (assert false "Can't do match."))
+                                    )]
+                      (update-in struct* [:branches] conj (nth entry 1))))
       base-struct {:type nil
                    :patterns {}
                    :defaults []
                    :branches #{}}
       generate-branches (fn generate-branches [data]
-                          (let [branches* (reduce fold-branches base-struct data)]
+                          (let [branches* (reduce fold-branch base-struct data)]
                             ;; (prn 'generate-branches data)
                             ;; (prn 'branches* branches*)
                             ;; (.print System/out (prn-str 'branches* branches*))
                             ;; (.print System/out (prn-str '(:type branches*) (:type branches*)))
                             (clojure.core.match/match (:type branches*)
                               ::text-tests branches*
+                              ::tuple (do (assert (<= (count (:defaults branches*)) 1))
+                                        {:type ::tuple*
+                                         :patterns (into {} (for [[?tag ?struct] {nil (:patterns branches*)}
+                                                                  ;; :let [_ (prn '(:patterns branches*) ?tag ?struct)]
+                                                                  ]
+                                                              [?tag {:parts (let [grouped-parts (apply map list (for [{:keys [case body]} (:cases ?struct)]
+                                                                                                                  (map #(vector % body) case)))]
+                                                                              (map generate-branches grouped-parts))
+                                                                     :branches (:branches ?struct)}]))
+                                         :default (-> branches* :defaults first)
+                                         :branches (:branches branches*)})
                               ::adt (do (assert (<= (count (:defaults branches*)) 1))
                                       {:type ::adt*
                                        :patterns (into {} (for [[?tag ?struct] (:patterns branches*)
@@ -648,36 +704,43 @@
                                    :branches (:branches branches*)})))
       get-vars (fn get-vars [pattern]
                  (clojure.core.match/match pattern
-                   [::&parser/ident ?name]
-                   (list ?name)
+                   [::&parser/text ?text]
+                   '()
 
                    [::&parser/tag _]
                    '()
 
-                   [::&parser/form ([[::&parser/tag _] & ?members] :seq)]
+                   [::&parser/ident ?name]
+                   (list ?name)
+
+                   [::&parser/tuple ?members]
                    (mapcat get-vars ?members)
 
                    [::&parser/variant ?tag ?members]
                    (mapcat get-vars ?members)
-                   
-                   [::&parser/text ?text]
-                   '()))
+
+                   [::&parser/form ([[::&parser/tag _] & ?members] :seq)]
+                   (mapcat get-vars ?members)
+                   ))
       ->instructions (fn ->instructions [locals pattern]
                        (clojure.core.match/match pattern
+                         [::&parser/text ?text]
+                         [::pm-text ?text]
+
                          [::&parser/tag ?tag]
                          [::pm-variant ?tag '()]
 
-                         [::&parser/form ([[::&parser/tag ?tag] & ?members] :seq)]
-                         [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
+                         [::&parser/ident ?name]
+                         [::pm-local (get locals ?name)]
+
+                         [::&parser/tuple ?members]
+                         [::pm-tuple (map (partial ->instructions locals) ?members)]
 
                          [::&parser/variant ?tag ?members]
                          [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
-                         
-                         [::&parser/ident ?name]
-                         [::pm-local (get locals ?name)]
-                         
-                         [::&parser/text ?text]
-                         [::pm-text ?text]
+
+                         [::&parser/form ([[::&parser/tag ?tag] & ?members] :seq)]
+                         [::pm-variant ?tag (map (partial ->instructions locals) ?members)]
                          ))]
   (defn ->decision-tree [$scope $base branches]
     (let [;; Step 1: Get all vars
@@ -706,52 +769,64 @@
           ]
       [max-registers branch-mappings (generate-branches branches**)])))
 
-(defanalyser analyse-case
-  [::&parser/form ([[::&parser/ident "case"] ?variant & ?branches] :seq)]
-  (exec [=variant (analyse-form* ?variant)
-         ;; :let [_ (prn 'analyse-case '=variant =variant)]
-         $scope scope-id
-         ;; :let [_ (prn 'analyse-case '$scope $scope)]
-         $base next-local-idx
-         ;; :let [_ (prn 'analyse-case '$base $base)]
-         [registers mappings tree] (exec [=branches (map-m (fn [[?pattern ?body]]
-                                                             ;; (prn '?branch ?branch)
-                                                             (match ?pattern
-                                                               [::&parser/ident ?name]
-                                                               (exec [=body (with-locals {?name (annotated [::local $scope $base] [::&type/object "java.lang.Object" []])}
-                                                                              (analyse-form* ?body))]
-                                                                 (return [::case-branch [::&parser/ident ?name] =body]))
+(let [locals-getter (fn [$scope]
+                      (fn member-fold [[$local locals-map] ?member]
+                        (match ?member
+                          [::&parser/ident ?name]
+                          (return [(inc $local) (assoc locals-map ?name (annotated [::local $scope $local] [::&type/object "java.lang.Object" []]))])
 
-                                                               [::&parser/tag ?tag]
-                                                               (exec [=body (analyse-form* ?body)]
-                                                                 (return [::case-branch [::&parser/variant ?tag '()] =body]))
-                                                               
-                                                               [::&parser/form ([[::&parser/tag ?tag] & ?members] :seq)]
-                                                               (exec [[_ locals+] (reduce-m (fn member-fold [[$local locals-map] ?member]
-                                                                                              (match ?member
-                                                                                                [::&parser/ident ?name]
-                                                                                                (return [(inc $local) (assoc locals-map ?name (annotated [::local $scope $local] [::&type/object "java.lang.Object" []]))])
+                          [::&parser/tuple ?submembers]
+                          (reduce-m member-fold [$local locals-map] ?submembers)
 
-                                                                                                [::&parser/form ([[::&parser/tag ?subtag] & ?submembers] :seq)]
-                                                                                                (reduce-m member-fold [$local locals-map] ?submembers)
+                          [::&parser/form ([[::&parser/tag ?subtag] & ?submembers] :seq)]
+                          (reduce-m member-fold [$local locals-map] ?submembers)
 
-                                                                                                _
-                                                                                                (return [$local locals-map])
-                                                                                                ))
-                                                                                            [$base {}]
-                                                                                            ?members)
-                                                                      ;; :let [_ (prn 'analyse-case 'locals+ locals+)]
-                                                                      =body (with-locals locals+
-                                                                              (analyse-form* ?body))
-                                                                      ;; :let [_ (prn 'analyse-case '=body =body)]
-                                                                      ]
-                                                                 (return [::case-branch [::&parser/variant ?tag ?members] =body]))
-                                                               ))
-                                                           (partition 2 ?branches))]
-                                     (return (->decision-tree $scope $base =branches)))
-         ;; :let [_ (prn 'analyse-case '[registers mappings tree] [registers mappings tree])]
-         ]
-    (return (annotated [::case (dec $base) =variant registers mappings tree] ::&type/nothing))))
+                          _
+                          (return [$local locals-map])
+                          )))]
+  (defanalyser analyse-case
+    [::&parser/form ([[::&parser/ident "case"] ?variant & ?branches] :seq)]
+    (exec [=variant (analyse-form* ?variant)
+           ;; :let [_ (prn 'analyse-case '=variant =variant)]
+           $scope scope-id
+           ;; :let [_ (prn 'analyse-case '$scope $scope)]
+           $base next-local-idx
+           ;; :let [_ (prn 'analyse-case '$base $base)]
+           [registers mappings tree] (exec [=branches (map-m (fn [[?pattern ?body]]
+                                                               ;; (prn '?branch ?branch)
+                                                               (match ?pattern
+                                                                 [::&parser/ident ?name]
+                                                                 (exec [=body (with-locals {?name (annotated [::local $scope $base] [::&type/object "java.lang.Object" []])}
+                                                                                (analyse-form* ?body))]
+                                                                   (return [::case-branch [::&parser/ident ?name] =body]))
+
+                                                                 [::&parser/tag ?tag]
+                                                                 (exec [=body (analyse-form* ?body)]
+                                                                   (return [::case-branch [::&parser/variant ?tag '()] =body]))
+
+                                                                 [::&parser/tuple ?members]
+                                                                 (exec [[_ locals+] (reduce-m (locals-getter $scope) [$base {}] ?members)
+                                                                        ;; :let [_ (prn 'analyse-case 'locals+ locals+)]
+                                                                        =body (with-locals locals+
+                                                                                (analyse-form* ?body))
+                                                                        ;; :let [_ (prn 'analyse-case '=body =body)]
+                                                                        ]
+                                                                   (return [::case-branch [::&parser/tuple ?members] =body]))
+                                                                 
+                                                                 [::&parser/form ([[::&parser/tag ?tag] & ?members] :seq)]
+                                                                 (exec [[_ locals+] (reduce-m (locals-getter $scope) [$base {}] ?members)
+                                                                        ;; :let [_ (prn 'analyse-case 'locals+ locals+)]
+                                                                        =body (with-locals locals+
+                                                                                (analyse-form* ?body))
+                                                                        ;; :let [_ (prn 'analyse-case '=body =body)]
+                                                                        ]
+                                                                   (return [::case-branch [::&parser/variant ?tag ?members] =body]))
+                                                                 ))
+                                                             (partition 2 ?branches))]
+                                       (return (->decision-tree $scope $base =branches)))
+           ;; :let [_ (prn 'analyse-case '[registers mappings tree] [registers mappings tree])]
+           ]
+      (return (annotated [::case (dec $base) =variant registers mappings tree] ::&type/nothing)))))
 
 (defanalyser analyse-let
   [::&parser/form ([[::&parser/ident "let"] [::&parser/ident ?label] ?value ?body] :seq)]
