@@ -423,6 +423,36 @@
                     (return full-name)
                     (fail "Unknown class.")))])))
 
+(defn full-class [class]
+  ;; (prn 'full-class-name class)
+  (case class
+    "boolean" (return Boolean/TYPE)
+    "byte"    (return Byte/TYPE)
+    "short"   (return Short/TYPE)
+    "int"     (return Integer/TYPE)
+    "long"    (return Long/TYPE)
+    "float"   (return Float/TYPE)
+    "double"  (return Double/TYPE)
+    "char"    (return Character/TYPE)
+    ;; else
+    (if (.contains class ".")
+      (return class)
+      (try-all-m [(exec [=class (resolve class)
+                         ;; :let [_ (prn '=class =class)]
+                         ]
+                    (match (:form =class)
+                      [::class ?full-name]
+                      (return (Class/forName ?full-name))
+                      _
+                      (fail "Unknown class.")))
+                  (let [full-name* (str "java.lang." class)]
+                    (if-let [full-name (try (Class/forName full-name*)
+                                         full-name*
+                                         (catch Exception e
+                                           nil))]
+                      (return (Class/forName full-name))
+                      (fail "Unknown class.")))]))))
+
 (defanalyser analyse-jvm-getstatic
   [::&parser/form ([[::&parser/ident "jvm/getstatic"] [::&parser/ident ?class] [::&parser/ident ?field]] :seq)]
   (exec [=class (full-class-name ?class)
@@ -433,14 +463,14 @@
   [::&parser/form ([[::&parser/ident "jvm/invokevirtual"] [::&parser/ident ?class] [::&parser/text ?method] [::&parser/tuple ?classes] ?object [::&parser/tuple ?args]] :seq)]
   (exec [=class (full-class-name ?class)
          =classes (map-m #(exec [class* (extract-ident %)]
-                            (full-class-name class*))
+                            (full-class class*))
                          ?classes)
-         =return (lookup-virtual-method (Class/forName =class) ?method (map #(Class/forName %) =classes))
-         ;; :let [_ (prn 'analyse-jvm-invokevirtual '=return =return)]
+         =return (lookup-virtual-method (Class/forName =class) ?method =classes)
+         :let [_ (prn 'analyse-jvm-invokevirtual ?class ?method  =classes '-> =return)]
          ;; =return =return
          =object (analyse-form* ?object)
          =args (map-m analyse-form* ?args)]
-    (return (annotated [::jvm-invokevirtual =class ?method =classes =object =args] =return))))
+    (return (annotated [::jvm-invokevirtual =class ?method (map #(.getName %) =classes) =object =args] =return))))
 
 ;; (defanalyser analyse-access
 ;;   [::&parser/access ?object ?member]
