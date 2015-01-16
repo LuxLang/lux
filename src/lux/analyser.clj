@@ -477,39 +477,39 @@
   ;; (prn '->token x)
   (match x
     [::&parser/bool ?bool]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Bool"))
       (-> .-_1 (set! ?bool)))
     [::&parser/int ?int]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Int"))
       (-> .-_1 (set! ?int)))
     [::&parser/real ?real]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Real"))
       (-> .-_1 (set! ?real)))
     [::&parser/char ?elem]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Char"))
       (-> .-_1 (set! ?elem)))
     [::&parser/text ?text]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Text"))
       (-> .-_1 (set! ?text)))
     [::&parser/tag ?tag]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Tag"))
       (-> .-_1 (set! ?tag)))
     [::&parser/ident ?ident]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Ident"))
       (-> .-_1 (set! ?ident)))
     [::&parser/tuple ?elems]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Tuple"))
       (-> .-_1 (set! (->tokens ?elems))))
     [::&parser/form ?elems]
-    (doto (.newInstance (.loadClass loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
       (-> .-tag (set! "Form"))
       (-> .-_1 (set! (->tokens ?elems))))
     ))
@@ -517,11 +517,11 @@
 (defn ->tokens [xs]
   (reduce (fn [tail x]
             ;; (prn 'tail (.-tag tail) 'x x)
-            (doto (.newInstance (.loadClass loader "test2.Variant2"))
+            (doto (.newInstance (.loadClass @loader "test2.Variant2"))
               (-> .-tag (set! "Cons"))
               (-> .-_1 (set! (->token x)))
               (-> .-_2 (set! tail))))
-          (doto (.newInstance (.loadClass loader "test2.Variant0"))
+          (doto (.newInstance (.loadClass @loader "test2.Variant0"))
             (-> .-tag (set! "Nil")))
           (reverse xs)))
 
@@ -557,12 +557,12 @@
              :let [_ (prn 'analyse-call [:global-fn ?module ?name] macro? scoped?)]]
         (if (and macro? (not scoped?))
           (let [macro-class (str ?module "$" (normalize-ident ?name))
-                transformed (-> (.loadClass loader macro-class)
+                transformed (-> (.loadClass @loader macro-class)
                                 .newInstance
                                 (.apply (->tokens ?args))
                                 ->clojure-token)
                 _ (prn 'analyse-call/transformed transformed)]
-            (-> (.loadClass loader macro-class)
+            (-> (.loadClass @loader macro-class)
                 .newInstance
                 (.apply (->tokens ?args))
                 ->clojure-token

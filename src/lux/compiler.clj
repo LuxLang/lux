@@ -8,7 +8,7 @@
                                          repeat-m try-m try-all-m map-m reduce-m
                                          apply-m within
                                          normalize-ident
-                                         loader]]
+                                         loader reset-loader!]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -36,7 +36,7 @@
     ;; (println "Defining..." name "@" file-name ;; (alength bytecode)
     ;;          )
     ;; (prn 'loader loader)
-    (.loadClass loader name)
+    (.loadClass @loader name)
     ;; (println "SUCCESFUL LOAD!")
     ;; (.defineClass loader name bytecode 0 (alength bytecode))
     ))
@@ -281,24 +281,26 @@
         nil)
       )))
 
-(defcompiler ^:private compile-if
-  [::&analyser/if ?test ?then ?else]
-  (let [else-label (new Label)
-        end-label (new Label)]
-    ;; (println "PRE")
-    (compile-form (assoc *state* :form ?test))
-    (doto *writer*
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Boolean") "booleanValue" "()Z")
-      (.visitJumpInsn Opcodes/IFEQ else-label))
-    ;; (prn 'compile-if/?then (:form ?then))
-    (compile-form (assoc *state* :form ?then))
-    ;; (.visitInsn *writer* Opcodes/POP)
-    (doto *writer*
-      (.visitJumpInsn Opcodes/GOTO end-label)
-      (.visitLabel else-label))
-    (compile-form (assoc *state* :form ?else))
-    ;; (.visitInsn *writer* Opcodes/POP)
-    (.visitLabel *writer* end-label)))
+(let [+bool-class+ (->class "java.lang.Boolean")]
+  (defcompiler ^:private compile-if
+    [::&analyser/if ?test ?then ?else]
+    (let [else-label (new Label)
+          end-label (new Label)]
+      ;; (println "PRE")
+      (compile-form (assoc *state* :form ?test))
+      (doto *writer*
+        (.visitTypeInsn Opcodes/CHECKCAST +bool-class+)
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL +bool-class+ "booleanValue" "()Z")
+        (.visitJumpInsn Opcodes/IFEQ else-label))
+      ;; (prn 'compile-if/?then (:form ?then))
+      (compile-form (assoc *state* :form ?then))
+      ;; (.visitInsn *writer* Opcodes/POP)
+      (doto *writer*
+        (.visitJumpInsn Opcodes/GOTO end-label)
+        (.visitLabel else-label))
+      (compile-form (assoc *state* :form ?else))
+      ;; (.visitInsn *writer* Opcodes/POP)
+      (.visitLabel *writer* end-label))))
 
 (defcompiler ^:private compile-do
   [::&analyser/do ?exprs]
@@ -330,6 +332,11 @@
           (.visitInsn Opcodes/POP)
           (.visitJumpInsn Opcodes/GOTO default-label)))
 
+      [::default [::&analyser/local _ ?idx] $body]
+      (doto writer
+        (.visitVarInsn Opcodes/ASTORE ?idx)
+        (.visitJumpInsn Opcodes/GOTO (get mappings $body)))
+      
       [::store [::&analyser/local _ ?idx] $body]
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?idx)
@@ -543,10 +550,13 @@
                 (.visitVarInsn Opcodes/ASTORE ?idx)
                 (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
               (doto *writer*
-                (.visitInsn Opcodes/POP)
+                ;; (.visitInsn Opcodes/POP)
+                (.visitTypeInsn Opcodes/CHECKCAST (->class +variant-class+))
+                (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "tag" (->type-signature "java.lang.String"))
                 (.visitTypeInsn Opcodes/NEW ex-class)
-                (.visitInsn Opcodes/DUP)
-                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+                (.visitInsn Opcodes/DUP_X1)
+                (.visitInsn Opcodes/SWAP)
+                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" (str "(" (->type-signature "java.lang.String") ")" "V"))
                 (.visitInsn Opcodes/ATHROW)))
             ;; (if default-code
             ;;   ;; (do (prn 'default-code default-code)
@@ -1006,6 +1016,7 @@
 ;; [Interface]
 (defn compile [class-name inputs]
   ;; (prn 'inputs inputs)
+  (reset-loader!)
   (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                          (->class class-name) nil "java/lang/Object" nil))

@@ -75,6 +75,14 @@
   (jvm/invokevirtual java.io.PrintStream "println" [Object]
                      (jvm/getstatic System out) [x]))
 
+(defmacro (list xs)
+  (case xs
+    #Nil
+    (#Tag "Nil")
+
+    (#Cons x xs*)
+    (#Form (#Cons (#Tag "Cons") (#Cons x (#Cons (list xs*) #Nil))))))
+
 (def (++ xs ys)
   (case xs
     #Nil
@@ -82,23 +90,6 @@
 
     (#Cons x xs*)
     (#Cons x (++ xs* ys))))
-
-(def (template elems)
-  (case elems
-    #Nil
-    elems
-
-    (#Cons head tail)
-    (case head
-      (#Form (#Cons (#Ident "~") (#Cons unquoted #Nil)))
-      (#Cons unquoted (template tail))
-
-      (#Form (#Cons (#Ident "~@") (#Cons spliced #Nil)))
-      (#Cons (#Ident "++") (#Cons spliced (template tail)))
-
-      _
-      (#Cons head (template tail))
-      )))
 
 (def (map f xs)
   (case xs
@@ -108,42 +99,51 @@
     (#Cons x xs*)
     (#Cons (f x) (map f xs*))))
 
-(def (convert-list f xs)
-  (case xs
+(def (untemplate-list untemplate tokens)
+  (case tokens
     #Nil
     (#Tag "Nil")
 
-    (#Cons x xs*)
-    (#Form (#Cons (#Tag "Cons") (#Cons (f x) (#Cons (convert-list f xs*) #Nil))))))
+    (#Cons token tokens')
+    (#Form (list (#Tag "Cons") (untemplate token) (untemplate-list untemplate tokens')))))
 
-(def (convert token)
+(def (untemplate token)
   (case token
-    (#Tag tag)
-    (#Form (#Cons (#Tag "Tag") (#Cons (#Text tag) #Nil)))
+    (#Bool elem)
+    (#Form (list (#Tag "Bool") (#Bool elem)))
 
-    (#Text text)
-    (#Form (#Cons (#Tag "Text") (#Cons (#Text text) #Nil)))
+    (#Int elem)
+    (#Form (list (#Tag "Int") (#Int elem)))
 
-    (#Ident ident)
-    (#Form (#Cons (#Tag "Ident") (#Cons (#Text ident) #Nil)))
+    (#Real elem)
+    (#Form (list (#Tag "Real") (#Real elem)))
+
+    (#Char elem)
+    (#Form (list (#Tag "Char") (#Char elem)))
+
+    (#Text elem)
+    (#Form (list (#Tag "Text") (#Text elem)))
+
+    (#Tag elem)
+    (#Form (list (#Tag "Tag") (#Text elem)))
+
+    (#Ident elem)
+    (#Form (list (#Tag "Ident") (#Text elem)))
+
+    (#Form (#Cons (#Ident "~") (#Cons unquoted #Nil)))
+    unquoted
 
     (#Tuple elems)
-    (#Form (#Cons (#Tag "Tuple") (#Cons (convert-list convert elems) #Nil)))
+    (#Form (list (#Tag "Tuple") (untemplate-list untemplate elems)))
 
     (#Form elems)
-    (#Form (#Cons (#Tag "Form") (#Cons (convert-list convert elems) #Nil)))
+    (#Form (list (#Tag "Form") (untemplate-list untemplate elems)))
     ))
 
 (defmacro (' form)
   (case form
-    (#Cons form* #Nil)
-    (case form*
-      (#Form elems)
-      (convert (#Form (template elems)))
-
-      _
-      (convert form)
-      )))
+    (#Cons token #Nil)
+    (untemplate token)))
 
 ## Utils
 (def (fail* message)
@@ -169,12 +169,6 @@
             
             _
             inputs))))
-
-## Ideally, this is what I want...
-## (exec [yolo lol
-##        #let [foo (bar 1 2 3)]
-##        #when true]
-##   (meme yolo foo))
 
 (def (+ x y)
   (jvm/i+ x y))
@@ -208,13 +202,10 @@
     _
     #Nil))
 
-(defmacro (list xs)
-  (case xs
-    #Nil
-    (#Tag "Nil")
-
-    (#Cons x xs*)
-    (#Form (#Cons (#Tag "Cons") (#Cons x (#Cons (list xs*) #Nil))))))
+## Ideally, this is what I want...
+## (exec [yolo lol
+##        #let [foo (bar 1 2 3)]]
+##   (meme yolo foo))
 
 (defmacro (exec tokens)
   (case tokens
@@ -228,6 +219,55 @@
             return
             (as-pairs steps))
       (#Text "Oh no!"))))
+
+(def (try-m monad)
+  (lambda [state]
+     (case (monad state)
+       (#Ok [?state ?datum])
+       (return* ?state (#Just ?datum))
+       
+       (#Failure _)
+       (return* state #Nothing))))
+
+(def (repeat-m monad)
+  (lambda [state]
+     (case (monad state)
+       (#Ok [?state ?head])
+       (case ((repeat-m monad) ?state)
+         (#Ok [?state* ?tail])
+         (return* ?state* (#Cons ?head ?tail)))
+       
+       (#Failure ?message)
+       (return* state #Nil))))
+
+(def (try-all-m monads)
+  (lambda [state]
+     (case monads
+       #Nil
+       (fail* "No alternative worked!")
+       (#Cons monad monads')
+       (let output (monad state)
+            (case output
+              (#Ok _)
+              output
+              
+              (#Failure _)
+              (case monads'
+                #Nil
+                output
+                (#Cons _ _)
+                ((try-all-m monads') state))
+              ))
+       )))
+
+(def (map-m f inputs)
+  (case inputs
+    #Nil
+    (return #Nil)
+    (#Cons input inputs')
+    (exec [output (f input)
+           outputs (map-m f inputs')]
+      (return (#Cons output outputs)))))
 
 (def (cons tail head)
   (#Cons head tail))
@@ -257,7 +297,7 @@
 ## Program
 (def (main args)
   (case (' ((~ "Oh yeah...")))
-    (#Form (#Cons (#Text text) #Nil))
+    (#Form (#Cons text #Nil))
     (do (println text)
       (println (+ 10 20))
       (println (inc 10))
