@@ -609,6 +609,17 @@
 
 (let [fold-branch (fn [struct entry]
                     (let [struct* (clojure.core.match/match (nth entry 0)
+                                    [::pm-char ?token]
+                                    (clojure.core.match/match (:type struct)
+                                      ::char-tests (update-in struct [:patterns ?token] (fn [bodies]
+                                                                                          (if bodies
+                                                                                            (conj bodies (nth entry 1))
+                                                                                            #{(nth entry 1)})))
+                                      nil (-> struct
+                                              (assoc :type ::char-tests)
+                                              (assoc-in [:patterns ?token] #{(nth entry 1)}))
+                                      _ (assert false "Can't do match."))
+
                                     [::pm-text ?text]
                                     (clojure.core.match/match (:type struct)
                                       ::text-tests (update-in struct [:patterns ?text] (fn [bodies]
@@ -676,6 +687,7 @@
                             ;; (.print System/out (prn-str 'branches* branches*))
                             ;; (.print System/out (prn-str '(:type branches*) (:type branches*)))
                             (clojure.core.match/match (:type branches*)
+                              ::char-tests branches*
                               ::text-tests branches*
                               ::tuple (do (assert (<= (count (:defaults branches*)) 1))
                                         {:type ::tuple*
@@ -710,6 +722,9 @@
                                    :branches (:branches branches*)})))
       get-vars (fn get-vars [pattern]
                  (clojure.core.match/match pattern
+                   [::&parser/char ?token]
+                   '()
+
                    [::&parser/text ?text]
                    '()
 
@@ -730,6 +745,9 @@
                    ))
       ->instructions (fn ->instructions [locals pattern]
                        (clojure.core.match/match pattern
+                         [::&parser/char ?token]
+                         [::pm-char ?token]
+
                          [::&parser/text ?text]
                          [::pm-text ?text]
 
@@ -801,6 +819,14 @@
            [registers mappings tree] (exec [=branches (map-m (fn [[?pattern ?body]]
                                                                ;; (prn '?branch ?branch)
                                                                (match ?pattern
+                                                                 [::&parser/char ?token]
+                                                                 (exec [=body (analyse-form* ?body)]
+                                                                   (return [::case-branch [::&parser/char ?token] =body]))
+
+                                                                 [::&parser/text ?token]
+                                                                 (exec [=body (analyse-form* ?body)]
+                                                                   (return [::case-branch [::&parser/text ?token] =body]))
+                                                                 
                                                                  [::&parser/ident ?name]
                                                                  (exec [=body (with-locals {?name (annotated [::local $scope $base] [::&type/object "java.lang.Object" []])}
                                                                                 (analyse-form* ?body))]

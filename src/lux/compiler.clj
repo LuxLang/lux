@@ -318,17 +318,38 @@
   (defn compile-decision-tree [writer mappings default-label decision-tree]
     ;; (prn 'compile-decision-tree decision-tree)
     (match decision-tree
-      [::test-text ?text $body]
-      (let [$else (new Label)]
+      [::test-char ?pairs]
+      (do (doseq [[?token $body] ?pairs
+                  :let [$else (new Label)]]
+            (doto writer
+              ;; object
+              (.visitInsn Opcodes/DUP) ;; object, object
+              (.visitTypeInsn Opcodes/NEW (->class "java.lang.Character"))
+              (.visitInsn Opcodes/DUP)
+              (.visitLdcInsn ?token) ;; object, object, text
+              (.visitMethodInsn Opcodes/INVOKESPECIAL (->class "java.lang.Character") "<init>" "(C)V")
+              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; object, B
+              (.visitJumpInsn Opcodes/IFEQ $else) ;; object
+              (.visitInsn Opcodes/POP)
+              (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+              (.visitLabel $else)))
         (doto writer
-          ;; object
-          (.visitInsn Opcodes/DUP) ;; object, object
-          (.visitLdcInsn ?text) ;; object, object, text
-          (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; object, B
-          (.visitJumpInsn Opcodes/IFEQ $else) ;; object
           (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO (get mappings $body))
-          (.visitLabel $else)
+          (.visitJumpInsn Opcodes/GOTO default-label)))
+      
+      [::test-text ?pairs]
+      (do (doseq [[?text $body] ?pairs
+                  :let [$else (new Label)]]
+            (doto writer
+              ;; object
+              (.visitInsn Opcodes/DUP) ;; object, object
+              (.visitLdcInsn ?text) ;; object, object, text
+              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; object, B
+              (.visitJumpInsn Opcodes/IFEQ $else) ;; object
+              (.visitInsn Opcodes/POP)
+              (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+              (.visitLabel $else)))
+        (doto writer
           (.visitInsn Opcodes/POP)
           (.visitJumpInsn Opcodes/GOTO default-label)))
 
@@ -427,12 +448,24 @@
                            ]
                        [[::store ?local ?body] #{?body}])
 
+                     ::&analyser/char-tests
+                     (concat (list [[::test-char (for [[?token ?supports] (:patterns head)
+                                                       ?body (set/intersection branches ?supports)
+                                                       ;; :when (set/subset? branches ?supports)
+                                                       ]
+                                                   [?token ?body])]
+                                    branches])
+                             (for [[_ ?local ?body] (:defaults head)
+                                   :when (contains? branches ?body)]
+                               [[::store ?local ?body] #{?body}]))
+
                      ::&analyser/text-tests
-                     (concat (for [[?text ?supports] (:patterns head)
-                                   ?body (set/intersection branches ?supports)
-                                   ;; :when (set/subset? branches ?supports)
-                                   ]
-                               [[::test-text ?text ?body] #{?body}])
+                     (concat (list [[::test-text (for [[?token ?supports] (:patterns head)
+                                                       ?body (set/intersection branches ?supports)
+                                                       ;; :when (set/subset? branches ?supports)
+                                                       ]
+                                                   [?token ?body])]
+                                    branches])
                              (for [[_ ?local ?body] (:defaults head)
                                    :when (contains? branches ?body)]
                                [[::store ?local ?body] #{?body}]))
@@ -519,6 +552,7 @@
     [::&analyser/case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree]
     (do ;; (prn 'compile-case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree)
         ;; (assert false)
+        ;; (prn 'compile-case ?decision-tree)
         (let [start-label (new Label)
               end-label (new Label)
               ;; default-label (new Label)
@@ -539,24 +573,28 @@
             ;; (prn 'sequence-parts
             ;;      (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))
             (doseq [decision-tree (let [pieces (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
-                                    (if (:default ?decision-tree)
+                                    (if (or (:default ?decision-tree)
+                                            (not (empty? (:defaults ?decision-tree))))
                                       (butlast pieces)
                                       pieces))]
               (compile-decision-tree *writer* mappings* default-label decision-tree))
             (.visitLabel *writer* default-label)
-            (if-let [[_ [_ _ ?idx] ?body] (:default ?decision-tree)]
+            (if-let [[_ [_ _ ?idx] ?body] (or (:default ?decision-tree)
+                                              (first (:defaults ?decision-tree)))]
               (doto *writer*
                 (.visitInsn Opcodes/DUP)
                 (.visitVarInsn Opcodes/ASTORE ?idx)
                 (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
               (doto *writer*
-                ;; (.visitInsn Opcodes/POP)
-                (.visitTypeInsn Opcodes/CHECKCAST (->class +variant-class+))
-                (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "tag" (->type-signature "java.lang.String"))
+                (.visitInsn Opcodes/POP)
+                ;; (.visitTypeInsn Opcodes/CHECKCAST (->class +variant-class+))
+                ;; (.visitFieldInsn Opcodes/GETFIELD (->class +variant-class+) "tag" (->type-signature "java.lang.String"))
                 (.visitTypeInsn Opcodes/NEW ex-class)
-                (.visitInsn Opcodes/DUP_X1)
-                (.visitInsn Opcodes/SWAP)
-                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" (str "(" (->type-signature "java.lang.String") ")" "V"))
+                (.visitInsn Opcodes/DUP)
+                ;; (.visitInsn Opcodes/DUP_X1)
+                ;; (.visitInsn Opcodes/SWAP)
+                (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+                ;; (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" (str "(" (->type-signature "java.lang.String") ")" "V"))
                 (.visitInsn Opcodes/ATHROW)))
             ;; (if default-code
             ;;   ;; (do (prn 'default-code default-code)
