@@ -1105,7 +1105,7 @@
   [::&analyser/use ?file ?alias]
   (let [module-name (re-find #"[^/]+$" ?file)
         ;; _ (prn 'module-name module-name)
-        source-code (slurp (str module-name ".lux"))
+        source-code (slurp (str "source/" module-name ".lux"))
         ;; _ (prn 'source-code source-code)
         tokens (&lexer/lex source-code)
         ;; _ (prn 'tokens tokens)

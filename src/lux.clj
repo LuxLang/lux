@@ -24,7 +24,7 @@
   ;; TODO: Reinplement "if" as a macro on top of case.
   ;; TODO: 
 
-  (let [source-code (slurp "test2.lux")
+  (let [source-code (slurp "source/test2.lux")
         tokens (&lexer/lex source-code)
         ;; _ (prn 'tokens tokens)
         syntax (&parser/parse tokens)
