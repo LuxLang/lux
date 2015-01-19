@@ -30,6 +30,9 @@
   ;; (Thread/sleep 2000)
   )
 
+(defn ^:private write-class [name data]
+  (write-file (str "output/" name ".class") data))
+
 (let [;; loader (proxy [ClassLoader] [])
       ]
   (defn load-class! [name file-name]
@@ -39,6 +42,7 @@
     (.loadClass @loader name)
     ;; (println "SUCCESFUL LOAD!")
     ;; (.defineClass loader name bytecode 0 (alength bytecode))
+    ;; (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2/Function"))
     ))
 
 (def ^:private +variant-class+ "test2.Variant")
@@ -838,7 +842,7 @@
                       (.visitEnd)))
           _ (.visitEnd =class)
           bytecode (.toByteArray =class)]
-      (write-file (str current-class ".class") bytecode)
+      (write-class current-class bytecode)
       (load-class! (string/replace current-class #"/" ".") (str current-class ".class")))
     ))
 
@@ -861,7 +865,7 @@
                          (.visitEnd)))
                    (.visitEnd))
           bytecode (.toByteArray =class)]
-      (write-file (str current-class ".class") bytecode)
+      (write-class current-class bytecode)
       (load-class! (string/replace current-class #"/" ".") (str current-class ".class")))
     ))
 
@@ -1007,7 +1011,7 @@
                 (.visitEnd))
         _ (.visitEnd =class)
         bytecode (.toByteArray =class)]
-    (write-file (str current-class ".class") bytecode)
+    (write-class current-class bytecode)
     (load-class! (string/replace current-class #"/" ".") (str current-class ".class"))
     ;; (apply prn 'LAMBDA ?scope ?args (->> (:mappings ?frame)
     ;;                                      (map second)
@@ -1056,8 +1060,8 @@
       (.visitMaxs 0 0)
       (.visitEnd))
     (.visitEnd =class)
-    (.mkdirs (java.io.File. parent-dir))
-    (write-file (str parent-dir "/" ?name ".class") (.toByteArray =class))
+    (.mkdirs (java.io.File. (str "output/" parent-dir)))
+    (write-class (str parent-dir "/" ?name) (.toByteArray =class))
     (load-class! (string/replace (str parent-dir "/" ?name) #"/" ".") (str parent-dir "/" ?name ".class"))))
 
 (defcompiler ^:private compile-definterface
@@ -1072,8 +1076,8 @@
                   signature (str "(" (reduce str "" (map ->type-signature ?args)) ")" (->type-signature ?return))]]
       (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
     (.visitEnd =interface)
-    (.mkdirs (java.io.File. parent-dir))
-    (write-file (str parent-dir "/" ?name ".class") (.toByteArray =interface))
+    (.mkdirs (java.io.File. (str "output/" parent-dir)))
+    (write-class (str parent-dir "/" ?name) (.toByteArray =interface))
     (load-class! (string/replace (str parent-dir "/" ?name) #"/" ".") (str parent-dir "/" ?name ".class"))))
 
 (defcompiler ^:private compile-variant
@@ -1209,7 +1213,7 @@
     ;;;
     (.visitEnd =class)
     (let [bytecode (.toByteArray =class)]
-      (write-file (str class-name ".class") bytecode)
+      (write-class class-name bytecode)
       (load-class! (string/replace class-name #"/" ".") (str class-name ".class"))
       bytecode)
     )

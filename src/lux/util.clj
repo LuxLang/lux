@@ -162,4 +162,4 @@
 
 (defonce loader (atom nil))
 (defn reset-loader! []
-  (reset! loader (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader.)))
+  (reset! loader (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)))

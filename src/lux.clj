@@ -38,6 +38,7 @@
     )
 
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
+  ;; cd output && jar cvf test2.jar * && java -cp "test2.jar" test2 && cd ..
   )
 
 ;; (def (workday? d)
