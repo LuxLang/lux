@@ -5,7 +5,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m try-m try-all-m map-m reduce-m
+                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
                                          apply-m within
                                          normalize-ident
                                          loader reset-loader!]]
@@ -22,6 +22,8 @@
 (declare compile-form
          compile)
 
+(def +prefix+ "lux")
+
 ;; [Utils/General]
 (defn ^:private write-file [file data]
   ;; (println 'write-file file (alength data))
@@ -33,20 +35,11 @@
 (defn ^:private write-class [name data]
   (write-file (str "output/" name ".class") data))
 
-(let [;; loader (proxy [ClassLoader] [])
-      ]
-  (defn load-class! [name file-name]
-    ;; (println "Defining..." name "@" file-name ;; (alength bytecode)
-    ;;          )
-    ;; (prn 'loader loader)
-    (.loadClass @loader name)
-    ;; (println "SUCCESFUL LOAD!")
-    ;; (.defineClass loader name bytecode 0 (alength bytecode))
-    ;; (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2/Function"))
-    ))
+(defn load-class! [name file-name]
+  (.loadClass @loader name))
 
-(def ^:private +variant-class+ "test2.Variant")
-(def ^:private +tuple-class+ "test2.Tuple")
+(def ^:private +variant-class+ (str +prefix+ ".Variant"))
+(def ^:private +tuple-class+ (str +prefix+ ".Tuple"))
 
 (defmacro ^:private defcompiler [name match body]
   `(defn ~name [~'*state*]
@@ -117,7 +110,7 @@
     (->type-signature +variant-class+)
 
     [::&type/function ?args ?return]
-    (->java-sig [::&type/object "test2/Function" []])))
+    (->java-sig [::&type/object (str +prefix+ "/Function") []])))
 
 (defn ^:private method->sig [method]
   (match method
@@ -168,7 +161,7 @@
   [::&analyser/tuple ?elems]
   (let [;; _ (prn 'compile-tuple (count ?elems))
         num-elems (count ?elems)]
-    (let [tuple-class (str "test2/Tuple" num-elems)]
+    (let [tuple-class (str (str +prefix+ "/Tuple") num-elems)]
       (doto *writer*
         (.visitTypeInsn Opcodes/NEW tuple-class)
         (.visitInsn Opcodes/DUP)
@@ -225,7 +218,7 @@
         (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
           (doseq [arg ?args]
             (compile-form (assoc *state* :form arg))
-            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))))))
+            (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" apply-signature))))))
 
 (defcompiler ^:private compile-static-call
   [::&analyser/static-call ?needs-num ?fn ?args]
@@ -243,7 +236,7 @@
                     (->> (doseq [arg (take ?needs-num ?args)])))
                 (.visitMethodInsn Opcodes/INVOKESTATIC call-class "impl" impl-sig)
                 (-> (doto (do (compile-form (assoc *state* :form arg)))
-                      (.visitMethodInsn Opcodes/INVOKEINTERFACE "test2/Function" "apply" apply-signature))
+                      (.visitMethodInsn Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" apply-signature))
                     (->> (doseq [arg (drop ?needs-num ?args)])))))
             (let [counter-sig "I"
                   init-signature (str "(" (apply str counter-sig (repeat (dec ?needs-num) arg-sig)) ")" "V")]
@@ -346,7 +339,7 @@
 
 (defcompiler ^:private compile-jvm-invokevirtual
   [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
-  (let [_ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
+  (let [;; _ (prn 'compile-jvm-invokevirtual [?class ?method ?classes] '-> *type*)
         method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
     (compile-form (assoc *state* :form ?object))
     (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
@@ -760,7 +753,7 @@
     (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
     (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                    (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                           current-class nil "java/lang/Object" (into-array ["test2/Function"]))
+                           current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
                    (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_datum" self-sig nil nil)
                    (-> (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
                        (->> (when (not= 0 num-captured))))
@@ -853,7 +846,7 @@
     (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
     (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                    (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                           current-class nil "java/lang/Object" (into-array ["test2/Function"]))
+                           current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                        (doto (.visitEnd)))
                    (-> (.visitMethod Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
@@ -900,7 +893,7 @@
 
 (defcompiler ^:private compile-lambda
   [::&analyser/lambda ?scope ?frame ?args ?body]
-  (let [_ (prn '[?scope ?frame] ?scope ?frame ?args)
+  (let [;; _ (prn '[?scope ?frame] ?scope ?frame ?args)
         num-args (count ?args)
         ;; outer-class (->class *class-name*)
         clo-field-sig (->type-signature "java.lang.Object")
@@ -923,7 +916,7 @@
         ;; _ (prn current-class 'real-signature real-signature)
         =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                         current-class nil "java/lang/Object" (into-array ["test2/Function"]))
+                         current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
                  (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                        (.visitEnd))
                      (->> (let [captured-name (str "__" ?captured-id)])
@@ -1178,50 +1171,76 @@
         (assert false (str "Can't compile: " (pr-str (:form state)))))))
 
 ;; [Interface]
-(defn compile [class-name inputs]
+(def !state (atom nil))
+
+;; "map" {:mode :lux.analyser/function,
+;;        :access :lux.analyser/public,
+;;        :type [:lux.type/function (:lux.type/any :lux.type/any) :lux.type/any]}
+
+;; "map" {:form [:lux.analyser/global-fn "lux" "map"],
+;;        :type [:lux.type/function (:lux.type/any :lux.type/any) :lux.type/any]}
+
+(defn compile [module-name inputs]
   ;; (prn 'inputs inputs)
-  (reset-loader!)
-  (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                 (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                         (->class class-name) nil "java/lang/Object" nil))
-        compiler-state {:class-name class-name
-                        :writer =class
-                        :form nil
-                        :parent nil}]
-    (match ((repeat-m
-             (&analyser/with-scope class-name
-               (exec [ann-input &analyser/analyse-form
-                      :let [_ (when (not (compile-form (assoc compiler-state :form ann-input)))
-                                (assert false ann-input))]]
-                 (return ann-input))))
-            {:name class-name
-             :forms inputs
-             :deps {}
-             :imports {}
-             :defs {}
-             :defs-env {}
-             :lambda-scope [[] 0]
-             :env (list (&analyser/fresh-env 0))
-             :types &type/+init+})
-      [::&util/ok [?state ?forms]]
-      (if (empty? (:forms ?state))
-        ?forms
-        (assert false (str "Unconsumed input: " (pr-str (first (:forms ?state))))))
-      
-      [::&util/failure ?message]
-      (assert false ?message))
-    ;;;
-    (.visitEnd =class)
-    (let [bytecode (.toByteArray =class)]
-      (write-class class-name bytecode)
-      (load-class! (string/replace class-name #"/" ".") (str class-name ".class"))
-      bytecode)
-    )
-  ;; (comment
-  ;;   (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
-  ;;   (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2.Function"))
-  ;;   (let [test2 (-> (java.io.File. "./") .toURL vector into-array java.net.URLClassLoader. (.loadClass "test2"))
-  ;;         main (first (.getDeclaredMethods test2))]
-  ;;     (.invoke main nil (to-array [nil])))
-  ;;   )
-  )
+  (if-let [module (get-in @!state [:modules module-name])]
+    (assert false "Can't redefine a module!")
+    (do (reset-loader!)
+      (let [init-state (let [+prelude-module+ "lux"
+                             init-state (assoc @!state :name module-name, :forms inputs, :defs-env {})]
+                         (if (= +prelude-module+ module-name)
+                           init-state
+                           (assoc init-state :defs-env (into {} (for [[?name ?desc] (get-in init-state [:modules +prelude-module+])]
+                                                                  (case (:mode ?desc)
+                                                                    ::&analyser/constant
+                                                                    [?name {:form [::&analyser/global +prelude-module+ ?name]
+                                                                            :type (:type ?desc)}]
+                                                                    (::&analyser/function ::&analyser/macro)
+                                                                    [?name {:form [::&analyser/global-fn +prelude-module+ ?name]
+                                                                            :type (:type ?desc)}]))))))
+            =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                     (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                             (->class module-name) nil "java/lang/Object" nil))
+            compiler-state {:class-name module-name
+                            :writer =class
+                            :form nil
+                            :parent nil}
+            new-state (match ((exhaust-m
+                               (&analyser/with-scope module-name
+                                 (exec [ann-input &analyser/analyse-form
+                                        :let [_ (when (not (compile-form (assoc compiler-state :form ann-input)))
+                                                  (assert false ann-input))]]
+                                   (return ann-input))))
+                              init-state)
+                        [::&util/ok [?state ?forms]]
+                        (if (empty? (:forms ?state))
+                          (do (reset! !state ?state)
+                            ?state)
+                          (assert false (str "Unconsumed input: " (pr-str (first (:forms ?state))))))
+                        
+                        [::&util/failure ?message]
+                        (assert false ?message))]
+        (.visitEnd =class)
+        (let [bytecode (.toByteArray =class)]
+          (write-class module-name bytecode)
+          (load-class! (string/replace module-name #"/" ".") (str module-name ".class"))
+          bytecode)
+        new-state
+        ))))
+
+(defn compile-file [name]
+  (->> (slurp (str "source/" name ".lux"))
+       &lexer/lex
+       &parser/parse
+       (compile name)))
+
+(defn compile-all [files]
+  (reset! !state {:name nil
+                  :forms nil
+                  :modules {}
+                  :deps {}
+                  :imports {}
+                  :defs-env {}
+                  :lambda-scope [[] 0]
+                  :env (list (&analyser/fresh-env 0))
+                  :types &type/+init+})
+  (dorun (map compile-file files)))

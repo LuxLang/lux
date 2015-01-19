@@ -4,7 +4,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m try-m try-all-m map-m reduce-m
+                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
                                          apply-m within
                                          normalize-ident
                                          loader]]
@@ -33,23 +33,26 @@
 (defn ^:private define [name desc]
   (fn [state]
     [::&util/ok [(-> state
-                     (assoc-in [:defs (:name state) name] desc)
+                     (assoc-in [:modules (:name state) name] desc)
                      (assoc-in [:defs-env name] (annotated [::global (:name state) name] (:type desc))))
                  nil]]))
 
 (defn ^:private define-fn [name desc]
   (fn [state]
     [::&util/ok [(-> state
-                     (assoc-in [:defs (:name state) name] desc)
+                     (assoc-in [:modules (:name state) name] desc)
                      (assoc-in [:defs-env name] (annotated [::global-fn (:name state) name] (:type desc))))
                  nil]]))
 
-(defn ^:private is-macro? [name]
+(defn ^:private is-macro? [module name]
   (fn [state]
     ;; (prn 'is-macro? (nth name 1)
     ;;      (get-in state [:defs (:name state) (nth name 1) :mode])
     ;;       (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro))
-    [::&util/ok [state (= (get-in state [:defs (:name state) (nth name 1) :mode]) ::macro)]]))
+    ;; (prn 'is-macro? name (get-in state [:modules module name :mode])
+    ;;      (get-in state [:modules module])
+    ;;      (get-in state [:modules]))
+    [::&util/ok [state (= (get-in state [:modules module name :mode]) ::macro)]]))
 
 (def ^:private next-local-idx
   (fn [state]
@@ -63,18 +66,13 @@
   (fn [state]
     [::&util/ok [state (-> state :env first)]]))
 
-(defn ^:private in-scope? [scope]
+(defn ^:private in-scope? [module name]
   (fn [state]
-    (match scope
-      [::&parser/ident ?macro-name]
-      (do ;; (prn 'in-scope?
-          ;;      ?macro-name
-          ;;      (get-in state [:lambda-scope 0])
-          ;;      (some (partial = ?macro-name) (get-in state [:lambda-scope 0])))
-          [::&util/ok [state (some (partial = ?macro-name) (get-in state [:lambda-scope 0]))]])
-
-      _
-      [::&util/ok [state false]])
+    (do ;; (prn 'in-scope?
+        ;;      ?macro-name
+        ;;      (get-in state [:lambda-scope 0])
+        ;;      (some (partial = ?macro-name) (get-in state [:lambda-scope 0])))
+        [::&util/ok [state (some (partial = name) (get-in state [:lambda-scope 0]))]])
     ))
 
 (defn with-scope [scope body]
@@ -184,8 +182,8 @@
           [::&util/ok [?state ?value]]
           (do ;; (prn 'PRE-LAMBDA (:env state))
               ;; (prn 'POST-LAMBDA (:env ?state) ?value)
-              (prn 'POST-LAMBDA1 (get-in ?state [:lambda-scope 0]) (-> ?state :env first :mappings))
-            (prn 'POST-LAMBDA2 (get-in ?state [:lambda-scope 0]) (-> ?state :env first (update-in [:mappings] #(reduce dissoc % args-vars)) :mappings))
+              ;; (prn 'POST-LAMBDA1 (get-in ?state [:lambda-scope 0]) (-> ?state :env first :mappings))
+              ;; (prn 'POST-LAMBDA2 (get-in ?state [:lambda-scope 0]) (-> ?state :env first (update-in [:mappings] #(reduce dissoc % args-vars)) :mappings))
               [::&util/ok [(-> ?state
                                (update-in [:env] rest)
                                ;; (update-in [:lambda-scope 1] inc)
@@ -220,21 +218,25 @@
   (fn [state]
     (or (if-let [[_ ?alias ?binding] (re-find #"^(.*)/(.*)$" ident)]
           (if-let [?module (get-in state [:deps ?alias])]
-            [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]]))
+            (do (prn 'resolve '[_ ?alias ?binding] ident [:global ?module ?binding])
+              [::&util/ok [state (annotated [::global ?module ?binding] ::&type/nothing)]])))
         (let [[inner outer] (split-with #(nil? (get-in % [:mappings ident])) (:env state))]
           (cond (empty? inner)
-                (do (prn 'resolve/inner ident (get-in state [:lambda-scope 0]))
+                (do ;; (prn 'resolve/inner ident (get-in state [:lambda-scope 0]))
+                    (prn 'resolve/env ident (-> state :env first :mappings (get ident)))
                   [::&util/ok [state (-> state :env first :mappings (get ident))]])
                 
                 (empty? outer)
-                (do (prn 'resolve/outer ident (get-in state [:lambda-scope 0]))
+                (do ;; (prn 'resolve/outer ident (get-in state [:lambda-scope 0]))
                   (if-let [global|import (or (get-in state [:defs-env ident])
                                              (get-in state [:imports ident]))]
-                    [::&util/ok [state global|import]]
-                    [::&util/failure (str "Unresolved identifier: " ident)]))
+                    (do (prn 'resolve/global|import ident global|import)
+                      [::&util/ok [state global|import]])
+                    (do (prn 'resolve/UNRESOLVED (str "Unresolved identifier: " ident))
+                      [::&util/failure (str "Unresolved identifier: " ident)])))
 
                 :else
-                (do (prn 'resolve/:else ident (get-in state [:lambda-scope 0]))
+                (do ;; (prn 'resolve/:else ident (get-in state [:lambda-scope 0]))
                   (let [[=local inner*] (reduce (fn [[register new-inner] [frame scope]]
                                                   (let [[register* frame*] (close-over scope ident register frame)]
                                                     [register* (cons frame* new-inner)]))
@@ -245,7 +247,8 @@
                                                           (iterate pop)
                                                           (take (count inner))
                                                           reverse)))]
-                    (prn 'resolve/inner* inner*)
+                    ;; (prn 'resolve/inner* inner*)
+                    (prn 'resolve/=local ident =local)
                     [::&util/ok [(assoc state :env (concat inner* outer)) =local]])))))))
 
 (defmacro ^:private defanalyser [name match return]
@@ -480,7 +483,7 @@
   (exec [=class (full-class-name ?class)
          =classes (map-m extract-jvm-param ?classes)
          =return (lookup-virtual-method (Class/forName =class) ?method =classes)
-         :let [_ (prn 'analyse-jvm-invokevirtual ?class ?method  =classes '-> =return)]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual ?class ?method  =classes '-> =return)]
          ;; =return =return
          =object (analyse-form* ?object)
          =args (map-m analyse-form* ?args)]
@@ -550,39 +553,39 @@
   ;; (prn '->token x)
   (match x
     [::&parser/bool ?bool]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Bool"))
       (-> .-_1 (set! ?bool)))
     [::&parser/int ?int]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Int"))
       (-> .-_1 (set! ?int)))
     [::&parser/real ?real]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Real"))
       (-> .-_1 (set! ?real)))
     [::&parser/char ?elem]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Char"))
       (-> .-_1 (set! ?elem)))
     [::&parser/text ?text]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Text"))
       (-> .-_1 (set! ?text)))
     [::&parser/tag ?tag]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Tag"))
       (-> .-_1 (set! ?tag)))
     [::&parser/ident ?ident]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Ident"))
       (-> .-_1 (set! ?ident)))
     [::&parser/tuple ?elems]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Tuple"))
       (-> .-_1 (set! (->tokens ?elems))))
     [::&parser/form ?elems]
-    (doto (.newInstance (.loadClass @loader "test2.Variant1"))
+    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
       (-> .-tag (set! "Form"))
       (-> .-_1 (set! (->tokens ?elems))))
     ))
@@ -590,11 +593,11 @@
 (defn ->tokens [xs]
   (reduce (fn [tail x]
             ;; (prn 'tail (.-tag tail) 'x x)
-            (doto (.newInstance (.loadClass @loader "test2.Variant2"))
+            (doto (.newInstance (.loadClass @loader "lux.Variant2"))
               (-> .-tag (set! "Cons"))
               (-> .-_1 (set! (->token x)))
               (-> .-_2 (set! tail))))
-          (doto (.newInstance (.loadClass @loader "test2.Variant0"))
+          (doto (.newInstance (.loadClass @loader "lux.Variant0"))
             (-> .-tag (set! "Nil")))
           (reverse xs)))
 
@@ -622,23 +625,25 @@
 (defanalyser analyse-call
   [::&parser/form ([?fn & ?args] :seq)]
   (exec [=fn (analyse-form* ?fn)
-         :let [_ (prn 'analyse-call/=fn =fn)]]
+         ;; :let [_ (prn 'analyse-call/=fn =fn)]
+         ]
     (match (:form =fn)
       [::global-fn ?module ?name]
-      (exec [macro? (is-macro? ?fn)
-             scoped? (in-scope? ?fn)
-             :let [_ (prn 'analyse-call [:global-fn ?module ?name] macro? scoped?)]]
+      (exec [macro? (is-macro? ?module ?name)
+             scoped? (in-scope? ?module ?name)
+             :let [_ (prn 'analyse-call [:global-fn ?module ?name] macro? scoped?)]
+             ;; :let [_ (prn 'analyse-call [:global-fn ?module ?name] macro? scoped?)]
+             ]
         (if (and macro? (not scoped?))
           (let [macro-class (str ?module "$" (normalize-ident ?name))
                 transformed (-> (.loadClass @loader macro-class)
                                 .newInstance
                                 (.apply (->tokens ?args))
                                 ->clojure-token)
-                _ (prn 'analyse-call/transformed transformed)]
-            (-> (.loadClass @loader macro-class)
-                .newInstance
-                (.apply (->tokens ?args))
-                ->clojure-token
+                _ (prn 'analyse-call/macro-raw ?args)
+                _ (prn 'analyse-call/transformed transformed)
+                ]
+            (-> transformed
                 analyse-form*))
           (exec [=args (map-m analyse-form* ?args)
                  :let [[needs-num =return-type] (match (:type =fn)
@@ -1016,15 +1021,19 @@
 (defanalyser analyse-defmacro
   [::&parser/form ([[::&parser/ident "defmacro"] [::&parser/form ([[::&parser/ident ?name] [::&parser/ident ?tokens]] :seq)] ?value] :seq)]
   (exec [[=function =tokens =return] (within :types (&type/fresh-function 1))
+         :let [_ (prn 'analyse-defmacro/_1 ?name)]
          =value (with-scope ?name
                   (with-scoped-name ?name =function
                     (with-local ?tokens =tokens
                       (analyse-form* ?value))))
+         :let [_ (prn 'analyse-defmacro/_2 ?name)]
          =function (within :types (exec [_ (&type/solve =return (:type =value))]
                                     (&type/clean =function)))
+         :let [_ (prn 'analyse-defmacro/_3 ?name)]
          _ (define-fn ?name {:mode   ::macro
                              :access ::public
-                             :type   =function})]
+                             :type   =function})
+         :let [_ (prn 'analyse-defmacro/_4 ?name)]]
     (return (annotated [::def [?name (list ?tokens)] =value] ::&type/nothing))))
 
 (defanalyser analyse-lambda

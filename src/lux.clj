@@ -24,19 +24,10 @@
   ;; TODO: Reinplement "if" as a macro on top of case.
   ;; TODO: 
 
-  (let [source-code (slurp "source/test2.lux")
-        tokens (&lexer/lex source-code)
-        ;; _ (prn 'tokens tokens)
-        syntax (&parser/parse tokens)
-        ;; _ (prn 'syntax syntax)
-        ;; ann-syntax (&analyser/analyse "test2" syntax)
-        ;; _ (prn 'ann-syntax ann-syntax)
-        ;; class-data (&compiler/compile "test2" ann-syntax)
-        class-data (&compiler/compile "test2" syntax)
-        ;; _ (prn 'class-data class-data)
-        ]
-    )
+  (&compiler/compile-all ["lux" "test2"])
 
+  
+  
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
   ;; cd output && jar cvf test2.jar * && java -cp "test2.jar" test2 && cd ..
   )

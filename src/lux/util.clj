@@ -64,6 +64,24 @@
       (do ;; (println "Failed at last:" ?message)
           (return* state '())))))
 
+(defn exhaust-m [monad]
+  (fn [state]
+    (let [result (monad state)]
+      (match result
+        [::ok [?state ?head]]
+        (if (empty? (:forms ?state))
+          (return* ?state (list ?head))
+          (let [result* ((exhaust-m monad) ?state)]
+            (match result*
+              [::ok [?state* ?tail]]
+              (return* ?state* (cons ?head ?tail))
+
+              _
+              result*)))
+        
+        _
+        result))))
+
 (defn try-all-m [monads]
   (fn [state]
     (if (empty? monads)
