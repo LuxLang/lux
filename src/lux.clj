@@ -23,6 +23,7 @@
   ;; TODO: monitor enter & monitor exit.
   ;; TODO: Reinplement "if" as a macro on top of case.
   ;; TODO: Remember to optimized calling global functions.
+  ;; TODO: Reader macros.
   ;; TODO: 
   
   (&compiler/compile-all ["lux" "test2"])

@@ -1,29 +1,26 @@
 (ns lux.lexer
   (:require [clojure.template :refer [do-template]]
-            [clojure.core.match :refer [match]]
             [lux.util :as &util :refer [exec return* return fail fail*
                                         repeat-m try-m try-all-m]]))
 
-(declare lex-forms lex-list lex-tuple lex-record lex-tag)
-
 ;; [Utils]
 (defn ^:private lex-regex [regex]
-  (fn [text]
-    (if-let [[match] (re-find regex text)]
-      (return* (.substring text (.length match)) match)
-      (fail* (str "Pattern failed: " regex " -- " text)))))
+  (fn [state]
+    (if-let [[match] (re-find regex (::source state))]
+      (return* (update-in state [::source] #(.substring % (.length match))) match)
+      (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-regex2 [regex]
-  (fn [text]
-    (if-let [[match tok1 tok2] (re-find regex text)]
-      (return* (.substring text (.length match)) [tok1 tok2])
-      (fail* (str "Pattern failed: " regex " -- " text)))))
+  (fn [state]
+    (if-let [[match tok1 tok2] (re-find regex (::source state))]
+      (return* (update-in state [::source] #(.substring % (.length match))) [tok1 tok2])
+      (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-str [prefix]
-  (fn [text]
-    (if (.startsWith text prefix)
-      (return* (.substring text (.length prefix)) prefix)
-      (fail* (str "String failed: " prefix " -- " text)))))
+  (fn [state]
+    (if (.startsWith (::source state) prefix)
+      (return* (update-in state [::source] #(.substring % (.length prefix))) prefix)
+      (fail* (str "[Lexer Error] Text failed: " prefix)))))
 
 (defn ^:private escape-char [escaped]
   (condp = escaped
@@ -35,7 +32,7 @@
     "\\\"" (return "\"")
     "\\\\" (return "\\")
     ;; else
-    (fail (str "Unknown escape character: " escaped))))
+    (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
 (def ^:private lex-string-body
   (try-all-m [(exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
@@ -47,7 +44,9 @@
 (def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|':\~\?]*)")
 
 ;; [Lexers]
-(def ^:private lex-white-space (lex-regex #"^(\s+)"))
+(def ^:private lex-white-space
+  (exec [white-space (lex-regex #"^(\s+)")]
+    (return [::white-space white-space])))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
@@ -98,56 +97,36 @@
          token (lex-regex +ident-re+)]
     (return [::tag token])))
 
-(def ^:private lex-form
-  (exec [_ (try-m lex-white-space)
-         form (try-all-m [lex-bool
-                          lex-real
-                          lex-int
-                          lex-char
-                          lex-text
-                          lex-ident
-                          lex-tag
-                          lex-list
-                          lex-tuple
-                          lex-record
-                          lex-comment])
-         _ (try-m lex-white-space)]
-    (return form)))
+(do-template [<name> <text> <tag>]
+  (def <name>
+    (exec [_ (lex-str <text>)]
+      (return [<tag>])))
 
-(def lex-forms
-  (exec [forms (repeat-m lex-form)]
-    (return (filter #(match %
-                       [::comment _]
-                       false
-                       _
-                       true)
-                    forms))))
+  ^:private lex-open-paren    "(" ::open-paren
+  ^:private lex-close-paren   ")" ::close-paren
+  ^:private lex-open-bracket  "[" ::open-bracket
+  ^:private lex-close-bracket "]" ::close-bracket
+  ^:private lex-open-brace    "{" ::open-brace
+  ^:private lex-close-brace   "}" ::close-brace
+  )
 
-(def ^:private lex-list
-  (exec [_ (lex-str "(")
-         members lex-forms
-         _ (lex-str ")")]
-    (return [::list members])))
-
-(def ^:private lex-tuple
-  (exec [_ (lex-str "[")
-         members lex-forms
-         _ (lex-str "]")]
-    (return [::tuple members])))
-
-(def ^:private lex-record
-  (exec [_ (lex-str "{")
-         members lex-forms
-         _ (lex-str "}")]
-    (return [::record members])))
+(def ^:private lex-delimiter
+  (try-all-m [lex-open-paren
+              lex-close-paren
+              lex-open-bracket
+              lex-close-bracket
+              lex-open-brace
+              lex-close-brace]))
 
 ;; [Interface]
-(defn lex [text]
-  (match (lex-forms text)
-    [::&util/ok [?state ?forms]]
-    (if (empty? ?state)
-      ?forms
-      (assert false (str "Unconsumed input: " ?state)))
-    
-    [::&util/failure ?message]
-    (assert false ?message)))
+(def lex
+  (try-all-m [lex-white-space
+              lex-bool
+              lex-real
+              lex-int
+              lex-char
+              lex-text
+              lex-ident
+              lex-tag
+              lex-comment
+              lex-delimiter]))

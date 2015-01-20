@@ -20,7 +20,7 @@
                               MethodVisitor)))
 
 (declare compile-form
-         compile)
+         compile-file)
 
 (def +prefix+ "lux")
 
@@ -961,10 +961,12 @@
 (defcompiler compile-use
   [::&analyser/use ?file ?alias]
   (let [module-name (re-find #"[^/]+$" ?file)
-        source-code (slurp (str "source/" module-name ".lux"))
-        tokens (&lexer/lex source-code)
-        syntax (&parser/parse tokens)
-        bytecode (compile module-name syntax)]
+        ;; source-code (slurp (str "source/" module-name ".lux"))
+        ;; tokens (&lexer/lex source-code)
+        ;; syntax (&parser/parse tokens)
+        ;; bytecode (compile module-name syntax)
+        ]
+    (compile-file module-name)
     nil))
 
 (let [+int-class+ (->class "java.lang.Integer")]
@@ -1075,10 +1077,14 @@
         ))))
 
 (defn compile-file [name]
-  (->> (slurp (str "source/" name ".lux"))
-       &lexer/lex
-       &parser/parse
-       (compile name)))
+  (match ((&parser/parse-all) {::&lexer/source (slurp (str "source/" name ".lux"))})
+    [::&util/ok [?state ?forms]]
+    (let [?forms* (filter identity ?forms)]
+      (prn '?forms ?forms*)
+      (compile name ?forms*))
+
+    [::&util/failure ?message]
+    (assert false ?message)))
 
 (defn compile-all [files]
   (reset! !state {:name nil
@@ -1091,3 +1097,7 @@
                   :env (list (&analyser/fresh-env 0))
                   :types &type/+init+})
   (dorun (map compile-file files)))
+
+(comment
+  (compile-all ["lux"])
+  )

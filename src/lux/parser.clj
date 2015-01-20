@@ -4,20 +4,19 @@
             (lux [util :as &util :refer [exec return* return fail fail*
                                          repeat-m try-m try-all-m map-m
                                          apply-m]]
-                 [lexer :as &lexer]
-                 [type :as &type])))
+                 [lexer :as &lexer])))
 
-(declare parse-token)
+(declare parse)
 
 ;; [Utils]
 (defmacro ^:private defparser [name match return]
-  `(def ~name
-     (fn [[token# & left#]]
-       (match token#
-         ~match
-         (~return left#)
-         _#
-         (fail* (str "Unmatched token: " token#))))))
+  `(defn ~name [token#]
+     (match token#
+       ~match
+       ~return
+
+       _#
+       (fail (str "[Parser Error] Unmatched token: " token#)))))
 
 ;; [Parsers]
 (let [first-char #(.charAt % 0)]
@@ -34,51 +33,77 @@
     ^:private parse-ident ::&lexer/ident ::ident identity
     ))
 
-(defparser ^:private parse-tuple
-  [::&lexer/tuple ?parts]
-  (exec [=parts (map-m (fn [arg] (apply-m parse-token (list arg)))
-                       ?parts)]
-    (return [::tuple =parts])))
+(defparser parse-comment
+  [::&lexer/comment _]
+  (return nil))
 
-(defparser ^:private parse-record
-  [::&lexer/record ?parts]
-  (exec [=kvs (do (assert (even? (count ?parts)))
-                (map-m #(match %
-                          ([[::&lexer/tag ?label] ?value] :seq)
-                          (exec [=value (apply-m parse-token (list ?value))]
-                            (return [?label =value])))
-                       (partition 2 ?parts)))]
-    (return [::record =kvs])))
+(defparser parse-whitespace
+  [::&lexer/white-space _]
+  (return nil))
 
 (defparser ^:private parse-tag
   [::&lexer/tag ?tag]
   (return [::tag ?tag]))
 
 (defparser ^:private parse-form
-  [::&lexer/list ?elems]
-  (exec [=elems (map-m (fn [arg] (apply-m parse-token (list arg)))
-                       ?elems)]
-    (return [::form =elems])))
+  [::&lexer/open-paren]
+  (exec [elems (repeat-m parse)
+         token &lexer/lex]
+    (if (= [::&lexer/close-paren] token)
+      (return [::form (filter identity elems)])
+      (fail "[Parser Error] Unbalanced parantheses."))))
 
-(def ^:private parse-token
-  (try-all-m [parse-bool
-              parse-int
-              parse-real
-              parse-char
-              parse-text
-              parse-ident
-              parse-tuple
-              parse-record
-              parse-tag
-              parse-form]))
+(do-template [<name> <open-tag> <close-tag> <description> <ast>]
+  (defparser <name>
+    [<open-tag>]
+    (exec [elems (repeat-m parse)
+           token &lexer/lex]
+      (if (= [<close-tag>] token)
+        (return [<ast> (filter identity elems)])
+        (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-;; [Interface]
-(defn parse [text]
-  (match ((repeat-m parse-token) text)
-    [::&util/ok [?state ?forms]]
-    (if (empty? ?state)
-      ?forms
-      (assert false (str "Unconsumed input: " (pr-str ?state))))
-    
-    [::&util/failure ?message]
-    (assert false ?message)))
+  ^:private parse-form  ::&lexer/open-paren   ::&lexer/close-paren   "parantheses" ::form
+  ^:private parse-tuple ::&lexer/open-bracket ::&lexer/close-bracket "brackets"    ::tuple
+  )
+
+(defparser ^:private parse-record
+  [::&lexer/open-brace]
+  (exec [elems* (repeat-m parse)
+         token &lexer/lex
+         :let [elems (filter identity elems*)]]
+    (cond (not= [::&lexer/close-brace] token)
+          (fail (str "[Parser Error] Unbalanced braces."))
+
+          (odd? (count elems))
+          (fail (str "[Parser Error] Records must have an even number of elements."))
+
+          :else
+          (return [::record (filter identity elems)]))))
+
+(let [parsers [parse-comment
+               parse-whitespace
+               parse-bool
+               parse-int
+               parse-real
+               parse-char
+               parse-text
+               parse-tag
+               parse-ident
+               parse-form
+               parse-tuple
+               parse-record]]
+  (defn ^:private parse-token [token]
+    (try-all-m (map #(% token) parsers))))
+
+(def ^:private parse
+  (exec [token &lexer/lex]
+    (parse-token token)))
+
+(defn parse-all []
+  (exec [ast parse]
+    (fn [state]
+      (if (empty? (::&lexer/source state))
+        (return* state (if ast (list ast) '()))
+        ((exec [asts (parse-all)]
+           (return (cons ast asts)))
+         state)))))

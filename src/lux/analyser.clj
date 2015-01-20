@@ -196,7 +196,7 @@
                 (if-let [global|import (or (get-in state [:defs-env ident])
                                            (get-in state [:imports ident]))]
                   [::&util/ok [state global|import]]
-                  [::&util/failure (str "Unresolved identifier: " ident)])
+                  [::&util/failure (str "[Analyser Error] Unresolved identifier: " ident)])
 
                 :else
                 (let [[=local inner*] (reduce (fn [[register new-inner] [frame scope]]
@@ -217,8 +217,9 @@
        (match token#
          ~match
          (~return (assoc state# :forms left#))
+         
          _#
-         (fail* (str "Unmatched token: " token#))))))
+         (fail* (str "[Analyser Error] Unmatched token: " token#))))))
 
 (defn analyse-form* [form]
   (fn [state]
@@ -298,14 +299,14 @@
                       [::class ?full-name]
                       (return (Class/forName ?full-name))
                       _
-                      (fail "Unknown class.")))
+                      (fail "[Analyser Error] Unknown class.")))
                   (let [full-name* (str "java.lang." class)]
                     (if-let [full-name (try (Class/forName full-name*)
                                          full-name*
                                          (catch Exception e
                                            nil))]
                       (return (Class/forName full-name))
-                      (fail "Unknown class.")))]))))
+                      (fail "[Analyser Error] Unknown class.")))]))))
 
 (defn extract-jvm-param [token]
   (match token
@@ -344,7 +345,7 @@
                                  [(.getDeclaringClass =field) (.getType =field)]))]
     (exec [=type (&type/class->type type)]
       (return [(.getName owner) =type]))
-    (fail (str "Field does not exist: " target field mode))))
+    (fail (str "[Analyser Error] Field does not exist: " target field mode))))
 
 (defn lookup-method [mode target method args]
   (if-let [methods (seq (for [=method (.getMethods (Class/forName target))
@@ -357,7 +358,7 @@
              (exec [=method (&type/method->type method)]
                (return [(.getName owner) =method])))
            methods)
-    (fail (str "Method does not exist: " target method mode))))
+    (fail (str "[Analyser Error] Method does not exist: " target method mode))))
 
 (defn lookup-static-field [target field]
   (if-let [type* (first (for [=field (.getFields target)
@@ -367,7 +368,7 @@
                           (.getType =field)))]
     (exec [=type (&type/class->type type*)]
       (return =type))
-    (fail (str "Field does not exist: " target field))))
+    (fail (str "[Analyser Error] Field does not exist: " target field))))
 
 (defn lookup-virtual-method [target method-name args]
   (if-let [method (first (for [=method (.getMethods target)
@@ -377,7 +378,7 @@
                            =method))]
     (exec [=method (&type/method->type method)]
       (&type/return-type =method))
-    (fail (str "Virtual method does not exist: " target method-name))))
+    (fail (str "[Analyser Error] Virtual method does not exist: " target method-name))))
 
 (defn full-class-name [class]
   (if (.contains class ".")
@@ -387,14 +388,14 @@
                     [::class ?full-name]
                     (return ?full-name)
                     _
-                    (fail "Unknown class.")))
+                    (fail "[Analyser Error] Unknown class.")))
                 (let [full-name* (str "java.lang." class)]
                   (if-let [full-name (try (Class/forName full-name*)
                                        full-name*
                                        (catch Exception e
                                          nil))]
                     (return full-name)
-                    (fail "Unknown class.")))])))
+                    (fail "[Analyser Error] Unknown class.")))])))
 
 (defanalyser analyse-jvm-getstatic
   [::&parser/form ([[::&parser/ident "jvm/getstatic"] [::&parser/ident ?class] [::&parser/ident ?field]] :seq)]
