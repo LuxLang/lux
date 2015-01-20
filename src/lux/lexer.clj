@@ -39,13 +39,8 @@
 
 (def ^:private lex-string-body
   (try-all-m [(exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
-                     ;; :let [_ (prn '[prefix escaped] [prefix escaped])]
                      unescaped (escape-char escaped)
-                     ;; :let [_ (prn 'unescaped unescaped)]
-                     postfix lex-string-body
-                     ;; :let [_ (prn 'postfix postfix)]
-                     ;; :let [_ (prn 'FULL (str prefix unescaped postfix))]
-                     ]
+                     postfix lex-string-body]
                 (return (str prefix unescaped postfix)))
               (lex-regex #"(?s)^([^\"\\]*)")]))
 
@@ -74,41 +69,24 @@
 
 (def ^:private lex-text
   (exec [_ (lex-str "\"")
-         ;; state &util/get-state
-         ;; :let [_ (prn 'PRE state)]
          token lex-string-body
-         _ (lex-str "\"")
-         ;; state &util/get-state
-         ;; :let [_ (prn 'POST state)]
-         ]
+         _ (lex-str "\"")]
     (return [::text token])))
 
 (def ^:private lex-single-line-comment
   (exec [_ (lex-str "##")
          comment (lex-regex #"^([^\n]*)")
-         _ (lex-regex #"^(\n?)")
-         ;; :let [_ (prn 'comment comment)]
-         ]
+         _ (lex-regex #"^(\n?)")]
     (return [::comment comment])))
 
 (def ^:private lex-multi-line-comment
   (exec [_ (lex-str "#(")
-         ;; :let [_ (prn 'OPEN)]
-         ;; comment (lex-regex #"^(#\(.*\)#)")
          comment (try-all-m [(lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
                              (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
-                                    ;; :let [_ (prn 'PRE pre)]
                                     [_ inner] lex-multi-line-comment
-                                    ;; :let [_ (prn 'INNER inner)]
-                                    post (lex-regex #"(?is)^(.+?(?=\)#))")
-                                        ;:let [_ (prn 'POST post)]
-                                    ]
+                                    post (lex-regex #"(?is)^(.+?(?=\)#))")]
                                (return (str pre "#(" inner ")#" post)))])
-         ;; :let [_ (prn 'COMMENT comment)]
-         _ (lex-str ")#")
-         ;; :let [_ (prn 'CLOSE)]
-         ;; :let [_ (prn 'multi-comment comment)]
-         ]
+         _ (lex-str ")#")]
     (return [::comment comment])))
 
 (def ^:private lex-comment

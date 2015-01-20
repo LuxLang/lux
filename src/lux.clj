@@ -22,8 +22,9 @@
   ;; TODO: Add "new". Allow setting fields.
   ;; TODO: monitor enter & monitor exit.
   ;; TODO: Reinplement "if" as a macro on top of case.
+  ;; TODO: Remember to optimized calling global functions.
   ;; TODO: 
-
+  
   (&compiler/compile-all ["lux" "test2"])
 
   

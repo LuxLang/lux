@@ -60,22 +60,6 @@
                        ?elems)]
     (return [::form =elems])))
 
-;; (defparser ^:private parse-get
-;;   [::&lexer/list ([[::&lexer/ident "get@"] [::&lexer/tag ?tag] ?record] :seq)]
-;;   (exec [=record (apply-m parse-token (list ?record))]
-;;     (return [::get ?tag =record])))
-
-;; (defparser ^:private parse-remove
-;;   [::&lexer/list ([[::&lexer/ident "remove@"] [::&lexer/tag ?tag] ?record] :seq)]
-;;   (exec [=record (apply-m parse-token (list ?record))]
-;;     (return [::remove ?tag =record])))
-
-;; (defparser ^:private parse-set
-;;   [::&lexer/list ([[::&lexer/ident "set@"] [::&lexer/tag ?tag] ?value ?record] :seq)]
-;;   (exec [=value (apply-m parse-token (list ?value))
-;;          =record (apply-m parse-token (list ?record))]
-;;     (return [::set ?tag =value =record])))
-
 (def ^:private parse-token
   (try-all-m [parse-bool
               parse-int
