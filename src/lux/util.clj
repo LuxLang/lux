@@ -138,6 +138,20 @@
   (fn [state]
     (return* state state)))
 
+(defn do-all-m [monads]
+  (if (empty? monads)
+    (return '())
+    (exec [head (first monads)
+           tail (do-all-m (rest monads))]
+      (return (cons head tail)))))
+
+(defn do-all-m* [monads]
+  (if (empty? monads)
+    (return '())
+    (exec [head (first monads)
+           tail (do-all-m* (rest monads))]
+      (return (concat head tail)))))
+
 (defn within [slot monad]
   (fn [state]
     (let [=return (monad (get state slot))]

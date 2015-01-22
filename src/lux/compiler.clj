@@ -6,6 +6,7 @@
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
                                          repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                         do-all-m
                                          apply-m within
                                          normalize-ident
                                          loader reset-loader!]]
@@ -174,7 +175,7 @@
   (doto *writer*
     (.visitVarInsn Opcodes/ALOAD 0)
     (.visitFieldInsn Opcodes/GETFIELD
-                     (apply str (interpose "$" (map (comp normalize-ident str) ?scope)))
+                     (normalize-ident ?scope)
                      (str "__" ?captured-id)
                      "Ljava/lang/Object;")))
 
@@ -954,10 +955,6 @@
           (->> (doseq [[?tfield ?member] (mapv vector (range (count ?members)) ?members)]))))
     ))
 
-(defcompiler compile-import
-  [::&analyser/import ?class]
-  nil)
-
 (defcompiler compile-use
   [::&analyser/use ?file ?alias]
   (let [module-name (re-find #"[^/]+$" ?file)
@@ -1028,14 +1025,12 @@
         (assert false (str "Can't compile: " (pr-str (:form state)))))))
 
 ;; [Interface]
-(def !state (atom nil))
-
-(defn compile [module-name inputs]
-  (if-let [module (get-in @!state [:modules module-name])]
+(defn compile [state module-name inputs]
+  (if-let [module (get-in state [:modules module-name])]
     (assert false "Can't redefine a module!")
     (do (reset-loader!)
       (let [init-state (let [+prelude-module+ "lux"
-                             init-state (assoc @!state :name module-name, :forms inputs, :defs-env {})]
+                             init-state (assoc state :name module-name, :forms inputs, :defs-env {})]
                          (if (= +prelude-module+ module-name)
                            init-state
                            (assoc init-state :defs-env (into {} (for [[?name ?desc] (get-in init-state [:modules +prelude-module+])]
@@ -1055,15 +1050,14 @@
                             :parent nil}
             new-state (match ((exhaust-m
                                (&analyser/with-scope module-name
-                                 (exec [ann-input &analyser/analyse-form
+                                 (exec [ann-input &analyser/analyse
                                         :let [_ (when (not (compile-form (assoc compiler-state :form ann-input)))
                                                   (assert false ann-input))]]
                                    (return ann-input))))
                               init-state)
                         [::&util/ok [?state ?forms]]
                         (if (empty? (:forms ?state))
-                          (do (reset! !state ?state)
-                            ?state)
+                          ?state
                           (assert false (str "Unconsumed input: " (pr-str (first (:forms ?state))))))
                         
                         [::&util/failure ?message]
@@ -1073,30 +1067,36 @@
           (write-class module-name bytecode)
           (load-class! (string/replace module-name #"/" ".") (str module-name ".class"))
           bytecode)
-        new-state
+        [::&util/ok [new-state true]]
         ))))
 
 (defn compile-file [name]
-  (match ((&parser/parse-all) {::&lexer/source (slurp (str "source/" name ".lux"))})
-    [::&util/ok [?state ?forms]]
-    (let [?forms* (filter identity ?forms)]
-      (prn '?forms ?forms*)
-      (compile name ?forms*))
+  (fn [state]
+    (match ((&parser/parse-all) {::&lexer/source (slurp (str "source/" name ".lux"))})
+      [::&util/ok [?state ?forms]]
+      (let [?forms* (filter identity ?forms)]
+        ;; (prn '?forms ?forms*)
+        (compile state name ?forms*))
 
-    [::&util/failure ?message]
-    (assert false ?message)))
+      [::&util/failure ?message]
+      (fail* ?message))))
 
 (defn compile-all [files]
-  (reset! !state {:name nil
-                  :forms nil
-                  :modules {}
-                  :deps {}
-                  :imports {}
-                  :defs-env {}
-                  :lambda-scope [[] 0]
-                  :env (list (&analyser/fresh-env 0))
-                  :types &type/+init+})
-  (dorun (map compile-file files)))
+  (let [state {:name nil
+               :forms nil
+               :modules {}
+               :deps {}
+               :imports {}
+               :defs-env {}
+               :lambda-scope [[] 0]
+               :env (list (&analyser/fresh-env 0))
+               :types &type/+init+}]
+    (match ((do-all-m (map compile-file files)) state)
+      [::&util/ok [?state ?forms]]
+      (println (str "Compilation complete! " (pr-str files)))
+
+      [::&util/failure ?message]
+      (assert false ?message))))
 
 (comment
   (compile-all ["lux"])

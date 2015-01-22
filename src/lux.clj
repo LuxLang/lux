@@ -18,15 +18,18 @@
   ;; TODO: Add records.
   ;; TODO: throw, try, catch, finally
   ;; TODO: Add extra arities (apply2, apply3, ..., apply16)
-  ;; TODO: When doing partial application, skip "apply" and just call constructor appropiatedly.
-  ;; TODO: Add "new". Allow setting fields.
+  ;; TODO: Allow setting fields.
   ;; TODO: monitor enter & monitor exit.
   ;; TODO: Reinplement "if" as a macro on top of case.
   ;; TODO: Remember to optimized calling global functions.
   ;; TODO: Reader macros.
+  ;; TODO: Automatic currying of functions.
+  ;; TODO: 
+  ;; TODO: 
+  ;; TODO: 
   ;; TODO: 
   
-  (&compiler/compile-all ["lux" "test2"])
+  (time (&compiler/compile-all ["lux" "test2"]))
 
   
   

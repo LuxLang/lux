@@ -16,7 +16,7 @@
       (return* (update-in state [::source] #(.substring % (.length match))) [tok1 tok2])
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
-(defn ^:private lex-str [prefix]
+(defn ^:private lex-prefix [prefix]
   (fn [state]
     (if (.startsWith (::source state) prefix)
       (return* (update-in state [::source] #(.substring % (.length prefix))) prefix)
@@ -34,10 +34,10 @@
     ;; else
     (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
-(def ^:private lex-string-body
+(def ^:private lex-text-body
   (try-all-m [(exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
                      unescaped (escape-char escaped)
-                     postfix lex-string-body]
+                     postfix lex-text-body]
                 (return (str prefix unescaped postfix)))
               (lex-regex #"(?s)^([^\"\\]*)")]))
 
@@ -47,6 +47,26 @@
 (def ^:private lex-white-space
   (exec [white-space (lex-regex #"^(\s+)")]
     (return [::white-space white-space])))
+
+(def ^:private lex-single-line-comment
+  (exec [_ (lex-prefix "##")
+         comment (lex-regex #"^([^\n]*)")
+         _ (lex-regex #"^(\n?)")]
+    (return [::comment comment])))
+
+(def ^:private lex-multi-line-comment
+  (exec [_ (lex-prefix "#(")
+         comment (try-all-m [(lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
+                             (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
+                                    [_ inner] lex-multi-line-comment
+                                    post (lex-regex #"(?is)^(.+?(?=\)#))")]
+                               (return (str pre "#(" inner ")#" post)))])
+         _ (lex-prefix ")#")]
+    (return [::comment comment])))
+
+(def ^:private lex-comment
+  (try-all-m [lex-single-line-comment
+              lex-multi-line-comment]))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
@@ -59,47 +79,27 @@
   ^:private lex-ident ::ident +ident-re+)
 
 (def ^:private lex-char
-  (exec [_ (lex-str "#\"")
+  (exec [_ (lex-prefix "#\"")
          token (try-all-m [(exec [escaped (lex-regex #"^(\\.)")]
                              (escape-char escaped))
                            (lex-regex #"^(.)")])
-         _ (lex-str "\"")]
+         _ (lex-prefix "\"")]
     (return [::char token])))
 
 (def ^:private lex-text
-  (exec [_ (lex-str "\"")
-         token lex-string-body
-         _ (lex-str "\"")]
+  (exec [_ (lex-prefix "\"")
+         token lex-text-body
+         _ (lex-prefix "\"")]
     (return [::text token])))
 
-(def ^:private lex-single-line-comment
-  (exec [_ (lex-str "##")
-         comment (lex-regex #"^([^\n]*)")
-         _ (lex-regex #"^(\n?)")]
-    (return [::comment comment])))
-
-(def ^:private lex-multi-line-comment
-  (exec [_ (lex-str "#(")
-         comment (try-all-m [(lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
-                             (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
-                                    [_ inner] lex-multi-line-comment
-                                    post (lex-regex #"(?is)^(.+?(?=\)#))")]
-                               (return (str pre "#(" inner ")#" post)))])
-         _ (lex-str ")#")]
-    (return [::comment comment])))
-
-(def ^:private lex-comment
-  (try-all-m [lex-single-line-comment
-              lex-multi-line-comment]))
-
 (def ^:private lex-tag
-  (exec [_ (lex-str "#")
+  (exec [_ (lex-prefix "#")
          token (lex-regex +ident-re+)]
     (return [::tag token])))
 
 (do-template [<name> <text> <tag>]
   (def <name>
-    (exec [_ (lex-str <text>)]
+    (exec [_ (lex-prefix <text>)]
       (return [<tag>])))
 
   ^:private lex-open-paren    "(" ::open-paren
@@ -121,6 +121,7 @@
 ;; [Interface]
 (def lex
   (try-all-m [lex-white-space
+              lex-comment
               lex-bool
               lex-real
               lex-int
@@ -128,5 +129,4 @@
               lex-text
               lex-ident
               lex-tag
-              lex-comment
               lex-delimiter]))
