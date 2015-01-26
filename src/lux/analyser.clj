@@ -24,6 +24,7 @@
    :inner-closures 0
    :counter 0
    :mappings {}
+   :mappings/closure {}
    :closure/id 0})
 
 (def ^:private module-name
@@ -126,14 +127,21 @@
   ^:private with-lets   with-let
   )
 
-(defn with-lambda [args body]
+(def captured-vars
+  (fn [state]
+    [::&util/ok [state (-> state ::local-envs first :mappings/closure)]]))
+
+(defn with-lambda [self self-type arg arg-type body]
   (fn [state]
     (let [top (-> state ::local-envs first)
           scope* (str (:name top) "$" (str (:inner-closures top)))
           body* (with-env scope*
-                  (with-lets args
-                    (exec [=return body]
-                      (return [scope* =return]))))]
+                  (with-local self (annotated [::self scope* []] self-type)
+                    (with-let arg arg-type
+                      (exec [=return body
+                             =next next-local-idx
+                             =captured captured-vars]
+                        (return [scope* =next =captured =return])))))]
       (body* (update-in state [::local-envs] #(cons (update-in (first %) [:inner-closures] inc)
                                                     (rest %))))
       )))
@@ -142,14 +150,17 @@
   (let [register* (annotated [::captured scope (:closure/id frame) register] (:type register))]
     [register* (-> frame
                    (update-in [:closure/id] inc)
-                   (assoc-in [:mappings ident] register*))]))
+                   (assoc-in [:mappings/closure ident] register*))]))
 
 (defn ^:private resolve [ident]
   (fn [state]
+    (prn 'resolve ident)
     (let [[top & stack*] (::local-envs state)]
-      (if-let [=bound (get-in top [:mappings ident])]
+      (if-let [=bound (or (get-in top [:mappings ident])
+                          (get-in top [:mappings/closure ident]))]
         [::&util/ok [state (list =bound)]]
-        (let [[inner outer] (split-with #(-> % :mappings (contains? ident) not) stack*)]
+        (let [no-binding? #(and (-> % :mappings (contains? ident) not) (-> % :mappings/closure (contains? ident) not))
+              [inner outer] (split-with no-binding? stack*)]
           (if (empty? outer)
             (if-let [global|import (get-in state [::global-env ident])]
               [::&util/ok [state (list global|import)]]
@@ -157,7 +168,9 @@
             (let [[=local inner*] (reduce (fn [[register new-inner] frame]
                                             (let [[register* frame*] (close-over (:name frame) ident register frame)]
                                               [register* (cons frame* new-inner)]))
-                                          [(-> outer first :mappings (get ident)) '()]
+                                          [(or (get-in (first outer) [:mappings ident])
+                                               (get-in (first outer) [:mappings/closure ident]))
+                                           '()]
                                           (reverse (cons top inner)))]
               [::&util/ok [(assoc state ::local-envs (concat inner* outer)) (list =local)]])
             ))
@@ -619,46 +632,124 @@
                    (analyse-ast ?body))]
     (return (list (annotated [::let idx ?label =value =body] (:type =body))))))
 
-(defn ^:private analyse-lambda [analyse-ast ?args ?body]
-  (exec [?args (map-m extract-ident ?args)
-         [=function =args =return] (within ::types (&type/fresh-function (count ?args)))
-         [=scope =body] (with-lambda (map vector ?args =args)
-                          (analyse-ast ?body))
-         =function (within ::types (exec [_ (&type/solve =return (:type =body))]
-                                     (&type/clean =function)))]
-    (return (list (annotated [::lambda =scope ?args =body] =function)))))
-
-(defn ^:private analyse-def [analyse-ast ?usage ?value]
-  (match ?usage
-    [::&parser/ident ?name]
-    (exec [:let [scoped-name (str "def_" ?name)]
-           [=value] (with-env (str "def_" ?name)
-                      (analyse-ast ?value))
-           _ (annotate ?name ::constant ::public false (:type =value))
-           _ (define ?name)]
-      (return (list (annotated [::def ?name =value] ::&type/nothing))))
+(defn ^:private raise-tree-bindings [outer-scope to-raise ?tree]
+  (case (:type ?tree)
+    ::adt*
+    (update-in ?tree [:patterns]
+               #(into {} (for [[?tag ?unapply] %
+                               :let [=unapply (update-in ?unapply [:parts] (partial map (partial raise-tree-bindings outer-scope to-raise)))]]
+                           [?tag =unapply])))
     
-    [::&parser/form ([[::&parser/ident ?name] & ?args] :seq)]
-    (exec [def?? (defined? ?name)]
-      (if def??
-        (fail (str "Can't redefine function/constant: " ?name))
-        (exec [ann?? (annotated? ?name)
-               args (map-m extract-ident ?args)
-               [=function =args =return] (within ::types (&type/fresh-function (count args)))
-               :let [scoped-name (str "def_" ?name)]
-               current-module module-name
-               [=value] (with-env scoped-name
-                          (with-local ?name (annotated [::global-fn current-module ?name] =function)
-                            (with-lets (map vector args =args)
-                              (analyse-ast ?value))))
-               =function (within ::types (exec [_ (&type/solve =return (:type =value))]
-                                           (&type/clean =function)))
-               _ (if ann??
-                   (return nil)
-                   (annotate ?name ::function ::public false =function))
-               _ (define ?name)]
-          (return (list (annotated [::def [?name args] =value] ::&type/nothing))))))
+    ::defaults
+    (update-in ?tree [:stores]
+               #(into {} (for [[?store ?branches] %
+                               :let [=store (raise-bindings outer-scope to-raise {:form ?store :type ::&type/nothing})]]
+                           [(:form =store) ?branches])))
+    ;; else
+    (assert false (pr-str ?tree))
     ))
+
+(defn ^:private raise-bindings [outer-scope to-raise body]
+  ;; (prn 'raise-bindings body)
+  (match (:form body)
+    [::local ?scope ?idx]
+    {:form [::local outer-scope (inc ?idx)]
+     :type (:type body)}
+    
+    [::captured _ _ ?source]
+    (if (contains? to-raise body)
+      ?source
+      body)
+
+    [::jvm:iadd ?x ?y]
+    {:form [::jvm:iadd
+            (raise-bindings outer-scope to-raise ?x)
+            (raise-bindings outer-scope to-raise ?y)]
+     :type (:type body)}
+
+    [::case ?base ?variant ?registers ?mappings ?tree]
+    (let [=variant (raise-bindings outer-scope to-raise ?variant)
+          =mappings (into {} (for [[idx syntax] ?mappings]
+                               [idx (raise-bindings outer-scope to-raise syntax)]))
+          =tree (raise-tree-bindings outer-scope to-raise ?tree)]
+      {:form [::case ?base =variant ?registers =mappings =tree]
+       :type (:type body)})
+
+    [::call ?func ?args]
+    {:form [::call (raise-bindings outer-scope to-raise ?func)
+            (map (partial raise-bindings outer-scope to-raise) ?args)]
+     :type (:type body)}
+    ))
+
+;; [:lux.util/ok [{:lux.lexer/source "", :lux.analyser/current-module "lux", :lux.analyser/modules {"lux" {"fold" {:mode :lux.analyser/constant, :access :lux.analyser/public, :macro? false, :type [:lux.type/function (:lux.type/var 6) :lux.type/any], :defined? true}, "+" {:mode :lux.analyser/constant, :access :lux.analyser/public, :macro? false, :type [:lux.type/function (:lux.type/var 2) :lux.type/any], :defined? true}, "id" {:mode :lux.analyser/constant, :access :lux.analyser/public, :macro? false, :type [:lux.type/function (:lux.type/var 0) :lux.type/any], :defined? true}}}, :lux.analyser/global-env {"fold" {:form [:lux.analyser/global "lux" "fold"], :type [:lux.type/function (:lux.type/var 6) :lux.type/any]}, "lux:fold" {:form [:lux.analyser/global "lux" "fold"], :type [:lux.type/function (:lux.type/var 6) :lux.type/any]}, "+" {:form [:lux.analyser/global "lux" "+"], :type [:lux.type/function (:lux.type/var 2) :lux.type/any]}, "lux:+" {:form [:lux.analyser/global "lux" "+"], :type [:lux.type/function (:lux.type/var 2) :lux.type/any]}, "id" {:form [:lux.analyser/global "lux" "id"], :type [:lux.type/function (:lux.type/var 0) :lux.type/any]}, "lux:id" {:form [:lux.analyser/global "lux" "id"], :type [:lux.type/function (:lux.type/var 0) :lux.type/any]}}, :lux.analyser/local-envs (), :lux.analyser/types {:lux.type/counter 12, :lux.type/mappings {0 [:lux.type/any :lux.type/nothing], 7 [:lux.type/any [:lux.type/function (:lux.type/var 8) :lux.type/any]], 1 [:lux.type/any :lux.type/any], 4 [:lux.type/any :lux.type/nothing], 6 [:lux.type/any :lux.type/nothing], 3 [:lux.type/any [:lux.type/function (:lux.type/var 4) :lux.type/any]], 2 [:lux.type/any :lux.type/nothing], 11 [:lux.type/any :lux.type/nothing], 9 [:lux.type/any [:lux.type/function (:lux.type/var 10) :lux.type/any]], 5 [:lux.type/any [:lux.type/object "java.lang.Integer" []]], 10 [:lux.type/any :lux.type/nothing], 8 [:lux.type/any :lux.type/nothing]}}}
+;;                ({:form [:lux.analyser/definterface ["lux" "Function"] {:methods {"apply" {:access :lux.analyser/public, :type [("java.lang.Object") "java.lang.Object"]}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple0"] "java.lang.Object" {:fields {}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple1"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple2"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple3"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple4"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple5"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple6"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple7"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple8"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}, "_8" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant"] "java.lang.Object" {:fields {"tag" {:access :lux.analyser/public, :type "java.lang.String"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant0"] "lux.Variant" {:fields {}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant1"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant2"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant3"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant4"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant5"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant6"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant7"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant8"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}, "_8" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing}
+;;                 )]]
+
+;; {:form [:lux.analyser/def "id" {:form [:lux.analyser/lambda "def_id$0" {} ("x") {:form [:lux.analyser/local "def_id$0" 0], :type [:lux.type/var 0]}],
+;;                                 :type [:lux.type/function (:lux.type/var 0) :lux.type/any]}],
+;;  :type :lux.type/nothing}
+
+;; {:form [:lux.analyser/def "+" {:form [:lux.analyser/lambda "def_+$0" {} ("x" "y")
+;;                                       {:form [:lux.analyser/jvm:iadd
+;;                                               {:form [:lux.analyser/local "def_+$0" 0], :type [:lux.type/var 2]}
+;;                                               {:form [:lux.analyser/local "def_+$0" 1], :type [:lux.type/var 4]}],
+;;                                        :type [:lux.type/object "java.lang.Integer" []]}],
+;;                                :type [:lux.type/function (:lux.type/var 2) :lux.type/any]}],
+;;  :type :lux.type/nothing}
+
+;; {:form [:lux.analyser/def "fold" {:form [:lux.analyser/lambda "def_fold$0" {} ("f" "init" "values")
+;;                                          {:form [:lux.analyser/case 0 {:form [:lux.analyser/local "def_fold$0" 2], :type [:lux.type/var 10]}
+;;                                                  2 {1 {:form [:lux.analyser/call {:form [:lux.analyser/captured "def_fold$0$0" 0 {:form [:lux.analyser/self "def_fold$0" []], :type [:lux.type/function [:lux.type/var 6] [:lux.type/var 7]]}], :type [:lux.type/function [:lux.type/var 6] [:lux.type/var 7]]}
+;;                                                               ({:form [:lux.analyser/local "def_fold$0" 0], :type [:lux.type/var 6]}
+;;                                                                {:form [:lux.analyser/call {:form [:lux.analyser/local "def_fold$0" 0], :type [:lux.type/var 6]} ({:form [:lux.analyser/local "def_fold$0" 1], :type [:lux.type/var 8]} {:form [:lux.analyser/local "def_fold$0" 3], :type [:lux.type/object "java.lang.Object" []]})], :type [:lux.type/object "java.lang.Object" []]}
+;;                                                                {:form [:lux.analyser/local "def_fold$0" 4], :type [:lux.type/object "java.lang.Object" []]})],
+;;                                                        :type [:lux.type/object "java.lang.Object" []]},
+;;                                                     0 {:form [:lux.analyser/local "def_fold$0" 1], :type [:lux.type/var 8]}}
+;;                                                  {:type :lux.analyser/adt*,
+;;                                                   :patterns {"Cons" {:parts ({:type :lux.analyser/defaults, :stores {[:lux.analyser/local "def_fold$0" 3] #{1}}, :branches #{1}}
+;;                                                                              {:type :lux.analyser/defaults, :stores {[:lux.analyser/local "def_fold$0" 4] #{1}}, :branches #{1}}),
+;;                                                                      :branches #{1}},
+;;                                                              "Nil" {:parts (), :branches #{0}}},
+;;                                                   :default nil,
+;;                                                   :branches #{0 1}}],
+;;                                           :type :lux.type/nothing}],
+;;                                   :type [:lux.type/function (:lux.type/var 6) :lux.type/any]}],
+;;  :type :lux.type/nothing}
+
+(defn ^:private analyse-lambda [analyse-ast ?self ?arg ?body]
+  (exec [[_ =arg =return :as =function] (within ::types &type/fresh-function)
+         [=scope =next-local =captured =body] (with-lambda ?self =function
+                                                ?arg =arg
+                                                (analyse-ast ?body))
+         _ (&util/assert! (= 1 (count =body)) "Can't return more than 1 value.")
+         :let [[=body] =body]
+         :let [_ (prn 'analyse-lambda/=body ?arg =captured =body)]
+         =function (within ::types (exec [_ (&type/solve =return (:type =body))]
+                                     (&type/clean =function)))
+         :let [_ (prn '(:form =body) (:form =body))
+               =lambda (match (:form =body)
+                    [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
+                    (let [?sub-body* (raise-bindings =scope (set (map #(get ?sub-captured %) (cons ?arg (keys =captured))))
+                                                     ?sub-body)]
+                      [::lambda =scope =captured (cons ?arg ?sub-args) ?sub-body*])
+
+                    _
+                    [::lambda =scope =captured (list ?arg) =body])]]
+    (return (list (annotated =lambda =function)))))
+
+(defn ^:private analyse-def [analyse-ast ?name ?value]
+  (exec [def?? (defined? ?name)]
+    (if def??
+      (fail (str "Can't redefine function/constant: " ?name))
+      (exec [ann?? (annotated? ?name)
+             :let [scoped-name (str "def_" ?name)]
+             [=value] (with-env scoped-name
+                        (analyse-ast ?value))
+             _ (if ann??
+                 (return nil)
+                 (annotate ?name ::constant ::public false (:type =value)))
+             _ (define ?name)]
+        (return (list (annotated [::def ?name =value] ::&type/nothing)))))))
 
 (defn ^:private analyse-annotate [?ident]
   (exec [_ (annotate ?ident ::function ::public true ::&type/nothing)]
@@ -786,11 +877,11 @@
     [::&parser/form ([[::&parser/ident "case"] ?variant & ?branches] :seq)]
     (analyse-case analyse-ast ?variant ?branches)
     
-    [::&parser/form ([[::&parser/ident "lambda"] [::&parser/tuple ?args] ?body] :seq)]
-    (analyse-lambda analyse-ast ?args ?body)
+    [::&parser/form ([[::&parser/ident "lambda'"] [::&parser/ident ?self] [::&parser/ident ?arg] ?body] :seq)]
+    (analyse-lambda analyse-ast ?self ?arg ?body)
 
-    [::&parser/form ([[::&parser/ident "def"] ?usage ?value] :seq)]
-    (analyse-def analyse-ast ?usage ?value)
+    [::&parser/form ([[::&parser/ident "def'"] [::&parser/ident ?name] ?value] :seq)]
+    (analyse-def analyse-ast ?name ?value)
 
     [::&parser/form ([[::&parser/ident "annotate"] [::&parser/ident ?ident] [::&parser/ident "Macro"]] :seq)]
     (analyse-annotate ?ident)
@@ -878,5 +969,38 @@
                             ::global-env {}
                             ::local-envs (list)
                             ::types &type/+init+})))
+    )
+
+  (do (defn raise-bindings [outer-scope to-raise body]
+        (match (:form body)
+          [::local ?scope ?idx]
+          {:form [::local outer-scope (inc ?idx)]
+           :type (:type body)}
+          
+          [::captured _ _ ?source]
+          (if (contains? to-raise body)
+            ?source
+            body)
+
+          [::jvm:iadd ?x ?y]
+          (let [=x (raise-bindings outer-scope to-raise ?x)
+                =y (raise-bindings outer-scope to-raise ?y)]
+            {:form [:lux.analyser/jvm:iadd =x =y]
+             :type (:type body)})))
+    (let [?scope "def_+$0"
+          ?captured {}
+          ?arg "x"
+          =body '{:form [:lux.analyser/lambda "def_+$0$0" {"x" {:form [:lux.analyser/captured "def_+$0$0" 0 {:form [:lux.analyser/local "def_+$0" 0], :type [:lux.type/var 2]}], :type [:lux.type/var 2]}}
+                         ("y")
+                         {:form [:lux.analyser/jvm:iadd
+                                 {:form [:lux.analyser/captured "def_+$0$0" 0 {:form [:lux.analyser/local "def_+$0" 0], :type [:lux.type/var 2]}], :type [:lux.type/var 2]}
+                                 {:form [:lux.analyser/local "def_+$0$0" 0], :type [:lux.type/var 4]}],
+                          :type [:lux.type/object "java.lang.Integer" []]}],
+                  :type [:lux.type/function (:lux.type/var 4) :lux.type/any]}]
+      (match (:form =body)
+        [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
+        (let [?sub-body* (raise-bindings ?scope (set (map #(get ?sub-captured %) (cons ?arg (keys ?captured))))
+                                         ?sub-body)]
+          [::lambda ?scope ?captured (cons ?arg ?sub-args) ?sub-body*])))
     )
   )

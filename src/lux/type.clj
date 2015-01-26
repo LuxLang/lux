@@ -32,11 +32,10 @@
                        (assoc-in [::mappings id] [::any ::nothing]))
                    [::var id]]])))
 
-(defn fresh-function [num-args]
-  (exec [=args (map-m (constantly fresh-var) (range num-args))
-         =return fresh-var
-         :let [=function [::function =args =return]]]
-    (return [=function =args =return])))
+(def fresh-function
+  (exec [=arg fresh-var
+         =return fresh-var]
+    (return [::function =arg =return])))
 
 (defn solve [expected actual]
   ;; (prn 'solve expected actual)
