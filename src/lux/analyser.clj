@@ -632,24 +632,24 @@
                    (analyse-ast ?body))]
     (return (list (annotated [::let idx ?label =value =body] (:type =body))))))
 
-(defn ^:private raise-tree-bindings [outer-scope to-raise ?tree]
+(defn ^:private raise-tree-bindings [outer-scope ?tree]
   (case (:type ?tree)
     ::adt*
     (update-in ?tree [:patterns]
                #(into {} (for [[?tag ?unapply] %
-                               :let [=unapply (update-in ?unapply [:parts] (partial map (partial raise-tree-bindings outer-scope to-raise)))]]
+                               :let [=unapply (update-in ?unapply [:parts] (partial map (partial raise-tree-bindings outer-scope)))]]
                            [?tag =unapply])))
     
     ::defaults
     (update-in ?tree [:stores]
                #(into {} (for [[?store ?branches] %
-                               :let [=store (raise-bindings outer-scope to-raise {:form ?store :type ::&type/nothing})]]
+                               :let [=store (raise-bindings outer-scope {:form ?store :type ::&type/nothing})]]
                            [(:form =store) ?branches])))
     ;; else
     (assert false (pr-str ?tree))
     ))
 
-(defn ^:private raise-bindings [outer-scope to-raise body]
+(defn ^:private raise-bindings [outer-scope body]
   ;; (prn 'raise-bindings body)
   (match (:form body)
     [::local ?scope ?idx]
@@ -657,64 +657,27 @@
      :type (:type body)}
     
     [::captured _ _ ?source]
-    (if (contains? to-raise body)
-      ?source
-      body)
+    ?source
 
     [::jvm:iadd ?x ?y]
     {:form [::jvm:iadd
-            (raise-bindings outer-scope to-raise ?x)
-            (raise-bindings outer-scope to-raise ?y)]
+            (raise-bindings outer-scope ?x)
+            (raise-bindings outer-scope ?y)]
      :type (:type body)}
 
     [::case ?base ?variant ?registers ?mappings ?tree]
-    (let [=variant (raise-bindings outer-scope to-raise ?variant)
+    (let [=variant (raise-bindings outer-scope ?variant)
           =mappings (into {} (for [[idx syntax] ?mappings]
-                               [idx (raise-bindings outer-scope to-raise syntax)]))
-          =tree (raise-tree-bindings outer-scope to-raise ?tree)]
+                               [idx (raise-bindings outer-scope syntax)]))
+          =tree (raise-tree-bindings outer-scope ?tree)]
       {:form [::case ?base =variant ?registers =mappings =tree]
        :type (:type body)})
 
     [::call ?func ?args]
-    {:form [::call (raise-bindings outer-scope to-raise ?func)
-            (map (partial raise-bindings outer-scope to-raise) ?args)]
+    {:form [::call (raise-bindings outer-scope ?func)
+            (map (partial raise-bindings outer-scope) ?args)]
      :type (:type body)}
     ))
-
-;; [:lux.util/ok [{:lux.lexer/source "", :lux.analyser/current-module "lux", :lux.analyser/modules {"lux" {"fold" {:mode :lux.analyser/constant, :access :lux.analyser/public, :macro? false, :type [:lux.type/function (:lux.type/var 6) :lux.type/any], :defined? true}, "+" {:mode :lux.analyser/constant, :access :lux.analyser/public, :macro? false, :type [:lux.type/function (:lux.type/var 2) :lux.type/any], :defined? true}, "id" {:mode :lux.analyser/constant, :access :lux.analyser/public, :macro? false, :type [:lux.type/function (:lux.type/var 0) :lux.type/any], :defined? true}}}, :lux.analyser/global-env {"fold" {:form [:lux.analyser/global "lux" "fold"], :type [:lux.type/function (:lux.type/var 6) :lux.type/any]}, "lux:fold" {:form [:lux.analyser/global "lux" "fold"], :type [:lux.type/function (:lux.type/var 6) :lux.type/any]}, "+" {:form [:lux.analyser/global "lux" "+"], :type [:lux.type/function (:lux.type/var 2) :lux.type/any]}, "lux:+" {:form [:lux.analyser/global "lux" "+"], :type [:lux.type/function (:lux.type/var 2) :lux.type/any]}, "id" {:form [:lux.analyser/global "lux" "id"], :type [:lux.type/function (:lux.type/var 0) :lux.type/any]}, "lux:id" {:form [:lux.analyser/global "lux" "id"], :type [:lux.type/function (:lux.type/var 0) :lux.type/any]}}, :lux.analyser/local-envs (), :lux.analyser/types {:lux.type/counter 12, :lux.type/mappings {0 [:lux.type/any :lux.type/nothing], 7 [:lux.type/any [:lux.type/function (:lux.type/var 8) :lux.type/any]], 1 [:lux.type/any :lux.type/any], 4 [:lux.type/any :lux.type/nothing], 6 [:lux.type/any :lux.type/nothing], 3 [:lux.type/any [:lux.type/function (:lux.type/var 4) :lux.type/any]], 2 [:lux.type/any :lux.type/nothing], 11 [:lux.type/any :lux.type/nothing], 9 [:lux.type/any [:lux.type/function (:lux.type/var 10) :lux.type/any]], 5 [:lux.type/any [:lux.type/object "java.lang.Integer" []]], 10 [:lux.type/any :lux.type/nothing], 8 [:lux.type/any :lux.type/nothing]}}}
-;;                ({:form [:lux.analyser/definterface ["lux" "Function"] {:methods {"apply" {:access :lux.analyser/public, :type [("java.lang.Object") "java.lang.Object"]}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple0"] "java.lang.Object" {:fields {}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple1"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple2"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple3"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple4"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple5"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple6"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple7"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Tuple8"] "java.lang.Object" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}, "_8" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant"] "java.lang.Object" {:fields {"tag" {:access :lux.analyser/public, :type "java.lang.String"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant0"] "lux.Variant" {:fields {}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant1"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant2"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant3"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant4"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant5"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant6"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant7"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing} {:form [:lux.analyser/defclass ["lux" "Variant8"] "lux.Variant" {:fields {"_1" {:access :lux.analyser/public, :type "java.lang.Object"}, "_2" {:access :lux.analyser/public, :type "java.lang.Object"}, "_3" {:access :lux.analyser/public, :type "java.lang.Object"}, "_4" {:access :lux.analyser/public, :type "java.lang.Object"}, "_5" {:access :lux.analyser/public, :type "java.lang.Object"}, "_6" {:access :lux.analyser/public, :type "java.lang.Object"}, "_7" {:access :lux.analyser/public, :type "java.lang.Object"}, "_8" {:access :lux.analyser/public, :type "java.lang.Object"}}}], :type :lux.type/nothing}
-;;                 )]]
-
-;; {:form [:lux.analyser/def "id" {:form [:lux.analyser/lambda "def_id$0" {} ("x") {:form [:lux.analyser/local "def_id$0" 0], :type [:lux.type/var 0]}],
-;;                                 :type [:lux.type/function (:lux.type/var 0) :lux.type/any]}],
-;;  :type :lux.type/nothing}
-
-;; {:form [:lux.analyser/def "+" {:form [:lux.analyser/lambda "def_+$0" {} ("x" "y")
-;;                                       {:form [:lux.analyser/jvm:iadd
-;;                                               {:form [:lux.analyser/local "def_+$0" 0], :type [:lux.type/var 2]}
-;;                                               {:form [:lux.analyser/local "def_+$0" 1], :type [:lux.type/var 4]}],
-;;                                        :type [:lux.type/object "java.lang.Integer" []]}],
-;;                                :type [:lux.type/function (:lux.type/var 2) :lux.type/any]}],
-;;  :type :lux.type/nothing}
-
-;; {:form [:lux.analyser/def "fold" {:form [:lux.analyser/lambda "def_fold$0" {} ("f" "init" "values")
-;;                                          {:form [:lux.analyser/case 0 {:form [:lux.analyser/local "def_fold$0" 2], :type [:lux.type/var 10]}
-;;                                                  2 {1 {:form [:lux.analyser/call {:form [:lux.analyser/captured "def_fold$0$0" 0 {:form [:lux.analyser/self "def_fold$0" []], :type [:lux.type/function [:lux.type/var 6] [:lux.type/var 7]]}], :type [:lux.type/function [:lux.type/var 6] [:lux.type/var 7]]}
-;;                                                               ({:form [:lux.analyser/local "def_fold$0" 0], :type [:lux.type/var 6]}
-;;                                                                {:form [:lux.analyser/call {:form [:lux.analyser/local "def_fold$0" 0], :type [:lux.type/var 6]} ({:form [:lux.analyser/local "def_fold$0" 1], :type [:lux.type/var 8]} {:form [:lux.analyser/local "def_fold$0" 3], :type [:lux.type/object "java.lang.Object" []]})], :type [:lux.type/object "java.lang.Object" []]}
-;;                                                                {:form [:lux.analyser/local "def_fold$0" 4], :type [:lux.type/object "java.lang.Object" []]})],
-;;                                                        :type [:lux.type/object "java.lang.Object" []]},
-;;                                                     0 {:form [:lux.analyser/local "def_fold$0" 1], :type [:lux.type/var 8]}}
-;;                                                  {:type :lux.analyser/adt*,
-;;                                                   :patterns {"Cons" {:parts ({:type :lux.analyser/defaults, :stores {[:lux.analyser/local "def_fold$0" 3] #{1}}, :branches #{1}}
-;;                                                                              {:type :lux.analyser/defaults, :stores {[:lux.analyser/local "def_fold$0" 4] #{1}}, :branches #{1}}),
-;;                                                                      :branches #{1}},
-;;                                                              "Nil" {:parts (), :branches #{0}}},
-;;                                                   :default nil,
-;;                                                   :branches #{0 1}}],
-;;                                           :type :lux.type/nothing}],
-;;                                   :type [:lux.type/function (:lux.type/var 6) :lux.type/any]}],
-;;  :type :lux.type/nothing}
 
 (defn ^:private analyse-lambda [analyse-ast ?self ?arg ?body]
   (exec [[_ =arg =return :as =function] (within ::types &type/fresh-function)
@@ -729,8 +692,7 @@
          :let [_ (prn '(:form =body) (:form =body))
                =lambda (match (:form =body)
                     [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
-                    (let [?sub-body* (raise-bindings =scope (set (map #(get ?sub-captured %) (cons ?arg (keys =captured))))
-                                                     ?sub-body)]
+                    (let [?sub-body* (raise-bindings =scope ?sub-body)]
                       [::lambda =scope =captured (cons ?arg ?sub-args) ?sub-body*])
 
                     _
