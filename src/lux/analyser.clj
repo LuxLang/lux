@@ -6,8 +6,7 @@
             (lux [util :as &util :refer [exec return* return fail fail*
                                          repeat-m try-all-m map-m reduce-m
                                          within do-all-m*
-                                         normalize-ident
-                                         loader]]
+                                         normalize-ident]]
                  [lexer :as &lexer]
                  [parser :as &parser]
                  [type :as &type])))
@@ -27,7 +26,7 @@
    :mappings/closure {}
    :closure/id 0})
 
-(def ^:private module-name
+(def module-name
   (fn [state]
     [::&util/ok [state (::current-module state)]]))
 
@@ -132,19 +131,20 @@
     [::&util/ok [state (-> state ::local-envs first :mappings/closure)]]))
 
 (defn with-lambda [self self-type arg arg-type body]
-  (fn [state]
-    (let [top (-> state ::local-envs first)
-          scope* (str (:name top) "$" (str (:inner-closures top)))
-          body* (with-env scope*
-                  (with-local self (annotated [::self scope* []] self-type)
-                    (with-let arg arg-type
-                      (exec [=return body
-                             =next next-local-idx
-                             =captured captured-vars]
-                        (return [scope* =next =captured =return])))))]
-      (body* (update-in state [::local-envs] #(cons (update-in (first %) [:inner-closures] inc)
-                                                    (rest %))))
-      )))
+  (exec [$module module-name]
+    (fn [state]
+      (let [top (-> state ::local-envs first)
+            scope* (str $module "$" (:name top) "$" (str (:inner-closures top)))
+            body* (with-env scope*
+                    (with-local self (annotated [::self scope* []] self-type)
+                      (with-let arg arg-type
+                        (exec [=return body
+                               =next next-local-idx
+                               =captured captured-vars]
+                          (return [scope* =next =captured =return])))))]
+        (body* (update-in state [::local-envs] #(cons (update-in (first %) [:inner-closures] inc)
+                                                      (rest %))))
+        ))))
 
 (defn ^:private close-over [scope ident register frame]
   (let [register* (annotated [::captured scope (:closure/id frame) register] (:type register))]
@@ -277,54 +277,54 @@
                     (return full-name)
                     (fail "[Analyser Error] Unknown class.")))])))
 
-(defn ^:private ->lux+* [->lux xs]
+(defn ^:private ->lux+* [->lux loader xs]
   (reduce (fn [tail x]
-            (doto (.newInstance (.loadClass @loader "lux.Variant2"))
+            (doto (.newInstance (.loadClass loader "lux.Variant2"))
               (-> .-tag (set! "Cons"))
               (-> .-_1 (set! (->lux x)))
               (-> .-_2 (set! tail))))
-          (doto (.newInstance (.loadClass @loader "lux.Variant0"))
+          (doto (.newInstance (.loadClass loader "lux.Variant0"))
             (-> .-tag (set! "Nil")))
           (reverse xs)))
 
-(defn ^:private ->lux [x]
+(defn ^:private ->lux [loader x]
   (match x
     [::&parser/bool ?bool]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Bool"))
       (-> .-_1 (set! ?bool)))
     [::&parser/int ?int]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Int"))
       (-> .-_1 (set! ?int)))
     [::&parser/real ?real]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Real"))
       (-> .-_1 (set! ?real)))
     [::&parser/char ?elem]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Char"))
       (-> .-_1 (set! ?elem)))
     [::&parser/text ?text]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Text"))
       (-> .-_1 (set! ?text)))
     [::&parser/tag ?tag]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Tag"))
       (-> .-_1 (set! ?tag)))
     [::&parser/ident ?ident]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Ident"))
       (-> .-_1 (set! ?ident)))
     [::&parser/tuple ?elems]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Tuple"))
-      (-> .-_1 (set! (->lux+* ->lux ?elems))))
+      (-> .-_1 (set! (->lux+* ->lux loader ?elems))))
     [::&parser/form ?elems]
-    (doto (.newInstance (.loadClass @loader "lux.Variant1"))
+    (doto (.newInstance (.loadClass loader "lux.Variant1"))
       (-> .-tag (set! "Form"))
-      (-> .-_1 (set! (->lux+* ->lux ?elems))))
+      (-> .-_1 (set! (->lux+* ->lux loader ?elems))))
     ))
 
 (def ^:private ->lux+ (partial ->lux+* ->lux))
@@ -358,15 +358,16 @@
   (resolve ?ident))
 
 (defn ^:private analyse-call [analyse-ast ?fn ?args]
-  (exec [[=fn] (analyse-ast ?fn)]
+  (exec [[=fn] (analyse-ast ?fn)
+         loader &util/loader]
     (match (:form =fn)
       [::global-fn ?module ?name]
       (exec [macro? (is-macro? ?module ?name)]
         (if macro?
           (let [macro-class (str ?module "$" (normalize-ident ?name))]
-            (-> (.loadClass @loader macro-class)
+            (-> (.loadClass loader macro-class)
                 .newInstance
-                (.apply (->lux+ ?args))
+                (.apply (->lux+ loader ?args))
                 ->clojure
                 analyse-ast))
           (exec [=args (do-all-m* (map analyse-ast ?args))
@@ -687,10 +688,10 @@
                                                 (analyse-ast ?body))
          _ (&util/assert! (= 1 (count =body)) "Can't return more than 1 value.")
          :let [[=body] =body]
-         :let [_ (prn 'analyse-lambda/=body ?arg =captured =body)]
+         ;; :let [_ (prn 'analyse-lambda/=body ?arg =captured =body)]
          =function (within ::types (exec [_ (&type/solve =return (:type =body))]
                                      (&type/clean =function)))
-         :let [_ (prn '(:form =body) (:form =body))
+         :let [;; _ (prn '(:form =body) (:form =body))
                =lambda (match (:form =body)
                     [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
                     (let [?sub-body* (raise-bindings =scope ?sub-body)]
@@ -766,7 +767,8 @@
     (if def??
       (fail (str "Can't redefine function/constant: " ?name))
       (exec [ann?? (annotated? ?name)
-             :let [scoped-name (str "def_" ?name)]
+             $module module-name
+             :let [scoped-name (str $module "$def_" ?name)]
              [=value] (with-env scoped-name
                         (analyse-ast ?value))
              :let [;; _ (prn 'analyse-def/=value =value)
@@ -981,57 +983,3 @@
          ;; :let [_ (prn 'asts asts)]
          ]
     (do-all-m* (map analyse-ast asts))))
-
-(comment
-  (do (defn analyse-all []
-        (exec [?analyses analyse]
-          (fn [?state]
-            (if (empty? (::&lexer/source ?state))
-              (return* ?state ?analyses)
-              ((exec [more-analyses (analyse-all)]
-                 (return (concat ?analyses more-analyses)))
-               ?state)))))
-
-    (let [name "lux"]
-      (&util/reset-loader!)
-      (time ((analyse-all) {::&lexer/source (slurp (str "source/" name ".lux"))
-                            ::current-module name
-                            ::modules {}
-                            ::global-env {}
-                            ::local-envs (list)
-                            ::types &type/+init+})))
-    )
-
-  (do (defn raise-bindings [outer-scope to-raise body]
-        (match (:form body)
-          [::local ?scope ?idx]
-          {:form [::local outer-scope (inc ?idx)]
-           :type (:type body)}
-          
-          [::captured _ _ ?source]
-          (if (contains? to-raise body)
-            ?source
-            body)
-
-          [::jvm:iadd ?x ?y]
-          (let [=x (raise-bindings outer-scope to-raise ?x)
-                =y (raise-bindings outer-scope to-raise ?y)]
-            {:form [:lux.analyser/jvm:iadd =x =y]
-             :type (:type body)})))
-    (let [?scope "def_+$0"
-          ?captured {}
-          ?arg "x"
-          =body '{:form [:lux.analyser/lambda "def_+$0$0" {"x" {:form [:lux.analyser/captured "def_+$0$0" 0 {:form [:lux.analyser/local "def_+$0" 0], :type [:lux.type/var 2]}], :type [:lux.type/var 2]}}
-                         ("y")
-                         {:form [:lux.analyser/jvm:iadd
-                                 {:form [:lux.analyser/captured "def_+$0$0" 0 {:form [:lux.analyser/local "def_+$0" 0], :type [:lux.type/var 2]}], :type [:lux.type/var 2]}
-                                 {:form [:lux.analyser/local "def_+$0$0" 0], :type [:lux.type/var 4]}],
-                          :type [:lux.type/object "java.lang.Integer" []]}],
-                  :type [:lux.type/function (:lux.type/var 4) :lux.type/any]}]
-      (match (:form =body)
-        [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
-        (let [?sub-body* (raise-bindings ?scope (set (map #(get ?sub-captured %) (cons ?arg (keys ?captured))))
-                                         ?sub-body)]
-          [::lambda ?scope ?captured (cons ?arg ?sub-args) ?sub-body*])))
-    )
-  )

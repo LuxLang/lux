@@ -1,5 +1,6 @@
 (ns lux.util
-  (:require [clojure.string :as string]
+  (:require (clojure [string :as string]
+                     [template :refer [do-template]])
             [clojure.core.match :refer [match]]))
 
 ;; [Interface]
@@ -138,19 +139,17 @@
   (fn [state]
     (return* state state)))
 
-(defn do-all-m [monads]
-  (if (empty? monads)
-    (return '())
-    (exec [head (first monads)
-           tail (do-all-m (rest monads))]
-      (return (cons head tail)))))
+(do-template [<name> <joiner>]
+  (defn <name> [monads]
+    (if (empty? monads)
+      (return '())
+      (exec [head (first monads)
+             tail (<name> (rest monads))]
+        (return (<joiner> head tail)))))
 
-(defn do-all-m* [monads]
-  (if (empty? monads)
-    (return '())
-    (exec [head (first monads)
-           tail (do-all-m* (rest monads))]
-      (return (concat head tail)))))
+  do-all-m  cons
+  do-all-m* concat
+  )
 
 (defn within [slot monad]
   (fn [state]
@@ -192,6 +191,9 @@
 (defn normalize-ident [ident]
   (reduce str "" (map normalize-char ident)))
 
-(defonce loader (atom nil))
-(defn reset-loader! []
-  (reset! loader (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)))
+(defn class-loader! []
+  (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.))
+
+(def loader
+  (fn [state]
+    (return* state (::loader state))))
