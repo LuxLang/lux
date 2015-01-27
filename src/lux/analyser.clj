@@ -154,7 +154,7 @@
 
 (defn ^:private resolve [ident]
   (fn [state]
-    (prn 'resolve ident)
+    ;; (prn 'resolve ident)
     (let [[top & stack*] (::local-envs state)]
       (if-let [=bound (or (get-in top [:mappings ident])
                           (get-in top [:mappings/closure ident]))]
@@ -632,6 +632,7 @@
                    (analyse-ast ?body))]
     (return (list (annotated [::let idx ?label =value =body] (:type =body))))))
 
+(declare raise-bindings)
 (defn ^:private raise-tree-bindings [outer-scope ?tree]
   (case (:type ?tree)
     ::adt*
@@ -699,6 +700,67 @@
                     [::lambda =scope =captured (list ?arg) =body])]]
     (return (list (annotated =lambda =function)))))
 
+(declare ->def-lambda)
+(defn ^:private ->def-lambda-tree [old-scope new-scope ?tree]
+  (case (:type ?tree)
+    ::adt*
+    (update-in ?tree [:patterns]
+               #(into {} (for [[?tag ?unapply] %
+                               :let [=unapply (update-in ?unapply [:parts] (partial map (partial ->def-lambda-tree old-scope new-scope)))]]
+                           [?tag =unapply])))
+    
+    ::defaults
+    (update-in ?tree [:stores]
+               #(into {} (for [[?store ?branches] %
+                               :let [=store (->def-lambda old-scope new-scope {:form ?store :type ::&type/nothing})]]
+                           [(:form =store) ?branches])))
+    ;; else
+    (assert false (pr-str ?tree))
+    ))
+
+(defn ^:private ->def-lambda [old-scope new-scope syntax]
+  (match (:form syntax)
+    [::local ?local-scope ?idx]
+    (if (= ?local-scope old-scope)
+      {:form [::local new-scope ?idx]
+       :type (:type syntax)}
+      syntax)
+
+    [::self ?self-name ?curried]
+    (if (= ?self-name old-scope)
+      {:form [::self new-scope (mapv (partial ->def-lambda old-scope new-scope) ?curried)]
+       :type (:type syntax)}
+      syntax)
+    
+
+    [::jvm:iadd ?x ?y]
+    {:form [::iadd (->def-lambda old-scope new-scope ?x) (->def-lambda old-scope new-scope ?y)]
+     :type (:type syntax)}
+
+    [::case ?base ?variant ?registers ?mappings ?tree]
+    (let [=variant (->def-lambda old-scope new-scope ?variant)
+          =mappings (into {} (for [[idx syntax] ?mappings]
+                               [idx (->def-lambda old-scope new-scope syntax)]))
+          =tree (->def-lambda-tree old-scope new-scope ?tree)]
+      {:form [::case ?base =variant ?registers =mappings =tree]
+       :type (:type syntax)})
+
+    [::call ?func ?args]
+    {:form [::call (->def-lambda old-scope new-scope ?func)
+            (map (partial ->def-lambda old-scope new-scope) ?args)]
+     :type (:type syntax)}
+    
+    [::lambda ?scope ?captured ?args ?value]
+    {:form [::lambda ?scope
+            (into {} (for [[?name ?sub-syntax] ?captured]
+                       [?name (->def-lambda old-scope new-scope ?sub-syntax)]))
+            ?args
+            (->def-lambda old-scope new-scope ?value)]
+     :type (:type syntax)}
+    
+    _
+    (assert false (pr-str (:form syntax)))))
+
 (defn ^:private analyse-def [analyse-ast ?name ?value]
   (exec [def?? (defined? ?name)]
     (if def??
@@ -707,6 +769,13 @@
              :let [scoped-name (str "def_" ?name)]
              [=value] (with-env scoped-name
                         (analyse-ast ?value))
+             :let [;; _ (prn 'analyse-def/=value =value)
+                   =value (match (:form =value)
+                            [::lambda ?scope _ _ _]
+                            (->def-lambda ?scope scoped-name =value)
+                            
+                            _
+                            =value)]
              _ (if ann??
                  (return nil)
                  (annotate ?name ::constant ::public false (:type =value)))
