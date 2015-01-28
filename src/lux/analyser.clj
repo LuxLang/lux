@@ -746,6 +746,13 @@
 
 (defn ^:private ->def-lambda [old-scope new-scope syntax]
   (match (:form syntax)
+    [::literal _]
+    syntax
+
+    [::variant ?tag ?elems]
+    {:form [::variant ?tag (map (partial ->def-lambda old-scope new-scope) ?elems)]
+     :type (:type syntax)}
+    
     [::local ?local-scope ?idx]
     {:form [::local new-scope (inc ?idx)]
      :type (:type syntax)}
@@ -914,11 +921,8 @@
     (return (list (annotated [::literal ?value] [::&type/object "java.lang.String" []])))
 
     [::&parser/tag ?tag]
-    (return (list (annotated [::variant ?tag '()] [::&type/variant ?tag '()])))
-
-    [::&parser/form ([[::&parser/tag ?tag] & ?data] :seq)]
-    (exec [=data (do-all-m* (map analyse-ast ?data))]
-      (return (list (annotated [::variant ?tag =data] [::&type/variant ?tag (map :type =data)]))))
+    (do (prn 'analyse-basic-ast/variant0 ?tag)
+      (return (list (annotated [::variant ?tag '()] [::&type/variant ?tag '()]))))
 
     [::&parser/tuple ?elems]
     (analyse-tuple analyse-ast ?elems)
@@ -996,6 +1000,11 @@
 (defn analyse-ast [token]
   ;; (prn 'analyse-ast token)
   (match token
+    [::&parser/form ([[::&parser/tag ?tag] & ?data] :seq)]
+    (exec [=data (do-all-m* (map analyse-ast ?data))
+           :let [_ (prn 'analyse-ast/variant+ ?tag '=data =data)]]
+      (return (list (annotated [::variant ?tag =data] [::&type/variant ?tag (map :type =data)]))))
+    
     [::&parser/form ([?fn & ?args] :seq)]
     (try-all-m [(analyse-call analyse-ast ?fn ?args)
                 (analyse-basic-ast analyse-ast token)])
