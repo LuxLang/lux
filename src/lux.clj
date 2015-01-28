@@ -29,7 +29,8 @@
   ;; TODO: 
   ;; TODO: 
   
-  (time (&compiler/compile-all ["lux" "test2"]))
+  (time (&compiler/compile-all ["lux" ;; "test2"
+                                ]))
 
   
   

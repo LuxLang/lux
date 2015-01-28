@@ -29,8 +29,14 @@
 (defn ^:private write-class [name data]
   (write-file (str "output/" name ".class") data))
 
-(defn load-class! [loader name]
+(defn ^:private load-class! [loader name]
   (.loadClass loader name))
+
+(defn save-class! [name bytecode]
+  (exec [loader &util/loader
+         :let [_ (write-class name bytecode)
+               _ (load-class! loader (string/replace name #"/" "."))]]
+    (return nil)))
 
 (def ^:private +variant-class+ (str +prefix+ ".Variant"))
 (def ^:private +tuple-class+ (str +prefix+ ".Tuple"))
@@ -42,7 +48,20 @@
 
 (def ^:private get-writer
   (fn [state]
+    ;; (prn 'get-writer (::writer state))
     (return* state (::writer state))))
+
+(defn ^:private with-writer [writer body]
+  (fn [state]
+    ;; (prn 'with-writer/_0 body)
+    (let [result (body (assoc state ::writer writer))]
+      ;; (prn 'with-writer/_1 result)
+      (match result
+        [::&util/ok [?state ?value]]
+        [::&util/ok [(assoc ?state ::writer (::writer state)) ?value]]
+
+        _
+        result))))
 
 (defn ^:private ->class [class]
   (string/replace class #"\." "/"))
@@ -182,16 +201,20 @@
                    (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class fn-class) "_datum" (->type-signature fn-class)))]]
     (return nil)))
 
+(def +apply-signature+ "(Ljava/lang/Object;)Ljava/lang/Object;")
+
 (defn ^:private compile-call [compile *type* ?fn ?args]
   (exec [*writer* get-writer
-         :let [_ (do (compile ?fn)
-                   (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"]
-                     (doseq [arg ?args]
-                       (compile arg)
-                       (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" apply-signature))))]]
+         _ (compile ?fn)
+         _ (map-m (fn [arg]
+                    (exec [ret (compile arg)
+                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" +apply-signature+)]]
+                      (return ret)))
+                  ?args)]
     (return nil)))
 
 (defn ^:private compile-static-call [compile *type* ?needs-num ?fn ?args]
+  (assert false (pr-str 'compile-static-call))
   (exec [*writer* get-writer
          :let [_ (match (:form ?fn)
                    [::&analyser/global-fn ?owner-class ?fn-name]
@@ -199,14 +222,13 @@
                          call-class (str (->class ?owner-class) "$" (normalize-ident ?fn-name))
                          provides-num (count ?args)]
                      (if (>= provides-num ?needs-num)
-                       (let [apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
-                             impl-sig (str "(" (reduce str "" (repeat ?needs-num arg-sig)) ")" arg-sig)]
+                       (let [impl-sig (str "(" (reduce str "" (repeat ?needs-num arg-sig)) ")" arg-sig)]
                          (doto *writer*
                            (-> (do (compile arg))
                                (->> (doseq [arg (take ?needs-num ?args)])))
                            (.visitMethodInsn Opcodes/INVOKESTATIC call-class "impl" impl-sig)
                            (-> (doto (do (compile arg))
-                                 (.visitMethodInsn Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" apply-signature))
+                                 (.visitMethodInsn Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" +apply-signature+))
                                (->> (doseq [arg (drop ?needs-num ?args)])))))
                        (let [counter-sig "I"
                              init-signature (str "(" (apply str counter-sig (repeat (dec ?needs-num) arg-sig)) ")" "V")]
@@ -566,46 +588,47 @@
       ex-class (->class "java.lang.IllegalStateException")]
   (defn ^:private compile-case [compile *type* ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree]
     (exec [*writer* get-writer
-           :let [_ (let [start-label (new Label)
-                         end-label (new Label)
-                         entries (for [[?branch ?body] ?branch-mappings
-                                       :let [label (new Label)]]
-                                   [[?branch label]
-                                    [label ?body]])
-                         mappings* (into {} (map first entries))]
-                     (dotimes [idx ?max-registers]
-                       (.visitLocalVariable *writer* (str "__" (swap! !case-vars inc) "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))
-                     (compile ?variant)
-                     (doto *writer*
-                       (.visitInsn Opcodes/DUP)
-                       (.visitLabel start-label))
-                     (let [default-label (new Label)]
-                       (doseq [decision-tree (let [pieces (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
+           :let [start-label (new Label)
+                 end-label (new Label)
+                 entries (for [[?branch ?body] ?branch-mappings
+                               :let [label (new Label)]]
+                           [[?branch label]
+                            [label ?body]])
+                 mappings* (into {} (map first entries))
+                 _ (dotimes [idx ?max-registers]
+                     (.visitLocalVariable *writer* (str "__" (swap! !case-vars inc) "__") (->java-sig ::&type/any) nil start-label end-label (+ ?base-idx (inc idx))))]
+           _ (compile ?variant)
+           :let [_ (doto *writer*
+                     (.visitInsn Opcodes/DUP)
+                     (.visitLabel start-label))
+                 default-label (new Label)
+                 _ (do (doseq [decision-tree (let [pieces (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
                                                (if (or (:default ?decision-tree)
                                                        (not (empty? (:defaults ?decision-tree))))
                                                  (butlast pieces)
                                                  pieces))]
                          (compile-decision-tree *writer* mappings* default-label decision-tree))
-                       (.visitLabel *writer* default-label)
-                       (if-let [[_ [_ _ ?idx] ?body] (or (:default ?decision-tree)
-                                                         (first (:defaults ?decision-tree)))]
-                         (doto *writer*
-                           (.visitInsn Opcodes/DUP)
-                           (.visitVarInsn Opcodes/ASTORE ?idx)
-                           (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
-                         (doto *writer*
-                           (.visitInsn Opcodes/POP)
-                           (.visitTypeInsn Opcodes/NEW ex-class)
-                           (.visitInsn Opcodes/DUP)
-                           (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
-                           (.visitInsn Opcodes/ATHROW))))
-                     (doseq [[?label ?body] (map second entries)]
-                       (.visitLabel *writer* ?label)
-                       (.visitInsn *writer* Opcodes/POP)
-                       (compile ?body)
-                       (.visitJumpInsn *writer* Opcodes/GOTO end-label))
-                     (.visitLabel *writer* end-label)
-                     )]]
+                     (.visitLabel *writer* default-label)
+                     (if-let [[_ [_ _ ?idx] ?body] (or (:default ?decision-tree)
+                                                       (first (:defaults ?decision-tree)))]
+                       (doto *writer*
+                         (.visitInsn Opcodes/DUP)
+                         (.visitVarInsn Opcodes/ASTORE ?idx)
+                         (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
+                       (doto *writer*
+                         (.visitInsn Opcodes/POP)
+                         (.visitTypeInsn Opcodes/NEW ex-class)
+                         (.visitInsn Opcodes/DUP)
+                         (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+                         (.visitInsn Opcodes/ATHROW))))]
+           _ (map-m (fn [[?label ?body]]
+                      (exec [:let [_ (do (.visitLabel *writer* ?label)
+                                       (.visitInsn *writer* Opcodes/POP))]
+                             ret (compile ?body)
+                             :let [_ (.visitJumpInsn *writer* Opcodes/GOTO end-label)]]
+                        (return ret)))
+                    (map second entries))
+           :let [_ (.visitLabel *writer* end-label)]]
       (return nil))))
 
 (defn ^:private compile-let [compile *type* ?idx ?label ?value ?body]
@@ -622,34 +645,30 @@
                    (.visitLabel *writer* end-label))]]
     (return nil)))
 
-(defn compile-field [compile writer loader class-name ?name body]
-  (let [outer-class (->class class-name)
-        datum-sig (->type-signature "java.lang.Object")
-        current-class (str outer-class "$" (normalize-ident ?name))]
-    (.visitInnerClass writer current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
-    (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                   (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                           current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
-                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
-                       (doto (.visitEnd)))
-                   (-> (.visitMethod Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-                       (doto (.visitCode)
-                         (compile body)
-                         (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
-                         (.visitInsn Opcodes/RETURN)
-                         (.visitMaxs 0 0)
-                         (.visitEnd)))
-                   (.visitEnd))
-          bytecode (.toByteArray =class)]
-      (write-class current-class bytecode)
-      (load-class! loader (string/replace current-class #"/" ".")))
-    ))
-
-(defn ^:private compile-def [compile *type* ?name ?value]
+(defn compile-field [compile ?name body]
   (exec [*writer* get-writer
-         *class-name* &analyser/module-name
-         loader &util/loader
-         :let [_ (compile-field compile *writer* loader *class-name* ?name ?value)]]
+         class-name &analyser/module-name
+         :let [outer-class (->class class-name)
+               datum-sig (->type-signature "java.lang.Object")
+               current-class (str outer-class "$" (normalize-ident ?name))
+               _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                                current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
+                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
+                            (doto (.visitEnd))))]
+         _ (with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+             (exec [*writer* get-writer
+                    :let [_ (.visitCode *writer*)]
+                    _ (compile body)
+                    :let [_ (doto *writer*
+                              (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
+                              (.visitInsn Opcodes/RETURN)
+                              (.visitMaxs 0 0)
+                              (.visitEnd))]]
+               (return nil)))
+         :let [_ (.visitEnd *writer*)]
+         _ (save-class! current-class (.toByteArray =class))]
     (return nil)))
 
 (defn ^:private captured? [form]
@@ -659,142 +678,216 @@
     _
     false))
 
-(defn ^:private compile-lambda [compile *type* ?scope ?frame ?args ?body]
-  (exec [*writer* get-writer
-         loader &util/loader
-         :let [_ (let [num-args (count ?args)
-                       clo-field-sig (->type-signature "java.lang.Object")
-                       counter-sig "I"
-                       apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;"
-                       real-signature (str "(" (apply str (repeat num-args clo-field-sig)) ")" "Ljava/lang/Object;")
-                       current-class (apply str (interpose "$" (map (comp normalize-ident str) ?scope)))
-                       num-captured (dec num-args)
-                       init-signature (str "(" (apply str (repeat (->> (:mappings ?frame)
-                                                                       (map (comp :form second))
-                                                                       (filter captured?)
-                                                                       count)
-                                                                  clo-field-sig))
-                                           (if (not= 0 num-captured)
-                                             (apply str counter-sig (repeat num-captured clo-field-sig)))
-                                           ")"
-                                           "V")
-                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                                        current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
-                                (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
-                                      (.visitEnd))
-                                    (->> (let [captured-name (str "__" ?captured-id)])
-                                         (match (:form ?captured)
-                                           [::&analyser/captured ?closure-id ?captured-id ?source])
-                                         (doseq [[?name ?captured] (:mappings ?frame)
-                                                 :when (captured? (:form ?captured))])))
-                                (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
-                                      (.visitEnd))
-                                    (->> (when (not= 0 num-captured)))))
-                       =init (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" init-signature nil nil)
-                               (.visitCode)
-                               (.visitVarInsn Opcodes/ALOAD 0)
-                               (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
-                               (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                     (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
-                                     (.visitFieldInsn Opcodes/PUTFIELD current-class captured-name clo-field-sig))
-                                   (->> (let [captured-name (str "__" ?captured-id)])
-                                        (match (:form ?captured)
-                                          [::&analyser/captured ?closure-id ?captured-id ?source])
-                                        (doseq [[?name ?captured] (:mappings ?frame)
-                                                :when (captured? (:form ?captured))])))
-                               (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                     (.visitVarInsn Opcodes/ILOAD (inc (count (:mappings ?frame))))
-                                     (.visitFieldInsn Opcodes/PUTFIELD current-class "_counter" counter-sig)
-                                     (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                           (.visitVarInsn Opcodes/ALOAD (+ clo_idx offset))
-                                           (.visitFieldInsn Opcodes/PUTFIELD current-class field-name clo-field-sig))
-                                         (->> (let [field-name (str "_" clo_idx)]
-                                                (doto (.visitField =class (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) field-name clo-field-sig nil nil)
-                                                  (.visitEnd)))
-                                              (dotimes [clo_idx num-captured])
-                                              (let [offset (+ 2 (count (:mappings ?frame)))]))))
-                                   (->> (when (not= 0 num-captured))))
-                               (.visitInsn Opcodes/RETURN)
-                               (.visitMaxs 0 0)
-                               (.visitEnd))
-                       =method (let [default-label (new Label)
-                                     branch-labels (for [_ (range num-captured)]
-                                                     (new Label))]
-                                 (doto (.visitMethod =class Opcodes/ACC_PUBLIC "apply" apply-signature nil nil)
-                                   (.visitCode)
-                                   (.visitVarInsn Opcodes/ALOAD 0)
-                                   (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                         (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
-                                         (.visitTableSwitchInsn 0 (dec num-captured) default-label (into-array Label branch-labels))
-                                         (-> (doto (.visitLabel branch-label)
-                                               (.visitTypeInsn Opcodes/NEW current-class)
-                                               (.visitInsn Opcodes/DUP)
-                                               (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                                     (.visitFieldInsn Opcodes/GETFIELD current-class (str "__" capt_idx) clo-field-sig))
-                                                   (->> (dotimes [capt_idx (count (:mappings ?frame))])))
-                                               (.visitVarInsn Opcodes/ALOAD 0)
-                                               (.visitFieldInsn Opcodes/GETFIELD current-class "_counter" counter-sig)
-                                               (.visitInsn Opcodes/ICONST_1)
-                                               (.visitInsn Opcodes/IADD)
-                                               (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                                     (.visitFieldInsn Opcodes/GETFIELD current-class (str "_" clo_idx) clo-field-sig))
-                                                   (->> (dotimes [clo_idx current-captured])))
-                                               (.visitVarInsn Opcodes/ALOAD 1)
-                                               (-> (.visitInsn Opcodes/ACONST_NULL)
-                                                   (->> (dotimes [clo_idx (- (dec num-captured) current-captured)])))
-                                               (.visitMethodInsn Opcodes/INVOKESPECIAL current-class "<init>" init-signature)
-                                               (.visitInsn Opcodes/ARETURN))
-                                             (->> (doseq [[branch-label current-captured] (map vector branch-labels (range (count branch-labels)))])))
-                                         (.visitLabel default-label)
-                                         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                                               (.visitFieldInsn Opcodes/GETFIELD current-class (str "_" clo_idx) clo-field-sig))
-                                             (->> (dotimes [clo_idx num-captured]))))
-                                       (->> (when (not= 0 num-captured))))
-                                   (.visitVarInsn Opcodes/ALOAD 1)
-                                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL current-class "impl" real-signature)
-                                   (.visitInsn Opcodes/ARETURN)
-                                   (.visitMaxs 0 0)
-                                   (.visitEnd)))
-                       =impl (doto (.visitMethod =class Opcodes/ACC_PUBLIC "impl" real-signature nil nil)
-                               (.visitCode)
-                               (compile ?body)
-                               (.visitInsn Opcodes/ARETURN)
-                               (.visitMaxs 0 0)
-                               (.visitEnd))
-                       _ (.visitEnd =class)
-                       bytecode (.toByteArray =class)]
-                   (write-class current-class bytecode)
-                   (load-class! loader (string/replace current-class #"/" "."))
-                   (doto *writer*
-                     (.visitTypeInsn Opcodes/NEW current-class)
-                     (.visitInsn Opcodes/DUP)
-                     (-> (do (compile ?source))
-                         (->> (match (:form ?captured)
-                                [::&analyser/captured ?closure-id ?captured-id ?source])
-                              (doseq [[?name ?captured] (->> (:mappings ?frame)
-                                                             (filter (comp captured? :form second))
-                                                             (sort #(< (-> %1 second :form (nth 2))
-                                                                       (-> %2 second :form (nth 2)))))])))
-                     (-> (doto (.visitInsn Opcodes/ICONST_0)
-                           (-> (.visitInsn Opcodes/ACONST_NULL)
-                               (->> (doseq [_ (butlast ?args)]))))
-                         (->> (when (> (count ?args) 1))))
-                     (.visitMethodInsn Opcodes/INVOKESPECIAL current-class "<init>" init-signature))
-                   )]]
+(let [clo-field-sig (->type-signature "java.lang.Object")
+      lambda-return-sig (->type-signature "java.lang.Object")
+      <init>-return "V"
+      counter-sig "I"
+      +datum-sig+ (->type-signature "java.lang.Object")]
+  (defn lambda-impl-signature [args]
+    (str (reduce str "("  (repeat (count args) clo-field-sig)) ")" lambda-return-sig))
+
+  (defn lambda-<init>-signature [closed-over args]
+    (let [num-args (count args)]
+      (str "(" (reduce str "" (repeat (count closed-over) clo-field-sig))
+           (if (> num-args 1)
+             (reduce str counter-sig (repeat num-args clo-field-sig)))
+           ")"
+           <init>-return)))
+
+  (defn add-lambda-<init> [class class-name closed-over args init-signature]
+    (let [num-args (count args)
+          num-mappings (count closed-over)]
+      (doto (.visitMethod class Opcodes/ACC_PUBLIC "<init>" init-signature nil nil)
+        (.visitCode)
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+        (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+              (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
+              (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
+            (->> (let [captured-name (str "__" ?captured-id)])
+                 (match (:form ?captured)
+                   [::&analyser/captured ?closure-id ?captured-id ?source])
+                 (doseq [[?name ?captured] closed-over
+                         :when (captured? (:form ?captured))])))
+        (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+              (.visitVarInsn Opcodes/ILOAD (inc num-mappings))
+              (.visitFieldInsn Opcodes/PUTFIELD class-name "_counter" counter-sig)
+              (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                    (.visitVarInsn Opcodes/ALOAD (+ clo_idx offset))
+                    (.visitFieldInsn Opcodes/PUTFIELD class-name field-name clo-field-sig))
+                  (->> (let [field-name (str "_" clo_idx)]
+                         (doto (.visitField class (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) field-name clo-field-sig nil nil)
+                           (.visitEnd)))
+                       (dotimes [clo_idx (dec num-args)])
+                       (let [offset (+ 2 num-mappings)]))))
+            (->> (when (> num-args 1))))
+        (.visitInsn Opcodes/RETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd))))
+
+  (defn add-lambda-apply [class class-name closed-over args impl-signature init-signature]
+    (let [num-args (count args)
+          num-captured (dec num-args)
+          default-label (new Label)
+          branch-labels (for [_ (range num-captured)]
+                          (new Label))]
+      (doto (.visitMethod class Opcodes/ACC_PUBLIC "apply" +apply-signature+ nil nil)
+        (.visitCode)
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+              (.visitFieldInsn Opcodes/GETFIELD class-name "_counter" counter-sig)
+              (.visitTableSwitchInsn 0 (dec num-captured) default-label (into-array Label branch-labels))
+              (-> (doto (.visitLabel branch-label)
+                    (.visitTypeInsn Opcodes/NEW class-name)
+                    (.visitInsn Opcodes/DUP)
+                    (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                          (.visitFieldInsn Opcodes/GETFIELD class-name (str "__" capt_idx) clo-field-sig))
+                        (->> (dotimes [capt_idx (count closed-over)])))
+                    (.visitLdcInsn (-> current-captured inc int))
+                    (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                          (.visitFieldInsn Opcodes/GETFIELD class-name (str "_" clo_idx) clo-field-sig))
+                        (->> (dotimes [clo_idx current-captured])))
+                    (.visitVarInsn Opcodes/ALOAD 1)
+                    (-> (.visitInsn Opcodes/ACONST_NULL)
+                        (->> (dotimes [clo_idx (- (dec num-captured) current-captured)])))
+                    (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" init-signature)
+                    (.visitInsn Opcodes/ARETURN))
+                  (->> (doseq [[branch-label current-captured] (map vector branch-labels (range (count branch-labels)))])))
+              (.visitLabel default-label)
+              (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                    (.visitFieldInsn Opcodes/GETFIELD class-name (str "_" clo_idx) clo-field-sig))
+                  (->> (dotimes [clo_idx num-captured]))))
+            (->> (when (> num-args 1))))
+        (.visitVarInsn Opcodes/ALOAD 1)
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" impl-signature)
+        (.visitInsn Opcodes/ARETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd))))
+
+  (defn add-lambda-impl [class compile impl-signature impl-body]
+    (with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
+                   (.visitCode))
+      (exec [;; :let [_ (prn 'add-lambda-impl/_0)]
+             *writer* get-writer
+             ;; :let [_ (prn 'add-lambda-impl/_1 *writer*)]
+             ret (compile impl-body)
+             ;; :let [_ (prn 'add-lambda-impl/_2 ret)]
+             :let [_ (doto *writer*
+                       (.visitInsn Opcodes/ARETURN)
+                       (.visitMaxs 0 0)
+                       (.visitEnd))]
+             ;; :let [_ (prn 'add-lambda-impl/_3)]
+             ]
+        (return ret))))
+
+  (defn instance-closure [compile lambda-class closed-over args init-signature]
+    (exec [*writer* get-writer
+           :let [;; _ (prn 'instance-closure/*writer* *writer*)
+                 num-args (count args)
+                 _ (doto *writer*
+                     (.visitTypeInsn Opcodes/NEW lambda-class)
+                     (.visitInsn Opcodes/DUP))]
+           _ (map-m (fn [[?name ?captured]]
+                      (match (:form ?captured)
+                        [::&analyser/captured ?closure-id ?captured-id ?source]
+                        (compile ?source)))
+                    (->> closed-over
+                         (filter (comp captured? :form second))
+                         (sort #(< (-> %1 second :form (nth 2))
+                                   (-> %2 second :form (nth 2))))))
+           :let [_ (do (when (> num-args 1)
+                         (.visitInsn *writer* Opcodes/ICONST_0)
+                         (dotimes [_ (dec num-args)]
+                           (.visitInsn *writer* Opcodes/ACONST_NULL)))
+                     (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature))]]
+      (return nil)))
+  
+  (defn ^:private compile-lambda [compile *type* ?scope ?closure ?args ?body]
+    (exec [:let [current-class (reduce str "" (interpose "$" (map normalize-ident ?scope)))
+                 impl-signature (lambda-impl-signature ?args)
+                 init-signature (lambda-<init>-signature ?closure ?args)
+                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                                  current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
+                          (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
+                                (.visitEnd))
+                              (->> (let [captured-name (str "__" ?captured-id)])
+                                   (match (:form ?captured)
+                                     [::&analyser/captured ?closure-id ?captured-id ?source])
+                                   (doseq [[?name ?captured] ?closure
+                                           :when (captured? (:form ?captured))])))
+                          (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
+                                (.visitEnd))
+                              (->> (when (> (count ?args) 1))))
+                          (add-lambda-<init> current-class ?closure ?args init-signature)
+                          (add-lambda-apply current-class ?closure ?args impl-signature init-signature))]
+           _ (add-lambda-impl =class compile impl-signature ?body)
+           :let [_ (.visitEnd =class)]
+           _ (save-class! current-class (.toByteArray =class))]
+      (instance-closure compile current-class ?closure ?args init-signature)))
+
+  (defn ^:private add-lambda-<clinit> [class class-name args <init>-sig]
+    (let [num-args (count args)]
+      (doto (.visitMethod class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+        (.visitCode)
+        (.visitTypeInsn Opcodes/NEW class-name)
+        (.visitInsn Opcodes/DUP)
+        (-> (doto (.visitLdcInsn (int 0))
+              (-> (.visitInsn Opcodes/ACONST_NULL)
+                  (->> (dotimes [_ (dec num-args)]))))
+            (->> (when (> num-args 1))))
+        (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" <init>-sig)
+        (.visitFieldInsn Opcodes/PUTSTATIC class-name "_datum" +datum-sig+)
+        (.visitInsn Opcodes/RETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd))))
+  
+  (defn ^:private compile-method [compile ?name ?value]
+    (match (:form ?value)
+      [::&analyser/lambda ?scope ?env ?args ?body]
+      (exec [*writer* get-writer
+             outer-class &analyser/module-name
+             :let [class-name (str outer-class "$" (normalize-ident ?name))
+                   _ (.visitInnerClass *writer* class-name outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+                   impl-signature (lambda-impl-signature ?args)
+                   <init>-sig (lambda-<init>-signature ?env ?args)
+                   =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                            (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                                    class-name nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
+                            (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_datum" +datum-sig+ nil nil)
+                            (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) "_counter" counter-sig nil nil)
+                                  (.visitEnd))
+                                (->> (when (> (count ?args) 1))))
+                            (add-lambda-apply class-name ?env ?args impl-signature <init>-sig)
+                            (add-lambda-<init> class-name ?env ?args <init>-sig)
+                            (add-lambda-<clinit> class-name ?args <init>-sig))]
+             _ (add-lambda-impl =class compile impl-signature ?body)
+             :let [_ (.visitEnd =class)]
+             _ (save-class! class-name (.toByteArray =class))]
+        (return nil))))
+  )
+
+(defn ^:private compile-def [compile *type* ?name ?value]
+  (exec [;; :let [_ (prn 'compile-def ?name ?value)]
+         _ (match (:form ?value)
+             [::&analyser/lambda ?scope ?captured ?args ?body]
+             (compile-method compile ?name ?value)
+
+             _
+             (compile-field  compile ?name ?value))]
     (return nil)))
 
 (defn ^:private compile-defclass [compile *type* ?package ?name ?super-class ?members]
   (exec [*writer* get-writer
          loader &util/loader
-         :let [_ (let [parent-dir (->package ?package)
-                       super-class* (->class ?super-class)
-                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                        (str parent-dir "/" ?name) nil super-class* nil))]
-                   (doseq [[field props] (:fields ?members)]
-                     (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature (:type props)) nil nil)
-                       (.visitEnd)))
+         :let [parent-dir (->package ?package)
+               super-class* (->class ?super-class)
+               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                (str parent-dir "/" ?name) nil super-class* nil))
+               _ (do (doseq [[field props] (:fields ?members)]
+                       (doto (.visitField =class Opcodes/ACC_PUBLIC field (->type-signature (:type props)) nil nil)
+                         (.visitEnd)))
                    (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
                      (.visitCode)
                      (.visitVarInsn Opcodes/ALOAD 0)
@@ -803,27 +896,25 @@
                      (.visitMaxs 0 0)
                      (.visitEnd))
                    (.visitEnd =class)
-                   (.mkdirs (java.io.File. (str "output/" parent-dir)))
-                   (write-class (str parent-dir "/" ?name) (.toByteArray =class))
-                   (load-class! loader (string/replace (str parent-dir "/" ?name) #"/" ".")))]]
+                   (.mkdirs (java.io.File. (str "output/" parent-dir))))]
+         _ (save-class! (str parent-dir "/" ?name) (.toByteArray =class))]
     (return nil)))
 
 (defn ^:private compile-definterface [compile *type* ?package ?name ?members]
   (exec [*writer* get-writer
          loader &util/loader
-         :let [_ (let [parent-dir (->package ?package)
-                       =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                    (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE ;; Opcodes/ACC_ABSTRACT
-                                                            )
-                                            (str parent-dir "/" ?name) nil "java/lang/Object" nil))]
-                   (doseq [[?method ?props] (:methods ?members)
-                           :let [[?args ?return] (:type ?props)
-                                 signature (str "(" (reduce str "" (map ->type-signature ?args)) ")" (->type-signature ?return))]]
-                     (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
+         :let [parent-dir (->package ?package)
+               =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                            (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE ;; Opcodes/ACC_ABSTRACT
+                                                    )
+                                    (str parent-dir "/" ?name) nil "java/lang/Object" nil))
+               _ (do (doseq [[?method ?props] (:methods ?members)
+                             :let [[?args ?return] (:type ?props)
+                                   signature (str "(" (reduce str "" (map ->type-signature ?args)) ")" (->type-signature ?return))]]
+                       (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
                    (.visitEnd =interface)
-                   (.mkdirs (java.io.File. (str "output/" parent-dir)))
-                   (write-class (str parent-dir "/" ?name) (.toByteArray =interface))
-                   (load-class! loader (string/replace (str parent-dir "/" ?name) #"/" ".")))]]
+                   (.mkdirs (java.io.File. (str "output/" parent-dir))))]
+         _ (save-class! (str parent-dir "/" ?name) (.toByteArray =interface))]
     (return nil)))
 
 (defn ^:private compile-variant [compile *type* ?tag ?members]
@@ -847,16 +938,17 @@
   (do-template [<name> <opcode>]
     (defn <name> [compile *type* ?x ?y]
       (exec [*writer* get-writer
-             :let [_ (do (compile ?x)
-                       (doto *writer*
-                         (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
-                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I"))
-                       (compile ?y)
-                       (doto *writer*
-                         (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
-                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I")
-                         (.visitInsn <opcode>)
-                         (.visitMethodInsn Opcodes/INVOKESTATIC +int-class+ "valueOf" (str "(I)" (->type-signature "java.lang.Integer")))))]]
+             _ (compile ?x)
+             :let [_ (doto *writer*
+                       (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
+                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I"))]
+             _ (compile ?y)
+             :let [_ (doto *writer*
+                       (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
+                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I"))
+                   _ (doto *writer*
+                       (.visitInsn <opcode>)
+                       (.visitMethodInsn Opcodes/INVOKESTATIC +int-class+ "valueOf" (str "(I)" (->type-signature "java.lang.Integer"))))]]
         (return nil)))
 
     ^:private compile-jvm-iadd Opcodes/IADD
@@ -865,6 +957,19 @@
     ^:private compile-jvm-idiv Opcodes/IDIV
     ^:private compile-jvm-irem Opcodes/IREM
     ))
+
+(defn compile-self-call [?scope ?assumed-args]
+  (exec [*writer* get-writer
+         :let [lambda-class (->class (reduce str "" (interpose "$" (map normalize-ident ?scope))))
+               _ (doto *writer*
+                   (.visitFieldInsn Opcodes/GETSTATIC lambda-class "_datum" (->type-signature "java.lang.Object"))
+                   (.visitTypeInsn Opcodes/CHECKCAST lambda-class))]
+         _ (map-m (fn [arg]
+                    (exec [ret (compile arg)
+                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" +apply-signature+)]]
+                      (return ret)))
+                  ?assumed-args)]
+    (return nil)))
 
 (defn ^:private compile [syntax]
   (match (:form syntax)
@@ -913,19 +1018,19 @@
     [::&analyser/def ?form ?body]
     (compile-def compile (:type syntax) ?form ?body)
     
-    [::&analyser/jvm-iadd ?x ?y]
+    [::&analyser/jvm:iadd ?x ?y]
     (compile-jvm-iadd compile (:type syntax) ?x ?y)
     
-    [::&analyser/jvm-isub ?x ?y]
+    [::&analyser/jvm:isub ?x ?y]
     (compile-jvm-isub compile (:type syntax) ?x ?y)
     
-    [::&analyser/jvm-imul ?x ?y]
+    [::&analyser/jvm:imul ?x ?y]
     (compile-jvm-imul compile (:type syntax) ?x ?y)
     
-    [::&analyser/jvm-idiv ?x ?y]
+    [::&analyser/jvm:idiv ?x ?y]
     (compile-jvm-idiv compile (:type syntax) ?x ?y)
     
-    [::&analyser/jvm-irem ?x ?y]
+    [::&analyser/jvm:irem ?x ?y]
     (compile-jvm-irem compile (:type syntax) ?x ?y)
 
     [::&analyser/do ?exprs]
@@ -951,6 +1056,9 @@
 
     [::&analyser/defclass [?package ?name] ?super-class ?members]
     (compile-defclass compile (:type syntax) ?package ?name ?super-class ?members)
+
+    [::&analyser/self ?scope ?assumed-args]
+    (compile-self-call ?scope ?assumed-args)
     ))
 
 ;; [Interface]
@@ -971,9 +1079,7 @@
               [::&util/ok [?state ?forms]]
               (if (empty? (::&lexer/source ?state))
                 (do (.visitEnd =class)
-                  (write-class name (.toByteArray =class))
-                  (load-class! loader (string/replace name #"/" "."))
-                  [::&util/ok [?state nil]])
+                  ((save-class! name (.toByteArray =class)) ?state))
                 (assert false (str "[Compiler Error] Can't compile: " (::&lexer/source ?state))))
               
               [::&util/failure ?message]
@@ -982,6 +1088,7 @@
 (defn compile-all [modules]
   (let [state {::&lexer/source nil
                ::&analyser/current-module nil
+               ::&analyser/scope []
                ::&analyser/modules {}
                ::&analyser/global-env {}
                ::&analyser/local-envs (list)

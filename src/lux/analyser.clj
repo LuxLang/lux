@@ -30,6 +30,10 @@
   (fn [state]
     [::&util/ok [state (::current-module state)]]))
 
+(def scope
+  (fn [state]
+    [::&util/ok [state (::scope state)]]))
+
 (defn ^:private annotate [name mode access macro? type]
   (fn [state]
     [::&util/ok [(assoc-in state [::modules (::current-module state) name] {:mode   mode
@@ -73,12 +77,31 @@
   (fn [state]
     [::&util/ok [state (-> state ::local-envs first :name)]]))
 
+(defn with-global [top-level-name body]
+  (exec [$module module-name]
+    (fn [state]
+      (let [=return (body (-> state
+                              (update-in [::local-envs] conj (fresh-env top-level-name))
+                              (assoc ::scope [$module top-level-name])))]
+        (match =return
+          [::&util/ok [?state ?value]]
+          [::&util/ok [(assoc ?state ::scope []) ?value]]
+          
+          _
+          =return))
+      )))
+
 (defn with-env [label body]
   (fn [state]
-    (let [=return (body (update-in state [::local-envs] conj (fresh-env label)))]
+    (let [=return (body (-> state
+                            (update-in [::local-envs] conj (fresh-env label))
+                            (update-in [::scope] conj label)))]
       (match =return
         [::&util/ok [?state ?value]]
-        [::&util/ok [(update-in ?state [::local-envs] rest) ?value]]
+        [::&util/ok [(-> ?state
+                         (update-in [::local-envs] rest)
+                         (update-in [::scope] rest))
+                     ?value]]
         
         _
         =return))))
@@ -133,15 +156,14 @@
 (defn with-lambda [self self-type arg arg-type body]
   (exec [$module module-name]
     (fn [state]
-      (let [top (-> state ::local-envs first)
-            scope* (str $module "$" (:name top) "$" (str (:inner-closures top)))
-            body* (with-env scope*
-                    (with-local self (annotated [::self scope* []] self-type)
-                      (with-let arg arg-type
-                        (exec [=return body
-                               =next next-local-idx
-                               =captured captured-vars]
-                          (return [scope* =next =captured =return])))))]
+      (let [body* (with-env (-> state ::local-envs first :inner-closures str)
+                    (exec [$scope scope]
+                      (with-local self (annotated [::self $scope []] self-type)
+                        (with-let arg arg-type
+                          (exec [=return body
+                                 =next next-local-idx
+                                 =captured captured-vars]
+                            (return [$scope =next =captured =return]))))))]
         (body* (update-in state [::local-envs] #(cons (update-in (first %) [:inner-closures] inc)
                                                       (rest %))))
         ))))
@@ -691,6 +713,7 @@
          ;; :let [_ (prn 'analyse-lambda/=body ?arg =captured =body)]
          =function (within ::types (exec [_ (&type/solve =return (:type =body))]
                                      (&type/clean =function)))
+         ;; :let [_ (prn 'LAMBDA/PRE (:form =body))]
          :let [;; _ (prn '(:form =body) (:form =body))
                =lambda (match (:form =body)
                     [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
@@ -698,7 +721,9 @@
                       [::lambda =scope =captured (cons ?arg ?sub-args) ?sub-body*])
 
                     _
-                    [::lambda =scope =captured (list ?arg) =body])]]
+                    [::lambda =scope =captured (list ?arg) =body])]
+         ;; :let [_ (prn 'LAMBDA/POST =lambda)]
+         ]
     (return (list (annotated =lambda =function)))))
 
 (declare ->def-lambda)
@@ -722,10 +747,8 @@
 (defn ^:private ->def-lambda [old-scope new-scope syntax]
   (match (:form syntax)
     [::local ?local-scope ?idx]
-    (if (= ?local-scope old-scope)
-      {:form [::local new-scope ?idx]
-       :type (:type syntax)}
-      syntax)
+    {:form [::local new-scope (inc ?idx)]
+     :type (:type syntax)}
 
     [::self ?self-name ?curried]
     (if (= ?self-name old-scope)
@@ -735,7 +758,7 @@
     
 
     [::jvm:iadd ?x ?y]
-    {:form [::iadd (->def-lambda old-scope new-scope ?x) (->def-lambda old-scope new-scope ?y)]
+    {:form [::jvm:iadd (->def-lambda old-scope new-scope ?x) (->def-lambda old-scope new-scope ?y)]
      :type (:type syntax)}
 
     [::case ?base ?variant ?registers ?mappings ?tree]
@@ -752,11 +775,11 @@
      :type (:type syntax)}
     
     [::lambda ?scope ?captured ?args ?value]
-    {:form [::lambda ?scope
+    {:form [::lambda new-scope
             (into {} (for [[?name ?sub-syntax] ?captured]
                        [?name (->def-lambda old-scope new-scope ?sub-syntax)]))
             ?args
-            (->def-lambda old-scope new-scope ?value)]
+            ?value]
      :type (:type syntax)}
     
     _
@@ -768,16 +791,18 @@
       (fail (str "Can't redefine function/constant: " ?name))
       (exec [ann?? (annotated? ?name)
              $module module-name
-             :let [scoped-name (str $module "$def_" ?name)]
-             [=value] (with-env scoped-name
+             [=value] (with-global ?name
                         (analyse-ast ?value))
+             ;; :let [_ (prn 'DEF/PRE =value)]
              :let [;; _ (prn 'analyse-def/=value =value)
                    =value (match (:form =value)
-                            [::lambda ?scope _ _ _]
-                            (->def-lambda ?scope scoped-name =value)
+                            [::lambda ?scope ?env ?args ?body]
+                            {:form [::lambda ?scope ?env ?args (->def-lambda ?scope [$module ?name] ?body)]
+                             :type (:type =value)}
                             
                             _
                             =value)]
+             ;; :let [_ (prn 'DEF/POST =value)]
              _ (if ann??
                  (return nil)
                  (annotate ?name ::constant ::public false (:type =value)))
