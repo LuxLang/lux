@@ -161,22 +161,23 @@
 
 (defn ^:private compile-tuple [compile *type* ?elems]
   (exec [*writer* get-writer
-         :let [_ (let [num-elems (count ?elems)]
-                   (let [tuple-class (str (str +prefix+ "/Tuple") num-elems)]
-                     (doto *writer*
-                       (.visitTypeInsn Opcodes/NEW tuple-class)
-                       (.visitInsn Opcodes/DUP)
-                       (.visitMethodInsn Opcodes/INVOKESPECIAL tuple-class "<init>" "()V"))
-                     (dotimes [idx num-elems]
-                       (.visitInsn *writer* Opcodes/DUP)
-                       (compile (nth ?elems idx))
-                       (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" (inc idx)) "Ljava/lang/Object;"))))]]
+         :let [num-elems (count ?elems)
+               tuple-class (str (str +prefix+ "/Tuple") num-elems)
+               _ (doto *writer*
+                   (.visitTypeInsn Opcodes/NEW tuple-class)
+                   (.visitInsn Opcodes/DUP)
+                   (.visitMethodInsn Opcodes/INVOKESPECIAL tuple-class "<init>" "()V"))]
+         _ (map-m (fn [idx]
+                    (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
+                           ret (compile (nth ?elems idx))
+                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" (inc idx)) "Ljava/lang/Object;")]]
+                      (return ret)))
+                  (range num-elems))]
     (return nil)))
 
 (defn ^:private compile-local [compile *type* ?env ?idx]
   (exec [*writer* get-writer
-         :let [_ (doto *writer*
-                   (.visitVarInsn Opcodes/ALOAD (int ?idx)))]]
+         :let [_ (.visitVarInsn *writer* Opcodes/ALOAD (int ?idx))]]
     (return nil)))
 
 (defn ^:private compile-captured [compile *type* ?scope ?captured-id ?source]
@@ -191,8 +192,7 @@
 
 (defn ^:private compile-global [compile *type* ?owner-class ?name]
   (exec [*writer* get-writer
-         :let [_ (doto *writer*
-                   (.visitFieldInsn Opcodes/GETSTATIC (->class (str ?owner-class "$" (normalize-ident ?name))) "_datum" "Ljava/lang/Object;"))]]
+         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class (str ?owner-class "$" (normalize-ident ?name))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn ^:private compile-global-fn [compile *type* ?owner-class ?name]
@@ -247,8 +247,7 @@
 
 (defn ^:private compile-jvm-getstatic [compile *type* ?owner ?field]
   (exec [*writer* get-writer
-         :let [_ (doto *writer*
-                   (.visitFieldInsn Opcodes/GETSTATIC (->class ?owner) ?field (->java-sig *type*)))]]
+         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class ?owner) ?field (->java-sig *type*))]]
     (return nil)))
 
 (defn prepare-arg! [*writer* class-name]
@@ -310,30 +309,32 @@
 
 (defn ^:private compile-jvm-invokevirtual [compile *type* ?class ?method ?classes ?object ?args]
   (exec [*writer* get-writer
-         :let [_ (let [method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
-                   (compile ?object)
-                   (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))
-                   (doseq [[class-name arg] (map vector ?classes ?args)]
-                     (do (compile arg)
-                       (prepare-arg! *writer* class-name)))
-                   (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
-                   (prepare-return! *writer* *type*)
-                   )]]
+         :let [method-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")" (->java-sig *type*))]
+         _ (compile ?object)
+         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (->class ?class))]
+         _ (map-m (fn [[class-name arg]]
+                    (exec [ret (compile arg)
+                           :let [_ (prepare-arg! *writer* class-name)]]
+                      (return ret)))
+                  (map vector ?classes ?args))
+         :let [_ (do (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (->class ?class) ?method method-sig)
+                   (prepare-return! *writer* *type*))]]
     (return nil)))
 
 (defn ^:private compile-jvm-new [compile *type* ?class ?classes ?args]
   (exec [*writer* get-writer
-         :let [_ (let [init-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")V")
-                       class* (->class ?class)]
-                   (doto *writer*
-                     (.visitTypeInsn Opcodes/NEW class*)
-                     (.visitInsn Opcodes/DUP))
-                   (doseq [[class-name arg] (map vector ?classes ?args)]
-                     (do (compile arg)
-                       (prepare-arg! *writer* class-name)))
-                   (doto *writer*
-                     (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))
-                   )]]
+         :let [init-sig (str "(" (reduce str "" (map ->type-signature ?classes)) ")V")
+               class* (->class ?class)
+               _ (doto *writer*
+                   (.visitTypeInsn Opcodes/NEW class*)
+                   (.visitInsn Opcodes/DUP))]
+         _ (map-m (fn [[class-name arg]]
+                    (exec [ret (compile arg)
+                           :let [_ (prepare-arg! *writer* class-name)]]
+                      (return ret)))
+                  (map vector ?classes ?args))
+         :let [_ (doto *writer*
+                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
 (defn ^:private compile-jvm-new-array [compile *type* ?class ?length]
@@ -345,18 +346,18 @@
 
 (defn ^:private compile-jvm-aastore [compile *type* ?array ?idx ?elem]
   (exec [*writer* get-writer
+         _ (compile ?array)
          :let [_ (doto *writer*
-                   (do (compile ?array))
                    (.visitInsn Opcodes/DUP)
-                   (.visitLdcInsn (int ?idx))
-                   (do (compile ?elem))
-                   (.visitInsn Opcodes/AASTORE))]]
+                   (.visitLdcInsn (int ?idx)))]
+         _ (compile ?elem)
+         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))
 
 (defn ^:private compile-jvm-aaload [compile *type* ?array ?idx]
   (exec [*writer* get-writer
+         _ (compile ?array)
          :let [_ (doto *writer*
-                   (do (compile ?array))
                    (.visitLdcInsn (int ?idx))
                    (.visitInsn Opcodes/AALOAD))]]
     (return nil)))
@@ -364,27 +365,29 @@
 (let [+bool-class+ (->class "java.lang.Boolean")]
   (defn ^:private compile-if [compile *type* ?test ?then ?else]
     (exec [*writer* get-writer
-           :let [_ (let [else-label (new Label)
-                         end-label (new Label)]
-                     (compile ?test)
-                     (doto *writer*
-                       (.visitTypeInsn Opcodes/CHECKCAST +bool-class+)
-                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL +bool-class+ "booleanValue" "()Z")
-                       (.visitJumpInsn Opcodes/IFEQ else-label))
-                     (compile ?then)
-                     (doto *writer*
-                       (.visitJumpInsn Opcodes/GOTO end-label)
-                       (.visitLabel else-label))
-                     (compile ?else)
-                     (.visitLabel *writer* end-label))]]
+           :let [else-label (new Label)
+                 end-label (new Label)]
+           _ (compile ?test)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +bool-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +bool-class+ "booleanValue" "()Z")
+                     (.visitJumpInsn Opcodes/IFEQ else-label))]
+           _ (compile ?then)
+           :let [_ (doto *writer*
+                     (.visitJumpInsn Opcodes/GOTO end-label)
+                     (.visitLabel else-label))]
+           _ (compile ?else)
+           :let [_ (.visitLabel *writer* end-label)]]
       (return nil))))
 
 (defn ^:private compile-do [compile *type* ?exprs]
   (exec [*writer* get-writer
-         :let [_ (do (doseq [expr (butlast ?exprs)]
-                       (compile expr)
-                       (.visitInsn *writer* Opcodes/POP))
-                   (compile (last ?exprs)))]]
+         _ (map-m (fn [expr]
+                    (exec [ret (compile expr)
+                           :let [_ (.visitInsn *writer* Opcodes/POP)]]
+                      (return ret)))
+                  (butlast ?exprs))
+         _ (compile (last ?exprs))]
     (return nil)))
 
 (let [+tag-sig+ (->type-signature "java.lang.String")
@@ -633,16 +636,16 @@
 
 (defn ^:private compile-let [compile *type* ?idx ?label ?value ?body]
   (exec [*writer* get-writer
-         :let [_ (let [start-label (new Label)
-                       end-label (new Label)
-                       ?idx (int ?idx)]
-                   (.visitLocalVariable *writer* (normalize-ident ?label) (->java-sig (:type ?value)) nil start-label end-label ?idx)
-                   (compile ?value)
-                   (doto *writer*
-                     (.visitVarInsn Opcodes/ASTORE ?idx)
-                     (.visitLabel start-label))
-                   (compile ?body)
-                   (.visitLabel *writer* end-label))]]
+         :let [start-label (new Label)
+               end-label (new Label)
+               ?idx (int ?idx)
+               _ (.visitLocalVariable *writer* (normalize-ident ?label) (->java-sig (:type ?value)) nil start-label end-label ?idx)]
+         _ (compile ?value)
+         :let [_ (doto *writer*
+                   (.visitVarInsn Opcodes/ASTORE ?idx)
+                   (.visitLabel start-label))]
+         _ (compile ?body)
+         :let [_ (.visitLabel *writer* end-label)]]
     (return nil)))
 
 (defn compile-field [compile ?name body]
@@ -874,7 +877,7 @@
              (compile-method compile ?name ?value)
 
              _
-             (compile-field  compile ?name ?value))]
+             (compile-field compile ?name ?value))]
     (return nil)))
 
 (defn ^:private compile-defclass [compile *type* ?package ?name ?super-class ?members]
@@ -919,19 +922,20 @@
 
 (defn ^:private compile-variant [compile *type* ?tag ?members]
   (exec [*writer* get-writer
-         :let [_ (let [variant-class* (str (->class +variant-class+) (count ?members))]
-                   (doto *writer*
-                     (.visitTypeInsn Opcodes/NEW variant-class*)
-                     (.visitInsn Opcodes/DUP)
-                     (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
-                     (.visitInsn Opcodes/DUP)
-                     (.visitLdcInsn ?tag)
-                     (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (->type-signature "java.lang.String"))
-                     (-> (doto (.visitInsn Opcodes/DUP)
-                           (do (compile ?member))
-                           (.visitFieldInsn Opcodes/PUTFIELD variant-class* (str "_" (inc ?tfield)) "Ljava/lang/Object;"))
-                         (->> (doseq [[?tfield ?member] (mapv vector (range (count ?members)) ?members)]))))
-                   )]]
+         :let [variant-class* (str (->class +variant-class+) (count ?members))
+               _ (doto *writer*
+                   (.visitTypeInsn Opcodes/NEW variant-class*)
+                   (.visitInsn Opcodes/DUP)
+                   (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
+                   (.visitInsn Opcodes/DUP)
+                   (.visitLdcInsn ?tag)
+                   (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (->type-signature "java.lang.String")))]
+         _ (map-m (fn [[?tfield ?member]]
+                    (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
+                           ret (compile ?member)
+                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD variant-class* (str "_" (inc ?tfield)) "Ljava/lang/Object;")]]
+                      (return ret)))
+                  (map vector (range (count ?members)) ?members))]
     (return nil)))
 
 (let [+int-class+ (->class "java.lang.Integer")]
@@ -958,7 +962,7 @@
     ^:private compile-jvm-irem Opcodes/IREM
     ))
 
-(defn compile-self-call [?scope ?assumed-args]
+(defn compile-self-call [compile ?scope ?assumed-args]
   (exec [*writer* get-writer
          :let [lambda-class (->class (reduce str "" (interpose "$" (map normalize-ident ?scope))))
                _ (doto *writer*
@@ -1058,7 +1062,7 @@
     (compile-defclass compile (:type syntax) ?package ?name ?super-class ?members)
 
     [::&analyser/self ?scope ?assumed-args]
-    (compile-self-call ?scope ?assumed-args)
+    (compile-self-call compile ?scope ?assumed-args)
     ))
 
 ;; [Interface]

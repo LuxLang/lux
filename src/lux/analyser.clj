@@ -14,6 +14,8 @@
 ;; [Util]
 (def +int-class+ "java.lang.Integer")
 
+(def +dont-care-type+ [::&type/object "java.lang.Object" []])
+
 (defn ^:private annotated [form type]
   {:form form
    :type type})
@@ -411,7 +413,7 @@
   (exec [[=test] (analyse-ast ?test)
          [=then] (analyse-ast ?then)
          [=else] (analyse-ast ?else)]
-    (return (list (annotated [::if =test =then =else] ::&type/nothing)))))
+    (return (list (annotated [::if =test =then =else] +dont-care-type+)))))
 
 (defn ^:private analyse-do [analyse-ast ?exprs]
   (exec [=exprs (do-all-m* (map analyse-ast ?exprs))]
@@ -646,7 +648,7 @@
                                                                  ))
                                                              (partition 2 ?branches))]
                                        (return (->decision-tree $scope $base =branches)))]
-      (return (list (annotated [::case (dec $base) =variant registers mappings tree] ::&type/nothing))))))
+      (return (list (annotated [::case (dec $base) =variant registers mappings tree] +dont-care-type+))))))
 
 (defn ^:private analyse-let [analyse-ast ?label ?value ?body]
   (exec [[=value] (analyse-ast ?value)
@@ -655,53 +657,82 @@
                    (analyse-ast ?body))]
     (return (list (annotated [::let idx ?label =value =body] (:type =body))))))
 
-(declare raise-bindings)
-(defn ^:private raise-tree-bindings [outer-scope ?tree]
-  (case (:type ?tree)
-    ::adt*
-    (update-in ?tree [:patterns]
-               #(into {} (for [[?tag ?unapply] %
-                               :let [=unapply (update-in ?unapply [:parts] (partial map (partial raise-tree-bindings outer-scope)))]]
-                           [?tag =unapply])))
-    
-    ::defaults
-    (update-in ?tree [:stores]
-               #(into {} (for [[?store ?branches] %
-                               :let [=store (raise-bindings outer-scope {:form ?store :type ::&type/nothing})]]
-                           [(:form =store) ?branches])))
-    ;; else
-    (assert false (pr-str ?tree))
-    ))
+(defn ^:private raise-tree-bindings [raise-expr outer-scope ?tree]
+  (let [partial-f (partial raise-expr outer-scope)
+        tree-partial-f (partial raise-tree-bindings raise-expr outer-scope)]
+    (case (:type ?tree)
+      ::adt*
+      (update-in ?tree [:patterns]
+                 #(into {} (for [[?tag ?unapply] %]
+                             [?tag (update-in ?unapply [:parts] (partial map tree-partial-f))])))
+      
+      ::defaults
+      (update-in ?tree [:stores]
+                 #(into {} (for [[?store ?branches] %
+                                 :let [=store (partial-f {:form ?store :type ::&type/nothing})]]
+                             [(:form =store) ?branches])))
+      ;; else
+      (assert false (pr-str ?tree))
+      )))
 
-(defn ^:private raise-bindings [outer-scope body]
+(defn ^:private raise-expr [outer-scope syntax]
   ;; (prn 'raise-bindings body)
-  (match (:form body)
-    [::local ?scope ?idx]
-    {:form [::local outer-scope (inc ?idx)]
-     :type (:type body)}
-    
-    [::captured _ _ ?source]
-    ?source
+  (let [partial-f (partial raise-expr outer-scope)
+        tree-partial-f (partial raise-tree-bindings raise-expr outer-scope)]
+    (match (:form syntax)
+      [::literal ?value]
+      syntax
+      
+      [::tuple ?members]
+      {:form [::tuple (map partial-f ?members)]
+       :type (:type syntax)}
 
-    [::jvm:iadd ?x ?y]
-    {:form [::jvm:iadd
-            (raise-bindings outer-scope ?x)
-            (raise-bindings outer-scope ?y)]
-     :type (:type body)}
+      [::variant ?tag ?members]
+      {:form [::variant ?tag (map partial-f ?members)]
+       :type (:type syntax)}
+      
+      [::local ?scope ?idx]
+      {:form [::local outer-scope (inc ?idx)]
+       :type (:type syntax)}
+      
+      [::captured _ _ ?source]
+      ?source
 
-    [::case ?base ?variant ?registers ?mappings ?tree]
-    (let [=variant (raise-bindings outer-scope ?variant)
-          =mappings (into {} (for [[idx syntax] ?mappings]
-                               [idx (raise-bindings outer-scope syntax)]))
-          =tree (raise-tree-bindings outer-scope ?tree)]
-      {:form [::case ?base =variant ?registers =mappings =tree]
-       :type (:type body)})
+      [::self ?self-name ?curried]
+      {:form [::self outer-scope (mapv partial-f ?curried)]
+       :type (:type syntax)}
 
-    [::call ?func ?args]
-    {:form [::call (raise-bindings outer-scope ?func)
-            (map (partial raise-bindings outer-scope) ?args)]
-     :type (:type body)}
-    ))
+      [::jvm:iadd ?x ?y]
+      {:form [::jvm:iadd (partial-f ?x) (partial-f ?y)]
+       :type (:type syntax)}
+
+      [::let ?idx ?name ?value ?body]
+      {:form [::let ?idx ?name (partial-f ?value) (partial-f ?body)]
+       :type (:type syntax)}
+
+      [::case ?base ?variant ?registers ?mappings ?tree]
+      (let [=variant (partial-f ?variant)
+            =mappings (into {} (for [[idx syntax] ?mappings]
+                                 [idx (partial-f syntax)]))
+            =tree (tree-partial-f ?tree)]
+        {:form [::case ?base =variant ?registers =mappings =tree]
+         :type (:type syntax)})
+
+      [::lambda ?scope ?captured ?args ?value]
+      {:form [::lambda outer-scope
+              (into {} (for [[?name ?sub-syntax] ?captured]
+                         [?name (partial-f ?sub-syntax)]))
+              ?args
+              ?value]
+       :type (:type syntax)}
+
+      [::call ?func ?args]
+      {:form [::call (partial-f ?func) (map partial-f ?args)]
+       :type (:type syntax)}
+
+      _
+      (assert false (pr-str (:form syntax)))
+      )))
 
 (defn ^:private analyse-lambda [analyse-ast ?self ?arg ?body]
   (exec [[_ =arg =return :as =function] (within ::types &type/fresh-function)
@@ -717,80 +748,13 @@
          :let [;; _ (prn '(:form =body) (:form =body))
                =lambda (match (:form =body)
                     [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
-                    (let [?sub-body* (raise-bindings =scope ?sub-body)]
-                      [::lambda =scope =captured (cons ?arg ?sub-args) ?sub-body*])
+                    [::lambda =scope =captured (cons ?arg ?sub-args) (raise-expr =scope ?sub-body)]
 
                     _
                     [::lambda =scope =captured (list ?arg) =body])]
          ;; :let [_ (prn 'LAMBDA/POST =lambda)]
          ]
     (return (list (annotated =lambda =function)))))
-
-(declare ->def-lambda)
-(defn ^:private ->def-lambda-tree [old-scope new-scope ?tree]
-  (case (:type ?tree)
-    ::adt*
-    (update-in ?tree [:patterns]
-               #(into {} (for [[?tag ?unapply] %
-                               :let [=unapply (update-in ?unapply [:parts] (partial map (partial ->def-lambda-tree old-scope new-scope)))]]
-                           [?tag =unapply])))
-    
-    ::defaults
-    (update-in ?tree [:stores]
-               #(into {} (for [[?store ?branches] %
-                               :let [=store (->def-lambda old-scope new-scope {:form ?store :type ::&type/nothing})]]
-                           [(:form =store) ?branches])))
-    ;; else
-    (assert false (pr-str ?tree))
-    ))
-
-(defn ^:private ->def-lambda [old-scope new-scope syntax]
-  (match (:form syntax)
-    [::literal _]
-    syntax
-
-    [::variant ?tag ?elems]
-    {:form [::variant ?tag (map (partial ->def-lambda old-scope new-scope) ?elems)]
-     :type (:type syntax)}
-    
-    [::local ?local-scope ?idx]
-    {:form [::local new-scope (inc ?idx)]
-     :type (:type syntax)}
-
-    [::self ?self-name ?curried]
-    (if (= ?self-name old-scope)
-      {:form [::self new-scope (mapv (partial ->def-lambda old-scope new-scope) ?curried)]
-       :type (:type syntax)}
-      syntax)
-    
-
-    [::jvm:iadd ?x ?y]
-    {:form [::jvm:iadd (->def-lambda old-scope new-scope ?x) (->def-lambda old-scope new-scope ?y)]
-     :type (:type syntax)}
-
-    [::case ?base ?variant ?registers ?mappings ?tree]
-    (let [=variant (->def-lambda old-scope new-scope ?variant)
-          =mappings (into {} (for [[idx syntax] ?mappings]
-                               [idx (->def-lambda old-scope new-scope syntax)]))
-          =tree (->def-lambda-tree old-scope new-scope ?tree)]
-      {:form [::case ?base =variant ?registers =mappings =tree]
-       :type (:type syntax)})
-
-    [::call ?func ?args]
-    {:form [::call (->def-lambda old-scope new-scope ?func)
-            (map (partial ->def-lambda old-scope new-scope) ?args)]
-     :type (:type syntax)}
-    
-    [::lambda ?scope ?captured ?args ?value]
-    {:form [::lambda new-scope
-            (into {} (for [[?name ?sub-syntax] ?captured]
-                       [?name (->def-lambda old-scope new-scope ?sub-syntax)]))
-            ?args
-            ?value]
-     :type (:type syntax)}
-    
-    _
-    (assert false (pr-str (:form syntax)))))
 
 (defn ^:private analyse-def [analyse-ast ?name ?value]
   (exec [def?? (defined? ?name)]
@@ -802,9 +766,10 @@
                         (analyse-ast ?value))
              ;; :let [_ (prn 'DEF/PRE =value)]
              :let [;; _ (prn 'analyse-def/=value =value)
+                   new-scope [$module ?name]
                    =value (match (:form =value)
-                            [::lambda ?scope ?env ?args ?body]
-                            {:form [::lambda ?scope ?env ?args (->def-lambda ?scope [$module ?name] ?body)]
+                            [::lambda ?old-scope ?env ?args ?body]
+                            {:form [::lambda new-scope ?env ?args (raise-expr new-scope ?body)]
                              :type (:type =value)}
                             
                             _
