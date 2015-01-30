@@ -605,6 +605,7 @@
                      (.visitInsn Opcodes/DUP)
                      (.visitLabel start-label))
                  default-label (new Label)
+                 ;; _ (prn '?decision-tree ?decision-tree)
                  _ (do (doseq [decision-tree (let [pieces (map first (sequence-parts (:branches ?decision-tree) (list ?decision-tree)))]
                                                (if (or (:default ?decision-tree)
                                                        (not (empty? (:defaults ?decision-tree))))
@@ -693,7 +694,7 @@
     (let [num-args (count args)]
       (str "(" (reduce str "" (repeat (count closed-over) clo-field-sig))
            (if (> num-args 1)
-             (reduce str counter-sig (repeat num-args clo-field-sig)))
+             (reduce str counter-sig (repeat (dec num-args) clo-field-sig)))
            ")"
            <init>-return)))
 
@@ -728,6 +729,22 @@
         (.visitMaxs 0 0)
         (.visitEnd))))
 
+  (defn add-closed-over-vars [writer class-name closed-over]
+    (dotimes [capt_idx (count closed-over)]
+      (doto writer
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (.visitFieldInsn Opcodes/GETFIELD class-name (str "__" capt_idx) clo-field-sig))))
+
+  (defn add-partial-vars [writer class-name args]
+    (dotimes [clo_idx (count args)]
+      (doto writer
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (.visitFieldInsn Opcodes/GETFIELD class-name (str "_" clo_idx) clo-field-sig))))
+
+  (defn add-nulls [writer amount]
+    (dotimes [_ amount]
+      (.visitInsn writer Opcodes/ACONST_NULL)))
+  
   (defn add-lambda-apply [class class-name closed-over args impl-signature init-signature]
     (let [num-args (count args)
           num-captured (dec num-args)
@@ -736,31 +753,24 @@
                           (new Label))]
       (doto (.visitMethod class Opcodes/ACC_PUBLIC "apply" +apply-signature+ nil nil)
         (.visitCode)
-        (.visitVarInsn Opcodes/ALOAD 0)
         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
               (.visitFieldInsn Opcodes/GETFIELD class-name "_counter" counter-sig)
               (.visitTableSwitchInsn 0 (dec num-captured) default-label (into-array Label branch-labels))
               (-> (doto (.visitLabel branch-label)
                     (.visitTypeInsn Opcodes/NEW class-name)
                     (.visitInsn Opcodes/DUP)
-                    (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                          (.visitFieldInsn Opcodes/GETFIELD class-name (str "__" capt_idx) clo-field-sig))
-                        (->> (dotimes [capt_idx (count closed-over)])))
+                    (add-closed-over-vars class-name closed-over)
                     (.visitLdcInsn (-> current-captured inc int))
-                    (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                          (.visitFieldInsn Opcodes/GETFIELD class-name (str "_" clo_idx) clo-field-sig))
-                        (->> (dotimes [clo_idx current-captured])))
+                    (add-partial-vars class-name (take current-captured args))
                     (.visitVarInsn Opcodes/ALOAD 1)
-                    (-> (.visitInsn Opcodes/ACONST_NULL)
-                        (->> (dotimes [clo_idx (- (dec num-captured) current-captured)])))
+                    (add-nulls (- (dec num-captured) current-captured))
                     (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" init-signature)
                     (.visitInsn Opcodes/ARETURN))
                   (->> (doseq [[branch-label current-captured] (map vector branch-labels (range (count branch-labels)))])))
-              (.visitLabel default-label)
-              (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-                    (.visitFieldInsn Opcodes/GETFIELD class-name (str "_" clo_idx) clo-field-sig))
-                  (->> (dotimes [clo_idx num-captured]))))
+              (.visitLabel default-label))
             (->> (when (> num-args 1))))
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (add-partial-vars class-name (butlast args))
         (.visitVarInsn Opcodes/ALOAD 1)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" impl-signature)
         (.visitInsn Opcodes/ARETURN)
@@ -1066,7 +1076,9 @@
     ))
 
 ;; [Interface]
-(let [compiler-step (exec [analysis+ &analyser/analyse]
+(let [compiler-step (exec [analysis+ &analyser/analyse
+                           ;; :let [_ (prn 'analysis+ analysis+)]
+                           ]
                       (map-m compile analysis+))]
   (defn compile-module [name]
     (exec [loader &util/loader]
@@ -1090,6 +1102,7 @@
               (fail* ?message))))))))
 
 (defn compile-all [modules]
+  (.mkdir (java.io.File. "output"))
   (let [state {::&lexer/source nil
                ::&analyser/current-module nil
                ::&analyser/scope []

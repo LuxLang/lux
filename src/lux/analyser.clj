@@ -305,7 +305,7 @@
   (reduce (fn [tail x]
             (doto (.newInstance (.loadClass loader "lux.Variant2"))
               (-> .-tag (set! "Cons"))
-              (-> .-_1 (set! (->lux x)))
+              (-> .-_1 (set! (->lux loader x)))
               (-> .-_2 (set! tail))))
           (doto (.newInstance (.loadClass loader "lux.Variant0"))
             (-> .-tag (set! "Nil")))
@@ -354,6 +354,7 @@
 (def ^:private ->lux+ (partial ->lux+* ->lux))
 
 (defn ->clojure+* [->clojure xs]
+  (prn '->clojure+* (.-tag xs))
   (case (.-tag xs)
     "Nil" '()
     "Cons" (cons (->clojure (.-_1 xs))
@@ -361,21 +362,23 @@
     ))
 
 (defn ->clojure [x]
+  (pr '->clojure (.-tag x))
   (case (.-tag x)
-    "Bool"  [::&parser/bool (-> x .-_1)]
-    "Int"   [::&parser/int (-> x .-_1)]
-    "Real"  [::&parser/real (-> x .-_1)]
-    "Char"  [::&parser/char (-> x .-_1)]
-    "Text"  [::&parser/text (-> x .-_1)]
-    "Tag"   [::&parser/tag (-> x .-_1)]
-    "Ident" [::&parser/ident (-> x .-_1)]
-    "Tuple" [::&parser/tuple (->> x .-_1 (->clojure+* ->clojure))]
-    "Form"  [::&parser/form (->> x .-_1 (->clojure+* ->clojure))]))
+    "Bool"  (do (println) [::&parser/bool  (.-_1 x)])
+    "Int"   (do (println) [::&parser/int   (.-_1 x)])
+    "Real"  (do (println) [::&parser/real  (.-_1 x)])
+    "Char"  (do (println) [::&parser/char  (.-_1 x)])
+    "Text"  (do (println) [::&parser/text  (.-_1 x)])
+    "Tag"   (do (println " " (.-_1 x)) [::&parser/tag   (.-_1 x)])
+    "Ident" (do (println) [::&parser/ident (.-_1 x)])
+    "Tuple" (do (println) [::&parser/tuple (->clojure+* ->clojure (.-_1 x))])
+    "Form"  (do (println) [::&parser/form  (->clojure+* ->clojure (.-_1 x))])))
 
 (def ^:private ->clojure+ (partial ->clojure+* ->clojure))
 
 (defn ^:private analyse-tuple [analyse-ast ?elems]
-  (exec [=elems (do-all-m* (map analyse-ast ?elems))]
+  (exec [=elems (do-all-m* (map analyse-ast ?elems))
+         :let [_ (prn 'analyse-tuple =elems)]]
     (return (list (annotated [::tuple =elems] [::&type/tuple (mapv :type =elems)])))))
 
 (defn ^:private analyse-ident [analyse-ast ?ident]
@@ -388,12 +391,19 @@
       [::global-fn ?module ?name]
       (exec [macro? (is-macro? ?module ?name)]
         (if macro?
-          (let [macro-class (str ?module "$" (normalize-ident ?name))]
-            (-> (.loadClass loader macro-class)
-                .newInstance
-                (.apply (->lux+ loader ?args))
-                ->clojure
-                analyse-ast))
+          (let [macro-class (str ?module "$" (normalize-ident ?name))
+                output (-> (.loadClass loader macro-class)
+                           .getDeclaredConstructors
+                           first
+                           (.newInstance (to-array [(int 0) nil]))
+                           (.apply (->lux+ loader ?args))
+                           (.apply nil))
+                _ (prn 'output (str ?module ":" ?name) output (.-_1 output) (.-tag (.-_1 output)))
+                macro-expansion (->clojure+ (.-_1 output))
+                state* (.-_2 output)
+                _ (prn 'macro-expansion (str ?module ":" ?name) state* macro-expansion)
+                ]
+            (do-all-m* (map analyse-ast macro-expansion)))
           (exec [=args (do-all-m* (map analyse-ast ?args))
                  :let [[needs-num =return-type] (match (:type =fn)
                                                   [::&type/function ?fargs ?freturn]
@@ -654,17 +664,35 @@
   (exec [[=value] (analyse-ast ?value)
          idx next-local-idx
          [=body] (with-let ?label (:type =value)
-                   (analyse-ast ?body))]
+                   (analyse-ast ?body))
+         :let [_ (prn 'analyse-let =body)]]
     (return (list (annotated [::let idx ?label =value =body] (:type =body))))))
 
-(defn ^:private raise-tree-bindings [raise-expr outer-scope ?tree]
-  (let [partial-f (partial raise-expr outer-scope)
-        tree-partial-f (partial raise-tree-bindings raise-expr outer-scope)]
+(defn ^:private raise-tree-bindings [raise-expr outer-scope offset ?tree]
+  (let [partial-f (partial raise-expr outer-scope offset)
+        tree-partial-f (partial raise-tree-bindings raise-expr outer-scope offset)]
     (case (:type ?tree)
+      ::tuple*
+      (-> ?tree
+          (update-in [:patterns]
+                     #(into {} (for [[?tag ?unapply] %]
+                                 [?tag (update-in ?unapply [:parts] (partial map tree-partial-f))])))
+          (update-in [:default]
+                     (fn [[tag local $branch :as total]]
+                       ;; (prn 'total total)
+                       (if total
+                         [tag (-> {:form local :type ::&type/nothing} partial-f :form) $branch]))))
+      
       ::adt*
-      (update-in ?tree [:patterns]
-                 #(into {} (for [[?tag ?unapply] %]
-                             [?tag (update-in ?unapply [:parts] (partial map tree-partial-f))])))
+      (-> ?tree
+          (update-in [:patterns]
+                     #(into {} (for [[?tag ?unapply] %]
+                                 [?tag (update-in ?unapply [:parts] (partial map tree-partial-f))])))
+          (update-in [:default]
+                     (fn [[tag local $branch :as total]]
+                       ;; (prn 'total total)
+                       (if total
+                         [tag (-> {:form local :type ::&type/nothing} partial-f :form) $branch]))))
       
       ::defaults
       (update-in ?tree [:stores]
@@ -675,10 +703,10 @@
       (assert false (pr-str ?tree))
       )))
 
-(defn ^:private raise-expr [outer-scope syntax]
+(defn ^:private raise-expr [outer-scope offset syntax]
   ;; (prn 'raise-bindings body)
-  (let [partial-f (partial raise-expr outer-scope)
-        tree-partial-f (partial raise-tree-bindings raise-expr outer-scope)]
+  (let [partial-f (partial raise-expr outer-scope offset)
+        tree-partial-f (partial raise-tree-bindings raise-expr outer-scope offset)]
     (match (:form syntax)
       [::literal ?value]
       syntax
@@ -702,20 +730,24 @@
       {:form [::self outer-scope (mapv partial-f ?curried)]
        :type (:type syntax)}
 
+      [::global _ _]
+      syntax
+
       [::jvm:iadd ?x ?y]
       {:form [::jvm:iadd (partial-f ?x) (partial-f ?y)]
        :type (:type syntax)}
 
       [::let ?idx ?name ?value ?body]
-      {:form [::let ?idx ?name (partial-f ?value) (partial-f ?body)]
+      {:form [::let offset ?name (partial-f ?value)
+              (raise-expr outer-scope (inc offset) ?body)]
        :type (:type syntax)}
 
       [::case ?base ?variant ?registers ?mappings ?tree]
       (let [=variant (partial-f ?variant)
             =mappings (into {} (for [[idx syntax] ?mappings]
-                                 [idx (partial-f syntax)]))
+                                 [idx (raise-expr outer-scope (+ offset ?registers) syntax)]))
             =tree (tree-partial-f ?tree)]
-        {:form [::case ?base =variant ?registers =mappings =tree]
+        {:form [::case offset =variant ?registers =mappings =tree]
          :type (:type syntax)})
 
       [::lambda ?scope ?captured ?args ?value]
@@ -748,7 +780,7 @@
          :let [;; _ (prn '(:form =body) (:form =body))
                =lambda (match (:form =body)
                     [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body]
-                    [::lambda =scope =captured (cons ?arg ?sub-args) (raise-expr =scope ?sub-body)]
+                    [::lambda =scope =captured (cons ?arg ?sub-args) (raise-expr =scope (-> ?sub-args count (+ 2)) ?sub-body)]
 
                     _
                     [::lambda =scope =captured (list ?arg) =body])]
@@ -757,6 +789,7 @@
     (return (list (annotated =lambda =function)))))
 
 (defn ^:private analyse-def [analyse-ast ?name ?value]
+  ;; (prn 'analyse-def ?name ?value)
   (exec [def?? (defined? ?name)]
     (if def??
       (fail (str "Can't redefine function/constant: " ?name))
@@ -769,12 +802,12 @@
                    new-scope [$module ?name]
                    =value (match (:form =value)
                             [::lambda ?old-scope ?env ?args ?body]
-                            {:form [::lambda new-scope ?env ?args (raise-expr new-scope ?body)]
+                            {:form [::lambda new-scope ?env ?args (raise-expr new-scope (-> ?args count inc) ?body)]
                              :type (:type =value)}
                             
                             _
                             =value)]
-             ;; :let [_ (prn 'DEF/POST =value)]
+             ;; :let [_ (prn 'DEF/POST ?name =value)]
              _ (if ann??
                  (return nil)
                  (annotate ?name ::constant ::public false (:type =value)))
@@ -886,7 +919,7 @@
     (return (list (annotated [::literal ?value] [::&type/object "java.lang.String" []])))
 
     [::&parser/tag ?tag]
-    (do (prn 'analyse-basic-ast/variant0 ?tag)
+    (do ;; (prn 'analyse-basic-ast/variant0 ?tag)
       (return (list (annotated [::variant ?tag '()] [::&type/variant ?tag '()]))))
 
     [::&parser/tuple ?elems]
@@ -898,7 +931,7 @@
     [::&parser/form ([[::&parser/ident "if"] ?test ?then ?else] :seq)]
     (analyse-if analyse-ast ?test ?then ?else)
 
-    [::&parser/form ([[::&parser/ident "let"] [::&parser/ident ?label] ?value ?body] :seq)]
+    [::&parser/form ([[::&parser/ident "let'"] [::&parser/ident ?label] ?value ?body] :seq)]
     (analyse-let analyse-ast ?label ?value ?body)
 
     [::&parser/form ([[::&parser/ident "case"] ?variant & ?branches] :seq)]
@@ -967,7 +1000,8 @@
   (match token
     [::&parser/form ([[::&parser/tag ?tag] & ?data] :seq)]
     (exec [=data (do-all-m* (map analyse-ast ?data))
-           :let [_ (prn 'analyse-ast/variant+ ?tag '=data =data)]]
+           ;; :let [_ (prn 'analyse-ast/variant+ ?tag '=data =data)]
+           ]
       (return (list (annotated [::variant ?tag =data] [::&type/variant ?tag (map :type =data)]))))
     
     [::&parser/form ([?fn & ?args] :seq)]
