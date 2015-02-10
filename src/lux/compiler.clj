@@ -600,19 +600,6 @@
            :let [_ (.visitLabel *writer* end-label)]]
       (return nil))))
 
-(defn ^:private compile-let [compile *type* ?idx ?value ?body]
-  (exec [*writer* &util/get-writer
-         _ (compile ?value)
-         :let [start-label (new Label)
-               end-label (new Label)
-               _ (doto *writer*
-                   (.visitLocalVariable (str +local-prefix+ ?idx) (->java-sig (:type ?value)) nil start-label end-label ?idx)
-                   (.visitLabel start-label)
-                   (.visitVarInsn Opcodes/ASTORE ?idx))]
-         _ (compile ?body)
-         :let [_ (.visitLabel *writer* end-label)]]
-    (return nil)))
-
 (let [clo-field-sig (->type-signature "java.lang.Object")
       lambda-return-sig (->type-signature "java.lang.Object")
       <init>-return "V"
@@ -956,9 +943,6 @@
 
     [::&analyser/variant ?tag ?members]
     (compile-variant compile-expression (:type syntax) ?tag ?members)
-
-    [::&analyser/let ?idx ?value ?body]
-    (compile-let compile-expression (:type syntax) ?idx ?value ?body)
 
     [::&analyser/case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree]
     (compile-case compile-expression (:type syntax) ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree)

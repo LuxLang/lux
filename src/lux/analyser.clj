@@ -62,14 +62,10 @@
 
 (defn ^:private with-env [label body]
   (fn [state]
-    (let [=return (body (-> state
-                            (update-in [::&util/local-envs] conj (fresh-env label))
-                            (update-in [::&util/scope] conj label)))]
+    (let [=return (body (update-in state [::&util/local-envs] conj (fresh-env label)))]
       (match =return
         [::&util/ok [?state ?value]]
-        [::&util/ok [(-> ?state
-                         (update-in [::&util/local-envs] rest)
-                         (update-in [::&util/scope] rest))
+        [::&util/ok [(update-in ?state [::&util/local-envs] rest)
                      ?value]]
         
         _
@@ -504,15 +500,6 @@
                                          (return (->decision-tree $base =branches)))]
     (return (list [::Expression [::case $base =variant num-registers mappings tree] +dont-care-type+]))))
 
-(defn ^:private analyse-let [analyse-ast ?label ?value ?body]
-  (exec [=value (analyse-1 ?value)
-         =value-type (expr-type =value)
-         idx next-local-idx
-         =body (with-let ?label :local =value-type
-                 (analyse-1 ?body))
-         =body-type (expr-type =body)]
-    (return (list [::Expression [::let idx =value =body] =body-type]))))
-
 (defn ^:private raise-tree-bindings [raise-expr arg ?tree]
   (let [tree-partial-f (partial raise-tree-bindings raise-expr arg)]
     (case (:type ?tree)
@@ -870,9 +857,6 @@
 
     [::&parser/ident ?ident]
     (analyse-ident analyse-ast ?ident)
-
-    [::&parser/form ([[::&parser/ident "let'"] [::&parser/ident ?label] ?value ?body] :seq)]
-    (analyse-let analyse-ast ?label ?value ?body)
 
     [::&parser/form ([[::&parser/ident "case'"] ?variant & ?branches] :seq)]
     (analyse-case analyse-ast ?variant ?branches)
