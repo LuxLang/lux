@@ -18,9 +18,10 @@
                               ClassWriter
                               MethodVisitor)))
 
-(def +prefix+ "lux")
-
 ;; [Utils/General]
+(defn ^:private storage-id [scope]
+  (->> scope reverse (map normalize-ident) (interpose "$") (reduce str "")))
+
 (defn ^:private write-file [file data]
   (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
     (.write stream data)))
@@ -31,31 +32,19 @@
 (defn ^:private load-class! [loader name]
   (.loadClass loader name))
 
-(defn save-class! [name bytecode]
+(defn ^:private save-class! [name bytecode]
   (exec [loader &util/loader
          :let [_ (write-class name bytecode)
                _ (load-class! loader (string/replace name #"/" "."))]]
     (return nil)))
 
-(def ^:private +variant-class+ (str +prefix+ ".Variant"))
-(def ^:private +tuple-class+   (str +prefix+ ".Tuple"))
-
-(defn ^:private unwrap-ident [ident]
-  (match ident
-    [::&parser/ident ?label]
-    ?label))
-
-(defn ^:private with-writer [writer body]
-  (fn [state]
-    ;; (prn 'with-writer/_0 body)
-    (let [result (body (assoc state ::&util/writer writer))]
-      ;; (prn 'with-writer/_1 result)
-      (match result
-        [::&util/ok [?state ?value]]
-        [::&util/ok [(assoc ?state ::&util/writer (::&util/writer state)) ?value]]
-
-        _
-        result))))
+(def ^:private +prefix+ "lux.")
+(def ^:private +variant-class+  (str +prefix+ "Variant"))
+(def ^:private +tuple-class+    (str +prefix+ "Tuple"))
+(def ^:private +function-class+ (str +prefix+ "Function"))
+(def ^:private +local-prefix+ "l")
+(def ^:private +partial-prefix+ "p")
+(def ^:private +closure-prefix+ "c")
 
 (def ^:private ->package ->class)
 
@@ -92,7 +81,7 @@
     (->type-signature +variant-class+)
 
     [::&type/Lambda _ _]
-    (->type-signature (str +prefix+ "/Function"))))
+    (->type-signature +function-class+)))
 
 ;; [Utils/Compilers]
 (let [+class+ (->class "java.lang.Boolean")
@@ -113,8 +102,8 @@
                        (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
         (return nil))))
 
-  ^:private compile-int  "java.lang.Integer"   "(I)V"
-  ^:private compile-real "java.lang.Float"     "(F)V"
+  ^:private compile-int  "java.lang.Long"      "(J)V"
+  ^:private compile-real "java.lang.Double"    "(D)V"
   ^:private compile-char "java.lang.Character" "(C)V"
   )
 
@@ -126,7 +115,7 @@
 (defn ^:private compile-tuple [compile *type* ?elems]
   (exec [*writer* &util/get-writer
          :let [num-elems (count ?elems)
-               tuple-class (str +prefix+ "/Tuple" num-elems)
+               tuple-class (->class (str +tuple-class+ num-elems))
                _ (doto *writer*
                    (.visitTypeInsn Opcodes/NEW tuple-class)
                    (.visitInsn Opcodes/DUP)
@@ -134,14 +123,32 @@
          _ (map-m (fn [idx]
                     (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
                            ret (compile (nth ?elems idx))
-                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str "_" (inc idx)) "Ljava/lang/Object;")]]
+                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str +partial-prefix+ idx) "Ljava/lang/Object;")]]
                       (return ret)))
                   (range num-elems))]
     (return nil)))
 
+(defn ^:private compile-variant [compile *type* ?tag ?members]
+  (exec [*writer* &util/get-writer
+         :let [variant-class* (str (->class +variant-class+) (count ?members))
+               _ (doto *writer*
+                   (.visitTypeInsn Opcodes/NEW variant-class*)
+                   (.visitInsn Opcodes/DUP)
+                   (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
+                   (.visitInsn Opcodes/DUP)
+                   (.visitLdcInsn ?tag)
+                   (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (->type-signature "java.lang.String")))]
+         _ (map-m (fn [[?tfield ?member]]
+                    (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
+                           ret (compile ?member)
+                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD variant-class* (str +partial-prefix+ ?tfield) "Ljava/lang/Object;")]]
+                      (return ret)))
+                  (map vector (range (count ?members)) ?members))]
+    (return nil)))
+
 (defn ^:private compile-local [compile *type* ?idx]
   (exec [*writer* &util/get-writer
-         :let [_ (.visitVarInsn *writer* Opcodes/ALOAD (int (inc ?idx)))]]
+         :let [_ (.visitVarInsn *writer* Opcodes/ALOAD (int ?idx))]]
     (return nil)))
 
 (defn ^:private compile-captured [compile *type* ?scope ?captured-id ?source]
@@ -150,13 +157,13 @@
                    (.visitVarInsn Opcodes/ALOAD 0)
                    (.visitFieldInsn Opcodes/GETFIELD
                                     (normalize-ident ?scope)
-                                    (str "__" ?captured-id)
+                                    (str +closure-prefix+ ?captured-id)
                                     "Ljava/lang/Object;"))]]
     (return nil)))
 
 (defn ^:private compile-global [compile *type* ?owner-class ?name]
   (exec [*writer* &util/get-writer
-         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class (str ?owner-class "$" (normalize-ident ?name))) "_datum" "Ljava/lang/Object;")]]
+         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (->class (storage-id (list ?name ?owner-class))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (def +apply-signature+ "(Ljava/lang/Object;)Ljava/lang/Object;")
@@ -166,7 +173,7 @@
          _ (compile ?fn)
          _ (map-m (fn [arg]
                     (exec [ret (compile arg)
-                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" +apply-signature+)]]
+                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (->class +function-class+) "apply" +apply-signature+)]]
                       (return ret)))
                   ?args)]
     (return nil)))
@@ -177,7 +184,7 @@
          :let [_ (match (:form ?fn)
                    [::&analyser/global ?owner-class ?fn-name]
                    (let [arg-sig (->type-signature "java.lang.Object")
-                         call-class (str (->class ?owner-class) "$" (normalize-ident ?fn-name))
+                         call-class (storage-id (list ?fn-name ?owner-class))
                          provides-num (count ?args)]
                      (if (>= provides-num ?needs-num)
                        (let [impl-sig (str "(" (reduce str "" (repeat ?needs-num arg-sig)) ")" arg-sig)]
@@ -186,7 +193,7 @@
                                (->> (doseq [arg (take ?needs-num ?args)])))
                            (.visitMethodInsn Opcodes/INVOKESTATIC call-class "impl" impl-sig)
                            (-> (doto (do (compile arg))
-                                 (.visitMethodInsn Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" +apply-signature+))
+                                 (.visitMethodInsn Opcodes/INVOKEINTERFACE (->class +function-class+) "apply" +apply-signature+))
                                (->> (doseq [arg (drop ?needs-num ?args)])))))
                        (let [counter-sig "I"
                              init-signature (str "(" (apply str counter-sig (repeat (dec ?needs-num) arg-sig)) ")" "V")]
@@ -196,8 +203,7 @@
                            (.visitLdcInsn (int provides-num))
                            (-> (do (compile arg))
                                (->> (doseq [arg ?args])))
-                           (-> (.visitInsn Opcodes/ACONST_NULL)
-                               (->> (dotimes [_ (dec (- ?needs-num provides-num))])))
+                           (add-nulls (dec (- ?needs-num provides-num)))
                            (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" init-signature)))
                        ))
                    )]]
@@ -329,29 +335,59 @@
          _ (compile (last ?exprs))]
     (return nil)))
 
-(let [oclass (->class "java.lang.Object")
-      equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
-  (defn ^:private compile-compare-primitive [writer mappings default-label ?pairs wrapper-class signature]
-    (let [wrapper-class (->class wrapper-class)]
-      (doseq [[?token $body] ?pairs
-              :let [$else (new Label)]]
-        (doto writer
-          ;; object
-          (.visitInsn Opcodes/DUP) ;; object, object
-          (-> (doto (.visitTypeInsn Opcodes/NEW wrapper-class)
-                (.visitInsn Opcodes/DUP)
-                (.visitLdcInsn ?token)
-                (.visitMethodInsn Opcodes/INVOKESPECIAL wrapper-class "<init>" signature))
-              (->> (if (nil? wrapper-class)
-                     (.visitLdcInsn writer ?token))))
-          (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; object, B
-          (.visitJumpInsn Opcodes/IFEQ $else) ;; object
-          (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO (get mappings $body))
-          (.visitLabel $else)))
+(do-template [<name> <wrapper-class> <value-method> <method-sig>]
+  (defn <name> [writer mappings default-label ?pairs]
+    (doseq [[?token $body] ?pairs
+            :let [$else (new Label)]]
       (doto writer
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class <wrapper-class>) <value-method> <method-sig>)
+        (.visitLdcInsn ?token)
+        (.visitJumpInsn Opcodes/IF_ICMPNE $else)
         (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO default-label)))))
+        (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+        (.visitLabel $else)))
+    (doto writer
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO default-label)))
+
+  ^:private compile-compare-bools "java.lang.Boolean"   "booleanValue" "()Z"
+  ^:private compile-compare-chars "java.lang.Character" "charValue"    "()C"
+  )
+
+(do-template [<name> <wrapper-class> <value-method> <method-sig> <cmp-op>]
+  (defn <name> [writer mappings default-label ?pairs]
+    (doseq [[?token $body] ?pairs
+            :let [$else (new Label)]]
+      (doto writer
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class <wrapper-class>) <value-method> <method-sig>)
+        (.visitLdcInsn ?token)
+        (.visitInsn <cmp-op>)
+        (.visitJumpInsn Opcodes/IFNE $else)
+        (.visitInsn Opcodes/POP)
+        (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+        (.visitLabel $else)))
+    (doto writer
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO default-label)))
+
+  ^:private compile-compare-ints  "java.lang.Long"   "longValue"   "()J" Opcodes/LCMP
+  ^:private compile-compare-reals "java.lang.Double" "doubleValue" "()D" Opcodes/DCMPL
+  )
+
+(defn ^:private compile-compare-texts [writer mappings default-label ?pairs]
+  (doseq [[?token $body] ?pairs
+          :let [$else (new Label)]]
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitLdcInsn ?token)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Object") "equals" (str "(" (->type-signature "java.lang.Object") ")Z"))
+      (.visitJumpInsn Opcodes/IFEQ $else)
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+      (.visitLabel $else)))
+  (doto writer
+    (.visitInsn Opcodes/POP)
+    (.visitJumpInsn Opcodes/GOTO default-label)))
 
 (let [+tag-sig+ (->type-signature "java.lang.String")
       variant-class* (->class +variant-class+)
@@ -362,23 +398,23 @@
   (defn ^:private compile-decision-tree [writer mappings default-label decision-tree]
     (match decision-tree
       [::test-bool ?pairs]
-      (compile-compare-primitive writer mappings default-label ?pairs "java.lang.Boolean"   "(Z)V")
+      (compile-compare-bools writer mappings default-label ?pairs)
       
-      [::test-int ?pairs]
-      (compile-compare-primitive writer mappings default-label ?pairs "java.lang.Integer"   "(I)V")
+      [::test-int  ?pairs]
+      (compile-compare-ints writer mappings default-label ?pairs)
 
       [::test-real ?pairs]
-      (compile-compare-primitive writer mappings default-label ?pairs "java.lang.Float"     "(F)V")
+      (compile-compare-reals writer mappings default-label ?pairs)
 
       [::test-char ?pairs]
-      (compile-compare-primitive writer mappings default-label ?pairs "java.lang.Character" "(C)V")
+      (compile-compare-chars writer mappings default-label ?pairs)
       
       [::test-text ?pairs]
-      (compile-compare-primitive writer mappings default-label ?pairs nil                   nil)
+      (compile-compare-texts writer mappings default-label ?pairs)
 
       [::store [::&analyser/local ?idx] $body]
       (doto writer
-        (.visitVarInsn Opcodes/ASTORE (inc ?idx))
+        (.visitVarInsn Opcodes/ASTORE ?idx)
         (.visitJumpInsn Opcodes/GOTO (get mappings $body)))
       
       [::test-tuple ?branches ?cases]
@@ -396,7 +432,7 @@
                               :let [sub-next-elem (new Label)]]
                         (doto writer
                           (.visitInsn Opcodes/DUP) ;; tuple, tuple
-                          (.visitFieldInsn Opcodes/GETFIELD tuple-class** (str "_" (inc ?subidx)) +variant-field-sig+) ;; tuple, object
+                          (.visitFieldInsn Opcodes/GETFIELD tuple-class** (str +partial-prefix+ ?subidx) +variant-field-sig+) ;; tuple, object
                           (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; tuple
                           (.visitLabel sub-next-elem)))
                     (doto writer
@@ -429,7 +465,7 @@
                                     :let [sub-next-elem (new Label)]]
                               (doto writer
                                 (.visitInsn Opcodes/DUP) ;; variant, variant
-                                (.visitFieldInsn Opcodes/GETFIELD variant-class** (str "_" (inc ?subidx)) +variant-field-sig+) ;; variant, object
+                                (.visitFieldInsn Opcodes/GETFIELD variant-class** (str +partial-prefix+ ?subidx) +variant-field-sig+) ;; variant, object
                                 (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; variant
                                 (.visitLabel sub-next-elem)))
                           (doto writer
@@ -528,7 +564,7 @@
                  mappings* (into {} (map first entries))
                  _ (dotimes [offset ?max-registers]
                      (let [idx (+ ?base-idx offset)]
-                       (.visitLocalVariable *writer* (str "v" idx) (->java-sig [::&type/Any]) nil start-label end-label idx)))]
+                       (.visitLocalVariable *writer* (str +local-prefix+ idx) (->java-sig [::&type/Any]) nil start-label end-label idx)))]
            _ (compile ?variant)
            :let [_ (doto *writer*
                      (.visitInsn Opcodes/DUP)
@@ -546,7 +582,7 @@
                                                      (first (:defaults ?decision-tree)))]
                        (doto *writer*
                          (.visitInsn Opcodes/DUP)
-                         (.visitVarInsn Opcodes/ASTORE (inc ?idx))
+                         (.visitVarInsn Opcodes/ASTORE ?idx)
                          (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
                        (doto *writer*
                          (.visitInsn Opcodes/POP)
@@ -570,37 +606,11 @@
          :let [start-label (new Label)
                end-label (new Label)
                _ (doto *writer*
-                   (.visitLocalVariable (str "v" ?idx) (->java-sig (:type ?value)) nil start-label end-label ?idx)
+                   (.visitLocalVariable (str +local-prefix+ ?idx) (->java-sig (:type ?value)) nil start-label end-label ?idx)
                    (.visitLabel start-label)
-                   (.visitVarInsn Opcodes/ASTORE (inc ?idx)))]
+                   (.visitVarInsn Opcodes/ASTORE ?idx))]
          _ (compile ?body)
          :let [_ (.visitLabel *writer* end-label)]]
-    (return nil)))
-
-(defn ^:private compile-field [compile ?name body]
-  (exec [*writer* &util/get-writer
-         class-name &analyser/module-name
-         :let [outer-class (->class class-name)
-               datum-sig (->type-signature "java.lang.Object")
-               current-class (str outer-class "$" (normalize-ident ?name))
-               _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
-               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                                current-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
-                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
-                            (doto (.visitEnd))))]
-         _ (with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (exec [*writer* &util/get-writer
-                    :let [_ (.visitCode *writer*)]
-                    _ (compile body)
-                    :let [_ (doto *writer*
-                              (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
-                              (.visitInsn Opcodes/RETURN)
-                              (.visitMaxs 0 0)
-                              (.visitEnd))]]
-               (return nil)))
-         :let [_ (.visitEnd *writer*)]
-         _ (save-class! current-class (.toByteArray =class))]
     (return nil)))
 
 (let [clo-field-sig (->type-signature "java.lang.Object")
@@ -627,19 +637,19 @@
         (.visitVarInsn Opcodes/ALOAD 0)
         (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-              (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
+              (.visitVarInsn Opcodes/ALOAD ?captured-id)
               (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
-            (->> (let [captured-name (str "__" ?captured-id)])
+            (->> (let [captured-name (str +closure-prefix+ ?captured-id)])
                  (match (:form ?captured)
                    [::&analyser/captured ?closure-id ?captured-id ?source])
                  (doseq [[?name ?captured] closed-over])))
         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-              (.visitVarInsn Opcodes/ILOAD (inc num-mappings))
+              (.visitInsn Opcodes/ICONST_0)
               (.visitFieldInsn Opcodes/PUTFIELD class-name "_counter" counter-sig)
               (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                     (.visitVarInsn Opcodes/ALOAD (+ clo_idx offset))
                     (.visitFieldInsn Opcodes/PUTFIELD class-name field-name clo-field-sig))
-                  (->> (let [field-name (str "_" clo_idx)]
+                  (->> (let [field-name (str +partial-prefix+ clo_idx)]
                          (doto (.visitField class (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) field-name clo-field-sig nil nil)
                            (.visitEnd)))
                        (dotimes [clo_idx (dec num-args)])
@@ -656,8 +666,8 @@
           (.visitVarInsn Opcodes/ALOAD 0)
           (.visitFieldInsn Opcodes/GETFIELD class-name (str <prefix> idx) clo-field-sig))))
 
-    ^:private add-closed-over-vars "__"
-    ^:private add-partial-vars     "_"
+    ^:private add-closure-vars +closure-prefix+
+    ^:private add-partial-vars +partial-prefix+
     )
 
   (defn ^:private add-nulls [writer amount]
@@ -678,8 +688,8 @@
               (-> (doto (.visitLabel branch-label)
                     (.visitTypeInsn Opcodes/NEW class-name)
                     (.visitInsn Opcodes/DUP)
-                    (add-closed-over-vars class-name closed-over)
-                    (.visitLdcInsn (-> current-captured inc int))
+                    (add-closure-vars class-name closed-over)
+                    (.visitLdcInsn (int current-captured))
                     (add-partial-vars class-name (take current-captured args))
                     (.visitVarInsn Opcodes/ALOAD 1)
                     (add-nulls (- (dec num-captured) current-captured))
@@ -697,8 +707,8 @@
         (.visitEnd))))
 
   (defn ^:private add-lambda-impl [class compile impl-signature impl-body]
-    (with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
-                   (.visitCode))
+    (&util/with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
+                         (.visitCode))
       (exec [;; :let [_ (prn 'add-lambda-impl/_0)]
              *writer* &util/get-writer
              ;; :let [_ (prn 'add-lambda-impl/_1 *writer*)]
@@ -714,9 +724,7 @@
 
   (defn ^:private instance-closure [compile lambda-class closed-over args init-signature]
     (exec [*writer* &util/get-writer
-           :let [;; _ (prn 'instance-closure/*writer* *writer*)
-                 num-args (count args)
-                 _ (doto *writer*
+           :let [_ (doto *writer*
                      (.visitTypeInsn Opcodes/NEW lambda-class)
                      (.visitInsn Opcodes/DUP))]
            _ (->> closed-over
@@ -726,10 +734,10 @@
                            (match (:form ?captured)
                              [::&analyser/captured ?closure-id ?captured-id ?source]
                              (compile ?source)))))
-           :let [_ (do (when (> num-args 1)
+           :let [num-args (count args)
+                 _ (do (when (> num-args 1)
                          (.visitInsn *writer* Opcodes/ICONST_0)
-                         (dotimes [_ (dec num-args)]
-                           (.visitInsn *writer* Opcodes/ACONST_NULL)))
+                         (add-nulls *writer* (dec num-args)))
                      (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature))]]
       (return nil)))
   
@@ -739,26 +747,25 @@
         (.visitCode)
         (.visitTypeInsn Opcodes/NEW class-name)
         (.visitInsn Opcodes/DUP)
-        (-> (doto (.visitLdcInsn (int 0))
-              (-> (.visitInsn Opcodes/ACONST_NULL)
-                  (->> (dotimes [_ (dec num-args)]))))
+        (-> (doto (.visitInsn *writer* Opcodes/ICONST_0)
+              (add-nulls (dec num-args)))
             (->> (when (> num-args 1))))
         (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" <init>-sig)
         (.visitFieldInsn Opcodes/PUTSTATIC class-name "_datum" +datum-sig+)
         (.visitInsn Opcodes/RETURN)
         (.visitMaxs 0 0)
         (.visitEnd))))
-
+  
   (defn ^:private compile-lambda [compile *type* ?scope ?closure ?args ?body with-datum? instance?]
-    (exec [:let [lambda-class (reduce str "" (interpose "$" (map normalize-ident ?scope)))
+    (exec [:let [lambda-class (storage-id ?scope)
                  impl-signature (lambda-impl-signature ?args)
                  <init>-sig (lambda-<init>-signature ?closure ?args)
                  =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                           (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                                  lambda-class nil "java/lang/Object" (into-array [(str +prefix+ "/Function")]))
+                                  lambda-class nil "java/lang/Object" (into-array [(->class +function-class+)]))
                           (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                                 (.visitEnd))
-                              (->> (let [captured-name (str "__" ?captured-id)])
+                              (->> (let [captured-name (str +closure-prefix+ ?captured-id)])
                                    (match (:form ?captured)
                                      [::&analyser/captured ?closure-id ?captured-id ?source])
                                    (doseq [[?name ?captured] ?closure])))
@@ -779,13 +786,44 @@
         (return nil))))
   )
 
-(defn ^:private compile-def [compile *type* ?name ?value]
-  (exec [_ (match (:form ?value)
-             [::&analyser/lambda ?scope ?captured ?args ?body]
-             (compile-lambda compile *type* ?scope ?closure ?args ?body true false)
+(defn ^:private compile-field [compile *type* ?name body]
+  (exec [*writer* &util/get-writer
+         class-name &analyser/module-name
+         :let [outer-class (->class class-name)
+               datum-sig (->type-signature "java.lang.Object")
+               current-class (storage-id (list ?name outer-class))
+               _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                                current-class nil "java/lang/Object" (into-array [(->class +function-class+)]))
+                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
+                            (doto (.visitEnd))))]
+         _ (&util/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+             (exec [*writer* &util/get-writer
+                    :let [_ (.visitCode *writer*)]
+                    _ (compile body)
+                    :let [_ (doto *writer*
+                              (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
+                              (.visitInsn Opcodes/RETURN)
+                              (.visitMaxs 0 0)
+                              (.visitEnd))]]
+               (return nil)))
+         :let [_ (.visitEnd *writer*)]
+         _ (save-class! current-class (.toByteArray =class))]
+    (return nil)))
 
+(defn ^:private compile-def [compile *type* name value]
+  (exec [_ (match value
+             [::&analyser/Expression ?form _]
+             (match ?form
+               [::&analyser/lambda ?scope ?captured ?args ?body]
+               (compile-lambda compile *type* ?scope ?closure ?args ?body true false)
+
+               _
+               (compile-field compile *type* name value))
+             
              _
-             (compile-field compile ?name ?value))]
+             (fail "Can only define expressions."))]
     (return nil)))
 
 (defn ^:private compile-jvm-class [compile *type* ?package ?name ?super-class ?fields ?methods]
@@ -829,163 +867,221 @@
          _ (save-class! full-name (.toByteArray =interface))]
     (return nil)))
 
-(defn ^:private compile-variant [compile *type* ?tag ?members]
-  (exec [*writer* &util/get-writer
-         :let [variant-class* (str (->class +variant-class+) (count ?members))
-               _ (doto *writer*
-                   (.visitTypeInsn Opcodes/NEW variant-class*)
-                   (.visitInsn Opcodes/DUP)
-                   (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
-                   (.visitInsn Opcodes/DUP)
-                   (.visitLdcInsn ?tag)
-                   (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (->type-signature "java.lang.String")))]
-         _ (map-m (fn [[?tfield ?member]]
-                    (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
-                           ret (compile ?member)
-                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD variant-class* (str "_" (inc ?tfield)) "Ljava/lang/Object;")]]
-                      (return ret)))
-                  (map vector (range (count ?members)) ?members))]
-    (return nil)))
+(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrapper-method> <wrapper-method-sig>]
+  (defn <name> [compile *type* ?x ?y]
+    (exec [:let [+wrapper-class+ (->class <wrapper-class>)]
+           *writer* &util/get-writer
+           _ (compile ?x)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+           _ (compile ?y)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                 _ (doto *writer*
+                     (.visitInsn <opcode>)
+                     (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ <wrapper-method> (str <wrapper-method-sig> (->type-signature <wrapper-class>))))]]
+      (return nil)))
 
-(let [+int-class+ (->class "java.lang.Integer")]
-  (do-template [<name> <opcode>]
-    (defn <name> [compile *type* ?x ?y]
-      (exec [*writer* &util/get-writer
-             _ (compile ?x)
-             :let [_ (doto *writer*
-                       (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
-                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I"))]
-             _ (compile ?y)
-             :let [_ (doto *writer*
-                       (.visitTypeInsn Opcodes/CHECKCAST +int-class+)
-                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL +int-class+ "intValue" "()I"))
-                   _ (doto *writer*
-                       (.visitInsn <opcode>)
-                       (.visitMethodInsn Opcodes/INVOKESTATIC +int-class+ "valueOf" (str "(I)" (->type-signature "java.lang.Integer"))))]]
-        (return nil)))
+  ^:private compile-jvm-iadd Opcodes/IADD "java.lang.Integer" "intValue"    "()I" "valueOf" "(I)"
+  ^:private compile-jvm-isub Opcodes/ISUB "java.lang.Integer" "intValue"    "()I" "valueOf" "(I)"
+  ^:private compile-jvm-imul Opcodes/IMUL "java.lang.Integer" "intValue"    "()I" "valueOf" "(I)"
+  ^:private compile-jvm-idiv Opcodes/IDIV "java.lang.Integer" "intValue"    "()I" "valueOf" "(I)"
+  ^:private compile-jvm-irem Opcodes/IREM "java.lang.Integer" "intValue"    "()I" "valueOf" "(I)"
+  
+  ^:private compile-jvm-ladd Opcodes/LADD "java.lang.Long"    "longValue"   "()J" "valueOf" "(J)"
+  ^:private compile-jvm-lsub Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" "valueOf" "(J)"
+  ^:private compile-jvm-lmul Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" "valueOf" "(J)"
+  ^:private compile-jvm-ldiv Opcodes/LDIV "java.lang.Long"    "longValue"   "()J" "valueOf" "(J)"
+  ^:private compile-jvm-lrem Opcodes/LREM "java.lang.Long"    "longValue"   "()J" "valueOf" "(J)"
 
-    ^:private compile-jvm-iadd Opcodes/IADD
-    ^:private compile-jvm-isub Opcodes/ISUB
-    ^:private compile-jvm-imul Opcodes/IMUL
-    ^:private compile-jvm-idiv Opcodes/IDIV
-    ^:private compile-jvm-irem Opcodes/IREM
-    ))
+  ^:private compile-jvm-fadd Opcodes/FADD "java.lang.Float"   "floatValue"  "()F" "valueOf" "(F)"
+  ^:private compile-jvm-fsub Opcodes/FSUB "java.lang.Float"   "floatValue"  "()F" "valueOf" "(F)"
+  ^:private compile-jvm-fmul Opcodes/FMUL "java.lang.Float"   "floatValue"  "()F" "valueOf" "(F)"
+  ^:private compile-jvm-fdiv Opcodes/FDIV "java.lang.Float"   "floatValue"  "()F" "valueOf" "(F)"
+  ^:private compile-jvm-frem Opcodes/FREM "java.lang.Float"   "floatValue"  "()F" "valueOf" "(F)"
+  
+  ^:private compile-jvm-dadd Opcodes/DADD "java.lang.Double"  "doubleValue" "()D" "valueOf" "(D)"
+  ^:private compile-jvm-dsub Opcodes/DSUB "java.lang.Double"  "doubleValue" "()D" "valueOf" "(D)"
+  ^:private compile-jvm-dmul Opcodes/DMUL "java.lang.Double"  "doubleValue" "()D" "valueOf" "(D)"
+  ^:private compile-jvm-ddiv Opcodes/DDIV "java.lang.Double"  "doubleValue" "()D" "valueOf" "(D)"
+  ^:private compile-jvm-drem Opcodes/DREM "java.lang.Double"  "doubleValue" "()D" "valueOf" "(D)"
+  )
 
-(defn compile-self-call [compile ?assumed-args]
+(defn ^:private compile-self-call [compile ?assumed-args]
   (exec [*writer* &util/get-writer
          :let [_ (.visitVarInsn *writer* Opcodes/ALOAD 0)]
          _ (map-m (fn [arg]
                     (exec [ret (compile arg)
-                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (str +prefix+ "/Function") "apply" +apply-signature+)]]
+                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (->class +function-class+) "apply" +apply-signature+)]]
                       (return ret)))
                   ?assumed-args)]
     (return nil)))
 
-(defn ^:private compile [syntax]
+(defn ^:private compile-expression [syntax]
   (match (:form syntax)
     [::&analyser/bool ?value]
-    (compile-bool compile (:type syntax) ?value)
+    (compile-bool compile-expression (:type syntax) ?value)
 
     [::&analyser/int ?value]
-    (compile-int compile (:type syntax) ?value)
+    (compile-int compile-expression (:type syntax) ?value)
 
     [::&analyser/real ?value]
-    (compile-real compile (:type syntax) ?value)
+    (compile-real compile-expression (:type syntax) ?value)
 
     [::&analyser/char ?value]
-    (compile-char compile (:type syntax) ?value)
+    (compile-char compile-expression (:type syntax) ?value)
 
     [::&analyser/text ?value]
-    (compile-text compile (:type syntax) ?value)
+    (compile-text compile-expression (:type syntax) ?value)
 
     [::&analyser/tuple ?elems]
-    (compile-tuple compile (:type syntax) ?elems)
+    (compile-tuple compile-expression (:type syntax) ?elems)
 
     [::&analyser/local ?idx]
-    (compile-local compile (:type syntax) ?idx)
+    (compile-local compile-expression (:type syntax) ?idx)
 
     [::&analyser/captured ?scope ?captured-id ?source]
-    (compile-captured compile (:type syntax) ?scope ?captured-id ?source)
+    (compile-captured compile-expression (:type syntax) ?scope ?captured-id ?source)
 
     [::&analyser/global ?owner-class ?name]
-    (compile-global compile (:type syntax) ?owner-class ?name)
+    (compile-global compile-expression (:type syntax) ?owner-class ?name)
 
     [::&analyser/call ?fn ?args]
-    (compile-call compile (:type syntax) ?fn ?args)
+    (compile-call compile-expression (:type syntax) ?fn ?args)
 
     [::&analyser/static-call ?needs-num ?fn ?args]
-    (compile-static-call compile (:type syntax) ?needs-num ?fn ?args)
+    (compile-static-call compile-expression (:type syntax) ?needs-num ?fn ?args)
 
     [::&analyser/variant ?tag ?members]
-    (compile-variant compile (:type syntax) ?tag ?members)
+    (compile-variant compile-expression (:type syntax) ?tag ?members)
 
     [::&analyser/let ?idx ?value ?body]
-    (compile-let compile (:type syntax) ?idx ?value ?body)
+    (compile-let compile-expression (:type syntax) ?idx ?value ?body)
 
     [::&analyser/case ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree]
-    (compile-case compile (:type syntax) ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree)
+    (compile-case compile-expression (:type syntax) ?base-idx ?variant ?max-registers ?branch-mappings ?decision-tree)
 
     [::&analyser/lambda ?scope ?frame ?args ?body]
-    (compile-lambda compile (:type syntax) ?scope ?frame ?args ?body false true)
+    (compile-lambda compile-expression (:type syntax) ?scope ?frame ?args ?body false true)
 
-    [::&analyser/def ?form ?body]
-    (compile-def compile (:type syntax) ?form ?body)
-    
+    ;; Integer arithmetic
     [::&analyser/jvm-iadd ?x ?y]
-    (compile-jvm-iadd compile (:type syntax) ?x ?y)
+    (compile-jvm-iadd compile-expression (:type syntax) ?x ?y)
     
     [::&analyser/jvm-isub ?x ?y]
-    (compile-jvm-isub compile (:type syntax) ?x ?y)
+    (compile-jvm-isub compile-expression (:type syntax) ?x ?y)
     
     [::&analyser/jvm-imul ?x ?y]
-    (compile-jvm-imul compile (:type syntax) ?x ?y)
+    (compile-jvm-imul compile-expression (:type syntax) ?x ?y)
     
     [::&analyser/jvm-idiv ?x ?y]
-    (compile-jvm-idiv compile (:type syntax) ?x ?y)
+    (compile-jvm-idiv compile-expression (:type syntax) ?x ?y)
     
     [::&analyser/jvm-irem ?x ?y]
-    (compile-jvm-irem compile (:type syntax) ?x ?y)
+    (compile-jvm-irem compile-expression (:type syntax) ?x ?y)
 
+    ;; Long arithmetic
+    [::&analyser/jvm-ladd ?x ?y]
+    (compile-jvm-ladd compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-lsub ?x ?y]
+    (compile-jvm-lsub compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-lmul ?x ?y]
+    (compile-jvm-lmul compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-ldiv ?x ?y]
+    (compile-jvm-ldiv compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-lrem ?x ?y]
+    (compile-jvm-lrem compile-expression (:type syntax) ?x ?y)
+
+    ;; Float arithmetic
+    [::&analyser/jvm-fadd ?x ?y]
+    (compile-jvm-fadd compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-fsub ?x ?y]
+    (compile-jvm-fsub compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-fmul ?x ?y]
+    (compile-jvm-fmul compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-fdiv ?x ?y]
+    (compile-jvm-fdiv compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-frem ?x ?y]
+    (compile-jvm-frem compile-expression (:type syntax) ?x ?y)
+
+    ;; Double arithmetic
+    [::&analyser/jvm-dadd ?x ?y]
+    (compile-jvm-dadd compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-dsub ?x ?y]
+    (compile-jvm-dsub compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-dmul ?x ?y]
+    (compile-jvm-dmul compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-ddiv ?x ?y]
+    (compile-jvm-ddiv compile-expression (:type syntax) ?x ?y)
+    
+    [::&analyser/jvm-drem ?x ?y]
+    (compile-jvm-drem compile-expression (:type syntax) ?x ?y)
+    
     [::&analyser/do ?exprs]
-    (compile-do compile (:type syntax) ?exprs)
+    (compile-do compile-expression (:type syntax) ?exprs)
 
     [::&analyser/jvm-new ?class ?classes ?args]
-    (compile-jvm-new compile (:type syntax) ?class ?classes ?args)
+    (compile-jvm-new compile-expression (:type syntax) ?class ?classes ?args)
 
     [::&analyser/jvm-getstatic ?class ?field]
-    (compile-jvm-getstatic compile (:type syntax) ?class ?field)
+    (compile-jvm-getstatic compile-expression (:type syntax) ?class ?field)
 
     [::&analyser/jvm-getfield ?class ?field ?object]
-    (compile-jvm-getfield compile (:type syntax) ?class ?field ?object)
+    (compile-jvm-getfield compile-expression (:type syntax) ?class ?field ?object)
     
     [::&analyser/jvm-invokestatic ?class ?method ?classes ?args]
-    (compile-jvm-invokestatic compile (:type syntax) ?class ?method ?classes ?args)
+    (compile-jvm-invokestatic compile-expression (:type syntax) ?class ?method ?classes ?args)
 
     [::&analyser/jvm-invokevirtual ?class ?method ?classes ?object ?args]
-    (compile-jvm-invokevirtual compile (:type syntax) ?class ?method ?classes ?object ?args)
+    (compile-jvm-invokevirtual compile-expression (:type syntax) ?class ?method ?classes ?object ?args)
 
     [::&analyser/jvm-new-array ?class ?length]
-    (compile-jvm-new-array compile (:type syntax) ?class ?length)
+    (compile-jvm-new-array compile-expression (:type syntax) ?class ?length)
 
     [::&analyser/jvm-aastore ?array ?idx ?elem]
-    (compile-jvm-aastore compile (:type syntax) ?array ?idx ?elem)
+    (compile-jvm-aastore compile-expression (:type syntax) ?array ?idx ?elem)
 
     [::&analyser/jvm-aaload ?array ?idx]
-    (compile-jvm-aaload compile (:type syntax) ?array ?idx)
-
-    [::&analyser/jvm-interface [?package ?name] ?members]
-    (compile-jvm-interface compile (:type syntax) ?package ?name ?members)
-
-    [::&analyser/jvm-class [?package ?name] ?super-class ?members]
-    (compile-jvm-class compile (:type syntax) ?package ?name ?super-class ?members)
+    (compile-jvm-aaload compile-expression (:type syntax) ?array ?idx)
 
     [::&analyser/self ?assumed-args]
-    (compile-self-call compile ?assumed-args)
+    (compile-self-call compile-expression ?assumed-args)
+
+    _
+    (fail "[Compiler Error] Can't compile expressions as top-level forms.")
+    ))
+
+(defn ^:private compile-statement [syntax]
+  (match (:form syntax)
+    [::&analyser/def ?form ?body]
+    (compile-def compile-expression (:type syntax) ?form ?body)
+    
+    [::&analyser/jvm-interface [?package ?name] ?members]
+    (compile-jvm-interface compile-expression (:type syntax) ?package ?name ?members)
+
+    [::&analyser/jvm-class [?package ?name] ?super-class ?members]
+    (compile-jvm-class compile-expression (:type syntax) ?package ?name ?super-class ?members)
+
+    _
+    (fail "[Compiler Error] Can't compile expressions as top-level forms.")
     ))
 
 ;; [Interface]
 (let [compiler-step (exec [analysis+ &analyser/analyse]
-                      (map-m compile analysis+))]
+                      (map-m compile-statement analysis+))]
   (defn compile-module [name]
     (exec [loader &util/loader]
       (fn [state]
@@ -994,28 +1090,25 @@
           (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                  (->class name) nil "java/lang/Object" nil))]
-            (match ((repeat-m compiler-step) (assoc state
-                                               ::&util/source (slurp (str "source/" name ".lux"))
-                                               ::&util/current-module name
-                                               ::&util/writer =class))
-              [::&util/ok [?state ?forms]]
-              (if (empty? (::&util/source ?state))
-                (do (.visitEnd =class)
-                  ((save-class! name (.toByteArray =class)) ?state))
-                (assert false (str "[Compiler Error] Can't compile: " (::&util/source ?state))))
+            (match (&util/run-state (exhaust-m compiler-step) (assoc state
+                                                                ::&util/source (slurp (str "source/" name ".lux"))
+                                                                ::&util/current-module name
+                                                                ::&util/writer =class))
+              [::&util/ok [?state _]]
+              (do (.visitEnd =class)
+                (&util/run-state (save-class! name (.toByteArray =class)) ?state))
               
               [::&util/failure ?message]
               (fail* ?message))))))))
 
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
-  (let [state (&util/init-state)]
-    (match ((map-m compile-module modules) state)
-      [::&util/ok [?state ?forms]]
-      (println (str "Compilation complete! " (pr-str modules)))
+  (match (&util/run-state (map-m compile-module modules) (&util/init-state))
+    [::&util/ok [?state _]]
+    (println (str "Compilation complete! " (pr-str modules)))
 
-      [::&util/failure ?message]
-      (assert false ?message))))
+    [::&util/failure ?message]
+    (assert false ?message)))
 
 (comment
   (compile-all ["lux"])

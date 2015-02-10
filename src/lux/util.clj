@@ -150,15 +150,6 @@
     (exec [head (first m-values)]
       (sequence-m (rest monads)))))
 
-(defn within [slot monad]
-  (fn [state]
-    (let [=return (monad (get state slot))]
-      (match =return
-        [::ok [?state ?value]]
-        [::ok [(assoc state slot ?state) ?value]]
-        _
-        =return))))
-
 (defn ^:private normalize-char [char]
   (case char
     \* "_ASTER_"
@@ -201,10 +192,15 @@
   {:counter 0
    :mappings {}})
 
+(defn scope [name]
+  {:name name
+   :inner-lambdas 0
+   :locals  +init-env+
+   :closure +init-env+})
+
 (defn init-state []
   {::source nil
    ::current-module nil
-   ::scope (list)
    ::modules {}
    ::global-env {}
    ::local-envs (list)
@@ -212,12 +208,26 @@
    ::writer nil
    ::loader (class-loader!)})
 
-(do-template [<name>]
+(do-template [<name> <tag>]
   (def <name>
     (fn [state]
-      [::ok [state (::current-module state)]]))
+      (if-let [datum (<tag> state)]
+        [::ok [state datum]]
+        [::failure (str "Data does not exist: " <tag>)])))
 
   get-module-name ::current-module
-  get-scope       ::scope
   get-writer      ::writer
   )
+
+(defn with-writer [writer body]
+  (fn [state]
+    (let [output (body (assoc state ::writer writer))]
+      (match output
+        [::ok [?state ?value]]
+        [::ok [(assoc ?state ::writer (::writer state)) ?value]]
+
+        _
+        output))))
+
+(defn run-state [monad state]
+  (monad state))

@@ -3,7 +3,6 @@
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
                                          repeat-m try-all-m map-m mapcat-m reduce-m
-                                         within
                                          normalize-ident]]
                  [parser :as &parser]
                  [type :as &type]
@@ -13,24 +12,22 @@
 ;; [Util]
 (def ^:private +dont-care-type+ [::&type/Any])
 
-(defn ^:private fresh-env [name]
-  {:name name
-   :inner-closures 0
-   :locals  &util/+init-env+
-   :closure &util/+init-env+})
-
-(defn ^:private annotate [name access macro? type]
+(defn ^:private annotate [module name access type]
   (fn [state]
-    (let [full-name (str (::&util/current-module state) &util/+name-separator+ name)
-          bound [::Expression [::global (::&util/current-module state) name] type]]
+    (let [full-name (str module &util/+name-separator+ name)
+          bound [::Expression [::global module name] type]]
       [::&util/ok [(-> state
-                       (assoc-in [::&util/modules (::&util/current-module state) name] {:args-n [:None]
-                                                                                        :access access
-                                                                                        :macro? macro?
-                                                                                        :type   type
-                                                                                        :defined? false})
+                       (assoc-in [::&util/modules module name] {:args-n [:None]
+                                                                :access access
+                                                                :type   type
+                                                                :defined? false})
                        (update-in [::&util/global-env] merge {full-name bound, name bound}))
                    nil]])))
+
+(defn ^:private declare-macro [module name]
+  (fn [state]
+    [::&util/ok [(assoc-in state [::&util/modules module :macros name] true)
+                 nil]]))
 
 (defn ^:private expr-type [syntax+]
   (match syntax+
@@ -38,28 +35,26 @@
     (return type)
 
     _
-    (fail "Can't retrieve the type of a statement.")))
+    (fail "Can't retrieve the type of a non-expression.")))
 
-(defn ^:private define [name]
-  (fn [state]
-    (if-let [{:keys [type]} (get-in state [::&util/modules (::&util/current-module state) name])]
-      [::&util/ok [(-> state
-                       (assoc-in [::&util/modules (::&util/current-module state) name :defined?] true)
-                       (update-in [::&util/global-env] merge {full-name bound, name bound}))
-                   nil]]
-      (fail* (str "[Analyser Error] Can't define an unannotated element: " name)))))
+(defn ^:private define [module name]
+  (exec [? annotated?
+         _ (assert! ? (str "[Analyser Error] Can't define an unannotated element: " name))]
+    (fn [state]
+      [::&util/ok [(assoc-in state [::&util/modules module name :defined?] true)
+                   nil]])))
 
-(defn ^:private defined? [name]
+(defn ^:private defined? [module name]
   (fn [state]
-    [::&util/ok [state (get-in state [::&util/modules (::&util/current-module state) name :defined?])]]))
+    [::&util/ok [state (get-in state [::&util/modules module name :defined?])]]))
 
-(defn ^:private annotated? [name]
+(defn ^:private annotated? [module name]
   (fn [state]
-    [::&util/ok [state (boolean (get-in state [::&util/modules (::&util/current-module state) name]))]]))
+    [::&util/ok [state (boolean (get-in state [::&util/modules module name]))]]))
 
-(defn ^:private is-macro? [module name]
+(defn ^:private macro? [module name]
   (fn [state]
-    [::&util/ok [state (boolean (get-in state [::&util/modules module name :macro?]))]]))
+    [::&util/ok [state (boolean (get-in state [::&util/modules module :macros name]))]]))
 
 (def ^:private next-local-idx
   (fn [state]
@@ -114,12 +109,16 @@
   (fn [state]
     [::&util/ok [state (-> state ::&util/local-envs first :closure :mappings)]]))
 
-(defn ^:private analyse-n [elems]
-  (let [num-inputs (count elems)]
-    (exec [output (mapcat-m analyse-ast elems)
-           _ (&util/assert! (= num-inputs (count output))
-                            (str "[Analyser Error] Can't expand to other than " num-inputs " elements."))]
-      (return output))))
+(defn ^:private analyse-1 [elem]
+  (exec [output (analyse-ast elem)
+         _ (&util/assert! (= 1 (count output)) "[Analyser Error] Can't expand to other than 1 element.")]
+    (return (first output))))
+
+(defn ^:private analyse-2 [el1 el2]
+  (exec [output (mapcat-m analyse-ast (list el1 el2))
+         _ (&util/assert! (= 2 (count output))
+                          "[Analyser Error] Can't expand to other than 2 elements.")]
+    (return [(first output) (second output)])))
 
 (defn ^:private with-lambda [self self-type arg arg-type body]
   (fn [state]
@@ -128,7 +127,6 @@
                     (with-let self :self self-type
                       (with-let arg :local arg-type
                         (exec [=return body
-                               =next next-local-idx
                                =captured captured-vars]
                           (return [$scope =next =captured =return]))))))]
       (body* (update-in state [::&util/local-envs] #(cons (update-in (first %) [:inner-closures] inc)
@@ -184,13 +182,13 @@
     ))
 
 (defn ^:private analyse-call [analyse-ast ?fn ?args]
-  (exec [[=fn] (analyse-n (list ?fn))
+  (exec [=fn (analyse-1 ?fn)
          loader &util/loader]
     (match =fn
       [::Expression =fn-form =fn-type]
       (match =fn-form
         [::global ?module ?name]
-        (exec [macro? (is-macro? ?module ?name)]
+        (exec [macro? (macro? ?module ?name)]
           (if macro?
             (let [macro-class (str ?module "$" (normalize-ident ?name))
                   output (-> (.loadClass loader macro-class)
@@ -344,7 +342,7 @@
                           (let [branches* (reduce fold-branch base-struct data)]
                             (match branches*
                               [::BoolTests _]  branches*
-                              [::IntTests _]   branches*
+                              [::IntTests  _]  branches*
                               [::RealTests _]  branches*
                               [::CharTests _]  branches*
                               [::TextTests _]  branches*
@@ -438,84 +436,85 @@
           max-registers (reduce max 0 (map count vars))]
       [max-registers branch-mappings (generate-branches branches**)])))
 
+(defn ^:private locals-getter [?member]
+  (match ?member
+    [::&parser/Ident ?name]
+    (list [?name +dont-care-type+])
+
+    [::&parser/Tuple ?submembers]
+    (mapcat locals-getter ?submembers)
+
+    [::&parser/Form ([[::&parser/Tag ?subtag] & ?submembers] :seq)]
+    (mapcat locals-getter ?submembers)
+
+    _
+    (list)
+    ))
+
 (defn ^:private analyse-case-branches [branches]
   (map-m (fn [[?pattern ?body]]
            (match ?pattern
              [::&parser/Bool ?token]
-             (exec [[=body] (analyse-n (list ?body))]
+             (exec [=body (analyse-1 ?body)]
                (return [::case-branch ?pattern =body]))
 
              [::&parser/Int ?token]
-             (exec [[=body] (analyse-n (list ?body))]
+             (exec [=body (analyse-1 ?body)]
                (return [::case-branch ?pattern =body]))
 
              [::&parser/Real ?token]
-             (exec [[=body] (analyse-n (list ?body))]
+             (exec [=body (analyse-1 ?body)]
                (return [::case-branch ?pattern =body]))
 
              [::&parser/Char ?token]
-             (exec [[=body] (analyse-n (list ?body))]
+             (exec [=body (analyse-1 ?body)]
                (return [::case-branch ?pattern =body]))
 
              [::&parser/Text ?token]
-             (exec [[=body] (analyse-n (list ?body))]
+             (exec [=body (analyse-1 ?body)]
                (return [::case-branch ?pattern =body]))
              
              [::&parser/Ident ?name]
-             (exec [[=body] (with-let ?name :local +dont-care-type+
-                              (analyse-n (list ?body)))]
+             (exec [=body (with-let ?name :local +dont-care-type+
+                            (analyse-1 ?body))]
                (return [::case-branch ?pattern =body]))
 
              [::&parser/Tag ?tag]
-             (exec [[=body] (analyse-n (list ?body))]
+             (exec [=body (analyse-1 ?body)]
                (return [::case-branch ?pattern =body]))
-
+             
              [::&parser/Tuple ?members]
-             (exec [[=body] (with-lets (mapcat locals-getter ?members)
-                              (analyse-n (list ?body)))]
+             (exec [=body (with-lets (mapcat locals-getter ?members)
+                            (analyse-1 ?body))]
                (return [::case-branch ?pattern =body]))
              
              [::&parser/Form ([[::&parser/Tag ?tag] & ?members] :seq)]
-             (exec [[=body] (with-lets (mapcat locals-getter ?members)
-                              (analyse-n (list ?body)))]
+             (exec [=body (with-lets (mapcat locals-getter ?members)
+                            (analyse-1 ?body))]
                (return [::case-branch ?pattern =body]))
              ))
          branches))
 
-(let [locals-getter (fn locals-getter [?member]
-                      (match ?member
-                        [::&parser/Ident ?name]
-                        (list [?name +dont-care-type+])
-
-                        [::&parser/Tuple ?submembers]
-                        (mapcat locals-getter ?submembers)
-
-                        [::&parser/Form ([[::&parser/Tag ?subtag] & ?submembers] :seq)]
-                        (mapcat locals-getter ?submembers)
-
-                        _
-                        (list)
-                        ))]
-  (defn ^:private analyse-case [analyse-ast ?variant ?branches]
-    (exec [[=variant] (analyse-n (list ?variant))
-           _ (assert! (and (> (count ?branches) 0) (even? (count ?branches)))
-                      "Imbalanced branches in \"case'\" expression.")
-           $base next-local-idx
-           [registers mappings tree] (exec [=branches (analyse-case-branches (partition 2 ?branches))]
-                                       (return (->decision-tree $base =branches)))]
-      (return (list [::Expression [::case $base =variant registers mappings tree] +dont-care-type+])))))
+(defn ^:private analyse-case [analyse-ast ?variant ?branches]
+  (exec [=variant (analyse-1 ?variant)
+         _ (assert! (and (> (count ?branches) 0) (even? (count ?branches)))
+                    "Imbalanced branches in \"case'\" expression.")
+         $base next-local-idx
+         [num-registers mappings tree] (exec [=branches (analyse-case-branches (partition 2 ?branches))]
+                                         (return (->decision-tree $base =branches)))]
+    (return (list [::Expression [::case $base =variant num-registers mappings tree] +dont-care-type+]))))
 
 (defn ^:private analyse-let [analyse-ast ?label ?value ?body]
-  (exec [[=value] (analyse-n (list ?value))
+  (exec [=value (analyse-1 ?value)
          =value-type (expr-type =value)
          idx next-local-idx
-         [=body] (with-let ?label :local =value-type
-                   (analyse-n (list ?body)))
+         =body (with-let ?label :local =value-type
+                 (analyse-1 ?body))
          =body-type (expr-type =body)]
     (return (list [::Expression [::let idx =value =body] =body-type]))))
 
-(defn ^:private raise-tree-bindings [raise-expr ?tree]
-  (let [tree-partial-f (partial raise-tree-bindings raise-expr)]
+(defn ^:private raise-tree-bindings [raise-expr arg ?tree]
+  (let [tree-partial-f (partial raise-tree-bindings raise-expr arg)]
     (case (:type ?tree)
       (::tuple ::variant)
       (-> ?tree
@@ -525,23 +524,24 @@
           (update-in [:default]
                      (fn [[tag local $branch :as total]]
                        (if total
-                         (match (raise-expr [::Expression local [::&type/Nothing]])
+                         (match (raise-expr arg [::Expression local [::&type/Nothing]])
                            [::Expression local* [::&type/Nothing]]
                            [tag local* $branch])))))
       
       ::defaults
       (update-in ?tree [:stores]
                  #(into {} (for [[?store ?branches] %]
-                             (match (raise-expr [::Expression ?store [::&type/Nothing]])
+                             (match (raise-expr arg [::Expression ?store [::&type/Nothing]])
                                [::Expression =store [::&type/Nothing]]
                                [=store ?branches]))))
       ;; else
       (assert false (pr-str ?tree))
       )))
 
-(defn ^:private raise-expr [syntax]
+(defn ^:private raise-expr [arg syntax]
   ;; (prn 'raise-bindings body)
-  (let [tree-partial-f (partial raise-tree-bindings raise-expr)]
+  (let [partial-f (partial raise-expr arg)
+        tree-partial-f (partial raise-tree-bindings raise-expr arg)]
     (match syntax
       [::Expression ?form ?type]
       (match ?form
@@ -561,10 +561,10 @@
         syntax
         
         [::tuple ?members]
-        [::Expression [::tuple (map raise-expr ?members)] ?type]
+        [::Expression [::tuple (map partial-f ?members)] ?type]
 
         [::variant ?tag ?members]
-        [::Expression [::variant ?tag (map raise-expr ?members)] ?type]
+        [::Expression [::variant ?tag (map partial-f ?members)] ?type]
         
         [::local ?idx]
         [::Expression [::local (inc ?idx)] ?type]
@@ -573,76 +573,125 @@
         ?source
 
         [::self ?curried]
-        [::Expression [::self (map raise-expr ?curried)] ?type]
+        [::Expression [::self (cons arg (map partial-f ?curried))] ?type]
 
         [::global _ _]
         syntax
 
-        [::jvm-iadd ?x ?y]
-        [::Expression [::jvm-iadd (raise-expr ?x) (raise-expr ?y)] ?type]
-
-        [::jvm-isub ?x ?y]
-        [::Expression [::jvm-isub (raise-expr ?x) (raise-expr ?y)] ?type]
-
-        [::jvm-imul ?x ?y]
-        [::Expression [::jvm-imul (raise-expr ?x) (raise-expr ?y)] ?type]
-
-        [::jvm-idiv ?x ?y]
-        [::Expression [::jvm-idiv (raise-expr ?x) (raise-expr ?y)] ?type]
-
-        [::jvm-irem ?x ?y]
-        [::Expression [::jvm-irem (raise-expr ?x) (raise-expr ?y)] ?type]
-
         [::let ?idx ?value ?body]
-        [::Expression [::let (inc ?idx) (raise-expr ?value)
-                       (raise-expr ?body)]
+        [::Expression [::let (inc ?idx) (partial-f ?value)
+                       (partial-f ?body)]
          ?type]
 
         [::case ?base ?variant ?registers ?mappings ?tree]
-        (let [=variant (raise-expr ?variant)
+        (let [=variant (partial-f ?variant)
               =mappings (into {} (for [[idx syntax] ?mappings]
-                                   [idx (raise-expr syntax)]))
+                                   [idx (partial-f syntax)]))
               =tree (tree-partial-f ?tree)]
           [::Expression [::case (inc ?base) =variant ?registers =mappings =tree] ?type])
 
         [::lambda ?scope ?captured ?args ?value]
         [::Expression [::lambda (pop ?scope)
                        (into {} (for [[?name ?sub-syntax] ?captured]
-                                  [?name (raise-expr ?sub-syntax)]))
+                                  [?name (partial-f ?sub-syntax)]))
                        ?args
                        ?value]
          ?type]
+
+        [::call ?func ?args]
+        [::Expression [::call (partial-f ?func) (map partial-f ?args)] ?type]
+
+        [::do ?asts]
+        [::Expression [::do (map partial-f ?asts)] ?type]
 
         [::jvm-getstatic _ _]
         syntax
         
         [::jvm-invokevirtual ?class ?method ?arg-classes ?obj ?args]
         [::Expression [::jvm-invokevirtual ?class ?method ?arg-classes
-                       (raise-expr ?obj)
-                       (map raise-expr ?args)]
+                       (partial-f ?obj)
+                       (map partial-f ?args)]
          ?type]
 
-        [::do ?asts]
-        [::Expression [::do (map raise-expr ?asts)] ?type]
+        ;; Integer arithmetic
+        [::jvm-iadd ?x ?y]
+        [::Expression [::jvm-iadd (partial-f ?x) (partial-f ?y)] ?type]
 
-        [::call ?func ?args]
-        [::Expression [::call (raise-expr ?func) (map raise-expr ?args)] ?type]
+        [::jvm-isub ?x ?y]
+        [::Expression [::jvm-isub (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-imul ?x ?y]
+        [::Expression [::jvm-imul (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-idiv ?x ?y]
+        [::Expression [::jvm-idiv (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-irem ?x ?y]
+        [::Expression [::jvm-irem (partial-f ?x) (partial-f ?y)] ?type]
+
+        ;; Long arithmetic
+        [::jvm-ladd ?x ?y]
+        [::Expression [::jvm-ladd (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-lsub ?x ?y]
+        [::Expression [::jvm-lsub (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-lmul ?x ?y]
+        [::Expression [::jvm-lmul (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-ldiv ?x ?y]
+        [::Expression [::jvm-ldiv (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-lrem ?x ?y]
+        [::Expression [::jvm-lrem (partial-f ?x) (partial-f ?y)] ?type]
+
+        ;; Float arithmetic
+        [::jvm-fadd ?x ?y]
+        [::Expression [::jvm-fadd (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-fsub ?x ?y]
+        [::Expression [::jvm-fsub (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-fmul ?x ?y]
+        [::Expression [::jvm-fmul (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-fdiv ?x ?y]
+        [::Expression [::jvm-fdiv (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-frem ?x ?y]
+        [::Expression [::jvm-frem (partial-f ?x) (partial-f ?y)] ?type]
+
+        ;; Double arithmetic
+        [::jvm-dadd ?x ?y]
+        [::Expression [::jvm-dadd (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-dsub ?x ?y]
+        [::Expression [::jvm-dsub (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-dmul ?x ?y]
+        [::Expression [::jvm-dmul (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-ddiv ?x ?y]
+        [::Expression [::jvm-ddiv (partial-f ?x) (partial-f ?y)] ?type]
+
+        [::jvm-drem ?x ?y]
+        [::Expression [::jvm-drem (partial-f ?x) (partial-f ?y)] ?type]
 
         _
         (assert false syntax)
         ))))
 
 (defn ^:private analyse-lambda [analyse-ast ?self ?arg ?body]
-  (exec [[_ =arg =return :as =function] (within ::&util/types &type/fresh-function)
-         [=scope =next-local =captured [=body]] (with-lambda ?self =function
-                                                  ?arg =arg
-                                                  (analyse-n (list ?body)))
+  (exec [[_ =arg =return :as =function] &type/fresh-function
+         [=scope =captured =body] (with-lambda ?self =function
+                                    ?arg =arg
+                                    (analyse-1 ?body))
          =body-type (expr-type =body)
-         =function (within ::&util/types (exec [_ (&type/solve =return =body-type)]
-                                           (&type/clean =function)))
+         =function (exec [_ (&type/solve =return =body-type)]
+                     (&type/clean =function))
          :let [=lambda (match =body
                     [::Expression [::lambda ?sub-scope ?sub-captured ?sub-args ?sub-body] =body-type]
-                    [::Expression [::lambda =scope =captured (cons ?arg ?sub-args) (raise-expr ?sub-body)] =body-type]
+                    [::Expression [::lambda =scope =captured (cons ?arg ?sub-args) (raise-expr ?arg ?sub-body)] =body-type]
 
                     _
                     [::Expression [::lambda =scope =captured (list ?arg) =body] =body-type])]]
@@ -652,10 +701,10 @@
   ;; (prn 'analyse-def ?name ?value)
   (exec [def?? (defined? ?name)]
     (if def??
-      (fail (str "Can't redefine function/constant: " ?name))
+      (fail (str "Can't redefine " ?name))
       (exec [ann?? (annotated? ?name)
              $module &util/get-module-name
-             [=value] (analyse-n (list ?value))
+             =value (analyse-1 ?value)
              =value (match =value
                       [::Expression =value-form =value-type]
                       (return (match =value-form
@@ -674,7 +723,7 @@
              _ (define ?name)]
         (return (list [::Statement [::def ?name =value]]))))))
 
-(defn ^:private analyse-annotate [?ident]
+(defn ^:private analyse-declare-macro [?ident]
   (exec [_ (annotate ?ident ::public true [::&type/Any])]
     (return (list))))
 
@@ -682,16 +731,39 @@
   (assert false)
   (return (list)))
 
-(do-template [<name> <ident> <output-tag>]
+(do-template [<name> <ident> <output-tag> <wrapper-class>]
   (defn <name> [analyse-ast ?x ?y]
-    (exec [[=x =y] (analyse-n (list ?x ?y))]
-      (return (list [::Expression [<output-tag> =x =y] [::&type/Data "java.lang.Integer"]]))))
+    (exec [:let [=type [::&type/Data <wrapper-class>]]
+           [=x =y] (analyse-2 ?x ?y)
+           =x-type (expr-type =x)
+           =y-type (expr-type =y)
+           _ (&type/solve =type =x-type)
+           _ (&type/solve =type =y-type)]
+      (return (list [::Expression [<output-tag> =x =y] =type]))))
 
-  ^:private analyse-jvm-iadd "jvm;iadd" ::jvm-iadd
-  ^:private analyse-jvm-isub "jvm;isub" ::jvm-isub
-  ^:private analyse-jvm-imul "jvm;imul" ::jvm-imul
-  ^:private analyse-jvm-idiv "jvm;idiv" ::jvm-idiv
-  ^:private analyse-jvm-irem "jvm;irem" ::jvm-irem
+  ^:private analyse-jvm-iadd "jvm;iadd" ::jvm-iadd "java.lang.Integer"
+  ^:private analyse-jvm-isub "jvm;isub" ::jvm-isub "java.lang.Integer"
+  ^:private analyse-jvm-imul "jvm;imul" ::jvm-imul "java.lang.Integer"
+  ^:private analyse-jvm-idiv "jvm;idiv" ::jvm-idiv "java.lang.Integer"
+  ^:private analyse-jvm-irem "jvm;irem" ::jvm-irem "java.lang.Integer"
+
+  ^:private analyse-jvm-ladd "jvm;ladd" ::jvm-ladd "java.lang.Long"
+  ^:private analyse-jvm-lsub "jvm;lsub" ::jvm-lsub "java.lang.Long"
+  ^:private analyse-jvm-lmul "jvm;lmul" ::jvm-lmul "java.lang.Long"
+  ^:private analyse-jvm-ldiv "jvm;ldiv" ::jvm-ldiv "java.lang.Long"
+  ^:private analyse-jvm-lrem "jvm;lrem" ::jvm-lrem "java.lang.Long"
+
+  ^:private analyse-jvm-iadd "jvm;fadd" ::jvm-fadd "java.lang.Float"
+  ^:private analyse-jvm-isub "jvm;fsub" ::jvm-fsub "java.lang.Float"
+  ^:private analyse-jvm-imul "jvm;fmul" ::jvm-fmul "java.lang.Float"
+  ^:private analyse-jvm-idiv "jvm;fdiv" ::jvm-fdiv "java.lang.Float"
+  ^:private analyse-jvm-irem "jvm;frem" ::jvm-frem "java.lang.Float"
+
+  ^:private analyse-jvm-iadd "jvm;dadd" ::jvm-dadd "java.lang.Double"
+  ^:private analyse-jvm-isub "jvm;dsub" ::jvm-dsub "java.lang.Double"
+  ^:private analyse-jvm-imul "jvm;dmul" ::jvm-dmul "java.lang.Double"
+  ^:private analyse-jvm-idiv "jvm;ddiv" ::jvm-ddiv "java.lang.Double"
+  ^:private analyse-jvm-irem "jvm;drem" ::jvm-drem "java.lang.Double"
   )
 
 (defn ^:private analyse-jvm-getstatic [analyse-ast ?class ?field]
@@ -702,7 +774,7 @@
 (defn ^:private analyse-jvm-getfield [analyse-ast ?class ?field ?object]
   (exec [=class (full-class-name ?class)
          =type (lookup-static-field =class ?field)
-         [=object] (analyse-n (list ?object))]
+         =object (analyse-1 ?object)]
     (return (list [::Expression [::jvm-getfield =class ?field =object] =type]))))
 
 (defn ^:private analyse-jvm-invokestatic [analyse-ast ?class ?method ?classes ?args]
@@ -716,7 +788,7 @@
   (exec [=class (full-class-name ?class)
          =classes (map-m extract-jvm-param ?classes)
          =return (lookup-virtual-method =class ?method =classes)
-         [=object] (analyse-n (list ?object))
+         =object (analyse-1 ?object)
          =args (mapcat-m analyse-ast ?args)]
     (return (list [::Expression [::jvm-invokevirtual =class ?method =classes =object =args] =return]))))
 
@@ -731,12 +803,12 @@
     (return (list [::Expression [::jvm-new-array =class ?length] [::&type/Array [::&type/Data =class]]]))))
 
 (defn ^:private analyse-jvm-aastore [analyse-ast ?array ?idx ?elem]
-  (exec [[=array =elem] (analyse-n (list ?array ?elem))
+  (exec [[=array =elem] (analyse-2 ?array ?elem)
          =array-type (expr-type =array)]
     (return (list [::Expression [::jvm-aastore =array ?idx =elem] =array-type]))))
 
 (defn ^:private analyse-jvm-aaload [analyse-ast ?array ?idx]
-  (exec [[=array] (analyse-n (list ?array))
+  (exec [=array (analyse-1 ?array)
          =array-type (expr-type =array)]
     (return (list [::Expression [::jvm-aaload =array ?idx] =array-type]))))
 
@@ -779,10 +851,10 @@
     (return (list [::Expression [::bool ?value] [::&type/Data "java.lang.Boolean"]]))
 
     [::&parser/int ?value]
-    (return (list [::Expression [::int ?value]  [::&type/Data "java.lang.Integer"]]))
+    (return (list [::Expression [::int ?value]  [::&type/Data "java.lang.Long"]]))
 
     [::&parser/real ?value]
-    (return (list [::Expression [::real ?value] [::&type/Data "java.lang.Float"]]))
+    (return (list [::Expression [::real ?value] [::&type/Data "java.lang.Double"]]))
 
     [::&parser/char ?value]
     (return (list [::Expression [::char ?value] [::&type/Data "java.lang.Character"]]))
@@ -811,8 +883,8 @@
     [::&parser/form ([[::&parser/ident "def'"] [::&parser/ident ?name] ?value] :seq)]
     (analyse-def analyse-ast ?name ?value)
 
-    [::&parser/form ([[::&parser/ident "annotate"] [::&parser/ident ?ident] [::&parser/ident "Macro"]] :seq)]
-    (analyse-annotate ?ident)
+    [::&parser/form ([[::&parser/ident "declare-macro"] [::&parser/ident ?ident]] :seq)]
+    (analyse-declare-macro ?ident)
     
     [::&parser/form ([[::&parser/ident "require"] [::&parser/text ?path]] :seq)]
     (analyse-require analyse-ast ?path)
@@ -820,7 +892,8 @@
     ;; Host special forms
     [::&parser/form ([[::&parser/ident "do"] & ?exprs] :seq)]
     (analyse-do analyse-ast ?exprs)
-    
+
+    ;; Integer arithmetic
     [::&parser/form ([[::&parser/ident "jvm;iadd"] ?x ?y] :seq)]
     (analyse-jvm-iadd analyse-ast ?x ?y)
 
@@ -836,6 +909,54 @@
     [::&parser/form ([[::&parser/ident "jvm;irem"] ?x ?y] :seq)]
     (analyse-jvm-irem analyse-ast ?x ?y)
 
+    ;; Long arithmetic
+    [::&parser/form ([[::&parser/ident "jvm;ladd"] ?x ?y] :seq)]
+    (analyse-jvm-ladd analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;lsub"] ?x ?y] :seq)]
+    (analyse-jvm-lsub analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;lmul"] ?x ?y] :seq)]
+    (analyse-jvm-lmul analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;ldiv"] ?x ?y] :seq)]
+    (analyse-jvm-ldiv analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;lrem"] ?x ?y] :seq)]
+    (analyse-jvm-lrem analyse-ast ?x ?y)
+
+    ;; Float arithmetic
+    [::&parser/form ([[::&parser/ident "jvm;fadd"] ?x ?y] :seq)]
+    (analyse-jvm-fadd analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;fsub"] ?x ?y] :seq)]
+    (analyse-jvm-fsub analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;fmul"] ?x ?y] :seq)]
+    (analyse-jvm-fmul analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;fdiv"] ?x ?y] :seq)]
+    (analyse-jvm-fdiv analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;frem"] ?x ?y] :seq)]
+    (analyse-jvm-frem analyse-ast ?x ?y)
+
+    ;; Double arithmetic
+    [::&parser/form ([[::&parser/ident "jvm;dadd"] ?x ?y] :seq)]
+    (analyse-jvm-dadd analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;dsub"] ?x ?y] :seq)]
+    (analyse-jvm-dsub analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;dmul"] ?x ?y] :seq)]
+    (analyse-jvm-dmul analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;ddiv"] ?x ?y] :seq)]
+    (analyse-jvm-ddiv analyse-ast ?x ?y)
+
+    [::&parser/form ([[::&parser/ident "jvm;drem"] ?x ?y] :seq)]
+    (analyse-jvm-drem analyse-ast ?x ?y)
+    
     [::&parser/form ([[::&parser/ident "jvm;getstatic"] [::&parser/ident ?class] [::&parser/ident ?field]] :seq)]
     (analyse-jvm-getstatic analyse-ast ?class ?field)
 

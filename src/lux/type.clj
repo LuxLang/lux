@@ -11,14 +11,14 @@
 
 (defn ^:private resolve [id]
   (fn [state]
-    (if-let [top+bottom (get-in state [::mappings id])]
+    (if-let [top+bottom (get-in state [::&util/types ::mappings id])]
       [::&util/ok [state top+bottom]]
       [::&util/failure (str "Unknown type-var: " id)])))
 
 (defn ^:private update [id top bottom]
   (fn [state]
-    (if-let [top+bottom (get-in state [::mappings id])]
-      [::&util/ok [(assoc-in state [::mappings id] [top bottom]) nil]]
+    (if-let [top+bottom (get-in state [::&util/types ::mappings id])]
+      [::&util/ok [(assoc-in state [::&util/types ::mappings id] [top bottom]) nil]]
       [::&util/failure (str "Unknown type-var: " id)])))
 
 ;; [Interface]
