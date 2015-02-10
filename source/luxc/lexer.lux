@@ -1,0 +1,119 @@
+(use ./util #as &util #refer [do return fail try-all])
+
+## [Utils]
+(def (lex-regex regex)
+  ...)
+
+(def (lex-regex2 regex)
+  ...)
+
+(def (lex-prefix prefix)
+  ...)
+
+(def (escape-char escaped)
+  (case escaped
+    "\\t"  (return "\t")
+    "\\b"  (return "\b")
+    "\\n"  (return "\n")
+    "\\r"  (return "\r")
+    "\\f"  (return "\f")
+    "\\\"" (return "\"")
+    "\\\\" (return "\\")
+    _ (fail (fold concat "" (list "[Lexer Error] Unknown escape character: " escaped)))))
+
+(defrec lex-text-body
+  (try-all (list (do [[prefix escaped] (lex-regex2 "(?s)^([^\\\"\\\\]*)(\\\\.)")
+                      unescaped (escape-char escaped)
+                      postfix lex-text-body]
+                   (return (str prefix unescaped postfix)))
+                 (lex-regex "(?s)^([^\\\"\\\\]*)^"))))
+
+(def +ident-re+ ...)
+
+## [Lexers]
+(def lex-white-space
+  (do [white-space (lex-regex #"^(\s+)")]
+    (return (#White-Space white-space))))
+
+(def lex-single-line-comment
+  (do [_ (lex-prefix "##")
+       comment (lex-regex #"^([^\n]*)")
+       _ (lex-regex #"^(\n?)")]
+    (return (#Comment comment))))
+
+(def lex-multi-line-comment
+  (do [_ (lex-prefix "#(")
+       comment (try-all (list (lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
+                              (do [pre (lex-regex #"(?is)^(.+?(?=#\())")
+                                   [_ inner] lex-multi-line-comment
+                                   post (lex-regex #"(?is)^(.+?(?=\)#))")]
+                                (return (fold concat "" (list pre "#(" inner ")#" post))))))
+       _ (lex-prefix ")#")]
+    (return (#Comment comment))))
+
+(def lex-comment
+  (try-all (list lex-single-line-comment
+                 lex-multi-line-comment)))
+
+(do-template [<name> <tag> <regex>]
+  (def <name>
+    (do [token (lex-regex <regex>)]
+      (return (<tag> token))))
+
+  lex-bool  #Bool  #"^(true|false)"
+  lex-real  #Real  #"^(0|[1-9][0-9]*)\.[0-9]+"
+  lex-int   #Int   #"^(0|[1-9][0-9]*)"
+  lex-ident #Ident +ident-re+)
+
+(def lex-char
+  (do [_ (lex-prefix "#\"")
+       token (try-all (list (do [escaped (lex-regex #"^(\\.)")]
+                              (escape-char escaped))
+                            (lex-regex #"^(.)")))
+       _ (lex-prefix "\"")]
+    (return (#Char token))))
+
+(def lex-text
+  (do [_ (lex-prefix "\"")
+       token lex-text-body
+       _ (lex-prefix "\"")]
+    (return (#Text token))))
+
+(def lex-tag
+  (do [_ (lex-prefix "#")
+       token (lex-regex +ident-re+)]
+    (return (#Tag token))))
+
+(do-template [<name> <delim> <tag>]
+  (def <name>
+    (do [_ (lex-prefix <delim>)]
+      (return <tag>)))
+
+  lex-open-paren    "(" #Open-Paren
+  lex-close-paren   ")" #Close-Paren
+  lex-open-bracket  "[" #Open-Bracket
+  lex-close-bracket "]" #Close-Bracket
+  lex-open-brace    "{" #Open-Brace
+  lex-close-brace   "}" #Close-Brace
+  )
+
+(def lex-delimiter
+  (try-all (list lex-open-paren
+                 lex-close-paren
+                 lex-open-bracket
+                 lex-close-bracket
+                 lex-open-brace
+                 lex-close-brace)))
+
+;; [Interface]
+(def #export lex
+  (try-all (list lex-white-space
+                 lex-comment
+                 lex-bool
+                 lex-real
+                 lex-int
+                 lex-char
+                 lex-text
+                 lex-ident
+                 lex-tag
+                 lex-delimiter)))

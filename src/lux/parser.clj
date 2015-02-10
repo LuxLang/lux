@@ -35,31 +35,31 @@
   (exec [token &lexer/lex]
     (match token
       [::&lexer/white-space _]
-      (return '())
+      (return (list))
 
       [::&lexer/comment _]
-      (return '())
+      (return (list))
       
       [::&lexer/bool ?value]
-      (return (list [::bool (Boolean/parseBoolean ?value)]))
+      (return (list [::Bool (Boolean/parseBoolean ?value)]))
 
       [::&lexer/int ?value]
-      (return (list [::int (Integer/parseInt ?value)]))
+      (return (list [::Int (Integer/parseInt ?value)]))
 
       [::&lexer/real ?value]
-      (return (list [::real (Float/parseFloat ?value)]))
+      (return (list [::Real (Float/parseFloat ?value)]))
 
       [::&lexer/char ?value]
-      (return (list [::char (.charAt ?value 0)]))
+      (return (list [::Char (.charAt ?value 0)]))
 
       [::&lexer/text ?value]
-      (return (list [::text ?value]))
+      (return (list [::Text ?value]))
 
       [::&lexer/ident ?value]
-      (return (list [::ident ?value]))
+      (return (list [::Ident ?value]))
 
       [::&lexer/tag ?value]
-      (return (list [::tag ?value]))
+      (return (list [::Tag ?value]))
 
       [::&lexer/open-paren]
       (parse-form parse)

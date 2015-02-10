@@ -32,6 +32,92 @@
                                 ]))
 
   
+
+  (deftype (Session c p s)
+      (-> (-> p s c) c))
+  
+  ;; (: bind (All [m a b]
+  ;;              (-> (-> a (m b)) (m a) (m b))))
+  
+  (do (defn >> [v]
+        (fn [session]
+          (session v)))
+
+    (defn >> [v]
+      (client v (fn [_ client*]
+                  (k _ client*))))
+
+    (def <<
+      (server nil (fn [v server*]
+                    (k v server*))))
+
+    (defn pipe [])
+
+    (<< (fn [x server*]
+          (server* nil (fn [y server**]
+                         (server** (+ x y) k)))))
+
+    (def (select' k)
+      (lambda [msg session]
+         (session nil (k msg))))
+
+    (def (choose choice)
+      (lambda [msg session]
+         (session choice ...)))
+
+    (def <<
+      (lambda [next peer]
+         (peer [] (lambda [x peer']
+                     (next x peer')))))
+
+    (def (>> x)
+      (lambda [next peer]
+         (peer x (lambda [_ peer']
+                    (next [] peer')))))
+    
+    (def server
+      (loop [_ []]
+        (select #Add
+                (do [x <<
+                     y <<
+                     _ (>> (+ x y))]
+                  (recur []))
+                
+                #Neg
+                (do [x <<
+                     _ (>> (neg x))]
+                  (recur []))
+                
+                #Quit
+                end)))
+
+    (def client
+      (do [_ (choose #Add)
+           _ (>> 5)
+           _ (>> 10)
+           x+y <<]
+        (choose #Quit)))
+    
+    (def <END>
+      (fn [session]
+        nil))
+
+    (bind << (fn [x]
+               (bind << (fn [y]
+                          (>> (+ x y))))))
+
+    (do [x <<
+         y <<]
+      (>> (+ x y)))
+    
+    (defn <$> [consumer producer init]
+      (let [[x producer*] (producer init)
+            [y consumer*] (consumer x)]
+        [consumer* producer* y]))
+
+    ((<$> (<< <END>) ((>> 5) <END>)))
+    )
+  
   
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
   ;; cd output && jar cvf test2.jar * && java -cp "test2.jar" test2 && cd ..

@@ -1,17 +1,19 @@
 (ns lux.util
-  (:require (clojure [string :as string]
-                     [template :refer [do-template]])
+  (:require (clojure [template :refer [do-template]])
             [clojure.core.match :refer [match]]))
 
-;; [Interface]
-;; [Interface/Utils]
+;; [Resources]
+;; [Resources/Contants]
+(def +name-separator+ ";")
+
+;; [Resources/Utils]
 (defn fail* [message]
   [::failure message])
 
 (defn return* [state value]
   [::ok [state value]])
 
-;; [Interface/Monads]
+;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
     [::failure message]))
@@ -22,7 +24,6 @@
 
 (defn bind [m-value step]
   #(let [inputs (m-value %)]
-     ;; (prn 'bind/inputs inputs)
      (match inputs
        [::ok [?state ?datum]]
        ((step ?datum) ?state)
@@ -41,7 +42,7 @@
           return
           (reverse (partition 2 steps))))
 
-;; [Interface/Combinators]
+;; [Resources/Combinators]
 (defn try-m [monad]
   (fn [state]
     (match (monad state)
@@ -97,12 +98,16 @@
             output)
           )))))
 
-(defn map-m [f inputs]
-  (if (empty? inputs)
-    (return '())
-    (exec [output (f (first inputs))
-           outputs (map-m f (rest inputs))]
-      (return (conj outputs output)))))
+(do-template [<name> <joiner>]
+  (defn <name> [f inputs]
+    (if (empty? inputs)
+      (return '())
+      (exec [output (f (first inputs))
+             outputs (map-m f (rest inputs))]
+        (return (<joiner> output outputs)))))
+
+  map-m    cons
+  mapcat-m concat)
 
 (defn reduce-m [f init inputs]
   (if (empty? inputs)
@@ -139,17 +144,11 @@
   (fn [state]
     (return* state state)))
 
-(do-template [<name> <joiner>]
-  (defn <name> [monads]
-    (if (empty? monads)
-      (return '())
-      (exec [head (first monads)
-             tail (<name> (rest monads))]
-        (return (<joiner> head tail)))))
-
-  do-all-m  cons
-  do-all-m* concat
-  )
+(defn sequence-m [m-values]
+  (if (empty? m-values)
+    (return nil)
+    (exec [head (first m-values)]
+      (sequence-m (rest monads)))))
 
 (defn within [slot monad]
   (fn [state]
@@ -197,3 +196,28 @@
 (def loader
   (fn [state]
     (return* state (::loader state))))
+
+(def +init-env+
+  {:counter 0
+   :mappings {}})
+
+(defn init-state []
+  {::source nil
+   ::current-module nil
+   ::scope (list)
+   ::modules {}
+   ::global-env {}
+   ::local-envs (list)
+   ::types +init-env+
+   ::writer nil
+   ::loader (class-loader!)})
+
+(do-template [<name>]
+  (def <name>
+    (fn [state]
+      [::ok [state (::current-module state)]]))
+
+  get-module-name ::current-module
+  get-scope       ::scope
+  get-writer      ::writer
+  )
