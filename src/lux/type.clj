@@ -1,5 +1,5 @@
 (ns lux.type
-  (:refer-clojure :exclude [resolve apply])
+  (:refer-clojure :exclude [deref apply merge])
   (:require [clojure.core.match :refer [match]]
             [lux.util :as &util :refer [exec return* return fail fail*
                                         repeat-m try-m try-all-m map-m
@@ -9,7 +9,7 @@
 ;; [Util]
 (def ^:private success (return nil))
 
-(defn ^:private resolve [id]
+(defn ^:private deref [id]
   (fn [state]
     (if-let [top+bottom (get-in state [::&util/types ::mappings id])]
       [::&util/ok [state top+bottom]]
@@ -45,7 +45,7 @@
 ;;     success
 
 ;;     [_ [::var ?id]]
-;;     (exec [[=top =bottom] (resolve ?id)]
+;;     (exec [[=top =bottom] (deref ?id)]
 ;;       (try-all-m [(exec [_ (solve expected =top)]
 ;;                     success)
 ;;                   (exec [_ (solve =top expected)
@@ -54,7 +54,7 @@
 ;;                     success)]))
 
 ;;     [[::var ?id] _]
-;;     (exec [[=top =bottom] (resolve ?id)]
+;;     (exec [[=top =bottom] (deref ?id)]
 ;;       (try-all-m [(exec [_ (solve =bottom actual)]
 ;;                     success)
 ;;                   (exec [_ (solve actual =bottom)
@@ -99,7 +99,7 @@
 (defn clean [type]
   (match type
     [::var ?id]
-    (exec [[=top =bottom] (resolve ?id)]
+    (exec [[=top =bottom] (deref ?id)]
       (clean =top))
 
     [::function ?args ?return]
@@ -110,8 +110,9 @@
     ;; ::any
     ;; (return [::object "java.lang.Object" []])
     
-    _
-    (return type)))
+    ;; _
+    ;; (return type)
+    ))
 
 ;; Java Reflection
 (def success (return nil))
@@ -159,6 +160,40 @@
     (exec [_ (solve g!input n!input)]
       (solve n!output g!output))
     ))
+
+(let [&& #(and %1 %2)]
+  (defn merge [x y]
+    (match [x y]
+      [_ [::Nothing]]
+      (return x)
+
+      [[::Nothing] _]
+      (return y)
+
+      [[::Variant x!cases] [::Variant y!cases]]
+      (and (reduce && true
+                   (for [[xslot xtype] (keys x!cases)]
+                     (if-let [ytype (get y!cases xslot)]
+                       (= xtype ytype)
+                       true)))
+           (reduce && true
+                   (for [[yslot ytype] (keys y!cases)]
+                     (if-let [xtype (get x!cases yslot)]
+                       (= xtype ytype)
+                       true))))
+      (return [::Variant (clojure.core/merge x!cases y!cases)])
+      (fail (str "Incompatible variants: " (pr-str x) " and " (pr-str y)))
+
+      [[::Record x!fields] [::Record y!fields]]
+      (if (and (= (keys x!fields) (keys y!fields))
+               (->> (keys x!fields)
+                    (map #(= (get x!fields %) (get y!fields %)))
+                    (reduce && true)))
+        (return x)
+        (fail (str "Incompatible records: " (pr-str x) " and " (pr-str y))))
+      
+      :else
+      (fail (str "Can't merge types: " (pr-str x) " and " (pr-str y))))))
 
 (comment
   ;; Types

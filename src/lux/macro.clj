@@ -1,8 +1,8 @@
-(ns lux.macros
+(ns lux.macro
   (:require [lux.parser :as &parser]))
 
 ;; [Utils]
-(defn ^:private ->lux+* [->lux loader xs]
+(defn ^:private ->lux+ [->lux loader xs]
   (reduce (fn [tail x]
             (doto (.newInstance (.loadClass loader "lux.Variant2"))
               (-> .-tag (set! "Cons"))
@@ -20,7 +20,7 @@
 (defn ^:private ->lux-one [->lux loader tag values]
   (doto (.newInstance (.loadClass loader "lux.Variant1"))
     (-> .-tag (set! tag))
-    (-> .-_1  (set! (->lux+* ->lux loader values)))))
+    (-> .-_1  (set! (->lux+ ->lux loader values)))))
 
 (defn ^:private ->lux [loader x]
   (match x
@@ -44,11 +44,11 @@
     (->lux-many ->lux loader "Form" ?elems)
     ))
 
-(defn ^:private ->clojure+* [->clojure xs]
+(defn ^:private ->clojure+ [->clojure xs]
   (case (.-tag xs)
     "Nil"  (list)
     "Cons" (cons (->clojure (.-_1 xs))
-                 (->clojure+* ->clojure (.-_2 xs)))
+                 (->clojure+ ->clojure (.-_2 xs)))
     ))
 
 (defn ^:private ->clojure [x]
@@ -60,10 +60,16 @@
     "Text"  [::&parser/Text  (.-_1 x)]
     "Tag"   [::&parser/Tag   (.-_1 x)]
     "Ident" [::&parser/Ident (.-_1 x)]
-    "Tuple" [::&parser/Tuple (->clojure+* ->clojure (.-_1 x))]
-    "Form"  [::&parser/Form  (->clojure+* ->clojure (.-_1 x))]))
+    "Tuple" [::&parser/Tuple (->clojure+ ->clojure (.-_1 x))]
+    "Form"  [::&parser/Form  (->clojure+ ->clojure (.-_1 x))]))
 
 ;; [Resources]
-(def ->lux+ (partial ->lux+* ->lux))
-
-(def ->clojure+ (partial ->clojure+* ->clojure))
+(defn expand [loader macro-class]
+  (let [expansion (-> (.loadClass loader macro-class)
+                      .getDeclaredConstructors
+                      first
+                      (.newInstance (to-array [(int 0) nil]))
+                      (.apply (->lux+* ->lux loader ?args))
+                      (.apply nil))]
+    [(->> expansion .-_1 (->clojure+* ->clojure))
+     (.-_2 output)]))

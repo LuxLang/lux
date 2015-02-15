@@ -96,3 +96,6 @@
   lookup-static-method  true
   lookup-virtual-method false
   )
+
+(defn location [scope]
+  (->> scope reverse (map normalize-ident) (interpose "$") (reduce str "")))
