@@ -194,7 +194,7 @@
         (exec [macro? (macro? ?module ?name)]
           (if macro?
             (let [macro-class (&host/location (list ?name ?module))
-                  [macro-expansion state*] (&macro/expand loader macro-class)]
+                  [macro-expansion state*] (&macro/expand loader macro-class ?args)]
               (mapcat-m analyse-ast macro-expansion))
             (exec [=args (mapcat-m analyse-ast ?args)
                    :let [[needs-num =return-type] (match =fn-type

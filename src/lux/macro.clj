@@ -1,5 +1,6 @@
 (ns lux.macro
-  (:require [lux.parser :as &parser]))
+  (:require [clojure.core.match :refer [match]]
+            [lux.parser :as &parser]))
 
 ;; [Utils]
 (defn ^:private ->lux+ [->lux loader xs]
@@ -17,27 +18,27 @@
     (-> .-tag (set! tag))
     (-> .-_1  (set! value))))
 
-(defn ^:private ->lux-one [->lux loader tag values]
+(defn ^:private ->lux-many [->lux loader tag values]
   (doto (.newInstance (.loadClass loader "lux.Variant1"))
     (-> .-tag (set! tag))
     (-> .-_1  (set! (->lux+ ->lux loader values)))))
 
 (defn ^:private ->lux [loader x]
   (match x
-    [::&parser/Bool ?bool]
-    (->lux-one loader "Bool" ?bool)
-    [::&parser/Int ?int]
-    (->lux-one loader "Int" ?bool)
-    [::&parser/Real ?real]
-    (->lux-one loader "Real" ?bool)
-    [::&parser/Char ?elem]
-    (->lux-one loader "Char" ?bool)
-    [::&parser/Text ?text]
-    (->lux-one loader "Text" ?bool)
-    [::&parser/Tag ?tag]
-    (->lux-one loader "Tag" ?bool)
-    [::&parser/Ident ?ident]
-    (->lux-one loader "Ident" ?bool)
+    [::&parser/Bool ?value]
+    (->lux-one loader "Bool" ?value)
+    [::&parser/Int ?value]
+    (->lux-one loader "Int" ?value)
+    [::&parser/Real ?value]
+    (->lux-one loader "Real" ?value)
+    [::&parser/Char ?value]
+    (->lux-one loader "Char" ?value)
+    [::&parser/Text ?value]
+    (->lux-one loader "Text" ?value)
+    [::&parser/Tag ?value]
+    (->lux-one loader "Tag" ?value)
+    [::&parser/Ident ?value]
+    (->lux-one loader "Ident" ?value)
     [::&parser/Tuple ?elems]
     (->lux-many ->lux loader "Tuple" ?elems)
     [::&parser/Form ?elems]
@@ -64,12 +65,12 @@
     "Form"  [::&parser/Form  (->clojure+ ->clojure (.-_1 x))]))
 
 ;; [Resources]
-(defn expand [loader macro-class]
-  (let [expansion (-> (.loadClass loader macro-class)
-                      .getDeclaredConstructors
-                      first
-                      (.newInstance (to-array [(int 0) nil]))
-                      (.apply (->lux+* ->lux loader ?args))
-                      (.apply nil))]
-    [(->> expansion .-_1 (->clojure+* ->clojure))
+(defn expand [loader macro-class tokens]
+  (let [output (-> (.loadClass loader macro-class)
+                   .getDeclaredConstructors
+                   first
+                   (.newInstance (to-array [(int 0) nil]))
+                   (.apply (->lux+ ->lux loader tokens))
+                   (.apply nil))]
+    [(->> output .-_1 (->clojure+ ->clojure))
      (.-_2 output)]))

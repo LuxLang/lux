@@ -131,7 +131,7 @@
           success
 
           :else
-          (fail (str "Can't solve types: " (pr-str expected actual))))
+          (fail (str "not (" given " <= " needed ")")))
     
     [[::Tuple n!elems] [::Tuple g!elems]]
     (exec [_ (assert! (= (count n!elems) (count g!elems))
@@ -171,18 +171,18 @@
       (return y)
 
       [[::Variant x!cases] [::Variant y!cases]]
-      (and (reduce && true
-                   (for [[xslot xtype] (keys x!cases)]
-                     (if-let [ytype (get y!cases xslot)]
-                       (= xtype ytype)
-                       true)))
-           (reduce && true
-                   (for [[yslot ytype] (keys y!cases)]
-                     (if-let [xtype (get x!cases yslot)]
-                       (= xtype ytype)
-                       true))))
-      (return [::Variant (clojure.core/merge x!cases y!cases)])
-      (fail (str "Incompatible variants: " (pr-str x) " and " (pr-str y)))
+      (if (and (reduce && true
+                       (for [[xslot xtype] (keys x!cases)]
+                         (if-let [ytype (get y!cases xslot)]
+                           (= xtype ytype)
+                           true)))
+               (reduce && true
+                       (for [[yslot ytype] (keys y!cases)]
+                         (if-let [xtype (get x!cases yslot)]
+                           (= xtype ytype)
+                           true))))
+        (return [::Variant (clojure.core/merge x!cases y!cases)])
+        (fail (str "Incompatible variants: " (pr-str x) " and " (pr-str y))))
 
       [[::Record x!fields] [::Record y!fields]]
       (if (and (= (keys x!fields) (keys y!fields))

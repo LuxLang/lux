@@ -4,7 +4,6 @@
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
                                          repeat-m try-all-m map-m mapcat-m reduce-m
-                                         within
                                          normalize-ident]]
                  [parser :as &parser]
                  [type :as &type])))
@@ -74,7 +73,7 @@
                                            (= field (.getName =field))
                                            (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =field))))]
                             (.getType =field)))]
-      (exec [=type (&type/class->type type*)]
+      (exec [=type (class->type type*)]
         (return =type))
       (fail (str "[Analyser Error] Field does not exist: " target field))))
 
@@ -89,7 +88,7 @@
                                             (= method-name (.getName =method))
                                             (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =method))))]
                              =method))]
-      (exec [=method (&type/method->type method)]
+      (exec [=method (method->type method)]
         (return =method))
       (fail (str "[Analyser Error] Method does not exist: " target method-name))))
 

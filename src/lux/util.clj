@@ -145,10 +145,13 @@
     (return* state state)))
 
 (defn sequence-m [m-values]
-  (if (empty? m-values)
-    (return nil)
-    (exec [head (first m-values)]
-      (sequence-m (rest monads)))))
+  (match m-values
+    ([head & tail] :seq)
+    (exec [_ head]
+      (sequence-m tail))
+
+    _
+    (return nil)))
 
 (defn ^:private normalize-char [char]
   (case char
