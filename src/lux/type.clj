@@ -195,6 +195,8 @@
       :else
       (fail (str "Can't merge types: " (pr-str x) " and " (pr-str y))))))
 
+(def +dont-care-type+ [::Any])
+
 (comment
   ;; Types
   [::Any]

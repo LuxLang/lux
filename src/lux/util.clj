@@ -211,6 +211,24 @@
    ::writer nil
    ::loader (class-loader!)})
 
+(defn ^:private with-scope [name body]
+  (fn [state]
+    (let [output (body (update-in state [::local-envs] conj (scope name)))]
+      (match output
+        [::ok [state* datum]]
+        [::ok [(update-in state* [::local-envs] rest) datum]]
+        
+        _
+        output))))
+
+(defn with-closure [body]
+  (fn [state]
+    (let [body* (with-scope (-> state ::local-envs first :inner-closures str)
+                  body)]
+      (body* (update-in state [::local-envs]
+                        #(cons (update-in (first %) [:inner-closures] inc)
+                               (rest %)))))))
+
 (do-template [<name> <tag>]
   (def <name>
     (fn [state]
@@ -221,6 +239,10 @@
   get-module-name ::current-module
   get-writer      ::writer
   )
+
+(def get-scope-name
+  (fn [state]
+    [::ok [state (->> state ::local-envs (map :name) reverse (cons (::current-module state)))]]))
 
 (defn with-writer [writer body]
   (fn [state]

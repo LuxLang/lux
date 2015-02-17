@@ -97,4 +97,4 @@
   )
 
 (defn location [scope]
-  (->> scope reverse (map normalize-ident) (interpose "$") (reduce str "")))
+  (->> scope (map normalize-ident) (interpose "$") (reduce str "")))
