@@ -8,6 +8,12 @@
                  [parser :as &parser]
                  [type :as &type])))
 
+;; [Constants]
+(def prefix "lux.")
+(def variant-class  (str prefix "Variant"))
+(def tuple-class    (str prefix "Tuple"))
+(def function-class (str prefix "Function"))
+
 ;; [Utils]
 (defn ^:private class->type [class]
   (if-let [[_ base arr-level] (re-find #"^([^\[]+)(\[\])*$"
@@ -53,6 +59,40 @@
 
 (defn ->class [class]
   (string/replace class #"\." "/"))
+
+(def ->package ->class)
+
+(defn ->type-signature [class]
+  (case class
+    "void"    "V"
+    "boolean" "Z"
+    "byte"    "B"
+    "short"   "S"
+    "int"     "I"
+    "long"    "J"
+    "float"   "F"
+    "double"  "D"
+    "char"    "C"
+    ;; else
+    (let [class* (->class class)]
+      (if (.startsWith class* "[")
+        class*
+        (str "L" class* ";")))
+    ))
+
+(defn ->java-sig [type]
+  (match type
+    ::&type/Any
+    (->type-signature "java.lang.Object")
+    
+    [::&type/Data ?name]
+    (->type-signature ?name)
+
+    [::&type/Array ?elem]
+    (str "[" (->java-sig ?elem))
+
+    [::&type/Lambda _ _]
+    (->type-signature function-class)))
 
 (defn extract-jvm-param [token]
   (match token

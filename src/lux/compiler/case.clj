@@ -1,101 +1,23 @@
+(ns lux.compiler.case
+  (:require (clojure [set :as set]
+                     [template :refer [do-template]])
+            [clojure.core.match :refer [match]]
+            (lux [util :as &util :refer [exec return* return fail fail*
+                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                         apply-m
+                                         normalize-ident]]
+                 [type :as &type]
+                 [lexer :as &lexer]
+                 [parser :as &parser]
+                 [analyser :as &analyser]
+                 [host :as &host])
+            [lux.compiler.base :as &&])
+  (:import (org.objectweb.asm Opcodes
+                              Label
+                              ClassWriter
+                              MethodVisitor)))
 
-(let [+tag-sig+ (->type-signature "java.lang.String")
-      variant-class* (->class +variant-class+)
-      tuple-class* (->class +tuple-class+)
-      +variant-field-sig+ (->type-signature "java.lang.Object")
-      oclass (->class "java.lang.Object")
-      equals-sig (str "(" (->type-signature "java.lang.Object") ")Z")]
-  (defn ^:private compile-decision-tree [writer mappings default-label decision-tree]
-    (match decision-tree
-      [::test-bool ?pairs]
-      (compile-compare-bools writer mappings default-label ?pairs)
-      
-      [::test-int  ?pairs]
-      (compile-compare-ints writer mappings default-label ?pairs)
-
-      [::test-real ?pairs]
-      (compile-compare-reals writer mappings default-label ?pairs)
-
-      [::test-char ?pairs]
-      (compile-compare-chars writer mappings default-label ?pairs)
-      
-      [::test-text ?pairs]
-      (compile-compare-texts writer mappings default-label ?pairs)
-
-      [::store ?idx $body]
-      (doto writer
-        (.visitVarInsn Opcodes/ASTORE ?idx)
-        (.visitJumpInsn Opcodes/GOTO (get mappings $body)))
-      
-      [::test-tuple ?branches ?cases]
-      (let [[_ ?subcases] (first ?cases)
-            arity (-> ?subcases first (nth 2) count)
-            tuple-class** (str tuple-class* arity)]
-        (doto writer
-          ;; object
-          (.visitTypeInsn Opcodes/CHECKCAST tuple-class**) ;; tuple
-          (do (doseq [subcase ?subcases
-                      :let [next-subcase (new Label)]]
-                (match subcase
-                  [::subcase $body ?subseq]
-                  (do (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
-                              :let [sub-next-elem (new Label)]]
-                        (doto writer
-                          (.visitInsn Opcodes/DUP) ;; tuple, tuple
-                          (.visitFieldInsn Opcodes/GETFIELD tuple-class** (str +partial-prefix+ ?subidx) +variant-field-sig+) ;; tuple, object
-                          (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; tuple
-                          (.visitLabel sub-next-elem)))
-                    (doto writer
-                      (.visitInsn Opcodes/POP)
-                      (.visitJumpInsn Opcodes/GOTO (get mappings $body))
-                      (.visitLabel next-subcase)))
-                  )))
-          (.visitInsn Opcodes/POP) ;; ->
-          (.visitJumpInsn Opcodes/GOTO default-label)))
-
-      [::test-variant ?branches ?cases]
-      (doto writer
-        ;; object
-        (.visitTypeInsn Opcodes/CHECKCAST variant-class*) ;; variant
-        (.visitInsn Opcodes/DUP) ;; variant, variant
-        (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" +tag-sig+) ;; variant, tag
-        (-> (doto (.visitInsn Opcodes/DUP) ;; variant, tag, tag
-              (.visitLdcInsn ?tag) ;; variant, tag, tag, text
-              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; variant, tag, B
-              (.visitJumpInsn Opcodes/IFEQ tag-else-label) ;; variant, tag
-              (.visitInsn Opcodes/POP) ;; variant
-              (do (let [arity (-> ?subcases first (nth 2) count)
-                        variant-class** (str variant-class* arity)]
-                    (.visitTypeInsn writer Opcodes/CHECKCAST variant-class**) ;; variantN
-                    (doseq [subcase ?subcases
-                            :let [next-subcase (new Label)]]
-                      (match subcase
-                        [::subcase $body ?subseq]
-                        (do (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
-                                    :let [sub-next-elem (new Label)]]
-                              (doto writer
-                                (.visitInsn Opcodes/DUP) ;; variant, variant
-                                (.visitFieldInsn Opcodes/GETFIELD variant-class** (str +partial-prefix+ ?subidx) +variant-field-sig+) ;; variant, object
-                                (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; variant
-                                (.visitLabel sub-next-elem)))
-                          (doto writer
-                            (.visitInsn Opcodes/POP)
-                            (.visitJumpInsn Opcodes/GOTO (get mappings $body))
-                            (.visitLabel next-subcase)))
-                        ))
-                    ))
-              (.visitInsn Opcodes/POP) ;; ->
-              (.visitJumpInsn Opcodes/GOTO default-label)
-              ;; variant, tag ->
-              (.visitLabel tag-else-label))
-            (->> (doseq [[?tag ?subcases] ?cases
-                         :let [tag-else-label (new Label)]])))
-        ;; variant, tag ->
-        (.visitInsn Opcodes/POP) ;; variant ->
-        (.visitInsn Opcodes/POP) ;; ->
-        (.visitJumpInsn Opcodes/GOTO default-label)))
-    ))
-
+;; [Utils]
 (defn ^:private map-branches [idx mappings patterns]
   (reduce (fn [[idx mappings patterns*] [test body]]
             [(inc idx)
@@ -177,7 +99,7 @@
     (doseq [[?token $body] ?patterns
             :let [$else (new Label)]]
       (doto writer
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class <wrapper-class>) <value-method> <method-sig>)
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <wrapper-class>) <value-method> <method-sig>)
         (.visitLdcInsn ?token)
         (.visitJumpInsn Opcodes/IF_ICMPNE $else)
         (.visitInsn Opcodes/POP)
@@ -196,7 +118,7 @@
     (doseq [[?token $body] ?patterns
             :let [$else (new Label)]]
       (doto writer
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class <wrapper-class>) <value-method> <method-sig>)
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <wrapper-class>) <value-method> <method-sig>)
         (.visitLdcInsn ?token)
         (.visitInsn <cmp-op>)
         (.visitJumpInsn Opcodes/IFNE $else)
@@ -217,7 +139,7 @@
     (doto writer
       (.visitInsn Opcodes/DUP)
       (.visitLdcInsn ?token)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (->class "java.lang.Object") "equals" (str "(" (->type-signature "java.lang.Object") ")Z"))
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Object") "equals" (str "(" (&host/->type-signature "java.lang.Object") ")Z"))
       (.visitJumpInsn Opcodes/IFEQ $else)
       (.visitInsn Opcodes/POP)
       (.visitJumpInsn Opcodes/GOTO (get mappings $body))
@@ -232,19 +154,117 @@
                                    [(nth tup idx) body])
                                  ?patterns))
                           (range ?num-elems))
-        subpm-structs (map group-patterns sub-patterns)
-        [pat-h & pat-t] subpm-structs
-        (for [(get-branches pat-h)
-              (cull pat-t)]
-          )
-        (reduce (fn [branches pattern]
-                  ( (group-patterns pattern)))
-                (get-branches pat-h)
-                pat-t)
-        (sequence-tests sub-patterns)]
+        ;; subpm-structs (map group-patterns sub-patterns)
+        ;; [pat-h & pat-t] subpm-structs
+        ;; (for [(get-branches pat-h)
+        ;;       (cull pat-t)]
+        ;;   )
+        ;; (reduce (fn [branches pattern]
+        ;;           ( (group-patterns pattern)))
+        ;;         (get-branches pat-h)
+        ;;         pat-t)
+        ]
+    ;; (sequence-tests sub-patterns)
     ))
 
-(defn ^:private compile-pm [writer mapping pm-struct]
+(let [+tag-sig+ (&host/->type-signature "java.lang.String")
+      variant-class* (&host/->class &host/variant-class)
+      tuple-class* (&host/->class &host/tuple-class)
+      +variant-field-sig+ (&host/->type-signature "java.lang.Object")
+      oclass (&host/->class "java.lang.Object")
+      equals-sig (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
+  (defn ^:private compile-decision-tree [writer mappings default-label decision-tree]
+    (match decision-tree
+      [::test-bool ?pairs]
+      (compile-bool-pm writer mappings default-label ?pairs)
+      
+      [::test-int  ?pairs]
+      (compile-int-pm writer mappings default-label ?pairs)
+
+      [::test-real ?pairs]
+      (compile-real-pm writer mappings default-label ?pairs)
+
+      [::test-char ?pairs]
+      (compile-char-pm writer mappings default-label ?pairs)
+      
+      [::test-text ?pairs]
+      (compile-text-pm writer mappings default-label ?pairs)
+
+      [::store ?idx $body]
+      (doto writer
+        (.visitVarInsn Opcodes/ASTORE ?idx)
+        (.visitJumpInsn Opcodes/GOTO (get mappings $body)))
+      
+      [::test-tuple ?branches ?cases]
+      (let [[_ ?subcases] (first ?cases)
+            arity (-> ?subcases first (nth 2) count)
+            tuple-class** (str tuple-class* arity)]
+        (doto writer
+          ;; object
+          (.visitTypeInsn Opcodes/CHECKCAST tuple-class**) ;; tuple
+          (do (doseq [subcase ?subcases
+                      :let [next-subcase (new Label)]]
+                (match subcase
+                  [::subcase $body ?subseq]
+                  (do (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
+                              :let [sub-next-elem (new Label)]]
+                        (doto writer
+                          (.visitInsn Opcodes/DUP) ;; tuple, tuple
+                          (.visitFieldInsn Opcodes/GETFIELD tuple-class** (str &&/partial-prefix ?subidx) +variant-field-sig+) ;; tuple, object
+                          (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; tuple
+                          (.visitLabel sub-next-elem)))
+                    (doto writer
+                      (.visitInsn Opcodes/POP)
+                      (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+                      (.visitLabel next-subcase)))
+                  )))
+          (.visitInsn Opcodes/POP) ;; ->
+          (.visitJumpInsn Opcodes/GOTO default-label)))
+
+      [::test-variant ?branches ?cases]
+      (doto writer
+        ;; object
+        (.visitTypeInsn Opcodes/CHECKCAST variant-class*) ;; variant
+        (.visitInsn Opcodes/DUP) ;; variant, variant
+        (.visitFieldInsn Opcodes/GETFIELD variant-class* "tag" +tag-sig+) ;; variant, tag
+        (-> (doto (.visitInsn Opcodes/DUP) ;; variant, tag, tag
+              (.visitLdcInsn ?tag) ;; variant, tag, tag, text
+              (.visitMethodInsn Opcodes/INVOKEVIRTUAL oclass "equals" equals-sig) ;; variant, tag, B
+              (.visitJumpInsn Opcodes/IFEQ tag-else-label) ;; variant, tag
+              (.visitInsn Opcodes/POP) ;; variant
+              (do (let [arity (-> ?subcases first (nth 2) count)
+                        variant-class** (str variant-class* arity)]
+                    (.visitTypeInsn writer Opcodes/CHECKCAST variant-class**) ;; variantN
+                    (doseq [subcase ?subcases
+                            :let [next-subcase (new Label)]]
+                      (match subcase
+                        [::subcase $body ?subseq]
+                        (do (doseq [[?subpart ?subidx] (map vector ?subseq (range (count ?subseq)))
+                                    :let [sub-next-elem (new Label)]]
+                              (doto writer
+                                (.visitInsn Opcodes/DUP) ;; variant, variant
+                                (.visitFieldInsn Opcodes/GETFIELD variant-class** (str &&/partial-prefix ?subidx) +variant-field-sig+) ;; variant, object
+                                (compile-decision-tree (assoc mappings $body sub-next-elem) next-subcase ?subpart) ;; variant
+                                (.visitLabel sub-next-elem)))
+                          (doto writer
+                            (.visitInsn Opcodes/POP)
+                            (.visitJumpInsn Opcodes/GOTO (get mappings $body))
+                            (.visitLabel next-subcase)))
+                        ))
+                    ))
+              (.visitInsn Opcodes/POP) ;; ->
+              (.visitJumpInsn Opcodes/GOTO default-label)
+              ;; variant, tag ->
+              (.visitLabel tag-else-label))
+            (->> (doseq [[?tag ?subcases] ?cases
+                         :let [tag-else-label (new Label)]])))
+        ;; variant, tag ->
+        (.visitInsn Opcodes/POP) ;; variant ->
+        (.visitInsn Opcodes/POP) ;; ->
+        (.visitJumpInsn Opcodes/GOTO default-label)))
+    ))
+
+(defn ^:private compile-pm [writer mapping pm-struct $default]
   (match pm-struct
     [::BoolPM ?patterns ?defaults]
     (compile-bool-pm writer mapping $default ?patterns)
@@ -310,8 +330,8 @@
     [::&parser/Tuple ?members]
     (match pm
       [::TuplePM ?num-elems ?branches ?defaults]
-      (exec [_ (assert! (= ?num-elems (count ?members))
-                        (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " (count ?members)))]
+      (exec [_ (&util/assert! (= ?num-elems (count ?members))
+                              (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " (count ?members)))]
         (return [::TuplePM ?num-elems (cons [?members body] ?branches) ?defaults]))
 
       [::?PM ?defaults]
@@ -326,8 +346,8 @@
       (match pm
         [::VariantPM ?variants ?branches ?defaults]
         (exec [variants* (if-let [?num-elems (get ?variants ?tag)]
-                           (exec [_ (assert! (= ?num-elems num-members)
-                                             (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
+                           (exec [_ (&util/assert! (= ?num-elems num-members)
+                                                   (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
                              (return ?variants))
                            (return (assoc ?variants ?tag num-members)))]
           (return [::VariantPM variants* (conj ?branches [[?tag members] body]) ?defaults]))
@@ -344,8 +364,8 @@
       (match pm
         [::VariantPM ?variants ?branches ?defaults]
         (exec [variants* (if-let [?num-elems (get ?variants ?tag)]
-                           (exec [_ (assert! (= ?num-elems num-members)
-                                             (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
+                           (exec [_ (&util/assert! (= ?num-elems num-members)
+                                                   (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
                              (return ?variants))
                            (return (assoc ?variants ?tag num-members)))]
           (return [::VariantPM variants* (conj ?branches [[?tag members] body]) ?defaults]))
@@ -412,9 +432,9 @@
 (defn ^:private sequence-multi-pm [sequence-pm prev-paths groups]
   (match groups
     ([head & tail] :seq)
-    (for [:let [curr-paths (set/intersection prev-paths (valid-paths head))]
-          [head-paths head-test] (sequence-pm curr-paths head)]
-      [:multi-test head-test head-paths (sequence-multi-pm sequence-pm head-paths tail)])
+    (let [curr-paths (set/intersection prev-paths (valid-paths head))]
+      (for [[head-paths head-test] (sequence-pm curr-paths head)]
+        [:multi-test head-test head-paths (sequence-multi-pm sequence-pm head-paths tail)]))
     
     _
     (list (list))))
@@ -444,11 +464,12 @@
   )
 
 (defn ^:private sequence-? [group]
-  [::?PM ([[default-register $body] & _] :seq)]
-  (return (list [<test> default-register #{$body}]))
+  (match group
+    [::?PM ([[default-register $body] & _] :seq)]
+    (return (list [::test-store default-register #{$body}]))
 
-  :else
-  (fail ""))
+    :else
+    (fail "")))
 
 (defn ^:private sequence-pm [group]
   (match group
@@ -482,14 +503,15 @@
       (return (cons [::test-tuple ?num-elems sub-seqs]
                     (match ?defaults
                       ([[default-register $body] & _] :seq)
-                      (list [<test> default-register #{$body}])
+                      (list [::test-store default-register #{$body}])
                       
                       :else
                       (list)))))
 
     [::VariantPM ?tags ?patterns ?defaults]
     (map-m (fn [tag]
-             (exec [:let [members+bodies (mapcat (fn [[ptag pmembers pbody]]
+             (exec [:let [?num-elems (get ?tags tag)
+                          members+bodies (mapcat (fn [[ptag pmembers pbody]]
                                                    (if (= ptag tag)
                                                      (list [pmembers pbody])
                                                      (list)))
@@ -505,7 +527,7 @@
                (cons [::test-variant tag ?num-elems sub-seqs]
                      (match ?defaults
                        ([[default-register $body] & _] :seq)
-                       (list [<test> default-register #{$body}])
+                       (list [::test-store default-register #{$body}])
                        
                        :else
                        (list)))))
@@ -518,51 +540,53 @@
                paths (valid-paths group*)]]
     (sequence-pm paths group*)))
 
-(let [ex-class (->class "java.lang.IllegalStateException")]
-  (defn ^:private compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
+;; [Resources]
+(let [ex-class (&host/->class "java.lang.IllegalStateException")]
+  (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
     (exec [*writer* &util/get-writer
            :let [$start (new Label)
                  $end (new Label)
                  _ (dotimes [offset ?num-registers]
                      (let [idx (+ ?base-register offset)]
-                       (.visitLocalVariable *writer* (str +local-prefix+ idx) (->java-sig [::&type/Any]) nil $start $end idx)))]
+                       (.visitLocalVariable *writer* (str &&/local-prefix idx) (&host/->java-sig [::&type/Any]) nil $start $end idx)))]
            _ (compile ?variant)
            :let [_ (doto *writer*
                      (.visitInsn Opcodes/DUP)
                      (.visitLabel $start))]
            :let [[mapping tree] (decision-tree ?branches)]
            
-           :let [[mappings pm-struct*] (map-bodies pm-struct)
-                 entries (for [[?branch ?body] mappings
-                               :let [label (new Label)]]
-                           [[?branch label]
-                            [label ?body]])
-                 mappings* (into {} (map first entries))
-                 ]
-           :let [$default (new Label)
-                 _ (do (doseq [decision-tree (let [pieces (map first (sequence-parts ?pm-struct))]
-                                               (if (get-default pm-struct)
-                                                 (butlast pieces)
-                                                 pieces))]
-                         (compile-decision-tree *writer* mappings* $default decision-tree))
-                     (.visitLabel *writer* $default)
-                     (if-let [[?idx ?body] (get-default pm-struct)]
-                       (doto *writer*
-                         (.visitInsn Opcodes/DUP)
-                         (.visitVarInsn Opcodes/ASTORE ?idx)
-                         (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
-                       (doto *writer*
-                         (.visitInsn Opcodes/POP)
-                         (.visitTypeInsn Opcodes/NEW ex-class)
-                         (.visitInsn Opcodes/DUP)
-                         (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
-                         (.visitInsn Opcodes/ATHROW))))]
-           _ (map-m (fn [[?label ?body]]
-                      (exec [:let [_ (do (.visitLabel *writer* ?label)
-                                       (.visitInsn *writer* Opcodes/POP))]
-                             ret (compile ?body)
-                             :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
-                        (return ret)))
-                    (map second entries))
-           :let [_ (.visitLabel *writer* $end)]]
+           ;; :let [[mappings pm-struct*] (map-bodies pm-struct)
+           ;;       entries (for [[?branch ?body] mappings
+           ;;                     :let [label (new Label)]]
+           ;;                 [[?branch label]
+           ;;                  [label ?body]])
+           ;;       mappings* (into {} (map first entries))
+           ;;       ]
+           ;; :let [$default (new Label)
+           ;;       _ (do (doseq [decision-tree (let [pieces (map first (sequence-parts ?pm-struct))]
+           ;;                                     (if (get-default pm-struct)
+           ;;                                       (butlast pieces)
+           ;;                                       pieces))]
+           ;;               (compile-decision-tree *writer* mappings* $default decision-tree))
+           ;;           (.visitLabel *writer* $default)
+           ;;           (if-let [[?idx ?body] (get-default pm-struct)]
+           ;;             (doto *writer*
+           ;;               (.visitInsn Opcodes/DUP)
+           ;;               (.visitVarInsn Opcodes/ASTORE ?idx)
+           ;;               (.visitJumpInsn Opcodes/GOTO (get mappings* ?body)))
+           ;;             (doto *writer*
+           ;;               (.visitInsn Opcodes/POP)
+           ;;               (.visitTypeInsn Opcodes/NEW ex-class)
+           ;;               (.visitInsn Opcodes/DUP)
+           ;;               (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
+           ;;               (.visitInsn Opcodes/ATHROW))))]
+           ;; _ (map-m (fn [[?label ?body]]
+           ;;            (exec [:let [_ (do (.visitLabel *writer* ?label)
+           ;;                             (.visitInsn *writer* Opcodes/POP))]
+           ;;                   ret (compile ?body)
+           ;;                   :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
+           ;;              (return ret)))
+           ;;          (map second entries))
+           ;; :let [_ (.visitLabel *writer* $end)]
+           ]
       (return nil))))

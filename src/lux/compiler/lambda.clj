@@ -1,11 +1,30 @@
-(ns lux.compiler.lambda)
+(ns lux.compiler.lambda
+  (:require (clojure [string :as string]
+                     [set :as set]
+                     [template :refer [do-template]])
+            [clojure.core.match :refer [match]]
+            (lux [util :as &util :refer [exec return* return fail fail*
+                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                         normalize-ident]]
+                 [type :as &type]
+                 [lexer :as &lexer]
+                 [parser :as &parser]
+                 [analyser :as &analyser]
+                 [host :as &host])
+            [lux.analyser.base :as &a]
+            (lux.compiler [base :as &&])
+            :reload)
+  (:import (org.objectweb.asm Opcodes
+                              Label
+                              ClassWriter
+                              MethodVisitor)))
 
 ;; [Utils]
-(def ^:private clo-field-sig (->type-signature "java.lang.Object"))
-(def ^:private lambda-return-sig (->type-signature "java.lang.Object"))
+(def ^:private clo-field-sig (&host/->type-signature "java.lang.Object"))
+(def ^:private lambda-return-sig (&host/->type-signature "java.lang.Object"))
 (def ^:private <init>-return "V")
 (def ^:private counter-sig "I")
-(def ^:private +datum-sig+ (->type-signature "java.lang.Object"))
+(def ^:private +datum-sig+ (&host/->type-signature "java.lang.Object"))
 
 (defn ^:private lambda-impl-signature [args]
   (str (reduce str "("  (repeat (count args) clo-field-sig)) ")" lambda-return-sig))
@@ -28,7 +47,7 @@
       (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
             (.visitVarInsn Opcodes/ALOAD ?captured-id)
             (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
-          (->> (let [captured-name (str +closure-prefix+ ?captured-id)])
+          (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                (match (:form ?captured)
                  [::&analyser/captured ?closure-id ?captured-id ?source])
                (doseq [[?name ?captured] closed-over])))
@@ -38,7 +57,7 @@
             (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitVarInsn Opcodes/ALOAD (+ clo_idx offset))
                   (.visitFieldInsn Opcodes/PUTFIELD class-name field-name clo-field-sig))
-                (->> (let [field-name (str +partial-prefix+ clo_idx)]
+                (->> (let [field-name (str &&/partial-prefix clo_idx)]
                        (doto (.visitField class (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) field-name clo-field-sig nil nil)
                          (.visitEnd)))
                      (dotimes [clo_idx (dec num-args)])
@@ -55,13 +74,9 @@
         (.visitVarInsn Opcodes/ALOAD 0)
         (.visitFieldInsn Opcodes/GETFIELD class-name (str <prefix> idx) clo-field-sig))))
 
-  ^:private add-closure-vars +closure-prefix+
-  ^:private add-partial-vars +partial-prefix+
+  ^:private add-closure-vars &&/closure-prefix
+  ^:private add-partial-vars &&/partial-prefix
   )
-
-(defn ^:private add-nulls [writer amount]
-  (dotimes [_ amount]
-    (.visitInsn writer Opcodes/ACONST_NULL)))
 
 (defn ^:private add-lambda-apply [class class-name closed-over args impl-signature init-signature]
   (let [num-args (count args)
@@ -69,7 +84,7 @@
         default-label (new Label)
         branch-labels (for [_ (range num-captured)]
                         (new Label))]
-    (doto (.visitMethod class Opcodes/ACC_PUBLIC "apply" +apply-signature+ nil nil)
+    (doto (.visitMethod class Opcodes/ACC_PUBLIC "apply" &&/apply-signature nil nil)
       (.visitCode)
       (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
             (.visitFieldInsn Opcodes/GETFIELD class-name "_counter" counter-sig)
@@ -81,7 +96,7 @@
                   (.visitLdcInsn (int current-captured))
                   (add-partial-vars class-name (take current-captured args))
                   (.visitVarInsn Opcodes/ALOAD 1)
-                  (add-nulls (- (dec num-captured) current-captured))
+                  (&&/add-nulls (- (dec num-captured) current-captured))
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" init-signature)
                   (.visitInsn Opcodes/ARETURN))
                 (->> (doseq [[branch-label current-captured] (map vector branch-labels (range (count branch-labels)))])))
@@ -126,7 +141,7 @@
          :let [num-args (count args)
                _ (do (when (> num-args 1)
                        (.visitInsn *writer* Opcodes/ICONST_0)
-                       (add-nulls *writer* (dec num-args)))
+                       (&&/add-nulls *writer* (dec num-args)))
                    (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature))]]
     (return nil)))
 
@@ -136,8 +151,8 @@
       (.visitCode)
       (.visitTypeInsn Opcodes/NEW class-name)
       (.visitInsn Opcodes/DUP)
-      (-> (doto (.visitInsn *writer* Opcodes/ICONST_0)
-            (add-nulls (dec num-args)))
+      (-> (doto (.visitInsn Opcodes/ICONST_0)
+            (&&/add-nulls (dec num-args)))
           (->> (when (> num-args 1))))
       (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" <init>-sig)
       (.visitFieldInsn Opcodes/PUTSTATIC class-name "_datum" +datum-sig+)
@@ -152,10 +167,10 @@
                <init>-sig (lambda-<init>-signature ?closure ?args)
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                                lambda-class nil "java/lang/Object" (into-array [(->class +function-class+)]))
+                                lambda-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
                         (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                               (.visitEnd))
-                            (->> (let [captured-name (str +closure-prefix+ ?captured-id)])
+                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                  (match (:form ?captured)
                                    [::&analyser/captured ?closure-id ?captured-id ?source])
                                  (doseq [[?name ?captured] ?closure])))
@@ -170,7 +185,7 @@
                         )]
          _ (add-lambda-impl =class compile impl-signature ?body)
          :let [_ (.visitEnd =class)]
-         _ (save-class! lambda-class (.toByteArray =class))]
+         _ (&&/save-class! lambda-class (.toByteArray =class))]
     (if instance?
       (instance-closure compile lambda-class ?closure ?args <init>-sig)
       (return nil))))
