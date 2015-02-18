@@ -5,7 +5,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                         repeat-m exhaust-m try-m try-all-m map-m mapcat-m reduce-m
                                          apply-m
                                          normalize-ident]]
                  [type :as &type]
@@ -27,6 +27,7 @@
 
 ;; [Utils/Compilers]
 (defn ^:private compile-expression [syntax]
+  (prn 'compile-expression syntax)
   (match syntax
     [::&a/Expression ?form ?type]
     (match ?form
@@ -164,49 +165,49 @@
       (&&host/compile-jvm-aastore compile-expression ?type ?array ?idx ?elem)
 
       [::&a/jvm-aaload ?array ?idx]
-      (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx)
+      (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx))
 
-      _
-      (fail "[Compiler Error] Can't compile expressions as top-level forms.")
-      )))
+    _
+    (fail "[Compiler Error] Can't compile statements as expressions.")))
 
 (defn ^:private compile-statement [syntax]
+  (prn 'compile-statement syntax)
   (match syntax
-    [::&a/Expression ?form ?type]
+    [::&a/Statement ?form]
     (match ?form
-      [::&a/def ?form ?body]
-      (&&lux/compile-def compile-expression ?type ?form ?body)
+      [::&a/def ?name ?body]
+      (&&lux/compile-def compile-expression ?name ?body)
       
-      [::&a/jvm-interface [?package ?name] ?members]
-      (&&host/compile-jvm-interface compile-expression ?type ?package ?name ?members)
+      [::&a/jvm-interface ?package ?name ?methods]
+      (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
 
-      [::&a/jvm-class [?package ?name] ?super-class ?members]
-      (&&host/compile-jvm-class compile-expression ?type ?package ?name ?super-class ?members)
+      [::&a/jvm-class ?package ?name ?super-class ?fields ?methods]
+      (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods))
 
-      _
-      (fail "[Compiler Error] Can't compile expressions as top-level forms.")
-      )))
+    _
+    (fail "[Compiler Error] Can't compile expressions as top-level forms.")))
 
-(let [compiler-step (exec [analysis+ &analyser/analyse]
-                      (map-m compile-statement analysis+))]
+(let [compiler-step (exec [analysis+ &analyser/analyse
+                           :let [_ (prn 'analysis+ analysis+)]]
+                      (mapcat-m compile-statement analysis+))]
   (defn ^:private compile-module [name]
-    (exec [loader &util/loader]
-      (fn [state]
-        (if (-> state ::&util/modules (contains? name))
-          (fail "[Compiler Error] Can't redefine a module!")
-          (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                 (&host/->class name) nil "java/lang/Object" nil))]
-            (match (&util/run-state (exhaust-m compiler-step) (assoc state
-                                                                ::&util/source (slurp (str "source/" name ".lux"))
-                                                                ::&util/current-module name
-                                                                ::&util/writer =class))
-              [::&util/ok [?state _]]
-              (do (.visitEnd =class)
-                (&util/run-state (&&/save-class! name (.toByteArray =class)) ?state))
-              
-              [::&util/failure ?message]
-              (fail* ?message))))))))
+    (fn [state]
+      (if (-> state ::&util/modules (contains? name))
+        (fail "[Compiler Error] Can't redefine a module!")
+        (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                               (&host/->class name) nil "java/lang/Object" nil))]
+          (match (&util/run-state (exhaust-m compiler-step) (assoc state
+                                                              ::&util/source (slurp (str "source/" name ".lux"))
+                                                              ::&util/global-env (&util/env name)
+                                                              ::&util/writer =class))
+            [::&util/ok [?state ?vals]]
+            (do (.visitEnd =class)
+              (prn 'compile-module/?vals ?vals)
+              (&util/run-state (&&/save-class! name (.toByteArray =class)) ?state))
+            
+            [::&util/failure ?message]
+            (fail* ?message)))))))
 
 ;; [Resources]
 (defn compile-all [modules]

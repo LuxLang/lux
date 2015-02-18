@@ -11,29 +11,30 @@
 
 (defn ^:private deref [id]
   (fn [state]
-    (if-let [top+bottom (get-in state [::&util/types ::mappings id])]
+    (if-let [top+bottom (get-in state [::&util/types :mappings id])]
       [::&util/ok [state top+bottom]]
       [::&util/failure (str "Unknown type-var: " id)])))
 
 (defn ^:private update [id top bottom]
   (fn [state]
-    (if-let [top+bottom (get-in state [::&util/types ::mappings id])]
-      [::&util/ok [(assoc-in state [::&util/types ::mappings id] [top bottom]) nil]]
+    (if-let [top+bottom (get-in state [::&util/types :mappings id])]
+      [::&util/ok [(assoc-in state [::&util/types :mappings id] [top bottom]) nil]]
       [::&util/failure (str "Unknown type-var: " id)])))
 
 ;; [Interface]
 (def fresh-var
   (fn [state]
-    (let [id (::counter state)]
-      [::&util/ok [(-> state
-                       (update-in [::counter] inc)
-                       (assoc-in [::mappings id] [::any ::nothing]))
-                   [::var id]]])))
+    (let [id (-> state ::&util/types :counter)]
+      [::&util/ok [(update-in state [::&util/types]
+                              #(-> %
+                                   (update-in [:counter] inc)
+                                   (assoc-in [:mappings id] [[::Any] [::Nothing]])))
+                   [::Var id]]])))
 
 (def fresh-function
   (exec [=arg fresh-var
          =return fresh-var]
-    (return [::function =arg =return])))
+    (return [::Lambda =arg =return])))
 
 ;; (defn solve [expected actual]
 ;;   ;; (prn 'solve expected actual)
@@ -98,20 +99,17 @@
 
 (defn clean [type]
   (match type
-    [::var ?id]
+    [::Var ?id]
     (exec [[=top =bottom] (deref ?id)]
       (clean =top))
 
-    [::function ?args ?return]
-    (exec [=args (map-m clean ?args)
+    [::Lambda ?arg ?return]
+    (exec [=arg (clean ?arg)
            =return (clean ?return)]
-      (return [::function =args =return]))
+      (return [::Lambda =arg =return]))
 
-    ;; ::any
-    ;; (return [::object "java.lang.Object" []])
-    
-    ;; _
-    ;; (return type)
+    _
+    (return type)
     ))
 
 ;; Java Reflection
@@ -159,6 +157,13 @@
     [[::Lambda n!input n!output] [::Lambda g!input g!output]]
     (exec [_ (solve g!input n!input)]
       (solve n!output g!output))
+
+    [[::Var n!id] _]
+    (exec [[n!top n!bottom] (deref n!id)
+           _ (solve n!top given)
+           _ (solve given n!bottom)
+           _ (update n!id n!top given)]
+      success)
     ))
 
 (let [&& #(and %1 %2)]

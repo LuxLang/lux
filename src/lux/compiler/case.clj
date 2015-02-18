@@ -535,25 +535,30 @@
     ))
 
 (defn ^:private decision-tree [branches]
+  (prn 'decision-tree branches)
   (exec [group (reduce-m group-branch [::?PM (list)] branches)
          :let [[mappings group*] (map-bodies group)
                paths (valid-paths group*)]]
-    (sequence-pm paths group*)))
+    (sequence-pm group*)))
 
 ;; [Resources]
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
     (exec [*writer* &util/get-writer
+           :let [_ (prn "Has writer")]
            :let [$start (new Label)
                  $end (new Label)
                  _ (dotimes [offset ?num-registers]
                      (let [idx (+ ?base-register offset)]
                        (.visitLocalVariable *writer* (str &&/local-prefix idx) (&host/->java-sig [::&type/Any]) nil $start $end idx)))]
+           :let [_ (prn "PRE Compiled ?variant")]
            _ (compile ?variant)
+           :let [_ (prn "POST Compiled ?variant")]
            :let [_ (doto *writer*
                      (.visitInsn Opcodes/DUP)
                      (.visitLabel $start))]
-           :let [[mapping tree] (decision-tree ?branches)]
+           [mapping tree] (decision-tree ?branches)
+           :let [_ (assert false "compile-case")]
            
            ;; :let [[mappings pm-struct*] (map-bodies pm-struct)
            ;;       entries (for [[?branch ?body] mappings

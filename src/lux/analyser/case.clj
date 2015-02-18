@@ -5,7 +5,8 @@
                                          assert!]]
                  [parser :as &parser]
                  [type :as &type])
-            (lux.analyser [env :as &env])))
+            (lux.analyser [base :as &&]
+                          [env :as &env])))
 
 ;; [Resources]
 (defn locals [member]
@@ -22,12 +23,12 @@
     _
     (list)))
 
-(defn analyse-branch [analyse-1 max-registers [bindings body]]
+(defn analyse-branch [analyse max-registers [bindings body]]
   (reduce (fn [body* name]
             (&env/with-local name :local &type/+dont-care-type+ body*))
           (reduce (fn [body* _]
                     (&env/with-local "#" :local &type/+dont-care-type+ body*))
-                  (analyse-1 body)
+                  (&&/analyse-1 analyse body)
                   (range (- max-registers (count bindings))))
           bindings))
 

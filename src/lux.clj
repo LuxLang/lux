@@ -1,10 +1,6 @@
 (ns lux
-  (:require (lux [lexer :as &lexer]
-                 [parser :as &parser]
-                 [type :as &type]
-                 [analyser :as &analyser]
-                 [compiler :as &compiler])
-            :reload))
+  (:require [lux.compiler :as &compiler]
+            :reload-all))
 
 (comment
   ;; TODO: Make macros monadic.
@@ -23,8 +19,8 @@
   ;; TODO: 
   ;; TODO: 
   
-  (time (&compiler/compile-all ["lux" ;; "test2"
-                                ]))
+  (time (&compiler/compile-all ["lux"]))
+  (time (&compiler/compile-all ["lux" "test2"]))
 
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
   ;; cd output && jar cvf test2.jar * && java -cp "test2.jar" test2 && cd ..

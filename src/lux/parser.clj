@@ -5,16 +5,16 @@
                  [lexer :as &lexer])))
 
 ;; [Utils]
-(do-template [<name> <close-token> <description> <ast>]
+(do-template [<name> <close-token> <description> <tag>]
   (defn <name> [parse]
     (exec [elems (repeat-m parse)
            token &lexer/lex]
       (if (= <close-token> token)
-        (return (list [<ast> (apply concat elems)]))
+        (return (list [<tag> (apply concat elems)]))
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  [::&lexer/close-paren]   "parantheses" ::form
-  ^:private parse-tuple [::&lexer/close-bracket] "brackets"    ::tuple
+  ^:private parse-form  [::&lexer/close-paren]   "parantheses" ::Form
+  ^:private parse-tuple [::&lexer/close-bracket] "brackets"    ::Tuple
   )
 
 (defn ^:private parse-record [parse]
@@ -28,11 +28,13 @@
           (fail (str "[Parser Error] Records must have an even number of elements."))
 
           :else
-          (return (list [::record elems])))))
+          (return (list [::Record elems])))))
 
 ;; [Interface]
 (def parse
-  (exec [token &lexer/lex]
+  (exec [token &lexer/lex
+         ;; :let [_ (prn 'parse/token token)]
+         ]
     (match token
       [::&lexer/white-space _]
       (return (list))

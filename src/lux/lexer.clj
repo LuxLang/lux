@@ -6,20 +6,20 @@
 ;; [Utils]
 (defn ^:private lex-regex [regex]
   (fn [state]
-    (if-let [[match] (re-find regex (::source state))]
-      (return* (update-in state [::source] #(.substring % (.length match))) match)
+    (if-let [[match] (re-find regex (::&util/source state))]
+      (return* (update-in state [::&util/source] #(.substring % (.length match))) match)
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-regex2 [regex]
   (fn [state]
-    (if-let [[match tok1 tok2] (re-find regex (::source state))]
-      (return* (update-in state [::source] #(.substring % (.length match))) [tok1 tok2])
+    (if-let [[match tok1 tok2] (re-find regex (::&util/source state))]
+      (return* (update-in state [::&util/source] #(.substring % (.length match))) [tok1 tok2])
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-prefix [prefix]
   (fn [state]
-    (if (.startsWith (::source state) prefix)
-      (return* (update-in state [::source] #(.substring % (.length prefix))) prefix)
+    (if (.startsWith (::&util/source state) prefix)
+      (return* (update-in state [::&util/source] #(.substring % (.length prefix))) prefix)
       (fail* (str "[Lexer Error] Text failed: " prefix)))))
 
 (defn ^:private escape-char [escaped]
@@ -118,7 +118,7 @@
               lex-open-brace
               lex-close-brace]))
 
-;; [Interface]
+;; [Exports]
 (def lex
   (try-all-m [lex-white-space
               lex-comment

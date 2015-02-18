@@ -6,12 +6,13 @@
 
 ;; [Resources]
 (defn expr-type [syntax+]
+  (prn 'expr-type syntax+)
   (match syntax+
     [::Expression _ type]
     (return type)
 
     _
-    (fail "Can't retrieve the type of a non-expression.")))
+    (fail "[Analyser Error] Can't retrieve the type of a non-expression.")))
 
 (defn analyse-1 [analyse elem]
   (exec [output (analyse elem)]

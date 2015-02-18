@@ -66,44 +66,45 @@
       (do ;; (println "Failed at last:" ?message)
           (return* state '())))))
 
-(defn exhaust-m [monad]
+(def source-consumed?
   (fn [state]
-    (let [result (monad state)]
-      (match result
-        [::ok [?state ?head]]
-        (if (empty? (:forms ?state))
-          (return* ?state (list ?head))
-          (let [result* ((exhaust-m monad) ?state)]
-            (match result*
-              [::ok [?state* ?tail]]
-              (return* ?state* (cons ?head ?tail))
+    [::ok [state (empty? (::source state))]]))
 
-              _
-              result*)))
-        
-        _
-        result))))
+(defn exhaust-m [monad]
+  (exec [output-h monad
+         ? source-consumed?
+         output-t (if ?
+                    (return (list))
+                    (exhaust-m monad))]
+    (return (cons output-h output-t))))
 
 (defn try-all-m [monads]
-  (fn [state]
-    (if (empty? monads)
-      (fail* "No alternative worked!")
+  (if (empty? monads)
+    (fail "Can't try no alternatives!")
+    (fn [state]
       (let [output ((first monads) state)]
         (match output
           [::ok _]
           output
-          :else
+          
+          _
           (if-let [monads* (seq (rest monads))]
             ((try-all-m monads*) state)
             output)
           )))))
+
+(defn if-m [text-m then-m else-m]
+  (exec [? text-m]
+    (if ?
+      then-m
+      else-m)))
 
 (do-template [<name> <joiner>]
   (defn <name> [f inputs]
     (if (empty? inputs)
       (return '())
       (exec [output (f (first inputs))
-             outputs (map-m f (rest inputs))]
+             outputs (<name> f (rest inputs))]
         (return (<joiner> output outputs)))))
 
   map-m    cons
@@ -184,36 +185,54 @@
 (defn normalize-ident [ident]
   (reduce str "" (map normalize-char ident)))
 
-(defn class-loader! []
-  (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.))
-
 (def loader
   (fn [state]
     (return* state (::loader state))))
 
-(def +init-env+
+(def +init-bindings+
   {:counter 0
    :mappings {}})
 
-(defn scope [name]
+(defn env [name]
   {:name name
-   :inner-lambdas 0
-   :locals  +init-env+
-   :closure +init-env+})
+   :inner-closures 0
+   :locals  +init-bindings+
+   :closure +init-bindings+})
 
 (defn init-state []
   {::source nil
-   ::current-module nil
    ::modules {}
-   ::global-env {}
+   ::global-env nil
    ::local-envs (list)
-   ::types +init-env+
+   ::types +init-bindings+
    ::writer nil
-   ::loader (class-loader!)})
+   ::loader (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)})
+
+(def get-writer
+  (fn [state]
+    (if-let [datum (::writer state)]
+      [::ok [state datum]]
+      [::failure "Writer hasn't been set."])))
+
+(def get-top-local-env
+  (fn [state]
+    (if-let [datum (first (::local-envs state))]
+      [::ok [state datum]]
+      [::failure "Module hasn't been set."])))
+
+(def get-current-module-env
+  (fn [state]
+    (if-let [datum (::global-env state)]
+      [::ok [state datum]]
+      [::failure "Module hasn't been set."])))
+
+(def get-module-name
+  (exec [module get-current-module-env]
+    (return (:name module))))
 
 (defn ^:private with-scope [name body]
   (fn [state]
-    (let [output (body (update-in state [::local-envs] conj (scope name)))]
+    (let [output (body (update-in state [::local-envs] conj (env name)))]
       (match output
         [::ok [state* datum]]
         [::ok [(update-in state* [::local-envs] rest) datum]]
@@ -222,27 +241,23 @@
         output))))
 
 (defn with-closure [body]
-  (fn [state]
-    (let [body* (with-scope (-> state ::local-envs first :inner-closures str)
-                  body)]
-      (body* (update-in state [::local-envs]
-                        #(cons (update-in (first %) [:inner-closures] inc)
-                               (rest %)))))))
-
-(do-template [<name> <tag>]
-  (def <name>
+  (exec [[local? closure-name] (try-all-m (list (exec [top get-top-local-env]
+                                                  (return [true (-> top :inner-closures str)]))
+                                                (exec [global get-current-module-env]
+                                                  (return [false (-> global :inner-closures str)]))))]
     (fn [state]
-      (if-let [datum (<tag> state)]
-        [::ok [state datum]]
-        [::failure (str "Data does not exist: " <tag>)])))
-
-  get-module-name ::current-module
-  get-writer      ::writer
-  )
+      (let [body* (with-scope closure-name
+                    body)]
+        (body* (if local?
+                 (update-in state [::local-envs]
+                            #(cons (update-in (first %) [:inner-closures] inc)
+                                   (rest %)))
+                 (update-in state [::global-env :inner-closures] inc)))))))
 
 (def get-scope-name
-  (fn [state]
-    [::ok [state (->> state ::local-envs (map :name) reverse (cons (::current-module state)))]]))
+  (exec [module-name get-module-name]
+    (fn [state]
+      [::ok [state (->> state ::local-envs (map :name) reverse (cons module-name))]])))
 
 (defn with-writer [writer body]
   (fn [state]

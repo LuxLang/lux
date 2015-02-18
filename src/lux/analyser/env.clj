@@ -1,8 +1,9 @@
 (ns lux.analyser.env
   (:require [clojure.core.match :refer [match]]
             (lux [util :as &util :refer [exec return fail
-                                         try-all-m map-m mapcat-m reduce-m
-                                         assert!]])))
+                                         if-m try-all-m map-m mapcat-m reduce-m
+                                         assert!]])
+            [lux.analyser.base :as &&]))
 
 ;; [Resources]
 (def next-local-idx
@@ -24,7 +25,7 @@
 (defn annotate [module name access type]
   (fn [state]
     (let [full-name (str module &util/+name-separator+ name)
-          bound [::Expression [::global module name] type]]
+          bound [::&&/Expression [::&&/global module name] type]]
       [::&util/ok [(-> state
                        (assoc-in [::&util/modules module name] {:args-n [:None]
                                                                 :access access
@@ -39,11 +40,11 @@
                  nil]]))
 
 (defn define [module name]
-  (exec [? annotated?
-         _ (assert! ? (str "[Analyser Error] Can't define an unannotated element: " name))]
-    (fn [state]
-      [::&util/ok [(assoc-in state [::&util/modules module name :defined?] true)
-                   nil]])))
+  (if-m (annotated? module name)
+        (fn [state]
+          [::&util/ok [(assoc-in state [::&util/modules module name :defined?] true)
+                       nil]])
+        (fail (str "[Analyser Error] Can't define an unannotated element: " name))))
 
 (defn with-local [name mode type body]
   (fn [state]
@@ -51,11 +52,11 @@
           =return (body (update-in state [::&util/local-envs]
                                    (fn [[top & stack]]
                                      (let [bound-unit (case mode
-                                                        :self [::self (list)]
-                                                        :local [::local (get-in top [:locals :counter])])]
+                                                        :self  [::&&/self (list)]
+                                                        :local [::&&/local (get-in top [:locals :counter])])]
                                        (cons (-> top
                                                  (update-in [:locals :counter] inc)
-                                                 (assoc-in [:locals :mappings name] [::Expression bound-unit type]))
+                                                 (assoc-in [:locals :mappings name] [::&&/Expression bound-unit type]))
                                              stack)))))]
       (match =return
         [::&util/ok [?state ?value]]

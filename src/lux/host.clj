@@ -82,8 +82,11 @@
 
 (defn ->java-sig [type]
   (match type
-    ::&type/Any
+    [::&type/Any]
     (->type-signature "java.lang.Object")
+
+    [::&type/Nothing]
+    "V"
     
     [::&type/Data ?name]
     (->type-signature ?name)

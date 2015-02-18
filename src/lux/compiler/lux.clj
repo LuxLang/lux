@@ -22,7 +22,7 @@
                               MethodVisitor)))
 
 ;; [Utils]
-(defn ^:private compile-field [compile *type* ?name body]
+(defn ^:private compile-field [compile ?name body]
   (exec [*writer* &util/get-writer
          module-name &util/get-module-name
          :let [outer-class (&host/->class module-name)
@@ -172,18 +172,19 @@
                    )]]
     (return nil)))
 
-(defn compile-def [compile *type* name value]
-  (match value
-    [::&a/Expression ?form _]
-    (match ?form
-      [::&a/lambda ?scope ?captured ?args ?body]
-      (&&lambda/compile-lambda compile *type* ?scope ?captured ?args ?body true false)
+(defn compile-def [compile name value]
+  (exec [value-type (&a/expr-type value)]
+    (match value
+      [::&a/Expression ?form _]
+      (match ?form
+        [::&a/lambda ?scope ?captured ?args ?body]
+        (&&lambda/compile-lambda compile value-type ?scope ?captured ?args ?body true false)
 
+        _
+        (compile-field compile name value))
+      
       _
-      (compile-field compile *type* name value))
-    
-    _
-    (fail "Can only define expressions.")))
+      (fail "Can only define expressions."))))
 
 (defn compile-self-call [compile ?assumed-args]
   (exec [*writer* &util/get-writer
