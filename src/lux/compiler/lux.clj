@@ -3,10 +3,10 @@
                      [set :as set]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                         apply-m
-                                         normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                     apply-m
+                                     normalize-ident]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -23,8 +23,8 @@
 
 ;; [Utils]
 (defn ^:private compile-field [compile ?name body]
-  (exec [*writer* &util/get-writer
-         module-name &util/get-module-name
+  (exec [*writer* &/get-writer
+         module-name &/get-module-name
          :let [outer-class (&host/->class module-name)
                datum-sig (&host/->type-signature "java.lang.Object")
                current-class (&host/location (list ?name outer-class))
@@ -34,8 +34,8 @@
                                 current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                             (doto (.visitEnd))))]
-         _ (&util/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (exec [*writer* &util/get-writer
+         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+             (exec [*writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
                     _ (compile body)
                     :let [_ (doto *writer*
@@ -52,14 +52,14 @@
 (let [+class+ (&host/->class "java.lang.Boolean")
       +sig+ (&host/->type-signature "java.lang.Boolean")]
   (defn compile-bool [compile *type* ?value]
-    (exec [*writer* &util/get-writer
+    (exec [*writer* &/get-writer
            :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") (if ?value "TRUE" "FALSE") (&host/->type-signature "java.lang.Boolean"))]]
       (return nil))))
 
 (do-template [<name> <class> <sig>]
   (let [+class+ (&host/->class <class>)]
     (defn <name> [compile *type* value]
-      (exec [*writer* &util/get-writer
+      (exec [*writer* &/get-writer
              :let [_ (doto *writer*
                        (.visitTypeInsn Opcodes/NEW <class>)
                        (.visitInsn Opcodes/DUP)
@@ -73,12 +73,12 @@
   )
 
 (defn compile-text [compile *type* ?value]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (.visitLdcInsn *writer* ?value)]]
     (return nil)))
 
 (defn compile-tuple [compile *type* ?elems]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [num-elems (count ?elems)
                tuple-class (&host/->class (str &host/tuple-class num-elems))
                _ (doto *writer*
@@ -94,7 +94,7 @@
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?members]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [variant-class* (str (&host/->class &host/variant-class) (count ?members))
                _ (doto *writer*
                    (.visitTypeInsn Opcodes/NEW variant-class*)
@@ -112,12 +112,12 @@
     (return nil)))
 
 (defn compile-local [compile *type* ?idx]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (.visitVarInsn *writer* Opcodes/ALOAD (int ?idx))]]
     (return nil)))
 
 (defn compile-captured [compile *type* ?scope ?captured-id ?source]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (doto *writer*
                    (.visitVarInsn Opcodes/ALOAD 0)
                    (.visitFieldInsn Opcodes/GETFIELD
@@ -127,12 +127,12 @@
     (return nil)))
 
 (defn compile-global [compile *type* ?owner-class ?name]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (list ?name ?owner-class))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-call [compile *type* ?fn ?args]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          _ (compile ?fn)
          _ (map-m (fn [arg]
                     (exec [ret (compile arg)
@@ -143,7 +143,7 @@
 
 (defn compile-static-call [compile *type* ?needs-num ?fn ?args]
   (assert false (pr-str 'compile-static-call))
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (match (:form ?fn)
                    [::&a/global ?owner-class ?fn-name]
                    (let [arg-sig (&host/->type-signature "java.lang.Object")
@@ -187,7 +187,7 @@
       (fail "Can only define expressions."))))
 
 (defn compile-self-call [compile ?assumed-args]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (.visitVarInsn *writer* Opcodes/ALOAD 0)]
          _ (map-m (fn [arg]
                     (exec [ret (compile arg)

@@ -3,9 +3,9 @@
                      [set :as set]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                         normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                     normalize-ident]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -111,10 +111,10 @@
       (.visitEnd))))
 
 (defn ^:private add-lambda-impl [class compile impl-signature impl-body]
-  (&util/with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
-                       (.visitCode))
+  (&/with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
+                   (.visitCode))
     (exec [;; :let [_ (prn 'add-lambda-impl/_0)]
-           *writer* &util/get-writer
+           *writer* &/get-writer
            ;; :let [_ (prn 'add-lambda-impl/_1 *writer*)]
            ret (compile impl-body)
            ;; :let [_ (prn 'add-lambda-impl/_2 ret)]
@@ -127,7 +127,7 @@
       (return ret))))
 
 (defn ^:private instance-closure [compile lambda-class closed-over args init-signature]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (doto *writer*
                    (.visitTypeInsn Opcodes/NEW lambda-class)
                    (.visitInsn Opcodes/DUP))]

@@ -1,4 +1,4 @@
-(ns lux.util
+(ns lux.base
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :refer [match]]))
 
@@ -23,13 +23,14 @@
     [::ok [state value]]))
 
 (defn bind [m-value step]
-  #(let [inputs (m-value %)]
-     (match inputs
-       [::ok [?state ?datum]]
-       ((step ?datum) ?state)
-       
-       [::failure _]
-       inputs)))
+  (fn [state]
+    (let [inputs (m-value state)]
+      (match inputs
+        [::ok [?state ?datum]]
+        ((step ?datum) ?state)
+        
+        [::failure _]
+        inputs))))
 
 (defmacro exec [steps return]
   (assert (not= 0 (count steps)) "The steps can't be empty!")

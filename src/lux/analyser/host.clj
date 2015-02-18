@@ -1,9 +1,9 @@
 (ns lux.analyser.host
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return fail
-                                         try-all-m map-m mapcat-m reduce-m
-                                         assert!]]
+            (lux [base :as & :refer [exec return fail
+                                     try-all-m map-m mapcat-m reduce-m
+                                     assert!]]
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
@@ -112,7 +112,7 @@
          :let [=fields (into {} (for [[class field] ?fields]
                                   [field {:access :public
                                           :type class}]))]
-         $module &util/get-module-name]
+         $module &/get-module-name]
     (return (list [::&&/Statement [::&&/jvm-class $module ?name ?super-class =fields {}]]))))
 
 (defn analyse-jvm-interface [analyse ?name ?members]
@@ -131,7 +131,7 @@
          :let [=methods (into {} (for [[method [inputs output]] ?members]
                                    [method {:access :public
                                             :type [inputs output]}]))]
-         $module &util/get-module-name]
+         $module &/get-module-name]
     (return (list [::&&/Statement [::&&/jvm-interface $module ?name =methods]]))))
 
 (defn analyse-exec [analyse ?exprs]

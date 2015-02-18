@@ -1,35 +1,35 @@
 (ns lux.type
   (:refer-clojure :exclude [deref apply merge])
   (:require [clojure.core.match :refer [match]]
-            [lux.util :as &util :refer [exec return* return fail fail*
-                                        repeat-m try-m try-all-m map-m
-                                        sequence-m
-                                        apply-m assert!]]))
+            [lux.base :as & :refer [exec return* return fail fail*
+                                    repeat-m try-m try-all-m map-m
+                                    sequence-m
+                                    apply-m assert!]]))
 
 ;; [Util]
 (def ^:private success (return nil))
 
 (defn ^:private deref [id]
   (fn [state]
-    (if-let [top+bottom (get-in state [::&util/types :mappings id])]
-      [::&util/ok [state top+bottom]]
-      [::&util/failure (str "Unknown type-var: " id)])))
+    (if-let [top+bottom (get-in state [::&/types :mappings id])]
+      [::&/ok [state top+bottom]]
+      [::&/failure (str "Unknown type-var: " id)])))
 
 (defn ^:private update [id top bottom]
   (fn [state]
-    (if-let [top+bottom (get-in state [::&util/types :mappings id])]
-      [::&util/ok [(assoc-in state [::&util/types :mappings id] [top bottom]) nil]]
-      [::&util/failure (str "Unknown type-var: " id)])))
+    (if-let [top+bottom (get-in state [::&/types :mappings id])]
+      [::&/ok [(assoc-in state [::&/types :mappings id] [top bottom]) nil]]
+      [::&/failure (str "Unknown type-var: " id)])))
 
 ;; [Interface]
 (def fresh-var
   (fn [state]
-    (let [id (-> state ::&util/types :counter)]
-      [::&util/ok [(update-in state [::&util/types]
-                              #(-> %
-                                   (update-in [:counter] inc)
-                                   (assoc-in [:mappings id] [[::Any] [::Nothing]])))
-                   [::Var id]]])))
+    (let [id (-> state ::&/types :counter)]
+      [::&/ok [(update-in state [::&/types]
+                          #(-> %
+                               (update-in [:counter] inc)
+                               (assoc-in [:mappings id] [[::Any] [::Nothing]])))
+               [::Var id]]])))
 
 (def fresh-function
   (exec [=arg fresh-var

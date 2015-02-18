@@ -2,9 +2,9 @@
   (:require (clojure [string :as string]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m try-all-m map-m mapcat-m reduce-m
-                                         normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m try-all-m map-m mapcat-m reduce-m
+                                     normalize-ident]]
                  [parser :as &parser]
                  [type :as &type])))
 

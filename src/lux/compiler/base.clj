@@ -1,9 +1,9 @@
 (ns lux.compiler.base
   (:require [clojure.string :as string]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                         apply-m
-                                         normalize-ident]]))
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                     apply-m
+                                     normalize-ident]]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -30,7 +30,7 @@
   (.loadClass loader name))
 
 (defn save-class! [name bytecode]
-  (exec [loader &util/loader
+  (exec [loader &/loader
          :let [_ (write-class name bytecode)
                _ (load-class! loader (string/replace name #"/" "."))]]
     (return nil)))

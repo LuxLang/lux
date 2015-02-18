@@ -2,10 +2,10 @@
   (:require (clojure [set :as set]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                         apply-m
-                                         normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                     apply-m
+                                     normalize-ident]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -330,8 +330,8 @@
     [::&parser/Tuple ?members]
     (match pm
       [::TuplePM ?num-elems ?branches ?defaults]
-      (exec [_ (&util/assert! (= ?num-elems (count ?members))
-                              (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " (count ?members)))]
+      (exec [_ (&/assert! (= ?num-elems (count ?members))
+                          (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " (count ?members)))]
         (return [::TuplePM ?num-elems (cons [?members body] ?branches) ?defaults]))
 
       [::?PM ?defaults]
@@ -346,8 +346,8 @@
       (match pm
         [::VariantPM ?variants ?branches ?defaults]
         (exec [variants* (if-let [?num-elems (get ?variants ?tag)]
-                           (exec [_ (&util/assert! (= ?num-elems num-members)
-                                                   (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
+                           (exec [_ (&/assert! (= ?num-elems num-members)
+                                               (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
                              (return ?variants))
                            (return (assoc ?variants ?tag num-members)))]
           (return [::VariantPM variants* (conj ?branches [[?tag members] body]) ?defaults]))
@@ -364,8 +364,8 @@
       (match pm
         [::VariantPM ?variants ?branches ?defaults]
         (exec [variants* (if-let [?num-elems (get ?variants ?tag)]
-                           (exec [_ (&util/assert! (= ?num-elems num-members)
-                                                   (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
+                           (exec [_ (&/assert! (= ?num-elems num-members)
+                                               (str "[Analyser Error] Mismatch in tuple size: " ?num-elems " =/= " num-members))]
                              (return ?variants))
                            (return (assoc ?variants ?tag num-members)))]
           (return [::VariantPM variants* (conj ?branches [[?tag members] body]) ?defaults]))
@@ -544,7 +544,7 @@
 ;; [Resources]
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
-    (exec [*writer* &util/get-writer
+    (exec [*writer* &/get-writer
            :let [_ (prn "Has writer")]
            :let [$start (new Label)
                  $end (new Label)

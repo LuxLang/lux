@@ -1,15 +1,15 @@
 (ns lux.analyser.lambda
   (:require [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return fail
-                                         try-all-m map-m mapcat-m reduce-m
-                                         assert!]])
+            (lux [base :as & :refer [exec return fail
+                                     try-all-m map-m mapcat-m reduce-m
+                                     assert!]])
             (lux.analyser [base :as &&]
                           [env :as &env])))
 
 ;; [Resource]
 (defn with-lambda [self self-type arg arg-type body]
-  (&util/with-closure
-    (exec [scope-name &util/get-scope-name]
+  (&/with-closure
+    (exec [scope-name &/get-scope-name]
       (&env/with-local self :self self-type
         (&env/with-local arg :local arg-type
           (exec [=return body

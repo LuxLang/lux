@@ -4,10 +4,10 @@
                      [set :as set]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m mapcat-m reduce-m
-                                         apply-m
-                                         normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m exhaust-m try-m try-all-m map-m mapcat-m reduce-m
+                                     apply-m
+                                     normalize-ident]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -192,31 +192,31 @@
                       (mapcat-m compile-statement analysis+))]
   (defn ^:private compile-module [name]
     (fn [state]
-      (if (-> state ::&util/modules (contains? name))
+      (if (-> state ::&/modules (contains? name))
         (fail "[Compiler Error] Can't redefine a module!")
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
-          (match (&util/run-state (exhaust-m compiler-step) (assoc state
-                                                              ::&util/source (slurp (str "source/" name ".lux"))
-                                                              ::&util/global-env (&util/env name)
-                                                              ::&util/writer =class))
-            [::&util/ok [?state ?vals]]
+          (match (&/run-state (exhaust-m compiler-step) (assoc state
+                                                          ::&/source (slurp (str "source/" name ".lux"))
+                                                          ::&/global-env (&/env name)
+                                                          ::&/writer =class))
+            [::&/ok [?state ?vals]]
             (do (.visitEnd =class)
               (prn 'compile-module/?vals ?vals)
-              (&util/run-state (&&/save-class! name (.toByteArray =class)) ?state))
+              (&/run-state (&&/save-class! name (.toByteArray =class)) ?state))
             
-            [::&util/failure ?message]
+            [::&/failure ?message]
             (fail* ?message)))))))
 
 ;; [Resources]
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
-  (match (&util/run-state (map-m compile-module modules) (&util/init-state))
-    [::&util/ok [?state _]]
+  (match (&/run-state (map-m compile-module modules) (&/init-state))
+    [::&/ok [?state _]]
     (println (str "Compilation complete! " (pr-str modules)))
 
-    [::&util/failure ?message]
+    [::&/failure ?message]
     (assert false ?message)))
 
 (comment

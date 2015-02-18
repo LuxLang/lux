@@ -1,7 +1,7 @@
 (ns lux.parser
   (:require [clojure.template :refer [do-template]]
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return fail repeat-m]]
+            (lux [base :as & :refer [exec return fail repeat-m]]
                  [lexer :as &lexer])))
 
 ;; [Utils]

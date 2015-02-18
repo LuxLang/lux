@@ -1,9 +1,9 @@
 (ns lux.analyser
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return fail
-                                         try-all-m map-m mapcat-m reduce-m
-                                         assert!]]
+            (lux [base :as & :refer [exec return fail
+                                     try-all-m map-m mapcat-m reduce-m
+                                     assert!]]
                  [parser :as &parser]
                  [type :as &type]
                  [macro :as &macro]

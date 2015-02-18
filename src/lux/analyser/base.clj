@@ -1,8 +1,8 @@
 (ns lux.analyser.base
   (:require [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return fail
-                                         try-all-m map-m mapcat-m reduce-m
-                                         assert!]])))
+            (lux [base :as & :refer [exec return fail
+                                     try-all-m map-m mapcat-m reduce-m
+                                     assert!]])))
 
 ;; [Resources]
 (defn expr-type [syntax+]

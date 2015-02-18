@@ -3,10 +3,10 @@
                      [set :as set]
                      [template :refer [do-template]])
             [clojure.core.match :refer [match]]
-            (lux [util :as &util :refer [exec return* return fail fail*
-                                         repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                         apply-m
-                                         normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*
+                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
+                                     apply-m
+                                     normalize-ident]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -60,7 +60,7 @@
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrapper-method> <wrapper-method-sig>]
   (defn <name> [compile *type* ?x ?y]
     (exec [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
-           *writer* &util/get-writer
+           *writer* &/get-writer
            _ (compile ?x)
            :let [_ (doto *writer*
                      (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
@@ -100,7 +100,7 @@
   )
 
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
          _ (map-m (fn [[class-name arg]]
                     (exec [ret (compile arg)
@@ -113,7 +113,7 @@
     (return nil)))
 
 (defn compile-jvm-invokevirtual [compile *type* ?class ?method ?classes ?object ?args]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
          _ (compile ?object)
          :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
@@ -128,7 +128,7 @@
     (return nil)))
 
 (defn compile-jvm-new [compile *type* ?class ?classes ?args]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [init-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")V")
                class* (&host/->class ?class)
                _ (doto *writer*
@@ -144,14 +144,14 @@
     (return nil)))
 
 (defn compile-jvm-new-array [compile *type* ?class ?length]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (doto *writer*
                    (.visitLdcInsn (int ?length))
                    (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class ?class)))]]
     (return nil)))
 
 (defn compile-jvm-aastore [compile *type* ?array ?idx ?elem]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          _ (compile ?array)
          :let [_ (doto *writer*
                    (.visitInsn Opcodes/DUP)
@@ -161,7 +161,7 @@
     (return nil)))
 
 (defn compile-jvm-aaload [compile *type* ?array ?idx]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          _ (compile ?array)
          :let [_ (doto *writer*
                    (.visitLdcInsn (int ?idx))
@@ -169,12 +169,12 @@
     (return nil)))
 
 (defn compile-jvm-getstatic [compile *type* ?class ?field]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class ?class) ?field (&host/->java-sig *type*))]]
     (return nil)))
 
 (defn compile-jvm-getfield [compile *type* ?class ?field ?object]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          _ (compile ?object)
          :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
          :let [_ (.visitFieldInsn *writer* Opcodes/GETFIELD (&host/->class ?class) ?field (&host/->java-sig *type*))]]
@@ -216,7 +216,7 @@
     (&&/save-class! full-name (.toByteArray =interface))))
 
 (defn compile-exec [compile *type* ?exprs]
-  (exec [*writer* &util/get-writer
+  (exec [*writer* &/get-writer
          _ (map-m (fn [expr]
                     (exec [ret (compile expr)
                            :let [_ (.visitInsn *writer* Opcodes/POP)]]
