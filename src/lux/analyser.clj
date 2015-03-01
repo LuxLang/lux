@@ -36,7 +36,9 @@
     (&&lux/analyse-tuple analyse-ast ?elems)
 
     [::&parser/Tag ?tag]
-    (return (list [::&&/Expression [::&&/variant ?tag (list)] [::&type/Variant {?tag [::&type/Tuple (list)]}]]))
+    (let [tuple-type [::&type/Tuple (list)]]
+      (return (list [::&&/Expression [::&&/variant ?tag [::&&/Expression [::&&/tuple (list)] tuple-type]]
+                     [::&type/Variant (list [?tag tuple-type])]])))
 
     [::&parser/Ident ?ident]
     (&&lux/analyse-ident analyse-ast ?ident)
@@ -123,7 +125,8 @@
 
     [::&parser/Form ([[::&parser/Ident "jvm;drem"] ?x ?y] :seq)]
     (&&host/analyse-jvm-drem analyse-ast ?x ?y)
-    
+
+    ;; Fields & methods
     [::&parser/Form ([[::&parser/Ident "jvm;getstatic"] [::&parser/Ident ?class] [::&parser/Ident ?field]] :seq)]
     (&&host/analyse-jvm-getstatic analyse-ast ?class ?field)
 
@@ -135,7 +138,8 @@
 
     [::&parser/Form ([[::&parser/Ident "jvm;invokevirtual"] [::&parser/Ident ?class] [::&parser/Text ?method] [::&parser/Tuple ?classes] ?object [::&parser/Tuple ?args]] :seq)]
     (&&host/analyse-jvm-invokevirtual analyse-ast ?class ?method ?classes ?object ?args)
-    
+
+    ;; Arrays
     [::&parser/Form ([[::&parser/Ident "jvm;new"] [::&parser/Ident ?class] [::&parser/Tuple ?classes] [::&parser/Tuple ?args]] :seq)]
     (&&host/analyse-jvm-new analyse-ast ?class ?classes ?args)
 
@@ -148,6 +152,7 @@
     [::&parser/Form ([[::&parser/Ident "jvm;aaload"] ?array [::&parser/Int ?idx]] :seq)]
     (&&host/analyse-jvm-aaload analyse-ast ?array ?idx)
 
+    ;; Classes & interfaces
     [::&parser/Form ([[::&parser/Ident "jvm;class"] [::&parser/Ident ?name] [::&parser/Ident ?super-class] [::&parser/Tuple ?fields]] :seq)]
     (&&host/analyse-jvm-class analyse-ast ?name ?super-class ?fields)
 
@@ -155,15 +160,16 @@
     (&&host/analyse-jvm-interface analyse-ast ?name ?members)
 
     _
-    (fail (str "[Analyser Error] Unmatched token: " token))))
+    (fail (str "[Analyser Error] Unmatched token: " (pr-str token)))))
 
 (defn ^:private analyse-ast [token]
   (match token
-    [::&parser/Form ([[::&parser/Tag ?tag] & ?data] :seq)]
-    (exec [=data (mapcat-m analyse-ast ?data)
-           :let [_ (prn '=data =data)]
-           =data-types (map-m &&/expr-type =data)]
-      (return (list [::&&/Expression [::&&/variant ?tag =data] [::&type/Variant {?tag [::&type/Tuple =data-types]}]])))
+    [::&parser/Form ([[::&parser/Tag ?tag] & ?values] :seq)]
+    (exec [_ (assert! (= 1 (count ?values)) "[Analyser Error] Can only tag 1 value.")
+           :let [?value (first ?values)]
+           =value (&&/analyse-1 analyse-ast ?value)
+           =value-type (&&/expr-type =value)]
+      (return (list [::&&/Expression [::&&/variant ?tag =value] [::&type/Variant (list [?tag =value-type])]])))
     
     [::&parser/Form ([?fn & ?args] :seq)]
     (try-all-m [(&&lux/analyse-call analyse-ast ?fn ?args)

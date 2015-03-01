@@ -46,8 +46,8 @@
       [::&&/tuple ?members]
       [::&&/Expression [::&&/tuple (map (partial raise-expr arg) ?members)] ?type]
 
-      [::&&/variant ?tag ?members]
-      [::&&/Expression [::&&/variant ?tag (map (partial raise-expr arg) ?members)] ?type]
+      [::&&/variant ?tag ?value]
+      [::&&/Expression [::&&/variant ?tag (raise-expr arg ?value)] ?type]
       
       [::&&/local ?idx]
       [::&&/Expression [::&&/local (inc ?idx)] ?type]

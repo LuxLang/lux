@@ -93,22 +93,19 @@
                   (range num-elems))]
     (return nil)))
 
-(defn compile-variant [compile *type* ?tag ?members]
+(defn compile-variant [compile *type* ?tag ?value]
   (exec [*writer* &/get-writer
-         :let [variant-class* (str (&host/->class &host/variant-class) (count ?members))
+         :let [variant-class* (&host/->class &host/variant-class)
                _ (doto *writer*
                    (.visitTypeInsn Opcodes/NEW variant-class*)
                    (.visitInsn Opcodes/DUP)
                    (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
                    (.visitInsn Opcodes/DUP)
                    (.visitLdcInsn ?tag)
-                   (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (&host/->type-signature "java.lang.String")))]
-         _ (map-m (fn [[?tfield ?member]]
-                    (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
-                           ret (compile ?member)
-                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD variant-class* (str &&/partial-prefix ?tfield) "Ljava/lang/Object;")]]
-                      (return ret)))
-                  (map vector (range (count ?members)) ?members))]
+                   (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (&host/->type-signature "java.lang.String"))
+                   (.visitInsn Opcodes/DUP))]
+         _ (compile ?value)
+         :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD variant-class* "value" (&host/->type-signature "java.lang.Object"))]]
     (return nil)))
 
 (defn compile-local [compile *type* ?idx]
