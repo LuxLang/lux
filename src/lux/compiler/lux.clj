@@ -56,20 +56,20 @@
            :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") (if ?value "TRUE" "FALSE") (&host/->type-signature "java.lang.Boolean"))]]
       (return nil))))
 
-(do-template [<name> <class> <sig>]
+(do-template [<name> <class> <sig> <caster>]
   (let [+class+ (&host/->class <class>)]
     (defn <name> [compile *type* value]
       (exec [*writer* &/get-writer
              :let [_ (doto *writer*
-                       (.visitTypeInsn Opcodes/NEW <class>)
+                       (.visitTypeInsn Opcodes/NEW +class+)
                        (.visitInsn Opcodes/DUP)
-                       (.visitLdcInsn value)
-                       (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
+                       (.visitLdcInsn (<caster> value))
+                       (.visitMethodInsn Opcodes/INVOKESPECIAL +class+ "<init>" <sig>))]]
         (return nil))))
 
-  compile-int  "java.lang.Long"      "(J)V"
-  compile-real "java.lang.Double"    "(D)V"
-  compile-char "java.lang.Character" "(C)V"
+  compile-int  "java.lang.Long"      "(J)V" long
+  compile-real "java.lang.Double"    "(D)V" double
+  compile-char "java.lang.Character" "(C)V" char
   )
 
 (defn compile-text [compile *type* ?value]
@@ -88,7 +88,7 @@
          _ (map-m (fn [idx]
                     (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
                            ret (compile (nth ?elems idx))
-                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str &&/partial-prefix idx) "Ljava/lang/Object;")]]
+                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str &&/tuple-field-prefix idx) "Ljava/lang/Object;")]]
                       (return ret)))
                   (range num-elems))]
     (return nil)))

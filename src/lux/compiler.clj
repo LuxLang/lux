@@ -12,8 +12,10 @@
                  [lexer :as &lexer]
                  [parser :as &parser]
                  [analyser :as &analyser]
+                 [optimizer :as &optimizer]
                  [host :as &host])
             [lux.analyser.base :as &a]
+            [lux.analyser.def :as &a-def]
             (lux.compiler [base :as &&]
                           [lux :as &&lux]
                           [host :as &&host]
@@ -27,7 +29,7 @@
 
 ;; [Utils/Compilers]
 (defn ^:private compile-expression [syntax]
-  (prn 'compile-expression syntax)
+  ;; (prn 'compile-expression syntax)
   (match syntax
     [::&a/Expression ?form ?type]
     (match ?form
@@ -171,7 +173,7 @@
     (fail "[Compiler Error] Can't compile statements as expressions.")))
 
 (defn ^:private compile-statement [syntax]
-  (prn 'compile-statement syntax)
+  ;; (prn 'compile-statement syntax)
   (match syntax
     [::&a/Statement ?form]
     (match ?form
@@ -187,8 +189,9 @@
     _
     (fail "[Compiler Error] Can't compile expressions as top-level forms.")))
 
-(let [compiler-step (exec [analysis+ &analyser/analyse
-                           :let [_ (prn 'analysis+ analysis+)]]
+(let [compiler-step (exec [analysis+ &optimizer/optimize
+                           ;; :let [_ (prn 'analysis+ analysis+)]
+                           ]
                       (mapcat-m compile-statement analysis+))]
   (defn ^:private compile-module [name]
     (fn [state]
@@ -197,13 +200,14 @@
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
-          (match (&/run-state (exhaust-m compiler-step) (assoc state
-                                                          ::&/source (slurp (str "source/" name ".lux"))
-                                                          ::&/global-env (&/env name)
-                                                          ::&/writer =class))
+          (match (&/run-state (exhaust-m compiler-step) (-> state
+                                                            (assoc ::&/source (slurp (str "source/" name ".lux"))
+                                                                   ::&/global-env (&/env name)
+                                                                   ::&/writer =class)
+                                                            (assoc-in [::&/modules name] &a-def/init-module)))
             [::&/ok [?state ?vals]]
             (do (.visitEnd =class)
-              (prn 'compile-module/?vals ?vals)
+              ;; (prn 'compile-module/?vals ?vals)
               (&/run-state (&&/save-class! name (.toByteArray =class)) ?state))
             
             [::&/failure ?message]

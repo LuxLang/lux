@@ -116,7 +116,7 @@
     (return (list [::&&/Statement [::&&/jvm-class $module ?name ?super-class =fields {}]]))))
 
 (defn analyse-jvm-interface [analyse ?name ?members]
-  (prn 'analyse-jvm-interface ?name ?members)
+  ;; (prn 'analyse-jvm-interface ?name ?members)
   (exec [?members (map-m (fn [member]
                            (match member
                              [::&parser/Form ([[::&parser/Ident ":"] [::&parser/Ident ?member-name]

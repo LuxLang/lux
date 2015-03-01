@@ -56,8 +56,11 @@
         [::&&/global ?module ?name]
         (exec [macro? (&&def/macro? ?module ?name)]
           (if macro?
-            (let [macro-class (&host/location (list ?name ?module))
-                  [macro-expansion state*] (&macro/expand loader macro-class ?args)]
+            (let [macro-class (&host/location (list ?module ?name))
+                  [macro-expansion state*] (&macro/expand loader macro-class ?args)
+                  _ (prn 'macro-expansion)
+                  _ (doseq [ast macro-expansion]
+                      (prn '=> ast))]
               (mapcat-m analyse macro-expansion))
             (exec [=args (mapcat-m analyse ?args)
                    :let [[needs-num =return-type] (match =fn-type
@@ -78,18 +81,26 @@
     ))
 
 (defn analyse-case [analyse ?variant ?branches]
-  (exec [=variant (&&/analyse-1 analyse ?variant)
-         _ (assert! (and (> (count ?branches) 0) (even? (count ?branches)))
+  (prn 'analyse-case ?variant ?branches)
+  (exec [:let [num-branches (count ?branches)]
+         _ (assert! (and (> num-branches 0) (even? num-branches))
                     "Unbalanced branches in \"case'\" expression.")
          :let [branches (partition 2 ?branches)
-               locals-per-branch (map &&case/locals (map first branches))
+               locals-per-branch (map (comp &&case/locals first) branches)
                max-locals (reduce max 0 (map count locals-per-branch))]
+         :let [_ (prn '[branches locals-per-branch max-locals] [branches locals-per-branch max-locals])]
          base-register &&env/next-local-idx
+         :let [_ (prn 'base-register base-register)]
+         =variant (reduce (fn [body* _] (&&env/with-local "#" :local &type/+dont-care-type+ body*))
+                          (&&/analyse-1 analyse ?variant)
+                          (range max-locals))
+         :let [_ (prn '=variant =variant)]
          =bodies (map-m (partial &&case/analyse-branch analyse max-locals)
                         (map vector locals-per-branch (map second branches)))
-         :let [_ (prn 'analyse-case/=bodies =bodies)]
+         :let [_ (prn '=bodies =bodies)]
+         ;; :let [_ (prn 'analyse-case/=bodies =bodies)]
          =body-types (map-m &&/expr-type =bodies)
-         =case-type (reduce-m &type/merge [::&type/Nothing] =body-types)
+         =case-type (return [::&type/Any]) ;; (reduce-m &type/merge [::&type/Nothing] =body-types)
          :let [=branches (map vector (map first branches) =bodies)]]
     (return (list [::&&/Expression [::&&/case =variant base-register max-locals =branches] =case-type]))))
 
@@ -100,13 +111,14 @@
                                     (&&/analyse-1 analyse ?body))
          =body-type (&&/expr-type =body)
          =lambda-type (exec [_ (&type/solve =return =body-type)]
-                   (&type/clean =lambda-type))
+                        (&type/clean =lambda-type))
          :let [=lambda-form (match =body
-                         [::&&/Expression [::&&/lambda ?sub-scope ?sub-captured ?sub-args ?sub-body] _]
-                         [::&&/lambda =scope =captured (cons ?arg ?sub-args) (&&lambda/raise-expr ?arg ?sub-body)]
+                              [::&&/Expression [::&&/lambda ?sub-scope ?sub-captured ?sub-args ?sub-body] _]
+                              [::&&/lambda =scope =captured (cons ?arg ?sub-args) (&&lambda/raise-expr ?arg ?sub-body)]
 
-                         _
-                         [::&&/lambda =scope =captured (list ?arg) =body])]]
+                              _
+                              [::&&/lambda =scope =captured (list ?arg) =body])
+               _ (prn '=lambda-form =lambda-form)]]
     (return (list [::&&/Expression =lambda-form =lambda-type]))))
 
 (defn analyse-def [analyse ?name ?value]
@@ -127,14 +139,12 @@
                           _
                           (fail ""))
                  =value-type (&&/expr-type =value)
-                 _ (if-m (&&def/annotated? module-name ?name)
-                         (return nil)
-                         (&&def/annotate module-name ?name :public =value-type))
-                 _ (&&def/define module-name ?name)]
+                 _ (&&def/define module-name ?name =value-type)]
             (return (list [::&&/Statement [::&&/def ?name =value]]))))))
 
 (defn analyse-declare-macro [?ident]
-  (exec [_ (&&def/annotate ?ident :public [::&type/Any])]
+  (exec [module-name &/get-module-name
+         _ (&&def/declare-macro module-name ?ident)]
     (return (list))))
 
 (defn analyse-require [analyse ?path]

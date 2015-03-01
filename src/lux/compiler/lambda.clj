@@ -93,7 +93,7 @@
                   (.visitTypeInsn Opcodes/NEW class-name)
                   (.visitInsn Opcodes/DUP)
                   (add-closure-vars class-name closed-over)
-                  (.visitLdcInsn (int current-captured))
+                  (.visitLdcInsn (int (inc current-captured)))
                   (add-partial-vars class-name (take current-captured args))
                   (.visitVarInsn Opcodes/ALOAD 1)
                   (&&/add-nulls (- (dec num-captured) current-captured))
@@ -162,6 +162,7 @@
 
 ;; [Resources]
 (defn compile-lambda [compile *type* ?scope ?closure ?args ?body with-datum? instance?]
+  (prn 'compile-lambda ?scope ?closure ?args ?body)
   (exec [:let [lambda-class (&host/location ?scope)
                impl-signature (lambda-impl-signature ?args)
                <init>-sig (lambda-<init>-signature ?closure ?args)

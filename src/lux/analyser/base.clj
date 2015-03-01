@@ -6,7 +6,7 @@
 
 ;; [Resources]
 (defn expr-type [syntax+]
-  (prn 'expr-type syntax+)
+  ;; (prn 'expr-type syntax+)
   (match syntax+
     [::Expression _ type]
     (return type)

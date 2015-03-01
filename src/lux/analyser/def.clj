@@ -1,43 +1,35 @@
 (ns lux.analyser.def
-  (:require [clojure.core.match :refer [match]]
+  (:require (clojure [template :refer [do-template]])
+            [clojure.core.match :refer [match]]
             (lux [base :as & :refer [exec return fail
                                      if-m try-all-m map-m mapcat-m reduce-m
                                      assert!]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
-(defn defined? [module name]
-  (fn [state]
-    [::&/ok [state (get-in state [::&/modules module name :defined?])]]))
+(def init-module
+  {::defs {}
+   ::macros #{}})
 
-(defn annotated? [module name]
-  (fn [state]
-    [::&/ok [state (boolean (get-in state [::&/modules module name]))]]))
+(do-template [<name> <category>]
+  (defn <name> [module name]
+    (fn [state]
+      [::&/ok [state (boolean (get-in state [::&/modules module <category> name]))]]))
 
-(defn macro? [module name]
-  (fn [state]
-    [::&/ok [state (boolean (get-in state [::&/modules module :macros name]))]]))
+  defined? ::defs
+  macro?   ::macros
+  )
 
-(defn annotate [module name access type]
+(defn declare-macro [module name]
+  (fn [state]
+    [::&/ok [(update-in state [::&/modules module ::macros] conj name)
+             nil]]))
+
+(defn define [module name type]
   (fn [state]
     (let [full-name (str module &/+name-separator+ name)
           bound [::&&/Expression [::&&/global module name] type]]
       [::&/ok [(-> state
-                   (assoc-in [::&/modules module name] {:args-n [:None]
-                                                        :access access
-                                                        :type   type
-                                                        :defined? false})
+                   (assoc-in [::&/modules module ::defs name] type)
                    (update-in [::&/global-env] merge {full-name bound, name bound}))
                nil]])))
-
-(defn declare-macro [module name]
-  (fn [state]
-    [::&/ok [(assoc-in state [::&/modules module :macros name] true)
-             nil]]))
-
-(defn define [module name]
-  (if-m (annotated? module name)
-        (fn [state]
-          [::&/ok [(assoc-in state [::&/modules module name :defined?] true)
-                   nil]])
-        (fail (str "[Analyser Error] Can't define an unannotated element: " name))))

@@ -158,6 +158,7 @@
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn ^:private compile-pattern-matching [writer compile mappings patterns $end]
+    ;; (prn 'compile-pattern-matching patterns)
     (let [entries (for [[?branch ?body] mappings
                         :let [label (new Label)]]
                     [[?branch label]
@@ -167,7 +168,7 @@
         (-> (doto (compile-match ?match (get mappings* ?body) $else)
               (.visitLabel $else))
             (->> (doseq [[_ ?body ?match :as pattern] patterns
-                         :let [_ (prn 'compile-pattern-matching/pattern pattern)
+                         :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
                                $else (new Label)]])))
         (.visitInsn Opcodes/POP)
         (.visitTypeInsn Opcodes/NEW ex-class)
@@ -195,9 +196,9 @@
          :let [_ (doto *writer*
                    (.visitInsn Opcodes/DUP)
                    (.visitLabel $start))]
-         :let [_ (prn "PRE Compiled ?branches")]
+         ;; :let [_ (prn "PRE Compiled ?branches")]
          :let [[mappings patterns] (process-branches ?base-register ?branches)]
          _ (compile-pattern-matching *writer* compile mappings patterns $end)
-         :let [_ (prn "POST Compiled ?branches")]
+         ;; :let [_ (prn "POST Compiled ?branches")]
          :let [_ (.visitLabel *writer* $end)]]
     (return nil)))

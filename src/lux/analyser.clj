@@ -14,7 +14,7 @@
 
 ;; [Utils]
 (defn ^:private analyse-basic-ast [analyse-ast token]
-  (prn 'analyse-basic-ast token)
+  ;; (prn 'analyse-basic-ast token)
   (match token
     ;; Standard special forms
     [::&parser/Bool ?value]
@@ -181,5 +181,6 @@
 ;; [Resources]
 (def analyse
   (exec [asts &parser/parse
-         :let [_ (prn 'analyse/asts asts)]]
+         ;; :let [_ (prn 'analyse/asts asts)]
+         ]
     (mapcat-m analyse-ast asts)))
