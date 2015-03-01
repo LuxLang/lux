@@ -149,11 +149,15 @@
         (.visitJumpInsn Opcodes/IFEQ $else)
         (.visitInsn Opcodes/DUP)
         (.visitFieldInsn Opcodes/GETFIELD +variant-class+ "value" +variant-value-sig+)
-        (-> (doto (compile-match ?value $target $value-else)
+        (-> (doto (compile-match ?value $value-then $value-else)
+              (.visitLabel $value-then)
+              (.visitInsn Opcodes/POP)
+              (.visitJumpInsn Opcodes/GOTO $target)
               (.visitLabel $value-else)
               (.visitInsn Opcodes/POP)
               (.visitJumpInsn Opcodes/GOTO $else))
-            (->> (let [$value-else (new Label)]))))
+            (->> (let [$value-then (new Label)
+                       $value-else (new Label)]))))
       )))
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
@@ -176,8 +180,7 @@
         (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
         (.visitInsn Opcodes/ATHROW))
       (map-m (fn [[?label ?body]]
-               (exec [:let [_ (do (.visitLabel writer ?label)
-                                (.visitInsn writer Opcodes/POP))]
+               (exec [:let [_ (.visitLabel writer ?label)]
                       ret (compile ?body)
                       :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
                  (return ret)))
@@ -191,14 +194,10 @@
                $end (new Label)
                _ (dotimes [offset ?num-registers]
                    (let [idx (+ ?base-register offset)]
-                     (.visitLocalVariable *writer* (str &&/local-prefix idx) (&host/->java-sig [::&type/Any]) nil $start $end idx)))]
+                     (.visitLocalVariable *writer* (str &&/local-prefix idx) (&host/->java-sig [::&type/Any]) nil $start $end idx)))
+               _ (.visitLabel *writer* $start)]
          _ (compile ?variant)
-         :let [_ (doto *writer*
-                   (.visitInsn Opcodes/DUP)
-                   (.visitLabel $start))]
-         ;; :let [_ (prn "PRE Compiled ?branches")]
          :let [[mappings patterns] (process-branches ?base-register ?branches)]
          _ (compile-pattern-matching *writer* compile mappings patterns $end)
-         ;; :let [_ (prn "POST Compiled ?branches")]
          :let [_ (.visitLabel *writer* $end)]]
     (return nil)))

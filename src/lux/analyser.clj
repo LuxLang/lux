@@ -163,9 +163,12 @@
     (fail (str "[Analyser Error] Unmatched token: " (pr-str token)))))
 
 (defn ^:private analyse-ast [token]
+  ;; (prn 'analyse-ast token)
   (match token
     [::&parser/Form ([[::&parser/Tag ?tag] & ?values] :seq)]
-    (exec [_ (assert! (= 1 (count ?values)) "[Analyser Error] Can only tag 1 value.")
+    (exec [:let [_ (prn 'PRE-ASSERT)]
+           :let [_ (assert (= 1 (count ?values)) "[Analyser Error] Can only tag 1 value.")]
+           :let [_ (prn 'POST-ASSERT)]
            :let [?value (first ?values)]
            =value (&&/analyse-1 analyse-ast ?value)
            =value-type (&&/expr-type =value)]
