@@ -63,9 +63,6 @@
       [::&a/call ?fn ?args]
       (&&lux/compile-call compile-expression ?type ?fn ?args)
 
-      [::&a/static-call ?needs-num ?fn ?args]
-      (&&lux/compile-static-call compile-expression ?type ?needs-num ?fn ?args)
-
       [::&a/variant ?tag ?members]
       (&&lux/compile-variant compile-expression ?type ?tag ?members)
 

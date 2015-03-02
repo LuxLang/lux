@@ -138,37 +138,6 @@
                   ?args)]
     (return nil)))
 
-(defn compile-static-call [compile *type* ?needs-num ?fn ?args]
-  (assert false (pr-str 'compile-static-call))
-  (exec [*writer* &/get-writer
-         :let [_ (match (:form ?fn)
-                   [::&a/global ?owner-class ?fn-name]
-                   (let [arg-sig (&host/->type-signature "java.lang.Object")
-                         call-class (&host/location (list ?owner-class ?fn-name))
-                         provides-num (count ?args)]
-                     (if (>= provides-num ?needs-num)
-                       (let [impl-sig (str "(" (reduce str "" (repeat ?needs-num arg-sig)) ")" arg-sig)]
-                         (doto *writer*
-                           (-> (do (compile arg))
-                               (->> (doseq [arg (take ?needs-num ?args)])))
-                           (.visitMethodInsn Opcodes/INVOKESTATIC call-class "impl" impl-sig)
-                           (-> (doto (do (compile arg))
-                                 (.visitMethodInsn Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature))
-                               (->> (doseq [arg (drop ?needs-num ?args)])))))
-                       (let [counter-sig "I"
-                             init-signature (str "(" (apply str counter-sig (repeat (dec ?needs-num) arg-sig)) ")" "V")]
-                         (doto *writer*
-                           (.visitTypeInsn Opcodes/NEW call-class)
-                           (.visitInsn Opcodes/DUP)
-                           (.visitLdcInsn (int provides-num))
-                           (-> (do (compile arg))
-                               (->> (doseq [arg ?args])))
-                           (&&/add-nulls (dec (- ?needs-num provides-num)))
-                           (.visitMethodInsn Opcodes/INVOKESPECIAL call-class "<init>" init-signature)))
-                       ))
-                   )]]
-    (return nil)))
-
 (defn compile-def [compile name value]
   (exec [value-type (&a/expr-type value)]
     (match value
