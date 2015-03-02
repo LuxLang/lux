@@ -113,6 +113,7 @@
     (return nil)))
 
 (defn compile-jvm-invokevirtual [compile *type* ?class ?method ?classes ?object ?args]
+  (prn 'compile-jvm-invokevirtual ?classes *type*)
   (exec [*writer* &/get-writer
          :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
          _ (compile ?object)

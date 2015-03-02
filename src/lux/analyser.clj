@@ -127,10 +127,10 @@
     (&&host/analyse-jvm-drem analyse-ast ?x ?y)
 
     ;; Fields & methods
-    [::&parser/Form ([[::&parser/Ident "jvm;getstatic"] [::&parser/Ident ?class] [::&parser/Ident ?field]] :seq)]
+    [::&parser/Form ([[::&parser/Ident "jvm;getstatic"] [::&parser/Ident ?class] [::&parser/Text ?field]] :seq)]
     (&&host/analyse-jvm-getstatic analyse-ast ?class ?field)
 
-    [::&parser/Form ([[::&parser/Ident "jvm;getfield"] [::&parser/Ident ?class] [::&parser/Ident ?field] ?object] :seq)]
+    [::&parser/Form ([[::&parser/Ident "jvm;getfield"] [::&parser/Ident ?class] [::&parser/Text ?field] ?object] :seq)]
     (&&host/analyse-jvm-getfield analyse-ast ?class ?field ?object)
 
     [::&parser/Form ([[::&parser/Ident "jvm;invokestatic"] [::&parser/Ident ?class] [::&parser/Text ?method] [::&parser/Tuple ?classes] [::&parser/Tuple ?args]] :seq)]
@@ -167,7 +167,7 @@
   (match token
     [::&parser/Form ([[::&parser/Tag ?tag] & ?values] :seq)]
     (exec [:let [_ (prn 'PRE-ASSERT)]
-           :let [_ (assert (= 1 (count ?values)) "[Analyser Error] Can only tag 1 value.")]
+           :let [_ (assert (= 1 (count ?values)) (str "[Analyser Error] Can only tag 1 value: " (pr-str token)))]
            :let [_ (prn 'POST-ASSERT)]
            :let [?value (first ?values)]
            =value (&&/analyse-1 analyse-ast ?value)
@@ -175,9 +175,14 @@
       (return (list [::&&/Expression [::&&/variant ?tag =value] [::&type/Variant (list [?tag =value-type])]])))
     
     [::&parser/Form ([?fn & ?args] :seq)]
-    (try-all-m [(&&lux/analyse-call analyse-ast ?fn ?args)
-                (analyse-basic-ast analyse-ast token)])
+    (fn [state]
+      (match ((&&/analyse-1 analyse-ast ?fn) state)
+        [::&/ok [state* =fn]]
+        ((&&lux/analyse-call analyse-ast =fn ?args) state*)
 
+        _
+        ((analyse-basic-ast analyse-ast token) state)))
+    
     _
     (analyse-basic-ast analyse-ast token)))
 

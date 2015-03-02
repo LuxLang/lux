@@ -75,8 +75,8 @@
       [::&a/lambda ?scope ?frame ?args ?body]
       (&&lambda/compile-lambda compile-expression ?type ?scope ?frame ?args ?body false true)
 
-      [::&a/self ?assumed-args]
-      (&&lux/compile-self-call compile-expression ?assumed-args)
+      [::&a/self ?scope ?assumed-args]
+      (&&lux/compile-self-call compile-expression ?scope ?assumed-args)
 
       ;; Integer arithmetic
       [::&a/jvm-iadd ?x ?y]
@@ -221,7 +221,8 @@
     (println (str "Compilation complete! " (pr-str modules)))
 
     [::&/failure ?message]
-    (assert false ?message)))
+    (do (prn 'compile-all '?message ?message)
+      (assert false ?message))))
 
 (comment
   (compile-all ["lux"])

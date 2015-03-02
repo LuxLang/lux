@@ -15,10 +15,13 @@
     (let [old-mappings (-> state ::&/local-envs first (get-in [:locals :mappings]))
           =return (body (update-in state [::&/local-envs]
                                    (fn [[top & stack]]
-                                     (prn 'env/with-local name mode (get-in top [:locals :counter]))
+                                     ;; (prn 'env/with-local name mode (get-in top [:locals :counter]))
                                      (let [bound-unit (case mode
-                                                        :self  [::&&/self (list)]
-                                                        :local [::&&/local (get-in top [:locals :counter])])]
+                                                        :local [::&&/local (get-in top [:locals :counter])]
+
+                                                        ;; else
+                                                        [::&&/self (second mode) (list)]
+                                                        )]
                                        (cons (-> top
                                                  (update-in [:locals :counter] inc)
                                                  (assoc-in [:locals :mappings name] [::&&/Expression bound-unit type]))

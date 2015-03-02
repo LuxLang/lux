@@ -47,9 +47,8 @@
         ))
     ))
 
-(defn analyse-call [analyse ?fn ?args]
-  (exec [=fn (&&/analyse-1 analyse ?fn)
-         loader &/loader]
+(defn analyse-call [analyse =fn ?args]
+  (exec [loader &/loader]
     (match =fn
       [::&&/Expression =fn-form =fn-type]
       (match =fn-form
@@ -62,29 +61,22 @@
                   _ (doseq [ast macro-expansion]
                       (prn '=> ast))]
               (mapcat-m analyse macro-expansion))
-            (exec [=args (mapcat-m analyse ?args)
-                   :let [[needs-num =return-type] (match =fn-type
-                                                    [::&type/function ?fargs ?freturn]
-                                                    (let [needs-num (count ?fargs)
-                                                          provides-num (count =args)]
-                                                      (if (> needs-num provides-num)
-                                                        [needs-num [::&type/function (drop provides-num ?fargs) ?freturn]]
-                                                        [needs-num &type/+dont-care-type+])))]]
-              (return (list [::&&/Expression [::&&/static-call needs-num =fn =args] =return-type])))))
+            (exec [=args (mapcat-m analyse ?args)]
+              (return (list [::&&/Expression [::&&/call =fn =args] &type/+dont-care-type+])))))
 
         _
         (exec [=args (mapcat-m analyse ?args)]
           (return (list [::&&/Expression [::&&/call =fn =args] &type/+dont-care-type+]))))
 
       :else
-      (fail "Can't call something without a type."))
+      (fail "[Analyser Error] Can't call a statement!"))
     ))
 
 (defn analyse-case [analyse ?variant ?branches]
   (prn 'analyse-case ?variant ?branches)
   (exec [:let [num-branches (count ?branches)]
          _ (assert! (and (> num-branches 0) (even? num-branches))
-                    "Unbalanced branches in \"case'\" expression.")
+                    "[Analyser Error] Unbalanced branches in \"case'\" expression.")
          :let [branches (partition 2 ?branches)
                locals-per-branch (map (comp &&case/locals first) branches)
                max-locals (reduce max 0 (map count locals-per-branch))]
@@ -114,7 +106,7 @@
                         (&type/clean =lambda-type))
          :let [=lambda-form (match =body
                               [::&&/Expression [::&&/lambda ?sub-scope ?sub-captured ?sub-args ?sub-body] _]
-                              [::&&/lambda =scope =captured (cons ?arg ?sub-args) (&&lambda/raise-expr ?arg ?sub-body)]
+                              [::&&/lambda =scope =captured (cons ?arg ?sub-args) (&&lambda/raise-expr =scope ?arg ?sub-body)]
 
                               _
                               [::&&/lambda =scope =captured (list ?arg) =body])
@@ -125,19 +117,19 @@
   ;; (prn 'analyse-def ?name ?value)
   (exec [module-name &/get-module-name]
     (if-m (&&def/defined? module-name ?name)
-          (fail (str "Can't redefine " ?name))
+          (fail (str "[Analyser Error] Can't redefine " ?name))
           (exec [=value (&&/analyse-1 analyse ?value)
                  =value (match =value
                           [::&&/Expression =value-form =value-type]
                           (return (match =value-form
                                     [::&&/lambda ?old-scope ?env ?args ?body]
-                                    [::&&/Expression [::&&/lambda (list module-name ?name) ?env ?args ?body] =value-type]
+                                    [::&&/Expression [::&&/lambda (list module-name ?name) ?env ?args (&&lambda/re-scope (list module-name ?name) ?body)] =value-type]
                                     
                                     _
                                     =value))
 
                           _
-                          (fail ""))
+                          (fail "[Analyser Error] def value must be an expression!"))
                  =value-type (&&/expr-type =value)
                  _ (&&def/define module-name ?name =value-type)]
             (return (list [::&&/Statement [::&&/def ?name =value]]))))))

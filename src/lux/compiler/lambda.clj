@@ -52,7 +52,7 @@
                  [::&analyser/captured ?closure-id ?captured-id ?source])
                (doseq [[?name ?captured] closed-over])))
       (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-            (.visitInsn Opcodes/ICONST_0)
+            (.visitVarInsn Opcodes/ILOAD 1)
             (.visitFieldInsn Opcodes/PUTFIELD class-name "_counter" counter-sig)
             (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitVarInsn Opcodes/ALOAD (+ clo_idx offset))

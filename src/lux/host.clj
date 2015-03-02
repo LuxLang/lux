@@ -55,7 +55,7 @@
 
 (defn full-class-name [class-name]
   (exec [=class (full-class class-name)]
-    (.getName class-name)))
+    (return (.getName =class))))
 
 (defn ->class [class]
   (string/replace class #"\." "/"))
@@ -99,26 +99,27 @@
 
 (defn extract-jvm-param [token]
   (match token
-    [::&parser/ident ?ident]
+    [::&parser/Ident ?ident]
     (full-class-name ?ident)
 
-    [::&parser/form ([[::&parser/ident "Array"] [::&parser/ident ?inner]] :seq)]
+    [::&parser/Form ([[::&parser/Ident "Array"] [::&parser/Ident ?inner]] :seq)]
     (exec [=inner (full-class-name ?inner)]
       (return (str "[L" (->class =inner) ";")))
 
     _
-    (fail "")))
+    (fail (str "[Host] Unknown JVM param: " (pr-str token)))))
 
 (do-template [<name> <static?>]
   (defn <name> [target field]
-    (if-let [type* (first (for [=field (.getFields target)
-                                :when (and (= target (.getDeclaringClass =field))
-                                           (= field (.getName =field))
-                                           (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =field))))]
-                            (.getType =field)))]
-      (exec [=type (class->type type*)]
-        (return =type))
-      (fail (str "[Analyser Error] Field does not exist: " target field))))
+    (let [target (Class/forName target)]
+      (if-let [type* (first (for [=field (.getFields target)
+                                  :when (and (= target (.getDeclaringClass =field))
+                                             (= field (.getName =field))
+                                             (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =field))))]
+                              (.getType =field)))]
+        (exec [=type (class->type type*)]
+          (return =type))
+        (fail (str "[Analyser Error] Field does not exist: " target field)))))
 
   lookup-static-field true
   lookup-field        false
@@ -126,14 +127,17 @@
 
 (do-template [<name> <static?>]
   (defn <name> [target method-name args]
-    (if-let [method (first (for [=method (.getMethods target)
-                                 :when (and (= target (.getDeclaringClass =method))
-                                            (= method-name (.getName =method))
-                                            (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =method))))]
-                             =method))]
-      (exec [=method (method->type method)]
-        (return =method))
-      (fail (str "[Analyser Error] Method does not exist: " target method-name))))
+    (let [target (Class/forName target)]
+      (if-let [method (first (for [=method (.getMethods target)
+                                   :let [_ (prn '<name> '=method =method (mapv #(.getName %) (.getParameterTypes =method)))]
+                                   :when (and (= target (.getDeclaringClass =method))
+                                              (= method-name (.getName =method))
+                                              (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))
+                                              (= args (mapv #(.getName %) (.getParameterTypes =method))))]
+                               =method))]
+        (exec [=method (method->type method)]
+          (return =method))
+        (fail (str "[Analyser Error] Method does not exist: " target method-name)))))
 
   lookup-static-method  true
   lookup-virtual-method false

@@ -27,7 +27,7 @@
          module-name &/get-module-name
          :let [outer-class (&host/->class module-name)
                datum-sig (&host/->type-signature "java.lang.Object")
-               current-class (&host/location (list ?name outer-class))
+               current-class (&host/location (list outer-class ?name))
                _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
@@ -125,7 +125,7 @@
 
 (defn compile-global [compile *type* ?owner-class ?name]
   (exec [*writer* &/get-writer
-         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (list ?name ?owner-class))) "_datum" "Ljava/lang/Object;")]]
+         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-call [compile *type* ?fn ?args]
@@ -144,7 +144,7 @@
          :let [_ (match (:form ?fn)
                    [::&a/global ?owner-class ?fn-name]
                    (let [arg-sig (&host/->type-signature "java.lang.Object")
-                         call-class (&host/location (list ?fn-name ?owner-class))
+                         call-class (&host/location (list ?owner-class ?fn-name))
                          provides-num (count ?args)]
                      (if (>= provides-num ?needs-num)
                        (let [impl-sig (str "(" (reduce str "" (repeat ?needs-num arg-sig)) ")" arg-sig)]
@@ -183,9 +183,24 @@
       _
       (fail "Can only define expressions."))))
 
-(defn compile-self-call [compile ?assumed-args]
+(defn compile-self-call [compile ?scope ?assumed-args]
+  (prn 'compile-self-call ?scope ?assumed-args)
   (exec [*writer* &/get-writer
-         :let [_ (.visitVarInsn *writer* Opcodes/ALOAD 0)]
+         :let [lambda-class (&host/location ?scope)]
+         :let [_ (doto *writer*
+                   (.visitTypeInsn Opcodes/NEW lambda-class)
+                   (.visitInsn Opcodes/DUP))]
+         :let [num-args (if (= '("lux" "fold") ?scope)
+                          3
+                          (count ?assumed-args))
+               init-signature (str "(" (if (> num-args 1)
+                                         (reduce str "I" (repeat (dec num-args) (&host/->type-signature "java.lang.Object"))))
+                                   ")"
+                                   "V")
+               _ (do (when (> num-args 1)
+                       (.visitInsn *writer* Opcodes/ICONST_0)
+                       (&&/add-nulls *writer* (dec num-args)))
+                   (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature))]
          _ (map-m (fn [arg]
                     (exec [ret (compile arg)
                            :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]

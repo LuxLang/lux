@@ -74,9 +74,10 @@
                    first
                    (.newInstance (to-array [(int 0) nil]))
                    ((fn [macro] (prn 'macro macro "#1") macro))
-                   (.impl (->lux+ ->lux loader tokens) nil)
-                   ;; ((fn [macro] (prn 'macro macro "#2") macro))
-                   ;; (.apply nil)
+                   (.apply (->lux+ ->lux loader tokens))
+                   ;; (.impl (->lux+ ->lux loader tokens) nil)
+                   ((fn [macro] (prn 'macro macro "#2") macro))
+                   (.apply nil)
                    ((fn [macro] (prn 'macro macro "#3") macro))
                    ;; (.apply nil)
                    ;; ((fn [macro] (prn 'macro macro "#4?") macro))

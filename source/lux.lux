@@ -86,127 +86,98 @@
           [(#Cons [output #Nil]) state])))
 (declare-macro def)
 
-## (def' def
-##   (lambda (_ tokens state)
-##     (let' output (case' tokens
-##                         (#Cons (#Ident name) (#Cons body #Nil))
-##                         (#Form (#Cons (#Ident "def'") tokens))
+(def (comment tokens state)
+  [#Nil state])
+(declare-macro comment)
 
-##                         (#Cons (#Form (#Cons (#Ident name) args))
-##                                (#Cons body #Nil))
-##                         (#Form (#Cons (#Ident "def'")
-##                                       (#Cons (#Ident name)
-##                                              (#Cons (#Form (#Cons (#Ident "lux;lambda")
-##                                                                   (#Cons (#Form (#Cons (#Ident name) args))
-##                                                                          (#Cons body #Nil))))
-##                                                     #Nil)))))
-##           [(#Cons output #Nil) state])))
-## (declare-macro def)
+(def (+ x y)
+  (jvm;iadd x y))
 
-## (def (comment tokens state)
-##   [#Nil state])
-## (declare-macro comment)
+(def (id x)
+  x)
 
-## (def (+ x y)
-##   (jvm;iadd x y))
+(def (print x)
+  (jvm;invokevirtual java.io.PrintStream "print" [java.lang.Object]
+                     (jvm;getstatic java.lang.System "out") [x]))
 
-## (def (id x)
-##   x)
+(def (println x)
+  (jvm;invokevirtual java.io.PrintStream "println" [java.lang.Object]
+                     (jvm;getstatic java.lang.System "out") [x]))
 
-## (def (print x)
-##   (jvm;invokevirtual java.io.PrintStream "print" [Object]
-##                      (jvm;getstatic System out) [x]))
+(def (fold f init xs)
+  (case' xs
+         #Nil
+         init
+         
+         (#Cons [x xs'])
+         (fold f (f init x) xs')))
 
-## (def (println x)
-##   (jvm;invokevirtual java.io.PrintStream "println" [Object]
-##                      (jvm;getstatic System out) [x]))
+(def (reverse list)
+  (fold (lambda (_ tail head) (#Cons [head tail]))
+        #Nil
+        list))
 
-## (def (fold f init xs)
-##   (do (print "fold ") (print init) (print " ") (println xs)
-##       (case' xs
-##              #Nil
-##              init
-             
-##              (#Cons x xs')
-##              (let' init' (f init x)
-##                    (do (print "init': ") (println init')
-##                        (fold f init' xs')))
-##              #((fold f (f init x) xs'))#
-##              )))
+(def (list xs state)
+  (let' xs' (reverse xs)
+        (let' output (fold (lambda (_ tail head)
+                             (#Form (#Cons [(#Tag "Cons")
+                                            (#Cons [(#Tuple (#Cons [head
+                                                                    (#Cons [(#Form (#Cons [(#Tag "Cons")
+                                                                                           (#Cons [(#Tuple (#Cons [tail
+                                                                                                                   (#Cons [(#Tag "Nil") #Nil])])) #Nil])])) #Nil])])) #Nil])])))
+                           (#Tag "Nil")
+                           xs')
+              [(#Cons [output #Nil]) state])))
+(declare-macro list)
 
-## (def (reverse list)
-##   (do (print "reverse ") (println list)
-##       (let' reversed (fold (lambda [tail head]
-##                              (do (print "reverse/0 ") (print "tail: ") (print tail) (print " head: ") (println head)
-##                                  (#Cons head tail)))
-##                            #Nil
-##                            list)
-##             (do (print "!reversed ") (println reversed)
-##                 reversed))))
+(def (list+ xs state)
+  (case' (reverse xs)
+         #Nil
+         [#Nil state]
 
-## (def (list xs state)
-##   (let' xs' (reverse xs)
-##         (let' output (fold (lambda [tail head]
-##                              (do (print "tail: ") (print tail) (print " head: ") (println head)
-##                                  (#Form (#Cons (#Tag "Cons")
-##                                                (#Cons head
-##                                                       (#Cons tail #Nil))))))
-##                            (#Tag "Nil")
-##                            (do (print "REVERSED: ") (println xs')
-##                                xs'))
-##               (do (print "output: ") (println output)
-##                   [(#Cons output #Nil) state]))))
-## (declare-macro list)
+         (#Cons [last init'])
+         (let' output (fold (lambda (_ tail head)
+                              (#Form (#Cons [(#Tag "Cons") (#Cons [(#Tuple (#Cons [head (#Cons [tail #Nil])])) #Nil])])))
+                            last
+                            init')
+               [(#Cons [output #Nil]) state])))
+(declare-macro list+)
 
-## (def (list+ xs state)
-##   (case' (reverse xs)
-##     #Nil
-##     [#Nil state]
+(def (as-pairs xs)
+  (case' xs
+         (#Cons [x (#Cons [y xs'])])
+         (#Cons [[x y] (as-pairs xs')])
 
-##     (#Cons last init')
-##     (let' output (fold (lambda [tail head]
-##                          (#Form (#Cons (#Tag "Cons")
-##                                        (#Cons head tail))))
-##                        last
-##                        init')
-##           [(#Cons output #Nil) state])))
-## (declare-macro list+)
+         _
+         #Nil))
 
-## (def (->pairs xs)
-##   (case' xs
-##     (#Cons x (#Cons y xs'))
-##     (#Cons [x y] (->pairs xs'))
+(def (let tokens state)
+  (case' tokens
+         (#Cons [(#Tuple bindings) (#Cons [body #Nil])])
+         (let' output (fold (lambda (_ body binding)
+                              (case' binding
+                                     [label value]
+                                     (#Form (list (#Ident "let'") label value body))))
+                            body
+                            (reverse (as-pairs bindings)))
+               [(list output) state])))
+(declare-macro let)
 
-##     _
-##     #Nil))
+(def (++-list xs ys)
+  (case' xs
+         #Nil
+         ys
 
-## (def (let tokens state)
-##   (case' tokens
-##          (#Cons (#Tuple bindings) (#Cons body #Nil))
-##          (let' output (fold (lambda [body binding]
-##                               (case binding
-##                                 [label value]
-##                                 (#Form (list (#Ident "let'") label value body))))
-##                             body
-##                             (reverse (->pairs bindings)))
-##                [(list output) state])))
-## (declare-macro let)
+         (#Cons [x xs*])
+         (#Cons [x (++-list xs* ys)])))
 
-## (def (++-list xs ys)
-##   (case' xs
-##     #Nil
-##     ys
+(def (map-list f xs)
+  (case' xs
+         #Nil
+         #Nil
 
-##     (#Cons x xs*)
-##     (#Cons x (++-list xs* ys))))
-
-## (def (map-list f xs)
-##   (case' xs
-##          #Nil
-##          #Nil
-
-##          (#Cons x xs*)
-##          (#Cons (f x) (map-list f xs*))))
+         (#Cons [x xs*])
+         (#Cons [(f x) (map-list f xs*)])))
 
 #(
 (def (untemplate-list untemplate tokens)
