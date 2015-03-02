@@ -57,9 +57,10 @@
           (if macro?
             (let [macro-class (&host/location (list ?module ?name))
                   [macro-expansion state*] (&macro/expand loader macro-class ?args)
-                  _ (prn 'macro-expansion)
-                  _ (doseq [ast macro-expansion]
-                      (prn '=> ast))]
+                  ;; _ (prn 'macro-expansion)
+                  ;; _ (doseq [ast macro-expansion]
+                  ;;     (prn '=> ast))
+                  ]
               (mapcat-m analyse macro-expansion))
             (exec [=args (mapcat-m analyse ?args)]
               (return (list [::&&/Expression [::&&/call =fn =args] &type/+dont-care-type+])))))
@@ -73,23 +74,23 @@
     ))
 
 (defn analyse-case [analyse ?variant ?branches]
-  (prn 'analyse-case ?variant ?branches)
+  ;; (prn 'analyse-case ?variant ?branches)
   (exec [:let [num-branches (count ?branches)]
          _ (assert! (and (> num-branches 0) (even? num-branches))
                     "[Analyser Error] Unbalanced branches in \"case'\" expression.")
          :let [branches (partition 2 ?branches)
                locals-per-branch (map (comp &&case/locals first) branches)
                max-locals (reduce max 0 (map count locals-per-branch))]
-         :let [_ (prn '[branches locals-per-branch max-locals] [branches locals-per-branch max-locals])]
+         ;; :let [_ (prn '[branches locals-per-branch max-locals] [branches locals-per-branch max-locals])]
          base-register &&env/next-local-idx
-         :let [_ (prn 'base-register base-register)]
+         ;; :let [_ (prn 'base-register base-register)]
          =variant (reduce (fn [body* _] (&&env/with-local "#" :local &type/+dont-care-type+ body*))
                           (&&/analyse-1 analyse ?variant)
                           (range max-locals))
-         :let [_ (prn '=variant =variant)]
+         ;; :let [_ (prn '=variant =variant)]
          =bodies (map-m (partial &&case/analyse-branch analyse max-locals)
                         (map vector locals-per-branch (map second branches)))
-         :let [_ (prn '=bodies =bodies)]
+         ;; :let [_ (prn '=bodies =bodies)]
          ;; :let [_ (prn 'analyse-case/=bodies =bodies)]
          =body-types (map-m &&/expr-type =bodies)
          =case-type (return [::&type/Any]) ;; (reduce-m &type/merge [::&type/Nothing] =body-types)
@@ -110,7 +111,8 @@
 
                               _
                               [::&&/lambda =scope =captured (list ?arg) =body])
-               _ (prn '=lambda-form =lambda-form)]]
+               ;; _ (prn '=lambda-form =lambda-form)
+               ]]
     (return (list [::&&/Expression =lambda-form =lambda-type]))))
 
 (defn analyse-def [analyse ?name ?value]

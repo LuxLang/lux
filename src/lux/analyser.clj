@@ -166,9 +166,9 @@
   ;; (prn 'analyse-ast token)
   (match token
     [::&parser/Form ([[::&parser/Tag ?tag] & ?values] :seq)]
-    (exec [:let [_ (prn 'PRE-ASSERT)]
+    (exec [;; :let [_ (prn 'PRE-ASSERT)]
            :let [_ (assert (= 1 (count ?values)) (str "[Analyser Error] Can only tag 1 value: " (pr-str token)))]
-           :let [_ (prn 'POST-ASSERT)]
+           ;; :let [_ (prn 'POST-ASSERT)]
            :let [?value (first ?values)]
            =value (&&/analyse-1 analyse-ast ?value)
            =value-type (&&/expr-type =value)]

@@ -162,7 +162,7 @@
 
 ;; [Resources]
 (defn compile-lambda [compile *type* ?scope ?closure ?args ?body with-datum? instance?]
-  (prn 'compile-lambda ?scope ?closure ?args ?body)
+  ;; (prn 'compile-lambda ?scope ?closure ?args ?body)
   (exec [:let [lambda-class (&host/location ?scope)
                impl-signature (lambda-impl-signature ?args)
                <init>-sig (lambda-<init>-signature ?closure ?args)

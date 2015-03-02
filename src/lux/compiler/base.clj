@@ -13,7 +13,6 @@
 (def local-prefix "l")
 (def partial-prefix "p")
 (def closure-prefix "c")
-(def tuple-field-prefix "_")
 (def apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;")
 
 (defn add-nulls [writer amount]

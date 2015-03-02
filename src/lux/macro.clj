@@ -5,25 +5,15 @@
 ;; [Utils]
 (defn ^:private ->lux+ [->lux loader xs]
   (reduce (fn [tail x]
-            (doto (.newInstance (.loadClass loader "lux.Variant"))
-              (-> .-tag (set! "Cons"))
-              (-> .-value (set! (doto (.newInstance (.loadClass loader "lux.Tuple2"))
-                                  (-> .-_0 (set! (->lux loader x)))
-                                  (-> .-_1 (set! tail)))))))
-          (doto (.newInstance (.loadClass loader "lux.Variant"))
-            (-> .-tag (set! "Nil"))
-            (-> .-value (set! (.newInstance (.loadClass loader "lux.Tuple0")))))
+            (to-array ["Cons" (to-array [(->lux loader x) tail])]))
+          (to-array ["Nil" (to-array [])])
           (reverse xs)))
 
 (defn ^:private ->lux-one [loader tag value]
-  (doto (.newInstance (.loadClass loader "lux.Variant"))
-    (-> .-tag (set! tag))
-    (-> .-value (set! value))))
+  (to-array [tag value]))
 
 (defn ^:private ->lux-many [->lux loader tag values]
-  (doto (.newInstance (.loadClass loader "lux.Variant"))
-    (-> .-tag (set! tag))
-    (-> .-value (set! (->lux+ ->lux loader values)))))
+  (to-array [tag (->lux+ ->lux loader values)]))
 
 (defn ^:private ->lux [loader x]
   (match x
@@ -48,24 +38,24 @@
     ))
 
 (defn ^:private ->clojure+ [->clojure xs]
-  (case (.-tag xs)
+  (case (aget xs 0)
     "Nil"  (list)
-    "Cons" (let [tuple2 (.-value xs)]
-             (cons (->clojure (.-_0 tuple2))
-                   (->clojure+ ->clojure (.-_1 tuple2))))
+    "Cons" (let [tuple2 (aget xs 1)]
+             (cons (->clojure (aget tuple2 0))
+                   (->clojure+ ->clojure (aget tuple2 1))))
     ))
 
 (defn ^:private ->clojure [x]
-  (case (.-tag x)
-    "Bool"  [::&parser/Bool  (.-value x)]
-    "Int"   [::&parser/Int   (.-value x)]
-    "Real"  [::&parser/Real  (.-value x)]
-    "Char"  [::&parser/Char  (.-value x)]
-    "Text"  [::&parser/Text  (.-value x)]
-    "Tag"   [::&parser/Tag   (.-value x)]
-    "Ident" [::&parser/Ident (.-value x)]
-    "Tuple" [::&parser/Tuple (->clojure+ ->clojure (.-value x))]
-    "Form"  [::&parser/Form  (->clojure+ ->clojure (.-value x))]))
+  (case (aget x 0)
+    "Bool"  [::&parser/Bool  (aget x 1)]
+    "Int"   [::&parser/Int   (aget x 1)]
+    "Real"  [::&parser/Real  (aget x 1)]
+    "Char"  [::&parser/Char  (aget x 1)]
+    "Text"  [::&parser/Text  (aget x 1)]
+    "Tag"   [::&parser/Tag   (aget x 1)]
+    "Ident" [::&parser/Ident (aget x 1)]
+    "Tuple" [::&parser/Tuple (->clojure+ ->clojure (aget x 1))]
+    "Form"  [::&parser/Form  (->clojure+ ->clojure (aget x 1))]))
 
 ;; [Resources]
 (defn expand [loader macro-class tokens]
@@ -73,15 +63,7 @@
                    .getDeclaredConstructors
                    first
                    (.newInstance (to-array [(int 0) nil]))
-                   ((fn [macro] (prn 'macro macro "#1") macro))
                    (.apply (->lux+ ->lux loader tokens))
-                   ;; (.impl (->lux+ ->lux loader tokens) nil)
-                   ((fn [macro] (prn 'macro macro "#2") macro))
-                   (.apply nil)
-                   ((fn [macro] (prn 'macro macro "#3") macro))
-                   ;; (.apply nil)
-                   ;; ((fn [macro] (prn 'macro macro "#4?") macro))
-                   )
-        _ (prn 'expand/output macro-class output (->> output .-_0 (->clojure+ ->clojure)))]
-    [(->> output .-_0 (->clojure+ ->clojure))
-     (.-_1 output)]))
+                   (.apply nil))]
+    [(->clojure+ ->clojure (aget output 0))
+     (aget output 1)]))

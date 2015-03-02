@@ -63,9 +63,6 @@
     [mappings (reverse pms)]))
 
 (let [+tag-sig+ (&host/->type-signature "java.lang.String")
-      +variant-class+ (&host/->class &host/variant-class)
-      tuple-class* (&host/->class &host/tuple-class)
-      +variant-value-sig+ (&host/->type-signature "java.lang.Object")
       +oclass+ (&host/->class "java.lang.Object")
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
   (defn ^:private compile-match [writer ?match $target $else]
@@ -123,32 +120,34 @@
         (.visitJumpInsn Opcodes/GOTO $target))
 
       [::TupleMatch ?members]
-      (let [tuple-class** (str tuple-class* (count ?members))]
-        (doto writer
-          (.visitTypeInsn Opcodes/CHECKCAST tuple-class**)
-          (-> (doto (.visitInsn Opcodes/DUP)
-                (.visitFieldInsn Opcodes/GETFIELD tuple-class** (str &&/tuple-field-prefix idx) +variant-value-sig+)
-                (compile-match member $next $sub-else)
-                (.visitLabel $sub-else)
-                (.visitInsn Opcodes/POP)
-                (.visitJumpInsn Opcodes/GOTO $else)
-                (.visitLabel $next))
-              (->> (doseq [[idx [_ _ member]] (map vector (range (count ?members)) ?members)
-                           :let [$next (new Label)
-                                 $sub-else (new Label)]])))
-          (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO $target)))
+      (doto writer
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (-> (doto (.visitInsn Opcodes/DUP)
+              (.visitLdcInsn (int idx))
+              (.visitInsn Opcodes/AALOAD)
+              (compile-match member $next $sub-else)
+              (.visitLabel $sub-else)
+              (.visitInsn Opcodes/POP)
+              (.visitJumpInsn Opcodes/GOTO $else)
+              (.visitLabel $next))
+            (->> (doseq [[idx [_ _ member]] (map vector (range (count ?members)) ?members)
+                         :let [$next (new Label)
+                               $sub-else (new Label)]])))
+        (.visitInsn Opcodes/POP)
+        (.visitJumpInsn Opcodes/GOTO $target))
       
       [::VariantMatch ?tag [::Pattern _ ?value]]
       (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST +variant-class+)
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)
-        (.visitFieldInsn Opcodes/GETFIELD +variant-class+ "tag" +tag-sig+)
+        (.visitLdcInsn (int 0))
+        (.visitInsn Opcodes/AALOAD)
         (.visitLdcInsn ?tag)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL +oclass+ "equals" +equals-sig+)
         (.visitJumpInsn Opcodes/IFEQ $else)
         (.visitInsn Opcodes/DUP)
-        (.visitFieldInsn Opcodes/GETFIELD +variant-class+ "value" +variant-value-sig+)
+        (.visitLdcInsn (int 1))
+        (.visitInsn Opcodes/AALOAD)
         (-> (doto (compile-match ?value $value-then $value-else)
               (.visitLabel $value-then)
               (.visitInsn Opcodes/POP)

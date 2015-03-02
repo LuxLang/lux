@@ -80,32 +80,32 @@
 (defn compile-tuple [compile *type* ?elems]
   (exec [*writer* &/get-writer
          :let [num-elems (count ?elems)
-               tuple-class (&host/->class (str &host/tuple-class num-elems))
                _ (doto *writer*
-                   (.visitTypeInsn Opcodes/NEW tuple-class)
-                   (.visitInsn Opcodes/DUP)
-                   (.visitMethodInsn Opcodes/INVOKESPECIAL tuple-class "<init>" "()V"))]
-         _ (map-m (fn [idx]
-                    (exec [:let [_ (.visitInsn *writer* Opcodes/DUP)]
-                           ret (compile (nth ?elems idx))
-                           :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD tuple-class (str &&/tuple-field-prefix idx) "Ljava/lang/Object;")]]
+                   (.visitLdcInsn (int num-elems))
+                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
+         _ (map-m (fn [[idx elem]]
+                    (exec [:let [_ (doto *writer*
+                                     (.visitInsn Opcodes/DUP)
+                                     (.visitLdcInsn (int idx)))]
+                           ret (compile elem)
+                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                       (return ret)))
-                  (range num-elems))]
+                  (map vector (range num-elems) ?elems))]
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
   (exec [*writer* &/get-writer
-         :let [variant-class* (&host/->class &host/variant-class)
-               _ (doto *writer*
-                   (.visitTypeInsn Opcodes/NEW variant-class*)
+         :let [_ (doto *writer*
+                   (.visitLdcInsn (int 2))
+                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object"))
                    (.visitInsn Opcodes/DUP)
-                   (.visitMethodInsn Opcodes/INVOKESPECIAL variant-class* "<init>" "()V")
-                   (.visitInsn Opcodes/DUP)
+                   (.visitLdcInsn (int 0))
                    (.visitLdcInsn ?tag)
-                   (.visitFieldInsn Opcodes/PUTFIELD variant-class* "tag" (&host/->type-signature "java.lang.String"))
-                   (.visitInsn Opcodes/DUP))]
+                   (.visitInsn Opcodes/AASTORE)
+                   (.visitInsn Opcodes/DUP)
+                   (.visitLdcInsn (int 1)))]
          _ (compile ?value)
-         :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD variant-class* "value" (&host/->type-signature "java.lang.Object"))]]
+         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))
 
 (defn compile-local [compile *type* ?idx]
@@ -184,7 +184,7 @@
       (fail "Can only define expressions."))))
 
 (defn compile-self-call [compile ?scope ?assumed-args]
-  (prn 'compile-self-call ?scope ?assumed-args)
+  ;; (prn 'compile-self-call ?scope ?assumed-args)
   (exec [*writer* &/get-writer
          :let [lambda-class (&host/location ?scope)]
          :let [_ (doto *writer*

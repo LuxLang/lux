@@ -57,9 +57,10 @@
 
 (defn analyse-jvm-getstatic [analyse ?class ?field]
   (exec [=class (&host/full-class-name ?class)
-         :let [_ (prn 'analyse-jvm-getstatic/=class =class)]
+         ;; :let [_ (prn 'analyse-jvm-getstatic/=class =class)]
          =type (&host/lookup-static-field =class ?field)
-         :let [_ (prn 'analyse-jvm-getstatic/=type =type)]]
+         ;; :let [_ (prn 'analyse-jvm-getstatic/=type =type)]
+         ]
     (return (list [::&&/Expression [::&&/jvm-getstatic =class ?field] =type]))))
 
 (defn analyse-jvm-getfield [analyse ?class ?field ?object]
@@ -77,15 +78,16 @@
 
 (defn analyse-jvm-invokevirtual [analyse ?class ?method ?classes ?object ?args]
   (exec [=class (&host/full-class-name ?class)
-         :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
          =classes (map-m &host/extract-jvm-param ?classes)
-         :let [_ (prn 'analyse-jvm-invokevirtual/=classes =classes)]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual/=classes =classes)]
          [=method-args =return] (&host/lookup-virtual-method =class ?method =classes)
-         :let [_ (prn 'analyse-jvm-invokevirtual/=return =return)]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual/=return =return)]
          =object (&&/analyse-1 analyse ?object)
-         :let [_ (prn 'analyse-jvm-invokevirtual/=object =object)]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual/=object =object)]
          =args (mapcat-m analyse ?args)
-         :let [_ (prn 'analyse-jvm-invokevirtual/=args =args)]]
+         ;; :let [_ (prn 'analyse-jvm-invokevirtual/=args =args)]
+         ]
     (return (list [::&&/Expression [::&&/jvm-invokevirtual =class ?method =classes =object =args] =return]))))
 
 (defn analyse-jvm-new [analyse ?class ?classes ?args]

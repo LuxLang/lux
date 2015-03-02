@@ -10,8 +10,6 @@
 
 ;; [Constants]
 (def prefix "lux.")
-(def variant-class  (str prefix "Variant"))
-(def tuple-class    (str prefix "Tuple"))
 (def function-class (str prefix "Function"))
 
 ;; [Utils]
@@ -129,7 +127,7 @@
   (defn <name> [target method-name args]
     (let [target (Class/forName target)]
       (if-let [method (first (for [=method (.getMethods target)
-                                   :let [_ (prn '<name> '=method =method (mapv #(.getName %) (.getParameterTypes =method)))]
+                                   ;; :let [_ (prn '<name> '=method =method (mapv #(.getName %) (.getParameterTypes =method)))]
                                    :when (and (= target (.getDeclaringClass =method))
                                               (= method-name (.getName =method))
                                               (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))
