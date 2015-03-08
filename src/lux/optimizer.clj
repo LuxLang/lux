@@ -10,6 +10,7 @@
 ;; Mutability for performance: do escape analysis to know when data-structures can be mutated in-place without anybody noticing.
 ;; Avoid (un)boxing: Analyser movement of primitive values to/from functions to known when (un)boxing can be avoided.
 ;; Pre-compute constant expressions: Find function calls for which all arguments are known at compile-time and pre-calculate everything prior to compilation.
+;; Convert pattern-matching on booleans into regular if-then-else structures
 
 ;; [Exports]
 (def optimize &analyser/analyse)

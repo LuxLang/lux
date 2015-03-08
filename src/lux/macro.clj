@@ -60,9 +60,8 @@
 ;; [Resources]
 (defn expand [loader macro-class tokens]
   (let [output (-> (.loadClass loader macro-class)
-                   .getDeclaredConstructors
-                   first
-                   (.newInstance (to-array [(int 0) nil]))
+                   (.getField "_datum")
+                   (.get nil)
                    (.apply (->lux+ ->lux loader tokens))
                    (.apply nil))]
     [(->clojure+ ->clojure (aget output 0))

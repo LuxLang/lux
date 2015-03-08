@@ -21,34 +21,7 @@
                               ClassWriter
                               MethodVisitor)))
 
-;; [Utils]
-(defn ^:private compile-field [compile ?name body]
-  (exec [*writer* &/get-writer
-         module-name &/get-module-name
-         :let [outer-class (&host/->class module-name)
-               datum-sig (&host/->type-signature "java.lang.Object")
-               current-class (&host/location (list outer-class ?name))
-               _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
-               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                                current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
-                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
-                            (doto (.visitEnd))))]
-         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (exec [*writer* &/get-writer
-                    :let [_ (.visitCode *writer*)]
-                    _ (compile body)
-                    :let [_ (doto *writer*
-                              (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
-                              (.visitInsn Opcodes/RETURN)
-                              (.visitMaxs 0 0)
-                              (.visitEnd))]]
-               (return nil)))
-         :let [_ (.visitEnd *writer*)]
-         _ (&&/save-class! current-class (.toByteArray =class))]
-    (return nil)))
-
-;; [Resources]
+;; [Exports]
 (let [+class+ (&host/->class "java.lang.Boolean")
       +sig+ (&host/->type-signature "java.lang.Boolean")]
   (defn compile-bool [compile *type* ?value]
@@ -114,11 +87,12 @@
     (return nil)))
 
 (defn compile-captured [compile *type* ?scope ?captured-id ?source]
+  (prn 'compile-captured ?scope ?captured-id)
   (exec [*writer* &/get-writer
          :let [_ (doto *writer*
                    (.visitVarInsn Opcodes/ALOAD 0)
                    (.visitFieldInsn Opcodes/GETFIELD
-                                    (normalize-ident ?scope)
+                                    (&host/location ?scope)
                                     (str &&/closure-prefix ?captured-id)
                                     "Ljava/lang/Object;"))]]
     (return nil)))
@@ -138,41 +112,28 @@
                   ?args)]
     (return nil)))
 
-(defn compile-def [compile name value]
-  (exec [value-type (&a/expr-type value)]
-    (match value
-      [::&a/Expression ?form _]
-      (match ?form
-        [::&a/lambda ?scope ?captured ?args ?body]
-        (&&lambda/compile-lambda compile value-type ?scope ?captured ?args ?body true false)
-
-        _
-        (compile-field compile name value))
-      
-      _
-      (fail "Can only define expressions."))))
-
-(defn compile-self-call [compile ?scope ?assumed-args]
-  ;; (prn 'compile-self-call ?scope ?assumed-args)
+(defn compile-def [compile ?name ?body]
   (exec [*writer* &/get-writer
-         :let [lambda-class (&host/location ?scope)]
-         :let [_ (doto *writer*
-                   (.visitTypeInsn Opcodes/NEW lambda-class)
-                   (.visitInsn Opcodes/DUP))]
-         :let [num-args (if (= '("lux" "fold") ?scope)
-                          3
-                          (count ?assumed-args))
-               init-signature (str "(" (if (> num-args 1)
-                                         (reduce str "I" (repeat (dec num-args) (&host/->type-signature "java.lang.Object"))))
-                                   ")"
-                                   "V")
-               _ (do (when (> num-args 1)
-                       (.visitInsn *writer* Opcodes/ICONST_0)
-                       (&&/add-nulls *writer* (dec num-args)))
-                   (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature))]
-         _ (map-m (fn [arg]
-                    (exec [ret (compile arg)
-                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
-                      (return ret)))
-                  ?assumed-args)]
+         module-name &/get-module-name
+         :let [outer-class (&host/->class module-name)
+               datum-sig (&host/->type-signature "java.lang.Object")
+               current-class (&host/location (list outer-class ?name))
+               _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                                current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
+                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
+                            (doto (.visitEnd))))]
+         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+             (exec [*writer* &/get-writer
+                    :let [_ (.visitCode *writer*)]
+                    _ (compile ?body)
+                    :let [_ (doto *writer*
+                              (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
+                              (.visitInsn Opcodes/RETURN)
+                              (.visitMaxs 0 0)
+                              (.visitEnd))]]
+               (return nil)))
+         :let [_ (.visitEnd *writer*)]
+         _ (&&/save-class! current-class (.toByteArray =class))]
     (return nil)))

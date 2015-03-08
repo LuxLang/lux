@@ -26,9 +26,9 @@
 (defn analyse-branch [analyse max-registers [bindings body]]
   ;; (prn 'analyse-branch max-registers bindings body)
   (reduce (fn [body* name]
-            (&env/with-local name :local &type/+dont-care-type+ body*))
+            (&env/with-local name &type/+dont-care-type+ body*))
           (reduce (fn [body* _]
-                    (&env/with-local "#" :local &type/+dont-care-type+ body*))
+                    (&env/with-local "" &type/+dont-care-type+ body*))
                   (&&/analyse-1 analyse body)
                   (range (- max-registers (count bindings))))
           (reverse bindings)))

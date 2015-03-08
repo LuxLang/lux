@@ -69,11 +69,8 @@
       [::&a/case ?variant ?base-register ?num-registers ?branches]
       (&&case/compile-case compile-expression ?type ?variant ?base-register ?num-registers ?branches)
 
-      [::&a/lambda ?scope ?frame ?args ?body]
-      (&&lambda/compile-lambda compile-expression ?type ?scope ?frame ?args ?body false true)
-
-      [::&a/self ?scope ?assumed-args]
-      (&&lux/compile-self-call compile-expression ?scope ?assumed-args)
+      [::&a/lambda ?scope ?env ?args ?body]
+      (&&lambda/compile-lambda compile-expression ?scope ?env ?args ?body)
 
       ;; Integer arithmetic
       [::&a/jvm-iadd ?x ?y]

@@ -189,12 +189,7 @@
 ;; [Resources]
 (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
   (exec [*writer* &/get-writer
-         :let [$start (new Label)
-               $end (new Label)
-               _ (dotimes [offset ?num-registers]
-                   (let [idx (+ ?base-register offset)]
-                     (.visitLocalVariable *writer* (str &&/local-prefix idx) (&host/->java-sig [::&type/Any]) nil $start $end idx)))
-               _ (.visitLabel *writer* $start)]
+         :let [$end (new Label)]
          _ (compile ?variant)
          :let [[mappings patterns] (process-branches ?base-register ?branches)]
          _ (compile-pattern-matching *writer* compile mappings patterns $end)

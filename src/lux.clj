@@ -11,7 +11,7 @@
   ;; TODO: throw, try, catch, finally
   ;; TODO: Allow setting fields.
   ;; TODO: monitor enter & monitor exit.
-  ;; TODO: 
+  ;; TODO: Add column & line numbers for syntactic elements.
   ;; TODO: 
   ;; TODO: 
   ;; TODO: 

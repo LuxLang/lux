@@ -23,29 +23,34 @@
     (return (list [::&&/Expression [::&&/tuple =elems] [::&type/Tuple =elems-types]]))))
 
 (defn analyse-ident [analyse ident]
-  (fn [state]
-    (let [[top & stack*] (::&/local-envs state)]
-      (if-let [=bound (or (get-in top [:locals  :mappings ident])
-                          (get-in top [:closure :mappings ident]))]
-        [::&/ok [state (list =bound)]]
-        (let [no-binding? #(and (-> % :locals  :mappings (contains? ident) not)
-                                (-> % :closure :mappings (contains? ident) not))
-              [inner outer] (split-with no-binding? stack*)]
-          (if (empty? outer)
-            (if-let [global (get-in state [::&/global-env ident])]
-              [::&/ok [state (list global)]]
-              [::&/failure (str "[Analyser Error] Unresolved identifier: " ident)])
-            (let [[=local inner*] (reduce (fn [[register new-inner] frame]
-                                            (let [[register* frame*] (&&lambda/close-over (:name frame) ident register frame)]
-                                              [register* (cons frame* new-inner)]))
-                                          [(or (get-in (first outer) [:locals  :mappings ident])
-                                               (get-in (first outer) [:closure :mappings ident]))
-                                           '()]
-                                          (reverse (cons top inner)))]
-              [::&/ok [(assoc state ::&/local-envs (concat inner* outer)) (list =local)]])
-            ))
-        ))
-    ))
+  (exec [module-name &/get-module-name]
+    (fn [state]
+      (let [[top & stack*] (::&/local-envs state)]
+        (if-let [=bound (or (get-in top [:locals  :mappings ident])
+                            (get-in top [:closure :mappings ident]))]
+          [::&/ok [state (list =bound)]]
+          (let [no-binding? #(and (-> % :locals  :mappings (contains? ident) not)
+                                  (-> % :closure :mappings (contains? ident) not))
+                [inner outer] (split-with no-binding? stack*)]
+            (if (empty? outer)
+              (if-let [global (get-in state [::&/global-env ident])]
+                [::&/ok [state (list global)]]
+                [::&/failure (str "[Analyser Error] Unresolved identifier: " ident)])
+              (let [in-stack (cons top inner)
+                    scopes (rest (reductions #(cons (:name %2) %1) (map :name outer) (reverse in-stack)))
+                    _ (prn 'in-stack module-name ident (map :name in-stack) scopes)
+                    [=local inner*] (reduce (fn [[register new-inner] [frame in-scope]]
+                                              (let [[register* frame*] (&&lambda/close-over (cons module-name (reverse in-scope)) ident register frame)]
+                                                [register* (cons frame* new-inner)]))
+                                            [(or (get-in (first outer) [:locals  :mappings ident])
+                                                 (get-in (first outer) [:closure :mappings ident]))
+                                             '()]
+                                            (map vector (reverse in-stack) scopes)
+                                            )]
+                [::&/ok [(assoc state ::&/local-envs (concat inner* outer)) (list =local)]])
+              ))
+          ))
+      )))
 
 (defn analyse-call [analyse =fn ?args]
   (exec [loader &/loader]
@@ -84,7 +89,7 @@
          ;; :let [_ (prn '[branches locals-per-branch max-locals] [branches locals-per-branch max-locals])]
          base-register &&env/next-local-idx
          ;; :let [_ (prn 'base-register base-register)]
-         =variant (reduce (fn [body* _] (&&env/with-local "#" :local &type/+dont-care-type+ body*))
+         =variant (reduce (fn [body* _] (&&env/with-local "" &type/+dont-care-type+ body*))
                           (&&/analyse-1 analyse ?variant)
                           (range max-locals))
          ;; :let [_ (prn '=variant =variant)]
@@ -104,16 +109,8 @@
                                     (&&/analyse-1 analyse ?body))
          =body-type (&&/expr-type =body)
          =lambda-type (exec [_ (&type/solve =return =body-type)]
-                        (&type/clean =lambda-type))
-         :let [=lambda-form (match =body
-                              [::&&/Expression [::&&/lambda ?sub-scope ?sub-captured ?sub-args ?sub-body] _]
-                              [::&&/lambda =scope =captured (cons ?arg ?sub-args) (&&lambda/raise-expr =scope ?arg ?sub-body)]
-
-                              _
-                              [::&&/lambda =scope =captured (list ?arg) =body])
-               ;; _ (prn '=lambda-form =lambda-form)
-               ]]
-    (return (list [::&&/Expression =lambda-form =lambda-type]))))
+                        (&type/clean =lambda-type))]
+    (return (list [::&&/Expression [::&&/lambda =scope =captured ?arg =body] =lambda-type]))))
 
 (defn analyse-def [analyse ?name ?value]
   ;; (prn 'analyse-def ?name ?value)
@@ -121,17 +118,6 @@
     (if-m (&&def/defined? module-name ?name)
           (fail (str "[Analyser Error] Can't redefine " ?name))
           (exec [=value (&&/analyse-1 analyse ?value)
-                 =value (match =value
-                          [::&&/Expression =value-form =value-type]
-                          (return (match =value-form
-                                    [::&&/lambda ?old-scope ?env ?args ?body]
-                                    [::&&/Expression [::&&/lambda (list module-name ?name) ?env ?args (&&lambda/re-scope (list module-name ?name) ?body)] =value-type]
-                                    
-                                    _
-                                    =value))
-
-                          _
-                          (fail "[Analyser Error] def value must be an expression!"))
                  =value-type (&&/expr-type =value)
                  _ (&&def/define module-name ?name =value-type)]
             (return (list [::&&/Statement [::&&/def ?name =value]]))))))
