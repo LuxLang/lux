@@ -83,13 +83,13 @@
                    (.visitTypeInsn Opcodes/NEW lambda-class)
                    (.visitInsn Opcodes/DUP))]
          _ (->> closed-over
-                (sort #(match [%1 %2]
+                (sort #(match [(second %1) (second %2)]
                          [[::&a/Expression [::&a/captured _ ?cid1 _] _]
                           [::&a/Expression [::&a/captured _ ?cid2 _] _]]
                          (< ?cid1 ?cid2)))
                 (map-m (fn [[?name ?captured]]
                          (match ?captured
-                           [::&a/Expression [::&a/captured _ ?captured-id ?source] _]
+                           [::&a/Expression [::&a/captured _ _ ?source] _]
                            (compile ?source)))))
          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
     (return nil)))

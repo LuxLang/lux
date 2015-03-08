@@ -38,6 +38,7 @@
     ))
 
 (defn ^:private ->clojure+ [->clojure xs]
+  ;; (prn '->clojure+ (aget xs 0))
   (case (aget xs 0)
     "Nil"  (list)
     "Cons" (let [tuple2 (aget xs 1)]
@@ -46,6 +47,9 @@
     ))
 
 (defn ^:private ->clojure [x]
+  ;; (if (= "Tag" (aget x 0))
+  ;;   (println "  ->clojure" (pr-str (aget x 0)) (aget x 1))
+  ;;   (println "  ->clojure" (pr-str (aget x 0))))
   (case (aget x 0)
     "Bool"  [::&parser/Bool  (aget x 1)]
     "Int"   [::&parser/Int   (aget x 1)]
