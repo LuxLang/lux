@@ -3,7 +3,6 @@
             :reload-all))
 
 (comment
-  ;; TODO: Make macros monadic.
   ;; TODO: Finish type system.
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Adding metadata to global vars.

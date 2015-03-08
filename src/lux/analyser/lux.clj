@@ -60,13 +60,9 @@
         [::&&/global ?module ?name]
         (exec [macro? (&&def/macro? ?module ?name)]
           (if macro?
-            (let [macro-class (&host/location (list ?module ?name))
-                  [macro-expansion state*] (&macro/expand loader macro-class ?args)
-                  ;; _ (prn 'macro-expansion)
-                  ;; _ (doseq [ast macro-expansion]
-                  ;;     (prn '=> ast))
-                  ]
-              (mapcat-m analyse macro-expansion))
+            (let [macro-class (&host/location (list ?module ?name))]
+              (exec [macro-expansion (&macro/expand loader macro-class ?args)]
+                (mapcat-m analyse macro-expansion)))
             (exec [=args (mapcat-m analyse ?args)]
               (return (list [::&&/Expression [::&&/call =fn =args] &type/+dont-care-type+])))))
 

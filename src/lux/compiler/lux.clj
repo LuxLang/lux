@@ -87,7 +87,7 @@
     (return nil)))
 
 (defn compile-captured [compile *type* ?scope ?captured-id ?source]
-  (prn 'compile-captured ?scope ?captured-id)
+  ;; (prn 'compile-captured ?scope ?captured-id)
   (exec [*writer* &/get-writer
          :let [_ (doto *writer*
                    (.visitVarInsn Opcodes/ALOAD 0)

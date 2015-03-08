@@ -1,6 +1,7 @@
 (ns lux.macro
   (:require [clojure.core.match :refer [match]]
-            [lux.parser :as &parser]))
+            (lux [base :as & :refer [fail* return*]]
+                 [parser :as &parser])))
 
 ;; [Utils]
 (defn ^:private ->lux+ [->lux loader xs]
@@ -63,10 +64,12 @@
 
 ;; [Resources]
 (defn expand [loader macro-class tokens]
-  (let [output (-> (.loadClass loader macro-class)
-                   (.getField "_datum")
-                   (.get nil)
-                   (.apply (->lux+ ->lux loader tokens))
-                   (.apply nil))]
-    [(->clojure+ ->clojure (aget output 0))
-     (aget output 1)]))
+  (fn [state]
+    (let [output (-> (.loadClass loader macro-class)
+                     (.getField "_datum")
+                     (.get nil)
+                     (.apply (->lux+ ->lux loader tokens))
+                     (.apply state))]
+      (case (aget output 0)
+        "Ok" (return* (aget output 1 0) (->clojure+ ->clojure (aget output 1 1)))
+        "Error" (fail* (aget output 1))))))
