@@ -19,7 +19,7 @@
     (fail "[Analyser Error] Can't extract Ident.")))
 
 ;; [Resources]
-(do-template [<name> <ident> <output-tag> <wrapper-class>]
+(do-template [<name> <output-tag> <wrapper-class>]
   (let [elem-type [::&type/Data <wrapper-class>]]
     (defn <name> [analyse ?x ?y]
       (exec [[=x =y] (&&/analyse-2 analyse ?x ?y)
@@ -30,29 +30,57 @@
              ]
         (return (list [::&&/Expression [<output-tag> =x =y] elem-type])))))
 
-  analyse-jvm-iadd "jvm;iadd" ::&&/jvm-iadd "java.lang.Integer"
-  analyse-jvm-isub "jvm;isub" ::&&/jvm-isub "java.lang.Integer"
-  analyse-jvm-imul "jvm;imul" ::&&/jvm-imul "java.lang.Integer"
-  analyse-jvm-idiv "jvm;idiv" ::&&/jvm-idiv "java.lang.Integer"
-  analyse-jvm-irem "jvm;irem" ::&&/jvm-irem "java.lang.Integer"
+  analyse-jvm-iadd ::&&/jvm-iadd "java.lang.Integer"
+  analyse-jvm-isub ::&&/jvm-isub "java.lang.Integer"
+  analyse-jvm-imul ::&&/jvm-imul "java.lang.Integer"
+  analyse-jvm-idiv ::&&/jvm-idiv "java.lang.Integer"
+  analyse-jvm-irem ::&&/jvm-irem "java.lang.Integer"
 
-  analyse-jvm-ladd "jvm;ladd" ::&&/jvm-ladd "java.lang.Long"
-  analyse-jvm-lsub "jvm;lsub" ::&&/jvm-lsub "java.lang.Long"
-  analyse-jvm-lmul "jvm;lmul" ::&&/jvm-lmul "java.lang.Long"
-  analyse-jvm-ldiv "jvm;ldiv" ::&&/jvm-ldiv "java.lang.Long"
-  analyse-jvm-lrem "jvm;lrem" ::&&/jvm-lrem "java.lang.Long"
+  analyse-jvm-ladd ::&&/jvm-ladd "java.lang.Long"
+  analyse-jvm-lsub ::&&/jvm-lsub "java.lang.Long"
+  analyse-jvm-lmul ::&&/jvm-lmul "java.lang.Long"
+  analyse-jvm-ldiv ::&&/jvm-ldiv "java.lang.Long"
+  analyse-jvm-lrem ::&&/jvm-lrem "java.lang.Long"
 
-  analyse-jvm-fadd "jvm;fadd" ::&&/jvm-fadd "java.lang.Float"
-  analyse-jvm-fsub "jvm;fsub" ::&&/jvm-fsub "java.lang.Float"
-  analyse-jvm-fmul "jvm;fmul" ::&&/jvm-fmul "java.lang.Float"
-  analyse-jvm-fdiv "jvm;fdiv" ::&&/jvm-fdiv "java.lang.Float"
-  analyse-jvm-frem "jvm;frem" ::&&/jvm-frem "java.lang.Float"
+  analyse-jvm-fadd ::&&/jvm-fadd "java.lang.Float"
+  analyse-jvm-fsub ::&&/jvm-fsub "java.lang.Float"
+  analyse-jvm-fmul ::&&/jvm-fmul "java.lang.Float"
+  analyse-jvm-fdiv ::&&/jvm-fdiv "java.lang.Float"
+  analyse-jvm-frem ::&&/jvm-frem "java.lang.Float"
 
-  analyse-jvm-dadd "jvm;dadd" ::&&/jvm-dadd "java.lang.Double"
-  analyse-jvm-dsub "jvm;dsub" ::&&/jvm-dsub "java.lang.Double"
-  analyse-jvm-dmul "jvm;dmul" ::&&/jvm-dmul "java.lang.Double"
-  analyse-jvm-ddiv "jvm;ddiv" ::&&/jvm-ddiv "java.lang.Double"
-  analyse-jvm-drem "jvm;drem" ::&&/jvm-drem "java.lang.Double"
+  analyse-jvm-dadd ::&&/jvm-dadd "java.lang.Double"
+  analyse-jvm-dsub ::&&/jvm-dsub "java.lang.Double"
+  analyse-jvm-dmul ::&&/jvm-dmul "java.lang.Double"
+  analyse-jvm-ddiv ::&&/jvm-ddiv "java.lang.Double"
+  analyse-jvm-drem ::&&/jvm-drem "java.lang.Double"
+  )
+
+(do-template [<name> <output-tag> <input-class> <output-class>]
+  (let [elem-type [::&type/Data <output-class>]]
+    (defn <name> [analyse ?x ?y]
+      (exec [[=x =y] (&&/analyse-2 analyse ?x ?y)
+             ;; =x-type (&&/expr-type =x)
+             ;; =y-type (&&/expr-type =y)
+             ;; _ (&type/solve elem-type =x-type)
+             ;; _ (&type/solve elem-type =y-type)
+             ]
+        (return (list [::&&/Expression [<output-tag> =x =y] elem-type])))))
+
+  analyse-jvm-ieq ::&&/jvm-ieq "java.lang.Integer" "java.lang.Boolean"
+  analyse-jvm-ilt ::&&/jvm-ilt "java.lang.Integer" "java.lang.Boolean"
+  analyse-jvm-igt ::&&/jvm-igt "java.lang.Integer" "java.lang.Boolean"
+
+  analyse-jvm-leq ::&&/jvm-leq "java.lang.Long"    "java.lang.Boolean"
+  analyse-jvm-llt ::&&/jvm-llt "java.lang.Long"    "java.lang.Boolean"
+  analyse-jvm-lgt ::&&/jvm-lgt "java.lang.Long"    "java.lang.Boolean"
+
+  analyse-jvm-feq ::&&/jvm-feq "java.lang.Float"   "java.lang.Boolean"
+  analyse-jvm-flt ::&&/jvm-flt "java.lang.Float"   "java.lang.Boolean"
+  analyse-jvm-fgt ::&&/jvm-fgt "java.lang.Float"   "java.lang.Boolean"
+
+  analyse-jvm-deq ::&&/jvm-deq "java.lang.Double"  "java.lang.Boolean"
+  analyse-jvm-dlt ::&&/jvm-dlt "java.lang.Double"  "java.lang.Boolean"
+  analyse-jvm-dgt ::&&/jvm-dgt "java.lang.Double"  "java.lang.Boolean"
   )
 
 (defn analyse-jvm-getstatic [analyse ?class ?field]

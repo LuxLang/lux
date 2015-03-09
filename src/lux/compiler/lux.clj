@@ -135,5 +135,6 @@
                               (.visitEnd))]]
                (return nil)))
          :let [_ (.visitEnd *writer*)]
-         _ (&&/save-class! current-class (.toByteArray =class))]
+         _ (&&/save-class! current-class (.toByteArray =class))
+         :let [_ (prn 'compile-def ?name)]]
     (return nil)))

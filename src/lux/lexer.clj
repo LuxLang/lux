@@ -74,8 +74,8 @@
       (return [<tag> token])))
 
   ^:private lex-bool  ::bool  #"^(true|false)"
-  ^:private lex-real  ::real  #"^(0|[1-9][0-9]*)\.[0-9]+"
-  ^:private lex-int   ::int   #"^(0|[1-9][0-9]*)"
+  ^:private lex-real  ::real  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
+  ^:private lex-int   ::int   #"^-?(0|[1-9][0-9]*)"
   ^:private lex-ident ::ident +ident-re+)
 
 (def ^:private lex-char

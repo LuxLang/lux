@@ -88,6 +88,15 @@
       [::&a/jvm-irem ?x ?y]
       (&&host/compile-jvm-irem compile-expression ?type ?x ?y)
 
+      [::&a/jvm-ieq ?x ?y]
+      (&&host/compile-jvm-ieq compile-expression ?type ?x ?y)
+
+      [::&a/jvm-ilt ?x ?y]
+      (&&host/compile-jvm-ilt compile-expression ?type ?x ?y)
+
+      [::&a/jvm-igt ?x ?y]
+      (&&host/compile-jvm-igt compile-expression ?type ?x ?y)
+
       ;; Long arithmetic
       [::&a/jvm-ladd ?x ?y]
       (&&host/compile-jvm-ladd compile-expression ?type ?x ?y)
@@ -103,6 +112,15 @@
       
       [::&a/jvm-lrem ?x ?y]
       (&&host/compile-jvm-lrem compile-expression ?type ?x ?y)
+
+      [::&a/jvm-leq ?x ?y]
+      (&&host/compile-jvm-leq compile-expression ?type ?x ?y)
+
+      [::&a/jvm-llt ?x ?y]
+      (&&host/compile-jvm-llt compile-expression ?type ?x ?y)
+
+      [::&a/jvm-lgt ?x ?y]
+      (&&host/compile-jvm-lgt compile-expression ?type ?x ?y)
 
       ;; Float arithmetic
       [::&a/jvm-fadd ?x ?y]
@@ -120,6 +138,15 @@
       [::&a/jvm-frem ?x ?y]
       (&&host/compile-jvm-frem compile-expression ?type ?x ?y)
 
+      [::&a/jvm-feq ?x ?y]
+      (&&host/compile-jvm-feq compile-expression ?type ?x ?y)
+
+      [::&a/jvm-flt ?x ?y]
+      (&&host/compile-jvm-flt compile-expression ?type ?x ?y)
+
+      [::&a/jvm-fgt ?x ?y]
+      (&&host/compile-jvm-fgt compile-expression ?type ?x ?y)
+
       ;; Double arithmetic
       [::&a/jvm-dadd ?x ?y]
       (&&host/compile-jvm-dadd compile-expression ?type ?x ?y)
@@ -135,6 +162,15 @@
       
       [::&a/jvm-drem ?x ?y]
       (&&host/compile-jvm-drem compile-expression ?type ?x ?y)
+
+      [::&a/jvm-deq ?x ?y]
+      (&&host/compile-jvm-deq compile-expression ?type ?x ?y)
+
+      [::&a/jvm-dlt ?x ?y]
+      (&&host/compile-jvm-dlt compile-expression ?type ?x ?y)
+
+      [::&a/jvm-dgt ?x ?y]
+      (&&host/compile-jvm-dgt compile-expression ?type ?x ?y)
       
       [::&a/exec ?exprs]
       (&&host/compile-exec compile-expression ?type ?exprs)

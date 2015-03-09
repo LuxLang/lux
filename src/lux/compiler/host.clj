@@ -36,25 +36,31 @@
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL class method sig))
       (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class class-name)))))
 
-;; (let [boolean-class "java.lang.Boolean"
-;;       integer-class "java.lang.Integer"
-;;       char-class "java.lang.Character"]
-;;   (defn prepare-return! [*writer* *type*]
-;;     (match *type*
-;;       ::&type/nothing
-;;       (.visitInsn *writer* Opcodes/ACONST_NULL)
+(let [boolean-class "java.lang.Boolean"
+      integer-class "java.lang.Integer"
+      long-class "java.lang.Long"
+      char-class "java.lang.Character"]
+  (defn prepare-return! [*writer* *type*]
+    (match *type*
+      [::&type/Nothing]
+      (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-;;       [::&type/primitive "char"]
-;;       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
+      [::&type/Data "char"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
 
-;;       [::&type/primitive "int"]
-;;       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class integer-class) "valueOf" (str "(I)" (&host/->type-signature integer-class)))
+      [::&type/Data "int"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class integer-class) "valueOf" (str "(I)" (&host/->type-signature integer-class)))
 
-;;       [::&type/primitive "boolean"]
-;;       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
+      [::&type/Data "long"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-;;       [::&type/Data ?oclass]
-;;       nil)))
+      [::&type/Data "boolean"]
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
+
+      [::&type/Data _]
+      nil
+      )
+    *writer*))
 
 ;; [Resources]
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrapper-method> <wrapper-method-sig>]
@@ -99,6 +105,71 @@
   compile-jvm-drem Opcodes/DREM "java.lang.Double"  "doubleValue" "()D" "valueOf" "(D)"
   )
 
+(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
+  (defn <name> [compile *type* ?x ?y]
+    (exec [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
+           *writer* &/get-writer
+           _ (compile ?x)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+           _ (compile ?y)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                 $then (new Label)
+                 $end (new Label)
+                 _ (doto *writer*
+                     (.visitJumpInsn <opcode> $then)
+                     (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE"  (&host/->type-signature "java.lang.Boolean"))
+                     (.visitJumpInsn Opcodes/GOTO $end)
+                     (.visitLabel $then)
+                     (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE" (&host/->type-signature "java.lang.Boolean"))
+                     (.visitLabel $end))]]
+      (return nil)))
+
+  compile-jvm-ieq Opcodes/IF_ICMPEQ "java.lang.Integer" "intValue" "()I"
+  compile-jvm-ilt Opcodes/IF_ICMPLT "java.lang.Integer" "intValue" "()I"
+  compile-jvm-igt Opcodes/IF_ICMPGT "java.lang.Integer" "intValue" "()I"
+  )
+
+(do-template [<name> <cmpcode> <ifcode> <wrapper-class> <value-method> <value-method-sig>]
+  (defn <name> [compile *type* ?x ?y]
+    (exec [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
+           *writer* &/get-writer
+           _ (compile ?x)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+           _ (compile ?y)
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                 $then (new Label)
+                 $end (new Label)
+                 _ (doto *writer*
+                     (.visitInsn <cmpcode>)
+                     (.visitJumpInsn <ifcode> $then)
+                     (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE"  (&host/->type-signature "java.lang.Boolean"))
+                     (.visitJumpInsn Opcodes/GOTO $end)
+                     (.visitLabel $then)
+                     (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE" (&host/->type-signature "java.lang.Boolean"))
+                     (.visitLabel $end))]]
+      (return nil)))
+
+  compile-jvm-leq Opcodes/LCMP  Opcodes/IFEQ "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-llt Opcodes/LCMP  Opcodes/IFLT "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-lgt Opcodes/LCMP  Opcodes/IFGT "java.lang.Long"   "longValue"   "()J"
+
+  compile-jvm-feq Opcodes/FCMPL Opcodes/IFEQ "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-flt Opcodes/FCMPL Opcodes/IFLT "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-fgt Opcodes/FCMPL Opcodes/IFGT "java.lang.Float"  "floatValue"  "()F"
+  
+  compile-jvm-deq Opcodes/DCMPL Opcodes/IFEQ "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-dlt Opcodes/DCMPL Opcodes/IFLT "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-dgt Opcodes/FCMPL Opcodes/IFGT "java.lang.Double" "doubleValue" "()I"
+  )
+
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]
   (exec [*writer* &/get-writer
          :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
@@ -107,9 +178,9 @@
                            :let [_ (prepare-arg! *writer* class-name)]]
                       (return ret)))
                   (map vector ?classes ?args))
-         :let [_ (do (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class ?class) ?method method-sig)
-                   ;; (prepare-return! *writer* *type*)
-                   )]]
+         :let [_ (doto *writer*
+                   (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class ?class) ?method method-sig)
+                   (prepare-return! *type*))]]
     (return nil)))
 
 (defn compile-jvm-invokevirtual [compile *type* ?class ?method ?classes ?object ?args]
@@ -123,9 +194,9 @@
                            :let [_ (prepare-arg! *writer* class-name)]]
                       (return ret)))
                   (map vector ?classes ?args))
-         :let [_ (do (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (&host/->class ?class) ?method method-sig)
-                   ;; (prepare-return! *writer* *type*)
-                   )]]
+         :let [_ (doto *writer*
+                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class ?class) ?method method-sig)
+                   (prepare-return! *type*))]]
     (return nil)))
 
 (defn compile-jvm-new [compile *type* ?class ?classes ?args]

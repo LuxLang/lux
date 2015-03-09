@@ -78,6 +78,15 @@
     [::&parser/Form ([[::&parser/Ident "jvm-irem"] ?x ?y] :seq)]
     (&&host/analyse-jvm-irem analyse-ast ?x ?y)
 
+    [::&parser/Form ([[::&parser/Ident "jvm-ieq"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-ieq analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-ilt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-ilt analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-igt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-igt analyse-ast ?x ?y)
+
     ;; Long arithmetic
     [::&parser/Form ([[::&parser/Ident "jvm-ladd"] ?x ?y] :seq)]
     (&&host/analyse-jvm-ladd analyse-ast ?x ?y)
@@ -93,6 +102,15 @@
 
     [::&parser/Form ([[::&parser/Ident "jvm-lrem"] ?x ?y] :seq)]
     (&&host/analyse-jvm-lrem analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-leq"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-leq analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-llt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-llt analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-lgt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-lgt analyse-ast ?x ?y)
 
     ;; Float arithmetic
     [::&parser/Form ([[::&parser/Ident "jvm-fadd"] ?x ?y] :seq)]
@@ -110,6 +128,15 @@
     [::&parser/Form ([[::&parser/Ident "jvm-frem"] ?x ?y] :seq)]
     (&&host/analyse-jvm-frem analyse-ast ?x ?y)
 
+    [::&parser/Form ([[::&parser/Ident "jvm-feq"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-feq analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-flt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-flt analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-fgt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-fgt analyse-ast ?x ?y)
+
     ;; Double arithmetic
     [::&parser/Form ([[::&parser/Ident "jvm-dadd"] ?x ?y] :seq)]
     (&&host/analyse-jvm-dadd analyse-ast ?x ?y)
@@ -125,6 +152,15 @@
 
     [::&parser/Form ([[::&parser/Ident "jvm-drem"] ?x ?y] :seq)]
     (&&host/analyse-jvm-drem analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-deq"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-deq analyse-ast ?x ?y)
+    
+    [::&parser/Form ([[::&parser/Ident "jvm-dlt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-dlt analyse-ast ?x ?y)
+
+    [::&parser/Form ([[::&parser/Ident "jvm-dgt"] ?x ?y] :seq)]
+    (&&host/analyse-jvm-dgt analyse-ast ?x ?y)
 
     ;; Fields & methods
     [::&parser/Form ([[::&parser/Ident "jvm-getstatic"] [::&parser/Ident ?class] [::&parser/Text ?field]] :seq)]
