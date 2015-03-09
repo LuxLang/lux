@@ -12,7 +12,7 @@
     (return type)
 
     _
-    (fail "[Analyser Error] Can't retrieve the type of a non-expression.")))
+    (fail (str "[Analyser Error] Can't retrieve the type of a non-expression: " (pr-str syntax+)))))
 
 (defn analyse-1 [analyse elem]
   (exec [output (analyse elem)]

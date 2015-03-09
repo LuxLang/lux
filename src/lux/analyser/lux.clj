@@ -22,6 +22,19 @@
          ]
     (return (list [::&&/Expression [::&&/tuple =elems] [::&type/Tuple =elems-types]]))))
 
+(defn analyse-record [analyse ?elems]
+  (exec [=elems (mapcat-m (fn [[k v]]
+                            (exec [=v (&&/analyse-1 analyse v)]
+                              (return [k =v])))
+                          ?elems)
+         =elems-types (map-m (fn [[k v]]
+                               (exec [=v (&&/expr-type v)]
+                                 (return [k =v])))
+                             =elems)
+         ;; :let [_ (prn 'analyse-tuple =elems)]
+         ]
+    (return (list [::&&/Expression [::&&/record =elems] [::&type/Record =elems-types]]))))
+
 (defn analyse-ident [analyse ident]
   (exec [module-name &/get-module-name]
     (fn [state]
@@ -107,6 +120,15 @@
          =lambda-type (exec [_ (&type/solve =return =body-type)]
                         (&type/clean =lambda-type))]
     (return (list [::&&/Expression [::&&/lambda =scope =captured ?arg =body] =lambda-type]))))
+
+(defn analyse-get [analyse ?slot ?record]
+  (exec [=record (&&/analyse-1 analyse ?record)]
+    (return (list [::&&/Expression [::&&/get ?slot =record] &type/+dont-care-type+]))))
+
+(defn analyse-set [analyse ?slot ?value ?record]
+  (exec [=value (&&/analyse-1 analyse ?value)
+         =record (&&/analyse-1 analyse ?record)]
+    (return (list [::&&/Expression [::&&/set ?slot =value =record] &type/+dont-care-type+]))))
 
 (defn analyse-def [analyse ?name ?value]
   ;; (prn 'analyse-def ?name ?value)

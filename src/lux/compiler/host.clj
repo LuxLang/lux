@@ -161,13 +161,13 @@
   compile-jvm-llt Opcodes/LCMP  Opcodes/IFLT "java.lang.Long"   "longValue"   "()J"
   compile-jvm-lgt Opcodes/LCMP  Opcodes/IFGT "java.lang.Long"   "longValue"   "()J"
 
-  compile-jvm-feq Opcodes/FCMPL Opcodes/IFEQ "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-flt Opcodes/FCMPL Opcodes/IFLT "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-fgt Opcodes/FCMPL Opcodes/IFGT "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-feq Opcodes/FCMPG Opcodes/IFEQ "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-flt Opcodes/FCMPG Opcodes/IFLT "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-fgt Opcodes/FCMPG Opcodes/IFGT "java.lang.Float"  "floatValue"  "()F"
   
-  compile-jvm-deq Opcodes/DCMPL Opcodes/IFEQ "java.lang.Double" "doubleValue" "()I"
-  compile-jvm-dlt Opcodes/DCMPL Opcodes/IFLT "java.lang.Double" "doubleValue" "()I"
-  compile-jvm-dgt Opcodes/FCMPL Opcodes/IFGT "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-deq Opcodes/DCMPG Opcodes/IFEQ "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-dlt Opcodes/DCMPG Opcodes/IFLT "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-dgt Opcodes/FCMPG Opcodes/IFGT "java.lang.Double" "doubleValue" "()I"
   )
 
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]

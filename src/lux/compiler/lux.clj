@@ -66,6 +66,28 @@
                   (map vector (range num-elems) ?elems))]
     (return nil)))
 
+(defn compile-record [compile *type* ?elems]
+  (exec [*writer* &/get-writer
+         :let [num-elems (count ?elems)
+               _ (doto *writer*
+                   (.visitLdcInsn (int (* 2 num-elems)))
+                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
+         _ (map-m (fn [[idx [k v]]]
+                    (exec [:let [idx* (* 2 idx)
+                                 _ (doto *writer*
+                                     (.visitInsn Opcodes/DUP)
+                                     (.visitLdcInsn (int idx*))
+                                     (.visitLdcInsn k)
+                                     (.visitInsn Opcodes/AASTORE))]
+                           :let [_ (doto *writer*
+                                     (.visitInsn Opcodes/DUP)
+                                     (.visitLdcInsn (int (inc idx*))))]
+                           ret (compile v)
+                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                      (return ret)))
+                  (map vector (range num-elems) ?elems))]
+    (return nil)))
+
 (defn compile-variant [compile *type* ?tag ?value]
   (exec [*writer* &/get-writer
          :let [_ (doto *writer*
@@ -111,6 +133,99 @@
                       (return ret)))
                   ?args)]
     (return nil)))
+
+(defn compile-get [compile *type* ?slot ?record]
+  (exec [*writer* &/get-writer
+         _ (compile ?record)
+         :let [$then (new Label)
+               $test-else (new Label)
+               $end (new Label)
+               $start (new Label)
+               _ (doto *writer* ;; record
+                   (.visitInsn Opcodes/DUP) ;; record, record
+                   (.visitInsn Opcodes/ARRAYLENGTH) ;; record, length
+                   (.visitInsn Opcodes/ICONST_2) ;; record, length, 2
+                   (.visitInsn Opcodes/ISUB) ;; record, length--
+
+                   (.visitLabel $start)
+                   (.visitInsn Opcodes/DUP) ;; record, length, length
+                   (.visitLdcInsn (int -2)) ;; record, length, length, -2
+                   (.visitJumpInsn Opcodes/IF_ICMPEQ $then) ;; record, length
+                   ;;;
+                   (.visitInsn Opcodes/DUP2) ;; record, length, record, length
+                   (.visitInsn Opcodes/AALOAD) ;; record, length, aslot
+                   (.visitLdcInsn ?slot) ;; record, length, aslot, eslot
+                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Object") "equals" (str "(" (&host/->type-signature "java.lang.Object") ")Z")) ;; record, length, Z
+                   (.visitJumpInsn Opcodes/IFEQ $test-else) ;; record, length
+                   (.visitInsn Opcodes/ICONST_1) ;; record, length, 1
+                   (.visitInsn Opcodes/IADD) ;; record, length+
+                   (.visitInsn Opcodes/AALOAD) ;; value
+                   (.visitJumpInsn Opcodes/GOTO $end)
+                   (.visitLabel $test-else)
+                   (.visitInsn Opcodes/ICONST_2) ;; record, length, 2
+                   (.visitInsn Opcodes/ISUB) ;; record, length--
+                   (.visitJumpInsn Opcodes/GOTO $start)
+                   ;;;
+                   (.visitLabel $then)
+                   (.visitInsn Opcodes/POP) ;; record
+                   (.visitInsn Opcodes/POP) ;;
+                   (.visitInsn Opcodes/ACONST_NULL) ;; null
+                   (.visitLabel $end))]]
+    (return nil)))
+
+(let [o-sig (&host/->type-signature "java.lang.Object")]
+  (defn compile-set [compile *type* ?slot ?value ?record]
+    (exec [*writer* &/get-writer
+           _ (compile ?record)
+           :let [$then (new Label)
+                 $test-else (new Label)
+                 $end (new Label)
+                 $start (new Label)
+                 _ (doto *writer* ;; record1
+                     ;;;
+                     (.visitInsn Opcodes/DUP) ;; record1, record1
+                     (.visitInsn Opcodes/ARRAYLENGTH) ;; record1, length1
+                     (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")) ;; record1, record2
+                     (.visitInsn Opcodes/DUP_X1) ;; record2, record1, record2
+                     (.visitInsn Opcodes/ICONST_0) ;; record2, record1, record2, 0
+                     (.visitInsn Opcodes/SWAP) ;; record2, record1, 0, record2
+                     (.visitInsn Opcodes/DUP) ;; record2, record1, 0, record2, record2
+                     (.visitInsn Opcodes/ARRAYLENGTH) ;; record2, record1, 0, record2, length2
+                     (.visitInsn Opcodes/ICONST_0) ;; record2, record1, 0, record2, length2, 0
+                     (.visitInsn Opcodes/SWAP) ;; record2, record1, 0, record2, 0, length2
+                     (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class "java.lang.System") "arraycopy" (str "(" o-sig "I" o-sig "I" "I" ")V")) ;; record2
+                     ;;;
+                     (.visitInsn Opcodes/DUP) ;; record, record
+                     (.visitInsn Opcodes/ARRAYLENGTH) ;; record, length
+                     (.visitInsn Opcodes/ICONST_2) ;; record, length, 2
+                     (.visitInsn Opcodes/ISUB) ;; record, length--
+
+                     (.visitLabel $start)
+                     (.visitInsn Opcodes/DUP) ;; record, length, length
+                     (.visitLdcInsn (int -2)) ;; record, length, length, -2
+                     (.visitJumpInsn Opcodes/IF_ICMPEQ $then) ;; record, length
+                     ;;;
+                     (.visitInsn Opcodes/DUP2) ;; record, length, record, length
+                     (.visitInsn Opcodes/AALOAD) ;; record, length, aslot
+                     (.visitLdcInsn ?slot) ;; record, length, aslot, eslot
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Object") "equals" (str "(" (&host/->type-signature "java.lang.Object") ")Z")) ;; record, length, Z
+                     (.visitJumpInsn Opcodes/IFEQ $test-else) ;; record, length
+                     (.visitInsn Opcodes/DUP2) ;; record, length, record, length
+                     (.visitInsn Opcodes/ICONST_1) ;; record, length, record, length, 1
+                     (.visitInsn Opcodes/IADD) ;; record, length, record, length+
+                     (do (compile ?value)) ;; record, length, record, length+, value
+                     (.visitInsn Opcodes/AASTORE) ;; record, length
+                     (.visitInsn Opcodes/POP) ;; record
+                     (.visitJumpInsn Opcodes/GOTO $end)
+                     (.visitLabel $test-else)
+                     (.visitInsn Opcodes/ICONST_2) ;; record, length, 2
+                     (.visitInsn Opcodes/ISUB) ;; record, length--
+                     (.visitJumpInsn Opcodes/GOTO $start)
+                     ;;;
+                     (.visitLabel $then)
+                     (.visitInsn Opcodes/POP) ;; record
+                     (.visitLabel $end))]]
+      (return nil))))
 
 (defn compile-def [compile ?name ?body]
   (exec [*writer* &/get-writer

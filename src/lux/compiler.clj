@@ -51,6 +51,9 @@
       [::&a/tuple ?elems]
       (&&lux/compile-tuple compile-expression ?type ?elems)
 
+      [::&a/record ?elems]
+      (&&lux/compile-record compile-expression ?type ?elems)
+
       [::&a/local ?idx]
       (&&lux/compile-local compile-expression ?type ?idx)
 
@@ -71,6 +74,12 @@
 
       [::&a/lambda ?scope ?env ?args ?body]
       (&&lambda/compile-lambda compile-expression ?scope ?env ?args ?body)
+
+      [::&a/get ?slot ?record]
+      (&&lux/compile-get compile-expression ?type ?slot ?record)
+
+      [::&a/set ?slot ?value ?record]
+      (&&lux/compile-set compile-expression ?type ?slot ?value ?record)
 
       ;; Integer arithmetic
       [::&a/jvm-iadd ?x ?y]

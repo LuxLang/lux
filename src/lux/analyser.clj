@@ -35,6 +35,9 @@
     [::&parser/Tuple ?elems]
     (&&lux/analyse-tuple analyse-ast ?elems)
 
+    [::&parser/Record ?elems]
+    (&&lux/analyse-record analyse-ast ?elems)
+
     [::&parser/Tag ?tag]
     (let [tuple-type [::&type/Tuple (list)]]
       (return (list [::&&/Expression [::&&/variant ?tag [::&&/Expression [::&&/tuple (list)] tuple-type]]
@@ -48,6 +51,12 @@
     
     [::&parser/Form ([[::&parser/Ident "lambda'"] [::&parser/Ident ?self] [::&parser/Ident ?arg] ?body] :seq)]
     (&&lux/analyse-lambda analyse-ast ?self ?arg ?body)
+
+    [::&parser/Form ([[::&parser/Ident "get@'"] [::&parser/Tag ?slot] ?record] :seq)]
+    (&&lux/analyse-get analyse-ast ?slot ?record)
+
+    [::&parser/Form ([[::&parser/Ident "set@'"] [::&parser/Tag ?slot] ?value ?record] :seq)]
+    (&&lux/analyse-set analyse-ast ?slot ?value ?record)
 
     [::&parser/Form ([[::&parser/Ident "def'"] [::&parser/Ident ?name] ?value] :seq)]
     (&&lux/analyse-def analyse-ast ?name ?value)
