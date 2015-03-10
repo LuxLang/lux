@@ -1,6 +1,6 @@
 (ns lux.base
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :refer [match]]))
+            [clojure.core.match :as M :refer [match matchv]]))
 
 ;; [Resources]
 ;; [Resources/Contants]
@@ -272,3 +272,44 @@
 
 (defn run-state [monad state]
   (monad state))
+
+(defn V [tag value]
+  (to-array [tag value]))
+
+(defn ->seq [xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (list)
+
+    [["Cons" [x xs*]]]
+    (cons x (->seq xs*))))
+
+(defn show-ast [ast]
+  (matchv ::M/objects [ast]
+    [["Bool" ?value]]
+    (pr-str ?value)
+
+    [["Int" ?value]]
+    (pr-str ?value)
+
+    [["Real" ?value]]
+    (pr-str ?value)
+
+    [["Char" ?value]]
+    (pr-str ?value)
+
+    [["Text" ?value]]
+    (str "\"" ?value "\"")
+
+    [["Tag" ?tag]]
+    (str "#" ?tag)
+
+    [["Ident" ?ident]]
+    ?ident
+
+    [["Tuple" ?elems]]
+    (str "[" (->> (->seq ?elems) (map show-ast) (interpose " ") (apply str)) "]")
+
+    [["Form" ?elems]]
+    (str "(" (->> (->seq ?elems) (map show-ast) (interpose " ") (apply str)) ")")
+    ))

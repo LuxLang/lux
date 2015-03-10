@@ -1,6 +1,7 @@
 (ns lux.analyser
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
+            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return fail
                                      try-all-m map-m mapcat-m reduce-m
                                      assert!]]
@@ -14,212 +15,240 @@
 
 ;; [Utils]
 (defn ^:private analyse-basic-ast [analyse-ast token]
-  ;; (prn 'analyse-basic-ast token)
-  (match token
+  ;; (prn 'analyse-basic-ast token (&/show-ast token))
+  (matchv ::M/objects [token]
     ;; Standard special forms
-    [::&parser/Bool ?value]
+    [["Bool" ?value]]
     (return (list [::&&/Expression [::&&/bool ?value] [::&type/Data "java.lang.Boolean"]]))
 
-    [::&parser/Int ?value]
+    [["Int" ?value]]
     (return (list [::&&/Expression [::&&/int ?value]  [::&type/Data "java.lang.Long"]]))
 
-    [::&parser/Real ?value]
+    [["Real" ?value]]
     (return (list [::&&/Expression [::&&/real ?value] [::&type/Data "java.lang.Double"]]))
 
-    [::&parser/Char ?value]
+    [["Char" ?value]]
     (return (list [::&&/Expression [::&&/char ?value] [::&type/Data "java.lang.Character"]]))
 
-    [::&parser/Text ?value]
+    [["Text" ?value]]
     (return (list [::&&/Expression [::&&/text ?value] [::&type/Data "java.lang.String"]]))
 
-    [::&parser/Tuple ?elems]
-    (&&lux/analyse-tuple analyse-ast ?elems)
+    [["Tuple" ?elems]]
+    (&&lux/analyse-tuple analyse-ast (&/->seq ?elems))
 
-    [::&parser/Record ?elems]
-    (&&lux/analyse-record analyse-ast ?elems)
+    [["Record" ?elems]]
+    (&&lux/analyse-record analyse-ast (&/->seq ?elems))
 
-    [::&parser/Tag ?tag]
+    [["Tag" ?tag]]
     (let [tuple-type [::&type/Tuple (list)]]
       (return (list [::&&/Expression [::&&/variant ?tag [::&&/Expression [::&&/tuple (list)] tuple-type]]
                      [::&type/Variant (list [?tag tuple-type])]])))
 
-    [::&parser/Ident ?ident]
+    [["Ident" ?ident]]
     (&&lux/analyse-ident analyse-ast ?ident)
 
-    [::&parser/Form ([[::&parser/Ident "case'"] ?variant & ?branches] :seq)]
-    (&&lux/analyse-case analyse-ast ?variant ?branches)
+    [["Form" ["Cons" [["Ident" "case'"]
+                      ["Cons" [?variant ?branches]]]]]]
+    (&&lux/analyse-case analyse-ast ?variant (&/->seq ?branches))
     
-    [::&parser/Form ([[::&parser/Ident "lambda'"] [::&parser/Ident ?self] [::&parser/Ident ?arg] ?body] :seq)]
+    [["Form" ["Cons" [["Ident" "lambda'"]
+                      ["Cons" [["Ident" ?self]
+                               ["Cons" [["Ident" ?arg]
+                                        ["Cons" [?body
+                                                 ["Nil" _]]]]]]]]]]]
     (&&lux/analyse-lambda analyse-ast ?self ?arg ?body)
 
-    [::&parser/Form ([[::&parser/Ident "get@'"] [::&parser/Tag ?slot] ?record] :seq)]
+    [["Form" ["Cons" [["Ident" "get@'"] ["Cons" [["Tag" ?slot] ["Cons" [?record ["Nil" _]]]]]]]]]
     (&&lux/analyse-get analyse-ast ?slot ?record)
 
-    [::&parser/Form ([[::&parser/Ident "set@'"] [::&parser/Tag ?slot] ?value ?record] :seq)]
+    [["Form" ["Cons" [["Ident" "set@'"] ["Cons" [["Tag" ?slot] ["Cons" [?value ["Cons" [?record ["Nil" _]]]]]]]]]]]
     (&&lux/analyse-set analyse-ast ?slot ?value ?record)
 
-    [::&parser/Form ([[::&parser/Ident "def'"] [::&parser/Ident ?name] ?value] :seq)]
+    [["Form" ["Cons" [["Ident" "def'"] ["Cons" [["Ident" ?name] ["Cons" [?value ["Nil" _]]]]]]]]]
     (&&lux/analyse-def analyse-ast ?name ?value)
 
-    [::&parser/Form ([[::&parser/Ident "declare-macro"] [::&parser/Ident ?ident]] :seq)]
+    [["Form" ["Cons" [["Ident" "declare-macro"] ["Cons" [["Ident" ?ident] ["Nil" _]]]]]]]
     (&&lux/analyse-declare-macro ?ident)
     
-    [::&parser/Form ([[::&parser/Ident "require"] [::&parser/Text ?path]] :seq)]
-    (&&lux/analyse-require analyse-ast ?path)
+    [["Form" ["Cons" [["Ident" "import'"] ["Cons" [["Text" ?path] ["Nil" _]]]]]]]
+    (&&lux/analyse-import analyse-ast ?path)
 
     ;; Host special forms
-    [::&parser/Form ([[::&parser/Ident "exec"] & ?exprs] :seq)]
-    (&&host/analyse-exec analyse-ast ?exprs)
+    [["Form" ["Cons" [["Ident" "exec"] ?exprs]]]]
+    (&&host/analyse-exec analyse-ast (&/->seq ?exprs))
 
     ;; Integer arithmetic
-    [::&parser/Form ([[::&parser/Ident "jvm-iadd"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-iadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-iadd analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-isub"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-isub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-isub analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-imul"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-imul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-imul analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-idiv"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-idiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-idiv analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-irem"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-irem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-irem analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-ieq"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-ieq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ieq analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-ilt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-ilt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ilt analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-igt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-igt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-igt analyse-ast ?x ?y)
 
     ;; Long arithmetic
-    [::&parser/Form ([[::&parser/Ident "jvm-ladd"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-ladd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ladd analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-lsub"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-lsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lsub analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-lmul"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-lmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lmul analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-ldiv"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-ldiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ldiv analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-lrem"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-lrem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lrem analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-leq"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-leq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-leq analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-llt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-llt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-llt analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-lgt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-lgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lgt analyse-ast ?x ?y)
 
     ;; Float arithmetic
-    [::&parser/Form ([[::&parser/Ident "jvm-fadd"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-fadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fadd analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-fsub"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-fsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fsub analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-fmul"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-fmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fmul analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-fdiv"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-fdiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fdiv analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-frem"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-frem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-frem analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-feq"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-feq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-feq analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-flt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-flt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-flt analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-fgt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-fgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fgt analyse-ast ?x ?y)
 
     ;; Double arithmetic
-    [::&parser/Form ([[::&parser/Ident "jvm-dadd"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-dadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dadd analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-dsub"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-dsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dsub analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-dmul"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-dmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dmul analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-ddiv"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-ddiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ddiv analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-drem"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-drem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-drem analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-deq"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-deq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-deq analyse-ast ?x ?y)
-    
-    [::&parser/Form ([[::&parser/Ident "jvm-dlt"] ?x ?y] :seq)]
+
+    [["Form" ["Cons" [["Ident" "jvm-dlt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dlt analyse-ast ?x ?y)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-dgt"] ?x ?y] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-dgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dgt analyse-ast ?x ?y)
 
-    ;; Fields & methods
-    [::&parser/Form ([[::&parser/Ident "jvm-getstatic"] [::&parser/Ident ?class] [::&parser/Text ?field]] :seq)]
-    (&&host/analyse-jvm-getstatic analyse-ast ?class ?field)
-
-    [::&parser/Form ([[::&parser/Ident "jvm-getfield"] [::&parser/Ident ?class] [::&parser/Text ?field] ?object] :seq)]
-    (&&host/analyse-jvm-getfield analyse-ast ?class ?field ?object)
-
-    [::&parser/Form ([[::&parser/Ident "jvm-invokestatic"] [::&parser/Ident ?class] [::&parser/Text ?method] [::&parser/Tuple ?classes] [::&parser/Tuple ?args]] :seq)]
-    (&&host/analyse-jvm-invokestatic analyse-ast ?class ?method ?classes ?args)
-
-    [::&parser/Form ([[::&parser/Ident "jvm-invokevirtual"] [::&parser/Ident ?class] [::&parser/Text ?method] [::&parser/Tuple ?classes] ?object [::&parser/Tuple ?args]] :seq)]
-    (&&host/analyse-jvm-invokevirtual analyse-ast ?class ?method ?classes ?object ?args)
-
-    ;; Arrays
-    [::&parser/Form ([[::&parser/Ident "jvm-new"] [::&parser/Ident ?class] [::&parser/Tuple ?classes] [::&parser/Tuple ?args]] :seq)]
+    ;; Objects
+    [["Form" ["Cons" [["Ident" "jvm-new"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Tuple" ?classes]
+                                        ["Cons" [["Tuple" ?args]
+                                                 ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-new analyse-ast ?class ?classes ?args)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-new-array"] [::&parser/Ident ?class] [::&parser/Int ?length]] :seq)]
+    
+    [["Form" ["Cons" [["Ident" "jvm-getstatic"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?field]
+                                        ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-getstatic analyse-ast ?class ?field)
+
+    [["Form" ["Cons" [["Ident" "jvm-getfield"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?field]
+                                        ["Cons" [?object
+                                                 ["Nil" _]]]]]]]]]]]
+    (&&host/analyse-jvm-getfield analyse-ast ?class ?field ?object)
+
+    [["Form" ["Cons" [["Ident" "jvm-invokestatic"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?method]
+                                        ["Cons" [["Tuple" ?classes]
+                                                 ["Cons" [["Tuple" ?args]
+                                                          ["Nil" _]]]]]]]]]]]]]
+    (&&host/analyse-jvm-invokestatic analyse-ast ?class ?method (&/->seq ?classes) (&/->seq ?args))
+
+    [["Form" ["Cons" [["Ident" "jvm-invokevirtual"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?method]
+                                        ["Cons" [["Tuple" ?classes]
+                                                 ["Cons" [?object
+                                                          ["Cons" [["Tuple" ?args]
+                                                                   ["Nil" _]]]]]]]]]]]]]]]
+    (&&host/analyse-jvm-invokevirtual analyse-ast ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+    
+    ;; Arrays
+    [["Form" ["Cons" [["Ident" "jvm-new-array"] ["Cons" [["Ident" ?class] ["Cons" [["Int" ?length] ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-new-array analyse-ast ?class ?length)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-aastore"] ?array [::&parser/Int ?idx] ?elem] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-aastore"] ["Cons" [?array ["Cons" [["Int" ?idx] ["Cons" [?elem ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-aastore analyse-ast ?array ?idx ?elem)
 
-    [::&parser/Form ([[::&parser/Ident "jvm-aaload"] ?array [::&parser/Int ?idx]] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-aaload"] ["Cons" [?array ["Cons" [["Int" ?idx] ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-aaload analyse-ast ?array ?idx)
 
     ;; Classes & interfaces
-    [::&parser/Form ([[::&parser/Ident "jvm-class"] [::&parser/Ident ?name] [::&parser/Ident ?super-class] [::&parser/Tuple ?fields]] :seq)]
-    (&&host/analyse-jvm-class analyse-ast ?name ?super-class ?fields)
+    [["Form" ["Cons" [["Ident" "jvm-class"] ["Cons" [["Ident" ?name] ["Cons" [["Ident" ?super-class] ["Cons" [["Tuple" ?fields] ["Nil" _]]]]]]]]]]]
+    (&&host/analyse-jvm-class analyse-ast ?name ?super-class (&/->seq ?fields))
 
-    [::&parser/Form ([[::&parser/Ident "jvm-interface"] [::&parser/Ident ?name] & ?members] :seq)]
+    [["Form" ["Cons" [["Ident" "jvm-interface"] ["Cons" [["Ident" ?name] ?members]]]]]]
     (&&host/analyse-jvm-interface analyse-ast ?name ?members)
 
-    _
-    (fail (str "[Analyser Error] Unmatched token: " (pr-str token)))))
+    [_]
+    (fail (str "[Analyser Error] Unmatched token: " (&/show-ast token)))))
 
 (defn ^:private analyse-ast [token]
   ;; (prn 'analyse-ast token)
-  (match token
-    [::&parser/Form ([[::&parser/Tag ?tag] & ?values] :seq)]
+  (matchv ::M/objects [token]
+    [["Form" ["Cons" [["Tag" ?tag] ?values]]]]
     (exec [;; :let [_ (prn 'PRE-ASSERT)]
+           :let [?values (&/->seq ?values)]
            :let [_ (assert (= 1 (count ?values)) (str "[Analyser Error] Can only tag 1 value: " (pr-str token)))]
            ;; :let [_ (prn 'POST-ASSERT)]
-           :let [?value (first ?values)]
-           =value (&&/analyse-1 analyse-ast ?value)
+           =value (&&/analyse-1 analyse-ast (first ?values))
            =value-type (&&/expr-type =value)]
       (return (list [::&&/Expression [::&&/variant ?tag =value] [::&type/Variant (list [?tag =value-type])]])))
     
-    [::&parser/Form ([?fn & ?args] :seq)]
+    [["Form" ["Cons" [?fn ?args]]]]
     (fn [state]
       (match ((&&/analyse-1 analyse-ast ?fn) state)
         [::&/ok [state* =fn]]
@@ -228,7 +257,7 @@
         _
         ((analyse-basic-ast analyse-ast token) state)))
     
-    _
+    [_]
     (analyse-basic-ast analyse-ast token)))
 
 ;; [Resources]

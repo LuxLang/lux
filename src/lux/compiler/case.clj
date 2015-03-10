@@ -1,7 +1,8 @@
 (ns lux.compiler.case
   (:require (clojure [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
+            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return* return fail fail*
                                      repeat-m exhaust-m try-m try-all-m map-m reduce-m
                                      apply-m
@@ -19,36 +20,39 @@
 
 ;; [Utils]
 (defn ^:private ->match [$body register token]
-  (match token
-    [::&parser/Ident ?name]
+  (matchv ::M/objects [token]
+    [["Ident" ?name]]
     [(inc register) [::Pattern $body [::StoreMatch register]]]
     
-    [::&parser/Bool ?value]
+    [["Bool" ?value]]
     [register [::Pattern $body [::BoolMatch ?value]]]
 
-    [::&parser/Int ?value]
+    [["Int" ?value]]
     [register [::Pattern $body [::IntMatch ?value]]]
 
-    [::&parser/Real ?value]
+    [["Real" ?value]]
     [register [::Pattern $body [::RealMatch ?value]]]
 
-    [::&parser/Char ?value]
+    [["Char" ?value]]
     [register [::Pattern $body [::CharMatch ?value]]]
 
-    [::&parser/Text ?value]
+    [["Text" ?value]]
     [register [::Pattern $body [::TextMatch ?value]]]
 
-    [::&parser/Tuple ?members]
+    [["Tuple" ?members]]
     (let [[register* =members] (reduce (fn [[register =members] member]
                                          (let [[register* =member] (->match $body register member)]
                                            [register* (cons =member =members)]))
-                                       [register (list)] ?members)]
+                                       [register (list)]
+                                       (&/->seq ?members))]
       [register* [::Pattern $body [::TupleMatch (reverse =members)]]])
 
-    [::&parser/Tag ?tag]
+    [["Tag" ?tag]]
     [register [::Pattern $body [::VariantMatch ?tag [::Pattern $body [::TupleMatch (list)]]]]]
 
-    [::&parser/Form ([[::&parser/Tag ?tag] ?value] :seq)]
+    [["Form" ["Cons" [["Tag" ?tag]
+                      ["Cons" [?value
+                               ["Nil" _]]]]]]]
     (let [[register* =value] (->match $body register ?value)]
       
       [register* [::Pattern $body [::VariantMatch ?tag =value]]])

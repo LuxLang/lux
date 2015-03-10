@@ -6,7 +6,6 @@
   ;; TODO: Finish type system.
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Adding metadata to global vars.
-  ;; TODO: Add records.
   ;; TODO: throw, try, catch, finally
   ;; TODO: Allow setting fields.
   ;; TODO: monitor enter & monitor exit.

@@ -75,12 +75,12 @@
           (if macro?
             (let [macro-class (&host/location (list ?module ?name))]
               (exec [macro-expansion (&macro/expand loader macro-class ?args)]
-                (mapcat-m analyse macro-expansion)))
-            (exec [=args (mapcat-m analyse ?args)]
+                (mapcat-m analyse (&/->seq macro-expansion))))
+            (exec [=args (mapcat-m analyse (&/->seq ?args))]
               (return (list [::&&/Expression [::&&/call =fn =args] &type/+dont-care-type+])))))
 
         _
-        (exec [=args (mapcat-m analyse ?args)]
+        (exec [=args (mapcat-m analyse (&/->seq ?args))]
           (return (list [::&&/Expression [::&&/call =fn =args] &type/+dont-care-type+]))))
 
       :else
@@ -145,6 +145,6 @@
          _ (&&def/declare-macro module-name ?ident)]
     (return (list))))
 
-(defn analyse-require [analyse ?path]
+(defn analyse-import [analyse ?path]
   (assert false)
   (return (list)))

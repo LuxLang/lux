@@ -10,11 +10,13 @@
     (exec [elems (repeat-m parse)
            token &lexer/lex]
       (if (= <close-token> token)
-        (return (list [<tag> (apply concat elems)]))
+        (return (list (&/V <tag> (reduce #(&/V "Cons" (to-array [%2 %1]))
+                                         (&/V "Nil" nil)
+                                         (reverse (apply concat elems))))))
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  [::&lexer/close-paren]   "parantheses" ::Form
-  ^:private parse-tuple [::&lexer/close-bracket] "brackets"    ::Tuple
+  ^:private parse-form  [::&lexer/close-paren]   "parantheses" "Form"
+  ^:private parse-tuple [::&lexer/close-bracket] "brackets"    "Tuple"
   )
 
 (defn ^:private parse-record [parse]
@@ -28,7 +30,9 @@
           (fail (str "[Parser Error] Records must have an even number of elements."))
 
           :else
-          (return (list [::Record elems])))))
+          (return (list (&/V "Record" (reduce #(&/V "Cons" (to-array [%2 %1]))
+                                              (&/V "Nil" nil)
+                                              (reverse elems))))))))
 
 ;; [Interface]
 (def parse
@@ -43,25 +47,25 @@
       (return (list))
       
       [::&lexer/bool ?value]
-      (return (list [::Bool (Boolean/parseBoolean ?value)]))
+      (return (list (&/V "Bool" (Boolean/parseBoolean ?value))))
 
       [::&lexer/int ?value]
-      (return (list [::Int (Integer/parseInt ?value)]))
+      (return (list (&/V "Int" (Integer/parseInt ?value))))
 
       [::&lexer/real ?value]
-      (return (list [::Real (Float/parseFloat ?value)]))
+      (return (list (&/V "Real" (Float/parseFloat ?value))))
 
       [::&lexer/char ?value]
-      (return (list [::Char (.charAt ?value 0)]))
+      (return (list (&/V "Char" (.charAt ?value 0))))
 
       [::&lexer/text ?value]
-      (return (list [::Text ?value]))
+      (return (list (&/V "Text" ?value)))
 
       [::&lexer/ident ?value]
-      (return (list [::Ident ?value]))
+      (return (list (&/V "Ident" ?value)))
 
       [::&lexer/tag ?value]
-      (return (list [::Tag ?value]))
+      (return (list (&/V "Tag" ?value)))
 
       [::&lexer/open-paren]
       (parse-form parse)

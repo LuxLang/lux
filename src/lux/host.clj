@@ -1,7 +1,8 @@
 (ns lux.host
   (:require (clojure [string :as string]
                      [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
+            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return* return fail fail*
                                      repeat-m try-all-m map-m mapcat-m reduce-m
                                      normalize-ident]]
@@ -96,15 +97,15 @@
     (->type-signature function-class)))
 
 (defn extract-jvm-param [token]
-  (match token
-    [::&parser/Ident ?ident]
+  (matchv ::M/objects [token]
+    [["Ident" ?ident]]
     (full-class-name ?ident)
 
-    [::&parser/Form ([[::&parser/Ident "Array"] [::&parser/Ident ?inner]] :seq)]
+    [["Form" ["Cons" [["Ident" "Array"] ["Cons" [["Ident" ?inner] ["Nil" _]]]]]]]
     (exec [=inner (full-class-name ?inner)]
       (return (str "[L" (->class =inner) ";")))
 
-    _
+    [_]
     (fail (str "[Host] Unknown JVM param: " (pr-str token)))))
 
 (do-template [<name> <static?>]

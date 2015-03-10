@@ -1,6 +1,7 @@
 (ns lux.analyser.host
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
+            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return fail
                                      try-all-m map-m mapcat-m reduce-m
                                      assert!]]
@@ -10,12 +11,20 @@
             (lux.analyser [base :as &&])))
 
 ;; [Utils]
+(defn ^:private ->seq [xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (list)
+
+    [["Cons" [x xs*]]]
+    (cons x (->seq xs*))))
+
 (defn ^:private extract-ident [ident]
-  (match ident
-    [::&parser/Ident ?ident]
+  (matchv ::M/objects [ident]
+    [["Ident" ?ident]]
     (return ?ident)
 
-    _
+    [_]
     (fail "[Analyser Error] Can't extract Ident.")))
 
 ;; [Resources]
@@ -156,16 +165,22 @@
 (defn analyse-jvm-interface [analyse ?name ?members]
   ;; (prn 'analyse-jvm-interface ?name ?members)
   (exec [?members (map-m (fn [member]
-                           (match member
-                             [::&parser/Form ([[::&parser/Ident ":"] [::&parser/Ident ?member-name]
-                                               [::&parser/Form ([[::&parser/Ident "->"] [::&parser/Tuple ?inputs] [::&parser/Ident ?output]] :seq)]]
-                                                :seq)]
-                             (exec [?inputs (map-m extract-ident ?inputs)]
-                               (return [?member-name [?inputs ?output]]))
+                           ;; (prn 'analyse-jvm-interface (&/show-ast member))
+                           (matchv ::M/objects [member]
+                             [["Form" ["Cons" [["Ident" ":"]
+                                               ["Cons" [["Ident" ?member-name]
+                                                        ["Cons" [["Form" ["Cons" [["Ident" "->"]
+                                                                                  ["Cons" [["Tuple" ?inputs]
+                                                                                           ["Cons" [["Ident" ?output]
+                                                                                                    ["Nil" _]]]]]]]]
+                                                                 ["Nil" _]]]]]]]]]
+                             (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
+                               (exec [?inputs (map-m extract-ident (&/->seq ?inputs))]
+                                 (return [?member-name [?inputs ?output]])))
                              
-                             _
+                             [_]
                              (fail "[Analyser Error] Invalid method signature!")))
-                         ?members)
+                         (&/->seq ?members))
          :let [=methods (into {} (for [[method [inputs output]] ?members]
                                    [method {:access :public
                                             :type [inputs output]}]))]
