@@ -1,6 +1,7 @@
 (ns lux.base
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :as M :refer [match matchv]]))
+            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array))
 
 ;; [Resources]
 ;; [Resources/Contants]

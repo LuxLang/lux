@@ -44,6 +44,9 @@
       (return (list [::&&/Expression [::&&/variant ?tag [::&&/Expression [::&&/tuple (list)] tuple-type]]
                      [::&type/Variant (list [?tag tuple-type])]])))
 
+    [["Ident" "jvm-null"]]
+    (return (list [::&&/Expression [::&&/jvm-null] [::&type/Data "null"]]))
+    
     [["Ident" ?ident]]
     (&&lux/analyse-ident analyse-ast ?ident)
 

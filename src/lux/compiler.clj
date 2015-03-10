@@ -184,6 +184,9 @@
       [::&a/exec ?exprs]
       (&&host/compile-exec compile-expression ?type ?exprs)
 
+      [::&a/jvm-null]
+      (&&host/compile-jvm-null compile-expression ?type)
+      
       [::&a/jvm-new ?class ?classes ?args]
       (&&host/compile-jvm-new compile-expression ?type ?class ?classes ?args)
 

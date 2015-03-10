@@ -199,6 +199,11 @@
                    (prepare-return! *type*))]]
     (return nil)))
 
+(defn compile-jvm-null [compile *type*]
+  (exec [*writer* &/get-writer
+         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
+    (return nil)))
+
 (defn compile-jvm-new [compile *type* ?class ?classes ?args]
   (exec [*writer* &/get-writer
          :let [init-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")V")
