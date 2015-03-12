@@ -183,21 +183,27 @@
                    (prepare-return! *type*))]]
     (return nil)))
 
-(defn compile-jvm-invokevirtual [compile *type* ?class ?method ?classes ?object ?args]
-  ;; (prn 'compile-jvm-invokevirtual ?classes *type*)
-  (exec [*writer* &/get-writer
-         :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
-         _ (compile ?object)
-         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
-         _ (map-m (fn [[class-name arg]]
-                    (exec [ret (compile arg)
-                           :let [_ (prepare-arg! *writer* class-name)]]
-                      (return ret)))
-                  (map vector ?classes ?args))
-         :let [_ (doto *writer*
-                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class ?class) ?method method-sig)
-                   (prepare-return! *type*))]]
-    (return nil)))
+(do-template [<name> <op>]
+  (defn <name> [compile *type* ?class ?method ?classes ?object ?args]
+    ;; (prn 'compile-jvm-invokevirtual ?classes *type*)
+    (exec [*writer* &/get-writer
+           :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
+           _ (compile ?object)
+           :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
+           _ (map-m (fn [[class-name arg]]
+                      (exec [ret (compile arg)
+                             :let [_ (prepare-arg! *writer* class-name)]]
+                        (return ret)))
+                    (map vector ?classes ?args))
+           :let [_ (doto *writer*
+                     (.visitMethodInsn <op> (&host/->class ?class) ?method method-sig)
+                     (prepare-return! *type*))]]
+      (return nil)))
+
+  compile-jvm-invokevirtual   Opcodes/INVOKEVIRTUAL
+  compile-jvm-invokeinterface Opcodes/INVOKEINTERFACE
+  compile-jvm-invokespecial   Opcodes/INVOKESPECIAL
+  )
 
 (defn compile-jvm-null [compile *type*]
   (exec [*writer* &/get-writer
@@ -269,6 +275,20 @@
          _ (compile ?object)
          :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
          :let [_ (.visitFieldInsn *writer* Opcodes/GETFIELD (&host/->class ?class) ?field (&host/->java-sig *type*))]]
+    (return nil)))
+
+(defn compile-jvm-putstatic [compile *type* ?class ?field ?value]
+  (exec [*writer* &/get-writer
+         _ (compile ?value)
+         :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class ?class) ?field (&host/->java-sig *type*))]]
+    (return nil)))
+
+(defn compile-jvm-putfield [compile *type* ?class ?field ?object ?value]
+  (exec [*writer* &/get-writer
+         _ (compile ?object)
+         _ (compile ?value)
+         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
+         :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD (&host/->class ?class) ?field (&host/->java-sig *type*))]]
     (return nil)))
 
 (defn compile-jvm-class [compile ?package ?name ?super-class ?fields ?methods]
@@ -383,51 +403,75 @@
   compile-jvm-monitorexit  Opcodes/MONITOREXIT
   )
 
-(do-template [<name> <op> <from-class> <to-class>]
+(do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
   (defn <name> [compile *type* ?value]
     (exec [*writer* &/get-writer
+           :let [_ (doto *writer*
+                     (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))
+                     (.visitInsn Opcodes/DUP))]
            _ (compile ?value)
            :let [_ (doto *writer*
-                     (.visitInsn <op>))]]
+                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from-class>) <from-method> <from-sig>)
+                     (.visitInsn <op>)
+                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class <to-class>) "<init>" <to-sig>))]]
       (return nil)))
 
-  compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "java.lang.Float"
-  compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "java.lang.Integer"
-  compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "java.lang.Long"
+  compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue" "()D" "java.lang.Float"     "(F)V"
+  compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "doubleValue" "()D" "java.lang.Integer"   "(I)V"
+  compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "doubleValue" "()D" "java.lang.Long"      "(J)V"
 
-  compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "java.lang.Double"
-  compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "java.lang.Integer"
-  compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "java.lang.Long"
+  compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "floatValue"  "()F" "java.lang.Double"    "(D)V"
+  compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "floatValue"  "()F" "java.lang.Integer"   "(I)V"
+  compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "floatValue"  "()F" "java.lang.Long"      "(J)V"
 
-  compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "java.lang.Byte"
-  compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "java.lang.Character"
-  compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "java.lang.Double"
-  compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "java.lang.Float"
-  compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "java.lang.Long"
-  compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "java.lang.Short"
+  compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "intValue"    "()I" "java.lang.Byte"      "(B)V"
+  compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "intValue"    "()I" "java.lang.Character" "(C)V"
+  compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "intValue"    "()I" "java.lang.Double"    "(D)V"
+  compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "intValue"    "()I" "java.lang.Float"     "(F)V"
+  compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "intValue"    "()I" "java.lang.Long"      "(J)V"
+  compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "intValue"    "()I" "java.lang.Short"     "(S)V"
 
-  compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "java.lang.Double"
-  compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "java.lang.Float"
-  compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "java.lang.Integer"
+  compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"   "()J" "java.lang.Double"    "(D)V"
+  compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"   "()J" "java.lang.Float"     "(F)V"
+  compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"   "()J" "java.lang.Integer"   "(I)V"
   )
 
-(do-template [<name> <op> <from-class> <to-class>]
+(do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
   (defn <name> [compile *type* ?x ?y]
     (exec [*writer* &/get-writer
-           _ (compile ?x)
-           _ (compile ?y)
            :let [_ (doto *writer*
-                     (.visitInsn <op>))]]
+                     (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))
+                     (.visitInsn Opcodes/DUP))]
+           _ (compile ?x)
+           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (&host/->class <from1-class>) <from1-method> <from1-sig>)]
+           _ (compile ?y)
+           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (&host/->class <from2-class>) <from2-method> <from2-sig>)]
+           :let [_ (doto *writer*
+                     (.visitInsn <op>)
+                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class <to-class>) "<init>" <to-sig>))]]
       (return nil)))
 
-  compile-jvm-iand  Opcodes/IAND  "java.lang.Integer" "java.lang.Integer"
-  compile-jvm-ior   Opcodes/IOR   "java.lang.Integer" "java.lang.Integer"
+  compile-jvm-iand  Opcodes/IAND  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  compile-jvm-ior   Opcodes/IOR   "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
   
-  compile-jvm-land  Opcodes/LAND  "java.lang.Long"    "java.lang.Long"
-  compile-jvm-lor   Opcodes/LOR   "java.lang.Long"    "java.lang.Long"
-  compile-jvm-lxor  Opcodes/LXOR  "java.lang.Long"    "java.lang.Long"
+  compile-jvm-land  Opcodes/LAND  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
+  compile-jvm-lor   Opcodes/LOR   "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
+  compile-jvm-lxor  Opcodes/LXOR  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
 
-  compile-jvm-lshl  Opcodes/LSHL  "java.lang.Long"    "java.lang.Integer"
-  compile-jvm-lshr  Opcodes/LSHR  "java.lang.Long"    "java.lang.Integer"
-  compile-jvm-lushr Opcodes/LUSHR "java.lang.Long"    "java.lang.Integer"
+  compile-jvm-lshl  Opcodes/LSHL  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
+  compile-jvm-lshr  Opcodes/LSHR  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
+  compile-jvm-lushr Opcodes/LUSHR "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
   )
+
+(defn compile-jvm-program [compile *type* ?body]
+  (exec [*writer* &/get-writer]
+    (&/with-writer (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "main" "([Ljava/lang/String;)V" nil nil)
+                     (.visitCode))
+      (exec [*writer* &/get-writer
+             _ (compile ?body)
+             :let [_ (doto *writer*
+                       (.visitInsn Opcodes/POP)
+                       (.visitInsn Opcodes/RETURN)
+                       (.visitMaxs 0 0)
+                       (.visitEnd))]]
+        (return nil)))))

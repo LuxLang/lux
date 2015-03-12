@@ -205,7 +205,6 @@
                                                  ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-new analyse-ast ?class ?classes ?args)
 
-    
     [["Form" ["Cons" [["Ident" "jvm-getstatic"]
                       ["Cons" [["Ident" ?class]
                                ["Cons" [["Text" ?field]
@@ -218,6 +217,21 @@
                                         ["Cons" [?object
                                                  ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-getfield analyse-ast ?class ?field ?object)
+
+    [["Form" ["Cons" [["Ident" "jvm-putstatic"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?field]
+                                        ["Cons" [?value
+                                                 ["Nil" _]]]]]]]]]]]
+    (&&host/analyse-jvm-putstatic analyse-ast ?class ?field ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-putfield"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?field]
+                                        ["Cons" [?object
+                                                 ["Cons" [?value
+                                                          ["Nil" _]]]]]]]]]]]]]
+    (&&host/analyse-jvm-putfield analyse-ast ?class ?field ?object ?value)
 
     [["Form" ["Cons" [["Ident" "jvm-invokestatic"]
                       ["Cons" [["Ident" ?class]
@@ -235,6 +249,24 @@
                                                           ["Cons" [["Tuple" ?args]
                                                                    ["Nil" _]]]]]]]]]]]]]]]
     (&&host/analyse-jvm-invokevirtual analyse-ast ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+
+    [["Form" ["Cons" [["Ident" "jvm-invokeinterface"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?method]
+                                        ["Cons" [["Tuple" ?classes]
+                                                 ["Cons" [?object
+                                                          ["Cons" [["Tuple" ?args]
+                                                                   ["Nil" _]]]]]]]]]]]]]]]
+    (&&host/analyse-jvm-invokeinterface analyse-ast ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+
+    [["Form" ["Cons" [["Ident" "jvm-invokespecial"]
+                      ["Cons" [["Ident" ?class]
+                               ["Cons" [["Text" ?method]
+                                        ["Cons" [["Tuple" ?classes]
+                                                 ["Cons" [?object
+                                                          ["Cons" [["Tuple" ?args]
+                                                                   ["Nil" _]]]]]]]]]]]]]]]
+    (&&host/analyse-jvm-invokespecial analyse-ast ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
     
     ;; Exceptions
     [["Form" ["Cons" [["Ident" "jvm-try"]
@@ -346,6 +378,10 @@
     [["Form" ["Cons" [["Ident" "jvm-interface"] ["Cons" [["Ident" ?name] ?members]]]]]]
     (&&host/analyse-jvm-interface analyse-ast ?name ?members)
 
+    ;; Programs
+    [["Form" ["Cons" [["Ident" "jvm-program"] ["Cons" [["Ident" ?args] ["Cons" [?body ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-program analyse-ast ?args ?body)
+    
     [_]
     (fail (str "[Analyser Error] Unmatched token: " (&/show-ast token)))))
 

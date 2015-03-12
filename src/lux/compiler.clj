@@ -198,13 +198,25 @@
 
       [::&a/jvm-getfield ?class ?field ?object]
       (&&host/compile-jvm-getfield compile-expression ?type ?class ?field ?object)
-      
+
+      [::&a/jvm-putstatic ?class ?field ?value]
+      (&&host/compile-jvm-putstatic compile-expression ?type ?class ?field ?value)
+
+      [::&a/jvm-putfield ?class ?field ?object ?value]
+      (&&host/compile-jvm-putfield compile-expression ?type ?class ?field ?object ?value)
+
       [::&a/jvm-invokestatic ?class ?method ?classes ?args]
       (&&host/compile-jvm-invokestatic compile-expression ?type ?class ?method ?classes ?args)
 
       [::&a/jvm-invokevirtual ?class ?method ?classes ?object ?args]
       (&&host/compile-jvm-invokevirtual compile-expression ?type ?class ?method ?classes ?object ?args)
 
+      [::&a/jvm-invokeinterface ?class ?method ?classes ?object ?args]
+      (&&host/compile-jvm-invokeinterface compile-expression ?type ?class ?method ?classes ?object ?args)
+
+      [::&a/jvm-invokespecial ?class ?method ?classes ?object ?args]
+      (&&host/compile-jvm-invokespecial compile-expression ?type ?class ?method ?classes ?object ?args)
+      
       [::&a/jvm-new-array ?class ?length]
       (&&host/compile-jvm-new-array compile-expression ?type ?class ?length)
 
@@ -294,6 +306,9 @@
 
       [::&a/jvm-lushr ?x y]
       (&&host/compile-jvm-lushr compile-expression ?type ?x y)
+
+      [::&a/jvm-program ?body]
+      (&&host/compile-jvm-program compile-expression ?type ?body)
       )
 
     _

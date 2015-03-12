@@ -6,10 +6,11 @@
   ;; TODO: Finish type system.
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Adding metadata to global vars.
-  ;; TODO: Allow setting fields.
   ;; TODO: Add column & line numbers for syntactic elements.
   ;; TODO: Add source-file information to .class files for easier debugging.
-  ;; TODO: invokespecial & invokeinterface
+  ;; TODO: Finish implementing class & interface definition
+  ;; TODO: All optimizations
+  ;; TODO: Take module-name aliasing into account.
   ;; TODO: 
   
   (time (&compiler/compile-all ["lux"]))
