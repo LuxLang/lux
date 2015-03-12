@@ -204,6 +204,20 @@
          :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
+(defn compile-jvm-null? [compile *type* ?object]
+  (exec [*writer* &/get-writer
+         _ (compile ?object)
+         :let [$then (new Label)
+               $end (new Label)
+               _ (doto *writer*
+                   (.visitJumpInsn Opcodes/IFNULL $then)
+                   (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE" (&host/->type-signature "java.lang.Boolean"))
+                   (.visitJumpInsn Opcodes/GOTO $end)
+                   (.visitLabel $then)
+                   (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE"  (&host/->type-signature "java.lang.Boolean"))
+                   (.visitLabel $end))]]
+    (return nil)))
+
 (defn compile-jvm-new [compile *type* ?class ?classes ?args]
   (exec [*writer* &/get-writer
          :let [init-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")V")
@@ -301,3 +315,119 @@
                   (butlast ?exprs))
          _ (compile (last ?exprs))]
     (return nil)))
+
+(defn compile-jvm-try [compile *type* ?body ?catches ?finally]
+  (exec [*writer* &/get-writer
+         :let [$from (new Label)
+               $to (new Label)
+               $end (new Label)
+               $catch-finally (new Label)
+               compile-finally (if ?finally
+                                 (exec [_ (return nil)
+                                        _ (compile ?finally)
+                                        :let [_ (doto *writer*
+                                                  (.visitInsn Opcodes/POP)
+                                                  (.visitJumpInsn Opcodes/GOTO $end))]]
+                                   (return nil))
+                                 (exec [_ (return nil)
+                                        :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
+                                   (return nil)))
+               _ (.visitLabel *writer* $from)]
+         _ (compile ?body)
+         :let [_ (.visitLabel *writer* $to)]
+         _ compile-finally
+         handlers (map-m (fn [[?ex-class ?ex-arg ?catch-body]]
+                           (exec [:let [$handler-start (new Label)
+                                        $handler-end (new Label)]
+                                  _ (compile ?catch-body)
+                                  :let [_ (.visitLabel *writer* $handler-end)]
+                                  _ compile-finally]
+                             (return [?ex-class $handler-start $handler-end])))
+                         ?catches)
+         :let [_ (.visitLabel *writer* $catch-finally)]
+         _ (if ?finally
+             (exec [_ (compile ?finally)
+                    :let [_ (doto *writer*
+                              (.visitInsn Opcodes/POP)
+                              (.visitInsn Opcodes/ATHROW))]]
+               (return nil))
+             (exec [_ (return nil)
+                    :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
+               (return nil)))
+         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
+         :let [_ (.visitLabel *writer* $end)]
+         :let [_ (doseq [[?ex-class $handler-start $handler-end] handlers]
+                   (doto *writer*
+                     (.visitTryCatchBlock $from $to $handler-start ?ex-class)
+                     (.visitTryCatchBlock $handler-start $handler-end $catch-finally nil))
+                   )
+               _ (.visitTryCatchBlock *writer* $from $to $catch-finally nil)]]
+    (return nil)))
+
+(defn compile-jvm-throw [compile *type* ?ex]
+  (exec [*writer* &/get-writer
+         _ (compile ?ex)
+         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
+    (return nil)))
+
+(do-template [<name> <op>]
+  (defn <name> [compile *type* ?monitor]
+    (exec [*writer* &/get-writer
+           _ (compile ?monitor)
+           :let [_ (doto *writer*
+                     (.visitInsn <op>)
+                     (.visitInsn Opcodes/ACONST_NULL))]]
+      (return nil)))
+
+  compile-jvm-monitorenter Opcodes/MONITORENTER
+  compile-jvm-monitorexit  Opcodes/MONITOREXIT
+  )
+
+(do-template [<name> <op> <from-class> <to-class>]
+  (defn <name> [compile *type* ?value]
+    (exec [*writer* &/get-writer
+           _ (compile ?value)
+           :let [_ (doto *writer*
+                     (.visitInsn <op>))]]
+      (return nil)))
+
+  compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "java.lang.Float"
+  compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "java.lang.Integer"
+  compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "java.lang.Long"
+
+  compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "java.lang.Double"
+  compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "java.lang.Integer"
+  compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "java.lang.Long"
+
+  compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "java.lang.Byte"
+  compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "java.lang.Character"
+  compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "java.lang.Double"
+  compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "java.lang.Float"
+  compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "java.lang.Long"
+  compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "java.lang.Short"
+
+  compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "java.lang.Double"
+  compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "java.lang.Float"
+  compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "java.lang.Integer"
+  )
+
+(do-template [<name> <op> <from-class> <to-class>]
+  (defn <name> [compile *type* ?x ?y]
+    (exec [*writer* &/get-writer
+           _ (compile ?x)
+           _ (compile ?y)
+           :let [_ (doto *writer*
+                     (.visitInsn <op>))]]
+      (return nil)))
+
+  compile-jvm-iand  Opcodes/IAND  "java.lang.Integer" "java.lang.Integer"
+  compile-jvm-ior   Opcodes/IOR   "java.lang.Integer" "java.lang.Integer"
+  
+  compile-jvm-land  Opcodes/LAND  "java.lang.Long"    "java.lang.Long"
+  compile-jvm-lor   Opcodes/LOR   "java.lang.Long"    "java.lang.Long"
+  compile-jvm-lxor  Opcodes/LXOR  "java.lang.Long"    "java.lang.Long"
+
+  compile-jvm-lshl  Opcodes/LSHL  "java.lang.Long"    "java.lang.Integer"
+  compile-jvm-lshr  Opcodes/LSHR  "java.lang.Long"    "java.lang.Integer"
+  compile-jvm-lushr Opcodes/LUSHR "java.lang.Long"    "java.lang.Integer"
+  )

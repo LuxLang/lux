@@ -14,6 +14,20 @@
                           [host :as &&host])))
 
 ;; [Utils]
+(defn ^:private parse-handler [[catch+ finally+] token]
+  (matchv ::M/objects [token]
+    [["Form" ["Cons" [["Ident" "jvm-catch"]
+                      ["Cons" [["Ident" ?ex-class]
+                               ["Cons" [["Ident" ?ex-arg]
+                                        ["Cons" [?catch-body
+                                                 ["Nil" _]]]]]]]]]]]
+    [(concat catch+ (list [?ex-class ?ex-arg ?catch-body])) finally+]
+
+    [["Form" ["Cons" [["Ident" "jvm-finally"]
+                      ["Cons" [?finally-body
+                               ["Nil" _]]]]]]]
+    [catch+ ?finally-body]))
+
 (defn ^:private analyse-basic-ast [analyse-ast token]
   ;; (prn 'analyse-basic-ast token (&/show-ast token))
   (matchv ::M/objects [token]
@@ -181,6 +195,9 @@
     (&&host/analyse-jvm-dgt analyse-ast ?x ?y)
 
     ;; Objects
+    [["Form" ["Cons" [["Ident" "jvm-null?"] ["Cons" [?object ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-null? analyse-ast ?object)
+    
     [["Form" ["Cons" [["Ident" "jvm-new"]
                       ["Cons" [["Ident" ?class]
                                ["Cons" [["Tuple" ?classes]
@@ -218,6 +235,99 @@
                                                           ["Cons" [["Tuple" ?args]
                                                                    ["Nil" _]]]]]]]]]]]]]]]
     (&&host/analyse-jvm-invokevirtual analyse-ast ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+    
+    ;; Exceptions
+    [["Form" ["Cons" [["Ident" "jvm-try"]
+                      ["Cons" [?body
+                               ?handlers]]]]]]
+    (&&host/analyse-jvm-try analyse-ast ?body (reduce parse-handler [(list) nil] (&/->seq ?handlers)))
+
+    [["Form" ["Cons" [["Ident" "jvm-throw"]
+                      ["Cons" [?ex
+                               ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-throw analyse-ast ?ex)
+
+    ;; Syncronization/monitos
+    [["Form" ["Cons" [["Ident" "jvm-monitorenter"]
+                      ["Cons" [?monitor
+                               ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-monitorenter analyse-ast ?monitor)
+
+    [["Form" ["Cons" [["Ident" "jvm-monitorexit"]
+                      ["Cons" [?monitor
+                               ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-monitorexit analyse-ast ?monitor)
+
+    ;; Primitive conversions
+    [["Form" ["Cons" [["Ident" "jvm-d2f"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-d2f analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-d2i"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-d2i analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-d2l"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-d2l analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-f2d"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-f2d analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-f2i"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-f2i analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-f2l"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-f2l analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-i2b"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-i2b analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-i2c"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-i2c analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-i2d"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-i2d analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-i2f"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-i2f analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-i2l"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-i2l analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-i2s"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-i2s analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-l2d"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-l2d analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-l2f"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-l2f analyse-ast ?value)
+
+    [["Form" ["Cons" [["Ident" "jvm-l2i"] ["Cons" [?value ["Nil" _]]]]]]]
+    (&&host/analyse-jvm-l2i analyse-ast ?value)
+
+    ;; Bitwise operators
+    [["Form" ["Cons" [["Ident" "jvm-iand"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-iand analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-ior"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-ior analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-land"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-land analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-lor"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-lor analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-lxor"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-lxor analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-lshl"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-lshl analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-lshr"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-lshr analyse-ast ?x ?y)
+
+    [["Form" ["Cons" [["Ident" "jvm-lushr"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    (&&host/analyse-jvm-lushr analyse-ast ?x ?y)
     
     ;; Arrays
     [["Form" ["Cons" [["Ident" "jvm-new-array"] ["Cons" [["Ident" ?class] ["Cons" [["Int" ?length] ["Nil" _]]]]]]]]]

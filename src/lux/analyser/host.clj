@@ -8,7 +8,8 @@
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
-            (lux.analyser [base :as &&])))
+            (lux.analyser [base :as &&]
+                          [env :as &&env])))
 
 ;; [Utils]
 (defn ^:private ->seq [xs]
@@ -127,6 +128,10 @@
          ]
     (return (list [::&&/Expression [::&&/jvm-invokevirtual =class ?method =classes =object =args] =return]))))
 
+(defn analyse-jvm-null? [analyse ?object]
+  (exec [=object (&&/analyse-1 analyse ?object)]
+    (return (list [::&&/Expression [::&&/jvm-null? =object] [::&type/Data "java.lang.Boolean"]]))))
+
 (defn analyse-jvm-new [analyse ?class ?classes ?args]
   (exec [=class (&host/full-class-name ?class)
          =classes (map-m &host/extract-jvm-param ?classes)
@@ -175,8 +180,8 @@
                                                                                                     ["Nil" _]]]]]]]]
                                                                  ["Nil" _]]]]]]]]]
                              (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
-                               (exec [?inputs (map-m extract-ident (&/->seq ?inputs))]
-                                 (return [?member-name [?inputs ?output]])))
+                                 (exec [?inputs (map-m extract-ident (&/->seq ?inputs))]
+                                   (return [?member-name [?inputs ?output]])))
                              
                              [_]
                              (fail "[Analyser Error] Invalid method signature!")))
@@ -192,3 +197,68 @@
          =exprs (mapcat-m analyse ?exprs)
          =exprs-types (map-m &&/expr-type =exprs)]
     (return (list [::&&/Expression [::&&/exec =exprs] (last =exprs-types)]))))
+
+(defn analyse-jvm-try [analyse ?body [?catches ?finally]]
+  (exec [=body (&&/analyse-1 analyse ?body)
+         =catches (map-m (fn [[?ex-class ?ex-arg ?catch-body]]
+                           (&&env/with-local ?ex-arg [::&type/Data ?ex-class]
+                             (exec [=catch-body (&&/analyse-1 analyse ?catch-body)]
+                               (return [?ex-class ?ex-arg =catch-body]))))
+                         ?catches)
+         =finally (&&/analyse-1 analyse ?finally)
+         =body-type (&&/expr-type =body)]
+    (return (list [::&&/Expression [::&&/jvm-try =body =catches =finally] =body-type]))))
+
+(defn analyse-jvm-throw [analyse ?ex]
+  (exec [=ex (&&/analyse-1 analyse ?ex)]
+    (return (list [::&&/Expression [::&&/jvm-throw =ex] [::&type/Nothing]]))))
+
+(defn analyse-jvm-monitorenter [analyse ?monitor]
+  (exec [=monitor (&&/analyse-1 analyse ?monitor)]
+    (return (list [::&&/Expression [::&&/jvm-monitorenter =monitor] [::&type/Any]]))))
+
+(defn analyse-jvm-monitorexit [analyse ?monitor]
+  (exec [=monitor (&&/analyse-1 analyse ?monitor)]
+    (return (list [::&&/Expression [::&&/jvm-monitorexit =monitor] [::&type/Any]]))))
+
+(do-template [<name> <tag> <from-class> <to-class>]
+  (defn <name> [analyse ?value]
+    (exec [=value (&&/analyse-1 analyse ?value)]
+      (return (list [::&&/Expression [<tag> =value] [::&type/Data <to-class>]]))))
+
+  analyse-jvm-d2f ::&&/jvm-d2f "java.lang.Double"  "java.lang.Float"
+  analyse-jvm-d2i ::&&/jvm-d2i "java.lang.Double"  "java.lang.Integer"
+  analyse-jvm-d2l ::&&/jvm-d2l "java.lang.Double"  "java.lang.Long"
+
+  analyse-jvm-f2d ::&&/jvm-f2d "java.lang.Float"   "java.lang.Double"
+  analyse-jvm-f2i ::&&/jvm-f2i "java.lang.Float"   "java.lang.Integer"
+  analyse-jvm-f2l ::&&/jvm-f2l "java.lang.Float"   "java.lang.Long"
+
+  analyse-jvm-i2b ::&&/jvm-i2b "java.lang.Integer" "java.lang.Byte"
+  analyse-jvm-i2c ::&&/jvm-i2c "java.lang.Integer" "java.lang.Character"
+  analyse-jvm-i2d ::&&/jvm-i2d "java.lang.Integer" "java.lang.Double"
+  analyse-jvm-i2f ::&&/jvm-i2f "java.lang.Integer" "java.lang.Float"
+  analyse-jvm-i2l ::&&/jvm-i2l "java.lang.Integer" "java.lang.Long"
+  analyse-jvm-i2s ::&&/jvm-i2s "java.lang.Integer" "java.lang.Short"
+
+  analyse-jvm-l2d ::&&/jvm-l2d "java.lang.Long"    "java.lang.Double"
+  analyse-jvm-l2f ::&&/jvm-l2f "java.lang.Long"    "java.lang.Float"
+  analyse-jvm-l2i ::&&/jvm-l2i "java.lang.Long"    "java.lang.Integer"
+  )
+
+(do-template [<name> <tag> <from-class> <to-class>]
+  (defn <name> [analyse ?value]
+    (exec [=value (&&/analyse-1 analyse ?value)]
+      (return (list [::&&/Expression [<tag> =value] [::&type/Data <to-class>]]))))
+
+  analyse-jvm-iand  ::&&/jvm-iand  "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-ior   ::&&/jvm-ior   "java.lang.Integer" "java.lang.Integer"
+
+  analyse-jvm-land  ::&&/jvm-land  "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lor   ::&&/jvm-lor   "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lxor  ::&&/jvm-lxor  "java.lang.Long"    "java.lang.Long"
+
+  analyse-jvm-lshl  ::&&/jvm-lshl  "java.lang.Long"    "java.lang.Integer"
+  analyse-jvm-lshr  ::&&/jvm-lshr  "java.lang.Long"    "java.lang.Integer"
+  analyse-jvm-lushr ::&&/jvm-lushr "java.lang.Long"    "java.lang.Integer"
+  )

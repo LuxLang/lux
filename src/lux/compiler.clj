@@ -186,6 +186,9 @@
 
       [::&a/jvm-null]
       (&&host/compile-jvm-null compile-expression ?type)
+
+      [::&a/jvm-null? ?object]
+      (&&host/compile-jvm-null? compile-expression ?type ?object)
       
       [::&a/jvm-new ?class ?classes ?args]
       (&&host/compile-jvm-new compile-expression ?type ?class ?classes ?args)
@@ -209,7 +212,89 @@
       (&&host/compile-jvm-aastore compile-expression ?type ?array ?idx ?elem)
 
       [::&a/jvm-aaload ?array ?idx]
-      (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx))
+      (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx)
+
+      [::&a/jvm-try ?body ?catches ?finally]
+      (&&host/compile-jvm-try compile-expression ?type ?body ?catches ?finally)
+
+      [::&a/jvm-throw ?ex]
+      (&&host/compile-jvm-throw compile-expression ?type ?ex)
+
+      [::&a/jvm-monitorenter ?monitor]
+      (&&host/compile-jvm-monitorenter compile-expression ?type ?monitor)
+
+      [::&a/jvm-monitorexit ?monitor]
+      (&&host/compile-jvm-monitorexit compile-expression ?type ?monitor)
+
+      [::&a/jvm-d2f ?value]
+      (&&host/compile-jvm-d2f compile-expression ?type ?value)
+
+      [::&a/jvm-d2i ?value]
+      (&&host/compile-jvm-d2i compile-expression ?type ?value)
+
+      [::&a/jvm-d2l ?value]
+      (&&host/compile-jvm-d2l compile-expression ?type ?value)
+      
+      [::&a/jvm-f2d ?value]
+      (&&host/compile-jvm-f2d compile-expression ?type ?value)
+
+      [::&a/jvm-f2i ?value]
+      (&&host/compile-jvm-f2i compile-expression ?type ?value)
+
+      [::&a/jvm-f2l ?value]
+      (&&host/compile-jvm-f2l compile-expression ?type ?value)
+      
+      [::&a/jvm-i2b ?value]
+      (&&host/compile-jvm-i2b compile-expression ?type ?value)
+
+      [::&a/jvm-i2c ?value]
+      (&&host/compile-jvm-i2c compile-expression ?type ?value)
+
+      [::&a/jvm-i2d ?value]
+      (&&host/compile-jvm-i2d compile-expression ?type ?value)
+
+      [::&a/jvm-i2f ?value]
+      (&&host/compile-jvm-i2f compile-expression ?type ?value)
+
+      [::&a/jvm-i2l ?value]
+      (&&host/compile-jvm-i2l compile-expression ?type ?value)
+
+      [::&a/jvm-i2s ?value]
+      (&&host/compile-jvm-i2s compile-expression ?type ?value)
+
+      [::&a/jvm-l2d ?value]
+      (&&host/compile-jvm-l2d compile-expression ?type ?value)
+
+      [::&a/jvm-l2f ?value]
+      (&&host/compile-jvm-l2f compile-expression ?type ?value)
+
+      [::&a/jvm-l2i ?value]
+      (&&host/compile-jvm-l2i compile-expression ?type ?value)
+
+      [::&a/jvm-iand ?x y]
+      (&&host/compile-jvm-iand compile-expression ?type ?x y)
+
+      [::&a/jvm-ior ?x y]
+      (&&host/compile-jvm-ior compile-expression ?type ?x y)
+
+      [::&a/jvm-land ?x y]
+      (&&host/compile-jvm-land compile-expression ?type ?x y)
+
+      [::&a/jvm-lor ?x y]
+      (&&host/compile-jvm-lor compile-expression ?type ?x y)
+
+      [::&a/jvm-lxor ?x y]
+      (&&host/compile-jvm-lxor compile-expression ?type ?x y)
+
+      [::&a/jvm-lshl ?x y]
+      (&&host/compile-jvm-lshl compile-expression ?type ?x y)
+
+      [::&a/jvm-lshr ?x y]
+      (&&host/compile-jvm-lshr compile-expression ?type ?x y)
+
+      [::&a/jvm-lushr ?x y]
+      (&&host/compile-jvm-lushr compile-expression ?type ?x y)
+      )
 
     _
     (fail "[Compiler Error] Can't compile statements as expressions.")))
