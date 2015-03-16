@@ -13,4 +13,5 @@
 ;; Convert pattern-matching on booleans into regular if-then-else structures
 
 ;; [Exports]
-(def optimize &analyser/analyse)
+(defn optimize [eval!]
+  (&analyser/analyse eval!))

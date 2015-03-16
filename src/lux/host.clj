@@ -21,11 +21,11 @@
                                               "")
                                             (.getSimpleName class)))]
     (if (= "void" base)
-      (return [::&type/Nothing])
-      (let [base* [::&type/Data base]]
+      (return (&/V "Nothing" nil))
+      (let [base* (&/V "Data" (to-array [base (&/V "Nil" nil)]))]
         (if arr-level
           (return (reduce (fn [inner _]
-                            [::&type/Array inner])
+                            (&/V "array" (&/V "Cons" (to-array [inner (&/V "Nil" nil)]))))
                           base*
                           (range (/ (count arr-level) 2.0))))
           (return base*)))
@@ -80,20 +80,20 @@
     ))
 
 (defn ->java-sig [type]
-  (match type
-    [::&type/Any]
+  (matchv ::M/objects [type]
+    [["Any" _]]
     (->type-signature "java.lang.Object")
 
-    [::&type/Nothing]
+    [["Nothing" _]]
     "V"
     
-    [::&type/Data ?name]
-    (->type-signature ?name)
-
-    [::&type/Array ?elem]
+    [["Data" ["array" ["Cons" [?elem ["Nil" _]]]]]]
     (str "[" (->java-sig ?elem))
 
-    [::&type/Lambda _ _]
+    [["Data" [?name ?params]]]
+    (->type-signature ?name)
+
+    [["Lambda" [_ _]]]
     (->type-signature function-class)))
 
 (defn extract-jvm-param [token]

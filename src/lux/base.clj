@@ -101,17 +101,6 @@
       then-m
       else-m)))
 
-(do-template [<name> <joiner>]
-  (defn <name> [f inputs]
-    (if (empty? inputs)
-      (return '())
-      (exec [output (f (first inputs))
-             outputs (<name> f (rest inputs))]
-        (return (<joiner> output outputs)))))
-
-  map-m    cons
-  mapcat-m concat)
-
 (defn reduce-m [f init inputs]
   (if (empty? inputs)
     (return init)
@@ -208,7 +197,12 @@
    ::local-envs (list)
    ::types +init-bindings+
    ::writer nil
-   ::loader (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)})
+   ::loader (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
+   ::eval-ctor 0})
+
+(def get-eval-ctor
+  (fn [state]
+    (return* (update-in state [::eval-ctor] inc) (::eval-ctor state))))
 
 (def get-writer
   (fn [state]
@@ -274,8 +268,14 @@
 (defn run-state [monad state]
   (monad state))
 
+(defn T [& elems]
+  (to-array elems))
+
 (defn V [tag value]
   (to-array [tag value]))
+
+(defn R [& kvs]
+  (to-array (reduce concat '() kvs)))
 
 (defn ->seq [xs]
   (matchv ::M/objects [xs]
@@ -314,3 +314,64 @@
     [["Form" ?elems]]
     (str "(" (->> (->seq ?elems) (map show-ast) (interpose " ") (apply str)) ")")
     ))
+
+(defn |map [f xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    xs
+
+    [["Cons" [x xs*]]]
+    (V "Cons" (to-array [(f x) (|map f xs*)]))))
+
+(defn |->list [seq]
+  (reduce (fn [tail head]
+            (V "Cons" (to-array [head tail])))
+          (V "Nil" nil)
+          seq))
+
+(let [cons% (fn [head tail]
+              (V "Cons" (to-array [head tail])))
+      ++% (fn ++% [xs ys]
+            (matchv ::M/objects [xs]
+              [["Nil" _]]
+              ys
+
+              [["Cons" [x xs*]]]
+              (V "Cons" (to-array [x (++% xs* ys)]))))]
+  (do-template [<name> <joiner>]
+    (defn <name> [f xs]
+      (matchv ::M/objects [xs]
+        [["Nil" _]]
+        (return xs)
+
+        [["Cons" [x xs*]]]
+        (exec [y (f x)
+               ys (<name> f xs*)]
+          (return (<joiner> y ys)))))
+
+    |map%      cons%
+    |flat-map% ++%))
+
+(defn |fold% [f init xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    init
+    
+    [["Cons" [x xs*]]]
+    (|fold% f (f init x) xs*)))
+
+(defn |get [record slot]
+  (matchv ::M/objects [record]
+    [["Nil" _]]
+    (V "Error" (str "Not found: " slot))
+    
+    [["Cons" [[k v] record*]]]
+    (if (= k slot)
+      (V "Ok" v)
+      (|get record* slot))))
+
+(defmacro |list [elems]
+  (reduce (fn [tail head]
+            `(V "Cons" (to-array [~head ~tail])))
+          `(V "Nil" nil)
+          elems))

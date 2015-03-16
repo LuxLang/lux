@@ -171,8 +171,8 @@
          #Nil
          #Nil
 
-         (#Cons [x xs*])
-         (#Cons [(f x) (map f xs*)])))
+         (#Cons [x xs'])
+         (#Cons [(f x) (map f xs')])))
 
 (def flat-map (. concat map))
 
@@ -658,65 +658,6 @@
               ys (map% f xs')]
            (return (#Cons [y ys])))))
 
-(defmacro (type tokens)
-  (case' tokens
-         (#Tuple elems)
-         (return (list (` (#Tuple (~ (map untemplate elems))))))
-
-         (#Record fields)
-         (return (list (` (#Record (~ (map (lambda [kv]
-                                             (case' kv
-                                                    [(#Tag tag) val]
-                                                    [tag (untemplate val)]))
-                                           fields))))))
-
-         (#Form (#Cons [(#Ident "|") options]))
-         (do [options' (map% (lambda [opt]
-                               (case' opt
-                                      (#Tag tag)
-                                      (return [tag (#Tuple (list))])
-
-                                      (#Form (#Cons [(#Tag tag) (#Cons [value #Nil])]))
-                                      (return [tag value])
-
-                                      _
-                                      (fail "")))
-                             options)]
-           (return (list (#Variant options'))))))
-
-(defmacro (All tokens)
-  (let [[name args body] (case' tokens
-                                (#Cons [(#Tuple args) (#Cons [body #Nil])])
-                                [(#Text "") args body]
-
-                                (#Cons [(#Ident name) (#Cons [(#Tuple args) (#Cons [body #Nil])])])
-                                [(#Text name) args body])]
-    (return (list (#Form (list (#Tag "All")
-                               name
-                               (#Tuple (map (lambda [arg]
-                                              (case' arg
-                                                     (#Ident arg')
-                                                     (#Text arg')))
-                                            args))
-                               body))))))
-
-(defmacro (Exists tokens)
-  (case' tokens
-         (#Cons [(#Ident name) (#Cons [body #Nil])])
-         (return (list (` (#Exists (~ name) (~ body)))))))
-
-(defmacro (deftype tokens)
-  (case' tokens
-         (#Cons [(#Form (#Cons [name args])) (#Cons [definition #Nil])])
-         (return (list (` (def (~ name)
-                            (All (~ name) [(~@ args)]
-                                 (type (~ definition)))))))
-
-         (#Cons [name (#Cons [definition #Nil])])
-         (return (list (` (def (~ name)
-                            (type (~ definition))))))
-         ))
-
 (defmacro ($keys tokens)
   (case' tokens
          (#Cons [(#Tuple fields) #Nil])
@@ -732,6 +673,35 @@
          (return (flat-map (lambda [pattern] (list pattern body))
                            patterns))))
 
+(def null jvm-null)
+
+(defmacro (^ tokens)
+  (case' tokens
+         (#Cons [(#Ident class-name) #Nil])
+         (return (list (` (#Data (~ (#Text class-name))))))))
+
+(defmacro (, members)
+  (return (list (#Form (list+ (#Tag "Tuple") (untemplate-list members))))))
+
+(defmacro (| members)
+  (let [members' (map (lambda [m]
+                        (case' m
+                               (#Tag tag)
+                               [tag (` (#Tuple (list)))]
+                               
+                               (#Form (#Cons [tag (#Cons [value #Nil])]))
+                               [tag (` (#Tuple (~ value)))]))
+                      members)]
+    (return (list (#Form (list+ (#Tag "Variant") (untemplate-list members)))))))
+
+(defmacro (& members)
+  (let [members' (map (lambda [m]
+                        (case' m
+                               (#Form (#Cons [tag (#Cons [value #Nil])]))
+                               [tag (` (#Tuple (~ value)))]))
+                      members)]
+    (return (list (#Form (list+ (#Tag "Record") (untemplate-list members)))))))
+
 (defmacro (-> tokens)
   (case' (reverse tokens)
          (#Cons [f-return f-args])
@@ -739,47 +709,169 @@
                  (#Lambda [f-arg f-return]))
                f-return f-args)))
 
-(def null jvm-null)
+(def (replace-ident ident value syntax)
+  (case' syntax
+         (#Ident test)
+         (if (= test ident)
+           value
+           syntax)
 
-## (defmacro (case tokens)
-##   (case' tokens
-##          (#Cons value branches)
-##          (loop [kind #Pattern
-##                 pieces branches
-##                 new-pieces (list)]
-##            (case' pieces
-##                   #Nil
-##                   (return (list (' (case' (~ value) (~@ new-pieces)))))
+         (#Form members)
+         (#Form (map (replace-ident ident value) members))
 
-##                   (#Cons piece pieces')
-##                   (let [[kind' expanded more-pieces] (case' kind
-##                                                             #Body
-##                                                             [#Pattern (list piece) #Nil]
+         (#Tuple members)
+         (#Tuple (map (replace-ident ident value) members))
 
-##                                                             #Pattern
-##                                                             (do [expansion (macro-expand piece)]
-##                                                               (case' expansion
-##                                                                      #Nil
-##                                                                      [#Pattern #Nil #Nil]
+         (#Record members)
+         (#Record (map (lambda [kv]
+                         (case kv
+                           [k v]
+                           [k (replace-ident ident value v)]))
+                       members))
 
-##                                                                      (#Cons exp #Nil)
-##                                                                      [#Body (list exp) #Nil]
+         _
+         syntax))
 
-##                                                                      (#Cons exp exps)
-##                                                                      [#Body (list exp) exps]))
-##                                                             )]
-##                     (recur kind' (++ expanded new-pieces) (++ more-pieces pieces))))
-##            )))
+(defmacro (All tokens)
+  (let [[name args body] (case' tokens
+                                (#Cons [(#Ident name) (#Cons [(#Tuple args) (#Cons [body #Nil])])])
+                                [name args body]
+                                
+                                (#Cons [(#Tuple args) (#Cons [body #Nil])])
+                                ["" args body])
+        rolled (fold (lambda [body arg]
+                       (case' arg
+                              (#Ident arg-name)
+                              (` (#All (list) (~ (#Text "")) (~ arg) (~ (replace-ident arg-name (` (#Bound (~ (#Text arg-name))))
+                                                                                       body))))))
+                     body args)]
+    (case' rolled
+           (#Form (#Cons [(#Tag "All") (#Cons [env (#Cons [(#Test "") (#Cons [arg (#Cons [body #Nil])])])])]))
+           (return (list (` (#All (~ env) (~ (#Text name)) (~ arg)
+                                  (~ (replace-ident arg-name (` (#Bound (~ (#Text name))))
+                                                    body)))))))))
 
+(defmacro (Exists tokens)
+  (case' tokens
+         (#Cons [args (#Cons [body #Nil])])
+         (return (list (` (All (~ args) (~ body)))))))
 
-## (def (defsyntax tokens)
-##   ...)
+(def Any (| #Any))
+(def Nothing (| #Nothing))
+(def Text (^ java.lang.String))
+(def Int (^ java.lang.Long))
 
-## (def (defsig tokens)
-##   ...)
+(deftype (List a)
+  (| #Nil
+     (#Cons (, a (List a)))))
 
-## (def (defstruct tokens)
-##   ...)
+(deftype #rec Type
+  (| #Any
+     #Nothing
+     (#Data Text)
+     (#Tuple (List Type))
+     (#Variant (List (, Text Type)))
+     (#Record (List (, Text Type)))
+     (#Lambda (, Type Type))
+     (#Bound Text)
+     (#Var Int)
+     (#All (, (List (, Text Type)) Text Text Type))
+     (#App (, Type Type))))
+
+(deftype (Either l r)
+  (| (#Left l)
+     (#Right r)))
+
+(deftype #rec Syntax
+  (| (#Bool Bool)
+     (#Int Int)
+     (#Real Real)
+     (#Char Char)
+     (#Text Text)
+     (#Form (List Syntax))
+     (#Tuple (List Syntax))
+     (#Record (List (, Text Syntax)))))
+
+(deftype Macro
+  (-> (List Syntax) CompilerState
+      (Either Text (, CompilerState (List Syntax)))))
+
+(def (macro-expand syntax)
+  (case' syntax
+         (#Form (#Cons [(#Ident macro-name) args]))
+         (do [macro (get-macro macro-name)]
+           ((coerce macro Macro) args))))
+
+(defmacro (case tokens)
+  (case' tokens
+         (#Cons value branches)
+         (loop [kind #Pattern
+                pieces branches
+                new-pieces (list)]
+           (case' pieces
+                  #Nil
+                  (return (list (' (case' (~ value) (~@ new-pieces)))))
+
+                  (#Cons piece pieces')
+                  (let [[kind' expanded more-pieces] (case' kind
+                                                            #Body
+                                                            [#Pattern (list piece) #Nil]
+
+                                                            #Pattern
+                                                            (do [expansion (macro-expand piece)]
+                                                              (case' expansion
+                                                                     #Nil
+                                                                     [#Pattern #Nil #Nil]
+
+                                                                     (#Cons exp #Nil)
+                                                                     [#Body (list exp) #Nil]
+
+                                                                     (#Cons exp exps)
+                                                                     [#Body (list exp) exps]))
+                                                            )]
+                    (recur kind' (++ expanded new-pieces) (++ more-pieces pieces))))
+           )))
+
+(def (defsyntax tokens)
+  ...)
+
+(deftype (State s a)
+  (-> s (, s a)))
+
+(deftype (Parser a)
+  (State (List Syntax) a))
+
+(def (parse-ctor tokens)
+  (Parser (, Syntax (List Syntax)))
+  (case tokens
+    (list+ (#Ident name) tokens')
+    [tokens' [(#Ident name) (list)]]
+    
+    (list+ (#Form (list+ (#Ident name) args)) tokens')
+    [tokens' [(#Ident name) args]]))
+
+(defsyntax (defsig [[name args] parse-ctor] [anns ($+ $1)])
+  (let [def-body (fold (lambda [body arg] (` (lambda [(~ arg)] (~ body))))
+                       (` (#Record (~ (untemplate-list ...))))
+                       args)]
+    (return (list (` (def (~ name) (~ def-body)))))))
+
+(defsyntax (defstruct [[name args] parse-ctor] sig [defs ($+ $1)])
+  (let [def-body (fold (lambda [body arg] (` (lambda [(~ arg)] (~ body))))
+                       (` (#Record (~ (untemplate-list ...))))
+                       args)]
+    (return (list (` (def (~ name)
+                       (: (~ def-body) (~ sig))))))))
+
+(defsig (Monad m)
+  (: return (All [a] (-> a (m a))))
+  (: bind (All [a b] (-> (-> a (m b)) (m a) (m b)))))
+
+(defstruct ListMonad (Monad List)
+  (def (return x)
+    (list x))
+  
+  (def bind (. concat map)))
 
 ## (def (with tokens)
 ##   ...)
@@ -788,15 +880,6 @@
 ## TODO: Type-related macros
 ## TODO: (Im|Ex)ports-related macros
 ## TODO: Macro-related macros
-
-## (deftype (List a)
-##   (|| #Nil (#Cons [a (List a)])))
-
-## (deftype User
-##   (&& (#name Text) (#age Int)))
-
-## (deftype User
-##   (** Text Int))
 
 ## (import "lux")
 ## (module-alias "lux" "l")
@@ -807,14 +890,3 @@
 ##     ...))
 
 ## (require lux #as l #refer [map])
-
-## (type (| #Nil
-##          (#Cons [a (List a)])))
-
-## (type [Int Bool Text])
-
-## (type {#id Int #alive? Bool #name Text})
-
-## (deftype (List a)
-##   (| #Nil
-##      (#Cons [a (List a)])))

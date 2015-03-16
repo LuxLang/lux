@@ -1,8 +1,10 @@
 (ns lux.analyser.base
-  (:require [clojure.core.match :refer [match]]
+  (:require [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return fail
                                      try-all-m map-m mapcat-m reduce-m
-                                     assert!]])))
+                                     assert!]]
+                 [type :as &type])))
 
 ;; [Resources]
 (defn expr-type [syntax+]
@@ -31,3 +33,11 @@
 
       :else
       (fail "[Analyser Error] Can't expand to other than 2 elements."))))
+
+(defn with-var [k]
+  (exec [=var &type/fresh-var
+         =ret (k =var)]
+    (match =ret
+      [::Expression ?expr ?type]
+      (exec [=type (&type/clean =var ?type)]
+        (return [::Expression ?expr =type])))))

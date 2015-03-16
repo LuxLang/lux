@@ -2,7 +2,8 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
+            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return* return fail fail*
                                      repeat-m exhaust-m try-m try-all-m map-m reduce-m
                                      apply-m
@@ -41,25 +42,24 @@
       long-class "java.lang.Long"
       char-class "java.lang.Character"]
   (defn prepare-return! [*writer* *type*]
-    (match *type*
-      [::&type/Nothing]
+    (matchv ::M/objects [*type*]
+      [["Nothing" nil]]
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      [::&type/Data "char"]
+      [["Data" ["char" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
 
-      [::&type/Data "int"]
+      [["Data" ["int" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class integer-class) "valueOf" (str "(I)" (&host/->type-signature integer-class)))
 
-      [::&type/Data "long"]
+      [["Data" ["long" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      [::&type/Data "boolean"]
+      [["Data" ["boolean" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
 
-      [::&type/Data _]
-      nil
-      )
+      [["Data" [_ _]]]
+      nil)
     *writer*))
 
 ;; [Resources]

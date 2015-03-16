@@ -1,7 +1,9 @@
 (ns lux.type
   (:refer-clojure :exclude [deref apply merge])
-  (:require [clojure.core.match :refer [match]]
+  (:require [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match.array
             [lux.base :as & :refer [exec return* return fail fail*
+                                    |get
                                     repeat-m try-m try-all-m map-m
                                     sequence-m
                                     apply-m assert!]]))
@@ -11,326 +13,261 @@
 
 (defn ^:private deref [id]
   (fn [state]
-    (if-let [top+bottom (get-in state [::&/types :mappings id])]
-      [::&/ok [state top+bottom]]
+    (if-let [type (get-in state [::&/types :mappings id])]
+      [::&/ok [state type]]
       [::&/failure (str "Unknown type-var: " id)])))
 
-(defn ^:private update [id top bottom]
+(defn ^:private reset [id type]
   (fn [state]
-    (if-let [top+bottom (get-in state [::&/types :mappings id])]
-      [::&/ok [(assoc-in state [::&/types :mappings id] [top bottom]) nil]]
+    (if-let [_ (get-in state [::&/types :mappings id])]
+      [::&/ok [(assoc-in state [::&/types :mappings id] (&/V "Some" type)) nil]]
       [::&/failure (str "Unknown type-var: " id)])))
 
-;; [Interface]
+;; [Exports]
 (def fresh-var
   (fn [state]
     (let [id (-> state ::&/types :counter)]
       [::&/ok [(update-in state [::&/types]
                           #(-> %
                                (update-in [:counter] inc)
-                               (assoc-in [:mappings id] [[::Any] [::Nothing]])))
-               [::Var id]]])))
+                               (assoc-in [:mappings id] (&/V "None" nil))))
+               (&/V "Var" id)]])))
 
-(def fresh-function
+(def fresh-lambda
   (exec [=arg fresh-var
          =return fresh-var]
-    (return [::Lambda =arg =return])))
+    (return (&/V "Lambda" (to-array [=arg =return])))))
 
-;; (defn solve [expected actual]
-;;   ;; (prn 'solve expected actual)
-;;   (match [expected actual]
-;;     [::any _]
-;;     success
+(defn ^:private ->type [pseudo-type]
+  (match pseudo-type
+    [::Any]
+    (&/V "Any" nil)
 
-;;     [_ ::nothing]
-;;     success
+    [::Nothing]
+    (&/V "Nothing" nil)
 
-;;     [_ [::var ?id]]
-;;     (exec [[=top =bottom] (deref ?id)]
-;;       (try-all-m [(exec [_ (solve expected =top)]
-;;                     success)
-;;                   (exec [_ (solve =top expected)
-;;                          _ (solve expected =bottom)
-;;                          _ (update ?id expected =bottom)]
-;;                     success)]))
+    [::Data ?name ?elems]
+    (&/V "Data" (to-array [?name ?elems]))
 
-;;     [[::var ?id] _]
-;;     (exec [[=top =bottom] (deref ?id)]
-;;       (try-all-m [(exec [_ (solve =bottom actual)]
-;;                     success)
-;;                   (exec [_ (solve actual =bottom)
-;;                          _ (solve =top actual)
-;;                          _ (update ?id =top actual)]
-;;                     success)]))
+    [::Tuple ?members]
+    (&/V "Tuple" (&/|map ->type ?members))
+    
+    [::Variant ?members]
+    (&/V "Variant" (&/|map (fn [[k v]] (to-array [k (->type v)]))
+                           ?members))
 
-;;     ;; [[::primitive ?prim] _]
-;;     ;; (let [as-obj (case ?prim
-;;     ;;                "boolean" [:lang.type/object "java.lang.Boolean" []]
-;;     ;;                "int"     [:lang.type/object "java.lang.Integer" []]
-;;     ;;                "long"    [:lang.type/object "java.lang.Long" []]
-;;     ;;                "char"    [:lang.type/object "java.lang.Character" []]
-;;     ;;                "float"   [:lang.type/object "java.lang.Float" []]
-;;     ;;                "double"  [:lang.type/object "java.lang.Double" []])]
-;;     ;;   (solve as-obj actual))
+    [::Record ?members]
+    (&/V "Record" (&/|map (fn [[k v]] (to-array [k (->type v)]))
+                          ?members))
 
-;;     [[::primitive ?e-prim] [::primitive ?a-prim]]
-;;     (if (= ?e-prim ?a-prim)
-;;       success
-;;       (fail (str "Can't solve types: " (pr-str expected actual))))
+    [::Lambda ?input ?output]
+    (&/V "Lambda" (to-array [(->type ?input) (->type ?output)]))
+    
+    [::App ?lambda ?param]
+    (&/V "App" (to-array [(->type ?lambda) (->type ?param)]))
 
-;;     [[::object ?eclass []] [::object ?aclass []]]
-;;     (if (.isAssignableFrom (Class/forName ?eclass) (Class/forName ?aclass))
-;;       success
-;;       (fail (str "Can't solve types: " (pr-str expected actual))))
+    [::Bound ?name]
+    (&/V "Bound" ?name)
 
-;;     [_ _]
-;;     (fail (str "Can't solve types: " (pr-str expected actual)))
-;;     ))
+    [::Var ?id]
+    (&/V "Var" ?id)
 
-;; (defn pick-matches [methods args]
-;;   (if (empty? methods)
-;;     (fail "No matches.")
-;;     (try-all-m [(match (-> methods first second)
-;;                   [::function ?args ?return]
-;;                   (exec [_ (assert! (= (count ?args) (count args)) "Args-size doesn't match.")
-;;                          _ (map-m (fn [[e a]] (solve e a)) (map vector ?args args))]
-;;                     (return (first methods))))
-;;                 (pick-matches (rest methods) args)])))
+    [::All ?env ?name ?arg ?body]
+    (&/V "All" (to-array [(&/|map (fn [[k v]] (to-array [k (->type v)]))
+                                  ?env)
+                          ?name
+                          ?arg
+                          (->type ?body)]))
+    ))
+
+(def +list+
+  [::All (&/|->list (list)) "List" "a"
+   [::Variant (&/|->list (list ["Cons" [::Tuple (&/|->list (list [::Bound "a"] [::App [::Bound "List"] [::Bound "a"]]))]]
+                               ["Nil" [::Tuple (&/|->list (list))]]
+                               ))]])
+
+(def +type+
+  (let [text [::Data "java.lang.String" (&/|->list (list))]
+        type [::App [::Bound "Type"] [::Any]]
+        list-of-types [::App +list+ type]
+        string=>type [::App +list+ [::Tuple (&/|->list (list text type))]]]
+    (->type [::All (&/|->list (list)) "Type" "_"
+             [::Variant (&/|->list (list ["Any"  [::Tuple (&/|->list (list))]]
+                                         ["Nothing"  [::Tuple (&/|->list (list))]]
+                                         ["Data" [::Tuple (&/|->list (list text list-of-types))]]
+                                         ["Tuple" list-of-types]
+                                         ["Variant" string=>type]
+                                         ["Record" string=>type]
+                                         ["Lambda" [::Tuple (&/|->list (list type
+                                                                             type))]]
+                                         ["App" [::Tuple (&/|->list (list type
+                                                                          type))]]
+                                         ["Bound" text]
+                                         ["Var" [::Data "java.lang.Long" (&/|->list (list))]]
+                                         ["All" [::Tuple (&/|->list (list string=>type text text type))]]
+                                         ))]])))
 
 (defn clean [type]
-  (match type
-    [::Var ?id]
-    (exec [[=top =bottom] (deref ?id)]
-      (clean =top))
+  (matchv ::M/objects [type]
+    [["Var" ?id]]
+    (exec [=type (deref ?id)]
+      (clean =type))
 
-    [::Lambda ?arg ?return]
+    [["Lambda" [?arg ?return]]]
     (exec [=arg (clean ?arg)
            =return (clean ?return)]
-      (return [::Lambda =arg =return]))
+      (return (&/V "Lambda" (to-array [=arg =return]))))
 
-    _
+    [["App" [?lambda ?param]]]
+    (exec [=lambda (clean ?lambda)
+           =param (clean ?param)]
+      (return (&/V "App" (to-array [=lambda =param]))))
+
+    [["Tuple" ?members]]
+    (exec [=members (&/|map% clean ?members)]
+      (return (&/V "Tuple" =members)))
+    
+    [["Variant" ?members]]
+    (exec [=members (&/|map% (fn [[k v]]
+                               (exec [=v (clean v)]
+                                 (return (to-array [k =v]))))
+                             ?members)]
+      (return (&/V "Variant" =members)))
+
+    [["Record" ?members]]
+    (exec [=members (&/|map% (fn [[k v]]
+                               (exec [=v (clean v)]
+                                 (return (to-array [k =v]))))
+                             ?members)]
+      (return (&/V "Record" =members)))
+
+    [["All" [?env ?name ?arg ?body]]]
+    (exec [=env (&/|map% (fn [[k v]]
+                           (exec [=v (clean v)]
+                             (return (to-array [k =v]))))
+                         ?env)]
+      (return (&/V "All" (to-array [=env ?name ?arg ?body]))))
+
+    [_]
     (return type)
     ))
 
-;; Java Reflection
-(def success (return nil))
-
-(defn solve [needed given]
-  (match [needed given]
-    [[::Any] _]
+(defn solve [expected actual]
+  (matchv ::M/objects [expected actual]
+    [["Any" _] _]
     success
 
-    [_ [::Nothing]]
+    [_ ["Nothing" _]]
     success
 
-    [[::Data n!name] [::Data g!name]]
-    (cond (or (= n!name g!name)
-              (.isAssignableFrom (Class/forName n!name) (Class/forName g!name)))
-          success
-
-          :else
-          (fail (str "not (" given " <= " needed ")")))
+    [["Data" [e!name e!params]] ["Data" [a!name a!params]]]
+    (if (or (= e!name a!name)
+            (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
+      success
+      (fail (str "not (" actual " <= " expected ")")))
     
-    [[::Tuple n!elems] [::Tuple g!elems]]
-    (exec [_ (assert! (= (count n!elems) (count g!elems))
+    [["Tuple" e!elems] ["Tuple" a!elems]]
+    (exec [:let [e!elems (&/->seq e!elems)
+                 a!elems (&/->seq a!elems)]
+           _ (assert! (= (count e!elems) (count a!elems))
                       "Tuples must have matching element sizes.")
            _ (map-m (fn [n g] (solve n g))
-                    (map vector n!elems g!elems))]
+                    (map vector e!elems a!elems))]
       success)
 
-    [[::Variant n!cases] [::Variant g!cases]]
-    (exec [_ (assert! (every? (partial contains? n!cases) (keys g!cases))
+    [["Variant" e!cases] ["Variant" a!cases]]
+    (exec [:let [e!cases (reduce #(assoc %1 (aget %2 0) (aget %2 1)) {} (&/->seq e!cases))
+                 a!cases (reduce #(assoc %1 (aget %2 0) (aget %2 1)) {} (&/->seq a!cases))]
+           _ (assert! (every? (partial contains? e!cases) (keys a!cases))
                       "The given variant contains unhandled cases.")
            _ (map-m (fn [label]
-                      (solve (get n!cases label) (get g!cases label)))
-                    (keys g!cases))]
+                      (solve (get e!cases label) (get a!cases label)))
+                    (keys a!cases))]
       success)
 
-    [[::Record n!fields] [::Record g!fields]]
-    (exec [_ (assert! (every? (partial contains? g!fields) (keys n!fields))
+    [["Record" e!fields] ["Record" a!fields]]
+    (exec [:let [e!fields (reduce #(assoc %1 (aget %2 0) (aget %2 1)) {} (&/->seq e!fields))
+                 a!fields (reduce #(assoc %1 (aget %2 0) (aget %2 1)) {} (&/->seq a!fields))]
+           _ (assert! (every? (partial contains? a!fields) (keys e!fields))
                       "The given record lacks necessary fields.")
            _ (map-m (fn [label]
-                      (solve (get n!fields label) (get g!fields label)))
-                    (keys n!fields))]
+                      (solve (get e!fields label) (get a!fields label)))
+                    (keys e!fields))]
       success)
 
-    [[::Lambda n!input n!output] [::Lambda g!input g!output]]
-    (exec [_ (solve g!input n!input)]
-      (solve n!output g!output))
+    [["Lambda" [e!input e!output]] ["Lambda" [a!input a!output]]]
+    (exec [_ (solve a!input e!input)]
+      (solve e!output a!output))
 
-    [[::Var n!id] _]
-    (exec [[n!top n!bottom] (deref n!id)
-           _ (solve n!top given)
-           _ (solve given n!bottom)
-           _ (update n!id n!top given)]
+    [["Var" e!id] _]
+    (exec [=e!type (deref e!id)
+           _ (solve =e!type actual)
+           _ (reset e!id =e!type)]
+      success)
+
+    [_ ["Var" a!id]]
+    (exec [=a!type (deref a!id)
+           _ (solve expected =a!type)
+           _ (reset a!id =a!type)]
       success)
     ))
 
 (let [&& #(and %1 %2)]
   (defn merge [x y]
-    (match [x y]
-      [_ [::Nothing]]
-      (return x)
-
-      [[::Nothing] _]
+    (matchv ::M/objects [x y]
+      [_ ["Any" _]]
       (return y)
 
-      [[::Variant x!cases] [::Variant y!cases]]
-      (if (and (reduce && true
-                       (for [[xslot xtype] (keys x!cases)]
-                         (if-let [ytype (get y!cases xslot)]
-                           (= xtype ytype)
-                           true)))
-               (reduce && true
-                       (for [[yslot ytype] (keys y!cases)]
-                         (if-let [xtype (get x!cases yslot)]
-                           (= xtype ytype)
-                           true))))
-        (return [::Variant (clojure.core/merge x!cases y!cases)])
-        (fail (str "Incompatible variants: " (pr-str x) " and " (pr-str y))))
+      [["Any" _] _]
+      (return x)
 
-      [[::Record x!fields] [::Record y!fields]]
-      (if (and (= (keys x!fields) (keys y!fields))
-               (->> (keys x!fields)
-                    (map #(= (get x!fields %) (get y!fields %)))
-                    (reduce && true)))
-        (return x)
-        (fail (str "Incompatible records: " (pr-str x) " and " (pr-str y))))
+      [_ ["Nothing" _]]
+      (return x)
+
+      [["Nothing" _] _]
+      (return y)
+
+      ;; [["Variant" x!cases] ["Variant" y!cases]]
+      ;; (if (and (reduce && true
+      ;;                  (for [[xslot xtype] (keys x!cases)]
+      ;;                    (if-let [ytype (get y!cases xslot)]
+      ;;                      (= xtype ytype)
+      ;;                      true)))
+      ;;          (reduce && true
+      ;;                  (for [[yslot ytype] (keys y!cases)]
+      ;;                    (if-let [xtype (get x!cases yslot)]
+      ;;                      (= xtype ytype)
+      ;;                      true))))
+      ;;   (return (&/V "Variant" (clojure.core/merge x!cases y!cases)))
+      ;;   (fail (str "Incompatible variants: " (pr-str x) " and " (pr-str y))))
+
+      ;; [["Record" x!fields] ["Record" y!fields]]
+      ;; (if (and (= (keys x!fields) (keys y!fields))
+      ;;          (->> (keys x!fields)
+      ;;               (map #(= (get x!fields %) (get y!fields %)))
+      ;;               (reduce && true)))
+      ;;   (return x)
+      ;;   (fail (str "Incompatible records: " (pr-str x) " and " (pr-str y))))
       
-      :else
+      [_ _]
       (fail (str "Can't merge types: " (pr-str x) " and " (pr-str y))))))
 
-(def +dont-care-type+ [::Any])
+(defn apply-lambda [func param]
+  (matchv ::M/objects [func]
+    [["Lambda" [input output]]]
+    (exec [_ (solve input param)]
+      (return output))
 
-(comment
-  ;; Types
-  [::Any]
-  [::Nothing]
-  [::Tuple (list)]
-  [::Lambda input output]
-  [::Variant {}]
-  [::Record {}]
-  [::Data name]
-  [::All self {} arg body]
-  [::Exists evar body]
-  [::Bound name]
+    [_]
+    (fail (str "Can't apply type " (str func) " to type " (str param)))))
 
-  ;; ???
-  [::Alias name args type]
-  [::Var id]
-  
+(defn slot-type [record slot]
+  (fn [state]
+    (matchv ::M/objects [(|get record slot)]
+      [["Error" msg]]
+      (fail* msg)
 
-  ;; (deftype #rec Type
-  ;;   (| #Any
-  ;;     #Nothing
-  ;;     (#Tuple (List Type))
-  ;;     (#Lambda Type Type)
-  ;;     (#Variant (List [Text Type]))
-  ;;     (#Record (List [Text Type]))
-  ;;     (#Data Text)))
-  
-  
-  
-  ;; (deftype #rec Kind
-  ;;   (| (#Type Type)
-  ;;     (#All Text (List [Text Kind]) Text Kind)))
+      [["Ok" type]]
+      (return* state type))))
 
-  ;; (deftype (Higher lower)
-  ;;     (| (#Lower lower)
-  ;;        (#Apply (Higher lower) (Higher lower))
-  ;;        (#All Text (List [Text lower]) Text (Higher lower))
-  ;;        (#Exists (List [Text lower]) Text (Higher lower))))
-
-  ;; (deftype Kind (Higher Type))
-  ;; (deftype Sort (Higher Kind))
-  
-  
-  
-  ;; (deftype HList (| (#Cons (Exists x x) HList)
-  ;;                   #Nil))
-
-  ;; (def success (return nil))
-
-  ;; (defn apply [type-lambda input]
-  ;;   (match type-lambda
-  ;;     [::All ?self ?env ?arg ?body]
-  ;;     (let [env* (-> ?env
-  ;;                    (assoc ?arg input)
-  ;;                    (assoc ?self type-lambda))]
-  ;;       (match ?body
-  ;;         [::All ?sub-self _ ?sub-arg ?sub-body]
-  ;;         [::All ?sub-self env* ?sub-arg ?sub-body]
-
-  ;;         _
-  ;;         (beta-reduce env* ?body)))))
-  
-  ;; (defn solve [needed given]
-  ;;   (match [needed given]
-  ;;     [[::Any] _]
-  ;;     success
-
-  ;;     [_ [::Nothing]]
-  ;;     success
-  
-  ;;     [[::Tuple n!elems] [::Tuple g!elems]]
-  ;;     (exec [_ (assert! (= (count n!elems) (count g!elems))
-  ;;                       "Tuples must have matching element sizes.")
-  ;;            _ (map-m (fn [[n g]] (solve n g))
-  ;;                     (map vector n!elems g!elems))]
-  ;;       success)
-  
-  ;;     [[::Variant n!cases] [::Variant g!cases]]
-  ;;     (exec [_ (assert! (every? (partial contains? n!cases) (keys g!cases))
-  ;;                       "The given variant contains unhandled cases.")
-  ;;            _ (map-m (fn [label]
-  ;;                       (solve (get n!cases label) (get g!cases label)))
-  ;;                     (keys g!cases))]
-  ;;       success)
-
-  ;;     [[::Record n!fields] [::Record g!fields]]
-  ;;     (exec [_ (assert! (every? (partial contains? g!fields) (keys n!fields))
-  ;;                       "The given record lacks necessary fields.")
-  ;;            _ (map-m (fn [label]
-  ;;                       (solve (get n!fields label) (get g!fields label)))
-  ;;                     (keys n!fields))]
-  ;;       success)
-
-  ;;     [[::Lambda n!input n!output] [::Lambda g!input g!output]]
-  ;;     (exec [_ (solve g!input n!input)
-  ;;            _ (solve n!output g!output)]
-  ;;       success)
-  ;;     ))
-
-  ;; (deftype (List x)
-  ;;     (| (#Cons x (List x))
-  ;;        #Nil))
-
-  ;; (deftype List
-  ;;     (All List [x]
-  ;;          (| (#Cons x (List x))
-  ;;             #Nil)))
-
-  ;; (def List
-  ;;   [::All "List" {} x
-  ;;    [::Variant {"Cons" [::Tuple (list [::Local x] [::Apply {} [::Local "List"] [::Local x]])]
-  ;;                "Nil" [::Tuple (list)]}]])
-
-  ;; (deftype User
-  ;;     {#name Text
-  ;;      #email Text
-  ;;      #password Text
-  ;;      #joined Time
-  ;;      #last-login Time})
-
-  ;; (deftype (Pair x y)
-  ;;     [x y])
-
-  ;; (deftype (State s a)
-  ;;     (-> s [a s]))
-
-  ;; (: + (-> Int Int Int))
-  ;; (def (+ x y)
-  ;;   (jvm:ladd x y))
-
-  
-  )
+(def +dont-care+ (&/V "Any" nil))
