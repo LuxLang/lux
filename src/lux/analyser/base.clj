@@ -1,9 +1,7 @@
 (ns lux.analyser.base
   (:require [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail
-                                     try-all-m map-m mapcat-m reduce-m
-                                     assert!]]
+            (lux [base :as & :refer [exec return fail]]
                  [type :as &type])))
 
 ;; [Resources]
@@ -19,16 +17,16 @@
 (defn analyse-1 [analyse elem]
   (exec [output (analyse elem)]
     (matchv ::M/objects [output]
-      ["Cons" [x ["Nil" _]]]
+      [["Cons" [x ["Nil" _]]]]
       (return x)
 
       [_]
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn analyse-2 [analyse el1 el2]
-  (exec [output (mapcat-m analyse (list el1 el2))]
-    (match output
-      ["Cons" [x ["Cons" [y ["Nil" _]]]]]
+  (exec [output (&/flat-map analyse (list el1 el2))]
+    (matchv ::M/objects [output]
+      [["Cons" [x ["Cons" [y ["Nil" _]]]]]]
       (return [x y])
 
       [_]

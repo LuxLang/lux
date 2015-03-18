@@ -2,10 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail
-                                     |list
-                                     try-all-m map-m reduce-m
-                                     assert!]]
+            (lux [base :as & :refer [exec return fail]]
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
@@ -39,7 +36,7 @@
              =y-type (&&/expr-type =y)
              _ (&type/solve input-type =x-type)
              _ (&type/solve input-type =y-type)]
-        (return (|list (&/V "Expression" (&/T (&/V <output-tag> (&/T =x =y)) output-type)))))))
+        (return (&/|list (&/V "Expression" (&/T (&/V <output-tag> (&/T =x =y)) output-type)))))))
 
   analyse-jvm-iadd "jvm-iadd" "java.lang.Integer" "java.lang.Integer"
   analyse-jvm-isub "jvm-isub" "java.lang.Integer" "java.lang.Integer"
@@ -84,13 +81,13 @@
          =type (&host/lookup-static-field =class ?field)
          ;; :let [_ (prn 'analyse-jvm-getstatic/=type =type)]
          ]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-getstatic" (&/T =class ?field)) =type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-getstatic" (&/T =class ?field)) =type))))))
 
 (defn analyse-jvm-getfield [analyse ?class ?field ?object]
   (exec [=class (&host/full-class-name ?class)
          =type (&host/lookup-static-field =class ?field)
          =object (&&/analyse-1 analyse ?object)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-getfield" (&/T =class ?field =object)) =type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-getfield" (&/T =class ?field =object)) =type))))))
 
 (defn analyse-jvm-putstatic [analyse ?class ?field ?value]
   (exec [=class (&host/full-class-name ?class)
@@ -98,36 +95,36 @@
          =type (&host/lookup-static-field =class ?field)
          ;; :let [_ (prn 'analyse-jvm-getstatic/=type =type)]
          =value (&&/analyse-1 analyse ?value)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-putstatic" (&/T =class ?field =value)) =type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-putstatic" (&/T =class ?field =value)) =type))))))
 
 (defn analyse-jvm-putfield [analyse ?class ?field ?object ?value]
   (exec [=class (&host/full-class-name ?class)
          =type (&host/lookup-static-field =class ?field)
          =object (&&/analyse-1 analyse ?object)
          =value (&&/analyse-1 analyse ?value)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-putfield" (&/T =class ?field =object =value)) =type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-putfield" (&/T =class ?field =object =value)) =type))))))
 
 (defn analyse-jvm-invokestatic [analyse ?class ?method ?classes ?args]
   (exec [=class (&host/full-class-name ?class)
-         =classes (map-m &host/extract-jvm-param ?classes)
+         =classes (&/map% &host/extract-jvm-param ?classes)
          =return (&host/lookup-virtual-method =class ?method =classes)
-         =args (mapcat-m analyse ?args)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-invokestatic" (&/T =class ?method =classes =args)) =return))))))
+         =args (&/flat-map% analyse ?args)]
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-invokestatic" (&/T =class ?method =classes =args)) =return))))))
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]
     (exec [=class (&host/full-class-name ?class)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
-           =classes (map-m &host/extract-jvm-param ?classes)
+           =classes (&/map% &host/extract-jvm-param ?classes)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=classes =classes)]
            [=method-args =return] (&host/lookup-virtual-method =class ?method =classes)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=return =return)]
            =object (&&/analyse-1 analyse ?object)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=object =object)]
-           =args (mapcat-m analyse ?args)
+           =args (&/flat-map% analyse ?args)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=args =args)]
            ]
-      (return (|list (&/V "Expression" (&/T (&/V <tag> (&/T =class ?method =classes =object =args)) =return))))))
+      (return (&/|list (&/V "Expression" (&/T (&/V <tag> (&/T =class ?method =classes =object =args)) =return))))))
 
   analyse-jvm-invokevirtual   "jvm-invokevirtual"
   analyse-jvm-invokeinterface "jvm-invokeinterface"
@@ -136,17 +133,17 @@
 
 (defn analyse-jvm-null? [analyse ?object]
   (exec [=object (&&/analyse-1 analyse ?object)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-null?" =object) (&/V "Data" (&/T "java.lang.Boolean" (&/V "Nil" nil)))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null?" =object) (&/V "Data" (&/T "java.lang.Boolean" (&/V "Nil" nil)))))))))
 
 (defn analyse-jvm-new [analyse ?class ?classes ?args]
   (exec [=class (&host/full-class-name ?class)
-         =classes (map-m &host/extract-jvm-param ?classes)
-         =args (mapcat-m analyse ?args)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-new" (&/T =class =classes =args)) (&/V "Data" (&/T =class (&/V "Nil" nil)))))))))
+         =classes (&/map% &host/extract-jvm-param ?classes)
+         =args (&/flat-map% analyse ?args)]
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new" (&/T =class =classes =args)) (&/V "Data" (&/T =class (&/V "Nil" nil)))))))))
 
 (defn analyse-jvm-new-array [analyse ?class ?length]
   (exec [=class (&host/full-class-name ?class)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-new-array" (&/T =class ?length)) (&/V "array" (&/T (&/V "Data" (to-array [=class (&/V "Nil" nil)]))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new-array" (&/T =class ?length)) (&/V "array" (&/T (&/V "Data" (to-array [=class (&/V "Nil" nil)]))
                                                                                                           (&/V "Nil" nil)))))))))
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
@@ -155,15 +152,15 @@
                                 [[=array =elem]]
                                 [=array =elem])]
          =array-type (&&/expr-type =array)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-aastore" (&/T =array ?idx =elem)) =array-type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-aastore" (&/T =array ?idx =elem)) =array-type))))))
 
 (defn analyse-jvm-aaload [analyse ?array ?idx]
   (exec [=array (&&/analyse-1 analyse ?array)
          =array-type (&&/expr-type =array)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-aaload" (&/T =array ?idx)) =array-type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-aaload" (&/T =array ?idx)) =array-type))))))
 
 (defn analyse-jvm-class [analyse ?name ?super-class ?fields]
-  (exec [?fields (map-m (fn [?field]
+  (exec [?fields (&/map% (fn [?field]
                           (matchv ::M/objects [?field]
                             [["Tuple" ["Cons" [["Ident" ?class] ["Cons" [["Ident" ?field-name] ["Nil" _]]]]]]]
                             (return [?class ?field-name])
@@ -175,11 +172,11 @@
                                   [field {:access :public
                                           :type class}]))]
          $module &/get-module-name]
-    (return (|list (&/V "Statement" (&/V "jvm-class" (&/T $module ?name ?super-class =fields {})))))))
+    (return (&/|list (&/V "Statement" (&/V "jvm-class" (&/T $module ?name ?super-class =fields {})))))))
 
 (defn analyse-jvm-interface [analyse ?name ?members]
   ;; (prn 'analyse-jvm-interface ?name ?members)
-  (exec [?members (map-m (fn [member]
+  (exec [?members (&/map% (fn [member]
                            ;; (prn 'analyse-jvm-interface (&/show-ast member))
                            (matchv ::M/objects [member]
                              [["Form" ["Cons" [["Ident" ":"]
@@ -190,51 +187,51 @@
                                                                                                     ["Nil" _]]]]]]]]
                                                                  ["Nil" _]]]]]]]]]
                              (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
-                                 (exec [?inputs (map-m extract-ident (&/->seq ?inputs))]
+                                 (exec [?inputs (&/map% extract-ident (->seq ?inputs))]
                                    (return [?member-name [?inputs ?output]])))
                              
                              [_]
                              (fail "[Analyser Error] Invalid method signature!")))
-                         (&/->seq ?members))
+                         (->seq ?members))
          :let [=methods (into {} (for [[method [inputs output]] ?members]
                                    [method {:access :public
                                             :type [inputs output]}]))]
          $module &/get-module-name]
-    (return (|list (&/V "Statement" (&/V "jvm-interface" (&/T $module ?name =methods)))))))
+    (return (&/|list (&/V "Statement" (&/V "jvm-interface" (&/T $module ?name =methods)))))))
 
 (defn analyse-exec [analyse ?exprs]
-  (exec [_ (assert! (count ?exprs) "\"exec\" expressions can't have empty bodies.")
-         =exprs (flat-map% analyse ?exprs)
-         =exprs-types (map% &&/expr-type =exprs)]
-    (return (|list (&/V "Expression" (&/T (&/V "exec" =exprs) (|last =exprs-types)))))))
+  (exec [_ (&/assert! (count ?exprs) "\"exec\" expressions can't have empty bodies.")
+         =exprs (&/flat-map% analyse ?exprs)
+         =exprs-types (&/map% &&/expr-type =exprs)]
+    (return (&/|list (&/V "Expression" (&/T (&/V "exec" =exprs) (&/|head (&/|reverse =exprs-types))))))))
 
 (defn analyse-jvm-try [analyse ?body [?catches ?finally]]
   (exec [=body (&&/analyse-1 analyse ?body)
-         =catches (map% (fn [[?ex-class ?ex-arg ?catch-body]]
+         =catches (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
                           (&&env/with-local ?ex-arg (&/V "Data" (&/T ?ex-class (&/V "Nil" nil)))
                             (exec [=catch-body (&&/analyse-1 analyse ?catch-body)]
                               (return [?ex-class ?ex-arg =catch-body]))))
                         ?catches)
          =finally (&&/analyse-1 analyse ?finally)
          =body-type (&&/expr-type =body)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-try" (&/T =body =catches =finally)) =body-type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-try" (&/T =body =catches =finally)) =body-type))))))
 
 (defn analyse-jvm-throw [analyse ?ex]
   (exec [=ex (&&/analyse-1 analyse ?ex)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-throw" =ex) (&/V "Nothing" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-throw" =ex) (&/V "Nothing" nil)))))))
 
 (defn analyse-jvm-monitorenter [analyse ?monitor]
   (exec [=monitor (&&/analyse-1 analyse ?monitor)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-monitorenter" =monitor) (&/V "Tuple" (&/V "Nil" nil))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-monitorenter" =monitor) (&/V "Tuple" (&/V "Nil" nil))))))))
 
 (defn analyse-jvm-monitorexit [analyse ?monitor]
   (exec [=monitor (&&/analyse-1 analyse ?monitor)]
-    (return (|list (&/V "Expression" (&/T (&/V "jvm-monitorexit" =monitor) (&/V "Tuple" (&/V "Nil" nil))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-monitorexit" =monitor) (&/V "Tuple" (&/V "Nil" nil))))))))
 
 (do-template [<name> <tag> <from-class> <to-class>]
   (defn <name> [analyse ?value]
     (exec [=value (&&/analyse-1 analyse ?value)]
-      (return (|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "Data" (&/T <to-class> (&/V "Nil" nil)))))))))
+      (return (&/|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "Data" (&/T <to-class> (&/V "Nil" nil)))))))))
 
   analyse-jvm-d2f "jvm-d2f" "java.lang.Double"  "java.lang.Float"
   analyse-jvm-d2i "jvm-d2i" "java.lang.Double"  "java.lang.Integer"
@@ -259,7 +256,7 @@
 (do-template [<name> <tag> <from-class> <to-class>]
   (defn <name> [analyse ?value]
     (exec [=value (&&/analyse-1 analyse ?value)]
-      (return (|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "Data" (&/T <to-class> (&/V "Nil" nil)))))))))
+      (return (&/|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "Data" (&/T <to-class> (&/V "Nil" nil)))))))))
 
   analyse-jvm-iand  "jvm-iand"  "java.lang.Integer" "java.lang.Integer"
   analyse-jvm-ior   "jvm-ior"   "java.lang.Integer" "java.lang.Integer"
@@ -276,4 +273,4 @@
 (defn analyse-jvm-program [analyse ?args ?body]
   (exec [=body (&&env/with-local ?args (&/V "Any" nil)
                  (&&/analyse-1 analyse ?body))]
-    (return (|list (&/V "Statement" (&/V "jvm-program" =body))))))
+    (return (&/|list (&/V "Statement" (&/V "jvm-program" =body))))))

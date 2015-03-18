@@ -1,26 +1,24 @@
 (ns lux.lexer
   (:require [clojure.template :refer [do-template]]
-            [lux.base :as & :refer [exec return* return fail fail*
-                                    |list
-                                    try-all%]]))
+            [lux.base :as & :refer [exec return* return fail fail*]]))
 
 ;; [Utils]
 (defn ^:private lex-regex [regex]
   (fn [state]
-    (if-let [[match] (re-find regex (get$ "source" state))]
-      (return* (update$ "source" #(.substring % (.length match)) state) match)
+    (if-let [[match] (re-find regex (&/get$ "source" state))]
+      (return* (&/update$ "source" #(.substring % (.length match)) state) match)
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-regex2 [regex]
   (fn [state]
-    (if-let [[match tok1 tok2] (re-find regex (get$ "source" state))]
-      (return* (update$ "source" #(.substring % (.length match)) state) [tok1 tok2])
+    (if-let [[match tok1 tok2] (re-find regex (&/get$ "source" state))]
+      (return* (&/update$ "source" #(.substring % (.length match)) state) [tok1 tok2])
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-prefix [prefix]
   (fn [state]
-    (if (.startsWith (get$ "source" state) prefix)
-      (return* (update$ "source" #(.substring % (.length prefix)) state) prefix)
+    (if (.startsWith (&/get$ "source" state) prefix)
+      (return* (&/update$ "source" #(.substring % (.length prefix)) state) prefix)
       (fail* (str "[Lexer Error] Text failed: " prefix)))))
 
 (defn ^:private escape-char [escaped]
@@ -36,7 +34,7 @@
     (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
 (def ^:private lex-text-body
-  (try-all% (|list (exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
+  (&/try-all% (&/|list (exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
                           unescaped (escape-char escaped)
                           postfix lex-text-body]
                      (return (str prefix unescaped postfix)))
@@ -47,32 +45,32 @@
 ;; [Lexers]
 (def ^:private lex-white-space
   (exec [white-space (lex-regex #"^(\s+)")]
-    (return (V "White_Space" white-space))))
+    (return (&/V "White_Space" white-space))))
 
 (def ^:private lex-single-line-comment
   (exec [_ (lex-prefix "##")
          comment (lex-regex #"^([^\n]*)")
          _ (lex-regex #"^(\n?)")]
-    (return (V "Comment" comment))))
+    (return (&/V "Comment" comment))))
 
 (def ^:private lex-multi-line-comment
   (exec [_ (lex-prefix "#(")
-         comment (try-all% (|list (lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
+         comment (&/try-all% (&/|list (lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
                                   (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
                                          [_ inner] lex-multi-line-comment
                                          post (lex-regex #"(?is)^(.+?(?=\)#))")]
                                     (return (str pre "#(" inner ")#" post)))))
          _ (lex-prefix ")#")]
-    (return (V "Comment" comment))))
+    (return (&/V "Comment" comment))))
 
 (def ^:private lex-comment
-  (try-all% (|list lex-single-line-comment
+  (&/try-all% (&/|list lex-single-line-comment
                    lex-multi-line-comment)))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
     (exec [token (lex-regex <regex>)]
-      (return (V <tag> token))))
+      (return (&/V <tag> token))))
 
   ^:private lex-bool  "Bool"  #"^(true|false)"
   ^:private lex-real  "Real"  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
@@ -81,27 +79,27 @@
 
 (def ^:private lex-char
   (exec [_ (lex-prefix "#\"")
-         token (try-all% (|list (exec [escaped (lex-regex #"^(\\.)")]
+         token (&/try-all% (&/|list (exec [escaped (lex-regex #"^(\\.)")]
                                   (escape-char escaped))
                                 (lex-regex #"^(.)")))
          _ (lex-prefix "\"")]
-    (return (V "Char" token))))
+    (return (&/V "Char" token))))
 
 (def ^:private lex-text
   (exec [_ (lex-prefix "\"")
          token lex-text-body
          _ (lex-prefix "\"")]
-    (return (V "Text" token))))
+    (return (&/V "Text" token))))
 
 (def ^:private lex-tag
   (exec [_ (lex-prefix "#")
          token (lex-regex +ident-re+)]
-    (return (V "Tag" token))))
+    (return (&/V "Tag" token))))
 
 (do-template [<name> <text> <tag>]
   (def <name>
     (exec [_ (lex-prefix <text>)]
-      (return (V <tag> nil))))
+      (return (&/V <tag> nil))))
 
   ^:private lex-open-paren    "(" "Open_Paren"
   ^:private lex-close-paren   ")" "Close_Paren"
@@ -112,7 +110,7 @@
   )
 
 (def ^:private lex-delimiter
-  (try-all% (|list lex-open-paren
+  (&/try-all% (&/|list lex-open-paren
                    lex-close-paren
                    lex-open-bracket
                    lex-close-bracket
@@ -121,7 +119,7 @@
 
 ;; [Exports]
 (def lex
-  (try-all% (|list lex-white-space
+  (&/try-all% (&/|list lex-white-space
                    lex-comment
                    lex-bool
                    lex-real

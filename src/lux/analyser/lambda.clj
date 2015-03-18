@@ -1,8 +1,7 @@
 (ns lux.analyser.lambda
-  (:require [clojure.core.match :refer [match]]
-            (lux [base :as & :refer [exec return fail
-                                     try-all-m map-m mapcat-m reduce-m
-                                     assert!]])
+  (:require [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
+            (lux [base :as & :refer [exec return fail]])
             (lux.analyser [base :as &&]
                           [env :as &env])))
 
@@ -19,8 +18,8 @@
 (defn close-over [scope ident register frame]
   (matchv ::M/objects [register]
     [["Expression" [_ register-type]]]
-    (let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope (->> frame (get$ "closure") (get$ "counter")) register)) register-type))]
-      [register* (update$ "closure" #(-> %
-                                         (update$ "counter" inc)
-                                         (update$ "mappings" #(|put ident register* %)))
-                          frame)])))
+    (let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope (->> frame (&/get$ "closure") (&/get$ "counter")) register)) register-type))]
+      [register* (&/update$ "closure" #(-> %
+                                           (&/update$ "counter" inc)
+                                           (&/update$ "mappings" (fn [mps] (&/|put ident register* mps))))
+                            frame)])))

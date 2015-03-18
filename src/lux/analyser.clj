@@ -2,10 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail
-                                     |list
-                                     try-all-m map-m |flat-map% reduce-m
-                                     assert!]]
+            (lux [base :as & :refer [exec return fail]]
                  [parser :as &parser]
                  [type :as &type]
                  [macro :as &macro]
@@ -34,19 +31,19 @@
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["Bool" ?value]]
-    (return (|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "Data" (&/T "java.lang.Boolean" (&/V "Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "Data" (&/T "java.lang.Boolean" (&/V "Nil" nil)))))))
 
     [["Int" ?value]]
-    (return (|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "Data" (&/T "java.lang.Long" (&/V "Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "Data" (&/T "java.lang.Long" (&/V "Nil" nil)))))))
 
     [["Real" ?value]]
-    (return (|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "Data" (&/T "java.lang.Double" (&/V "Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "Data" (&/T "java.lang.Double" (&/V "Nil" nil)))))))
 
     [["Char" ?value]]
-    (return (|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "Data" (&/T "java.lang.Character" (&/V "Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "Data" (&/T "java.lang.Character" (&/V "Nil" nil)))))))
 
     [["Text" ?value]]
-    (return (|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "Data" (&/T "java.lang.String" (&/V "Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "Data" (&/T "java.lang.String" (&/V "Nil" nil)))))))
 
     [["Tuple" ?elems]]
     (&&lux/analyse-tuple analyse ?elems)
@@ -56,11 +53,11 @@
 
     [["Tag" ?tag]]
     (let [tuple-type (&/V "Tuple" (&/V "Nil" nil))]
-      (return (|list [&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (|list)) tuple-type))))
+      (return (&/|list [&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (&/|list)) tuple-type))))
                                             (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag tuple-type) (&/V "Nil" nil)))))])))
 
     [["Ident" "jvm-null"]]
-    (return (|list [&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "Data" (&/T "null" (&/V "Nil" nil))))]))
+    (return (&/|list [&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "Data" (&/T "null" (&/V "Nil" nil))))]))
     
     [["Ident" ?ident]]
     (&&lux/analyse-ident analyse ?ident)
@@ -99,7 +96,7 @@
 
     ;; Host special forms
     [["Form" ["Cons" [["Ident" "exec"] ?exprs]]]]
-    (&&host/analyse-exec analyse (&/->seq ?exprs))
+    (&&host/analyse-exec analyse ?exprs)
 
     ;; Integer arithmetic
     [["Form" ["Cons" [["Ident" "jvm-iadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
@@ -246,7 +243,7 @@
                                         ["Cons" [["Tuple" ?classes]
                                                  ["Cons" [["Tuple" ?args]
                                                           ["Nil" _]]]]]]]]]]]]]
-    (&&host/analyse-jvm-invokestatic analyse ?class ?method (&/->seq ?classes) (&/->seq ?args))
+    (&&host/analyse-jvm-invokestatic analyse ?class ?method ?classes ?args)
 
     [["Form" ["Cons" [["Ident" "jvm-invokevirtual"]
                       ["Cons" [["Ident" ?class]
@@ -255,7 +252,7 @@
                                                  ["Cons" [?object
                                                           ["Cons" [["Tuple" ?args]
                                                                    ["Nil" _]]]]]]]]]]]]]]]
-    (&&host/analyse-jvm-invokevirtual analyse ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+    (&&host/analyse-jvm-invokevirtual analyse ?class ?method ?classes ?object ?args)
 
     [["Form" ["Cons" [["Ident" "jvm-invokeinterface"]
                       ["Cons" [["Ident" ?class]
@@ -264,7 +261,7 @@
                                                  ["Cons" [?object
                                                           ["Cons" [["Tuple" ?args]
                                                                    ["Nil" _]]]]]]]]]]]]]]]
-    (&&host/analyse-jvm-invokeinterface analyse ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+    (&&host/analyse-jvm-invokeinterface analyse ?class ?method ?classes ?object ?args)
 
     [["Form" ["Cons" [["Ident" "jvm-invokespecial"]
                       ["Cons" [["Ident" ?class]
@@ -273,13 +270,13 @@
                                                  ["Cons" [?object
                                                           ["Cons" [["Tuple" ?args]
                                                                    ["Nil" _]]]]]]]]]]]]]]]
-    (&&host/analyse-jvm-invokespecial analyse ?class ?method (&/->seq ?classes) ?object (&/->seq ?args))
+    (&&host/analyse-jvm-invokespecial analyse ?class ?method ?classes ?object ?args)
     
     ;; Exceptions
     [["Form" ["Cons" [["Ident" "jvm-try"]
                       ["Cons" [?body
                                ?handlers]]]]]]
-    (&&host/analyse-jvm-try analyse ?body (reduce parse-handler [(list) nil] (&/->seq ?handlers)))
+    (&&host/analyse-jvm-try analyse ?body (&/fold parse-handler [(list) nil] ?handlers))
 
     [["Form" ["Cons" [["Ident" "jvm-throw"]
                       ["Cons" [?ex
@@ -380,7 +377,7 @@
 
     ;; Classes & interfaces
     [["Form" ["Cons" [["Ident" "jvm-class"] ["Cons" [["Ident" ?name] ["Cons" [["Ident" ?super-class] ["Cons" [["Tuple" ?fields] ["Nil" _]]]]]]]]]]]
-    (&&host/analyse-jvm-class analyse ?name ?super-class (&/->seq ?fields))
+    (&&host/analyse-jvm-class analyse ?name ?super-class ?fields)
 
     [["Form" ["Cons" [["Ident" "jvm-interface"] ["Cons" [["Ident" ?name] ?members]]]]]]
     (&&host/analyse-jvm-interface analyse ?name ?members)
@@ -398,12 +395,11 @@
     (matchv ::M/objects [token]
       [["Form" ["Cons" [["Tag" ?tag] ?values]]]]
       (exec [;; :let [_ (prn 'PRE-ASSERT)]
-             :let [?values (&/->seq ?values)]
-             :let [_ (assert (= 1 (count ?values)) (str "[Analyser Error] Can only tag 1 value: " (pr-str token)))]
+             :let [_ (assert (= 1 (&/|length ?values)) (str "[Analyser Error] Can only tag 1 value: " (pr-str token)))]
              ;; :let [_ (prn 'POST-ASSERT)]
-             =value (&&/analyse-1 (analyse-ast eval!) (first ?values))
+             =value (&&/analyse-1 (analyse-ast eval!) (&/|head ?values))
              =value-type (&&/expr-type =value)]
-        (return (|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value)) (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag =value-type) (&/V "Nil" nil)))))))))
+        (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value)) (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag =value-type) (&/V "Nil" nil)))))))))
       
       [["Form" ["Cons" [?fn ?args]]]]
       (fn [state]
@@ -422,4 +418,4 @@
   (exec [asts &parser/parse
          ;; :let [_ (prn 'analyse/asts asts)]
          ]
-    (|flat-map% (analyse-ast eval!) asts)))
+    (&/flat-map% (analyse-ast eval!) asts)))

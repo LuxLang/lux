@@ -2,11 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return return* fail fail*
-                                     get$ set$ update$
-                                     |list |get |contains? |concat
-                                     if-m try-all-m |map% |flat-map% |fold% map-m mapcat-m reduce-m
-                                     assert!]]
+            (lux [base :as & :refer [exec return return* fail fail*]]
                  [parser :as &parser]
                  [type :as &type]
                  [macro :as &macro]
@@ -19,20 +15,20 @@
 
 ;; [Resources]
 (defn analyse-tuple [analyse ?elems]
-  (exec [=elems (|flat-map% analyse ?elems)
-         =elems-types (|map% &&/expr-type =elems)
+  (exec [=elems (&/flat-map% analyse ?elems)
+         =elems-types (&/map% &&/expr-type =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "Tuple" (&/|->list =elems-types))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "Tuple" =elems-types)))))))
 
 (defn analyse-record [analyse ?elems]
-  (exec [=elems (|map% (fn [kv]
+  (exec [=elems (&/map% (fn [kv]
                          (matchv ::M/objects [kv]
                            [[k v]]
                            (exec [=v (&&/analyse-1 analyse v)]
                              (return (to-array [k =v])))))
                        ?elems)
-         =elems-types (|map% (fn [kv]
+         =elems-types (&/map% (fn [kv]
                                (matchv ::M/objects [kv]
                                  [[k v]]
                                  (exec [=v (&&/expr-type v)]
@@ -40,42 +36,42 @@
                              =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (|list (&/V "Expression" (&/T (&/V "record" =elems) (&/V "Record" (&/|->list =elems-types))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "record" =elems) (&/V "Record" =elems-types)))))))
 
 (defn analyse-ident [analyse ident]
   (exec [module-name &/get-module-name]
     (fn [state]
-      (let [[top & stack*] (get$ "local-envs" state)]
-        (if-let [=bound (or (->> top (get$ "locals")  (get$ "mappings") (|get ident))
-                            (->> top (get$ "closure") (get$ "mappings") (|get ident)))]
-          (return* state (|list =bound))
-          (let [no-binding? #(and (->> % (get$ "locals")  (get$ "mappings") (|contains? ident) not)
-                                  (->> % (get$ "closure") (get$ "mappings") (|contains? ident) not))
+      (let [[top & stack*] (&/get$ "local-envs" state)]
+        (if-let [=bound (or (->> top (&/get$ "locals")  (&/get$ "mappings") (&/|get ident))
+                            (->> top (&/get$ "closure") (&/get$ "mappings") (&/|get ident)))]
+          (return* state (&/|list =bound))
+          (let [no-binding? #(and (->> % (&/get$ "locals")  (&/get$ "mappings") (&/|contains? ident) not)
+                                  (->> % (&/get$ "closure") (&/get$ "mappings") (&/|contains? ident) not))
                 [inner outer] (split-with no-binding? stack*)]
             (if (empty? outer)
-              (if-let [global (->> state (get$ "global-env") (|get ident))]
-                (return* state (|list global))
+              (if-let [global (->> state (&/get$ "global-env") (&/|get ident))]
+                (return* state (&/|list global))
                 (fail* (str "[Analyser Error] Unresolved identifier: " ident)))
               (let [in-stack (cons top inner)
-                    scopes (rest (reductions #(cons (get$ "name" %2) %1) (map #(get$ "name" %) outer) (reverse in-stack)))
-                    _ (prn 'in-stack module-name ident (map #(get$ "name" %) in-stack) scopes)
+                    scopes (rest (reductions #(cons (&/get$ "name" %2) %1) (map #(&/get$ "name" %) outer) (reverse in-stack)))
+                    _ (prn 'in-stack module-name ident (map #(&/get$ "name" %) in-stack) scopes)
                     [=local inner*] (reduce (fn [[register new-inner] [frame in-scope]]
                                               (let [[register* frame*] (&&lambda/close-over (cons module-name (reverse in-scope)) ident register frame)]
                                                 [register* (cons frame* new-inner)]))
-                                            [(or (->> outer |head (get$ "locals")  (get$ "mappings") (|get ident))
-                                                 (->> outer |head (get$ "closure") (get$ "mappings") (|get ident)))
+                                            [(or (->> outer &/|head (&/get$ "locals")  (&/get$ "mappings") (&/|get ident))
+                                                 (->> outer &/|head (&/get$ "closure") (&/get$ "mappings") (&/|get ident)))
                                              '()]
                                             (map vector (reverse in-stack) scopes)
                                             )]
-                (return* (set$ "local-envs" (|concat inner* outer) state) (|list =local)))
+                (return* (&/set$ "local-envs" (&/|concat inner* outer) state) (&/|list =local)))
               ))
           ))
       )))
 
 (defn ^:private analyse-apply* [analyse =fn ?args]
-  (exec [=args (|flat-map% analyse ?args)
+  (exec [=args (&/flat-map% analyse ?args)
          =fn-type (&&/expr-type =fn)
-         =apply+=apply-type (fold% (fn [[=fn =fn-type] =input]
+         =apply+=apply-type (&/fold (fn [[=fn =fn-type] =input]
                                      (exec [=input-type (&&/expr-type =input)
                                             =output-type (&type/apply-lambda =fn-type =input-type)]
                                        (return [(&/V "apply" (&/T =fn =input)) =output-type])))
@@ -84,7 +80,7 @@
          :let [[=apply =apply-type] (matchv ::M/objects [=apply+=apply-type]
                                       [[=apply =apply-type]]
                                       [=apply =apply-type])]]
-    (return (|list (&/V "Expression" (&/T =apply =apply-type))))))
+    (return (&/|list (&/V "Expression" (&/T =apply =apply-type))))))
 
 (defn analyse-apply [analyse =fn ?args]
   (exec [loader &/loader]
@@ -95,8 +91,9 @@
         (exec [macro? (&&def/macro? ?module ?name)]
           (if macro?
             (let [macro-class (&host/location (list ?module ?name))]
-              (exec [macro-expansion (&macro/expand loader macro-class ?args)]
-                (return (&/->seq (|flat-map% analyse macro-expansion)))))
+              (exec [macro-expansion (&macro/expand loader macro-class ?args)
+                     output (&/flat-map% analyse macro-expansion)]
+                (return output)))
             (analyse-apply* analyse =fn ?args)))
         
         [_]
@@ -109,8 +106,8 @@
 (defn analyse-case [analyse ?value ?branches]
   ;; (prn 'analyse-case ?value ?branches)
   (exec [:let [num-branches (count ?branches)]
-         _ (assert! (and (> num-branches 0) (even? num-branches))
-                    "[Analyser Error] Unbalanced branches in \"case'\" expression.")
+         _ (&/assert! (and (> num-branches 0) (even? num-branches))
+                      "[Analyser Error] Unbalanced branches in \"case'\" expression.")
          :let [branches (partition 2 ?branches)
                locals-per-branch (map (comp &&case/locals first) branches)
                max-locals (reduce max 0 (map count locals-per-branch))]
@@ -119,14 +116,14 @@
          ;; :let [_ (prn 'base-register base-register)]
          =value (&&/analyse-1 analyse ?value)
          ;; :let [_ (prn '=value =value)]
-         =bodies (map-m (partial &&case/analyse-branch analyse max-locals)
-                        (map vector locals-per-branch (map second branches)))
+         =bodies (&/map% (partial &&case/analyse-branch analyse max-locals)
+                         (map vector locals-per-branch (map second branches)))
          ;; :let [_ (prn '=bodies =bodies)]
          ;; :let [_ (prn 'analyse-case/=bodies =bodies)]
-         =body-types (map-m &&/expr-type =bodies)
-         =case-type (reduce-m &type/merge (&/V "Nothing" nil) =body-types)
+         =body-types (&/map% &&/expr-type =bodies)
+         :let [=case-type (&/fold &type/merge (&/|table) =body-types)]
          :let [=branches (map vector (map first branches) =bodies)]]
-    (return (|list (&/V "Expression" (&/T (&/V "case" (&/T =value base-register max-locals =branches)) =case-type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "case" (&/T =value base-register max-locals =branches)) =case-type))))))
 
 (defn analyse-lambda [analyse ?self ?arg ?body]
   (exec [=lambda-type* &type/fresh-lambda]
@@ -139,13 +136,13 @@
              =lambda-type (exec [_ (&type/solve =return =body-type)
                                  =lambda-type** (&type/clean =return =lambda-type*)]
                             (&type/clean =arg =lambda-type**))]
-        (return (|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured ?arg =body)) =lambda-type))))))))
+        (return (&/|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured ?arg =body)) =lambda-type))))))))
 
 (defn analyse-get [analyse ?slot ?record]
   (exec [=record (&&/analyse-1 analyse ?record)
          =record-type (&&/expr-type =record)
          =slot-type (&type/slot-type =record-type ?slot)]
-    (return (|list (&/V "Expression" (&/T (&/V "get" (?slot =record)) =slot-type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "get" (?slot =record)) =slot-type))))))
 
 (defn analyse-set [analyse ?slot ?value ?record]
   (exec [=value (&&/analyse-1 analyse ?value)
@@ -153,26 +150,26 @@
          =record-type (&&/expr-type =record)
          =slot-type (&type/slot-type =record-type ?slot)
          _ (&type/solve =slot-type =value)]
-    (return (|list (&/V "Expression" (&/T (&/V "set" (&/T ?slot =value =record)) =slot-type))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "set" (&/T ?slot =value =record)) =slot-type))))))
 
 (defn analyse-def [analyse ?name ?value]
   ;; (prn 'analyse-def ?name ?value)
   (exec [module-name &/get-module-name]
-    (if-m (&&def/defined? module-name ?name)
-          (fail (str "[Analyser Error] Can't redefine " ?name))
-          (exec [=value (&&/analyse-1 analyse ?value)
-                 =value-type (&&/expr-type =value)
-                 _ (&&def/define module-name ?name =value-type)]
-            (return (|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
+    (&/if% (&&def/defined? module-name ?name)
+           (fail (str "[Analyser Error] Can't redefine " ?name))
+           (exec [=value (&&/analyse-1 analyse ?value)
+                  =value-type (&&/expr-type =value)
+                  _ (&&def/define module-name ?name =value-type)]
+             (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
 
 (defn analyse-declare-macro [?ident]
   (exec [module-name &/get-module-name
          _ (&&def/declare-macro module-name ?ident)]
-    (return (|list))))
+    (return (&/|list))))
 
 (defn analyse-import [analyse ?path]
   (assert false)
-  (return (|list)))
+  (return (&/|list)))
 
 (defn analyse-check [analyse eval! ?type ?value]
   (exec [=type (&&/analyse-1 analyse ?type)

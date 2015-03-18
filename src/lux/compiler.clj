@@ -5,11 +5,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail* assert!
-                                     repeat% exhaust% try% try-all% map% flat-map% fold% sequence%
-                                     apply%
-                                     normalize-ident
-                                     |get |list]]
+            (lux [base :as & :refer [exec return* return fail fail*]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -23,7 +19,8 @@
                           [host :as &&host]
                           [case :as &&case]
                           [lambda :as &&lambda])
-            :reload)
+            ;; :reload
+            )
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -320,7 +317,7 @@
   ;; (prn 'compile-statement syntax)
   (matchv ::M/objects [syntax]
     [["Statement" ?form]]
-    (matchv ::M/objects ?form
+    (matchv ::M/objects [?form]
       [["def" ?name ?body]]
       (&&lux/compile-def compile-expression ?name ?body)
       
@@ -364,19 +361,19 @@
 (let [compiler-step (exec [analysis+ (&optimizer/optimize eval!)
                            ;; :let [_ (prn 'analysis+ analysis+)]
                            ]
-                      (flat-map% compile-statement analysis+))]
+                      (&/flat-map% compile-statement analysis+))]
   (defn ^:private compile-module [name]
     (fn [state]
-      (if (->> state (get$ "modules") (|contains? name))
+      (if (->> state (&/get$ "modules") (&/|contains? name))
         (fail "[Compiler Error] Can't redefine a module!")
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
-          (matchv ::M/objects [(&/run-state (exhaust% compiler-step) (-> state
-                                                                         (set$ "source" (slurp (str "source/" name ".lux")))
-                                                                         (set$ "global-env" (&/env name))
-                                                                         (set$ "writer" =class)
-                                                                         (update$ "modules" #(|put name &a-def/init-module %))))]
+          (matchv ::M/objects [(&/run-state (&/exhaust% compiler-step) (-> state
+                                                                           (&/set$ "source" (slurp (str "source/" name ".lux")))
+                                                                           (&/set$ "global-env" (&/env name))
+                                                                           (&/set$ "writer" =class)
+                                                                           (&/update$ "modules" #(&/|put name &a-def/init-module %))))]
             [["Right" [?state ?vals]]]
             (do (.visitEnd =class)
               ;; (prn 'compile-module/?vals ?vals)
@@ -388,7 +385,7 @@
 ;; [Resources]
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
-  (matchv ::M/objects [(&/run-state (map% compile-module modules) (&/init-state))]
+  (matchv ::M/objects [(&/run-state (&/map% compile-module modules) (&/init-state))]
     [["Right" [?state _]]]
     (println (str "Compilation complete! " (pr-str modules)))
 

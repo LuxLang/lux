@@ -3,9 +3,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*
-                                     repeat-m try-all-m map-m mapcat-m reduce-m
-                                     normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*]]
                  [parser :as &parser]
                  [type :as &type])))
 
@@ -32,7 +30,7 @@
       )))
 
 (defn ^:private method->type [method]
-  (exec [=args (map-m class->type (seq (.getParameterTypes method)))
+  (exec [=args (&/map% class->type (seq (.getParameterTypes method)))
          =return (class->type (.getReturnType method))]
     (return [=args =return])))
 
@@ -143,4 +141,4 @@
   )
 
 (defn location [scope]
-  (->> scope (map normalize-ident) (interpose "$") (reduce str "")))
+  (->> scope (&/|map &/normalize-ident) (&/|interpose "$") (&/fold str "")))

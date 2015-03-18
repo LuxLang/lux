@@ -2,10 +2,9 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
-            (lux [base :as & :refer [exec return* return fail fail*
-                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                     normalize-ident]]
+            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
+            (lux [base :as & :refer [exec return* return fail fail*]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -87,7 +86,7 @@
                          [["Expression" [["captured" [_ ?cid1 _]] _]]
                           ["Expression" [["captured" [_ ?cid2 _]] _]]]
                          (< ?cid1 ?cid2)))
-                (map-m (fn [[?name ?captured]]
+                (&/map% (fn [[?name ?captured]]
                          (matchv ::M/objects [?captured]
                            [["Expression" [["captured" [_ _ ?source]] _]]]
                            (compile ?source)))))

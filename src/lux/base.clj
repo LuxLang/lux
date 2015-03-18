@@ -45,6 +45,64 @@
 (defn return* [state value]
   (V "Right" (T state value)))
 
+(defmacro |list [& elems]
+  (reduce (fn [tail head]
+            `(V "Cons" (T ~head ~tail)))
+          `(V "Nil" nil)
+          elems))
+
+(defmacro |table [& elems]
+  (reduce (fn [table [k v]]
+            `(|put ~k ~v ~table))
+          `(|list)
+          (partition 2 elems)))
+
+(defn |get [slot table]
+  (matchv ::M/objects [table]
+    [["Nil" _]]
+    (V "Left" (str "Not found: " slot))
+    
+    [["Cons" [[k v] table*]]]
+    (if (= k slot)
+      (V "Right" v)
+      (|get slot table*))))
+
+(defn |put [slot value table]
+  (matchv ::M/objects [table]
+    [["Nil" _]]
+    (V "Cons" (T (T slot value) (V "Nil" nil)))
+    
+    [["Cons" [[k v] table*]]]
+    (if (= k slot)
+      (V "Cons" (T (T slot value) table*))
+      (V "Cons" (T (T k v) (|put slot value table*))))))
+
+(defn |merge [table1 table2]
+  (matchv ::M/objects [table2]
+    [["Nil" _]]
+    table1
+
+    [["Cons" [[k v] table2*]]]
+    (|merge (|put k v table1) table2*)))
+
+(defn |update [k f table]
+  (matchv ::M/objects [table]
+    [["Nil" _]]
+    table
+
+    [["Cons" [[k* v] table*]]]
+    (if (= k k*)
+      (V "Cons" (T (T k (f v)) table*))
+      (|update k f table*))))
+
+(defn |head [xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (assert false)
+
+    [["Cons" [x _]]]
+    x))
+
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
@@ -88,6 +146,14 @@
 (defn |cons [head tail]
   (V "Cons" (T head tail)))
 
+(defn |concat [xs ys]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    ys
+
+    [["Cons" [x xs*]]]
+    (V "Cons" (T x (|concat xs* ys)))))
+
 (defn |map [f xs]
   (matchv ::M/objects [xs]
     [["Nil" _]]
@@ -95,6 +161,23 @@
 
     [["Cons" [x xs*]]]
     (V "Cons" (T (f x) (|map f xs*)))))
+
+(defn flat-map [f xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    xs
+
+    [["Cons" [x xs*]]]
+    (|concat (f x) (flat-map f xs*))))
+
+(defn |contains? [k table]
+  (matchv ::M/objects [table]
+    [["Nil" _]]
+    false
+
+    [["Cons" [[k* _] table*]]]
+    (or (= k k*)
+        (|contains? k table*))))
 
 (defn fold [f init xs]
   (matchv ::M/objects [xs]
@@ -157,29 +240,19 @@
     map%      cons%
     flat-map% ++%))
 
-(defn fold% [f init xs]
+(defn |as-pairs [xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
-    init
-    
-    [["Cons" [x xs*]]]
-    (fold% f (f init x) xs*)))
+    [["Cons" [x [["Cons" [y xs*]]]]]]
+    (V "Cons" (T (T x y) (|as-pairs xs*)))
 
-(defn |get [record slot]
-  (matchv ::M/objects [record]
-    [["Nil" _]]
-    (V "Left" (str "Not found: " slot))
-    
-    [["Cons" [[k v] record*]]]
-    (if (= k slot)
-      (V "Right" v)
-      (|get record* slot))))
+    [_]
+    (V "Nil" nil)))
 
-(defmacro |list [& elems]
-  (reduce (fn [tail head]
-            `(V "Cons" (T ~head ~tail)))
-          `(V "Nil" nil)
-          elems))
+(defn |reverse [xs]
+  (fold (fn [tail head]
+          (|cons head tail))
+        (|list)
+        xs))
 
 (defn if% [text-m then-m else-m]
   (exec [? text-m]

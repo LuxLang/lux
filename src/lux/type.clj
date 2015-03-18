@@ -2,38 +2,34 @@
   (:refer-clojure :exclude [deref apply merge])
   (:require [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            [lux.base :as & :refer [exec return* return fail fail* assert!
-                                    |list |map fold |length |interpose |get zip2 |keys
-                                    repeat% exhaust% try% try-all% map% flat-map% fold% sequence%
-                                    apply%
-                                    normalize-ident]]))
+            [lux.base :as & :refer [exec return* return fail fail* assert!]]))
 
 ;; [Util]
 (def ^:private success (return nil))
 
 (defn ^:private deref [id]
   (fn [state]
-    (if-let [type (->> state (get$ "types") (get$ "mappings") (|get id))]
+    (if-let [type (->> state (&/get$ "types") (&/get$ "mappings") (&/|get id))]
       (return* state type)
       (fail* (str "Unknown type-var: " id)))))
 
 (defn ^:private reset [id type]
   (fn [state]
-    (if-let [_ (->> state (get$ "types") (get$ "mappings") (|get id))]
-      (return* (update$ "types" (fn [ts] (update$ "mappings" #(|put id (&/V "Some" type) %)
-                                                 ts))
-                        state)
+    (if-let [_ (->> state (&/get$ "types") (&/get$ "mappings") (&/|get id))]
+      (return* (&/update$ "types" (fn [ts] (&/update$ "mappings" #(&/|put id (&/V "Some" type) %)
+                                                     ts))
+                          state)
                nil)
       (fail* (str "Unknown type-var: " id)))))
 
 ;; [Exports]
 (def fresh-var
   (fn [state]
-    (let [id (->> state (get$ "types") (get$ "counter"))]
-      (return* (update$ "types" #(-> %
-                                     (update$ "counter" inc)
-                                     (update$ "mappings" #(|put id (&/V "None" nil) %)))
-                        state)
+    (let [id (->> state (&/get$ "types") (&/get$ "counter"))]
+      (return* (&/update$ "types" #(-> %
+                                       (&/update$ "counter" inc)
+                                       (&/update$ "mappings" (fn [ms] (&/|put id (&/V "None" nil) ms))))
+                          state)
                (&/V "Var" id)))))
 
 (def fresh-lambda
@@ -84,30 +80,30 @@
     ))
 
 (def +list+
-  [::All (|list) "List" "a"
-   [::Variant (|list ["Cons" [::Tuple (|list [::Bound "a"] [::App [::Bound "List"] [::Bound "a"]])]]
-                     ["Nil" [::Tuple (|list)]])]])
+  [::All (&/|list) "List" "a"
+   [::Variant (&/|list ["Cons" [::Tuple (&/|list [::Bound "a"] [::App [::Bound "List"] [::Bound "a"]])]]
+                     ["Nil" [::Tuple (&/|list)]])]])
 
 (def +type+
-  (let [text [::Data "java.lang.String" (|list)]
+  (let [text [::Data "java.lang.String" (&/|list)]
         type [::App [::Bound "Type"] [::Any]]
         list-of-types [::App +list+ type]
-        string=>type [::App +list+ [::Tuple (|list text type)]]]
-    (->type [::All (|list) "Type" "_"
-             [::Variant (|list ["Any"  [::Tuple (|list)]]
-                               ["Nothing"  [::Tuple (|list)]]
-                               ["Data" [::Tuple (|list text list-of-types)]]
-                               ["Tuple" list-of-types]
-                               ["Variant" string=>type]
-                               ["Record" string=>type]
-                               ["Lambda" [::Tuple (|list type
-                                                         type)]]
-                               ["App" [::Tuple (|list type
-                                                      type)]]
-                               ["Bound" text]
-                               ["Var" [::Data "java.lang.Long" (|list)]]
-                               ["All" [::Tuple (|list string=>type text text type)]]
-                               )]])))
+        string=>type [::App +list+ [::Tuple (&/|list text type)]]]
+    (->type [::All (&/|list) "Type" "_"
+             [::Variant (&/|list ["Any"  [::Tuple (&/|list)]]
+                                 ["Nothing"  [::Tuple (&/|list)]]
+                                 ["Data" [::Tuple (&/|list text list-of-types)]]
+                                 ["Tuple" list-of-types]
+                                 ["Variant" string=>type]
+                                 ["Record" string=>type]
+                                 ["Lambda" [::Tuple (&/|list type
+                                                             type)]]
+                                 ["App" [::Tuple (&/|list type
+                                                          type)]]
+                                 ["Bound" text]
+                                 ["Var" [::Data "java.lang.Long" (&/|list)]]
+                                 ["All" [::Tuple (&/|list string=>type text text type)]]
+                                 )]])))
 
 (defn clean [type]
   (matchv ::M/objects [type]
@@ -126,25 +122,25 @@
       (return (&/V "App" (to-array [=lambda =param]))))
 
     [["Tuple" ?members]]
-    (exec [=members (map% clean ?members)]
+    (exec [=members (&/map% clean ?members)]
       (return (&/V "Tuple" =members)))
     
     [["Variant" ?members]]
-    (exec [=members (map% (fn [[k v]]
+    (exec [=members (&/map% (fn [[k v]]
                             (exec [=v (clean v)]
                               (return (to-array [k =v]))))
                           ?members)]
       (return (&/V "Variant" =members)))
 
     [["Record" ?members]]
-    (exec [=members (map% (fn [[k v]]
+    (exec [=members (&/map% (fn [[k v]]
                             (exec [=v (clean v)]
                               (return (to-array [k =v]))))
                           ?members)]
       (return (&/V "Record" =members)))
 
     [["All" [?env ?name ?arg ?body]]]
-    (exec [=env (map% (fn [[k v]]
+    (exec [=env (&/map% (fn [[k v]]
                         (exec [=v (clean v)]
                           (return (to-array [k =v]))))
                       ?env)]
@@ -163,32 +159,32 @@
     "Nothing"
 
     [["Data" [name params]]]
-    (str "(^ " name " [" (->> params (|map show-type) (|interpose " ") (fold str "")) "])")
+    (str "(^ " name " [" (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) "])")
 
     [["Tuple" elems]]
-    (str "(, " (->> elems (|map show-type) (|interpose " ") (fold str "")) ")")
+    (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
 
     [["Variant" cases]]
     (str "(| " (->> cases
-                    (|map (fn [kv]
+                    (&/|map (fn [kv]
                             (matchv ::M/objects [kv]
                               [[k ["Tuple" ["Nil" _]]]]
                               (str "#" k)
 
                               [[k v]]
                               (str "(#" k " " (show-type v) ")"))))
-                    (|interpose " ")
-                    (fold str "")) ")")
+                    (&/|interpose " ")
+                    (&/fold str "")) ")")
     
 
     [["Record" fields]]
     (str "(& " (->> fields
-                    (|map (fn [kv]
+                    (&/|map (fn [kv]
                             (matchv ::M/objects [kv]
                               [[k v]]
                               (str "(#" k " " (show-type v) ")"))))
-                    (|interpose " ")
-                    (fold str "")) ")")
+                    (&/|interpose " ")
+                    (&/fold str "")) ")")
 
     [["Lambda" [input output]]]
     (str "(-> " (show-type input) " " (show-type output) ")")
@@ -224,22 +220,22 @@
       (fail (str "not (" actual " <= " expected ")")))
     
     [["Tuple" e!elems] ["Tuple" a!elems]]
-    (exec [_ (assert! (= (|length e!elems) (|length a!elems))
+    (exec [_ (assert! (= (&/|length e!elems) (&/|length a!elems))
                       "Tuples must have matching element sizes.")
-           _ (map% (fn [n g] (solve n g))
-                   (zip2 e!elems a!elems))]
+           _ (&/map% (fn [n g] (solve n g))
+                   (&/zip2 e!elems a!elems))]
       success)
 
     [["Variant" e!cases] ["Variant" a!cases]]
-    (exec [_ (map% (fn [slot]
-                     (solve (|get e!cases slot) (|get a!cases slot)))
-                   (|keys a!cases))]
+    (exec [_ (&/map% (fn [slot]
+                     (solve (&/|get e!cases slot) (&/|get a!cases slot)))
+                   (&/|keys a!cases))]
       success)
 
     [["Record" e!fields] ["Record" a!fields]]
-    (exec [_ (map% (fn [slot]
-                     (solve (|get e!fields slot) (|get a!fields slot)))
-                   (|keys e!fields))]
+    (exec [_ (&/map% (fn [slot]
+                     (solve (&/|get e!fields slot) (&/|get a!fields slot)))
+                   (&/|keys e!fields))]
       success)
 
     [["Lambda" [e!input e!output]] ["Lambda" [a!input a!output]]]
@@ -313,7 +309,7 @@
 
 (defn slot-type [record slot]
   (fn [state]
-    (matchv ::M/objects [(|get record slot)]
+    (matchv ::M/objects [(&/|get record slot)]
       [["Left" msg]]
       (fail* msg)
 

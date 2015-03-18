@@ -4,10 +4,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*
-                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                     apply-m
-                                     normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -173,7 +170,7 @@
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]
   (exec [*writer* &/get-writer
          :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
-         _ (map-m (fn [[class-name arg]]
+         _ (&/map% (fn [[class-name arg]]
                     (exec [ret (compile arg)
                            :let [_ (prepare-arg! *writer* class-name)]]
                       (return ret)))
@@ -190,7 +187,7 @@
            :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
            _ (compile ?object)
            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
-           _ (map-m (fn [[class-name arg]]
+           _ (&/map% (fn [[class-name arg]]
                       (exec [ret (compile arg)
                              :let [_ (prepare-arg! *writer* class-name)]]
                         (return ret)))
@@ -231,7 +228,7 @@
                _ (doto *writer*
                    (.visitTypeInsn Opcodes/NEW class*)
                    (.visitInsn Opcodes/DUP))]
-         _ (map-m (fn [[class-name arg]]
+         _ (&/map% (fn [[class-name arg]]
                     (exec [ret (compile arg)
                            :let [_ (prepare-arg! *writer* class-name)]]
                       (return ret)))
@@ -328,7 +325,7 @@
 
 (defn compile-exec [compile *type* ?exprs]
   (exec [*writer* &/get-writer
-         _ (map-m (fn [expr]
+         _ (&/map% (fn [expr]
                     (exec [ret (compile expr)
                            :let [_ (.visitInsn *writer* Opcodes/POP)]]
                       (return ret)))
@@ -356,7 +353,7 @@
          _ (compile ?body)
          :let [_ (.visitLabel *writer* $to)]
          _ compile-finally
-         handlers (map-m (fn [[?ex-class ?ex-arg ?catch-body]]
+         handlers (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
                            (exec [:let [$handler-start (new Label)
                                         $handler-end (new Label)]
                                   _ (compile ?catch-body)

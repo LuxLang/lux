@@ -3,10 +3,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*
-                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                     apply-m
-                                     normalize-ident]]
+            (lux [base :as & :refer [exec return* return fail fail*]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -40,11 +37,11 @@
     [register (&/V "Pattern" (&/T $body [&/V "TextMatch" ?value]))]
 
     [["Tuple" ?members]]
-    (let [[register* =members] (reduce (fn [[register =members] member]
+    (let [[register* =members] (&/fold (fn [[register =members] member]
                                          (let [[register* =member] (->match $body register member)]
                                            [register* (cons =member =members)]))
                                        [register (list)]
-                                       (&/->seq ?members))]
+                                       ?members)]
       [register* (&/V "Pattern" (&/T $body [&/V "TupleMatch" (reverse =members)]))])
 
     [["Tag" ?tag]]
@@ -182,7 +179,7 @@
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
         (.visitInsn Opcodes/ATHROW))
-      (map-m (fn [[?label ?body]]
+      (&/map% (fn [[?label ?body]]
                (exec [:let [_ (.visitLabel writer ?label)]
                       ret (compile ?body)
                       :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]

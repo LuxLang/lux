@@ -1,9 +1,7 @@
 (ns lux.analyser.case
   (:require [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail
-                                     try-all-m map-m mapcat-m reduce-m
-                                     assert!]]
+            (lux [base :as & :refer [exec return fail]]
                  [parser :as &parser]
                  [type :as &type])
             (lux.analyser [base :as &&]
@@ -13,16 +11,16 @@
 (defn locals [member]
   (matchv ::M/objects [member]
     [["Ident" ?name]]
-    (|list ?name)
+    (&/|list ?name)
 
     [["Tuple" ?submembers]]
-    (|flat-map locals ?submembers)
+    (&/flat-map locals ?submembers)
 
     [["Form" ["Cons" [["Tag" _] ?submembers]]]]
-    (|flat-map locals ?submembers)
+    (&/flat-map locals ?submembers)
 
     [_]
-    (|list)))
+    (&/|list)))
 
 (defn analyse-branch [analyse max-registers [bindings body]]
   ;; (prn 'analyse-branch max-registers bindings body)

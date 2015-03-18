@@ -2,11 +2,9 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
-            (lux [base :as & :refer [exec return* return fail fail*
-                                     repeat-m exhaust-m try-m try-all-m map-m reduce-m
-                                     apply-m
-                                     normalize-ident]]
+            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
+            (lux [base :as & :refer [exec return* return fail fail*]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -56,14 +54,14 @@
                _ (doto *writer*
                    (.visitLdcInsn (int num-elems))
                    (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
-         _ (map-m (fn [[idx elem]]
-                    (exec [:let [_ (doto *writer*
-                                     (.visitInsn Opcodes/DUP)
-                                     (.visitLdcInsn (int idx)))]
-                           ret (compile elem)
-                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                      (return ret)))
-                  (map vector (range num-elems) ?elems))]
+         _ (&/map% (fn [[idx elem]]
+                     (exec [:let [_ (doto *writer*
+                                      (.visitInsn Opcodes/DUP)
+                                      (.visitLdcInsn (int idx)))]
+                            ret (compile elem)
+                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                       (return ret)))
+                   (map vector (range num-elems) ?elems))]
     (return nil)))
 
 (defn compile-record [compile *type* ?elems]
@@ -72,20 +70,20 @@
                _ (doto *writer*
                    (.visitLdcInsn (int (* 2 num-elems)))
                    (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
-         _ (map-m (fn [[idx [k v]]]
-                    (exec [:let [idx* (* 2 idx)
-                                 _ (doto *writer*
-                                     (.visitInsn Opcodes/DUP)
-                                     (.visitLdcInsn (int idx*))
-                                     (.visitLdcInsn k)
-                                     (.visitInsn Opcodes/AASTORE))]
-                           :let [_ (doto *writer*
-                                     (.visitInsn Opcodes/DUP)
-                                     (.visitLdcInsn (int (inc idx*))))]
-                           ret (compile v)
-                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                      (return ret)))
-                  (map vector (range num-elems) ?elems))]
+         _ (&/map% (fn [[idx [k v]]]
+                     (exec [:let [idx* (* 2 idx)
+                                  _ (doto *writer*
+                                      (.visitInsn Opcodes/DUP)
+                                      (.visitLdcInsn (int idx*))
+                                      (.visitLdcInsn k)
+                                      (.visitInsn Opcodes/AASTORE))]
+                            :let [_ (doto *writer*
+                                      (.visitInsn Opcodes/DUP)
+                                      (.visitLdcInsn (int (inc idx*))))]
+                            ret (compile v)
+                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                       (return ret)))
+                   (map vector (range num-elems) ?elems))]
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
@@ -127,11 +125,11 @@
 (defn compile-call [compile *type* ?fn ?args]
   (exec [*writer* &/get-writer
          _ (compile ?fn)
-         _ (map-m (fn [arg]
-                    (exec [ret (compile arg)
-                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
-                      (return ret)))
-                  ?args)]
+         _ (&/map% (fn [arg]
+                     (exec [ret (compile arg)
+                            :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
+                       (return ret)))
+                   ?args)]
     (return nil)))
 
 (defn compile-get [compile *type* ?slot ?record]
@@ -232,7 +230,7 @@
          module-name &/get-module-name
          :let [outer-class (&host/->class module-name)
                datum-sig (&host/->type-signature "java.lang.Object")
-               current-class (&host/location (list outer-class ?name))
+               current-class (&host/location (&/|list outer-class ?name))
                _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
