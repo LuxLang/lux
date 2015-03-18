@@ -9,35 +9,35 @@
 ;; [Resources]
 (defn expr-type [syntax+]
   ;; (prn 'expr-type syntax+)
-  (match syntax+
-    [::Expression _ type]
+  (matchv ::M/objects [syntax+]
+    [["Expression" [_ type]]]
     (return type)
 
-    _
+    [_]
     (fail (str "[Analyser Error] Can't retrieve the type of a non-expression: " (pr-str syntax+)))))
 
 (defn analyse-1 [analyse elem]
   (exec [output (analyse elem)]
-    (match output
-      ([x] :seq)
+    (matchv ::M/objects [output]
+      ["Cons" [x ["Nil" _]]]
       (return x)
 
-      :else
+      [_]
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn analyse-2 [analyse el1 el2]
   (exec [output (mapcat-m analyse (list el1 el2))]
     (match output
-      ([x y] :seq)
+      ["Cons" [x ["Cons" [y ["Nil" _]]]]]
       (return [x y])
 
-      :else
+      [_]
       (fail "[Analyser Error] Can't expand to other than 2 elements."))))
 
 (defn with-var [k]
   (exec [=var &type/fresh-var
          =ret (k =var)]
-    (match =ret
-      [::Expression ?expr ?type]
+    (matchv ::M/objects [=ret]
+      [["Expression" [?expr ?type]]]
       (exec [=type (&type/clean =var ?type)]
-        (return [::Expression ?expr =type])))))
+        (return (&/V "Expression" (&/T ?expr =type)))))))

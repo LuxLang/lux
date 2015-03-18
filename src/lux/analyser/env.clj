@@ -18,10 +18,10 @@
     (let [old-mappings (->> state (get$ "local-envs") |head (get$ "locals") (get$ "mappings"))
           =return (body (update$ "local-envs"
                                  (fn [[top & stack]]
-                                   (let [bound-unit [::&&/local (-> top (get$ "locals") (get$ "counter"))]]
+                                   (let [bound-unit (&/V "local" (-> top (get$ "locals") (get$ "counter")))]
                                      (cons (-> top
                                                (update$ "locals" #(update$ "counter" inc %))
-                                               (update$ "locals" #(update$ "mappings" (fn [m] (|put name [::&&/Expression bound-unit type] m)) %)))
+                                               (update$ "locals" #(update$ "mappings" (fn [m] (|put name (&/V "Expression" (&/T bound-unit type)) m)) %)))
                                            stack)))
                                  state))]
       (matchv ::M/objects [=return]

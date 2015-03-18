@@ -41,8 +41,8 @@
           (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
         (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-             (match ?captured
-               [::&a/Expression [::&a/captured _ ?captured-id ?source] _])
+             (matchv ::M/objects [?captured]
+               [["Expression" [["captured" [_ ?captured-id ?source]] _]]])
              (doseq [[?name ?captured] env])))
     (.visitInsn Opcodes/RETURN)
     (.visitMaxs 0 0)
@@ -83,13 +83,13 @@
                    (.visitTypeInsn Opcodes/NEW lambda-class)
                    (.visitInsn Opcodes/DUP))]
          _ (->> closed-over
-                (sort #(match [(second %1) (second %2)]
-                         [[::&a/Expression [::&a/captured _ ?cid1 _] _]
-                          [::&a/Expression [::&a/captured _ ?cid2 _] _]]
+                (sort #(matchv ::M/objects [(second %1) (second %2)]
+                         [["Expression" [["captured" [_ ?cid1 _]] _]]
+                          ["Expression" [["captured" [_ ?cid2 _]] _]]]
                          (< ?cid1 ?cid2)))
                 (map-m (fn [[?name ?captured]]
-                         (match ?captured
-                           [::&a/Expression [::&a/captured _ _ ?source] _]
+                         (matchv ::M/objects [?captured]
+                           [["Expression" [["captured" [_ _ ?source]] _]]]
                            (compile ?source)))))
          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
     (return nil)))
@@ -104,8 +104,8 @@
                         (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                               (.visitEnd))
                             (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-                                 (match ?captured
-                                   [::&a/Expression [::&a/captured _ ?captured-id ?source] _])
+                                 (matchv ::M/objects [?captured]
+                                   [["Expression" [["captured" [_ ?captured-id ?source]] _]]])
                                  (doseq [[?name ?captured] ?env
                                          ;; :let [_ (prn '?captured ?captured)]
                                          ])))

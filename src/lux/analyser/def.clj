@@ -30,7 +30,7 @@
 (defn define [module name type]
   (fn [state]
     (let [full-name (str module &/+name-separator+ name)
-          bound [::&&/Expression [::&&/global module name] type]]
+          bound (&/V "Expression" (&/T (&/V "global" (&/T module name)) type))]
       (return* (->> state
                     (update$ "modules" (fn [ms] (|update module (fn [m] (update$ "defs" #(|put name type %) m)) ms)))
                     (update$ "global-env" #(|merge (|table full-name bound, name bound) %)))

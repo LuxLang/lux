@@ -23,7 +23,7 @@
          =elems-types (|map% &&/expr-type =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (|list [::&&/Expression [::&&/tuple =elems] (&/V "Tuple" (&/|->list =elems-types))]))))
+    (return (|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "Tuple" (&/|->list =elems-types))))))))
 
 (defn analyse-record [analyse ?elems]
   (exec [=elems (|map% (fn [kv]
@@ -40,7 +40,7 @@
                              =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (|list [::&&/Expression [::&&/record =elems] (&/V "Record" (&/|->list =elems-types))]))))
+    (return (|list (&/V "Expression" (&/T (&/V "record" =elems) (&/V "Record" (&/|->list =elems-types))))))))
 
 (defn analyse-ident [analyse ident]
   (exec [module-name &/get-module-name]
@@ -75,20 +75,23 @@
 (defn ^:private analyse-apply* [analyse =fn ?args]
   (exec [=args (|flat-map% analyse ?args)
          =fn-type (&&/expr-type =fn)
-         :let [[=apply =apply-type] (|fold% (fn [[=fn =fn-type] =input]
-                                              (exec [=input-type (&&/expr-type =input)
-                                                     =output-type (&type/apply-lambda =fn-type =input-type)]
-                                                [[::&&/apply =fn =input] =output-type]))
-                                            [=fn =fn-type]
-                                            =args)]]
-    (return (|list [::&&/Expression =apply =apply-type]))))
+         =apply+=apply-type (fold% (fn [[=fn =fn-type] =input]
+                                     (exec [=input-type (&&/expr-type =input)
+                                            =output-type (&type/apply-lambda =fn-type =input-type)]
+                                       (return [(&/V "apply" (&/T =fn =input)) =output-type])))
+                                   [=fn =fn-type]
+                                   =args)
+         :let [[=apply =apply-type] (matchv ::M/objects [=apply+=apply-type]
+                                      [[=apply =apply-type]]
+                                      [=apply =apply-type])]]
+    (return (|list (&/V "Expression" (&/T =apply =apply-type))))))
 
 (defn analyse-apply [analyse =fn ?args]
   (exec [loader &/loader]
-    (match =fn
-      [::&&/Expression =fn-form =fn-type]
-      (match =fn-form
-        [::&&/global ?module ?name]
+    (matchv ::M/objects [=fn]
+      [["Expression" [=fn-form =fn-type]]]
+      (matchv ::M/objects [=fn-form]
+        [["global" [?module ?name]]]
         (exec [macro? (&&def/macro? ?module ?name)]
           (if macro?
             (let [macro-class (&host/location (list ?module ?name))]
@@ -96,10 +99,10 @@
                 (return (&/->seq (|flat-map% analyse macro-expansion)))))
             (analyse-apply* analyse =fn ?args)))
         
-        _
+        [_]
         (analyse-apply* analyse =fn ?args))
 
-      :else
+      [_]
       (fail "[Analyser Error] Can't call a statement!"))
     ))
 
@@ -123,7 +126,7 @@
          =body-types (map-m &&/expr-type =bodies)
          =case-type (reduce-m &type/merge (&/V "Nothing" nil) =body-types)
          :let [=branches (map vector (map first branches) =bodies)]]
-    (return (|list [::&&/Expression [::&&/case =value base-register max-locals =branches] =case-type]))))
+    (return (|list (&/V "Expression" (&/T (&/V "case" (&/T =value base-register max-locals =branches)) =case-type))))))
 
 (defn analyse-lambda [analyse ?self ?arg ?body]
   (exec [=lambda-type* &type/fresh-lambda]
@@ -136,13 +139,13 @@
              =lambda-type (exec [_ (&type/solve =return =body-type)
                                  =lambda-type** (&type/clean =return =lambda-type*)]
                             (&type/clean =arg =lambda-type**))]
-        (return (|list [::&&/Expression [::&&/lambda =scope =captured ?arg =body] =lambda-type]))))))
+        (return (|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured ?arg =body)) =lambda-type))))))))
 
 (defn analyse-get [analyse ?slot ?record]
   (exec [=record (&&/analyse-1 analyse ?record)
          =record-type (&&/expr-type =record)
          =slot-type (&type/slot-type =record-type ?slot)]
-    (return (|list [::&&/Expression [::&&/get ?slot =record] =slot-type]))))
+    (return (|list (&/V "Expression" (&/T (&/V "get" (?slot =record)) =slot-type))))))
 
 (defn analyse-set [analyse ?slot ?value ?record]
   (exec [=value (&&/analyse-1 analyse ?value)
@@ -150,7 +153,7 @@
          =record-type (&&/expr-type =record)
          =slot-type (&type/slot-type =record-type ?slot)
          _ (&type/solve =slot-type =value)]
-    (return (|list [::&&/Expression [::&&/set ?slot =value =record] =slot-type]))))
+    (return (|list (&/V "Expression" (&/T (&/V "set" (&/T ?slot =value =record)) =slot-type))))))
 
 (defn analyse-def [analyse ?name ?value]
   ;; (prn 'analyse-def ?name ?value)
@@ -160,7 +163,7 @@
           (exec [=value (&&/analyse-1 analyse ?value)
                  =value-type (&&/expr-type =value)
                  _ (&&def/define module-name ?name =value-type)]
-            (return (|list [::&&/Statement [::&&/def ?name =value]]))))))
+            (return (|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
 
 (defn analyse-declare-macro [?ident]
   (exec [module-name &/get-module-name
@@ -177,10 +180,10 @@
          _ (&type/solve &type/+type+ =type-type)
          ==type (eval! =type)
          =value (&&/analyse-1 analyse ?value)]
-    (match =value
-      [::&&/Expression ?expr ?expr-type]
+    (matchv ::M/objects [=value]
+      [["Expression" [?expr ?expr-type]]]
       (exec [_ (&type/solve ==type ?expr-type)]
-        (return [::&&/Expression ?expr ==type])))))
+        (return (&/V "Expression" (&/T ?expr ==type)))))))
 
 (defn analyse-coerce [analyse eval! ?type ?value]
   (exec [=type (&&/analyse-1 analyse ?type)
@@ -188,6 +191,6 @@
          _ (&type/solve &type/+type+ =type-type)
          ==type (eval! =type)
          =value (&&/analyse-1 analyse ?value)]
-    (match =value
-      [::&&/Expression ?expr ?expr-type]
-      (return [::&&/Expression ?expr ==type]))))
+    (matchv ::M/objects [=value]
+      [["Expression" [?expr ?expr-type]]]
+      (return (&/V "Expression" (&/T ?expr ==type))))))

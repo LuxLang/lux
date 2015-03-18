@@ -22,22 +22,22 @@
 (defn ^:private ->match [$body register token]
   (matchv ::M/objects [token]
     [["Ident" ?name]]
-    [(inc register) [::Pattern $body [::StoreMatch register]]]
+    [(inc register) (&/V "Pattern" (&/T $body [&/V "StoreMatch" register]))]
     
     [["Bool" ?value]]
-    [register [::Pattern $body [::BoolMatch ?value]]]
+    [register (&/V "Pattern" (&/T $body [&/V "BoolMatch" ?value]))]
 
     [["Int" ?value]]
-    [register [::Pattern $body [::IntMatch ?value]]]
+    [register (&/V "Pattern" (&/T $body [&/V "IntMatch" ?value]))]
 
     [["Real" ?value]]
-    [register [::Pattern $body [::RealMatch ?value]]]
+    [register (&/V "Pattern" (&/T $body [&/V "RealMatch" ?value]))]
 
     [["Char" ?value]]
-    [register [::Pattern $body [::CharMatch ?value]]]
+    [register (&/V "Pattern" (&/T $body [&/V "CharMatch" ?value]))]
 
     [["Text" ?value]]
-    [register [::Pattern $body [::TextMatch ?value]]]
+    [register (&/V "Pattern" (&/T $body [&/V "TextMatch" ?value]))]
 
     [["Tuple" ?members]]
     (let [[register* =members] (reduce (fn [[register =members] member]
@@ -45,17 +45,17 @@
                                            [register* (cons =member =members)]))
                                        [register (list)]
                                        (&/->seq ?members))]
-      [register* [::Pattern $body [::TupleMatch (reverse =members)]]])
+      [register* (&/V "Pattern" (&/T $body [&/V "TupleMatch" (reverse =members)]))])
 
     [["Tag" ?tag]]
-    [register [::Pattern $body [::VariantMatch ?tag [::Pattern $body [::TupleMatch (list)]]]]]
+    [register (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag [&/V "Pattern" (&/T $body [&/V "TupleMatch" (list)])])]))]
 
     [["Form" ["Cons" [["Tag" ?tag]
                       ["Cons" [?value
                                ["Nil" _]]]]]]]
     (let [[register* =value] (->match $body register ?value)]
       
-      [register* [::Pattern $body [::VariantMatch ?tag =value]]])
+      [register* (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag =value)]))])
     ))
 
 (defn ^:private process-branches [base-register branches]
@@ -70,13 +70,13 @@
       +oclass+ (&host/->class "java.lang.Object")
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
   (defn ^:private compile-match [writer ?match $target $else]
-    (match ?match
-      [::StoreMatch ?register]
+    (matchv ::M/objects [?match]
+      [["StoreMatch" ?register]]
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?register)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [::BoolMatch ?value]
+      [["BoolMatch" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Boolean") "booleanValue" "()Z")
@@ -85,7 +85,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [::IntMatch ?value]
+      [["IntMatch" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Long") "longValue" "()J")
@@ -95,7 +95,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [::RealMatch ?value]
+      [["RealMatch" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Double") "doubleValue" "()D")
@@ -105,7 +105,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [::CharMatch ?value]
+      [["CharMatch" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Character") "charValue" "()C")
@@ -114,7 +114,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [::TextMatch ?value]
+      [["TextMatch" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn ?value)
@@ -123,7 +123,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [::TupleMatch ?members]
+      [["TupleMatch" ?members]]
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (-> (doto (.visitInsn Opcodes/DUP)
@@ -140,7 +140,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       
-      [::VariantMatch ?tag [::Pattern _ ?value]]
+      [["VariantMatch" [?tag ["Pattern" [_ ?value]]]]]
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)

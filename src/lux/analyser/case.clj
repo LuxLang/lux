@@ -13,16 +13,16 @@
 (defn locals [member]
   (matchv ::M/objects [member]
     [["Ident" ?name]]
-    (list ?name)
+    (|list ?name)
 
     [["Tuple" ?submembers]]
-    (mapcat locals (&/->seq ?submembers))
+    (|flat-map locals ?submembers)
 
     [["Form" ["Cons" [["Tag" _] ?submembers]]]]
-    (mapcat locals (&/->seq ?submembers))
+    (|flat-map locals ?submembers)
 
     [_]
-    (list)))
+    (|list)))
 
 (defn analyse-branch [analyse max-registers [bindings body]]
   ;; (prn 'analyse-branch max-registers bindings body)
