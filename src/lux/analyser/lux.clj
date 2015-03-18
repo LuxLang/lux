@@ -1,9 +1,10 @@
 (ns lux.analyser.lux
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :as M :refer [match matchv]]
+            [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail
-                                     |list
+            (lux [base :as & :refer [exec return return* fail fail*
+                                     get$ set$ update$
+                                     |list |get |contains? |concat
                                      if-m try-all-m |map% |flat-map% |fold% map-m mapcat-m reduce-m
                                      assert!]]
                  [parser :as &parser]
@@ -44,29 +45,29 @@
 (defn analyse-ident [analyse ident]
   (exec [module-name &/get-module-name]
     (fn [state]
-      (let [[top & stack*] (::&/local-envs state)]
-        (if-let [=bound (or (get-in top [:locals  :mappings ident])
-                            (get-in top [:closure :mappings ident]))]
-          [::&/ok [state (|list =bound)]]
-          (let [no-binding? #(and (-> % :locals  :mappings (contains? ident) not)
-                                  (-> % :closure :mappings (contains? ident) not))
+      (let [[top & stack*] (get$ "local-envs" state)]
+        (if-let [=bound (or (->> top (get$ "locals")  (get$ "mappings") (|get ident))
+                            (->> top (get$ "closure") (get$ "mappings") (|get ident)))]
+          (return* state (|list =bound))
+          (let [no-binding? #(and (->> % (get$ "locals")  (get$ "mappings") (|contains? ident) not)
+                                  (->> % (get$ "closure") (get$ "mappings") (|contains? ident) not))
                 [inner outer] (split-with no-binding? stack*)]
             (if (empty? outer)
-              (if-let [global (get-in state [::&/global-env ident])]
-                [::&/ok [state (|list global)]]
-                [::&/failure (str "[Analyser Error] Unresolved identifier: " ident)])
+              (if-let [global (->> state (get$ "global-env") (|get ident))]
+                (return* state (|list global))
+                (fail* (str "[Analyser Error] Unresolved identifier: " ident)))
               (let [in-stack (cons top inner)
-                    scopes (rest (reductions #(cons (:name %2) %1) (map :name outer) (reverse in-stack)))
-                    _ (prn 'in-stack module-name ident (map :name in-stack) scopes)
+                    scopes (rest (reductions #(cons (get$ "name" %2) %1) (map #(get$ "name" %) outer) (reverse in-stack)))
+                    _ (prn 'in-stack module-name ident (map #(get$ "name" %) in-stack) scopes)
                     [=local inner*] (reduce (fn [[register new-inner] [frame in-scope]]
                                               (let [[register* frame*] (&&lambda/close-over (cons module-name (reverse in-scope)) ident register frame)]
                                                 [register* (cons frame* new-inner)]))
-                                            [(or (get-in (first outer) [:locals  :mappings ident])
-                                                 (get-in (first outer) [:closure :mappings ident]))
+                                            [(or (->> outer |head (get$ "locals")  (get$ "mappings") (|get ident))
+                                                 (->> outer |head (get$ "closure") (get$ "mappings") (|get ident)))
                                              '()]
                                             (map vector (reverse in-stack) scopes)
                                             )]
-                [::&/ok [(assoc state ::&/local-envs (concat inner* outer)) (|list =local)]])
+                (return* (set$ "local-envs" (|concat inner* outer) state) (|list =local)))
               ))
           ))
       )))

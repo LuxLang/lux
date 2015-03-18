@@ -6,14 +6,8 @@
 ;; [Resources]
 (defn expand [loader macro-class tokens]
   (fn [state]
-    (let [output (-> (.loadClass loader macro-class)
-                     (.getField "_datum")
-                     (.get nil)
-                     (.apply tokens)
-                     (.apply state))]
-      (matchv ::M/objects [output]
-        [["Ok" [state* tokens*]]]
-        (return* state* tokens*)
-
-        [["Error" ?msg]]
-        (fail* ?msg)))))
+    (-> (.loadClass loader macro-class)
+        (.getField "_datum")
+        (.get nil)
+        (.apply tokens)
+        (.apply state))))

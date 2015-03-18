@@ -1,6 +1,6 @@
 (ns lux.analyser
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :as M :refer [match matchv]]
+            [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [exec return fail
                                      |list
@@ -34,19 +34,19 @@
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["Bool" ?value]]
-    (return (|list [::&&/Expression [::&&/bool ?value] (&/V "Data" (to-array ["java.lang.Boolean" (&/V "Nil" nil)]))]))
+    (return (|list [::&&/Expression [::&&/bool ?value] (&/V "Data" (&/T "java.lang.Boolean" (&/V "Nil" nil)))]))
 
     [["Int" ?value]]
-    (return (|list [::&&/Expression [::&&/int ?value]  (&/V "Data" (to-array ["java.lang.Long" (&/V "Nil" nil)]))]))
+    (return (|list [::&&/Expression [::&&/int ?value]  (&/V "Data" (&/T "java.lang.Long" (&/V "Nil" nil)))]))
 
     [["Real" ?value]]
-    (return (|list [::&&/Expression [::&&/real ?value] (&/V "Data" (to-array ["java.lang.Double" (&/V "Nil" nil)]))]))
+    (return (|list [::&&/Expression [::&&/real ?value] (&/V "Data" (&/T "java.lang.Double" (&/V "Nil" nil)))]))
 
     [["Char" ?value]]
-    (return (|list [::&&/Expression [::&&/char ?value] (&/V "Data" (to-array ["java.lang.Character" (&/V "Nil" nil)]))]))
+    (return (|list [::&&/Expression [::&&/char ?value] (&/V "Data" (&/T "java.lang.Character" (&/V "Nil" nil)))]))
 
     [["Text" ?value]]
-    (return (|list [::&&/Expression [::&&/text ?value] (&/V "Data" (to-array ["java.lang.String" (&/V "Nil" nil)]))]))
+    (return (|list [::&&/Expression [::&&/text ?value] (&/V "Data" (&/T "java.lang.String" (&/V "Nil" nil)))]))
 
     [["Tuple" ?elems]]
     (&&lux/analyse-tuple analyse ?elems)
@@ -56,18 +56,18 @@
 
     [["Tag" ?tag]]
     (let [tuple-type (&/V "Tuple" (&/V "Nil" nil))]
-      (return (|list [::&&/Expression [::&&/variant ?tag [::&&/Expression [::&&/tuple (list)] tuple-type]]
-                     (&/V "Variant" (&/V "Cons" (to-array [(to-array [?tag tuple-type]) (&/V "Nil" nil)])))])))
+      (return (|list [::&&/Expression [::&&/variant ?tag [::&&/Expression [::&&/tuple (|list)] tuple-type]]
+                      (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag tuple-type) (&/V "Nil" nil))))])))
 
     [["Ident" "jvm-null"]]
-    (return (|list [::&&/Expression [::&&/jvm-null] (&/V "Data" (to-array ["null" (&/V "Nil" nil)]))]))
+    (return (|list [::&&/Expression [::&&/jvm-null] (&/V "Data" (&/T "null" (&/V "Nil" nil)))]))
     
     [["Ident" ?ident]]
     (&&lux/analyse-ident analyse ?ident)
 
     [["Form" ["Cons" [["Ident" "case'"]
                       ["Cons" [?variant ?branches]]]]]]
-    (&&lux/analyse-case analyse ?variant (&/->seq ?branches))
+    (&&lux/analyse-case analyse ?variant ?branches)
     
     [["Form" ["Cons" [["Ident" "lambda'"]
                       ["Cons" [["Ident" ?self]
@@ -403,15 +403,15 @@
              ;; :let [_ (prn 'POST-ASSERT)]
              =value (&&/analyse-1 (analyse-ast eval!) (first ?values))
              =value-type (&&/expr-type =value)]
-        (return (|list [::&&/Expression [::&&/variant ?tag =value] (&/V "Variant" (&/V "Cons" (to-array [(to-array [?tag =value-type]) (&/V "Nil" nil)])))])))
+        (return (|list [::&&/Expression [::&&/variant ?tag =value] (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag =value-type) (&/V "Nil" nil))))])))
       
       [["Form" ["Cons" [?fn ?args]]]]
       (fn [state]
-        (match ((&&/analyse-1 (analyse-ast eval!) ?fn) state)
-          [::&/ok [state* =fn]]
+        (matchv ::M/objects [((&&/analyse-1 (analyse-ast eval!) ?fn) state)]
+          [["Right" [state* =fn]]]
           ((&&lux/analyse-apply (analyse-ast eval!) =fn ?args) state*)
 
-          _
+          [_]
           ((analyse-basic-ast (analyse-ast eval!) eval! token) state)))
       
       [_]

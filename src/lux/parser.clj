@@ -1,80 +1,77 @@
 (ns lux.parser
   (:require [clojure.template :refer [do-template]]
-            [clojure.core.match :refer [match]]
+            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
             (lux [base :as & :refer [exec return fail repeat-m]]
                  [lexer :as &lexer])))
 
 ;; [Utils]
-(do-template [<name> <close-token> <description> <tag>]
+(do-template [<name> <close-tag> <description> <tag>]
   (defn <name> [parse]
-    (exec [elems (repeat-m parse)
+    (exec [elems (repeat% parse)
            token &lexer/lex]
-      (if (= <close-token> token)
-        (return (|list (&/V <tag> (reduce #(&/V "Cons" (to-array [%2 %1]))
-                                          (&/V "Nil" nil)
-                                          (reverse (apply concat elems))))))
+      (matchv ::M/objects [token]
+        [[<close-token> _]]
+        (return (|list (&/V <tag> (|concat elems))))
+        [_]
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  [::&lexer/close-paren]   "parantheses" "Form"
-  ^:private parse-tuple [::&lexer/close-bracket] "brackets"    "Tuple"
+  ^:private parse-form  "Close_Paren"   "parantheses" "Form"
+  ^:private parse-tuple "Close_Bracket" "brackets"    "Tuple"
   )
 
 (defn ^:private parse-record [parse]
-  (exec [elems* (repeat-m parse)
+  (exec [elems* (repeat% parse)
          token &lexer/lex
-         :let [elems (apply concat elems*)]]
-    (cond (not= [::&lexer/close-brace] token)
-          (fail (str "[Parser Error] Unbalanced braces."))
+         :let [elems (|concat elems*)]]
+    (matchv ::M/objects [token]
+      [["Close_Brace" _]]
+      (fail (str "[Parser Error] Unbalanced braces."))
 
-          (odd? (count elems))
-          (fail (str "[Parser Error] Records must have an even number of elements."))
-
-          :else
-          (return (|list (&/V "Record" (reduce #(&/V "Cons" (to-array [%2 %1]))
-                                               (&/V "Nil" nil)
-                                               (reverse elems))))))))
+      [_]
+      (if (even? (|length elems))
+        (return (|list (&/V "Record" (|as-pairs elems))))
+        (fail (str "[Parser Error] Records must have an even number of elements."))))))
 
 ;; [Interface]
 (def parse
   (exec [token &lexer/lex
          ;; :let [_ (prn 'parse/token token)]
          ]
-    (match token
-      [::&lexer/white-space _]
+    (matchv ::M/objects [token]
+      [["White_Space" _]]
       (return (|list))
 
-      [::&lexer/comment _]
+      [["Comment" _]]
       (return (|list))
       
-      [::&lexer/bool ?value]
+      [["Bool" ?value]]
       (return (|list (&/V "Bool" (Boolean/parseBoolean ?value))))
 
-      [::&lexer/int ?value]
+      [["Int" ?value]]
       (return (|list (&/V "Int" (Integer/parseInt ?value))))
 
-      [::&lexer/real ?value]
+      [["Real" ?value]]
       (return (|list (&/V "Real" (Float/parseFloat ?value))))
 
-      [::&lexer/char ?value]
+      [["Char" ?value]]
       (return (|list (&/V "Char" (.charAt ?value 0))))
 
-      [::&lexer/text ?value]
+      [["Text" ?value]]
       (return (|list (&/V "Text" ?value)))
 
-      [::&lexer/ident ?value]
+      [["Ident" ?value]]
       (return (|list (&/V "Ident" ?value)))
 
-      [::&lexer/tag ?value]
+      [["Tag" ?value]]
       (return (|list (&/V "Tag" ?value)))
 
-      [::&lexer/open-paren]
+      [["Open_Paren" _]]
       (parse-form parse)
       
-      [::&lexer/open-bracket]
+      [["Open-Bracket" _]]
       (parse-tuple parse)
 
-      [::&lexer/open-brace]
+      [["Open_Brace"]]
       (parse-record parse)
-
-      _
-      (fail (str "[Parser Error] Unmatched token: " token)))))
+      )))

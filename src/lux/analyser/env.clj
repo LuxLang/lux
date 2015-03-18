@@ -1,6 +1,9 @@
 (ns lux.analyser.env
-  (:require [clojure.core.match :refer [match]]
-            (lux [base :as & :refer [exec return fail
+  (:require [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
+            (lux [base :as & :refer [exec return return* fail
+                                     get$ set$ update$
+                                     |list |get |contains? |concat
                                      if-m try-all-m map-m mapcat-m reduce-m
                                      assert!]])
             [lux.analyser.base :as &&]))
@@ -8,28 +11,30 @@
 ;; [Exports]
 (def next-local-idx
   (fn [state]
-    [::&/ok [state (-> state ::&/local-envs first :locals :counter)]]))
+    (return* state (->> state (get$ "local-envs") |head (get$ "locals") (get$ "counter")))))
 
 (defn with-local [name type body]
   (fn [state]
-    (let [old-mappings (-> state ::&/local-envs first (get-in [:locals :mappings]))
-          =return (body (update-in state [::&/local-envs]
-                                   (fn [[top & stack]]
-                                     (let [bound-unit [::&&/local (get-in top [:locals :counter])]]
-                                       (cons (-> top
-                                                 (update-in [:locals :counter] inc)
-                                                 (assoc-in [:locals :mappings name] [::&&/Expression bound-unit type]))
-                                             stack)))))]
-      (match =return
-        [::&/ok [?state ?value]]
-        [::&/ok [(update-in ?state [::&/local-envs] (fn [[top* & stack*]]
-                                                      (cons (-> top*
-                                                                (update-in [:locals :counter] dec)
-                                                                (assoc-in [:locals :mappings] old-mappings))
-                                                            stack*)))
-                 ?value]]
+    (let [old-mappings (->> state (get$ "local-envs") |head (get$ "locals") (get$ "mappings"))
+          =return (body (update$ "local-envs"
+                                 (fn [[top & stack]]
+                                   (let [bound-unit [::&&/local (-> top (get$ "locals") (get$ "counter"))]]
+                                     (cons (-> top
+                                               (update$ "locals" #(update$ "counter" inc %))
+                                               (update$ "locals" #(update$ "mappings" (fn [m] (|put name [::&&/Expression bound-unit type] m)) %)))
+                                           stack)))
+                                 state))]
+      (matchv ::M/objects [=return]
+        [["Right" [?state ?value]]]
+        (return* (update$ "local-envs" (fn [[top* & stack*]]
+                                         (cons (->> top*
+                                                    (update$ "locals" #(update$ "counter" dec %))
+                                                    (update$ "locals" #(set$ "mappings" old-mappings %)))
+                                               stack*))
+                          ?state)
+                 ?value)
         
-        _
+        [_]
         =return))))
 
 (defn with-locals [locals monad]
@@ -40,4 +45,4 @@
 
 (def captured-vars
   (fn [state]
-    [::&/ok [state (-> state ::&/local-envs first :closure :mappings)]]))
+    (return* state (->> state (get$ "local-envs") |head (get$ "closure") (get$ "mappings")))))

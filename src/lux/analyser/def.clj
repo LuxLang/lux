@@ -1,35 +1,37 @@
 (ns lux.analyser.def
   (:require (clojure [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
-            (lux [base :as & :refer [exec return fail
+            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
+            (lux [base :as & :refer [exec return return* fail
                                      if-m try-all-m map-m mapcat-m reduce-m
                                      assert!]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
 (def init-module
-  {::defs {}
-   ::macros #{}})
+  (R "defs" (|table)
+     "macros" (|table)))
 
 (do-template [<name> <category>]
   (defn <name> [module name]
     (fn [state]
-      [::&/ok [state (boolean (get-in state [::&/modules module <category> name]))]]))
+      (return* state
+               (->> state (get$ "modules") (|get module) (get$ <category>) (|get name) boolean))))
 
-  defined? ::defs
-  macro?   ::macros
+  defined? "defs"
+  macro?   "macros"
   )
 
 (defn declare-macro [module name]
   (fn [state]
-    [::&/ok [(update-in state [::&/modules module ::macros] conj name)
-             nil]]))
+    (return* (update$ "modules" (fn [ms] (|update module (fn [m] (update$ "macros" #(|put name true %) m)) ms)) state)
+             nil)))
 
 (defn define [module name type]
   (fn [state]
     (let [full-name (str module &/+name-separator+ name)
           bound [::&&/Expression [::&&/global module name] type]]
-      [::&/ok [(-> state
-                   (assoc-in [::&/modules module ::defs name] type)
-                   (update-in [::&/global-env] merge {full-name bound, name bound}))
-               nil]])))
+      (return* (->> state
+                    (update$ "modules" (fn [ms] (|update module (fn [m] (update$ "defs" #(|put name type %) m)) ms)))
+                    (update$ "global-env" #(|merge (|table full-name bound, name bound) %)))
+               nil))))

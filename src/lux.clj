@@ -7,6 +7,7 @@
   ;; TODO: Re-implement compiler in language.
   ;; TODO: Adding metadata to global vars.
   ;; TODO: Add column & line numbers for syntactic elements.
+  ;; TODO: Add text-dispenser to regulate column & line numbering.
   ;; TODO: Add source-file information to .class files for easier debugging.
   ;; TODO: Finish implementing class & interface definition
   ;; TODO: All optimizations

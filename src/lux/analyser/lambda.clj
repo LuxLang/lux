@@ -19,7 +19,8 @@
 (defn close-over [scope ident register frame]
   (match register
     [::&&/Expression _ register-type]
-    (let [register* [::&&/Expression [::&&/captured scope (get-in frame [:closure :counter]) register] register-type]]
-      [register* (update-in frame [:closure] #(-> %
-                                                  (update-in [:counter] inc)
-                                                  (assoc-in [:mappings ident] register*)))])))
+    (let [register* [::&&/Expression [::&&/captured scope (->> frame (get$ "closure") (get$ "counter")) register] register-type]]
+      [register* (update$ "closure" #(-> %
+                                         (update$ "counter" inc)
+                                         (update$ "mappings" #(|put ident register* %)))
+                          frame)])))

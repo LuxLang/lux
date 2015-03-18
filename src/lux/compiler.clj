@@ -3,11 +3,13 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :refer [match]]
-            (lux [base :as & :refer [exec return* return fail fail*
-                                     repeat-m exhaust-m try-m try-all-m map-m mapcat-m reduce-m
-                                     apply-m
-                                     normalize-ident]]
+            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match.array
+            (lux [base :as & :refer [exec return* return fail fail* assert!
+                                     repeat% exhaust% try% try-all% map% flat-map% fold% sequence%
+                                     apply%
+                                     normalize-ident
+                                     |get |list]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -362,35 +364,35 @@
 (let [compiler-step (exec [analysis+ (&optimizer/optimize eval!)
                            ;; :let [_ (prn 'analysis+ analysis+)]
                            ]
-                      (mapcat-m compile-statement analysis+))]
+                      (flat-map% compile-statement analysis+))]
   (defn ^:private compile-module [name]
     (fn [state]
-      (if (-> state ::&/modules (contains? name))
+      (if (->> state (get$ "modules") (|contains? name))
         (fail "[Compiler Error] Can't redefine a module!")
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
-          (match (&/run-state (exhaust-m compiler-step) (-> state
-                                                            (assoc ::&/source (slurp (str "source/" name ".lux"))
-                                                                   ::&/global-env (&/env name)
-                                                                   ::&/writer =class)
-                                                            (assoc-in [::&/modules name] &a-def/init-module)))
-            [::&/ok [?state ?vals]]
+          (matchv ::M/objects [(&/run-state (exhaust% compiler-step) (-> state
+                                                                         (set$ "source" (slurp (str "source/" name ".lux")))
+                                                                         (set$ "global-env" (&/env name))
+                                                                         (set$ "writer" =class)
+                                                                         (update$ "modules" #(|put name &a-def/init-module %))))]
+            [["Right" [?state ?vals]]]
             (do (.visitEnd =class)
               ;; (prn 'compile-module/?vals ?vals)
               (&/run-state (&&/save-class! name (.toByteArray =class)) ?state))
             
-            [::&/failure ?message]
+            [["Left" ?message]]
             (fail* ?message)))))))
 
 ;; [Resources]
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
-  (match (&/run-state (map-m compile-module modules) (&/init-state))
-    [::&/ok [?state _]]
+  (matchv ::M/objects [(&/run-state (map% compile-module modules) (&/init-state))]
+    [["Right" [?state _]]]
     (println (str "Compilation complete! " (pr-str modules)))
 
-    [::&/failure ?message]
+    [["Left" ?message]]
     (do (prn 'compile-all '?message ?message)
       (assert false ?message))))
 
