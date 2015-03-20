@@ -13,20 +13,20 @@
   (fn [state]
     (let [old-mappings (->> state (&/get$ "local-envs") &/|head (&/get$ "locals") (&/get$ "mappings"))
           =return (body (&/update$ "local-envs"
-                                   (fn [[top & stack]]
-                                     (let [bound-unit (&/V "local" (-> top (&/get$ "locals") (&/get$ "counter")))]
-                                       (cons (-> top
-                                                 (&/update$ "locals" #(&/update$ "counter" inc %))
-                                                 (&/update$ "locals" #(&/update$ "mappings" (fn [m] (&/|put name (&/V "Expression" (&/T bound-unit type)) m)) %)))
-                                             stack)))
+                                   (fn [stack]
+                                     (let [bound-unit (&/V "local" (->> (&/|head stack) (&/get$ "locals") (&/get$ "counter")))]
+                                       (&/|cons (->> (&/|head stack)
+                                                     (&/update$ "locals" #(&/update$ "counter" inc %))
+                                                     (&/update$ "locals" #(&/update$ "mappings" (fn [m] (&/|put name (&/V "Expression" (&/T bound-unit type)) m)) %)))
+                                                (&/|tail stack))))
                                    state))]
       (matchv ::M/objects [=return]
         [["Right" [?state ?value]]]
-        (return* (&/update$ "local-envs" (fn [[top* & stack*]]
-                                           (cons (->> top*
-                                                      (&/update$ "locals" #(&/update$ "counter" dec %))
-                                                      (&/update$ "locals" #(&/set$ "mappings" old-mappings %)))
-                                                 stack*))
+        (return* (&/update$ "local-envs" (fn [stack*]
+                                           (&/|cons (->> (&/|head stack*)
+                                                         (&/update$ "locals" #(&/update$ "counter" dec %))
+                                                         (&/update$ "locals" #(&/set$ "mappings" old-mappings %)))
+                                                    (&/|tail stack*)))
                             ?state)
                  ?value)
         

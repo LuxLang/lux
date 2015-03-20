@@ -9,8 +9,13 @@
 
 (defn ^:private deref [id]
   (fn [state]
-    (if-let [type (->> state (&/get$ "types") (&/get$ "mappings") (&/|get id))]
-      (return* state type)
+    (if-let [type* (->> state (&/get$ "types") (&/get$ "mappings") (&/|get id))]
+      (matchv ::M/objects [type*]
+        [["Some" type]]
+        (return* state type)
+        
+        [["None" _]]
+        (fail* (str "Unbound type-var: " id)))
       (fail* (str "Unknown type-var: " id)))))
 
 (defn ^:private reset [id type]
@@ -26,9 +31,9 @@
 (def fresh-var
   (fn [state]
     (let [id (->> state (&/get$ "types") (&/get$ "counter"))]
-      (return* (&/update$ "types" #(-> %
-                                       (&/update$ "counter" inc)
-                                       (&/update$ "mappings" (fn [ms] (&/|put id (&/V "None" nil) ms))))
+      (return* (&/update$ "types" #(->> %
+                                        (&/update$ "counter" inc)
+                                        (&/update$ "mappings" (fn [ms] (&/|put id (&/V "None" nil) ms))))
                           state)
                (&/V "Var" id)))))
 
@@ -82,7 +87,7 @@
 (def +list+
   [::All (&/|list) "List" "a"
    [::Variant (&/|list ["Cons" [::Tuple (&/|list [::Bound "a"] [::App [::Bound "List"] [::Bound "a"]])]]
-                     ["Nil" [::Tuple (&/|list)]])]])
+                       ["Nil" [::Tuple (&/|list)]])]])
 
 (def +type+
   (let [text [::Data "java.lang.String" (&/|list)]
@@ -105,52 +110,58 @@
                                  ["All" [::Tuple (&/|list string=>type text text type)]]
                                  )]])))
 
-(defn clean [type]
-  (matchv ::M/objects [type]
-    [["Var" ?id]]
-    (exec [=type (deref ?id)]
-      (clean =type))
+(defn clean [tvar type]
+  (matchv ::M/objects [tvar]
+    [["Var" ?tid]]
+    (matchv ::M/objects [type]
+      [["Var" ?id]]
+      (if (= ?tid ?id)
+        (&/try-all% (&/|list (exec [=type (deref ?id)]
+                               (clean tvar =type))
+                             (return type)))
+        (return type))
+      
+      [["Lambda" [?arg ?return]]]
+      (exec [=arg (clean tvar ?arg)
+             =return (clean tvar ?return)]
+        (return (&/V "Lambda" (to-array [=arg =return]))))
 
-    [["Lambda" [?arg ?return]]]
-    (exec [=arg (clean ?arg)
-           =return (clean ?return)]
-      (return (&/V "Lambda" (to-array [=arg =return]))))
+      [["App" [?lambda ?param]]]
+      (exec [=lambda (clean tvar ?lambda)
+             =param (clean tvar ?param)]
+        (return (&/V "App" (to-array [=lambda =param]))))
 
-    [["App" [?lambda ?param]]]
-    (exec [=lambda (clean ?lambda)
-           =param (clean ?param)]
-      (return (&/V "App" (to-array [=lambda =param]))))
+      [["Tuple" ?members]]
+      (exec [=members (&/map% (partial clean tvar) ?members)]
+        (return (&/V "Tuple" =members)))
+      
+      [["Variant" ?members]]
+      (exec [=members (&/map% (fn [[k v]]
+                                (exec [=v (clean tvar v)]
+                                  (return (to-array [k =v]))))
+                              ?members)]
+        (return (&/V "Variant" =members)))
 
-    [["Tuple" ?members]]
-    (exec [=members (&/map% clean ?members)]
-      (return (&/V "Tuple" =members)))
-    
-    [["Variant" ?members]]
-    (exec [=members (&/map% (fn [[k v]]
-                            (exec [=v (clean v)]
+      [["Record" ?members]]
+      (exec [=members (&/map% (fn [[k v]]
+                                (exec [=v (clean tvar v)]
+                                  (return (to-array [k =v]))))
+                              ?members)]
+        (return (&/V "Record" =members)))
+
+      [["All" [?env ?name ?arg ?body]]]
+      (exec [=env (&/map% (fn [[k v]]
+                            (exec [=v (clean tvar v)]
                               (return (to-array [k =v]))))
-                          ?members)]
-      (return (&/V "Variant" =members)))
+                          ?env)]
+        (return (&/V "All" (to-array [=env ?name ?arg ?body]))))
 
-    [["Record" ?members]]
-    (exec [=members (&/map% (fn [[k v]]
-                            (exec [=v (clean v)]
-                              (return (to-array [k =v]))))
-                          ?members)]
-      (return (&/V "Record" =members)))
-
-    [["All" [?env ?name ?arg ?body]]]
-    (exec [=env (&/map% (fn [[k v]]
-                        (exec [=v (clean v)]
-                          (return (to-array [k =v]))))
-                      ?env)]
-      (return (&/V "All" (to-array [=env ?name ?arg ?body]))))
-
-    [_]
-    (return type)
-    ))
+      [_]
+      (return type)
+      )))
 
 (defn ^:private show-type [type]
+  (prn 'show-type (aget type 0))
   (matchv ::M/objects [type]
     [["Any" _]]
     "Any"
@@ -206,6 +217,7 @@
   (str "Type " (show-type expected) " does not subsume type " (show-type actual)))
 
 (defn solve [expected actual]
+  (prn 'solve (aget expected 0) (aget actual 0))
   (matchv ::M/objects [expected actual]
     [["Any" _] _]
     success
@@ -243,16 +255,20 @@
       (solve e!output a!output))
 
     [["Var" e!id] _]
-    (exec [=e!type (deref e!id)
-           _ (solve =e!type actual)
-           _ (reset e!id =e!type)]
-      success)
+    (&/try-all% (&/|list (exec [=e!type (deref e!id)
+                                _ (solve =e!type actual)
+                                _ (reset e!id =e!type)]
+                           success)
+                         (exec [_ (reset e!id actual)]
+                           success)))
 
     [_ ["Var" a!id]]
-    (exec [=a!type (deref a!id)
-           _ (solve expected =a!type)
-           _ (reset a!id =a!type)]
-      success)
+    (&/try-all% (&/|list (exec [=a!type (deref a!id)
+                                _ (solve expected =a!type)
+                                _ (reset a!id =a!type)]
+                           success)
+                         (exec [_ (reset a!id expected)]
+                           success)))
 
     [_ _]
     (solve-error expected actual)

@@ -4,7 +4,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]]
+            (lux [base :as & :refer [exec return* return fail fail* |let]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -50,40 +50,42 @@
 
 (defn compile-tuple [compile *type* ?elems]
   (exec [*writer* &/get-writer
-         :let [num-elems (count ?elems)
+         :let [num-elems (&/|length ?elems)
                _ (doto *writer*
                    (.visitLdcInsn (int num-elems))
                    (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
-         _ (&/map% (fn [[idx elem]]
-                     (exec [:let [_ (doto *writer*
-                                      (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int idx)))]
-                            ret (compile elem)
-                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                       (return ret)))
-                   (map vector (range num-elems) ?elems))]
+         _ (&/map% (fn [idx+elem]
+                     (|let [[idx elem] idx+elem]
+                       (exec [:let [_ (doto *writer*
+                                        (.visitInsn Opcodes/DUP)
+                                        (.visitLdcInsn (int idx)))]
+                              ret (compile elem)
+                              :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                         (return ret))))
+                   (&/zip2 (&/|range num-elems) ?elems))]
     (return nil)))
 
 (defn compile-record [compile *type* ?elems]
   (exec [*writer* &/get-writer
-         :let [num-elems (count ?elems)
+         :let [num-elems (&/|length ?elems)
                _ (doto *writer*
                    (.visitLdcInsn (int (* 2 num-elems)))
                    (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
-         _ (&/map% (fn [[idx [k v]]]
-                     (exec [:let [idx* (* 2 idx)
-                                  _ (doto *writer*
-                                      (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int idx*))
-                                      (.visitLdcInsn k)
-                                      (.visitInsn Opcodes/AASTORE))]
-                            :let [_ (doto *writer*
-                                      (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int (inc idx*))))]
-                            ret (compile v)
-                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                       (return ret)))
-                   (map vector (range num-elems) ?elems))]
+         _ (&/map% (fn [idx+kv]
+                     (|let [[idx [k v]] idx+kv]
+                       (exec [:let [idx* (* 2 idx)
+                                    _ (doto *writer*
+                                        (.visitInsn Opcodes/DUP)
+                                        (.visitLdcInsn (int idx*))
+                                        (.visitLdcInsn k)
+                                        (.visitInsn Opcodes/AASTORE))]
+                              :let [_ (doto *writer*
+                                        (.visitInsn Opcodes/DUP)
+                                        (.visitLdcInsn (int (inc idx*))))]
+                              ret (compile v)
+                              :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                         (return ret))))
+                   (&/zip2 (&/|range num-elems) ?elems))]
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
@@ -119,7 +121,7 @@
 
 (defn compile-global [compile *type* ?owner-class ?name]
   (exec [*writer* &/get-writer
-         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
+         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (&/|list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-call [compile *type* ?fn ?args]
@@ -237,17 +239,22 @@
                                 current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                             (doto (.visitEnd))))]
+         :let [_ (prn 'compile-def/pre-body)]
          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
              (exec [*writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
+                    :let [_ (prn 'compile-def/pre-body2)]
                     _ (compile ?body)
+                    :let [_ (prn 'compile-def/post-body2)]
                     :let [_ (doto *writer*
                               (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
                               (.visitInsn Opcodes/RETURN)
                               (.visitMaxs 0 0)
                               (.visitEnd))]]
                (return nil)))
+         :let [_ (prn 'compile-def/post-body)]
          :let [_ (.visitEnd *writer*)]
+         :let [_ (prn 'compile-def/_1 ?name current-class)]
          _ (&&/save-class! current-class (.toByteArray =class))
-         :let [_ (prn 'compile-def ?name)]]
+         :let [_ (prn 'compile-def/_2 ?name)]]
     (return nil)))

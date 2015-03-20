@@ -96,10 +96,10 @@
 
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]
-    [["Ident" ?ident]]
+    [["Symbol" ?ident]]
     (full-class-name ?ident)
 
-    [["Form" ["Cons" [["Ident" "Array"] ["Cons" [["Ident" ?inner] ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "Array"] ["Cons" [["Symbol" ?inner] ["Nil" _]]]]]]]
     (exec [=inner (full-class-name ?inner)]
       (return (str "[L" (->class =inner) ";")))
 

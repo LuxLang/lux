@@ -12,7 +12,8 @@
            token &lexer/lex]
       (matchv ::M/objects [token]
         [[<close-token> _]]
-        (return (&/|list (&/V <tag> (&/|concat elems))))
+        (return (&/|list (&/V <tag> (&/fold &/|++ (&/|list) elems))))
+        
         [_]
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
@@ -23,7 +24,7 @@
 (defn ^:private parse-record [parse]
   (exec [elems* (&/repeat% parse)
          token &lexer/lex
-         :let [elems (&/|concat elems*)]]
+         :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (matchv ::M/objects [token]
       [["Close_Brace" _]]
       (fail (str "[Parser Error] Unbalanced braces."))
@@ -37,6 +38,7 @@
 (def parse
   (exec [token &lexer/lex
          ;; :let [_ (prn 'parse/token token)]
+         ;; :let [_ (prn 'parse (aget token 0))]
          ]
     (matchv ::M/objects [token]
       [["White_Space" _]]
@@ -60,8 +62,8 @@
       [["Text" ?value]]
       (return (&/|list (&/V "Text" ?value)))
 
-      [["Ident" ?value]]
-      (return (&/|list (&/V "Ident" ?value)))
+      [["Symbol" ?value]]
+      (return (&/|list (&/V "Symbol" ?value)))
 
       [["Tag" ?value]]
       (return (&/|list (&/V "Tag" ?value)))
@@ -69,9 +71,12 @@
       [["Open_Paren" _]]
       (parse-form parse)
       
-      [["Open-Bracket" _]]
+      [["Open_Bracket" _]]
       (parse-tuple parse)
 
-      [["Open_Brace"]]
+      [["Open_Brace" _]]
       (parse-record parse)
+
+      [_]
+      (fail "[Parser Error] Unknown lexer token.")
       )))

@@ -3,7 +3,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]]
+            (lux [base :as & :refer [exec return* return fail fail* |let]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -17,51 +17,56 @@
 
 ;; [Utils]
 (defn ^:private ->match [$body register token]
+  (prn '->match token)
+  (prn '->match (aget token 0))
   (matchv ::M/objects [token]
-    [["Ident" ?name]]
-    [(inc register) (&/V "Pattern" (&/T $body [&/V "StoreMatch" register]))]
+    [["Symbol" ?name]]
+    (&/T (inc register) (&/V "Pattern" (&/T $body [&/V "StoreMatch" register])))
     
     [["Bool" ?value]]
-    [register (&/V "Pattern" (&/T $body [&/V "BoolMatch" ?value]))]
+    (&/T register (&/V "Pattern" (&/T $body [&/V "BoolMatch" ?value])))
 
     [["Int" ?value]]
-    [register (&/V "Pattern" (&/T $body [&/V "IntMatch" ?value]))]
+    (&/T register (&/V "Pattern" (&/T $body [&/V "IntMatch" ?value])))
 
     [["Real" ?value]]
-    [register (&/V "Pattern" (&/T $body [&/V "RealMatch" ?value]))]
+    (&/T register (&/V "Pattern" (&/T $body [&/V "RealMatch" ?value])))
 
     [["Char" ?value]]
-    [register (&/V "Pattern" (&/T $body [&/V "CharMatch" ?value]))]
+    (&/T register (&/V "Pattern" (&/T $body [&/V "CharMatch" ?value])))
 
     [["Text" ?value]]
-    [register (&/V "Pattern" (&/T $body [&/V "TextMatch" ?value]))]
+    (&/T register (&/V "Pattern" (&/T $body [&/V "TextMatch" ?value])))
 
     [["Tuple" ?members]]
-    (let [[register* =members] (&/fold (fn [[register =members] member]
-                                         (let [[register* =member] (->match $body register member)]
-                                           [register* (cons =member =members)]))
-                                       [register (list)]
-                                       ?members)]
-      [register* (&/V "Pattern" (&/T $body [&/V "TupleMatch" (reverse =members)]))])
+    (|let [[register* =members] (&/fold (fn [[register =members] member]
+                                          (|let [[register* =member] (->match $body register member)]
+                                            (&/T register* (&/|cons =member =members))))
+                                        (&/T register (&/|list))
+                                        ?members)]
+      (&/T register* (&/V "Pattern" (&/T $body [&/V "TupleMatch" (&/|reverse =members)]))))
 
     [["Tag" ?tag]]
-    [register (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag [&/V "Pattern" (&/T $body [&/V "TupleMatch" (list)])])]))]
+    (&/T register (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag [&/V "Pattern" (&/T $body [&/V "TupleMatch" (list)])])])))
 
     [["Form" ["Cons" [["Tag" ?tag]
                       ["Cons" [?value
                                ["Nil" _]]]]]]]
-    (let [[register* =value] (->match $body register ?value)]
+    (|let [[register* =value] (->match $body register ?value)]
       
-      [register* (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag =value)]))])
+      (&/T register* (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag =value)]))))
     ))
 
 (defn ^:private process-branches [base-register branches]
-  (let [[_ mappings pms] (reduce (fn [[$id mappings =matches] [pattern body]]
-                                   (let [[_ =match] (->match $id base-register pattern)]
-                                     [(inc $id) (assoc mappings $id body) (cons =match =matches)]))
-                                 [0 {} (list)]
-                                 branches)]
-    [mappings (reverse pms)]))
+  (prn 'process-branches base-register branches)
+  (|let [[_ mappings pms] (&/fold (fn [$id+mappings+=matches pattern+body]
+                                    (|let [[$id mappings =matches] $id+mappings+=matches
+                                           [pattern body] pattern+body
+                                           [_ =match] (->match $id base-register pattern)]
+                                      (&/T (inc $id) (&/|put $id body mappings) (&/|cons =match =matches))))
+                                  (&/T 0 (&/|table) (&/|list))
+                                  branches)]
+    (&/T mappings (&/|reverse pms))))
 
 (let [+tag-sig+ (&host/->type-signature "java.lang.String")
       +oclass+ (&host/->class "java.lang.Object")
@@ -131,9 +136,10 @@
               (.visitInsn Opcodes/POP)
               (.visitJumpInsn Opcodes/GOTO $else)
               (.visitLabel $next))
-            (->> (doseq [[idx [_ _ member]] (map vector (range (count ?members)) ?members)
-                         :let [$next (new Label)
-                               $sub-else (new Label)]])))
+            (->> (|let [[idx [_ _ member]] idx+member
+                        $next (new Label)
+                        $sub-else (new Label)])
+                 (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?members)) ?members))])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       
@@ -162,16 +168,19 @@
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn ^:private compile-pattern-matching [writer compile mappings patterns $end]
-    ;; (prn 'compile-pattern-matching patterns)
-    (let [entries (for [[?branch ?body] mappings
-                        :let [label (new Label)]]
-                    [[?branch label]
-                     [label ?body]])
-          mappings* (into {} (map first entries))]
+    (prn 'compile-pattern-matching mappings patterns $end)
+    (let [entries (&/|map (fn [?branch+?body]
+                            (|let [[?branch ?body] ?branch+?body
+                                   label (new Label)]
+                              (&/T (&/T ?branch label)
+                                   (&/T label ?body))))
+                          mappings)
+          mappings* (&/|map &/|first entries)]
       (doto writer
-        (-> (doto (compile-match ?match (get mappings* ?body) $else)
+        (-> (doto (compile-match ?match (&/|get ?body mappings*) $else)
               (.visitLabel $else))
-            (->> (doseq [[_ ?body ?match :as pattern] patterns
+            (->> (|let [[_ ?body ?match] ?body+?match])
+                 (doseq [?body+?match (&/->seq patterns)
                          :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
                                $else (new Label)]])))
         (.visitInsn Opcodes/POP)
@@ -179,20 +188,22 @@
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
         (.visitInsn Opcodes/ATHROW))
-      (&/map% (fn [[?label ?body]]
-               (exec [:let [_ (.visitLabel writer ?label)]
-                      ret (compile ?body)
-                      :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
-                 (return ret)))
-             (map second entries))
+      (&/map% (fn [?label+?body]
+                (|let [[?label ?body] ?label+?body]
+                  (exec [:let [_ (.visitLabel writer ?label)]
+                         ret (compile ?body)
+                         :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
+                    (return ret))))
+              (&/|map &/|second entries))
       )))
 
 ;; [Resources]
 (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
   (exec [*writer* &/get-writer
          :let [$end (new Label)]
-         _ (compile ?variant)
-         :let [[mappings patterns] (process-branches ?base-register ?branches)]
-         _ (compile-pattern-matching *writer* compile mappings patterns $end)
-         :let [_ (.visitLabel *writer* $end)]]
-    (return nil)))
+         _ (compile ?variant)]
+    (|let [[mappings patterns] (process-branches ?base-register ?branches)]
+      (exec [_ (compile-pattern-matching *writer* compile mappings patterns $end)
+             :let [_ (.visitLabel *writer* $end)]]
+        (return nil)))
+    ))

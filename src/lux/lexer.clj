@@ -75,7 +75,7 @@
   ^:private lex-bool  "Bool"  #"^(true|false)"
   ^:private lex-real  "Real"  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
   ^:private lex-int   "Int"   #"^-?(0|[1-9][0-9]*)"
-  ^:private lex-ident "Ident" +ident-re+)
+  ^:private lex-ident "Symbol" +ident-re+)
 
 (def ^:private lex-char
   (exec [_ (lex-prefix "#\"")

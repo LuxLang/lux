@@ -10,7 +10,7 @@
 ;; [Resources]
 (defn locals [member]
   (matchv ::M/objects [member]
-    [["Ident" ?name]]
+    [["Symbol" ?name]]
     (&/|list ?name)
 
     [["Tuple" ?submembers]]

@@ -1,5 +1,6 @@
 (ns lux
-  (:require [lux.compiler :as &compiler]
+  (:require [lux.base :as &]
+            [lux.compiler :as &compiler]
             :reload-all))
 
 (comment
@@ -13,9 +14,9 @@
   ;; TODO: All optimizations
   ;; TODO: Take module-name aliasing into account.
   ;; TODO: 
-  
-  (time (&compiler/compile-all ["lux"]))
-  (time (&compiler/compile-all ["lux" "test2"]))
+
+  (time (&compiler/compile-all (&/|list "lux")))
+  (time (&compiler/compile-all (&/|list "lux" "test2")))
 
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
   ;; cd output && jar cvf test2.jar * && java -cp "test2.jar" test2 && cd ..

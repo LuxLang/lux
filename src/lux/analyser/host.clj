@@ -10,21 +10,13 @@
                           [env :as &&env])))
 
 ;; [Utils]
-(defn ^:private ->seq [xs]
-  (matchv ::M/objects [xs]
-    [["Nil" _]]
-    (list)
-
-    [["Cons" [x xs*]]]
-    (cons x (->seq xs*))))
-
 (defn ^:private extract-ident [ident]
   (matchv ::M/objects [ident]
-    [["Ident" ?ident]]
+    [["Symbol" ?ident]]
     (return ?ident)
 
     [_]
-    (fail "[Analyser Error] Can't extract Ident.")))
+    (fail "[Analyser Error] Can't extract Symbol.")))
 
 ;; [Resources]
 (do-template [<name> <output-tag> <input-class> <output-class>]
@@ -144,7 +136,7 @@
 (defn analyse-jvm-new-array [analyse ?class ?length]
   (exec [=class (&host/full-class-name ?class)]
     (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new-array" (&/T =class ?length)) (&/V "array" (&/T (&/V "Data" (to-array [=class (&/V "Nil" nil)]))
-                                                                                                          (&/V "Nil" nil)))))))))
+                                                                                                         (&/V "Nil" nil)))))))))
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
   (exec [=array+=elem (&&/analyse-2 analyse ?array ?elem)
@@ -161,13 +153,13 @@
 
 (defn analyse-jvm-class [analyse ?name ?super-class ?fields]
   (exec [?fields (&/map% (fn [?field]
-                          (matchv ::M/objects [?field]
-                            [["Tuple" ["Cons" [["Ident" ?class] ["Cons" [["Ident" ?field-name] ["Nil" _]]]]]]]
-                            (return [?class ?field-name])
-                            
-                            [_]
-                            (fail "[Analyser Error] Fields must be Tuple2 of [Ident, Ident]")))
-                        ?fields)
+                           (matchv ::M/objects [?field]
+                             [["Tuple" ["Cons" [["Symbol" ?class] ["Cons" [["Symbol" ?field-name] ["Nil" _]]]]]]]
+                             (return [?class ?field-name])
+                             
+                             [_]
+                             (fail "[Analyser Error] Fields must be Tuple2 of [Symbol, Symbol]")))
+                         ?fields)
          :let [=fields (into {} (for [[class field] ?fields]
                                   [field {:access :public
                                           :type class}]))]
@@ -175,25 +167,26 @@
     (return (&/|list (&/V "Statement" (&/V "jvm-class" (&/T $module ?name ?super-class =fields {})))))))
 
 (defn analyse-jvm-interface [analyse ?name ?members]
-  ;; (prn 'analyse-jvm-interface ?name ?members)
-  (exec [?members (&/map% (fn [member]
-                           ;; (prn 'analyse-jvm-interface (&/show-ast member))
-                           (matchv ::M/objects [member]
-                             [["Form" ["Cons" [["Ident" ":"]
-                                               ["Cons" [["Ident" ?member-name]
-                                                        ["Cons" [["Form" ["Cons" [["Ident" "->"]
-                                                                                  ["Cons" [["Tuple" ?inputs]
-                                                                                           ["Cons" [["Ident" ?output]
-                                                                                                    ["Nil" _]]]]]]]]
-                                                                 ["Nil" _]]]]]]]]]
-                             (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
-                                 (exec [?inputs (&/map% extract-ident (->seq ?inputs))]
-                                   (return [?member-name [?inputs ?output]])))
-                             
-                             [_]
-                             (fail "[Analyser Error] Invalid method signature!")))
-                         (->seq ?members))
-         :let [=methods (into {} (for [[method [inputs output]] ?members]
+  (prn 'analyse-jvm-interface ?name ?members)
+  (exec [=members (&/map% (fn [member]
+                            ;; (prn 'analyse-jvm-interface (&/show-ast member))
+                            (matchv ::M/objects [member]
+                              [["Form" ["Cons" [["Symbol" ":"]
+                                                ["Cons" [["Symbol" ?member-name]
+                                                         ["Cons" [["Form" ["Cons" [["Symbol" "->"]
+                                                                                   ["Cons" [["Tuple" ?inputs]
+                                                                                            ["Cons" [["Symbol" ?output]
+                                                                                                     ["Nil" _]]]]]]]]
+                                                                  ["Nil" _]]]]]]]]]
+                              (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
+                                  (exec [?inputs (&/map% extract-ident ?inputs)]
+                                    (return [?member-name [?inputs ?output]])))
+                              
+                              [_]
+                              (fail "[Analyser Error] Invalid method signature!")))
+                          ?members)
+         :let [_ (prn '=members =members)
+               =methods (into {} (for [[method [inputs output]] (&/->seq =members)]
                                    [method {:access :public
                                             :type [inputs output]}]))]
          $module &/get-module-name]
@@ -208,10 +201,10 @@
 (defn analyse-jvm-try [analyse ?body [?catches ?finally]]
   (exec [=body (&&/analyse-1 analyse ?body)
          =catches (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
-                          (&&env/with-local ?ex-arg (&/V "Data" (&/T ?ex-class (&/V "Nil" nil)))
-                            (exec [=catch-body (&&/analyse-1 analyse ?catch-body)]
-                              (return [?ex-class ?ex-arg =catch-body]))))
-                        ?catches)
+                            (&&env/with-local ?ex-arg (&/V "Data" (&/T ?ex-class (&/V "Nil" nil)))
+                              (exec [=catch-body (&&/analyse-1 analyse ?catch-body)]
+                                (return [?ex-class ?ex-arg =catch-body]))))
+                          ?catches)
          =finally (&&/analyse-1 analyse ?finally)
          =body-type (&&/expr-type =body)]
     (return (&/|list (&/V "Expression" (&/T (&/V "jvm-try" (&/T =body =catches =finally)) =body-type))))))

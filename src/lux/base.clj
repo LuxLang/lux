@@ -30,7 +30,8 @@
     (loop [idx 0]
       (if (< idx size)
         (if (= slot (aget record idx))
-          (aset record (+ 1 idx) value)
+          (doto record
+            (aset (+ 1 idx) value))
           (recur (+ 2 idx)))
         (assert false)))))
 
@@ -45,6 +46,14 @@
 (defn return* [state value]
   (V "Right" (T state value)))
 
+(defmacro |let [bindings body]
+  (reduce (fn [inner [left right]]
+            `(matchv ::M/objects [~right]
+               [~left]
+               ~inner))
+          body
+          (reverse (partition 2 bindings))))
+
 (defmacro |list [& elems]
   (reduce (fn [tail head]
             `(V "Cons" (T ~head ~tail)))
@@ -58,13 +67,14 @@
           (partition 2 elems)))
 
 (defn |get [slot table]
+  (prn '|get slot (aget table 0))
   (matchv ::M/objects [table]
     [["Nil" _]]
-    (V "Left" (str "Not found: " slot))
+    nil
     
     [["Cons" [[k v] table*]]]
     (if (= k slot)
-      (V "Right" v)
+      v
       (|get slot table*))))
 
 (defn |put [slot value table]
@@ -78,6 +88,7 @@
       (V "Cons" (T (T k v) (|put slot value table*))))))
 
 (defn |merge [table1 table2]
+  (prn '|merge (aget table1 0) (aget table2 0))
   (matchv ::M/objects [table2]
     [["Nil" _]]
     table1
@@ -103,6 +114,14 @@
     [["Cons" [x _]]]
     x))
 
+(defn |tail [xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (assert false)
+
+    [["Cons" [_ xs*]]]
+    xs*))
+
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
@@ -113,8 +132,10 @@
     (V "Right" (T state value))))
 
 (defn bind [m-value step]
+  ;; (prn 'bind m-value step)
   (fn [state]
     (let [inputs (m-value state)]
+      ;; (prn 'bind/inputs (aget inputs 0))
       (matchv ::M/objects [inputs]
         [["Right" [?state ?datum]]]
         ((step ?datum) ?state)
@@ -146,13 +167,14 @@
 (defn |cons [head tail]
   (V "Cons" (T head tail)))
 
-(defn |concat [xs ys]
+(defn |++ [xs ys]
+  (prn '|++ (and xs (aget xs 0)) (and ys (aget ys 0)))
   (matchv ::M/objects [xs]
     [["Nil" _]]
     ys
 
     [["Cons" [x xs*]]]
-    (V "Cons" (T x (|concat xs* ys)))))
+    (V "Cons" (T x (|++ xs* ys)))))
 
 (defn |map [f xs]
   (matchv ::M/objects [xs]
@@ -168,7 +190,18 @@
     xs
 
     [["Cons" [x xs*]]]
-    (|concat (f x) (flat-map f xs*))))
+    (|++ (f x) (flat-map f xs*))))
+
+(defn |split-with [p xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (T xs xs)
+
+    [["Cons" [x xs*]]]
+    (if (p x)
+      (|let [[pre post] (|split-with p xs*)]
+            (T (|cons x pre) post))
+      (T (V "Nil" nil) xs))))
 
 (defn |contains? [k table]
   (matchv ::M/objects [table]
@@ -187,8 +220,32 @@
     [["Cons" [x xs*]]]
     (fold f (f init x) xs*)))
 
+(defn folds [f init xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (|list init)
+
+    [["Cons" [x xs*]]]
+    (|cons init (folds f (f init x) xs*))))
+
 (defn |length [xs]
+  (prn '|length (aget xs 0))
   (fold (fn [acc _] (inc acc)) 0 xs))
+
+(let [|range* (fn |range* [from to]
+                (if (< from to)
+                  (V "Cons" (T from (|range* (inc from) to)))
+                  (V "Nil" nil)))]
+  (defn |range [n]
+    (|range* 0 n)))
+
+(defn |first [pair]
+  (|let [[_1 _2] pair]
+    _1))
+
+(defn |second [pair]
+  (|let [[_1 _2] pair]
+    _2))
 
 (defn zip2 [xs ys]
   (matchv ::M/objects [xs ys]
@@ -217,28 +274,19 @@
     [["Cons" [x xs*]]]
     (V "Cons" (T x (V "Cons" (T sep (|interpose sep xs*)))))))
 
-(let [cons% (fn [head tail]
-              (V "Cons" (T head tail)))
-      ++% (fn ++% [xs ys]
-            (matchv ::M/objects [xs]
-              [["Nil" _]]
-              ys
+(do-template [<name> <joiner>]
+  (defn <name> [f xs]
+    (matchv ::M/objects [xs]
+      [["Nil" _]]
+      (return xs)
 
-              [["Cons" [x xs*]]]
-              (V "Cons" (T x (++% xs* ys)))))]
-  (do-template [<name> <joiner>]
-    (defn <name> [f xs]
-      (matchv ::M/objects [xs]
-        [["Nil" _]]
-        (return xs)
+      [["Cons" [x xs*]]]
+      (exec [y (f x)
+             ys (<name> f xs*)]
+        (return (<joiner> y ys)))))
 
-        [["Cons" [x xs*]]]
-        (exec [y (f x)
-               ys (<name> f xs*)]
-          (return (<joiner> y ys)))))
-
-    map%      cons%
-    flat-map% ++%))
+  map%      |cons
+  flat-map% |++)
 
 (defn |as-pairs [xs]
   (matchv ::M/objects [xs]
@@ -388,7 +436,7 @@
      "locals"  +init-bindings+
      "closure" +init-bindings+))
 
-(defn init-state []
+(defn init-state [_]
   (R "source"     (V "None" nil)
      "modules"    (|list)
      "global-env" (V "None" nil)
@@ -398,18 +446,54 @@
      "loader"     (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
      "eval-ctor"  0))
 
+(defn from-some [some]
+  (matchv ::M/objects [some]
+    [["Some" datum]]
+    datum
+
+    [_]
+    (assert false)))
+
+(defn show-state [state]
+  (let [source (get$ "source" state)
+        modules (get$ "modules" state)
+        global-env (get$ "global-env" state)
+        local-envs (get$ "local-envs" state)
+        types (get$ "types" state)
+        writer (get$ "writer" state)
+        loader (get$ "loader" state)
+        eval-ctor (get$ "eval-ctor" state)]
+    (str "{"
+         (->> (for [slot ["source", "modules", "global-env", "local-envs", "types", "writer", "loader", "eval-ctor"]
+                    :let [value (get$ slot state)]]
+                (str "#" slot " " (case slot
+                                    "source" "???"
+                                    "modules" "???"
+                                    "global-env" "???"
+                                    "local-envs" (|length value)
+                                    "types" "???"
+                                    "writer" "???"
+                                    "loader" "???"
+                                    "eval-ctor" value)))
+              (interpose " ")
+              (reduce str ""))
+         "}")))
+
 (def get-eval-ctor
   (fn [state]
     (return* (update$ "eval-ctor" inc state) (get$ "eval-ctor" state))))
 
 (def get-writer
   (fn [state]
-    (matchv ::M/objects [(get$ "writer" state)]
-      [["Some" datum]]
-      (return* state datum)
+    (let [writer* (get$ "writer" state)]
+      (prn 'get-writer (class writer*))
+      (prn 'get-writer (aget writer* 0))
+      (matchv ::M/objects [writer*]
+        [["Some" datum]]
+        (return* state datum)
 
-      [_]
-      (fail* "Writer hasn't been set."))))
+        [_]
+        (fail* "Writer hasn't been set.")))))
 
 (def get-top-local-env
   (fn [state]
@@ -417,12 +501,32 @@
 
 (def get-current-module-env
   (fn [state]
-    (matchv ::M/objects [(get$ "global-env" state)]
-      [["Some" datum]]
-      (return* state datum)
+    (let [global-env* (get$ "global-env" state)]
+      (prn 'get-current-module-env (aget global-env* 0))
+      (matchv ::M/objects [global-env*]
+        [["Some" datum]]
+        (return* state datum)
 
-      [_]
-      (fail* "Module hasn't been set."))))
+        [_]
+        (fail* "Module hasn't been set.")))))
+
+(defn ->seq [xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (list)
+
+    [["Cons" [x xs*]]]
+    (cons x (->seq xs*))))
+
+(defn ->list [seq]
+  (if (empty? seq)
+    (|list)
+    (|cons (first seq) (->list (rest seq)))))
+
+(defn |repeat [n x]
+  (if (> n 0)
+    (|cons x (|repeat (dec n) x))
+    (|list)))
 
 (def get-module-name
   (exec [module get-current-module-env]
@@ -430,36 +534,45 @@
 
 (defn ^:private with-scope [name body]
   (fn [state]
-    (let [output (body (update$ "local-envs" #(conj % (env name)) state))]
+    (let [output (body (update$ "local-envs" #(|cons (env name) %) state))]
       (matchv ::M/objects [output]
         [["Right" [state* datum]]]
-        (return* (update$ "local-envs" rest state*) datum)
+        (return* (update$ "local-envs" |tail state*) datum)
         
         [_]
         output))))
 
 (defn with-closure [body]
-  (exec [[local? closure-name] (try-all% (list (exec [top get-top-local-env]
-                                                 (return [true (->> top (get$ "inner-closures") str)]))
-                                               (exec [global get-current-module-env]
-                                                 (return [false (->> global (get$ "inner-closures") str)]))))]
-    (fn [state]
-      (let [body* (with-scope closure-name
-                    body)]
-        (body* (if local?
-                 (update$ "local-envs" #(cons (update$ "inner-closures" inc (first %))
-                                              (rest %))
-                          state)
-                 (update$ "global-env" #(update$ "inner-closures" inc %) state)))))))
+  (exec [closure-info (try-all% (|list (exec [top get-top-local-env]
+                                         (return (T true (->> top (get$ "inner-closures") str))))
+                                       (exec [global get-current-module-env]
+                                         (return (T false (->> global (get$ "inner-closures") str))))))]
+    (matchv ::M/objects [closure-info]
+      [[local? closure-name]]
+      (fn [state]
+        (let [body* (with-scope closure-name
+                      body)]
+          (body* (if local?
+                   (update$ "local-envs" #(|cons (update$ "inner-closures" inc (|head %))
+                                                 (|tail %))
+                            state)
+                   (update$ "global-env" #(matchv ::M/objects [%]
+                                            [["Some" global-env]]
+                                            (V "Some" (update$ "inner-closures" inc global-env))
+
+                                            [_]
+                                            %)
+                            state)))))
+      )))
 
 (def get-scope-name
   (exec [module-name get-module-name]
     (fn [state]
-      (return* state (->> state (get$ "local-envs") (map #(get$ "name" %)) reverse (cons module-name))))))
+      (return* state (->> state (get$ "local-envs") (|map #(get$ "name" %)) |reverse (|cons module-name))))))
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (set$ "writer" writer state))]
+    (let [output (body (set$ "writer" (V "Some" writer) state))]
       (matchv ::M/objects [output]
         [["Right" [?state ?value]]]
         (return* (set$ "writer" (get$ "writer" state) ?state) ?value)
@@ -490,7 +603,7 @@
     [["Tag" ?tag]]
     (str "#" ?tag)
 
-    [["Ident" ?ident]]
+    [["Symbol" ?ident]]
     ?ident
 
     [["Tuple" ?elems]]

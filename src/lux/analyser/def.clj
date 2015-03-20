@@ -14,7 +14,7 @@
   (defn <name> [module name]
     (fn [state]
       (return* state
-               (->> state (&/get$ "modules") (&/|get module) (&/get$ <category>) (&/|get name) boolean))))
+               (->> state (&/get$ "modules") (&/|get module) (&/get$ <category>) (&/|contains? name)))))
 
   defined? "defs"
   macro?   "macros"
@@ -31,5 +31,16 @@
           bound (&/V "Expression" (&/T (&/V "global" (&/T module name)) type))]
       (return* (->> state
                     (&/update$ "modules" (fn [ms] (&/|update module (fn [m] (&/update$ "defs" #(&/|put name type %) m)) ms)))
-                    (&/update$ "global-env" #(&/|merge (&/|table full-name bound, name bound) %)))
+                    (&/update$ "global-env" #(matchv ::M/objects [%]
+                                               [["None" _]]
+                                               (assert false)
+
+                                               [["Some" table]]
+                                               (&/V "Some" (&/update$ "locals" (fn [locals]
+                                                                                 (&/update$ "mappings" (fn [mappings]
+                                                                                                         (&/|merge (&/|table full-name bound, name bound)
+                                                                                                                   mappings))
+                                                                                            locals))
+                                                                      table))
+                                               )))
                nil))))

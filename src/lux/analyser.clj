@@ -14,14 +14,14 @@
 ;; [Utils]
 (defn ^:private parse-handler [[catch+ finally+] token]
   (matchv ::M/objects [token]
-    [["Form" ["Cons" [["Ident" "jvm-catch"]
-                      ["Cons" [["Ident" ?ex-class]
-                               ["Cons" [["Ident" ?ex-arg]
+    [["Form" ["Cons" [["Symbol" "jvm-catch"]
+                      ["Cons" [["Symbol" ?ex-class]
+                               ["Cons" [["Symbol" ?ex-arg]
                                         ["Cons" [?catch-body
                                                  ["Nil" _]]]]]]]]]]]
     [(concat catch+ (list [?ex-class ?ex-arg ?catch-body])) finally+]
 
-    [["Form" ["Cons" [["Ident" "jvm-finally"]
+    [["Form" ["Cons" [["Symbol" "jvm-finally"]
                       ["Cons" [?finally-body
                                ["Nil" _]]]]]]]
     [catch+ ?finally-body]))
@@ -56,197 +56,197 @@
       (return (&/|list [&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (&/|list)) tuple-type))))
                                             (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag tuple-type) (&/V "Nil" nil)))))])))
 
-    [["Ident" "jvm-null"]]
+    [["Symbol" "jvm-null"]]
     (return (&/|list [&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "Data" (&/T "null" (&/V "Nil" nil))))]))
     
-    [["Ident" ?ident]]
+    [["Symbol" ?ident]]
     (&&lux/analyse-ident analyse ?ident)
 
-    [["Form" ["Cons" [["Ident" "case'"]
+    [["Form" ["Cons" [["Symbol" "case'"]
                       ["Cons" [?variant ?branches]]]]]]
     (&&lux/analyse-case analyse ?variant ?branches)
     
-    [["Form" ["Cons" [["Ident" "lambda'"]
-                      ["Cons" [["Ident" ?self]
-                               ["Cons" [["Ident" ?arg]
+    [["Form" ["Cons" [["Symbol" "lambda'"]
+                      ["Cons" [["Symbol" ?self]
+                               ["Cons" [["Symbol" ?arg]
                                         ["Cons" [?body
                                                  ["Nil" _]]]]]]]]]]]
     (&&lux/analyse-lambda analyse ?self ?arg ?body)
 
-    [["Form" ["Cons" [["Ident" "get@'"] ["Cons" [["Tag" ?slot] ["Cons" [?record ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "get@'"] ["Cons" [["Tag" ?slot] ["Cons" [?record ["Nil" _]]]]]]]]]
     (&&lux/analyse-get analyse ?slot ?record)
 
-    [["Form" ["Cons" [["Ident" "set@'"] ["Cons" [["Tag" ?slot] ["Cons" [?value ["Cons" [?record ["Nil" _]]]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "set@'"] ["Cons" [["Tag" ?slot] ["Cons" [?value ["Cons" [?record ["Nil" _]]]]]]]]]]]
     (&&lux/analyse-set analyse ?slot ?value ?record)
 
-    [["Form" ["Cons" [["Ident" "def'"] ["Cons" [["Ident" ?name] ["Cons" [?value ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "def'"] ["Cons" [["Symbol" ?name] ["Cons" [?value ["Nil" _]]]]]]]]]
     (&&lux/analyse-def analyse ?name ?value)
 
-    [["Form" ["Cons" [["Ident" "declare-macro"] ["Cons" [["Ident" ?ident] ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "declare-macro"] ["Cons" [["Symbol" ?ident] ["Nil" _]]]]]]]
     (&&lux/analyse-declare-macro ?ident)
     
-    [["Form" ["Cons" [["Ident" "import'"] ["Cons" [["Text" ?path] ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "import'"] ["Cons" [["Text" ?path] ["Nil" _]]]]]]]
     (&&lux/analyse-import analyse ?path)
 
-    [["Form" ["Cons" [["Ident" ":"] ["Cons" [?value ["Cons" [?type ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" ":"] ["Cons" [?value ["Cons" [?type ["Nil" _]]]]]]]]]
     (&&lux/analyse-check analyse eval! ?type ?value)
 
-    [["Form" ["Cons" [["Ident" "coerce"] ["Cons" [?type ["Cons" [?value ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "coerce"] ["Cons" [?type ["Cons" [?value ["Nil" _]]]]]]]]]
     (&&lux/analyse-coerce analyse eval! ?type ?value)
 
     ;; Host special forms
-    [["Form" ["Cons" [["Ident" "exec"] ?exprs]]]]
+    [["Form" ["Cons" [["Symbol" "exec"] ?exprs]]]]
     (&&host/analyse-exec analyse ?exprs)
 
     ;; Integer arithmetic
-    [["Form" ["Cons" [["Ident" "jvm-iadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-iadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-iadd analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-isub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-isub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-isub analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-imul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-imul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-imul analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-idiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-idiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-idiv analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-irem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-irem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-irem analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-ieq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-ieq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ieq analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-ilt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-ilt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ilt analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-igt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-igt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-igt analyse ?x ?y)
 
     ;; Long arithmetic
-    [["Form" ["Cons" [["Ident" "jvm-ladd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-ladd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ladd analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lsub analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lmul analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-ldiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-ldiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ldiv analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lrem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lrem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lrem analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-leq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-leq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-leq analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-llt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-llt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-llt analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lgt analyse ?x ?y)
 
     ;; Float arithmetic
-    [["Form" ["Cons" [["Ident" "jvm-fadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-fadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fadd analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-fsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-fsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fsub analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-fmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-fmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fmul analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-fdiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-fdiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fdiv analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-frem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-frem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-frem analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-feq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-feq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-feq analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-flt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-flt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-flt analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-fgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-fgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-fgt analyse ?x ?y)
 
     ;; Double arithmetic
-    [["Form" ["Cons" [["Ident" "jvm-dadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-dadd"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dadd analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-dsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-dsub"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dsub analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-dmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-dmul"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dmul analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-ddiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-ddiv"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ddiv analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-drem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-drem"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-drem analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-deq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-deq"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-deq analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-dlt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-dlt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dlt analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-dgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-dgt"] ["Cons" [?y ["Cons" [?x ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-dgt analyse ?x ?y)
 
     ;; Objects
-    [["Form" ["Cons" [["Ident" "jvm-null?"] ["Cons" [?object ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-null?"] ["Cons" [?object ["Nil" _]]]]]]]
     (&&host/analyse-jvm-null? analyse ?object)
     
-    [["Form" ["Cons" [["Ident" "jvm-new"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-new"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Tuple" ?classes]
                                         ["Cons" [["Tuple" ?args]
                                                  ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-new analyse ?class ?classes ?args)
 
-    [["Form" ["Cons" [["Ident" "jvm-getstatic"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-getstatic"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?field]
                                         ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-getstatic analyse ?class ?field)
 
-    [["Form" ["Cons" [["Ident" "jvm-getfield"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-getfield"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?field]
                                         ["Cons" [?object
                                                  ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-getfield analyse ?class ?field ?object)
 
-    [["Form" ["Cons" [["Ident" "jvm-putstatic"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-putstatic"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?field]
                                         ["Cons" [?value
                                                  ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-putstatic analyse ?class ?field ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-putfield"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-putfield"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?field]
                                         ["Cons" [?object
                                                  ["Cons" [?value
                                                           ["Nil" _]]]]]]]]]]]]]
     (&&host/analyse-jvm-putfield analyse ?class ?field ?object ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-invokestatic"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-invokestatic"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?method]
                                         ["Cons" [["Tuple" ?classes]
                                                  ["Cons" [["Tuple" ?args]
                                                           ["Nil" _]]]]]]]]]]]]]
     (&&host/analyse-jvm-invokestatic analyse ?class ?method ?classes ?args)
 
-    [["Form" ["Cons" [["Ident" "jvm-invokevirtual"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-invokevirtual"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?method]
                                         ["Cons" [["Tuple" ?classes]
                                                  ["Cons" [?object
@@ -254,8 +254,8 @@
                                                                    ["Nil" _]]]]]]]]]]]]]]]
     (&&host/analyse-jvm-invokevirtual analyse ?class ?method ?classes ?object ?args)
 
-    [["Form" ["Cons" [["Ident" "jvm-invokeinterface"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-invokeinterface"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?method]
                                         ["Cons" [["Tuple" ?classes]
                                                  ["Cons" [?object
@@ -263,8 +263,8 @@
                                                                    ["Nil" _]]]]]]]]]]]]]]]
     (&&host/analyse-jvm-invokeinterface analyse ?class ?method ?classes ?object ?args)
 
-    [["Form" ["Cons" [["Ident" "jvm-invokespecial"]
-                      ["Cons" [["Ident" ?class]
+    [["Form" ["Cons" [["Symbol" "jvm-invokespecial"]
+                      ["Cons" [["Symbol" ?class]
                                ["Cons" [["Text" ?method]
                                         ["Cons" [["Tuple" ?classes]
                                                  ["Cons" [?object
@@ -273,117 +273,117 @@
     (&&host/analyse-jvm-invokespecial analyse ?class ?method ?classes ?object ?args)
     
     ;; Exceptions
-    [["Form" ["Cons" [["Ident" "jvm-try"]
+    [["Form" ["Cons" [["Symbol" "jvm-try"]
                       ["Cons" [?body
                                ?handlers]]]]]]
     (&&host/analyse-jvm-try analyse ?body (&/fold parse-handler [(list) nil] ?handlers))
 
-    [["Form" ["Cons" [["Ident" "jvm-throw"]
+    [["Form" ["Cons" [["Symbol" "jvm-throw"]
                       ["Cons" [?ex
                                ["Nil" _]]]]]]]
     (&&host/analyse-jvm-throw analyse ?ex)
 
     ;; Syncronization/monitos
-    [["Form" ["Cons" [["Ident" "jvm-monitorenter"]
+    [["Form" ["Cons" [["Symbol" "jvm-monitorenter"]
                       ["Cons" [?monitor
                                ["Nil" _]]]]]]]
     (&&host/analyse-jvm-monitorenter analyse ?monitor)
 
-    [["Form" ["Cons" [["Ident" "jvm-monitorexit"]
+    [["Form" ["Cons" [["Symbol" "jvm-monitorexit"]
                       ["Cons" [?monitor
                                ["Nil" _]]]]]]]
     (&&host/analyse-jvm-monitorexit analyse ?monitor)
 
     ;; Primitive conversions
-    [["Form" ["Cons" [["Ident" "jvm-d2f"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-d2f"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-d2f analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-d2i"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-d2i"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-d2i analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-d2l"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-d2l"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-d2l analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-f2d"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-f2d"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-f2d analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-f2i"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-f2i"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-f2i analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-f2l"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-f2l"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-f2l analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-i2b"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-i2b"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-i2b analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-i2c"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-i2c"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-i2c analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-i2d"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-i2d"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-i2d analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-i2f"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-i2f"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-i2f analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-i2l"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-i2l"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-i2l analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-i2s"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-i2s"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-i2s analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-l2d"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-l2d"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-l2d analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-l2f"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-l2f"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-l2f analyse ?value)
 
-    [["Form" ["Cons" [["Ident" "jvm-l2i"] ["Cons" [?value ["Nil" _]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-l2i"] ["Cons" [?value ["Nil" _]]]]]]]
     (&&host/analyse-jvm-l2i analyse ?value)
 
     ;; Bitwise operators
-    [["Form" ["Cons" [["Ident" "jvm-iand"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-iand"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-iand analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-ior"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-ior"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-ior analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-land"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-land"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-land analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lor"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lor"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lor analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lxor"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lxor"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lxor analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lshl"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lshl"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lshl analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lshr"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lshr"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lshr analyse ?x ?y)
 
-    [["Form" ["Cons" [["Ident" "jvm-lushr"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-lushr"] ["Cons" [?x ["Cons" [?y ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-lushr analyse ?x ?y)
     
     ;; Arrays
-    [["Form" ["Cons" [["Ident" "jvm-new-array"] ["Cons" [["Ident" ?class] ["Cons" [["Int" ?length] ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-new-array"] ["Cons" [["Symbol" ?class] ["Cons" [["Int" ?length] ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-new-array analyse ?class ?length)
 
-    [["Form" ["Cons" [["Ident" "jvm-aastore"] ["Cons" [?array ["Cons" [["Int" ?idx] ["Cons" [?elem ["Nil" _]]]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-aastore"] ["Cons" [?array ["Cons" [["Int" ?idx] ["Cons" [?elem ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-aastore analyse ?array ?idx ?elem)
 
-    [["Form" ["Cons" [["Ident" "jvm-aaload"] ["Cons" [?array ["Cons" [["Int" ?idx] ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-aaload"] ["Cons" [?array ["Cons" [["Int" ?idx] ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-aaload analyse ?array ?idx)
 
     ;; Classes & interfaces
-    [["Form" ["Cons" [["Ident" "jvm-class"] ["Cons" [["Ident" ?name] ["Cons" [["Ident" ?super-class] ["Cons" [["Tuple" ?fields] ["Nil" _]]]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-class"] ["Cons" [["Symbol" ?name] ["Cons" [["Symbol" ?super-class] ["Cons" [["Tuple" ?fields] ["Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-class analyse ?name ?super-class ?fields)
 
-    [["Form" ["Cons" [["Ident" "jvm-interface"] ["Cons" [["Ident" ?name] ?members]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-interface"] ["Cons" [["Symbol" ?name] ?members]]]]]]
     (&&host/analyse-jvm-interface analyse ?name ?members)
 
     ;; Programs
-    [["Form" ["Cons" [["Ident" "jvm-program"] ["Cons" [["Ident" ?args] ["Cons" [?body ["Nil" _]]]]]]]]]
+    [["Form" ["Cons" [["Symbol" "jvm-program"] ["Cons" [["Symbol" ?args] ["Cons" [?body ["Nil" _]]]]]]]]]
     (&&host/analyse-jvm-program analyse ?args ?body)
     
     [_]
