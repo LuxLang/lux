@@ -99,7 +99,7 @@
 (defn analyse-jvm-invokestatic [analyse ?class ?method ?classes ?args]
   (exec [=class (&host/full-class-name ?class)
          =classes (&/map% &host/extract-jvm-param ?classes)
-         =return (&host/lookup-virtual-method =class ?method =classes)
+         =return (&host/lookup-static-method =class ?method =classes)
          =args (&/flat-map% analyse ?args)]
     (return (&/|list (&/V "Expression" (&/T (&/V "jvm-invokestatic" (&/T =class ?method =classes =args)) =return))))))
 
@@ -109,7 +109,7 @@
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
            =classes (&/map% &host/extract-jvm-param ?classes)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=classes =classes)]
-           [=method-args =return] (&host/lookup-virtual-method =class ?method =classes)
+           =return (&host/lookup-virtual-method =class ?method =classes)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=return =return)]
            =object (&&/analyse-1 analyse ?object)
            ;; :let [_ (prn 'analyse-jvm-invokevirtual/=object =object)]

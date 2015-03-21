@@ -4,7 +4,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]]
+            (lux [base :as & :refer [exec return* return fail fail* |let]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -171,10 +171,10 @@
   (exec [*writer* &/get-writer
          :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
          _ (&/map% (fn [[class-name arg]]
-                    (exec [ret (compile arg)
-                           :let [_ (prepare-arg! *writer* class-name)]]
-                      (return ret)))
-                  (map vector ?classes ?args))
+                     (exec [ret (compile arg)
+                            :let [_ (prepare-arg! *writer* class-name)]]
+                       (return ret)))
+                   (map vector ?classes ?args))
          :let [_ (doto *writer*
                    (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class ?class) ?method method-sig)
                    (prepare-return! *type*))]]
@@ -184,14 +184,15 @@
   (defn <name> [compile *type* ?class ?method ?classes ?object ?args]
     ;; (prn 'compile-jvm-invokevirtual ?classes *type*)
     (exec [*writer* &/get-writer
-           :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
+           :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
            _ (compile ?object)
            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
-           _ (&/map% (fn [[class-name arg]]
-                      (exec [ret (compile arg)
-                             :let [_ (prepare-arg! *writer* class-name)]]
-                        (return ret)))
-                    (map vector ?classes ?args))
+           _ (&/map% (fn [class-name+arg]
+                       (|let [[class-name arg] class-name+arg]
+                         (exec [ret (compile arg)
+                                :let [_ (prepare-arg! *writer* class-name)]]
+                           (return ret))))
+                     (&/zip2 ?classes ?args))
            :let [_ (doto *writer*
                      (.visitMethodInsn <op> (&host/->class ?class) ?method method-sig)
                      (prepare-return! *type*))]]
@@ -229,10 +230,10 @@
                    (.visitTypeInsn Opcodes/NEW class*)
                    (.visitInsn Opcodes/DUP))]
          _ (&/map% (fn [[class-name arg]]
-                    (exec [ret (compile arg)
-                           :let [_ (prepare-arg! *writer* class-name)]]
-                      (return ret)))
-                  (map vector ?classes ?args))
+                     (exec [ret (compile arg)
+                            :let [_ (prepare-arg! *writer* class-name)]]
+                       (return ret)))
+                   (map vector ?classes ?args))
          :let [_ (doto *writer*
                    (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))

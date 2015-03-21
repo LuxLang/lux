@@ -15,6 +15,8 @@
   ;; TODO: Take module-name aliasing into account.
   ;; TODO: 
 
+  ;; Finish total-locals
+  
   (time (&compiler/compile-all (&/|list "lux")))
   (time (&compiler/compile-all (&/|list "lux" "test2")))
 

@@ -28,10 +28,10 @@
 
 ;; [Utils/Compilers]
 (defn ^:private compile-expression [syntax]
-  (prn 'compile-expression (aget syntax 0))
+  ;; (prn 'compile-expression (aget syntax 0))
   (matchv ::M/objects [syntax]
     [["Expression" [?form ?type]]]
-    (do (prn 'compile-expression2 (aget ?form 0))
+    (do ;; (prn 'compile-expression2 (aget ?form 0))
       (matchv ::M/objects [?form]
         [["bool" ?value]]
         (&&lux/compile-bool compile-expression ?type ?value)
@@ -63,8 +63,8 @@
         [["global" [?owner-class ?name]]]
         (&&lux/compile-global compile-expression ?type ?owner-class ?name)
 
-        [["call" [?fn ?args]]]
-        (&&lux/compile-call compile-expression ?type ?fn ?args)
+        [["apply" [?fn ?arg]]]
+        (&&lux/compile-apply compile-expression ?type ?fn ?arg)
 
         [["variant" [?tag ?members]]]
         (&&lux/compile-variant compile-expression ?type ?tag ?members)

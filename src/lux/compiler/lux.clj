@@ -13,7 +13,8 @@
             [lux.analyser.base :as &a]
             (lux.compiler [base :as &&]
                           [lambda :as &&lambda])
-            :reload)
+            ;; :reload
+            )
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -124,14 +125,11 @@
          :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (&/|list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
-(defn compile-call [compile *type* ?fn ?args]
+(defn compile-apply [compile *type* ?fn ?arg]
   (exec [*writer* &/get-writer
          _ (compile ?fn)
-         _ (&/map% (fn [arg]
-                     (exec [ret (compile arg)
-                            :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
-                       (return ret)))
-                   ?args)]
+         _ (compile ?arg)
+         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
     (return nil)))
 
 (defn compile-get [compile *type* ?slot ?record]
@@ -239,7 +237,7 @@
                                 current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                             (doto (.visitEnd))))]
-         :let [_ (prn 'compile-def/pre-body)]
+         ;; :let [_ (prn 'compile-def/pre-body)]
          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
              (exec [*writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
@@ -252,9 +250,10 @@
                               (.visitMaxs 0 0)
                               (.visitEnd))]]
                (return nil)))
-         :let [_ (prn 'compile-def/post-body)]
+         ;; :let [_ (prn 'compile-def/post-body)]
          :let [_ (.visitEnd *writer*)]
-         :let [_ (prn 'compile-def/_1 ?name current-class)]
+         ;; :let [_ (prn 'compile-def/_1 ?name current-class)]
          _ (&&/save-class! current-class (.toByteArray =class))
-         :let [_ (prn 'compile-def/_2 ?name)]]
+         ;; :let [_ (prn 'compile-def/_2 ?name)]
+         ]
     (return nil)))

@@ -3,7 +3,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]]
+            (lux [base :as & :refer [exec return* return fail fail* |let]]
                  [parser :as &parser]
                  [type :as &type])))
 
@@ -30,9 +30,9 @@
       )))
 
 (defn ^:private method->type [method]
-  (exec [=args (&/map% class->type (seq (.getParameterTypes method)))
+  (exec [;; =args (&/map% class->type (&/->list (seq (.getParameterTypes method))))
          =return (class->type (.getReturnType method))]
-    (return [=args =return])))
+    (return =return)))
 
 ;; [Resources]
 (defn full-class [class-name]
@@ -130,10 +130,15 @@
                                    :when (and (= target (.getDeclaringClass =method))
                                               (= method-name (.getName =method))
                                               (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))
-                                              (= args (mapv #(.getName %) (.getParameterTypes =method))))]
+                                              (&/fold #(and %1 %2)
+                                                      true
+                                                      (&/|map (fn [xy]
+                                                                (|let [[x y] xy]
+                                                                  (= x y)))
+                                                              (&/zip2 args
+                                                                      (&/|map #(.getName %) (&/->list (seq (.getParameterTypes =method))))))))]
                                =method))]
-        (exec [=method (method->type method)]
-          (return =method))
+        (method->type method)
         (fail (str "[Analyser Error] Method does not exist: " target method-name)))))
 
   lookup-static-method  true

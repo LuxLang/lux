@@ -53,11 +53,11 @@
 
     [["Tag" ?tag]]
     (let [tuple-type (&/V "Tuple" (&/V "Nil" nil))]
-      (return (&/|list [&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (&/|list)) tuple-type))))
-                                            (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag tuple-type) (&/V "Nil" nil)))))])))
+      (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (&/|list)) tuple-type))))
+                                              (&/V "Variant" (&/V "Cons" (&/T (&/T ?tag tuple-type) (&/V "Nil" nil)))))))))
 
     [["Symbol" "jvm-null"]]
-    (return (&/|list [&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "Data" (&/T "null" (&/V "Nil" nil))))]))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "Data" (&/T "null" (&/V "Nil" nil)))))))
     
     [["Symbol" ?ident]]
     (&&lux/analyse-ident analyse ?ident)
@@ -403,12 +403,14 @@
       
       [["Form" ["Cons" [?fn ?args]]]]
       (fn [state]
+        (prn '(&/show-ast ?fn) (&/show-ast ?fn))
         (matchv ::M/objects [((&&/analyse-1 (analyse-ast eval!) ?fn) state)]
           [["Right" [state* =fn]]]
           ((&&lux/analyse-apply (analyse-ast eval!) =fn ?args) state*)
 
           [_]
-          ((analyse-basic-ast (analyse-ast eval!) eval! token) state)))
+          (do (prn 'analyse-ast/token (aget token 0) (&/show-state state))
+            ((analyse-basic-ast (analyse-ast eval!) eval! token) state))))
       
       [_]
       (analyse-basic-ast (analyse-ast eval!) eval! token))))

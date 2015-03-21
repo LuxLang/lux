@@ -160,7 +160,7 @@
       (return type)
       )))
 
-(defn ^:private show-type [type]
+(defn show-type [type]
   (prn 'show-type (aget type 0))
   (matchv ::M/objects [type]
     [["Any" _]]
@@ -217,7 +217,8 @@
   (str "Type " (show-type expected) " does not subsume type " (show-type actual)))
 
 (defn solve [expected actual]
-  (prn 'solve (aget expected 0) (aget actual 0))
+  ;; (prn 'solve expected actual)
+  ;; (prn 'solve (aget expected 0) (aget actual 0))
   (matchv ::M/objects [expected actual]
     [["Any" _] _]
     success
@@ -289,6 +290,11 @@
       [["Nothing" _] _]
       (return y)
 
+      ;;;
+      
+      [_ _]
+      (return x)
+
       ;; [["Variant" x!cases] ["Variant" y!cases]]
       ;; (if (and (reduce && true
       ;;                  (for [[xslot xtype] (keys x!cases)]
@@ -312,7 +318,7 @@
       ;;   (fail (str "Incompatible records: " (pr-str x) " and " (pr-str y))))
       
       [_ _]
-      (fail (str "Can't merge types: " (pr-str x) " and " (pr-str y))))))
+      (fail (str "[Type System] Can't merge types: " (pr-str x) " and " (pr-str y))))))
 
 (defn apply-lambda [func param]
   (matchv ::M/objects [func]
@@ -321,7 +327,9 @@
       (return output))
 
     [_]
-    (fail (str "Can't apply type " (str func) " to type " (str param)))))
+    (return (&/V "Any" nil))
+    ;; (fail (str "[Type System] Can't apply type " (str func) " to type " (str param)))
+    ))
 
 (defn slot-type [record slot]
   (fn [state]

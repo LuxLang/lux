@@ -58,7 +58,7 @@
   (reduce (fn [tail head]
             `(V "Cons" (T ~head ~tail)))
           `(V "Nil" nil)
-          elems))
+          (reverse elems)))
 
 (defmacro |table [& elems]
   (reduce (fn [table [k v]]
@@ -67,7 +67,7 @@
           (partition 2 elems)))
 
 (defn |get [slot table]
-  (prn '|get slot (aget table 0))
+  ;; (prn '|get slot (aget table 0))
   (matchv ::M/objects [table]
     [["Nil" _]]
     nil
@@ -88,7 +88,7 @@
       (V "Cons" (T (T k v) (|put slot value table*))))))
 
 (defn |merge [table1 table2]
-  (prn '|merge (aget table1 0) (aget table2 0))
+  ;; (prn '|merge (aget table1 0) (aget table2 0))
   (matchv ::M/objects [table2]
     [["Nil" _]]
     table1
@@ -168,7 +168,7 @@
   (V "Cons" (T head tail)))
 
 (defn |++ [xs ys]
-  (prn '|++ (and xs (aget xs 0)) (and ys (aget ys 0)))
+  ;; (prn '|++ (and xs (aget xs 0)) (and ys (aget ys 0)))
   (matchv ::M/objects [xs]
     [["Nil" _]]
     ys
@@ -220,6 +220,15 @@
     [["Cons" [x xs*]]]
     (fold f (f init x) xs*)))
 
+(defn fold% [f init xs]
+  (matchv ::M/objects [xs]
+    [["Nil" _]]
+    (return init)
+
+    [["Cons" [x xs*]]]
+    (exec [init* (f init x)]
+      (fold% f init* xs*))))
+
 (defn folds [f init xs]
   (matchv ::M/objects [xs]
     [["Nil" _]]
@@ -229,7 +238,7 @@
     (|cons init (folds f (f init x) xs*))))
 
 (defn |length [xs]
-  (prn '|length (aget xs 0))
+  ;; (prn '|length (aget xs 0))
   (fold (fn [acc _] (inc acc)) 0 xs))
 
 (let [|range* (fn |range* [from to]
@@ -290,7 +299,7 @@
 
 (defn |as-pairs [xs]
   (matchv ::M/objects [xs]
-    [["Cons" [x [["Cons" [y xs*]]]]]]
+    [["Cons" [x ["Cons" [y xs*]]]]]
     (V "Cons" (T (T x y) (|as-pairs xs*)))
 
     [_]
@@ -301,6 +310,15 @@
           (|cons head tail))
         (|list)
         xs))
+
+(defn show-table [table]
+  (prn 'show-table (aget table 0))
+  (str "{{"
+       (->> table
+            (|map (fn [kv] (|let [[k v] kv] (str k " = ???"))))
+            (|interpose " ")
+            (fold str ""))
+       "}}"))
 
 (defn if% [text-m then-m else-m]
   (exec [? text-m]
@@ -469,7 +487,7 @@
                 (str "#" slot " " (case slot
                                     "source" "???"
                                     "modules" "???"
-                                    "global-env" "???"
+                                    "global-env" (->> value from-some (get$ "locals") (get$ "mappings") show-table)
                                     "local-envs" (|length value)
                                     "types" "???"
                                     "writer" "???"
@@ -486,8 +504,8 @@
 (def get-writer
   (fn [state]
     (let [writer* (get$ "writer" state)]
-      (prn 'get-writer (class writer*))
-      (prn 'get-writer (aget writer* 0))
+      ;; (prn 'get-writer (class writer*))
+      ;; (prn 'get-writer (aget writer* 0))
       (matchv ::M/objects [writer*]
         [["Some" datum]]
         (return* state datum)
@@ -502,7 +520,7 @@
 (def get-current-module-env
   (fn [state]
     (let [global-env* (get$ "global-env" state)]
-      (prn 'get-current-module-env (aget global-env* 0))
+      ;; (prn 'get-current-module-env (aget global-env* 0))
       (matchv ::M/objects [global-env*]
         [["Some" datum]]
         (return* state datum)

@@ -35,10 +35,10 @@
 
 (def ^:private lex-text-body
   (&/try-all% (&/|list (exec [[prefix escaped] (lex-regex2 #"(?s)^([^\"\\]*)(\\.)")
-                          unescaped (escape-char escaped)
-                          postfix lex-text-body]
-                     (return (str prefix unescaped postfix)))
-                   (lex-regex #"(?s)^([^\"\\]*)"))))
+                              unescaped (escape-char escaped)
+                              postfix lex-text-body]
+                         (return (str prefix unescaped postfix)))
+                       (lex-regex #"(?s)^([^\"\\]*)"))))
 
 (def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)(;[0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]+)?")
 
@@ -56,16 +56,16 @@
 (def ^:private lex-multi-line-comment
   (exec [_ (lex-prefix "#(")
          comment (&/try-all% (&/|list (lex-regex #"(?is)^((?!#\().)*?(?=\)#)")
-                                  (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
-                                         [_ inner] lex-multi-line-comment
-                                         post (lex-regex #"(?is)^(.+?(?=\)#))")]
-                                    (return (str pre "#(" inner ")#" post)))))
+                                      (exec [pre (lex-regex #"(?is)^(.+?(?=#\())")
+                                             [_ inner] lex-multi-line-comment
+                                             post (lex-regex #"(?is)^(.+?(?=\)#))")]
+                                        (return (str pre "#(" inner ")#" post)))))
          _ (lex-prefix ")#")]
     (return (&/V "Comment" comment))))
 
 (def ^:private lex-comment
   (&/try-all% (&/|list lex-single-line-comment
-                   lex-multi-line-comment)))
+                       lex-multi-line-comment)))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
@@ -80,8 +80,8 @@
 (def ^:private lex-char
   (exec [_ (lex-prefix "#\"")
          token (&/try-all% (&/|list (exec [escaped (lex-regex #"^(\\.)")]
-                                  (escape-char escaped))
-                                (lex-regex #"^(.)")))
+                                      (escape-char escaped))
+                                    (lex-regex #"^(.)")))
          _ (lex-prefix "\"")]
     (return (&/V "Char" token))))
 
@@ -111,21 +111,21 @@
 
 (def ^:private lex-delimiter
   (&/try-all% (&/|list lex-open-paren
-                   lex-close-paren
-                   lex-open-bracket
-                   lex-close-bracket
-                   lex-open-brace
-                   lex-close-brace)))
+                       lex-close-paren
+                       lex-open-bracket
+                       lex-close-bracket
+                       lex-open-brace
+                       lex-close-brace)))
 
 ;; [Exports]
 (def lex
   (&/try-all% (&/|list lex-white-space
-                   lex-comment
-                   lex-bool
-                   lex-real
-                   lex-int
-                   lex-char
-                   lex-text
-                   lex-ident
-                   lex-tag
-                   lex-delimiter)))
+                       lex-comment
+                       lex-bool
+                       lex-real
+                       lex-int
+                       lex-char
+                       lex-text
+                       lex-ident
+                       lex-tag
+                       lex-delimiter)))

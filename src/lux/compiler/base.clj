@@ -32,10 +32,10 @@
     (return nil)))
 
 (defn total-locals [expr]
-  (prn 'total-locals1 (aget expr 0))
+  ;; (prn 'total-locals1 (aget expr 0))
   (matchv ::M/objects [expr]
     [["Expression" [?struct ?type]]]
-    (do (prn 'total-locals2 (aget ?struct 0))
+    (do ;; (prn 'total-locals2 (aget ?struct 0))
       (matchv ::M/objects [?struct]
         [["case" [?variant ?base-register ?num-registers ?branches]]]
         (+ ?num-registers (&/fold max 0 (&/|map (comp total-locals second) ?branches)))
@@ -127,9 +127,9 @@
         [["jvm-aaload" [?array ?idx]]]
         (total-locals ?array)
 
-        [["lambda" _]]
-        0
-        
-        ;; [_]
+        ;; [["lambda" _]]
         ;; 0
+        
+        [_]
+        0
         ))))

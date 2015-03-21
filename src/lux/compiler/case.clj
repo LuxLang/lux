@@ -17,48 +17,51 @@
 
 ;; [Utils]
 (defn ^:private ->match [$body register token]
-  (prn '->match token)
-  (prn '->match (aget token 0))
+  ;; (prn '->match token)
+  ;; (prn '->match (aget token 0))
   (matchv ::M/objects [token]
     [["Symbol" ?name]]
-    (&/T (inc register) (&/V "Pattern" (&/T $body [&/V "StoreMatch" register])))
+    (&/T (inc register) (&/V "Pattern" (&/T $body (&/V "StoreMatch" register))))
     
     [["Bool" ?value]]
-    (&/T register (&/V "Pattern" (&/T $body [&/V "BoolMatch" ?value])))
+    (&/T register (&/V "Pattern" (&/T $body (&/V "BoolMatch" ?value))))
 
     [["Int" ?value]]
-    (&/T register (&/V "Pattern" (&/T $body [&/V "IntMatch" ?value])))
+    (&/T register (&/V "Pattern" (&/T $body (&/V "IntMatch" ?value))))
 
     [["Real" ?value]]
-    (&/T register (&/V "Pattern" (&/T $body [&/V "RealMatch" ?value])))
+    (&/T register (&/V "Pattern" (&/T $body (&/V "RealMatch" ?value))))
 
     [["Char" ?value]]
-    (&/T register (&/V "Pattern" (&/T $body [&/V "CharMatch" ?value])))
+    (&/T register (&/V "Pattern" (&/T $body (&/V "CharMatch" ?value))))
 
     [["Text" ?value]]
-    (&/T register (&/V "Pattern" (&/T $body [&/V "TextMatch" ?value])))
+    (&/T register (&/V "Pattern" (&/T $body (&/V "TextMatch" ?value))))
 
     [["Tuple" ?members]]
-    (|let [[register* =members] (&/fold (fn [[register =members] member]
-                                          (|let [[register* =member] (->match $body register member)]
-                                            (&/T register* (&/|cons =member =members))))
+    (|let [[register* =members] (&/fold (fn [register+=members member]
+                                          (prn 'register+=members (alength register+=members))
+                                          (|let [[_register =members] register+=members
+                                                 [__register =member] (let [matched (->match $body _register member)]
+                                                                        (prn 'matched (alength matched))
+                                                                        matched)]
+                                            (&/T __register (&/|cons =member =members))))
                                         (&/T register (&/|list))
                                         ?members)]
-      (&/T register* (&/V "Pattern" (&/T $body [&/V "TupleMatch" (&/|reverse =members)]))))
+      (&/T register* (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|reverse =members))))))
 
     [["Tag" ?tag]]
-    (&/T register (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag [&/V "Pattern" (&/T $body [&/V "TupleMatch" (list)])])])))
+    (&/T register (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|list)))))))))
 
     [["Form" ["Cons" [["Tag" ?tag]
                       ["Cons" [?value
                                ["Nil" _]]]]]]]
     (|let [[register* =value] (->match $body register ?value)]
-      
-      (&/T register* (&/V "Pattern" (&/T $body [&/V "VariantMatch" (&/T ?tag =value)]))))
+      (&/T register* (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag =value))))))
     ))
 
 (defn ^:private process-branches [base-register branches]
-  (prn 'process-branches base-register branches)
+  ;; (prn 'process-branches base-register (&/|length branches))
   (|let [[_ mappings pms] (&/fold (fn [$id+mappings+=matches pattern+body]
                                     (|let [[$id mappings =matches] $id+mappings+=matches
                                            [pattern body] pattern+body
@@ -72,6 +75,7 @@
       +oclass+ (&host/->class "java.lang.Object")
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
   (defn ^:private compile-match [writer ?match $target $else]
+    ;; (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
       [["StoreMatch" ?register]]
       (doto writer
@@ -136,7 +140,7 @@
               (.visitInsn Opcodes/POP)
               (.visitJumpInsn Opcodes/GOTO $else)
               (.visitLabel $next))
-            (->> (|let [[idx [_ _ member]] idx+member
+            (->> (|let [[idx ["Pattern" [_ member]]] idx+member
                         $next (new Label)
                         $sub-else (new Label)])
                  (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?members)) ?members))])))
@@ -168,7 +172,7 @@
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn ^:private compile-pattern-matching [writer compile mappings patterns $end]
-    (prn 'compile-pattern-matching mappings patterns $end)
+    ;; (prn 'compile-pattern-matching mappings (&/|length patterns) $end)
     (let [entries (&/|map (fn [?branch+?body]
                             (|let [[?branch ?body] ?branch+?body
                                    label (new Label)]
@@ -179,9 +183,10 @@
       (doto writer
         (-> (doto (compile-match ?match (&/|get ?body mappings*) $else)
               (.visitLabel $else))
-            (->> (|let [[_ ?body ?match] ?body+?match])
+            (->> (|let [["Pattern" [?body ?match]] ?body+?match])
                  (doseq [?body+?match (&/->seq patterns)
                          :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
+                               _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
                                $else (new Label)]])))
         (.visitInsn Opcodes/POP)
         (.visitTypeInsn Opcodes/NEW ex-class)
@@ -199,10 +204,12 @@
 
 ;; [Resources]
 (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
+  (prn 'compile-case ?variant ?base-register ?num-registers (&/|length ?branches))
   (exec [*writer* &/get-writer
          :let [$end (new Label)]
          _ (compile ?variant)]
-    (|let [[mappings patterns] (process-branches ?base-register ?branches)]
+    (|let [[mappings patterns] (process-branches ?base-register ?branches)
+           _ (prn '[(&/|length mappings) (&/|length patterns)] [(&/|length mappings) (&/|length patterns)])]
       (exec [_ (compile-pattern-matching *writer* compile mappings patterns $end)
              :let [_ (.visitLabel *writer* $end)]]
         (return nil)))
