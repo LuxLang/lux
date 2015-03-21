@@ -6,7 +6,7 @@
 ;; [Resources]
 (defn expand [loader macro-class tokens]
   (fn [state]
-    (prn 'expand macro-class tokens state)
+    ;; (prn 'expand macro-class tokens state)
     (-> (.loadClass loader macro-class)
         (.getField "_datum")
         (.get nil)

@@ -40,10 +40,10 @@
 
     [["Tuple" ?members]]
     (|let [[register* =members] (&/fold (fn [register+=members member]
-                                          (prn 'register+=members (alength register+=members))
+                                          ;; (prn 'register+=members (alength register+=members))
                                           (|let [[_register =members] register+=members
                                                  [__register =member] (let [matched (->match $body _register member)]
-                                                                        (prn 'matched (alength matched))
+                                                                        ;; (prn 'matched (alength matched))
                                                                         matched)]
                                             (&/T __register (&/|cons =member =members))))
                                         (&/T register (&/|list))
@@ -186,7 +186,7 @@
             (->> (|let [["Pattern" [?body ?match]] ?body+?match])
                  (doseq [?body+?match (&/->seq patterns)
                          :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
-                               _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
+                               ;; _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
                                $else (new Label)]])))
         (.visitInsn Opcodes/POP)
         (.visitTypeInsn Opcodes/NEW ex-class)
@@ -204,12 +204,13 @@
 
 ;; [Resources]
 (defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
-  (prn 'compile-case ?variant ?base-register ?num-registers (&/|length ?branches))
+  ;; (prn 'compile-case ?variant ?base-register ?num-registers (&/|length ?branches))
   (exec [*writer* &/get-writer
          :let [$end (new Label)]
          _ (compile ?variant)]
     (|let [[mappings patterns] (process-branches ?base-register ?branches)
-           _ (prn '[(&/|length mappings) (&/|length patterns)] [(&/|length mappings) (&/|length patterns)])]
+           ;; _ (prn '[(&/|length mappings) (&/|length patterns)] [(&/|length mappings) (&/|length patterns)])
+           ]
       (exec [_ (compile-pattern-matching *writer* compile mappings patterns $end)
              :let [_ (.visitLabel *writer* $end)]]
         (return nil)))

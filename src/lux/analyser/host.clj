@@ -167,7 +167,7 @@
     (return (&/|list (&/V "Statement" (&/V "jvm-class" (&/T $module ?name ?super-class =fields {})))))))
 
 (defn analyse-jvm-interface [analyse ?name ?members]
-  (prn 'analyse-jvm-interface ?name ?members)
+  ;; (prn 'analyse-jvm-interface ?name ?members)
   (exec [=members (&/map% (fn [member]
                             ;; (prn 'analyse-jvm-interface (&/show-ast member))
                             (matchv ::M/objects [member]
@@ -185,7 +185,7 @@
                               [_]
                               (fail "[Analyser Error] Invalid method signature!")))
                           ?members)
-         :let [_ (prn '=members =members)
+         :let [;; _ (prn '=members =members)
                =methods (into {} (for [[method [inputs output]] (&/->seq =members)]
                                    [method {:access :public
                                             :type [inputs output]}]))]

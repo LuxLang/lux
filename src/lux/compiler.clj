@@ -318,7 +318,7 @@
   ;; (prn 'compile-statement syntax)
   (matchv ::M/objects [syntax]
     [["Statement" ?form]]
-    (do (prn 'compile-statement (aget syntax 0) (aget ?form 0))
+    (do ;; (prn 'compile-statement (aget syntax 0) (aget ?form 0))
       (matchv ::M/objects [?form]
         [["def" [?name ?body]]]
         (&&lux/compile-def compile-expression ?name ?body)
@@ -378,7 +378,7 @@
                                                                             (&/update$ "modules" #(&/|put name &a-def/init-module %))))]
             [["Right" [?state ?vals]]]
             (do (.visitEnd =class)
-              (prn 'compile-module 'DONE name)
+              ;; (prn 'compile-module 'DONE name)
               ;; (prn 'compile-module/?vals ?vals)
               (&/run-state (&&/save-class! name (.toByteArray =class)) ?state))
             
@@ -390,7 +390,10 @@
   (.mkdir (java.io.File. "output"))
   (matchv ::M/objects [(&/run-state (&/map% compile-module modules) (&/init-state nil))]
     [["Right" [?state _]]]
-    (println (str "Compilation complete! " (pr-str modules)))
+    (println (str "Compilation complete! " (str "[" (->> modules
+                                                         (&/|interpose " ")
+                                                         (&/fold str ""))
+                                                "]")))
 
     [["Left" ?message]]
     (do (prn 'compile-all '?message ?message)

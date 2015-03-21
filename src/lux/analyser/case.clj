@@ -24,7 +24,7 @@
 
 (defn analyse-branch [analyse max-registers bindings+body]
   (|let [[bindings body] bindings+body]
-    (do (prn 'analyse-branch max-registers (&/|length bindings) body)
+    (do ;; (prn 'analyse-branch max-registers (&/|length bindings) body)
       (&/fold (fn [body* name]
                 (&&/with-var
                   (fn [=var]

@@ -64,7 +64,7 @@
   (reduce (fn [table [k v]]
             `(|put ~k ~v ~table))
           `(|list)
-          (partition 2 elems)))
+          (reverse (partition 2 elems))))
 
 (defn |get [slot table]
   ;; (prn '|get slot (aget table 0))
@@ -515,7 +515,10 @@
 
 (def get-top-local-env
   (fn [state]
-    (return* state (|head (get$ "local-envs" state)))))
+    (try (let [top (|head (get$ "local-envs" state))]
+           (return* state top))
+      (catch Throwable _
+        (fail "No local environment.")))))
 
 (def get-current-module-env
   (fn [state]

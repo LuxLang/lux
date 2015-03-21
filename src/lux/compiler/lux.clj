@@ -241,9 +241,9 @@
          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
              (exec [*writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
-                    :let [_ (prn 'compile-def/pre-body2)]
+                    ;; :let [_ (prn 'compile-def/pre-body2)]
                     _ (compile ?body)
-                    :let [_ (prn 'compile-def/post-body2)]
+                    ;; :let [_ (prn 'compile-def/post-body2)]
                     :let [_ (doto *writer*
                               (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
                               (.visitInsn Opcodes/RETURN)

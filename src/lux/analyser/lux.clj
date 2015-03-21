@@ -127,15 +127,16 @@
     ))
 
 (defn analyse-case [analyse ?value ?branches]
-  (prn 'analyse-case (aget ?branches 0) (aget ?branches 1 1 0)
-       (&/->seq ?branches))
+  ;; (prn 'analyse-case (aget ?branches 0) (aget ?branches 1 1 0)
+  ;;      (&/->seq ?branches))
   (exec [:let [num-branches (&/|length ?branches)
-               _ (prn 'analyse-case ?value (&/|length ?branches)
-                      (and (> num-branches 0) (even? num-branches)))]
+               ;; _ (prn 'analyse-case ?value (&/|length ?branches)
+               ;;        (and (> num-branches 0) (even? num-branches)))
+               ]
          _ (&/assert! (and (> num-branches 0) (even? num-branches))
                       "[Analyser Error] Unbalanced branches in \"case'\" expression.")
          :let [branches (&/|as-pairs ?branches)
-               _ (prn '(&/|length branches) (&/|length branches))
+               ;; _ (prn '(&/|length branches) (&/|length branches))
                locals-per-branch (&/|map (comp &&case/locals &/|first) branches)
                max-locals (&/fold max 0 (&/|map &/|length locals-per-branch))]
          ;; :let [_ (prn '[branches locals-per-branch max-locals] [branches locals-per-branch max-locals])]

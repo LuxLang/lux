@@ -311,7 +311,7 @@
     (&&/save-class! full-name (.toByteArray =class))))
 
 (defn compile-jvm-interface [compile ?package ?name ?methods]
-  (prn 'compile-jvm-interface ?package ?name ?methods)
+  ;; (prn 'compile-jvm-interface ?package ?name ?methods)
   (let [parent-dir (&host/->package ?package)
         full-name (str parent-dir "/" ?name)
         =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -320,11 +320,12 @@
         _ (do (doseq [[?method ?props] ?methods
                       :let [[?args ?return] (:type ?props)
                             signature (str "(" (&/fold str "" (&/|map &host/->type-signature ?args)) ")" (&host/->type-signature ?return))
-                            _ (prn 'signature signature)]]
+                            ;; _ (prn 'signature signature)
+                            ]]
                 (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
             (.visitEnd =interface)
             (.mkdirs (java.io.File. (str "output/" parent-dir))))]
-    (prn 'SAVED_CLASS full-name)
+    ;; (prn 'SAVED_CLASS full-name)
     (&&/save-class! full-name (.toByteArray =interface))))
 
 (defn compile-exec [compile *type* ?exprs]

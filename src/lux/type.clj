@@ -219,61 +219,63 @@
 (defn solve [expected actual]
   ;; (prn 'solve expected actual)
   ;; (prn 'solve (aget expected 0) (aget actual 0))
-  (matchv ::M/objects [expected actual]
-    [["Any" _] _]
-    success
+  success
+  ;; (matchv ::M/objects [expected actual]
+  ;;   [["Any" _] _]
+  ;;   success
 
-    [_ ["Nothing" _]]
-    success
+  ;;   [_ ["Nothing" _]]
+  ;;   success
 
-    [["Data" [e!name e!params]] ["Data" [a!name a!params]]]
-    (if (or (= e!name a!name)
-            (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
-      success
-      (fail (str "not (" actual " <= " expected ")")))
+  ;;   [["Data" [e!name e!params]] ["Data" [a!name a!params]]]
+  ;;   (if (or (= e!name a!name)
+  ;;           (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
+  ;;     success
+  ;;     (fail (str "not (" actual " <= " expected ")")))
     
-    [["Tuple" e!elems] ["Tuple" a!elems]]
-    (exec [_ (assert! (= (&/|length e!elems) (&/|length a!elems))
-                      "Tuples must have matching element sizes.")
-           _ (&/map% (fn [n g] (solve n g))
-                   (&/zip2 e!elems a!elems))]
-      success)
+  ;;   [["Tuple" e!elems] ["Tuple" a!elems]]
+  ;;   (exec [_ (assert! (= (&/|length e!elems) (&/|length a!elems))
+  ;;                     "Tuples must have matching element sizes.")
+  ;;          _ (&/map% (fn [n g] (solve n g))
+  ;;                  (&/zip2 e!elems a!elems))]
+  ;;     success)
 
-    [["Variant" e!cases] ["Variant" a!cases]]
-    (exec [_ (&/map% (fn [slot]
-                     (solve (&/|get e!cases slot) (&/|get a!cases slot)))
-                   (&/|keys a!cases))]
-      success)
+  ;;   [["Variant" e!cases] ["Variant" a!cases]]
+  ;;   (exec [_ (&/map% (fn [slot]
+  ;;                    (solve (&/|get e!cases slot) (&/|get a!cases slot)))
+  ;;                  (&/|keys a!cases))]
+  ;;     success)
 
-    [["Record" e!fields] ["Record" a!fields]]
-    (exec [_ (&/map% (fn [slot]
-                     (solve (&/|get e!fields slot) (&/|get a!fields slot)))
-                   (&/|keys e!fields))]
-      success)
+  ;;   [["Record" e!fields] ["Record" a!fields]]
+  ;;   (exec [_ (&/map% (fn [slot]
+  ;;                    (solve (&/|get e!fields slot) (&/|get a!fields slot)))
+  ;;                  (&/|keys e!fields))]
+  ;;     success)
 
-    [["Lambda" [e!input e!output]] ["Lambda" [a!input a!output]]]
-    (exec [_ (solve a!input e!input)]
-      (solve e!output a!output))
+  ;;   [["Lambda" [e!input e!output]] ["Lambda" [a!input a!output]]]
+  ;;   (exec [_ (solve a!input e!input)]
+  ;;     (solve e!output a!output))
 
-    [["Var" e!id] _]
-    (&/try-all% (&/|list (exec [=e!type (deref e!id)
-                                _ (solve =e!type actual)
-                                _ (reset e!id =e!type)]
-                           success)
-                         (exec [_ (reset e!id actual)]
-                           success)))
+  ;;   [["Var" e!id] _]
+  ;;   (&/try-all% (&/|list (exec [=e!type (deref e!id)
+  ;;                               _ (solve =e!type actual)
+  ;;                               _ (reset e!id =e!type)]
+  ;;                          success)
+  ;;                        (exec [_ (reset e!id actual)]
+  ;;                          success)))
 
-    [_ ["Var" a!id]]
-    (&/try-all% (&/|list (exec [=a!type (deref a!id)
-                                _ (solve expected =a!type)
-                                _ (reset a!id =a!type)]
-                           success)
-                         (exec [_ (reset a!id expected)]
-                           success)))
+  ;;   [_ ["Var" a!id]]
+  ;;   (&/try-all% (&/|list (exec [=a!type (deref a!id)
+  ;;                               _ (solve expected =a!type)
+  ;;                               _ (reset a!id =a!type)]
+  ;;                          success)
+  ;;                        (exec [_ (reset a!id expected)]
+  ;;                          success)))
 
-    [_ _]
-    (solve-error expected actual)
-    ))
+  ;;   [_ _]
+  ;;   (solve-error expected actual)
+  ;;   )
+  )
 
 (let [&& #(and %1 %2)]
   (defn merge [x y]

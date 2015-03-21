@@ -403,13 +403,13 @@
       
       [["Form" ["Cons" [?fn ?args]]]]
       (fn [state]
-        (prn '(&/show-ast ?fn) (&/show-ast ?fn))
+        ;; (prn '(&/show-ast ?fn) (&/show-ast ?fn))
         (matchv ::M/objects [((&&/analyse-1 (analyse-ast eval!) ?fn) state)]
           [["Right" [state* =fn]]]
           ((&&lux/analyse-apply (analyse-ast eval!) =fn ?args) state*)
 
           [_]
-          (do (prn 'analyse-ast/token (aget token 0) (&/show-state state))
+          (do ;; (prn 'analyse-ast/token (aget token 0) (&/show-state state))
             ((analyse-basic-ast (analyse-ast eval!) eval! token) state))))
       
       [_]
