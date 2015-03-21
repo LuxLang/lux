@@ -319,15 +319,15 @@
   (matchv ::M/objects [syntax]
     [["Statement" ?form]]
     (do ;; (prn 'compile-statement (aget syntax 0) (aget ?form 0))
-      (matchv ::M/objects [?form]
-        [["def" [?name ?body]]]
-        (&&lux/compile-def compile-expression ?name ?body)
-        
-        [["jvm-interface" [?package ?name ?methods]]]
-        (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
+        (matchv ::M/objects [?form]
+          [["def" [?name ?body]]]
+          (&&lux/compile-def compile-expression ?name ?body)
+          
+          [["jvm-interface" [?package ?name ?methods]]]
+          (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
 
-        [["jvm-class" [?package ?name ?super-class ?fields ?methods]]]
-        (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods)))
+          [["jvm-class" [?package ?name ?super-class ?fields ?methods]]]
+          (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods)))
 
     [_]
     (fail "[Compiler Error] Can't compile expressions as top-level forms.")))
@@ -366,36 +366,36 @@
                       (&/map% compile-statement analysis+))]
   (defn ^:private compile-module [name]
     (fn [state]
-      (if (->> state (&/get$ "modules") (&/|contains? name))
+      (if (->> state (&/get$ "lux;modules") (&/|contains? name))
         (fail "[Compiler Error] Can't redefine a module!")
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
           (matchv ::M/objects [(&/run-state (&/exhaust% compiler-step) (->> state
-                                                                            (&/set$ "source" (slurp (str "source/" name ".lux")))
-                                                                            (&/set$ "global-env" (&/V "Some" (&/env name)))
-                                                                            (&/set$ "writer" (&/V "Some" =class))
-                                                                            (&/update$ "modules" #(&/|put name &a-def/init-module %))))]
-            [["Right" [?state ?vals]]]
+                                                                            (&/set$ "lux;source" (slurp (str "source/" name ".lux")))
+                                                                            (&/set$ "lux;global-env" (&/V "lux;Some" (&/env name)))
+                                                                            (&/set$ "lux;writer" (&/V "lux;Some" =class))
+                                                                            (&/update$ "lux;modules" #(&/|put name &a-def/init-module %))))]
+            [["lux;Right" [?state ?vals]]]
             (do (.visitEnd =class)
               ;; (prn 'compile-module 'DONE name)
               ;; (prn 'compile-module/?vals ?vals)
               (&/run-state (&&/save-class! name (.toByteArray =class)) ?state))
             
-            [["Left" ?message]]
+            [["lux;Left" ?message]]
             (fail* ?message)))))))
 
 ;; [Resources]
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
   (matchv ::M/objects [(&/run-state (&/map% compile-module modules) (&/init-state nil))]
-    [["Right" [?state _]]]
+    [["lux;Right" [?state _]]]
     (println (str "Compilation complete! " (str "[" (->> modules
                                                          (&/|interpose " ")
                                                          (&/fold str ""))
                                                 "]")))
 
-    [["Left" ?message]]
+    [["lux;Left" ?message]]
     (do (prn 'compile-all '?message ?message)
       (assert false ?message))))
 

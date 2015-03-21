@@ -20,25 +20,25 @@
   ;; (prn '->match token)
   ;; (prn '->match (aget token 0))
   (matchv ::M/objects [token]
-    [["Symbol" ?name]]
+    [["lux;Symbol" [_ ?name]]]
     (&/T (inc register) (&/V "Pattern" (&/T $body (&/V "StoreMatch" register))))
     
-    [["Bool" ?value]]
+    [["lux;Bool" ?value]]
     (&/T register (&/V "Pattern" (&/T $body (&/V "BoolMatch" ?value))))
 
-    [["Int" ?value]]
+    [["lux;Int" ?value]]
     (&/T register (&/V "Pattern" (&/T $body (&/V "IntMatch" ?value))))
 
-    [["Real" ?value]]
+    [["lux;Real" ?value]]
     (&/T register (&/V "Pattern" (&/T $body (&/V "RealMatch" ?value))))
 
-    [["Char" ?value]]
+    [["lux;Char" ?value]]
     (&/T register (&/V "Pattern" (&/T $body (&/V "CharMatch" ?value))))
 
-    [["Text" ?value]]
+    [["lux;Text" ?value]]
     (&/T register (&/V "Pattern" (&/T $body (&/V "TextMatch" ?value))))
 
-    [["Tuple" ?members]]
+    [["lux;Tuple" ?members]]
     (|let [[register* =members] (&/fold (fn [register+=members member]
                                           ;; (prn 'register+=members (alength register+=members))
                                           (|let [[_register =members] register+=members
@@ -50,13 +50,15 @@
                                         ?members)]
       (&/T register* (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|reverse =members))))))
 
-    [["Tag" ?tag]]
-    (&/T register (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|list)))))))))
+    [["lux;Tag" [?module ?name]]]
+    (|let [?tag (str ?module ";" ?name)]
+      (&/T register (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|list))))))))))
 
-    [["Form" ["Cons" [["Tag" ?tag]
-                      ["Cons" [?value
-                               ["Nil" _]]]]]]]
-    (|let [[register* =value] (->match $body register ?value)]
+    [["lux;Form" ["lux;Cons" [["lux;Tag" [?module ?name]]
+                              ["lux;Cons" [?value
+                                           ["lux;Nil" _]]]]]]]
+    (|let [?tag (str ?module ";" ?name)
+           [register* =value] (->match $body register ?value)]
       (&/T register* (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag =value))))))
     ))
 

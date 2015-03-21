@@ -7,26 +7,26 @@
 ;; [Exports]
 (def next-local-idx
   (fn [state]
-    (return* state (->> state (&/get$ "local-envs") &/|head (&/get$ "locals") (&/get$ "counter")))))
+    (return* state (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;locals") (&/get$ "lux;counter")))))
 
 (defn with-local [name type body]
   (fn [state]
-    (let [old-mappings (->> state (&/get$ "local-envs") &/|head (&/get$ "locals") (&/get$ "mappings"))
-          =return (body (&/update$ "local-envs"
+    (let [old-mappings (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;locals") (&/get$ "lux;mappings"))
+          =return (body (&/update$ "lux;local-envs"
                                    (fn [stack]
-                                     (let [bound-unit (&/V "local" (->> (&/|head stack) (&/get$ "locals") (&/get$ "counter")))]
+                                     (let [bound-unit (&/V "local" (->> (&/|head stack) (&/get$ "lux;locals") (&/get$ "lux;counter")))]
                                        (&/|cons (->> (&/|head stack)
-                                                     (&/update$ "locals" #(&/update$ "counter" inc %))
-                                                     (&/update$ "locals" #(&/update$ "mappings" (fn [m] (&/|put name (&/V "Expression" (&/T bound-unit type)) m)) %)))
+                                                     (&/update$ "lux;locals" #(&/update$ "lux;counter" inc %))
+                                                     (&/update$ "lux;locals" #(&/update$ "lux;mappings" (fn [m] (&/|put name (&/V "Expression" (&/T bound-unit type)) m)) %)))
                                                 (&/|tail stack))))
                                    state))]
       (matchv ::M/objects [=return]
-        [["Right" [?state ?value]]]
-        (return* (&/update$ "local-envs" (fn [stack*]
-                                           (&/|cons (->> (&/|head stack*)
-                                                         (&/update$ "locals" #(&/update$ "counter" dec %))
-                                                         (&/update$ "locals" #(&/set$ "mappings" old-mappings %)))
-                                                    (&/|tail stack*)))
+        [["lux;Right" [?state ?value]]]
+        (return* (&/update$ "lux;local-envs" (fn [stack*]
+                                               (&/|cons (->> (&/|head stack*)
+                                                             (&/update$ "lux;locals" #(&/update$ "lux;counter" dec %))
+                                                             (&/update$ "lux;locals" #(&/set$ "lux;mappings" old-mappings %)))
+                                                        (&/|tail stack*)))
                             ?state)
                  ?value)
         
@@ -41,4 +41,4 @@
 
 (def captured-vars
   (fn [state]
-    (return* state (->> state (&/get$ "local-envs") &/|head (&/get$ "closure") (&/get$ "mappings")))))
+    (return* state (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;closure") (&/get$ "lux;mappings")))))

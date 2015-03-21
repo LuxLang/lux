@@ -9,20 +9,20 @@
 
 (defn ^:private deref [id]
   (fn [state]
-    (if-let [type* (->> state (&/get$ "types") (&/get$ "mappings") (&/|get id))]
+    (if-let [type* (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
       (matchv ::M/objects [type*]
-        [["Some" type]]
+        [["lux;Some" type]]
         (return* state type)
         
-        [["None" _]]
+        [["lux;None" _]]
         (fail* (str "Unbound type-var: " id)))
       (fail* (str "Unknown type-var: " id)))))
 
 (defn ^:private reset [id type]
   (fn [state]
-    (if-let [_ (->> state (&/get$ "types") (&/get$ "mappings") (&/|get id))]
-      (return* (&/update$ "types" (fn [ts] (&/update$ "mappings" #(&/|put id (&/V "Some" type) %)
-                                                     ts))
+    (if-let [_ (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
+      (return* (&/update$ "lux;types" (fn [ts] (&/update$ "lux;mappings" #(&/|put id (&/V "lux;Some" type) %)
+                                                         ts))
                           state)
                nil)
       (fail* (str "Unknown type-var: " id)))))
@@ -30,64 +30,64 @@
 ;; [Exports]
 (def fresh-var
   (fn [state]
-    (let [id (->> state (&/get$ "types") (&/get$ "counter"))]
-      (return* (&/update$ "types" #(->> %
-                                        (&/update$ "counter" inc)
-                                        (&/update$ "mappings" (fn [ms] (&/|put id (&/V "None" nil) ms))))
+    (let [id (->> state (&/get$ "lux;types") (&/get$ "lux;counter"))]
+      (return* (&/update$ "lux;types" #(->> %
+                                            (&/update$ "lux;counter" inc)
+                                            (&/update$ "lux;mappings" (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
                           state)
-               (&/V "Var" id)))))
+               (&/V "lux;TVar" id)))))
 
 (def fresh-lambda
   (exec [=arg fresh-var
          =return fresh-var]
-    (return (&/V "Lambda" (to-array [=arg =return])))))
+    (return (&/V "lux;TLambda" (&/T =arg =return)))))
 
 (defn ^:private ->type [pseudo-type]
   (match pseudo-type
     [::Any]
-    (&/V "Any" nil)
+    (&/V "lux;TAny" nil)
 
     [::Nothing]
-    (&/V "Nothing" nil)
+    (&/V "lux;TNothing" nil)
 
     [::Data ?name ?elems]
-    (&/V "Data" (to-array [?name ?elems]))
+    (&/V "lux;TData" (&/T ?name ?elems))
 
     [::Tuple ?members]
-    (&/V "Tuple" (&/|map ->type ?members))
+    (&/V "lux;TTuple" (&/|map ->type ?members))
     
     [::Variant ?members]
-    (&/V "Variant" (&/|map (fn [[k v]] (to-array [k (->type v)]))
-                           ?members))
+    (&/V "lux;TVariant" (&/|map (fn [[k v]] (&/T k (->type v)))
+                                ?members))
 
     [::Record ?members]
-    (&/V "Record" (&/|map (fn [[k v]] (to-array [k (->type v)]))
-                          ?members))
+    (&/V "lux;TRecord" (&/|map (fn [[k v]] (&/T k (->type v)))
+                               ?members))
 
     [::Lambda ?input ?output]
-    (&/V "Lambda" (to-array [(->type ?input) (->type ?output)]))
+    (&/V "lux;TLambda" (&/T (->type ?input) (->type ?output)))
     
     [::App ?lambda ?param]
-    (&/V "App" (to-array [(->type ?lambda) (->type ?param)]))
+    (&/V "lux;TApp" (&/T (->type ?lambda) (->type ?param)))
 
     [::Bound ?name]
-    (&/V "Bound" ?name)
+    (&/V "lux;TBound" ?name)
 
     [::Var ?id]
-    (&/V "Var" ?id)
+    (&/V "lux;TVar" ?id)
 
     [::All ?env ?name ?arg ?body]
-    (&/V "All" (to-array [(&/|map (fn [[k v]] (to-array [k (->type v)]))
-                                  ?env)
-                          ?name
-                          ?arg
-                          (->type ?body)]))
+    (&/V "lux;TAll" (&/T (&/|map (fn [[k v]] (&/T k (->type v)))
+                                 ?env)
+                         ?name
+                         ?arg
+                         (->type ?body)))
     ))
 
 (def +list+
   [::All (&/|list) "List" "a"
-   [::Variant (&/|list ["Cons" [::Tuple (&/|list [::Bound "a"] [::App [::Bound "List"] [::Bound "a"]])]]
-                       ["Nil" [::Tuple (&/|list)]])]])
+   [::Variant (&/|list ["lux;Cons" [::Tuple (&/|list [::Bound "a"] [::App [::Bound "List"] [::Bound "a"]])]]
+                       ["lux;Nil" [::Tuple (&/|list)]])]])
 
 (def +type+
   (let [text [::Data "java.lang.String" (&/|list)]
@@ -95,66 +95,66 @@
         list-of-types [::App +list+ type]
         string=>type [::App +list+ [::Tuple (&/|list text type)]]]
     (->type [::All (&/|list) "Type" "_"
-             [::Variant (&/|list ["Any"  [::Tuple (&/|list)]]
-                                 ["Nothing"  [::Tuple (&/|list)]]
-                                 ["Data" [::Tuple (&/|list text list-of-types)]]
-                                 ["Tuple" list-of-types]
-                                 ["Variant" string=>type]
-                                 ["Record" string=>type]
-                                 ["Lambda" [::Tuple (&/|list type
-                                                             type)]]
-                                 ["App" [::Tuple (&/|list type
-                                                          type)]]
-                                 ["Bound" text]
-                                 ["Var" [::Data "java.lang.Long" (&/|list)]]
-                                 ["All" [::Tuple (&/|list string=>type text text type)]]
+             [::Variant (&/|list ["lux;TAny"  [::Tuple (&/|list)]]
+                                 ["lux;TNothing"  [::Tuple (&/|list)]]
+                                 ["lux;TData" [::Tuple (&/|list text list-of-types)]]
+                                 ["lux;TTuple" list-of-types]
+                                 ["lux;TVariant" string=>type]
+                                 ["lux;TRecord" string=>type]
+                                 ["lux;TLambda" [::Tuple (&/|list type
+                                                                  type)]]
+                                 ["lux;TApp" [::Tuple (&/|list type
+                                                               type)]]
+                                 ["lux;TBound" text]
+                                 ["lux;TVar" [::Data "java.lang.Long" (&/|list)]]
+                                 ["lux;TAll" [::Tuple (&/|list string=>type text text type)]]
                                  )]])))
 
 (defn clean [tvar type]
   (matchv ::M/objects [tvar]
-    [["Var" ?tid]]
+    [["lux;TVar" ?tid]]
     (matchv ::M/objects [type]
-      [["Var" ?id]]
+      [["lux;TVar" ?id]]
       (if (= ?tid ?id)
         (&/try-all% (&/|list (exec [=type (deref ?id)]
                                (clean tvar =type))
                              (return type)))
         (return type))
       
-      [["Lambda" [?arg ?return]]]
+      [["lux;TLambda" [?arg ?return]]]
       (exec [=arg (clean tvar ?arg)
              =return (clean tvar ?return)]
-        (return (&/V "Lambda" (to-array [=arg =return]))))
+        (return (&/V "lux;TLambda" (to-array [=arg =return]))))
 
-      [["App" [?lambda ?param]]]
+      [["lux;TApp" [?lambda ?param]]]
       (exec [=lambda (clean tvar ?lambda)
              =param (clean tvar ?param)]
-        (return (&/V "App" (to-array [=lambda =param]))))
+        (return (&/V "lux;TApp" (to-array [=lambda =param]))))
 
-      [["Tuple" ?members]]
+      [["lux;TTuple" ?members]]
       (exec [=members (&/map% (partial clean tvar) ?members)]
-        (return (&/V "Tuple" =members)))
+        (return (&/V "lux;TTuple" =members)))
       
-      [["Variant" ?members]]
+      [["lux;TVariant" ?members]]
       (exec [=members (&/map% (fn [[k v]]
                                 (exec [=v (clean tvar v)]
                                   (return (to-array [k =v]))))
                               ?members)]
-        (return (&/V "Variant" =members)))
+        (return (&/V "lux;TVariant" =members)))
 
-      [["Record" ?members]]
+      [["lux;TRecord" ?members]]
       (exec [=members (&/map% (fn [[k v]]
                                 (exec [=v (clean tvar v)]
                                   (return (to-array [k =v]))))
                               ?members)]
-        (return (&/V "Record" =members)))
+        (return (&/V "lux;TRecord" =members)))
 
-      [["All" [?env ?name ?arg ?body]]]
+      [["lux;TAll" [?env ?name ?arg ?body]]]
       (exec [=env (&/map% (fn [[k v]]
                             (exec [=v (clean tvar v)]
                               (return (to-array [k =v]))))
                           ?env)]
-        (return (&/V "All" (to-array [=env ?name ?arg ?body]))))
+        (return (&/V "lux;TAll" (to-array [=env ?name ?arg ?body]))))
 
       [_]
       (return type)
@@ -163,53 +163,53 @@
 (defn show-type [type]
   (prn 'show-type (aget type 0))
   (matchv ::M/objects [type]
-    [["Any" _]]
+    [["lux;TAny" _]]
     "Any"
 
-    [["Nothing" _]]
+    [["lux;TNothing" _]]
     "Nothing"
 
-    [["Data" [name params]]]
+    [["lux;TData" [name params]]]
     (str "(^ " name " [" (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) "])")
 
-    [["Tuple" elems]]
+    [["lux;TTuple" elems]]
     (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
 
-    [["Variant" cases]]
+    [["lux;TVariant" cases]]
     (str "(| " (->> cases
                     (&/|map (fn [kv]
-                            (matchv ::M/objects [kv]
-                              [[k ["Tuple" ["Nil" _]]]]
-                              (str "#" k)
+                              (matchv ::M/objects [kv]
+                                [[k ["Tuple" ["Nil" _]]]]
+                                (str "#" k)
 
-                              [[k v]]
-                              (str "(#" k " " (show-type v) ")"))))
+                                [[k v]]
+                                (str "(#" k " " (show-type v) ")"))))
                     (&/|interpose " ")
                     (&/fold str "")) ")")
     
 
-    [["Record" fields]]
+    [["lux;TRecord" fields]]
     (str "(& " (->> fields
                     (&/|map (fn [kv]
-                            (matchv ::M/objects [kv]
-                              [[k v]]
-                              (str "(#" k " " (show-type v) ")"))))
+                              (matchv ::M/objects [kv]
+                                [[k v]]
+                                (str "(#" k " " (show-type v) ")"))))
                     (&/|interpose " ")
                     (&/fold str "")) ")")
 
-    [["Lambda" [input output]]]
+    [["lux;TLambda" [input output]]]
     (str "(-> " (show-type input) " " (show-type output) ")")
 
-    [["Var" id]]
+    [["lux;TVar" id]]
     (str "⌈" id "⌋")
 
-    [["Bound" name]]
+    [["lux;TBound" name]]
     name
 
-    [["App" [?lambda ?param]]]
+    [["lux;TApp" [?lambda ?param]]]
     (str "(" (show-type ?lambda) " " (show-type ?param) ")")
     
-    [["All" [?env ?name ?arg ?body]]]
+    [["lux;TAll" [?env ?name ?arg ?body]]]
     (str "(All " ?name " " ?arg " " (show-type ?body) ")")
     ))
 
@@ -232,7 +232,7 @@
   ;;           (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
   ;;     success
   ;;     (fail (str "not (" actual " <= " expected ")")))
-    
+  
   ;;   [["Tuple" e!elems] ["Tuple" a!elems]]
   ;;   (exec [_ (assert! (= (&/|length e!elems) (&/|length a!elems))
   ;;                     "Tuples must have matching element sizes.")
@@ -280,16 +280,16 @@
 (let [&& #(and %1 %2)]
   (defn merge [x y]
     (matchv ::M/objects [x y]
-      [_ ["Any" _]]
+      [_ ["lux;TAny" _]]
       (return y)
 
-      [["Any" _] _]
+      [["lux;TAny" _] _]
       (return x)
 
-      [_ ["Nothing" _]]
+      [_ ["lux;TNothing" _]]
       (return x)
 
-      [["Nothing" _] _]
+      [["lux;TNothing" _] _]
       (return y)
 
       ;;;
@@ -324,22 +324,22 @@
 
 (defn apply-lambda [func param]
   (matchv ::M/objects [func]
-    [["Lambda" [input output]]]
+    [["lux;TLambda" [input output]]]
     (exec [_ (solve input param)]
       (return output))
 
     [_]
-    (return (&/V "Any" nil))
+    (return (&/V "lux;TAny" nil))
     ;; (fail (str "[Type System] Can't apply type " (str func) " to type " (str param)))
     ))
 
 (defn slot-type [record slot]
   (fn [state]
     (matchv ::M/objects [(&/|get record slot)]
-      [["Left" msg]]
+      [["lux;Left" msg]]
       (fail* msg)
 
-      [["Right" type]]
+      [["lux;Right" type]]
       (return* state type))))
 
-(def +dont-care+ (&/V "Any" nil))
+(def +dont-care+ (&/V "lux;TAny" nil))

@@ -17,8 +17,8 @@
         [_]
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  "Close_Paren"   "parantheses" "Form"
-  ^:private parse-tuple "Close_Bracket" "brackets"    "Tuple"
+  ^:private parse-form  "Close_Paren"   "parantheses" "lux;Form"
+  ^:private parse-tuple "Close_Bracket" "brackets"    "lux;Tuple"
   )
 
 (defn ^:private parse-record [parse]
@@ -31,7 +31,7 @@
 
       [_]
       (if (even? (&/|length elems))
-        (return (&/|list (&/V "Record" (&/|as-pairs elems))))
+        (return (&/|list (&/V "lux;Record" (&/|as-pairs elems))))
         (fail (str "[Parser Error] Records must have an even number of elements."))))))
 
 ;; [Interface]
@@ -48,25 +48,25 @@
       (return (&/|list))
       
       [["Bool" ?value]]
-      (return (&/|list (&/V "Bool" (Boolean/parseBoolean ?value))))
+      (return (&/|list (&/V "lux;Bool" (Boolean/parseBoolean ?value))))
 
       [["Int" ?value]]
-      (return (&/|list (&/V "Int" (Integer/parseInt ?value))))
+      (return (&/|list (&/V "lux;Int" (Integer/parseInt ?value))))
 
       [["Real" ?value]]
-      (return (&/|list (&/V "Real" (Float/parseFloat ?value))))
+      (return (&/|list (&/V "lux;Real" (Float/parseFloat ?value))))
 
       [["Char" ?value]]
-      (return (&/|list (&/V "Char" (.charAt ?value 0))))
+      (return (&/|list (&/V "lux;Char" (.charAt ?value 0))))
 
       [["Text" ?value]]
-      (return (&/|list (&/V "Text" ?value)))
+      (return (&/|list (&/V "lux;Text" ?value)))
 
-      [["Symbol" ?value]]
-      (return (&/|list (&/V "Symbol" ?value)))
+      [["Symbol" ?ident]]
+      (return (&/|list (&/V "lux;Symbol" ?ident)))
 
-      [["Tag" ?value]]
-      (return (&/|list (&/V "Tag" ?value)))
+      [["Tag" ?ident]]
+      (return (&/|list (&/V "lux;Tag" ?ident)))
 
       [["Open_Paren" _]]
       (parse-form parse)

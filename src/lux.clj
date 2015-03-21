@@ -12,7 +12,6 @@
   ;; TODO: Add source-file information to .class files for easier debugging.
   ;; TODO: Finish implementing class & interface definition
   ;; TODO: All optimizations
-  ;; TODO: Take module-name aliasing into account.
   ;; TODO: 
 
   ;; Finish total-locals

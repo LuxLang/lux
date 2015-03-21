@@ -36,100 +36,100 @@
   (matchv ::M/objects [expr]
     [["Expression" [?struct ?type]]]
     (do ;; (prn 'total-locals2 (aget ?struct 0))
-      (matchv ::M/objects [?struct]
-        [["case" [?variant ?base-register ?num-registers ?branches]]]
-        (+ ?num-registers (&/fold max 0 (&/|map (comp total-locals second) ?branches)))
-        
-        [["tuple" ?members]]
-        (&/fold max 0 (&/|map total-locals ?members))
+        (matchv ::M/objects [?struct]
+          [["case" [?variant ?base-register ?num-registers ?branches]]]
+          (+ ?num-registers (&/fold max 0 (&/|map (comp total-locals second) ?branches)))
+          
+          [["tuple" ?members]]
+          (&/fold max 0 (&/|map total-locals ?members))
 
-        [["variant" [?tag ?value]]]
-        (total-locals ?value)
+          [["variant" [?tag ?value]]]
+          (total-locals ?value)
 
-        [["call" [?fn ?args]]]
-        (&/fold max 0 (&/|map total-locals (&/|cons ?fn ?args)))
-        
-        [["jvm-iadd" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-isub" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-imul" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-idiv" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-irem" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-ladd" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-lsub" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-lmul" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-ldiv" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-lrem" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-fadd" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-fsub" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-fmul" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-fdiv" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-frem" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-dadd" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-dsub" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-dmul" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-ddiv" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
-        
-        [["jvm-drem" [?x ?y]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          [["call" [?fn ?args]]]
+          (&/fold max 0 (&/|map total-locals (&/|cons ?fn ?args)))
+          
+          [["jvm-iadd" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-isub" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-imul" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-idiv" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-irem" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-ladd" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-lsub" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-lmul" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-ldiv" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-lrem" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-fadd" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-fsub" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-fmul" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-fdiv" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-frem" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-dadd" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-dsub" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-dmul" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-ddiv" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
+          
+          [["jvm-drem" [?x ?y]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
 
-        [["exec" ?exprs]]
-        (&/fold max 0 (&/|map total-locals ?exprs))
+          [["exec" ?exprs]]
+          (&/fold max 0 (&/|map total-locals ?exprs))
 
-        [["jvm-new" [?class ?classes ?args]]]
-        (&/fold max 0 (&/|map total-locals ?args))
+          [["jvm-new" [?class ?classes ?args]]]
+          (&/fold max 0 (&/|map total-locals ?args))
 
-        [["jvm-invokestatic" [?class ?method ?classes ?args]]]
-        (&/fold max 0 (&/|map total-locals ?args))
+          [["jvm-invokestatic" [?class ?method ?classes ?args]]]
+          (&/fold max 0 (&/|map total-locals ?args))
 
-        [["jvm-invokevirtual" [?class ?method ?classes ?object ?args]]]
-        (&/fold max 0 (&/|map total-locals ?args))
+          [["jvm-invokevirtual" [?class ?method ?classes ?object ?args]]]
+          (&/fold max 0 (&/|map total-locals ?args))
 
-        [["jvm-aastore" [?array ?idx ?elem]]]
-        (&/fold max 0 (&/|map total-locals (&/|list ?array ?elem)))
+          [["jvm-aastore" [?array ?idx ?elem]]]
+          (&/fold max 0 (&/|map total-locals (&/|list ?array ?elem)))
 
-        [["jvm-aaload" [?array ?idx]]]
-        (total-locals ?array)
+          [["jvm-aaload" [?array ?idx]]]
+          (total-locals ?array)
 
-        ;; [["lambda" _]]
-        ;; 0
-        
-        [_]
-        0
-        ))))
+          ;; [["lambda" _]]
+          ;; 0
+          
+          [_]
+          0
+          ))))

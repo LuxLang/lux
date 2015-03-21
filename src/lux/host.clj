@@ -19,11 +19,11 @@
                                               "")
                                             (.getSimpleName class)))]
     (if (= "void" base)
-      (return (&/V "Nothing" nil))
-      (let [base* (&/V "Data" (to-array [base (&/V "Nil" nil)]))]
+      (return (&/V "lux;TNothing" nil))
+      (let [base* (&/V "lux;TData" (&/T base (&/V "lux;Nil" nil)))]
         (if arr-level
           (return (reduce (fn [inner _]
-                            (&/V "array" (&/V "Cons" (to-array [inner (&/V "Nil" nil)]))))
+                            (&/V "array" (&/V "lux;Cons" (&/T inner (&/V "lux;Nil" nil)))))
                           base*
                           (range (/ (count arr-level) 2.0))))
           (return base*)))
@@ -51,6 +51,7 @@
         (fail "[Analyser Error] Unknown class.")))))
 
 (defn full-class-name [class-name]
+  ;; (prn 'full-class-name class-name)
   (exec [=class (full-class class-name)]
     (return (.getName =class))))
 
@@ -60,6 +61,7 @@
 (def ->package ->class)
 
 (defn ->type-signature [class]
+  (assert (string? class))
   (case class
     "void"    "V"
     "boolean" "Z"
@@ -79,27 +81,27 @@
 
 (defn ->java-sig [type]
   (matchv ::M/objects [type]
-    [["Any" _]]
+    [["lux;TAny" _]]
     (->type-signature "java.lang.Object")
 
-    [["Nothing" _]]
+    [["lux;TNothing" _]]
     "V"
     
-    [["Data" ["array" ["Cons" [?elem ["Nil" _]]]]]]
+    [["lux;TData" ["array" ["lux;Cons" [?elem ["lux;Nil" _]]]]]]
     (str "[" (->java-sig ?elem))
 
-    [["Data" [?name ?params]]]
+    [["lux;TData" [?name ?params]]]
     (->type-signature ?name)
 
-    [["Lambda" [_ _]]]
+    [["lux;TLambda" [_ _]]]
     (->type-signature function-class)))
 
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]
-    [["Symbol" ?ident]]
+    [["lux;Symbol" [_ ?ident]]]
     (full-class-name ?ident)
 
-    [["Form" ["Cons" [["Symbol" "Array"] ["Cons" [["Symbol" ?inner] ["Nil" _]]]]]]]
+    [["lux;Form" ["lux;Cons" [["lux;Symbol" [_ "Array"]] ["lux;Cons" [["lux;Symbol" [_ ?inner]] ["lux;Nil" _]]]]]]]
     (exec [=inner (full-class-name ?inner)]
       (return (str "[L" (->class =inner) ";")))
 

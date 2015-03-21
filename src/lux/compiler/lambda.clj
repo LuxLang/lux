@@ -65,7 +65,7 @@
                  $start (new Label)
                  $end (new Label)
                  _ (doto *writer*
-                     (-> (.visitLocalVariable (str &&/local-prefix idx) (&host/->java-sig (&/V "Any" nil)) nil $start $end (+ 2 idx))
+                     (-> (.visitLocalVariable (str &&/local-prefix idx) (&host/->java-sig (&/V "lux;TAny" nil)) nil $start $end (+ 2 idx))
                          (->> (dotimes [idx num-locals])))
                      (.visitLabel $start))]
            ret (compile impl-body)
@@ -109,7 +109,9 @@
                                  (matchv ::M/objects [?name+?captured]
                                    [[?name ["Expression" [["captured" [_ ?captured-id ?source]] _]]]])
                                  (doseq [?name+?captured (&/->seq ?env)
-                                         ;; :let [_ (prn '?captured ?name ?captured)]
+                                         ;; :let [_ (prn '?name+?captured (alength ?name+?captured))
+                                         ;;       _ (prn '?name+?captured (aget ?name+?captured 1 0))
+                                         ;;       _ (prn '?name+?captured (aget ?name+?captured 1 1 0 0))]
                                          ])))
                         (add-lambda-apply lambda-class ?env)
                         (add-lambda-<init> lambda-class ?env)

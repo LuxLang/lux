@@ -10,13 +10,13 @@
 ;; [Resources]
 (defn locals [member]
   (matchv ::M/objects [member]
-    [["Symbol" ?name]]
+    [["lux;Symbol" [_ ?name]]]
     (&/|list ?name)
 
-    [["Tuple" ?submembers]]
+    [["lux;Tuple" ?submembers]]
     (&/flat-map locals ?submembers)
 
-    [["Form" ["Cons" [["Tag" _] ?submembers]]]]
+    [["lux;Form" ["lux;Cons" [["lux;Tag" _] ?submembers]]]]
     (&/flat-map locals ?submembers)
 
     [_]
@@ -24,7 +24,7 @@
 
 (defn analyse-branch [analyse max-registers bindings+body]
   (|let [[bindings body] bindings+body]
-    (do ;; (prn 'analyse-branch max-registers (&/|length bindings) body)
+    (do ;; (prn 'analyse-branch max-registers (&/->seq bindings) body)
       (&/fold (fn [body* name]
                 (&&/with-var
                   (fn [=var]

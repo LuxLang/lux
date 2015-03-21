@@ -41,10 +41,10 @@
            record#)))
 
 (defn fail* [message]
-  (V "Left" message))
+  (V "lux;Left" message))
 
 (defn return* [state value]
-  (V "Right" (T state value)))
+  (V "lux;Right" (T state value)))
 
 (defmacro |let [bindings body]
   (reduce (fn [inner [left right]]
@@ -56,8 +56,8 @@
 
 (defmacro |list [& elems]
   (reduce (fn [tail head]
-            `(V "Cons" (T ~head ~tail)))
-          `(V "Nil" nil)
+            `(V "lux;Cons" (T ~head ~tail)))
+          `(V "lux;Nil" nil)
           (reverse elems)))
 
 (defmacro |table [& elems]
@@ -69,67 +69,67 @@
 (defn |get [slot table]
   ;; (prn '|get slot (aget table 0))
   (matchv ::M/objects [table]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     nil
     
-    [["Cons" [[k v] table*]]]
+    [["lux;Cons" [[k v] table*]]]
     (if (= k slot)
       v
       (|get slot table*))))
 
 (defn |put [slot value table]
   (matchv ::M/objects [table]
-    [["Nil" _]]
-    (V "Cons" (T (T slot value) (V "Nil" nil)))
+    [["lux;Nil" _]]
+    (V "lux;Cons" (T (T slot value) (V "lux;Nil" nil)))
     
-    [["Cons" [[k v] table*]]]
+    [["lux;Cons" [[k v] table*]]]
     (if (= k slot)
-      (V "Cons" (T (T slot value) table*))
-      (V "Cons" (T (T k v) (|put slot value table*))))))
+      (V "lux;Cons" (T (T slot value) table*))
+      (V "lux;Cons" (T (T k v) (|put slot value table*))))))
 
 (defn |merge [table1 table2]
   ;; (prn '|merge (aget table1 0) (aget table2 0))
   (matchv ::M/objects [table2]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     table1
 
-    [["Cons" [[k v] table2*]]]
+    [["lux;Cons" [[k v] table2*]]]
     (|merge (|put k v table1) table2*)))
 
 (defn |update [k f table]
   (matchv ::M/objects [table]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     table
 
-    [["Cons" [[k* v] table*]]]
+    [["lux;Cons" [[k* v] table*]]]
     (if (= k k*)
-      (V "Cons" (T (T k (f v)) table*))
+      (V "lux;Cons" (T (T k (f v)) table*))
       (|update k f table*))))
 
 (defn |head [xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (assert false)
 
-    [["Cons" [x _]]]
+    [["lux;Cons" [x _]]]
     x))
 
 (defn |tail [xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (assert false)
 
-    [["Cons" [_ xs*]]]
+    [["lux;Cons" [_ xs*]]]
     xs*))
 
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
-    (V "Left" message)))
+    (V "lux;Left" message)))
 
 (defn return [value]
   (fn [state]
-    (V "Right" (T state value))))
+    (V "lux;Right" (T state value))))
 
 (defn bind [m-value step]
   ;; (prn 'bind m-value step)
@@ -137,7 +137,7 @@
     (let [inputs (m-value state)]
       ;; (prn 'bind/inputs (aget inputs 0))
       (matchv ::M/objects [inputs]
-        [["Right" [?state ?datum]]]
+        [["lux;Right" [?state ?datum]]]
         ((step ?datum) ?state)
         
         [_]
@@ -158,83 +158,83 @@
 (defn try% [monad]
   (fn [state]
     (matchv ::M/objects [(monad state)]
-      [["Right" [?state ?datum]]]
+      [["lux;Right" [?state ?datum]]]
       (return* ?state ?datum)
       
       [_]
       (return* state nil))))
 
 (defn |cons [head tail]
-  (V "Cons" (T head tail)))
+  (V "lux;Cons" (T head tail)))
 
 (defn |++ [xs ys]
   ;; (prn '|++ (and xs (aget xs 0)) (and ys (aget ys 0)))
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     ys
 
-    [["Cons" [x xs*]]]
-    (V "Cons" (T x (|++ xs* ys)))))
+    [["lux;Cons" [x xs*]]]
+    (V "lux;Cons" (T x (|++ xs* ys)))))
 
 (defn |map [f xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     xs
 
-    [["Cons" [x xs*]]]
-    (V "Cons" (T (f x) (|map f xs*)))))
+    [["lux;Cons" [x xs*]]]
+    (V "lux;Cons" (T (f x) (|map f xs*)))))
 
 (defn flat-map [f xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     xs
 
-    [["Cons" [x xs*]]]
+    [["lux;Cons" [x xs*]]]
     (|++ (f x) (flat-map f xs*))))
 
 (defn |split-with [p xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (T xs xs)
 
-    [["Cons" [x xs*]]]
+    [["lux;Cons" [x xs*]]]
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
             (T (|cons x pre) post))
-      (T (V "Nil" nil) xs))))
+      (T (V "lux;Nil" nil) xs))))
 
 (defn |contains? [k table]
   (matchv ::M/objects [table]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     false
 
-    [["Cons" [[k* _] table*]]]
+    [["lux;Cons" [[k* _] table*]]]
     (or (= k k*)
         (|contains? k table*))))
 
 (defn fold [f init xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     init
 
-    [["Cons" [x xs*]]]
+    [["lux;Cons" [x xs*]]]
     (fold f (f init x) xs*)))
 
 (defn fold% [f init xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (return init)
 
-    [["Cons" [x xs*]]]
+    [["lux;Cons" [x xs*]]]
     (exec [init* (f init x)]
       (fold% f init* xs*))))
 
 (defn folds [f init xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (|list init)
 
-    [["Cons" [x xs*]]]
+    [["lux;Cons" [x xs*]]]
     (|cons init (folds f (f init x) xs*))))
 
 (defn |length [xs]
@@ -243,8 +243,8 @@
 
 (let [|range* (fn |range* [from to]
                 (if (< from to)
-                  (V "Cons" (T from (|range* (inc from) to)))
-                  (V "Nil" nil)))]
+                  (V "lux;Cons" (T from (|range* (inc from) to)))
+                  (V "lux;Nil" nil)))]
   (defn |range [n]
     (|range* 0 n)))
 
@@ -258,38 +258,38 @@
 
 (defn zip2 [xs ys]
   (matchv ::M/objects [xs ys]
-    [["Cons" [x xs*]] ["Cons" [y ys*]]]
-    (V "Cons" (T (T x y) (zip2 xs* ys*)))
+    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+    (V "lux;Cons" (T (T x y) (zip2 xs* ys*)))
 
     [_ _]
-    (V "Nil" nil)))
+    (V "lux;Nil" nil)))
 
 (defn |keys [plist]
   (matchv ::M/objects [plist]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (|list)
     
-    [["Cons" [[k v] plist*]]]
+    [["lux;Cons" [[k v] plist*]]]
     (|cons k (|keys plist*))))
 
 (defn |interpose [sep xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     xs
 
-    [["Cons" [_ ["Nil" _]]]]
+    [["lux;Cons" [_ ["lux;Nil" _]]]]
     xs
     
-    [["Cons" [x xs*]]]
-    (V "Cons" (T x (V "Cons" (T sep (|interpose sep xs*)))))))
+    [["lux;Cons" [x xs*]]]
+    (V "lux;Cons" (T x (V "lux;Cons" (T sep (|interpose sep xs*)))))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
     (matchv ::M/objects [xs]
-      [["Nil" _]]
+      [["lux;Nil" _]]
       (return xs)
 
-      [["Cons" [x xs*]]]
+      [["lux;Cons" [x xs*]]]
       (exec [y (f x)
              ys (<name> f xs*)]
         (return (<joiner> y ys)))))
@@ -299,11 +299,11 @@
 
 (defn |as-pairs [xs]
   (matchv ::M/objects [xs]
-    [["Cons" [x ["Cons" [y xs*]]]]]
-    (V "Cons" (T (T x y) (|as-pairs xs*)))
+    [["lux;Cons" [x ["lux;Cons" [y xs*]]]]]
+    (V "lux;Cons" (T (T x y) (|as-pairs xs*)))
 
     [_]
-    (V "Nil" nil)))
+    (V "lux;Nil" nil)))
 
 (defn |reverse [xs]
   (fold (fn [tail head]
@@ -332,7 +332,7 @@
     (let [output (monad call-state)]
       ;; (prn 'apply-m/output output)
       (matchv ::M/objects [output]
-        [["Right" [?state ?datum]]]
+        [["lux;Right" [?state ?datum]]]
         (return* state ?datum)
         
         [_]
@@ -357,7 +357,7 @@
 
 (defn sequence% [m-values]
   (matchv ::M/objects [m-values]
-    [["Cons" [head tail]]]
+    [["lux;Cons" [head tail]]]
     (exec [_ head]
       (sequence% tail))
 
@@ -367,20 +367,20 @@
 (defn repeat% [monad]
   (fn [state]
     (matchv ::M/objects [(monad state)]
-      [["Right" [?state ?head]]]
+      [["lux;Right" [?state ?head]]]
       (do ;; (prn 'repeat-m/?state ?state)
           (matchv ::M/objects [((repeat% monad) ?state)]
-            [["Right" [?state* ?tail]]]
+            [["lux;Right" [?state* ?tail]]]
             (do ;; (prn 'repeat-m/?state* ?state*)
                 (return* ?state* (|cons ?head ?tail)))))
       
-      [["Left" ?message]]
+      [["lux;Left" ?message]]
       (do ;; (println "Failed at last:" ?message)
-          (return* state (V "Nil" nil))))))
+          (return* state (V "lux;Nil" nil))))))
 
 (def source-consumed?
   (fn [state]
-    (return* state (empty? (get$ "source" state)))))
+    (return* state (empty? (get$ "lux;source" state)))))
 
 (defn exhaust% [monad]
   (exec [output-h monad
@@ -392,17 +392,17 @@
 
 (defn try-all% [monads]
   (matchv ::M/objects [monads]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (fail "There are no alternatives to try!")
 
-    [["Cons" [m monads*]]]
+    [["lux;Cons" [m monads*]]]
     (fn [state]
       (let [output (m state)]
         (matchv ::M/objects [output monads*]
-          [["Right" _] _]
+          [["lux;Right" _] _]
           output
 
-          [_ ["Nil" _]]
+          [_ ["lux;Nil" _]]
           output
           
           [_ _]
@@ -442,72 +442,78 @@
 
 (def loader
   (fn [state]
-    (return* state (get$ "loader" state))))
+    (return* state (get$ "lux;loader" state))))
 
 (def +init-bindings+
-  (R "counter" 0
-     "mappings" (|list)))
+  (R "lux;counter" 0
+     "lux;mappings" (|table)))
 
 (defn env [name]
-  (R "name" name
-     "inner-closures" 0
-     "locals"  +init-bindings+
-     "closure" +init-bindings+))
+  (R "lux;name" name
+     "lux;inner-closures" 0
+     "lux;locals"  +init-bindings+
+     "lux;closure" +init-bindings+))
 
 (defn init-state [_]
-  (R "source"     (V "None" nil)
-     "modules"    (|list)
-     "global-env" (V "None" nil)
-     "local-envs" (|list)
-     "types"      +init-bindings+
-     "writer"     (V "None" nil)
-     "loader"     (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
-     "eval-ctor"  0))
+  (R "lux;source"         (V "lux;None" nil)
+     "lux;modules"        (|table)
+     "lux;module-aliases" (|table)
+     "lux;global-env"     (V "lux;None" nil)
+     "lux;local-envs"     (|list)
+     "lux;types"          +init-bindings+
+     "lux;writer"         (V "lux;None" nil)
+     "lux;loader"         (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
+     "lux;eval-ctor"      0))
 
 (defn from-some [some]
   (matchv ::M/objects [some]
-    [["Some" datum]]
+    [["lux;Some" datum]]
     datum
 
     [_]
     (assert false)))
 
 (defn show-state [state]
-  (let [source (get$ "source" state)
-        modules (get$ "modules" state)
-        global-env (get$ "global-env" state)
-        local-envs (get$ "local-envs" state)
-        types (get$ "types" state)
-        writer (get$ "writer" state)
-        loader (get$ "loader" state)
-        eval-ctor (get$ "eval-ctor" state)]
+  (let [source (get$ "lux;source" state)
+        modules (get$ "lux;modules" state)
+        global-env (get$ "lux;global-env" state)
+        local-envs (get$ "lux;local-envs" state)
+        types (get$ "lux;types" state)
+        writer (get$ "lux;writer" state)
+        loader (get$ "lux;loader" state)
+        eval-ctor (get$ "lux;eval-ctor" state)]
     (str "{"
-         (->> (for [slot ["source", "modules", "global-env", "local-envs", "types", "writer", "loader", "eval-ctor"]
+         (->> (for [slot ["lux;source", "lux;modules", "lux;global-env", "lux;local-envs", "lux;types", "lux;writer", "lux;loader", "lux;eval-ctor"]
                     :let [value (get$ slot state)]]
                 (str "#" slot " " (case slot
-                                    "source" "???"
-                                    "modules" "???"
-                                    "global-env" (->> value from-some (get$ "locals") (get$ "mappings") show-table)
-                                    "local-envs" (|length value)
-                                    "types" "???"
-                                    "writer" "???"
-                                    "loader" "???"
-                                    "eval-ctor" value)))
+                                    "lux;source" "???"
+                                    "lux;modules" "???"
+                                    "lux;global-env" (->> value from-some (get$ "lux;locals") (get$ "lux;mappings") show-table)
+                                    "lux;local-envs" (str "("
+                                                          (->> value
+                                                               (|map #(->> % (get$ "lux;locals") (get$ "lux;mappings") show-table))
+                                                               (|interpose " ")
+                                                               (fold str ""))
+                                                          ")")
+                                    "lux;types" "???"
+                                    "lux;writer" "???"
+                                    "lux;loader" "???"
+                                    "lux;eval-ctor" value)))
               (interpose " ")
               (reduce str ""))
          "}")))
 
 (def get-eval-ctor
   (fn [state]
-    (return* (update$ "eval-ctor" inc state) (get$ "eval-ctor" state))))
+    (return* (update$ "lux;eval-ctor" inc state) (get$ "lux;eval-ctor" state))))
 
 (def get-writer
   (fn [state]
-    (let [writer* (get$ "writer" state)]
+    (let [writer* (get$ "lux;writer" state)]
       ;; (prn 'get-writer (class writer*))
       ;; (prn 'get-writer (aget writer* 0))
       (matchv ::M/objects [writer*]
-        [["Some" datum]]
+        [["lux;Some" datum]]
         (return* state datum)
 
         [_]
@@ -515,17 +521,17 @@
 
 (def get-top-local-env
   (fn [state]
-    (try (let [top (|head (get$ "local-envs" state))]
+    (try (let [top (|head (get$ "lux;local-envs" state))]
            (return* state top))
       (catch Throwable _
         (fail "No local environment.")))))
 
 (def get-current-module-env
   (fn [state]
-    (let [global-env* (get$ "global-env" state)]
+    (let [global-env* (get$ "lux;global-env" state)]
       ;; (prn 'get-current-module-env (aget global-env* 0))
       (matchv ::M/objects [global-env*]
-        [["Some" datum]]
+        [["lux;Some" datum]]
         (return* state datum)
 
         [_]
@@ -533,10 +539,10 @@
 
 (defn ->seq [xs]
   (matchv ::M/objects [xs]
-    [["Nil" _]]
+    [["lux;Nil" _]]
     (list)
 
-    [["Cons" [x xs*]]]
+    [["lux;Cons" [x xs*]]]
     (cons x (->seq xs*))))
 
 (defn ->list [seq]
@@ -551,35 +557,35 @@
 
 (def get-module-name
   (exec [module get-current-module-env]
-    (return (get$ "name" module))))
+    (return (get$ "lux;name" module))))
 
 (defn ^:private with-scope [name body]
   (fn [state]
-    (let [output (body (update$ "local-envs" #(|cons (env name) %) state))]
+    (let [output (body (update$ "lux;local-envs" #(|cons (env name) %) state))]
       (matchv ::M/objects [output]
-        [["Right" [state* datum]]]
-        (return* (update$ "local-envs" |tail state*) datum)
+        [["lux;Right" [state* datum]]]
+        (return* (update$ "lux;local-envs" |tail state*) datum)
         
         [_]
         output))))
 
 (defn with-closure [body]
   (exec [closure-info (try-all% (|list (exec [top get-top-local-env]
-                                         (return (T true (->> top (get$ "inner-closures") str))))
+                                         (return (T true (->> top (get$ "lux;inner-closures") str))))
                                        (exec [global get-current-module-env]
-                                         (return (T false (->> global (get$ "inner-closures") str))))))]
+                                         (return (T false (->> global (get$ "lux;inner-closures") str))))))]
     (matchv ::M/objects [closure-info]
       [[local? closure-name]]
       (fn [state]
         (let [body* (with-scope closure-name
                       body)]
           (body* (if local?
-                   (update$ "local-envs" #(|cons (update$ "inner-closures" inc (|head %))
+                   (update$ "lux;local-envs" #(|cons (update$ "lux;inner-closures" inc (|head %))
                                                  (|tail %))
                             state)
-                   (update$ "global-env" #(matchv ::M/objects [%]
-                                            [["Some" global-env]]
-                                            (V "Some" (update$ "inner-closures" inc global-env))
+                   (update$ "lux;global-env" #(matchv ::M/objects [%]
+                                            [["lux;Some" global-env]]
+                                            (V "lux;Some" (update$ "lux;inner-closures" inc global-env))
 
                                             [_]
                                             %)
@@ -589,14 +595,14 @@
 (def get-scope-name
   (exec [module-name get-module-name]
     (fn [state]
-      (return* state (->> state (get$ "local-envs") (|map #(get$ "name" %)) |reverse (|cons module-name))))))
+      (return* state (->> state (get$ "lux;local-envs") (|map #(get$ "lux;name" %)) |reverse (|cons module-name))))))
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (set$ "writer" (V "Some" writer) state))]
+    (let [output (body (set$ "lux;writer" (V "lux;Some" writer) state))]
       (matchv ::M/objects [output]
-        [["Right" [?state ?value]]]
-        (return* (set$ "writer" (get$ "writer" state) ?state) ?value)
+        [["lux;Right" [?state ?value]]]
+        (return* (set$ "lux;writer" (get$ "lux;writer" state) ?state) ?value)
 
         [_]
         output))))
@@ -605,31 +611,32 @@
   (monad state))
 
 (defn show-ast [ast]
+  ;; (prn 'show-ast (aget ast 0))
   (matchv ::M/objects [ast]
-    [["Bool" ?value]]
+    [["lux;Bool" ?value]]
     (pr-str ?value)
 
-    [["Int" ?value]]
+    [["lux;Int" ?value]]
     (pr-str ?value)
 
-    [["Real" ?value]]
+    [["lux;Real" ?value]]
     (pr-str ?value)
 
-    [["Char" ?value]]
+    [["lux;Char" ?value]]
     (pr-str ?value)
 
-    [["Text" ?value]]
+    [["lux;Text" ?value]]
     (str "\"" ?value "\"")
 
-    [["Tag" ?tag]]
-    (str "#" ?tag)
+    [["lux;Tag" [?module ?tag]]]
+    (str "#" ?module ";" ?tag)
 
-    [["Symbol" ?ident]]
-    ?ident
+    [["lux;Symbol" [?module ?ident]]]
+    (str ?module ";" ?ident)
 
-    [["Tuple" ?elems]]
+    [["lux;Tuple" ?elems]]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    [["Form" ?elems]]
+    [["lux;Form" ?elems]]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
     ))

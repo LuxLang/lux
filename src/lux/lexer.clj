@@ -1,24 +1,25 @@
 (ns lux.lexer
   (:require [clojure.template :refer [do-template]]
-            [lux.base :as & :refer [exec return* return fail fail*]]))
+            [lux.base :as & :refer [exec return* return fail fail*]]
+            [lux.analyser.def :as &def]))
 
 ;; [Utils]
 (defn ^:private lex-regex [regex]
   (fn [state]
-    (if-let [[match] (re-find regex (&/get$ "source" state))]
-      (return* (&/update$ "source" #(.substring % (.length match)) state) match)
+    (if-let [[match] (re-find regex (&/get$ "lux;source" state))]
+      (return* (&/update$ "lux;source" #(.substring % (.length match)) state) match)
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-regex2 [regex]
   (fn [state]
-    (if-let [[match tok1 tok2] (re-find regex (&/get$ "source" state))]
-      (return* (&/update$ "source" #(.substring % (.length match)) state) [tok1 tok2])
+    (if-let [[match tok1 tok2] (re-find regex (&/get$ "lux;source" state))]
+      (return* (&/update$ "lux;source" #(.substring % (.length match)) state) [tok1 tok2])
       (fail* (str "[Lexer Error] Pattern failed: " regex)))))
 
 (defn ^:private lex-prefix [prefix]
   (fn [state]
-    (if (.startsWith (&/get$ "source" state) prefix)
-      (return* (&/update$ "source" #(.substring % (.length prefix)) state) prefix)
+    (if (.startsWith (&/get$ "lux;source" state) prefix)
+      (return* (&/update$ "lux;source" #(.substring % (.length prefix)) state) prefix)
       (fail* (str "[Lexer Error] Text failed: " prefix)))))
 
 (defn ^:private escape-char [escaped]
@@ -40,7 +41,7 @@
                          (return (str prefix unescaped postfix)))
                        (lex-regex #"(?s)^([^\"\\]*)"))))
 
-(def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)(;[0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]+)?")
+(def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)")
 
 ;; [Lexers]
 (def ^:private lex-white-space
@@ -73,9 +74,9 @@
       (return (&/V <tag> token))))
 
   ^:private lex-bool  "Bool"  #"^(true|false)"
-  ^:private lex-real  "Real"  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
   ^:private lex-int   "Int"   #"^-?(0|[1-9][0-9]*)"
-  ^:private lex-ident "Symbol" +ident-re+)
+  ^:private lex-real  "Real"  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
+  )
 
 (def ^:private lex-char
   (exec [_ (lex-prefix "#\"")
@@ -91,10 +92,33 @@
          _ (lex-prefix "\"")]
     (return (&/V "Text" token))))
 
+(def ^:private lex-ident
+  (&/try-all% (&/|list (exec [_ (lex-prefix ";")
+                              token (lex-regex +ident-re+)
+                              module-name &/get-module-name]
+                         (return (&/T module-name token)))
+                       (exec [token (lex-regex +ident-re+)]
+                         (&/try-all% (&/|list (exec [_ (lex-prefix ";")
+                                                     local-token (lex-regex +ident-re+)]
+                                                (&/try-all% (&/|list (exec [unaliased (&def/unalias-module token)]
+                                                                       (return (&/T unaliased local-token)))
+                                                                     (exec [? (&def/module-exists? token)]
+                                                                       (if ?
+                                                                         (return (&/T token local-token))
+                                                                         (fail (str "[Lexer Error] Unknown module: " token))))
+                                                                     )))
+                                              (exec [module-name &/get-module-name]
+                                                (return (&/T module-name token))))))
+                       )))
+
+(def ^:private lex-symbol
+  (exec [ident lex-ident]
+    (return (&/V "Symbol" ident))))
+
 (def ^:private lex-tag
   (exec [_ (lex-prefix "#")
-         token (lex-regex +ident-re+)]
-    (return (&/V "Tag" token))))
+         ident lex-ident]
+    (return (&/V "Tag" ident))))
 
 (do-template [<name> <text> <tag>]
   (def <name>
@@ -126,6 +150,6 @@
                        lex-int
                        lex-char
                        lex-text
-                       lex-ident
+                       lex-symbol
                        lex-tag
                        lex-delimiter)))

@@ -40,22 +40,22 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [*writer* *type*]
     (matchv ::M/objects [*type*]
-      [["Nothing" nil]]
+      [["lux;TNothing" nil]]
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      [["Data" ["char" _]]]
+      [["lux;TData" ["char" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
 
-      [["Data" ["int" _]]]
+      [["lux;TData" ["int" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class integer-class) "valueOf" (str "(I)" (&host/->type-signature integer-class)))
 
-      [["Data" ["long" _]]]
+      [["lux;TData" ["long" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      [["Data" ["boolean" _]]]
+      [["lux;TData" ["boolean" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
 
-      [["Data" [_ _]]]
+      [["lux;TData" [_ _]]]
       nil)
     *writer*))
 
@@ -331,10 +331,10 @@
 (defn compile-exec [compile *type* ?exprs]
   (exec [*writer* &/get-writer
          _ (&/map% (fn [expr]
-                    (exec [ret (compile expr)
-                           :let [_ (.visitInsn *writer* Opcodes/POP)]]
-                      (return ret)))
-                  (butlast ?exprs))
+                     (exec [ret (compile expr)
+                            :let [_ (.visitInsn *writer* Opcodes/POP)]]
+                       (return ret)))
+                   (butlast ?exprs))
          _ (compile (last ?exprs))]
     (return nil)))
 
@@ -359,13 +359,13 @@
          :let [_ (.visitLabel *writer* $to)]
          _ compile-finally
          handlers (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
-                           (exec [:let [$handler-start (new Label)
-                                        $handler-end (new Label)]
-                                  _ (compile ?catch-body)
-                                  :let [_ (.visitLabel *writer* $handler-end)]
-                                  _ compile-finally]
-                             (return [?ex-class $handler-start $handler-end])))
-                         ?catches)
+                            (exec [:let [$handler-start (new Label)
+                                         $handler-end (new Label)]
+                                   _ (compile ?catch-body)
+                                   :let [_ (.visitLabel *writer* $handler-end)]
+                                   _ compile-finally]
+                              (return [?ex-class $handler-start $handler-end])))
+                          ?catches)
          :let [_ (.visitLabel *writer* $catch-finally)]
          _ (if ?finally
              (exec [_ (compile ?finally)

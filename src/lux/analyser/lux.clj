@@ -19,7 +19,7 @@
          =elems-types (&/map% &&/expr-type =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "Tuple" =elems-types)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "lux;TTuple" =elems-types)))))))
 
 (defn analyse-record [analyse ?elems]
   (exec [=elems (&/map% (fn [kv]
@@ -36,56 +36,66 @@
                               =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (&/|list (&/V "Expression" (&/T (&/V "record" =elems) (&/V "Record" =elems-types)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "lux;record" =elems) (&/V "lux;TRecord" =elems-types)))))))
 
 (defn ^:private resolve-global [ident state]
-  (if-let [global (->> state (&/get$ "global-env") &/from-some (&/get$ "locals") (&/get$ "mappings") (&/|get ident))]
-    (return* state (&/|list global))
-    (fail* (str "[Analyser Error] Unresolved identifier: " ident))))
+  (|let [[?module ?name] ident
+         ident* (str ?module ";" ?name)]
+    (if-let [global (->> state (&/get$ "lux;global-env") &/from-some (&/get$ "lux;locals") (&/get$ "lux;mappings") (&/|get ident*))]
+      (return* state (&/|list global))
+      (fail* (str "[Analyser Error] Unresolved identifier: " ident*)))))
 
 (defn analyse-ident [analyse ident]
   ;; (prn 'analyse-ident ident)
-  (exec [module-name &/get-module-name]
-    (fn [state]
-      ;; (prn 'module-name module-name)
-      ;; (prn '(&/get$ "local-envs" state) (&/get$ "local-envs" state))
-      ;; (prn '(&/->seq (&/get$ "local-envs" state)) (&/->seq (&/get$ "local-envs" state)))
-      ;; (println (&/show-state state))
-      (let [stack (&/get$ "local-envs" state)]
-        (matchv ::M/objects [stack]
-          [["Nil" _]]
-          (resolve-global ident state)
-          
-          [["Cons" [top stack*]]]
-          (if-let [=bound (or (->> stack &/|head (&/get$ "locals")  (&/get$ "mappings") (&/|get ident))
-                              (->> stack &/|head (&/get$ "closure") (&/get$ "mappings") (&/|get ident)))]
-            (return* state (&/|list =bound))
-            (|let [no-binding? #(and (->> % (&/get$ "locals")  (&/get$ "mappings") (&/|contains? ident) not)
-                                     (->> % (&/get$ "closure") (&/get$ "mappings") (&/|contains? ident) not))
-                   [inner outer] (&/|split-with no-binding? stack*)]
-              (matchv ::M/objects [outer]
-                [["Nil" _]]
+  (|let [[?module ?name] ident]
+    (do ;; (prn 'analyse-ident ?module ?name)
+      (exec [module-name &/get-module-name]
+        (if (not= module-name ?module)
+          (partial resolve-global ident)
+          (fn [state]
+            ;; (when (and (= "lux" ?module)
+            ;;            (= "output" ?name))
+            ;;   (prn (&/show-state state)))
+            ;; (prn 'module-name module-name)
+            ;; (prn '(&/get$ "local-envs" state) (&/get$ "local-envs" state))
+            ;; (prn '(&/->seq (&/get$ "local-envs" state)) (&/->seq (&/get$ "local-envs" state)))
+            ;; (println (&/show-state state))
+            (let [stack (&/get$ "lux;local-envs" state)]
+              (matchv ::M/objects [stack]
+                [["lux;Nil" _]]
                 (resolve-global ident state)
+                
+                [["lux;Cons" [top stack*]]]
+                (if-let [=bound (or (->> stack &/|head (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|get ?name))
+                                    (->> stack &/|head (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|get ?name)))]
+                  (return* state (&/|list =bound))
+                  (|let [no-binding? #(and (->> % (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|contains? ?name) not)
+                                           (->> % (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|contains? ?name) not))
+                         [inner outer] (&/|split-with no-binding? stack*)]
+                    (matchv ::M/objects [outer]
+                      [["lux;Nil" _]]
+                      (resolve-global ident state)
 
-                [["Cons" [top-outer _]]]
-                (let [in-stack (&/|cons top inner)
-                      scopes (&/|tail (&/folds #(&/|cons (&/get$ "name" %2) %1)
-                                               (&/|map #(&/get$ "name" %) outer)
-                                               (&/|reverse in-stack)))
-                      ;; _ (prn 'in-stack module-name ident (&/->seq (&/|map #(&/get$ "name" %) in-stack)) scopes)
-                      [=local inner*] (&/fold (fn [register+new-inner frame+in-scope]
-                                                (|let [[register new-inner] register+new-inner
-                                                       [frame in-scope] frame+in-scope
-                                                       [register* frame*] (&&lambda/close-over (&/|cons module-name (&/|reverse in-scope)) ident register frame)]
-                                                  (&/T register* (&/|cons frame* new-inner))))
-                                              (&/T (or (->> top-outer (&/get$ "locals")  (&/get$ "mappings") (&/|get ident))
-                                                       (->> top-outer (&/get$ "closure") (&/get$ "mappings") (&/|get ident)))
-                                                   (&/|list))
-                                              (&/zip2 (&/|reverse in-stack) scopes))]
-                  (return* (&/set$ "local-envs" (&/|++ inner* outer) state) (&/|list =local)))
-                )))
-          ))
-      )))
+                      [["lux;Cons" [top-outer _]]]
+                      (|let [in-stack (&/|cons top inner)
+                             scopes (&/|tail (&/folds #(&/|cons (&/get$ "lux;name" %2) %1)
+                                                      (&/|map #(&/get$ "lux;name" %) outer)
+                                                      (&/|reverse in-stack)))
+                             ;; _ (prn 'in-stack module-name ident (&/->seq (&/|map #(&/get$ "name" %) in-stack)) scopes)
+                             [=local inner*] (&/fold (fn [register+new-inner frame+in-scope]
+                                                       (|let [[register new-inner] register+new-inner
+                                                              [frame in-scope] frame+in-scope
+                                                              [register* frame*] (&&lambda/close-over (&/|cons module-name (&/|reverse in-scope)) ?name register frame)]
+                                                         (&/T register* (&/|cons frame* new-inner))))
+                                                     (&/T (or (->> top-outer (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|get ?name))
+                                                              (->> top-outer (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|get ?name)))
+                                                          (&/|list))
+                                                     (&/zip2 (&/|reverse in-stack) scopes))]
+                        (return* (&/set$ "lux;local-envs" (&/|++ inner* outer) state) (&/|list =local)))
+                      )))
+                ))
+            ))
+        ))))
 
 (defn ^:private analyse-apply* [analyse =fn ?args]
   (exec [=args (&/flat-map% analyse ?args)
@@ -105,22 +115,23 @@
     (return (&/|list =apply))))
 
 (defn analyse-apply [analyse =fn ?args]
-  ;; (prn 'analyse-apply (aget =fn 0))
+  ;; (prn 'analyse-apply1 (aget =fn 0))
   (exec [loader &/loader]
     (matchv ::M/objects [=fn]
       [["Expression" [=fn-form =fn-type]]]
-      (matchv ::M/objects [=fn-form]
-        [["global" [?module ?name]]]
-        (exec [macro? (&&def/macro? ?module ?name)]
-          (if macro?
-            (let [macro-class (&host/location (&/|list ?module ?name))]
-              (exec [macro-expansion (&macro/expand loader macro-class ?args)
-                     output (&/flat-map% analyse macro-expansion)]
-                (return output)))
-            (analyse-apply* analyse =fn ?args)))
-        
-        [_]
-        (analyse-apply* analyse =fn ?args))
+      (do ;; (prn 'analyse-apply2 (aget =fn-form 0))
+        (matchv ::M/objects [=fn-form]
+          [["global" [?module ?name]]]
+          (exec [macro? (&&def/macro? ?module ?name)]
+            (if macro?
+              (let [macro-class (&host/location (&/|list ?module ?name))]
+                (exec [macro-expansion (&macro/expand loader macro-class ?args)
+                       output (&/flat-map% analyse macro-expansion)]
+                  (return output)))
+              (analyse-apply* analyse =fn ?args)))
+          
+          [_]
+          (analyse-apply* analyse =fn ?args)))
 
       [_]
       (fail "[Analyser Error] Can't call a statement!"))
@@ -129,6 +140,7 @@
 (defn analyse-case [analyse ?value ?branches]
   ;; (prn 'analyse-case (aget ?branches 0) (aget ?branches 1 1 0)
   ;;      (&/->seq ?branches))
+  ;; (prn 'analyse-case (&/show-ast ?value))
   (exec [:let [num-branches (&/|length ?branches)
                ;; _ (prn 'analyse-case ?value (&/|length ?branches)
                ;;        (and (> num-branches 0) (even? num-branches)))
@@ -149,7 +161,7 @@
          ;; :let [_ (prn '=bodies =bodies)]
          ;; :let [_ (prn 'analyse-case/=bodies =bodies)]
          =body-types (&/map% &&/expr-type =bodies)
-         =case-type (&/fold% &type/merge (&/V "Nothing" nil) =body-types)
+         =case-type (&/fold% &type/merge (&/V "lux;TNothing" nil) =body-types)
          :let [=branches (&/zip2 (&/|map &/|first branches) =bodies)]]
     (return (&/|list (&/V "Expression" (&/T (&/V "case" (&/T =value base-register max-locals =branches))
                                             =case-type))))))
@@ -157,7 +169,7 @@
 (defn analyse-lambda [analyse ?self ?arg ?body]
   (exec [=lambda-type* &type/fresh-lambda]
     (matchv ::M/objects [=lambda-type*]
-      [["Lambda" [=arg =return]]]
+      [["lux;TLambda" [=arg =return]]]
       (exec [[=scope =captured =body] (&&lambda/with-lambda ?self =lambda-type*
                                         ?arg =arg
                                         (&&/analyse-1 analyse ?body))
@@ -194,10 +206,13 @@
                   _ (&&def/define module-name ?name =value-type)]
              (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
 
-(defn analyse-declare-macro [?ident]
-  (exec [module-name &/get-module-name
-         _ (&&def/declare-macro module-name ?ident)]
-    (return (&/|list))))
+(defn analyse-declare-macro [ident]
+  (|let [[?module ?name] ident]
+    (exec [module-name &/get-module-name]
+      (if (= ?module module-name)
+        (exec [_ (&&def/declare-macro ?module ?name)]
+          (return (&/|list)))
+        (fail "Can't declare macros from foreign modules.")))))
 
 (defn analyse-import [analyse ?path]
   (assert false)
