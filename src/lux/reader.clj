@@ -35,7 +35,9 @@
     (fn [file-name line-num column-num line]
       (if-let [[match] (re-find regex line)]
         (let [match-length (.length match)
-              line* (.substring line match-length)]
+              line* (.substring line match-length)
+              ;; _ (prn 'with-line line*)
+              ]
           (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) match))
                           (if (empty? line*)
                             (&/V "lux;None" nil)
@@ -47,7 +49,9 @@
     (fn [file-name line-num column-num line]
       (if-let [[match tok1 tok2] (re-find regex line)]
         (let [match-length (.length match)
-              line* (.substring line match-length)]
+              line* (.substring line match-length)
+              ;; _ (prn 'with-line line*)
+              ]
           (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) [tok1 tok2]))
                           (if (empty? line*)
                             (&/V "lux;None" nil)
@@ -60,7 +64,9 @@
       ;; (prn 'read-text text line)
       (if (.startsWith line text)
         (let [match-length (.length text)
-              line* (.substring line match-length)]
+              line* (.substring line match-length)
+              ;; _ (prn 'with-line line*)
+              ]
           (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) text))
                           (if (empty? line*)
                             (&/V "lux;None" nil)
@@ -78,3 +84,17 @@
                            (not (empty? line))))
                        (&/zip2 lines
                                (&/|range (&/|length lines)))))))
+
+(def current-line
+  (fn [state]
+    (matchv ::M/objects [(&/get$ "lux;source" state)]
+      [["lux;None" _]]
+      (fail* "[Reader Error] No source code.")
+
+      [["lux;Some" ["lux;Nil" _]]]
+      (fail* "[Reader Error] EOF")
+
+      [["lux;Some" ["lux;Cons" [["lux;Meta" [_ line]]
+                                more]]]]
+      (return* state line)
+      )))

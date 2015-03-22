@@ -185,6 +185,14 @@
     [["lux;Cons" [x xs*]]]
     (V "lux;Cons" (T (f x) (|map f xs*)))))
 
+(defn |empty? [xs]
+  (matchv ::M/objects [xs]
+    [["lux;Nil" _]]
+    true
+
+    [["lux;Cons" [_ _]]]
+    false))
+
 (defn |filter [p xs]
   (matchv ::M/objects [xs]
     [["lux;Nil" _]]
@@ -422,15 +430,24 @@
     ))
 
 (defn exhaust% [step]
-  (try-all% (|list (exec [output-h step
-                          output-t (exhaust% step)]
-                     (return (|cons output-h output-t)))
-                   ;; (return (|list))
-                   ;; (exec [? source-consumed?]
-                   ;;   (if ?
-                   ;;     (return (|list))
-                   ;;     (exhaust% step)))
-                   )))
+  (fn [state]
+    (matchv ::M/objects [(step state)]
+      [["lux;Right" [state* _]]]
+      ((exhaust% step) state*)
+
+      [["lux;Left" msg]]
+      ((exec [? source-consumed?]
+         (if ?
+           (return nil)
+           (fail* msg)))
+       state)
+      ;; (if (= "[Reader Error] EOF" msg)
+      ;;   ((exec [? source-consumed?
+      ;;           :let [_ (prn '? ?)]]
+      ;;      (return nil))
+      ;;    state)
+      ;;   (fail* msg))
+      )))
 
 (defn ^:private normalize-char [char]
   (case char

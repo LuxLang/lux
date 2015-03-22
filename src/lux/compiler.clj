@@ -364,7 +364,11 @@
 (let [compiler-step (exec [analysis+ (&optimizer/optimize eval!)
                            ;; :let [_ (prn 'analysis+ analysis+)]
                            ]
-                      (&/map% compile-statement analysis+))]
+                      (&/map% compile-statement analysis+)
+                      ;; (if (&/|empty? analysis+)
+                      ;;   (fail "[Compiler Error] No more to compile.")
+                      ;;   (&/map% compile-statement analysis+))
+                      )]
   (defn ^:private compile-module [name]
     (fn [state]
       (if (->> state (&/get$ "lux;modules") (&/|contains? name))
@@ -377,7 +381,7 @@
                                                                             (&/set$ "lux;global-env" (&/V "lux;Some" (&/env name)))
                                                                             (&/set$ "lux;writer" (&/V "lux;Some" =class))
                                                                             (&/update$ "lux;modules" #(&/|put name &a-def/init-module %))))]
-            [["lux;Right" [?state ?vals]]]
+            [["lux;Right" [?state _]]]
             (do (.visitEnd =class)
               ;; (prn 'compile-module 'DONE name)
               ;; (prn 'compile-module/?vals ?vals)

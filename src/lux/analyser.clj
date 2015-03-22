@@ -3,6 +3,7 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [exec return fail]]
+                 [reader :as &reader]
                  [parser :as &parser]
                  [type :as &type]
                  [macro :as &macro]
@@ -95,7 +96,7 @@
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (do ;; (when (= "if" ?name)
         ;;   (prn "if" (&/show-ast ?value)))
-      (&&lux/analyse-def analyse ?name ?value))
+        (&&lux/analyse-def analyse ?name ?value))
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "declare-macro"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?ident]]]
@@ -465,7 +466,5 @@
 
 ;; [Resources]
 (defn analyse [eval!]
-  (exec [asts &parser/parse
-         ;; :let [_ (prn 'analyse/asts asts)]
-         ]
+  (exec [asts &parser/parse]
     (&/flat-map% (analyse-ast eval!) asts)))

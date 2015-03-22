@@ -34,8 +34,7 @@
 
 (def ^:private lex-single-line-comment
   (exec [[_ [meta _]] (&reader/read-text "##")
-         [_ [_ comment]] (&reader/read-regex #"^([^\n]*)")
-         _ (&reader/read-regex #"^(\n?)")]
+         [_ [_ comment]] (&reader/read-regex #"^(.*)$")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (defn ^:private lex-multi-line-comment [___]
