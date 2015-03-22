@@ -184,6 +184,16 @@
     [["lux;Cons" [x xs*]]]
     (V "lux;Cons" (T (f x) (|map f xs*)))))
 
+(defn |filter [p xs]
+  (matchv ::M/objects [xs]
+    [["lux;Nil" _]]
+    xs
+
+    [["lux;Cons" [x xs*]]]
+    (if (p x)
+      (V "lux;Cons" (T x (|filter p xs*)))
+      (|filter p xs*))))
+
 (defn flat-map [f xs]
   (matchv ::M/objects [xs]
     [["lux;Nil" _]]
@@ -200,7 +210,7 @@
     [["lux;Cons" [x xs*]]]
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
-            (T (|cons x pre) post))
+        (T (|cons x pre) post))
       (T (V "lux;Nil" nil) xs))))
 
 (defn |contains? [k table]
@@ -380,15 +390,15 @@
 
 (def source-consumed?
   (fn [state]
-    (return* state (empty? (get$ "lux;source" state)))))
+    (matchv ::M/objects [(get$ "lux;source" state)]
+      [["lux;None" _]]
+      (fail* "No source code.")
 
-(defn exhaust% [monad]
-  (exec [output-h monad
-         ? source-consumed?
-         output-t (if ?
-                    (return (|list))
-                    (exhaust% monad))]
-    (return (|cons output-h output-t))))
+      [["lux;Some" ["lux;Nil" _]]]
+      (return* state true)
+
+      [["lux;Some" _]]
+      (return* state false))))
 
 (defn try-all% [monads]
   (matchv ::M/objects [monads]
@@ -409,6 +419,16 @@
           ((try-all% monads*) state)
           )))
     ))
+
+(defn exhaust% [step]
+  (try-all% (|list (exec [output-h step
+                          output-t (exhaust% step)]
+                     (return (|cons output-h output-t)))
+                   (return (|list))
+                   (exec [? source-consumed?]
+                     (if ?
+                       (return (|list))
+                       (exhaust% step))))))
 
 (defn ^:private normalize-char [char]
   (case char
