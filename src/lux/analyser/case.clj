@@ -10,13 +10,13 @@
 ;; [Resources]
 (defn locals [member]
   (matchv ::M/objects [member]
-    [["lux;Symbol" [_ ?name]]]
+    [["lux;Meta" [_ ["lux;Symbol" [_ ?name]]]]]
     (&/|list ?name)
 
-    [["lux;Tuple" ?submembers]]
+    [["lux;Meta" [_ ["lux;Tuple" ?submembers]]]]
     (&/flat-map locals ?submembers)
 
-    [["lux;Form" ["lux;Cons" [["lux;Tag" _] ?submembers]]]]
+    [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" _]]] ?submembers]]]]]]
     (&/flat-map locals ?submembers)
 
     [_]
@@ -25,12 +25,12 @@
 (defn analyse-branch [analyse max-registers bindings+body]
   (|let [[bindings body] bindings+body]
     (do ;; (prn 'analyse-branch max-registers (&/->seq bindings) body)
-      (&/fold (fn [body* name]
-                (&&/with-var
-                  (fn [=var]
-                    (&env/with-local name =var body*))))
-              (&/fold (fn [body* _]
-                        (&env/with-local "" &type/+dont-care+ body*))
-                      (&&/analyse-1 analyse body)
-                      (&/|range (- max-registers (&/|length bindings))))
-              (&/|reverse bindings)))))
+        (&/fold (fn [body* name]
+                  (&&/with-var
+                    (fn [=var]
+                      (&env/with-local name =var body*))))
+                (&/fold (fn [body* _]
+                          (&env/with-local "" &type/+dont-care+ body*))
+                        (&&/analyse-1 analyse body)
+                        (&/|range (- max-registers (&/|length bindings))))
+                (&/|reverse bindings)))))

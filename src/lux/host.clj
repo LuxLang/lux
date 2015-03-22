@@ -98,10 +98,12 @@
 
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]
-    [["lux;Symbol" [_ ?ident]]]
+    [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
     (full-class-name ?ident)
 
-    [["lux;Form" ["lux;Cons" [["lux;Symbol" [_ "Array"]] ["lux;Cons" [["lux;Symbol" [_ ?inner]] ["lux;Nil" _]]]]]]]
+    [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "Array"]]]]
+                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?inner]]]]
+                                                          ["lux;Nil" _]]]]]]]]]
     (exec [=inner (full-class-name ?inner)]
       (return (str "[L" (->class =inner) ";")))
 

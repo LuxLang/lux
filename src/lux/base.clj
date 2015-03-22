@@ -177,6 +177,7 @@
     (V "lux;Cons" (T x (|++ xs* ys)))))
 
 (defn |map [f xs]
+  ;; (prn '|map (aget xs 0))
   (matchv ::M/objects [xs]
     [["lux;Nil" _]]
     xs
@@ -322,7 +323,7 @@
         xs))
 
 (defn show-table [table]
-  (prn 'show-table (aget table 0))
+  ;; (prn 'show-table (aget table 0))
   (str "{{"
        (->> table
             (|map (fn [kv] (|let [[k v] kv] (str k " = ???"))))
@@ -424,11 +425,12 @@
   (try-all% (|list (exec [output-h step
                           output-t (exhaust% step)]
                      (return (|cons output-h output-t)))
-                   (return (|list))
-                   (exec [? source-consumed?]
-                     (if ?
-                       (return (|list))
-                       (exhaust% step))))))
+                   ;; (return (|list))
+                   ;; (exec [? source-consumed?]
+                   ;;   (if ?
+                   ;;     (return (|list))
+                   ;;     (exhaust% step)))
+                   )))
 
 (defn ^:private normalize-char [char]
   (case char
@@ -601,14 +603,14 @@
                       body)]
           (body* (if local?
                    (update$ "lux;local-envs" #(|cons (update$ "lux;inner-closures" inc (|head %))
-                                                 (|tail %))
+                                                     (|tail %))
                             state)
                    (update$ "lux;global-env" #(matchv ::M/objects [%]
-                                            [["lux;Some" global-env]]
-                                            (V "lux;Some" (update$ "lux;inner-closures" inc global-env))
+                                                [["lux;Some" global-env]]
+                                                (V "lux;Some" (update$ "lux;inner-closures" inc global-env))
 
-                                            [_]
-                                            %)
+                                                [_]
+                                                %)
                             state)))))
       )))
 
@@ -632,31 +634,40 @@
 
 (defn show-ast [ast]
   ;; (prn 'show-ast (aget ast 0))
+  ;; (prn 'show-ast (aget ast 1 1 0))
+  ;; (cond (= "lux;Meta" (aget ast 1 1 0))
+  ;;       (prn 'EXTRA 'show-ast (aget ast 1 1 1 1 0))
+
+  ;;       (= "lux;Symbol" (aget ast 1 1 0))
+  ;;       (prn 'EXTRA 'show-ast (aget ast 1 1 1 1))
+
+  ;;       :else
+  ;;       nil)
   (matchv ::M/objects [ast]
-    [["lux;Bool" ?value]]
+    [["lux;Meta" [_ ["lux;Bool" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Int" ?value]]
+    [["lux;Meta" [_ ["lux;Int" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Real" ?value]]
+    [["lux;Meta" [_ ["lux;Real" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Char" ?value]]
+    [["lux;Meta" [_ ["lux;Char" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Text" ?value]]
+    [["lux;Meta" [_ ["lux;Text" ?value]]]]
     (str "\"" ?value "\"")
 
-    [["lux;Tag" [?module ?tag]]]
+    [["lux;Meta" [_ ["lux;Tag" [?module ?tag]]]]]
     (str "#" ?module ";" ?tag)
 
-    [["lux;Symbol" [?module ?ident]]]
+    [["lux;Meta" [_ ["lux;Symbol" [?module ?ident]]]]]
     (str ?module ";" ?ident)
 
-    [["lux;Tuple" ?elems]]
+    [["lux;Meta" [_ ["lux;Tuple" ?elems]]]]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    [["lux;Form" ?elems]]
+    [["lux;Meta" [_ ["lux;Form" ?elems]]]]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
     ))

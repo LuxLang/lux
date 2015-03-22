@@ -7,21 +7,19 @@
 (defn expand [loader macro-class tokens]
   (fn [state]
     ;; (prn 'expand macro-class tokens state)
-    ;; (let [expansion (-> (.loadClass loader macro-class)
-    ;;                     (.getField "_datum")
-    ;;                     (.get nil)
-    ;;                     (.apply tokens)
-    ;;                     (.apply state))]
-    ;;   (matchv ::M/objects [expansion]
-    ;;     [["lux;Right" [state* nodes]]]
-    ;;     (doseq [node (&/->seq nodes)]
-    ;;       (prn 'expansion macro-class (&/show-ast node)))
+    (let [expansion (-> (.loadClass loader macro-class)
+                        (.getField "_datum")
+                        (.get nil)
+                        (.apply tokens)
+                        (.apply state))]
+      ;; (if (or (= "lux$_BQUOTE_" macro-class)
+      ;;         (= "lux$if" macro-class))
+      ;;   (matchv ::M/objects [expansion]
+      ;;     [["lux;Right" [state* nodes]]]
+      ;;     (doseq [node (&/->seq nodes)]
+      ;;       (prn 'expansion macro-class (&/show-ast node)))
 
-    ;;     [_]
-    ;;     nil)
-    ;;   expansion)
-    (-> (.loadClass loader macro-class)
-        (.getField "_datum")
-        (.get nil)
-        (.apply tokens)
-        (.apply state))))
+      ;;     [_]
+      ;;     nil))
+      expansion)
+    ))

@@ -46,7 +46,6 @@
       (fail* (str "[Analyser Error] Unresolved identifier: " ident*)))))
 
 (defn analyse-ident [analyse ident]
-  ;; (prn 'analyse-ident ident)
   (|let [[?module ?name] ident]
     (do ;; (prn 'analyse-ident ?module ?name)
       (exec [module-name &/get-module-name]
@@ -167,6 +166,7 @@
                                             =case-type))))))
 
 (defn analyse-lambda [analyse ?self ?arg ?body]
+  ;; (prn 'analyse-lambda ?self ?arg ?body)
   (exec [=lambda-type* &type/fresh-lambda]
     (matchv ::M/objects [=lambda-type*]
       [["lux;TLambda" [=arg =return]]]

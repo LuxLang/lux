@@ -12,7 +12,7 @@
 ;; [Utils]
 (defn ^:private extract-ident [ident]
   (matchv ::M/objects [ident]
-    [["lux;Symbol" [_ ?ident]]]
+    [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
     (return ?ident)
 
     [_]
@@ -155,7 +155,9 @@
 (defn analyse-jvm-class [analyse ?name ?super-class ?fields]
   (exec [?fields (&/map% (fn [?field]
                            (matchv ::M/objects [?field]
-                             [["lux;Tuple" ["lux;Cons" [["lux;Symbol" ?class] ["lux;Cons" [["lux;Symbol" ?field-name] ["lux;Nil" _]]]]]]]
+                             [["lux;Meta" [_ ["lux;Tuple" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?class]]]
+                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?field-name]]]
+                                                                                    ["lux;Nil" _]]]]]]]]]
                              (return [?class ?field-name])
                              
                              [_]
@@ -172,13 +174,13 @@
   (exec [=members (&/map% (fn [member]
                             ;; (prn 'analyse-jvm-interface (&/show-ast member))
                             (matchv ::M/objects [member]
-                              [["lux;Form" ["lux;Cons" [["lux;Symbol" [_ ":"]]
-                                                        ["lux;Cons" [["lux;Symbol" [_ ?member-name]]
-                                                                     ["lux;Cons" [["lux;Form" ["lux;Cons" [["lux;Symbol" [_ "->"]]
-                                                                                                           ["lux;Cons" [["lux;Tuple" ?inputs]
-                                                                                                                        ["lux;Cons" [["lux;Symbol" [_ ?output]]
-                                                                                                                                     ["lux;Nil" _]]]]]]]]
-                                                                                  ["lux;Nil" _]]]]]]]]]
+                              [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ":"]]]]
+                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?member-name]]]]
+                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "->"]]]]
+                                                                                                                                         ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?inputs]]]
+                                                                                                                                                      ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?output]]]]
+                                                                                                                                                                   ["lux;Nil" _]]]]]]]]]]
+                                                                                                 ["lux;Nil" _]]]]]]]]]]]
                               (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
                                   (exec [?inputs (&/map% extract-ident ?inputs)]
                                     (return [?member-name [?inputs ?output]])))
