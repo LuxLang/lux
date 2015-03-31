@@ -132,15 +132,23 @@
     (V "lux;Right" (T state value))))
 
 (defn bind [m-value step]
+  (when (not (fn? m-value))
+    (prn 'bind (aget m-value 0)))
+  (when (not (fn? step))
+    (prn 'bind (aget step 0)))
   ;; (prn 'bind m-value step)
   (fn [state]
     (let [inputs (m-value state)]
       ;; (prn 'bind/inputs (aget inputs 0))
       (matchv ::M/objects [inputs]
         [["lux;Right" [?state ?datum]]]
-        ((step ?datum) ?state)
+        (let [next-fn (step ?datum)]
+          (when (not (fn? next-fn))
+            (prn 'bind (aget next-fn 0)
+                 (aget next-fn 1)))
+          (next-fn ?state))
         
-        [_]
+        [["lux;Left" _]]
         inputs))))
 
 (defmacro exec [steps return]
@@ -598,7 +606,7 @@
   (exec [module get-current-module-env]
     (return (get$ "lux;name" module))))
 
-(defn ^:private with-scope [name body]
+(defn with-scope [name body]
   (fn [state]
     (let [output (body (update$ "lux;local-envs" #(|cons (env name) %) state))]
       (matchv ::M/objects [output]

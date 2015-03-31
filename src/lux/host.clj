@@ -19,8 +19,8 @@
                                               "")
                                             (.getSimpleName class)))]
     (if (= "void" base)
-      (return (&/V "lux;TNothing" nil))
-      (let [base* (&/V "lux;TData" (&/T base (&/V "lux;Nil" nil)))]
+      (return (&/V "lux;NothingT" nil))
+      (let [base* (&/V "lux;DataT" (&/T base (&/V "lux;Nil" nil)))]
         (if arr-level
           (return (reduce (fn [inner _]
                             (&/V "array" (&/V "lux;Cons" (&/T inner (&/V "lux;Nil" nil)))))
@@ -81,19 +81,19 @@
 
 (defn ->java-sig [type]
   (matchv ::M/objects [type]
-    [["lux;TAny" _]]
+    [["lux;AnyT" _]]
     (->type-signature "java.lang.Object")
 
-    [["lux;TNothing" _]]
+    [["lux;NothingT" _]]
     "V"
     
-    [["lux;TData" ["array" ["lux;Cons" [?elem ["lux;Nil" _]]]]]]
+    [["lux;DataT" ["array" ["lux;Cons" [?elem ["lux;Nil" _]]]]]]
     (str "[" (->java-sig ?elem))
 
-    [["lux;TData" [?name ?params]]]
+    [["lux;DataT" [?name ?params]]]
     (->type-signature ?name)
 
-    [["lux;TLambda" [_ _]]]
+    [["lux;LambdaT" [_ _]]]
     (->type-signature function-class)))
 
 (defn extract-jvm-param [token]

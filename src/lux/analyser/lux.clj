@@ -19,7 +19,7 @@
          =elems-types (&/map% &&/expr-type =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "lux;TTuple" =elems-types)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems) (&/V "lux;TupleT" =elems-types)))))))
 
 (defn analyse-record [analyse ?elems]
   (exec [=elems (&/map% (fn [kv]
@@ -36,7 +36,7 @@
                               =elems)
          ;; :let [_ (prn 'analyse-tuple =elems)]
          ]
-    (return (&/|list (&/V "Expression" (&/T (&/V "lux;record" =elems) (&/V "lux;TRecord" =elems-types)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "lux;record" =elems) (&/V "lux;RecordT" =elems-types)))))))
 
 (defn ^:private resolve-global [ident state]
   (|let [[?module ?name] ident
@@ -160,7 +160,7 @@
          ;; :let [_ (prn '=bodies =bodies)]
          ;; :let [_ (prn 'analyse-case/=bodies =bodies)]
          =body-types (&/map% &&/expr-type =bodies)
-         =case-type (&/fold% &type/merge (&/V "lux;TNothing" nil) =body-types)
+         =case-type (&/fold% &type/merge (&/V "lux;NothingT" nil) =body-types)
          :let [=branches (&/zip2 (&/|map &/|first branches) =bodies)]]
     (return (&/|list (&/V "Expression" (&/T (&/V "case" (&/T =value base-register max-locals =branches))
                                             =case-type))))))
@@ -169,39 +169,36 @@
   ;; (prn 'analyse-lambda ?self ?arg ?body)
   (exec [=lambda-type* &type/fresh-lambda]
     (matchv ::M/objects [=lambda-type*]
-      [["lux;TLambda" [=arg =return]]]
+      [["lux;LambdaT" [=arg =return]]]
       (exec [[=scope =captured =body] (&&lambda/with-lambda ?self =lambda-type*
                                         ?arg =arg
                                         (&&/analyse-1 analyse ?body))
              =body-type (&&/expr-type =body)
              ;; _ =body-type
-             =lambda-type (exec [_ (&type/solve =return =body-type)
-                                 =lambda-type** (&type/clean =return =lambda-type*)]
-                            (&type/clean =arg =lambda-type**))
+             =lambda-type (exec [_ (&type/solve &type/init-fixpoints =return =body-type)]
+                            (&type/clean =return =lambda-type*))
+             =bound-arg (&type/lookup =arg)
+             =lambda-type (matchv ::M/objects [=arg =bound-arg]
+                            [["lux;VarT" id] ["lux;Some" bound]]
+                            (&type/clean =arg =lambda-type)
+
+                            [["lux;VarT" id] ["lux;None" _]]
+                            (let [var-name (str (gensym ""))
+                                  bound (&/V "lux;BoundT" var-name)]
+                              (exec [_ (&type/reset id bound)
+                                     lambda-type (&type/clean =arg =lambda-type)]
+                                (return (&/V "lux;AllT" (&/T (&/|list) "" var-name lambda-type))))))
              ;; :let [_ (prn '=lambda-type =lambda-type)]
              ]
         (return (&/|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured ?arg =body)) =lambda-type))))))))
-
-(defn analyse-get [analyse ?slot ?record]
-  (exec [=record (&&/analyse-1 analyse ?record)
-         =record-type (&&/expr-type =record)
-         =slot-type (&type/slot-type =record-type ?slot)]
-    (return (&/|list (&/V "Expression" (&/T (&/V "get" (?slot =record)) =slot-type))))))
-
-(defn analyse-set [analyse ?slot ?value ?record]
-  (exec [=value (&&/analyse-1 analyse ?value)
-         =record (&&/analyse-1 analyse ?record)
-         =record-type (&&/expr-type =record)
-         =slot-type (&type/slot-type =record-type ?slot)
-         _ (&type/solve =slot-type =value)]
-    (return (&/|list (&/V "Expression" (&/T (&/V "set" (&/T ?slot =value =record)) =slot-type))))))
 
 (defn analyse-def [analyse ?name ?value]
   ;; (prn 'analyse-def ?name ?value)
   (exec [module-name &/get-module-name]
     (&/if% (&&def/defined? module-name ?name)
            (fail (str "[Analyser Error] Can't redefine " ?name))
-           (exec [=value (&&/analyse-1 analyse ?value)
+           (exec [=value (&/with-scope ?name
+                           (&&/analyse-1 analyse ?value))
                   =value-type (&&/expr-type =value)
                   _ (&&def/define module-name ?name =value-type)]
              (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
@@ -219,22 +216,32 @@
   (return (&/|list)))
 
 (defn analyse-check [analyse eval! ?type ?value]
+  (println "analyse-check#0")
   (exec [=type (&&/analyse-1 analyse ?type)
+         :let [_ (println "analyse-check#1")]
          =type-type (&&/expr-type =type)
-         _ (&type/solve &type/+type+ =type-type)
+         :let [_ (println "analyse-check#2")
+               _ (println 1 (&type/show-type &type/Type))
+               _ (println 2 (&type/show-type =type-type))]
+         _ (&type/solve &type/init-fixpoints &type/Type =type-type)
+         :let [_ (println "analyse-check#3")]
          ==type (eval! =type)
-         =value (&&/analyse-1 analyse ?value)]
+         :let [_ (println "analyse-check#4" (&type/show-type ==type))]
+         =value (&&/analyse-1 analyse ?value)
+         :let [_ (println "analyse-check#5")]]
     (matchv ::M/objects [=value]
       [["Expression" [?expr ?expr-type]]]
-      (exec [_ (&type/solve ==type ?expr-type)]
-        (return (&/V "Expression" (&/T ?expr ==type)))))))
+      (exec [:let [_ (println "analyse-check#6" (&type/show-type ?expr-type))]
+             _ (&type/solve &type/init-fixpoints ==type ?expr-type)
+             :let [_ (println "analyse-check#7")]]
+        (return (&/|list (&/V "Expression" (&/T ?expr ==type))))))))
 
 (defn analyse-coerce [analyse eval! ?type ?value]
   (exec [=type (&&/analyse-1 analyse ?type)
          =type-type (&&/expr-type =type)
-         _ (&type/solve &type/+type+ =type-type)
+         _ (&type/solve &type/init-fixpoints &type/Type =type-type)
          ==type (eval! =type)
          =value (&&/analyse-1 analyse ?value)]
     (matchv ::M/objects [=value]
       [["Expression" [?expr ?expr-type]]]
-      (return (&/V "Expression" (&/T ?expr ==type))))))
+      (return (&/|list (&/V "Expression" (&/T ?expr ==type)))))))

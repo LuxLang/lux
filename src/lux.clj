@@ -15,6 +15,7 @@
   ;; Finish total-locals
   
   (time (&compiler/compile-all (&/|list "lux")))
+  (System/gc)
   (time (&compiler/compile-all (&/|list "lux" "test2")))
 
   ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2

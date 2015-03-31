@@ -35,19 +35,19 @@
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["lux;Meta" [meta ["lux;Bool" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "lux;TData" (&/T "java.lang.Boolean" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "lux;DataT" (&/T "java.lang.Boolean" (&/V "lux;Nil" nil)))))))
 
     [["lux;Meta" [meta ["lux;Int" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "lux;TData" (&/T "java.lang.Long" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "lux;DataT" (&/T "java.lang.Long" (&/V "lux;Nil" nil)))))))
 
     [["lux;Meta" [meta ["lux;Real" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "lux;TData" (&/T "java.lang.Double" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "lux;DataT" (&/T "java.lang.Double" (&/V "lux;Nil" nil)))))))
 
     [["lux;Meta" [meta ["lux;Char" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "lux;TData" (&/T "java.lang.Character" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "lux;DataT" (&/T "java.lang.Character" (&/V "lux;Nil" nil)))))))
 
     [["lux;Meta" [meta ["lux;Text" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "lux;TData" (&/T "java.lang.String" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "lux;DataT" (&/T "java.lang.String" (&/V "lux;Nil" nil)))))))
 
     [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
     (&&lux/analyse-tuple analyse ?elems)
@@ -56,13 +56,13 @@
     (&&lux/analyse-record analyse ?elems)
 
     [["lux;Meta" [meta ["lux;Tag" [?module ?name]]]]]
-    (let [tuple-type (&/V "lux;Tuple" (&/V "lux;Nil" nil))
+    (let [tuple-type (&/V "lux;TupleT" (&/V "lux;Nil" nil))
           ?tag (str ?module ";" ?name)]
       (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (&/|list)) tuple-type))))
-                                              (&/V "lux;TVariant" (&/V "lux;Cons" (&/T (&/T ?tag tuple-type) (&/V "lux;Nil" nil)))))))))
+                                              (&/V "lux;VariantT" (&/V "lux;Cons" (&/T (&/T ?tag tuple-type) (&/V "lux;Nil" nil)))))))))
 
     [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;TData" (&/T "null" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" (&/T "null" (&/V "lux;Nil" nil)))))))
     
     [["lux;Meta" [meta ["lux;Symbol" ?ident]]]]
     (&&lux/analyse-ident analyse ?ident)
@@ -78,18 +78,6 @@
                                                                                        ["lux;Nil" _]]]]]]]]]]]]]
     (&&lux/analyse-lambda analyse ?self ?arg ?body)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "get@'"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?slot]]]
-                                                             ["lux;Cons" [?record ["lux;Nil" _]]]]]]]]]]]
-    (&&lux/analyse-get analyse ?slot ?record)
-
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "set@'"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?slot]]]
-                                                             ["lux;Cons" [?value
-                                                                          ["lux;Cons" [?record
-                                                                                       ["lux;Nil" _]]]]]]]]]]]]]
-    (&&lux/analyse-set analyse ?slot ?value ?record)
-
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "def'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?name]]]]
                                                              ["lux;Cons" [?value
@@ -98,7 +86,7 @@
         ;;   (prn "if" (&/show-ast ?value)))
         (&&lux/analyse-def analyse ?name ?value))
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "declare-macro"]]]]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "declare-macro'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?ident]]]
                                                              ["lux;Nil" _]]]]]]]]]
     (&&lux/analyse-declare-macro ?ident)
@@ -108,23 +96,19 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&&lux/analyse-import analyse ?path)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ":"]]]]
-                                                ["lux;Cons" [?value
-                                                             ["lux;Cons" [?type
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "check'"]]]]
+                                                ["lux;Cons" [?type
+                                                             ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&lux/analyse-check analyse eval! ?type ?value)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "coerce"]]]]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "coerce'"]]]]
                                                 ["lux;Cons" [?type
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&lux/analyse-coerce analyse eval! ?type ?value)
 
     ;; Host special forms
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "exec"]]]]
-                                                ?exprs]]]]]]
-    (&&host/analyse-exec analyse ?exprs)
-
     ;; Integer arithmetic
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-iadd"]]]] ["lux;Cons" [?y ["lux;Cons" [?x ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-iadd analyse ?x ?y)
@@ -448,7 +432,7 @@
              ;; :let [_ (prn 'POST-ASSERT)]
              =value (&&/analyse-1 (analyse-ast eval!) (&/|head ?values))
              =value-type (&&/expr-type =value)]
-        (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value)) (&/V "lux;TVariant" (&/V "lux;Cons" (&/T (&/T ?tag =value-type) (&/V "lux;Nil" nil)))))))))
+        (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value)) (&/V "lux;VariantT" (&/V "lux;Cons" (&/T (&/T ?tag =value-type) (&/V "lux;Nil" nil)))))))))
       
       [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
       (fn [state]

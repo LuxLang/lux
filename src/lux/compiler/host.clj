@@ -40,22 +40,22 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [*writer* *type*]
     (matchv ::M/objects [*type*]
-      [["lux;TNothing" nil]]
+      [["lux;NothingT" nil]]
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      [["lux;TData" ["char" _]]]
+      [["lux;DataT" ["char" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
 
-      [["lux;TData" ["int" _]]]
+      [["lux;DataT" ["int" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class integer-class) "valueOf" (str "(I)" (&host/->type-signature integer-class)))
 
-      [["lux;TData" ["long" _]]]
+      [["lux;DataT" ["long" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      [["lux;TData" ["boolean" _]]]
+      [["lux;DataT" ["boolean" _]]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
 
-      [["lux;TData" [_ _]]]
+      [["lux;DataT" [_ _]]]
       nil)
     *writer*))
 

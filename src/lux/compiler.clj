@@ -76,12 +76,6 @@
           [["lambda" [?scope ?env ?args ?body]]]
           (&&lambda/compile-lambda compile-expression ?scope ?env ?args ?body)
 
-          [["get" [?slot ?record]]]
-          (&&lux/compile-get compile-expression ?type ?slot ?record)
-
-          [["set" [?slot ?value ?record]]]
-          (&&lux/compile-set compile-expression ?type ?slot ?value ?record)
-
           ;; Integer arithmetic
           [["jvm-iadd" [?x ?y]]]
           (&&host/compile-jvm-iadd compile-expression ?type ?x ?y)
@@ -334,9 +328,10 @@
     (fail "[Compiler Error] Can't compile expressions as top-level forms.")))
 
 (defn ^:private eval! [expr]
+  (prn 'eval! (aget expr 0))
+  ;; (assert false)
   (exec [eval-ctor &/get-eval-ctor
          :let [class-name (str eval-ctor)
-               class-file (str class-name ".class")
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                 class-name nil "java/lang/Object" nil)
@@ -354,7 +349,7 @@
                (return nil)))
          :let [bytecode (.toByteArray (doto =class
                                         .visitEnd))]
-         _ (&&/save-class! class-file bytecode)
+         _ (&&/save-class! class-name bytecode)
          loader &/loader]
     (-> (.loadClass loader class-name)
         (.getField "_eval")
