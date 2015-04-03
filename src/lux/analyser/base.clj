@@ -16,8 +16,8 @@
     [["Statement" _]]
     (fail (str "[Analyser Error] Can't retrieve the type of a statement: " (pr-str syntax+)))))
 
-(defn analyse-1 [analyse elem]
-  (exec [output (analyse elem)]
+(defn analyse-1 [analyse exo-type elem]
+  (exec [output (analyse exo-type elem)]
     (do ;; (prn 'analyse-1 (aget output 0))
       (matchv ::M/objects [output]
         [["lux;Cons" [x ["lux;Nil" _]]]]

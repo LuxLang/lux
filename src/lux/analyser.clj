@@ -2,7 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail]]
+            (lux [base :as & :refer [exec return fail |list]]
                  [reader :as &reader]
                  [parser :as &parser]
                  [type :as &type]
@@ -15,19 +15,22 @@
 ;; [Utils]
 (defn ^:private parse-handler [[catch+ finally+] token]
   (matchv ::M/objects [token]
-    [["lux;Meta" [meta ["Form" ["Cons" [["lux;Meta" [_ ["Symbol" [_ "jvm-catch"]]]]
-                                        ["Cons" [["lux;Meta" [_ ["Symbol" [_ ?ex-class]]]]
-                                                 ["Cons" [["lux;Meta" [_ ["Symbol" [_ ?ex-arg]]]]
-                                                          ["Cons" [?catch-body
-                                                                   ["Nil" _]]]]]]]]]]]]]
-    [(concat catch+ (list [?ex-class ?ex-arg ?catch-body])) finally+]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-catch"]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?ex-class]]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?ex-arg]]]]
+                                                                          ["lux;Cons" [?catch-body
+                                                                                       ["lux;Nil" _]]]]]]]]]]]]]
+    (&/T (&/|++ catch+ (|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+)
 
-    [["lux;Meta" [meta ["Form" ["Cons" [["lux;Meta" [_ ["Symbol" [_ "jvm-finally"]]]]
-                                        ["Cons" [?finally-body
-                                                 ["Nil" _]]]]]]]]]
-    [catch+ ?finally-body]))
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-finally"]]]]
+                                                ["lux;Cons" [?finally-body
+                                                             ["lux;Nil" _]]]]]]]]]
+    (&/T catch+ ?finally-body)))
 
-(defn ^:private analyse-basic-ast [analyse eval! token]
+(defn ^:private _meta [token]
+  (&/V "lux;Meta" (&/T (&/T "" -1 -1) token)))
+
+(defn ^:private analyse-basic-ast [analyse eval! exo-type token]
   ;; (prn 'analyse-basic-ast (aget token 0))
   ;; (when (= "lux;Tag" (aget token 0))
   ;;   (prn 'analyse-basic-ast/tag (aget token 1)))
@@ -35,37 +38,34 @@
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["lux;Meta" [meta ["lux;Bool" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "lux;DataT" (&/T "java.lang.Boolean" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "lux;DataT" (&/T "java.lang.Boolean" (|list)))))))
 
     [["lux;Meta" [meta ["lux;Int" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "lux;DataT" (&/T "java.lang.Long" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "lux;DataT" (&/T "java.lang.Long" (|list)))))))
 
     [["lux;Meta" [meta ["lux;Real" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "lux;DataT" (&/T "java.lang.Double" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "lux;DataT" (&/T "java.lang.Double" (|list)))))))
 
     [["lux;Meta" [meta ["lux;Char" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "lux;DataT" (&/T "java.lang.Character" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "lux;DataT" (&/T "java.lang.Character" (|list)))))))
 
     [["lux;Meta" [meta ["lux;Text" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "lux;DataT" (&/T "java.lang.String" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "lux;DataT" (&/T "java.lang.String" (|list)))))))
 
     [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
-    (&&lux/analyse-tuple analyse ?elems)
+    (&&lux/analyse-tuple analyse exo-type ?elems)
 
     [["lux;Meta" [meta ["lux;Record" ?elems]]]]
     (&&lux/analyse-record analyse ?elems)
 
-    [["lux;Meta" [meta ["lux;Tag" [?module ?name]]]]]
-    (let [tuple-type (&/V "lux;TupleT" (&/V "lux;Nil" nil))
-          ?tag (str ?module ";" ?name)]
-      (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag (&/V "Expression" (&/T (&/V "tuple" (&/|list)) tuple-type))))
-                                              (&/V "lux;VariantT" (&/V "lux;Cons" (&/T (&/T ?tag tuple-type) (&/V "lux;Nil" nil)))))))))
-
+    [["lux;Meta" [meta ["lux;Tag" ?ident]]]]
+    (&&lux/analyse-variant analyse exo-type ?ident (_meta (&/V "lux;Tuple" (|list))))
+    
     [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" (&/T "null" (&/V "lux;Nil" nil)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" (&/T "null" (|list)))))))
     
     [["lux;Meta" [meta ["lux;Symbol" ?ident]]]]
-    (&&lux/analyse-ident analyse ?ident)
+    (&&lux/analyse-symbol analyse exo-type ?ident)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "case'"]]]]
                                                 ["lux;Cons" [?variant ?branches]]]]]]]]
@@ -76,7 +76,7 @@
                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?arg]]]]
                                                                           ["lux;Cons" [?body
                                                                                        ["lux;Nil" _]]]]]]]]]]]]]
-    (&&lux/analyse-lambda analyse ?self ?arg ?body)
+    (&&lux/analyse-lambda analyse exo-type ?self ?arg ?body)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "def'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?name]]]]
@@ -84,7 +84,7 @@
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (do ;; (when (= "if" ?name)
         ;;   (prn "if" (&/show-ast ?value)))
-        (&&lux/analyse-def analyse ?name ?value))
+        (&&lux/analyse-def analyse exo-type ?name ?value))
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "declare-macro'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?ident]]]
@@ -100,7 +100,7 @@
                                                 ["lux;Cons" [?type
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
-    (&&lux/analyse-check analyse eval! ?type ?value)
+    (&&lux/analyse-check analyse eval! exo-type ?type ?value)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "coerce'"]]]]
                                                 ["lux;Cons" [?type
@@ -421,34 +421,28 @@
     [_]
     (fail (str "[Analyser Error] Unmatched token: " (&/show-ast token)))))
 
-(defn ^:private analyse-ast [eval!]
-  (fn [token]
-    ;; (prn 'analyse-ast token)
-    (matchv ::M/objects [token]
-      [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]] ?values]]]]]]
-      (exec [;; :let [_ (prn 'PRE-ASSERT)]
-             :let [?tag (str ?module ";" ?name)]
-             :let [_ (assert (= 1 (&/|length ?values)) (str "[Analyser Error] Can only tag 1 value: " (pr-str token)))]
-             ;; :let [_ (prn 'POST-ASSERT)]
-             =value (&&/analyse-1 (analyse-ast eval!) (&/|head ?values))
-             =value-type (&&/expr-type =value)]
-        (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value)) (&/V "lux;VariantT" (&/V "lux;Cons" (&/T (&/T ?tag =value-type) (&/V "lux;Nil" nil)))))))))
-      
-      [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
-      (fn [state]
-        ;; (prn '(&/show-ast ?fn) (&/show-ast ?fn))
-        (matchv ::M/objects [((&&/analyse-1 (analyse-ast eval!) ?fn) state)]
-          [["lux;Right" [state* =fn]]]
-          ((&&lux/analyse-apply (analyse-ast eval!) =fn ?args) state*)
+(defn ^:private analyse-ast [eval! exo-type token]
+  ;; (prn 'analyse-ast token)
+  (matchv ::M/objects [token]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?ident]]] ?values]]]]]]
+    (do (assert (= 1 (&/|length ?values)) "[Analyser Error] Can only tag 1 value.")
+      (&&lux/analyse-variant (partial analyse-ast eval!) exo-type ?ident (&/|head ?values)))
+    
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
+    (fn [state]
+      ;; (prn '(&/show-ast ?fn) (&/show-ast ?fn))
+      (matchv ::M/objects [((&&/analyse-1 (partial analyse-ast eval!) exo-type ?fn) state)]
+        [["lux;Right" [state* =fn]]]
+        ((&&lux/analyse-apply (partial analyse-ast eval!) exo-type =fn ?args) state*)
 
-          [_]
-          (do ;; (prn 'analyse-ast/token (aget token 0) (&/show-state state))
-              ((analyse-basic-ast (analyse-ast eval!) eval! token) state))))
-      
-      [_]
-      (analyse-basic-ast (analyse-ast eval!) eval! token))))
+        [_]
+        (do ;; (prn 'analyse-ast/token (aget token 0) (&/show-state state))
+            ((analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token) state))))
+    
+    [_]
+    (analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token)))
 
 ;; [Resources]
 (defn analyse [eval!]
   (exec [asts &parser/parse]
-    (&/flat-map% (analyse-ast eval!) asts)))
+    (&/flat-map% (partial analyse-ast eval! &type/Nothing) asts)))

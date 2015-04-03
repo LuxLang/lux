@@ -312,12 +312,15 @@
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
+    ;; (prn '<name> 0 (aget xs 0))
     (matchv ::M/objects [xs]
       [["lux;Nil" _]]
       (return xs)
 
       [["lux;Cons" [x xs*]]]
       (exec [y (f x)
+             ;; :let [_ (prn '<name> 1 (class y))
+             ;;       _ (prn '<name> 2 (aget y 0))]
              ys (<name> f xs*)]
         (return (<joiner> y ys)))))
 
@@ -658,7 +661,7 @@
   (monad state))
 
 (defn show-ast [ast]
-  ;; (prn 'show-ast (aget ast 0))
+  (prn 'show-ast (aget ast 0))
   ;; (prn 'show-ast (aget ast 1 1 0))
   ;; (cond (= "lux;Meta" (aget ast 1 1 0))
   ;;       (prn 'EXTRA 'show-ast (aget ast 1 1 1 1 0))

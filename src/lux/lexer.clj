@@ -80,10 +80,9 @@
 
 (def ^:private lex-ident
   (&/try-all% (&/|list (exec [[_ [meta _]] (&reader/read-text ";")
-                              [_ [_ token]] (&reader/read-regex +ident-re+)
-                              module-name &/get-module-name]
-                         (return (&/V "lux;Meta" (&/T meta (&/T module-name token)))))
-                       (exec [[_ [metma token]] (&reader/read-regex +ident-re+)]
+                              [_ [_ token]] (&reader/read-regex +ident-re+)]
+                         (return (&/V "lux;Meta" (&/T meta (&/T "lux" token)))))
+                       (exec [[_ [meta token]] (&reader/read-regex +ident-re+)]
                          (&/try-all% (&/|list (exec [_ (&reader/read-text ";")
                                                      [_ [_ local-token]] (&reader/read-regex +ident-re+)]
                                                 (&/try-all% (&/|list (exec [unaliased (&def/unalias-module token)]
@@ -93,8 +92,7 @@
                                                                          (return (&/V "lux;Meta" (&/T meta (&/T token local-token))))
                                                                          (fail (str "[Lexer Error] Unknown module: " token))))
                                                                      )))
-                                              (exec [module-name &/get-module-name]
-                                                (return (&/V "lux;Meta" (&/T meta (&/T module-name token)))))
+                                              (return (&/V "lux;Meta" (&/T meta (&/T "" token))))
                                               )))
                        )))
 
