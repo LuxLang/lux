@@ -97,8 +97,8 @@
     (return nil)))
 
 ;; [Exports]
-(defn compile-lambda [compile ?scope ?env ?arg ?body]
-  ;; (prn 'compile-lambda ?scope (&host/location ?scope) ?arg ?env)
+(defn compile-lambda [compile ?scope ?env ?body]
+  ;; (prn 'compile-lambda ?scope (&host/location ?scope) ?env)
   (|do [:let [lambda-class (&host/location ?scope)
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)

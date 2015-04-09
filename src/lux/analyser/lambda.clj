@@ -1,19 +1,23 @@
 (ns lux.analyser.lambda
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return fail]])
+            (lux [base :as & :refer [|let |do return fail]])
             (lux.analyser [base :as &&]
                           [env :as &env])))
 
 ;; [Resource]
 (defn with-lambda [self self-type arg arg-type body]
-  (&/with-closure
-    (|do [scope-name &/get-scope-name]
-      (&env/with-local self self-type
-        (&env/with-local arg arg-type
-          (|do [=return body
-                 =captured &env/captured-vars]
-            (return (&/T scope-name =captured =return))))))))
+  ;; (prn 'with-lambda (&/|length self) (&/|length arg))
+  (prn 'with-lambda [(aget self 0) (aget self 1)] [(aget arg 0) (aget arg 1)] (alength self) (alength arg))
+  (|let [[?module1 ?name1] self
+         [?module2 ?name2] arg]
+    (&/with-closure
+      (|do [scope-name &/get-scope-name]
+        (&env/with-local (str ?module1 ";" ?name1) self-type
+          (&env/with-local (str ?module2 ";" ?name2) arg-type
+            (|do [=return body
+                  =captured &env/captured-vars]
+              (return (&/T scope-name =captured =return)))))))))
 
 (defn close-over [scope ident register frame]
   ;; (prn 'close-over scope ident register frame)

@@ -72,8 +72,8 @@
     (&&lux/analyse-case analyse exo-type ?value ?branches)
     
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "lambda'"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?self]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?arg]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?self]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?arg]]]
                                                                           ["lux;Cons" [?body
                                                                                        ["lux;Nil" _]]]]]]]]]]]]]
     (&&lux/analyse-lambda analyse exo-type ?self ?arg ?body)
@@ -431,7 +431,7 @@
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
     (fn [state]
       ;; (prn '(&/show-ast ?fn) (&/show-ast ?fn))
-      (matchv ::M/objects [((&&/analyse-1 (partial analyse-ast eval!) exo-type ?fn) state)]
+      (matchv ::M/objects [((&&/with-var #(&&/analyse-1 (partial analyse-ast eval!) % ?fn)) state)]
         [["lux;Right" [state* =fn]]]
         ((&&lux/analyse-apply (partial analyse-ast eval!) exo-type =fn ?args) state*)
 

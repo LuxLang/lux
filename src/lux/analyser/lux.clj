@@ -64,6 +64,11 @@
         ]
     (return (&/|list (&/V "Expression" (&/T (&/V "lux;record" =elems) (&/V "lux;RecordT" =elems-types)))))))
 
+(defn ^:private show-frame [frame]
+  (str "{{" (->> frame (&/get$ "lux;locals") (&/get$ "lux;mappings")
+                 &/|keys &/->seq (interpose " ") (reduce str ""))
+       "}}"))
+
 (defn analyse-symbol [analyse exo-type ident]
   (|do [module-name &/get-module-name]
     (fn [state]
@@ -81,7 +86,8 @@
                                _ (&type/check exo-type =global-type)]
                            (return (&/|list global)))
                          state)
-            (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident)))
+            (do (prn (str "((" (->> stack (&/|map show-frame) &/->seq (interpose " ") (reduce str "")) "))"))
+             (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident))))
 
           [["lux;Cons" [top-outer _]]]
           (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ "lux;name" %2) %1)
@@ -101,21 +107,25 @@
     ))
 
 (defn ^:private analyse-apply* [analyse exo-type =fn ?args]
-  (|do [=args (&/flat-map% analyse ?args)
+  (|do [=args (&/map% (fn [arg] (&&/with-var #(&&/analyse-1 analyse % arg)))
+                      ?args)
         =fn-type (&&/expr-type =fn)
-        [=apply _] (&/fold% (fn [[=fn =fn-type] =input]
-                              (|do [;; :let [_ (prn "#2")]
-                                    =input-type (&&/expr-type =input)
-                                    ;; :let [_ (prn "#3")]
-                                    =output-type (&type/apply-lambda =fn-type =input-type)
-                                    ;; :let [_ (prn "#4")]
-                                    ]
-                                (return [(&/V "Expression" (&/T (&/V "apply" (&/T =fn =input))
-                                                                =output-type))
-                                         =output-type])))
-                            [=fn =fn-type]
-                            =args)]
-    (return (&/|list =apply))))
+        [=apply =output-type] (&/fold% (fn [[=fn =fn-type] =input]
+                                         (|do [;; :let [_ (prn "#2")]
+                                               =input-type (&&/expr-type =input)
+                                               ;; :let [_ (prn "#3")]
+                                               =output-type (&type/apply-lambda =fn-type =input-type)
+                                               ;; :let [_ (prn "#4")]
+                                               ]
+                                           (return [(&/V "Expression" (&/T (&/V "apply" (&/T =fn =input))
+                                                                           =output-type))
+                                                    =output-type])))
+                                       [=fn =fn-type]
+                                       =args)
+        _ (&type/check exo-type =output-type)]
+    (matchv ::M/objects [=apply]
+      [["Expression" [?expr _]]]
+      (return (&/|list (&/V "Expression" (&/T ?expr exo-type)))))))
 
 (defn analyse-apply [analyse exo-type =fn ?args]
   ;; (prn 'analyse-apply1 (aget =fn 0))
@@ -131,7 +141,7 @@
                   (|do [macro-expansion (&macro/expand loader macro-class ?args)
                         output (&/flat-map% analyse macro-expansion)]
                     (return output)))
-                (analyse-apply* analyse =fn ?args)))
+                (analyse-apply* analyse exo-type =fn ?args)))
             
             [_]
             (analyse-apply* analyse =fn ?args)))
@@ -157,25 +167,20 @@
       [["lux;LambdaT" [=arg =return]]]
       (|do [[=scope =captured =body] (&&lambda/with-lambda ?self =lambda-type*
                                        ?arg =arg
-                                       (&&/analyse-1 analyse ?body))
-            =body-type (&&/expr-type =body)
-            ;; _ =body-type
-            =lambda-type (|do [_ (&type/check &type/init-fixpoints =return =body-type)]
-                           (&type/clean =return =lambda-type*))
+                                       (&&/analyse-1 analyse =return ?body))
+            =lambda-type** (&type/clean =return =lambda-type*)
             =bound-arg (&type/lookup =arg)
             =lambda-type (matchv ::M/objects [=arg =bound-arg]
                            [["lux;VarT" id] ["lux;Some" bound]]
-                           (&type/clean =arg =lambda-type)
+                           (&type/clean =arg =lambda-type**)
 
                            [["lux;VarT" id] ["lux;None" _]]
                            (let [var-name (str (gensym ""))
                                  bound (&/V "lux;BoundT" var-name)]
                              (|do [_ (&type/reset id bound)
-                                   lambda-type (&type/clean =arg =lambda-type)]
-                               (return (&/V "lux;AllT" (&/T (&/|list) "" var-name lambda-type))))))
-            ;; :let [_ (prn '=lambda-type =lambda-type)]
-            ]
-        (return (&/|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured ?arg =body)) =lambda-type))))))))
+                                   lambda-type (&type/clean =arg =lambda-type**)]
+                               (return (&/V "lux;AllT" (&/T (&/|list) "" var-name lambda-type))))))]
+        (return (&/|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured =body)) =lambda-type))))))))
 
 (defn analyse-def [analyse exo-type ?name ?value]
   ;; (prn 'analyse-def ?name ?value)
@@ -208,7 +213,7 @@
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
          :let [_ (println "analyse-check#1")]
          ==type (eval! =type)
-         _ (&type/check &type/init-fixpoints exo-type ==type)
+         _ (&type/check exo-type ==type)
          :let [_ (println "analyse-check#4" (&type/show-type ==type))]
          =value (&&/analyse-1 analyse ==type ?value)
          :let [_ (println "analyse-check#5")]]

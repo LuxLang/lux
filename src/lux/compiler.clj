@@ -73,8 +73,8 @@
           [["case" [?value ?match]]]
           (&&case/compile-case compile-expression ?type ?value ?match)
 
-          [["lambda" [?scope ?env ?args ?body]]]
-          (&&lambda/compile-lambda compile-expression ?scope ?env ?args ?body)
+          [["lambda" [?scope ?env ?body]]]
+          (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
 
           ;; Integer arithmetic
           [["jvm-iadd" [?x ?y]]]

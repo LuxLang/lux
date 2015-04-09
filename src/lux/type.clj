@@ -413,6 +413,10 @@
         success)
       (fail "[Type Error] Records don't match in size."))
 
+    [_ _]
+    (do (prn (show-type expected) (show-type actual))
+      (assert false))
+
     ;; [["lux;BoundT" name] _]
     ;; (do (prn "lux;BoundT" name)
     ;;   (assert false))
