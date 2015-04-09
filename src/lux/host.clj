@@ -3,7 +3,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let]]
                  [parser :as &parser]
                  [type :as &type])))
 
@@ -30,7 +30,7 @@
       )))
 
 (defn ^:private method->type [method]
-  (exec [;; =args (&/map% class->type (&/->list (seq (.getParameterTypes method))))
+  (|do [;; =args (&/map% class->type (&/->list (seq (.getParameterTypes method))))
          =return (class->type (.getReturnType method))]
     (return =return)))
 
@@ -52,7 +52,7 @@
 
 (defn full-class-name [class-name]
   ;; (prn 'full-class-name class-name)
-  (exec [=class (full-class class-name)]
+  (|do [=class (full-class class-name)]
     (return (.getName =class))))
 
 (defn ->class [class]
@@ -104,7 +104,7 @@
     [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "Array"]]]]
                                              ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?inner]]]]
                                                           ["lux;Nil" _]]]]]]]]]
-    (exec [=inner (full-class-name ?inner)]
+    (|do [=inner (full-class-name ?inner)]
       (return (str "[L" (->class =inner) ";")))
 
     [_]
@@ -118,7 +118,7 @@
                                              (= field (.getName =field))
                                              (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =field))))]
                               (.getType =field)))]
-        (exec [=type (class->type type*)]
+        (|do [=type (class->type type*)]
           (return =type))
         (fail (str "[Analyser Error] Field does not exist: " target field)))))
 

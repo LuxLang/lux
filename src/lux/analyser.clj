@@ -2,7 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail |list]]
+            (lux [base :as & :refer [|do return fail |list]]
                  [reader :as &reader]
                  [parser :as &parser]
                  [type :as &type]
@@ -68,8 +68,8 @@
     (&&lux/analyse-symbol analyse exo-type ?ident)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "case'"]]]]
-                                                ["lux;Cons" [?variant ?branches]]]]]]]]
-    (&&lux/analyse-case analyse ?variant ?branches)
+                                                ["lux;Cons" [?value ?branches]]]]]]]]
+    (&&lux/analyse-case analyse exo-type ?value ?branches)
     
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "lambda'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?self]]]]
@@ -444,5 +444,5 @@
 
 ;; [Resources]
 (defn analyse [eval!]
-  (exec [asts &parser/parse]
+  (|do [asts &parser/parse]
     (&/flat-map% (partial analyse-ast eval! &type/Nothing) asts)))

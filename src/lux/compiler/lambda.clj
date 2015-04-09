@@ -4,7 +4,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]]
+            (lux [base :as & :refer [|do return* return fail fail*]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -60,7 +60,7 @@
 (defn ^:private add-lambda-impl [class compile impl-signature impl-body]
   (&/with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
                    (.visitCode))
-    (exec [*writer* &/get-writer
+    (|do [*writer* &/get-writer
            :let [num-locals (&&/total-locals impl-body)
                  $start (new Label)
                  $end (new Label)
@@ -78,7 +78,7 @@
 
 (defn ^:private instance-closure [compile lambda-class closed-over init-signature]
   ;; (prn 'instance-closure lambda-class closed-over init-signature)
-  (exec [*writer* &/get-writer
+  (|do [*writer* &/get-writer
          :let [_ (doto *writer*
                    (.visitTypeInsn Opcodes/NEW lambda-class)
                    (.visitInsn Opcodes/DUP))]
@@ -99,7 +99,7 @@
 ;; [Exports]
 (defn compile-lambda [compile ?scope ?env ?arg ?body]
   ;; (prn 'compile-lambda ?scope (&host/location ?scope) ?arg ?env)
-  (exec [:let [lambda-class (&host/location ?scope)
+  (|do [:let [lambda-class (&host/location ?scope)
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                                 lambda-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))

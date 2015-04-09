@@ -1,17 +1,17 @@
 (ns lux.analyser.lambda
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail]])
+            (lux [base :as & :refer [|do return fail]])
             (lux.analyser [base :as &&]
                           [env :as &env])))
 
 ;; [Resource]
 (defn with-lambda [self self-type arg arg-type body]
   (&/with-closure
-    (exec [scope-name &/get-scope-name]
+    (|do [scope-name &/get-scope-name]
       (&env/with-local self self-type
         (&env/with-local arg arg-type
-          (exec [=return body
+          (|do [=return body
                  =captured &env/captured-vars]
             (return (&/T scope-name =captured =return))))))))
 

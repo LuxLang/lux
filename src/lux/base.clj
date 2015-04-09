@@ -151,14 +151,21 @@
         [["lux;Left" _]]
         inputs))))
 
-(defmacro exec [steps return]
+(defmacro |do [steps return]
   (assert (not= 0 (count steps)) "The steps can't be empty!")
   (assert (= 0 (rem (count steps) 2)) "The number of steps must be even!")
   (reduce (fn [inner [label computation]]
             (case label
-              :let `(let ~computation ~inner)
+              :let `(|let ~computation ~inner)
               ;; else
-              `(bind ~computation (fn [~label] ~inner))))
+              ;; `(bind ~computation
+              ;;        (fn [val#]
+              ;;          (matchv ::M/objects [val#]
+              ;;            [~label]
+              ;;            ~inner)))
+              `(bind ~computation
+                     (fn [~label] ~inner))
+              ))
           return
           (reverse (partition 2 steps))))
 
@@ -253,7 +260,7 @@
     (return init)
 
     [["lux;Cons" [x xs*]]]
-    (exec [init* (f init x)]
+    (|do [init* (f init x)]
       (fold% f init* xs*))))
 
 (defn folds [f init xs]
@@ -299,6 +306,14 @@
     [["lux;Cons" [[k v] plist*]]]
     (|cons k (|keys plist*))))
 
+(defn |vals [plist]
+  (matchv ::M/objects [plist]
+    [["lux;Nil" _]]
+    (|list)
+    
+    [["lux;Cons" [[k v] plist*]]]
+    (|cons v (|vals plist*))))
+
 (defn |interpose [sep xs]
   (matchv ::M/objects [xs]
     [["lux;Nil" _]]
@@ -318,7 +333,7 @@
       (return xs)
 
       [["lux;Cons" [x xs*]]]
-      (exec [y (f x)
+      (|do [y (f x)
              ;; :let [_ (prn '<name> 1 (class y))
              ;;       _ (prn '<name> 2 (aget y 0))]
              ys (<name> f xs*)]
@@ -351,7 +366,7 @@
        "}}"))
 
 (defn if% [text-m then-m else-m]
-  (exec [? text-m]
+  (|do [? text-m]
     (if ?
       then-m
       else-m)))
@@ -374,7 +389,7 @@
     (fail message)))
 
 (defn comp% [f-m g-m]
-  (exec [temp g-m]
+  (|do [temp g-m]
     (f-m temp)))
 
 (defn pass [m-value]
@@ -388,7 +403,7 @@
 (defn sequence% [m-values]
   (matchv ::M/objects [m-values]
     [["lux;Cons" [head tail]]]
-    (exec [_ head]
+    (|do [_ head]
       (sequence% tail))
 
     [_]
@@ -447,13 +462,13 @@
       ((exhaust% step) state*)
 
       [["lux;Left" msg]]
-      ((exec [? source-consumed?]
+      ((|do [? source-consumed?]
          (if ?
            (return nil)
            (fail* msg)))
        state)
       ;; (if (= "[Reader Error] EOF" msg)
-      ;;   ((exec [? source-consumed?
+      ;;   ((|do [? source-consumed?
       ;;           :let [_ (prn '? ?)]]
       ;;      (return nil))
       ;;    state)
@@ -606,7 +621,7 @@
     (|list)))
 
 (def get-module-name
-  (exec [module get-current-module-env]
+  (|do [module get-current-module-env]
     (return (get$ "lux;name" module))))
 
 (defn with-scope [name body]
@@ -620,9 +635,9 @@
         output))))
 
 (defn with-closure [body]
-  (exec [closure-info (try-all% (|list (exec [top get-top-local-env]
+  (|do [closure-info (try-all% (|list (|do [top get-top-local-env]
                                          (return (T true (->> top (get$ "lux;inner-closures") str))))
-                                       (exec [global get-current-module-env]
+                                       (|do [global get-current-module-env]
                                          (return (T false (->> global (get$ "lux;inner-closures") str))))))]
     (matchv ::M/objects [closure-info]
       [[local? closure-name]]
@@ -643,7 +658,7 @@
       )))
 
 (def get-scope-name
-  (exec [module-name get-module-name]
+  (|do [module-name get-module-name]
     (fn [state]
       (return* state (->> state (get$ "lux;local-envs") (|map #(get$ "lux;name" %)) |reverse (|cons module-name))))))
 

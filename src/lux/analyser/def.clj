@@ -2,7 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return return* fail]])
+            (lux [base :as & :refer [|do return return* fail]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]

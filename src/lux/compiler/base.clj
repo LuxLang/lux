@@ -2,7 +2,7 @@
   (:require [clojure.string :as string]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]])
+            (lux [base :as & :refer [|do return* return fail fail*]])
             [lux.analyser.base :as &a])
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -26,7 +26,7 @@
   (.loadClass loader name))
 
 (defn save-class! [name bytecode]
-  (exec [loader &/loader
+  (|do [loader &/loader
          :let [_ (write-class name bytecode)
                _ (load-class! loader (string/replace name #"/" "."))]]
     (return nil)))
@@ -109,7 +109,7 @@
           [["jvm-drem" [?x ?y]]]
           (&/fold max 0 (&/|map total-locals (&/|list ?x ?y)))
 
-          [["exec" ?exprs]]
+          [["|do" ?exprs]]
           (&/fold max 0 (&/|map total-locals ?exprs))
 
           [["jvm-new" [?class ?classes ?args]]]

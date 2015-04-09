@@ -1,7 +1,7 @@
 (ns lux.analyser.env
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return return* fail]])
+            (lux [base :as & :refer [|do return return* fail]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
@@ -10,6 +10,7 @@
     (return* state (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;locals") (&/get$ "lux;counter")))))
 
 (defn with-local [name type body]
+  (prn 'with-local name)
   (fn [state]
     (let [old-mappings (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;locals") (&/get$ "lux;mappings"))
           =return (body (&/update$ "lux;local-envs"

@@ -3,7 +3,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -16,75 +16,18 @@
                               MethodVisitor)))
 
 ;; [Utils]
-(defn ^:private ->match [$body register token]
-  ;; (prn '->match token)
-  ;; (prn '->match (aget token 0))
-  (matchv ::M/objects [token]
-    [["lux;Meta" [_ ["lux;Symbol" [_ ?name]]]]]
-    (&/T (inc register) (&/V "Pattern" (&/T $body (&/V "StoreMatch" register))))
-    
-    [["lux;Meta" [_ ["lux;Bool" ?value]]]]
-    (&/T register (&/V "Pattern" (&/T $body (&/V "BoolMatch" ?value))))
-
-    [["lux;Meta" [_ ["lux;Int" ?value]]]]
-    (&/T register (&/V "Pattern" (&/T $body (&/V "IntMatch" ?value))))
-
-    [["lux;Meta" [_ ["lux;Real" ?value]]]]
-    (&/T register (&/V "Pattern" (&/T $body (&/V "RealMatch" ?value))))
-
-    [["lux;Meta" [_ ["lux;Char" ?value]]]]
-    (&/T register (&/V "Pattern" (&/T $body (&/V "CharMatch" ?value))))
-
-    [["lux;Meta" [_ ["lux;Text" ?value]]]]
-    (&/T register (&/V "Pattern" (&/T $body (&/V "TextMatch" ?value))))
-
-    [["lux;Meta" [_ ["lux;Tuple" ?members]]]]
-    (|let [[register* =members] (&/fold (fn [register+=members member]
-                                          ;; (prn 'register+=members (alength register+=members))
-                                          (|let [[_register =members] register+=members
-                                                 [__register =member] (let [matched (->match $body _register member)]
-                                                                        ;; (prn 'matched (alength matched))
-                                                                        matched)]
-                                            (&/T __register (&/|cons =member =members))))
-                                        (&/T register (&/|list))
-                                        ?members)]
-      (&/T register* (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|reverse =members))))))
-
-    [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]]
-    (|let [?tag (str ?module ";" ?name)]
-      (&/T register (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag (&/V "Pattern" (&/T $body (&/V "TupleMatch" (&/|list))))))))))
-
-    [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]
-                                             ["lux;Cons" [?value
-                                                          ["lux;Nil" _]]]]]]]]]
-    (|let [?tag (str ?module ";" ?name)
-           [register* =value] (->match $body register ?value)]
-      (&/T register* (&/V "Pattern" (&/T $body (&/V "VariantMatch" (&/T ?tag =value))))))
-    ))
-
-(defn ^:private process-branches [base-register branches]
-  ;; (prn 'process-branches base-register (&/|length branches))
-  (|let [[_ mappings pms] (&/fold (fn [$id+mappings+=matches pattern+body]
-                                    (|let [[$id mappings =matches] $id+mappings+=matches
-                                           [pattern body] pattern+body
-                                           [_ =match] (->match $id base-register pattern)]
-                                      (&/T (inc $id) (&/|put $id body mappings) (&/|cons =match =matches))))
-                                  (&/T 0 (&/|table) (&/|list))
-                                  branches)]
-    (&/T mappings (&/|reverse pms))))
-
 (let [+tag-sig+ (&host/->type-signature "java.lang.String")
       +oclass+ (&host/->class "java.lang.Object")
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
   (defn ^:private compile-match [writer ?match $target $else]
-    ;; (prn 'compile-match (aget ?match 0) $target $else)
+    (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
-      [["StoreMatch" ?register]]
+      [["StoreTestAC" [?idx ?name ?value]]]
       (doto writer
-        (.visitVarInsn Opcodes/ASTORE ?register)
+        (.visitVarInsn Opcodes/ASTORE ?idx)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["BoolMatch" ?value]]
+      [["BoolTestAC" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Boolean") "booleanValue" "()Z")
@@ -93,7 +36,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["IntMatch" ?value]]
+      [["IntTestAC" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Long") "longValue" "()J")
@@ -103,7 +46,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["RealMatch" ?value]]
+      [["RealTestAC" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Double") "doubleValue" "()D")
@@ -113,7 +56,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["CharMatch" ?value]]
+      [["CharTestAC" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Character") "charValue" "()C")
@@ -122,7 +65,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["TextMatch" ?value]]
+      [["TextTestAC" ?value]]
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn ?value)
@@ -131,25 +74,25 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["TupleMatch" ?members]]
+      [["TupleTestAC" ?members]]
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (-> (doto (.visitInsn Opcodes/DUP)
               (.visitLdcInsn (int idx))
               (.visitInsn Opcodes/AALOAD)
-              (compile-match member $next $sub-else)
+              (compile-match test $next $sub-else)
               (.visitLabel $sub-else)
               (.visitInsn Opcodes/POP)
               (.visitJumpInsn Opcodes/GOTO $else)
               (.visitLabel $next))
-            (->> (|let [[idx ["Pattern" [_ member]]] idx+member
+            (->> (|let [[idx test] idx+member
                         $next (new Label)
                         $sub-else (new Label)])
                  (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?members)) ?members))])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       
-      [["VariantMatch" [?tag ["Pattern" [_ ?value]]]]]
+      [["VariantTestAC" [?tag ?test]]]
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)
@@ -161,7 +104,7 @@
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn (int 1))
         (.visitInsn Opcodes/AALOAD)
-        (-> (doto (compile-match ?value $value-then $value-else)
+        (-> (doto (compile-match ?test $value-then $value-else)
               (.visitLabel $value-then)
               (.visitInsn Opcodes/POP)
               (.visitJumpInsn Opcodes/GOTO $target)
@@ -172,9 +115,21 @@
                        $value-else (new Label)]))))
       )))
 
+(defn ^:private separate-bodies [matches]
+  (prn 'separate-bodies (aget matches 0))
+  (matchv ::M/objects [matches]
+    [["MatchAC" ?tests]]
+    (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
+                                            (|let [[$id mappings =matches] $id+mappings+=matches
+                                                   [pattern body] pattern+body]
+                                              (&/T (inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches))))
+                                          (&/T 0 (&/|table) (&/|table))
+                                          ?tests)]
+      (&/T mappings (&/|reverse patterns*)))))
+
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn ^:private compile-pattern-matching [writer compile mappings patterns $end]
-    ;; (prn 'compile-pattern-matching mappings (&/|length patterns) $end)
+    ;; (prn 'compile-pattern-matching ?matches $end)
     (let [entries (&/|map (fn [?branch+?body]
                             (|let [[?branch ?body] ?branch+?body
                                    label (new Label)]
@@ -185,10 +140,11 @@
       (doto writer
         (-> (doto (compile-match ?match (&/|get ?body mappings*) $else)
               (.visitLabel $else))
-            (->> (|let [["Pattern" [?body ?match]] ?body+?match])
+            (->> (|let [[?body ?match] ?body+?match])
                  (doseq [?body+?match (&/->seq patterns)
                          :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
                                ;; _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
+                               _ (prn '?body+?match (aget ?body+?match 0))
                                $else (new Label)]])))
         (.visitInsn Opcodes/POP)
         (.visitTypeInsn Opcodes/NEW ex-class)
@@ -197,23 +153,20 @@
         (.visitInsn Opcodes/ATHROW))
       (&/map% (fn [?label+?body]
                 (|let [[?label ?body] ?label+?body]
-                  (exec [:let [_ (.visitLabel writer ?label)]
-                         ret (compile ?body)
-                         :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
+                  (|do [:let [_ (.visitLabel writer ?label)]
+                        ret (compile ?body)
+                        :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
                     (return ret))))
               (&/|map &/|second entries))
       )))
 
 ;; [Resources]
-(defn compile-case [compile *type* ?variant ?base-register ?num-registers ?branches]
-  ;; (prn 'compile-case ?variant ?base-register ?num-registers (&/|length ?branches))
-  (exec [*writer* &/get-writer
-         :let [$end (new Label)]
-         _ (compile ?variant)]
-    (|let [[mappings patterns] (process-branches ?base-register ?branches)
-           ;; _ (prn '[(&/|length mappings) (&/|length patterns)] [(&/|length mappings) (&/|length patterns)])
-           ]
-      (exec [_ (compile-pattern-matching *writer* compile mappings patterns $end)
-             :let [_ (.visitLabel *writer* $end)]]
-        (return nil)))
-    ))
+(defn compile-case [compile *type* ?value ?matches]
+  ;; (prn 'compile-case ?value ?matches)
+  (|do [*writer* &/get-writer
+        :let [$end (new Label)]
+        _ (compile ?value)
+        _ (|let [[mappings patterns] (separate-bodies ?matches)]
+            (compile-pattern-matching *writer* compile mappings patterns $end))
+        :let [_ (.visitLabel *writer* $end)]]
+    (return nil)))

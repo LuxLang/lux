@@ -2,7 +2,7 @@
   (:require [clojure.string :as string]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            [lux.base :as & :refer [exec return* return fail fail* |let]]))
+            [lux.base :as & :refer [|do return* return fail fail* |let]]))
 
 ;; [Utils]
 (defn ^:private with-line [body]

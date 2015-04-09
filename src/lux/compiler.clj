@@ -5,7 +5,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return* return fail fail*]]
+            (lux [base :as & :refer [|do return* return fail fail*]]
                  [type :as &type]
                  [reader :as &reader]
                  [lexer :as &lexer]
@@ -70,8 +70,8 @@
           [["variant" [?tag ?members]]]
           (&&lux/compile-variant compile-expression ?type ?tag ?members)
 
-          [["case" [?variant ?base-register ?num-registers ?branches]]]
-          (&&case/compile-case compile-expression ?type ?variant ?base-register ?num-registers ?branches)
+          [["case" [?value ?match]]]
+          (&&case/compile-case compile-expression ?type ?value ?match)
 
           [["lambda" [?scope ?env ?args ?body]]]
           (&&lambda/compile-lambda compile-expression ?scope ?env ?args ?body)
@@ -176,8 +176,8 @@
           [["jvm-dgt" [?x ?y]]]
           (&&host/compile-jvm-dgt compile-expression ?type ?x ?y)
           
-          [["exec" ?exprs]]
-          (&&host/compile-exec compile-expression ?type ?exprs)
+          [["|do" ?exprs]]
+          (&&host/compile-|do compile-expression ?type ?exprs)
 
           [["jvm-null" _]]
           (&&host/compile-jvm-null compile-expression ?type)
@@ -330,7 +330,7 @@
 (defn ^:private eval! [expr]
   (prn 'eval! (aget expr 0))
   ;; (assert false)
-  (exec [eval-ctor &/get-eval-ctor
+  (|do [eval-ctor &/get-eval-ctor
          :let [class-name (str eval-ctor)
                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
@@ -338,7 +338,7 @@
                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_eval" "Ljava/lang/Object;" nil nil)
                             (doto (.visitEnd))))]
          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (exec [*writer* &/get-writer
+             (|do [*writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
                     _ (compile-expression expr)
                     :let [_ (doto *writer*
@@ -356,7 +356,7 @@
         (.get nil)
         return)))
 
-(let [compiler-step (exec [analysis+ (&optimizer/optimize eval!)
+(let [compiler-step (|do [analysis+ (&optimizer/optimize eval!)
                            ;; :let [_ (prn 'analysis+ analysis+)]
                            ]
                       (&/map% compile-statement analysis+)

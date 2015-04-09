@@ -2,13 +2,13 @@
   (:require [clojure.template :refer [do-template]]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [exec return fail]]
+            (lux [base :as & :refer [|do return fail]]
                  [lexer :as &lexer])))
 
 ;; [Utils]
 (do-template [<name> <close-tag> <description> <tag>]
   (defn <name> [parse]
-    (exec [elems (&/repeat% parse)
+    (|do [elems (&/repeat% parse)
            token &lexer/lex]
       (matchv ::M/objects [token]
         [["lux;Meta" [meta [<close-token> _]]]]
@@ -22,7 +22,7 @@
   )
 
 (defn ^:private parse-record [parse]
-  (exec [elems* (&/repeat% parse)
+  (|do [elems* (&/repeat% parse)
          token &lexer/lex
          :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (matchv ::M/objects [token]
@@ -36,7 +36,7 @@
 
 ;; [Interface]
 (def parse
-  (exec [token &lexer/lex
+  (|do [token &lexer/lex
          ;; :let [_ (prn 'parse/token token)]
          ;; :let [_ (prn 'parse (aget token 0))]
          ]
@@ -69,15 +69,15 @@
       (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Tag" ?ident)))))
 
       [["lux;Meta" [meta ["Open_Paren" _]]]]
-      (exec [syntax (parse-form parse)]
+      (|do [syntax (parse-form parse)]
         (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
       
       [["lux;Meta" [meta ["Open_Bracket" _]]]]
-      (exec [syntax (parse-tuple parse)]
+      (|do [syntax (parse-tuple parse)]
         (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
 
       [["lux;Meta" [meta ["Open_Brace" _]]]]
-      (exec [syntax (parse-record parse)]
+      (|do [syntax (parse-record parse)]
         (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
 
       [_]
