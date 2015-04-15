@@ -43,19 +43,19 @@
       [["lux;NothingT" nil]]
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      [["lux;DataT" ["char" _]]]
+      [["lux;DataT" "char"]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
 
-      [["lux;DataT" ["int" _]]]
+      [["lux;DataT" "int"]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class integer-class) "valueOf" (str "(I)" (&host/->type-signature integer-class)))
 
-      [["lux;DataT" ["long" _]]]
+      [["lux;DataT" "long"]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      [["lux;DataT" ["boolean" _]]]
+      [["lux;DataT" "boolean"]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
 
-      [["lux;DataT" [_ _]]]
+      [["lux;DataT" _]]
       nil)
     *writer*))
 

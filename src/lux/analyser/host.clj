@@ -20,8 +20,8 @@
 
 ;; [Resources]
 (do-template [<name> <output-tag> <input-class> <output-class>]
-  (let [input-type (&/V "lux;DataT" (to-array [<input-class> (&/V "lux;Nil" nil)]))
-        output-type (&/V "lux;DataT" (to-array [<output-class> (&/V "lux;Nil" nil)]))]
+  (let [input-type (&/V "lux;DataT" <input-class>)
+        output-type (&/V "lux;DataT" <output-class>)]
     (defn <name> [analyse ?x ?y]
       (|do [[=x =y] (&&/analyse-2 analyse ?x ?y)
              =x-type (&&/expr-type =x)
@@ -126,17 +126,17 @@
 
 (defn analyse-jvm-null? [analyse ?object]
   (|do [=object (&&/analyse-1 analyse ?object)]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null?" =object) (&/V "lux;DataT" (&/T "java.lang.Boolean" (&/V "lux;Nil" nil)))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null?" =object) (&/V "lux;DataT" "java.lang.Boolean")))))))
 
 (defn analyse-jvm-new [analyse ?class ?classes ?args]
   (|do [=class (&host/full-class-name ?class)
          =classes (&/map% &host/extract-jvm-param ?classes)
          =args (&/flat-map% analyse ?args)]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new" (&/T =class =classes =args)) (&/V "lux;DataT" (&/T =class (&/V "lux;Nil" nil)))))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new" (&/T =class =classes =args)) (&/V "lux;DataT" =class)))))))
 
 (defn analyse-jvm-new-array [analyse ?class ?length]
   (|do [=class (&host/full-class-name ?class)]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new-array" (&/T =class ?length)) (&/V "array" (&/T (&/V "lux;DataT" (to-array [=class (&/V "lux;Nil" nil)]))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-new-array" (&/T =class ?length)) (&/V "array" (&/T (&/V "lux;DataT" =class)
                                                                                                          (&/V "lux;Nil" nil)))))))))
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
@@ -198,7 +198,7 @@
 (defn analyse-jvm-try [analyse ?body [?catches ?finally]]
   (|do [=body (&&/analyse-1 analyse ?body)
          =catches (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
-                            (&&env/with-local ?ex-arg (&/V "lux;DataT" (&/T ?ex-class (&/V "lux;Nil" nil)))
+                            (&&env/with-local ?ex-arg (&/V "lux;DataT" ?ex-class)
                               (|do [=catch-body (&&/analyse-1 analyse ?catch-body)]
                                 (return [?ex-class ?ex-arg =catch-body]))))
                           ?catches)
@@ -221,7 +221,7 @@
 (do-template [<name> <tag> <from-class> <to-class>]
   (defn <name> [analyse ?value]
     (|do [=value (&&/analyse-1 analyse ?value)]
-      (return (&/|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "lux;DataT" (&/T <to-class> (&/V "lux;Nil" nil)))))))))
+      (return (&/|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "lux;DataT" <to-class>)))))))
 
   analyse-jvm-d2f "jvm-d2f" "java.lang.Double"  "java.lang.Float"
   analyse-jvm-d2i "jvm-d2i" "java.lang.Double"  "java.lang.Integer"
@@ -246,7 +246,7 @@
 (do-template [<name> <tag> <from-class> <to-class>]
   (defn <name> [analyse ?value]
     (|do [=value (&&/analyse-1 analyse ?value)]
-      (return (&/|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "lux;DataT" (&/T <to-class> (&/V "lux;Nil" nil)))))))))
+      (return (&/|list (&/V "Expression" (&/T (&/V <tag> =value) (&/V "lux;DataT" <to-class>)))))))
 
   analyse-jvm-iand  "jvm-iand"  "java.lang.Integer" "java.lang.Integer"
   analyse-jvm-ior   "jvm-ior"   "java.lang.Integer" "java.lang.Integer"

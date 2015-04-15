@@ -20,13 +20,8 @@
                                             (.getSimpleName class)))]
     (if (= "void" base)
       (return (&/V "lux;NothingT" nil))
-      (let [base* (&/V "lux;DataT" (&/T base (&/V "lux;Nil" nil)))]
-        (if arr-level
-          (return (reduce (fn [inner _]
-                            (&/V "array" (&/V "lux;Cons" (&/T inner (&/V "lux;Nil" nil)))))
-                          base*
-                          (range (/ (count arr-level) 2.0))))
-          (return base*)))
+      (return (&/V "lux;DataT" (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
+                                    base)))
       )))
 
 (defn ^:private method->type [method]
@@ -87,10 +82,7 @@
     [["lux;NothingT" _]]
     "V"
     
-    [["lux;DataT" ["array" ["lux;Cons" [?elem ["lux;Nil" _]]]]]]
-    (str "[" (->java-sig ?elem))
-
-    [["lux;DataT" [?name ?params]]]
+    [["lux;DataT" ?name]]
     (->type-signature ?name)
 
     [["lux;LambdaT" [_ _]]]

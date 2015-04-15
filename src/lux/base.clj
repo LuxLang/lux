@@ -125,6 +125,7 @@
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
+    (prn 'FAIL message)
     (V "lux;Left" message)))
 
 (defn return [value]
@@ -144,8 +145,7 @@
         [["lux;Right" [?state ?datum]]]
         (let [next-fn (step ?datum)]
           (when (not (fn? next-fn))
-            (prn 'bind (aget next-fn 0)
-                 (aget next-fn 1)))
+            (prn 'bind (aget next-fn 0) (aget next-fn 1)))
           (next-fn ?state))
         
         [["lux;Left" _]]
@@ -676,7 +676,7 @@
   (monad state))
 
 (defn show-ast [ast]
-  (prn 'show-ast (aget ast 0))
+  ;; (prn 'show-ast (aget ast 0))
   ;; (prn 'show-ast (aget ast 1 1 0))
   ;; (cond (= "lux;Meta" (aget ast 1 1 0))
   ;;       (prn 'EXTRA 'show-ast (aget ast 1 1 1 1 0))
@@ -706,7 +706,9 @@
     (str "#" ?module ";" ?tag)
 
     [["lux;Meta" [_ ["lux;Symbol" [?module ?ident]]]]]
-    (str ?module ";" ?ident)
+    (if (= "" ?module)
+      ?ident
+      (str ?module ";" ?ident))
 
     [["lux;Meta" [_ ["lux;Tuple" ?elems]]]]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")

@@ -38,19 +38,19 @@
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["lux;Meta" [meta ["lux;Bool" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) (&/V "lux;DataT" (&/T "java.lang.Boolean" (|list)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) &type/Bool))))
 
     [["lux;Meta" [meta ["lux;Int" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  (&/V "lux;DataT" (&/T "java.lang.Long" (|list)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  &type/Int))))
 
     [["lux;Meta" [meta ["lux;Real" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) (&/V "lux;DataT" (&/T "java.lang.Double" (|list)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) &type/Real))))
 
     [["lux;Meta" [meta ["lux;Char" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) (&/V "lux;DataT" (&/T "java.lang.Character" (|list)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) &type/Char))))
 
     [["lux;Meta" [meta ["lux;Text" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) (&/V "lux;DataT" (&/T "java.lang.String" (|list)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) &type/Text))))
 
     [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
     (&&lux/analyse-tuple analyse exo-type ?elems)
@@ -62,7 +62,7 @@
     (&&lux/analyse-variant analyse exo-type ?ident (_meta (&/V "lux;Tuple" (|list))))
     
     [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" (&/T "null" (|list)))))))
+    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null")))))
     
     [["lux;Meta" [meta ["lux;Symbol" ?ident]]]]
     (&&lux/analyse-symbol analyse exo-type ?ident)
@@ -422,7 +422,7 @@
     (fail (str "[Analyser Error] Unmatched token: " (&/show-ast token)))))
 
 (defn ^:private analyse-ast [eval! exo-type token]
-  ;; (prn 'analyse-ast token)
+  ;; (prn 'analyse-ast (aget token 0))
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?ident]]] ?values]]]]]]
     (do (assert (= 1 (&/|length ?values)) "[Analyser Error] Can only tag 1 value.")

@@ -9,9 +9,7 @@
 
 ;; [Utils]
 (defn ^:private analyse-variant [analyse-pattern idx value-type tag value]
-  (|do [=var &type/fresh-var
-        _ (&type/check value-type (&/V "lux;VariantT" (&/|list (&/T tag =var))))
-        [idx* test] (analyse-pattern idx =var value)]
+  (|do [[idx* test] (analyse-pattern idx value-type value)]
     (return (&/T idx* (&/V "VariantTestAC" (&/T tag test))))))
 
 (defn ^:private analyse-pattern [idx value-type pattern]
@@ -19,17 +17,17 @@
   (matchv ::M/objects [pattern]
     [["lux;Meta" [_ pattern*]]]
     ;; (assert false)
-    (do (prn 'analyse-pattern/pattern* (aget pattern* 0))
-      (when (= "lux;Form" (aget pattern* 0))
-        (prn 'analyse-pattern/_2 (aget pattern* 1 0)) ;; "lux;Cons"
-        (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 0)) ;; "lux;Meta"
-        (prn 'analyse-pattern/_2 (alength (aget pattern* 1 1 0 1)))
-        (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 1 1 0)) ;; "lux;Tag"
-        (prn 'analyse-pattern/_2 [(aget pattern* 1 1 0 1 1 1 0) (aget pattern* 1 1 0 1 1 1 1)]) ;; ["" "Cons"]
-        (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 0)) ;; "lux;Cons"
-        (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 0)) ;; #<Object[] [Ljava.lang.Object;@63c7c38b>
-        (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 1 0)) ;; "lux;Nil"
-        )
+    (do ;; (prn 'analyse-pattern/pattern* (aget pattern* 0))
+      ;; (when (= "lux;Form" (aget pattern* 0))
+      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 0)) ;; "lux;Cons"
+      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 0)) ;; "lux;Meta"
+      ;;   (prn 'analyse-pattern/_2 (alength (aget pattern* 1 1 0 1)))
+      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 1 1 0)) ;; "lux;Tag"
+      ;;   (prn 'analyse-pattern/_2 [(aget pattern* 1 1 0 1 1 1 0) (aget pattern* 1 1 0 1 1 1 1)]) ;; ["" "Cons"]
+      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 0)) ;; "lux;Cons"
+      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 0)) ;; #<Object[] [Ljava.lang.Object;@63c7c38b>
+      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 1 0)) ;; "lux;Nil"
+      ;;   )
       ;; ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]
       ;;                          ["lux;Cons" [?value
       ;;                                       ["lux;Nil" _]]]]]]
@@ -281,8 +279,10 @@
                   (every? true? totals))))
 
     [_ ["VariantTotal" [?total ?structs]]]
-    (|do [real-type (resolve-type value-type)]
-      (assert false))
+    (&/try-all% (&/|list (|do [real-type (resolve-type value-type)
+                               :let [_ (prn 'real-type (&type/show-type real-type))]]
+                           (assert false))
+                         (fail "[Pattern-maching error] Can't pattern-match on an unknown variant type.")))
     
     [_ ["DefaultTotal" true]]
     (return true)
