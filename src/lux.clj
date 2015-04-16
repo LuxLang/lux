@@ -11,8 +11,12 @@
   ;; TODO: All optimizations
   ;; TODO: Anonymous classes
   ;; TODO: 
-  
+
   ;; Finish total-locals
+
+  ;; TODO: Change &type/check to it returns a tuple with the new expected & actual types
+  ;; TODO: Stop passing-along the exo-types and instead pass-along endo-types where possible
+  ;; TODO: Optimize analyser to avoid redundant checks when dealing with type-checking (making sure check* is being handed a type)
   
   (time (&compiler/compile-all (&/|list "lux")))
   (System/gc)

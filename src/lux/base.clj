@@ -87,6 +87,16 @@
       (V "lux;Cons" (T (T slot value) table*))
       (V "lux;Cons" (T (T k v) (|put slot value table*))))))
 
+(defn |remove [slot table]
+  (matchv ::M/objects [table]
+    [["lux;Nil" _]]
+    table
+    
+    [["lux;Cons" [[k v] table*]]]
+    (if (= k slot)
+      table*
+      (V "lux;Cons" (T (T k v) (|remove slot table*))))))
+
 (defn |merge [table1 table2]
   ;; (prn '|merge (aget table1 0) (aget table2 0))
   (matchv ::M/objects [table2]
@@ -125,7 +135,7 @@
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
-    (prn 'FAIL message)
+    ;; (prn 'FAIL message)
     (V "lux;Left" message)))
 
 (defn return [value]

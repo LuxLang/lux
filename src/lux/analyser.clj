@@ -38,19 +38,24 @@
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["lux;Meta" [meta ["lux;Bool" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) &type/Bool))))
+    (|do [_ (&type/check exo-type &type/Bool)]
+      (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) exo-type)))))
 
     [["lux;Meta" [meta ["lux;Int" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value)  &type/Int))))
+    (|do [_ (&type/check exo-type &type/Int)]
+      (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value) exo-type)))))
 
     [["lux;Meta" [meta ["lux;Real" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) &type/Real))))
+    (|do [_ (&type/check exo-type &type/Real)]
+      (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) exo-type)))))
 
     [["lux;Meta" [meta ["lux;Char" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) &type/Char))))
+    (|do [_ (&type/check exo-type &type/Char)]
+      (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) exo-type)))))
 
     [["lux;Meta" [meta ["lux;Text" ?value]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) &type/Text))))
+    (|do [_ (&type/check exo-type &type/Text)]
+      (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) exo-type)))))
 
     [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
     (&&lux/analyse-tuple analyse exo-type ?elems)

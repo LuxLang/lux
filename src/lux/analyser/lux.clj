@@ -19,9 +19,9 @@
 
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
-  (prn 'analyse-tuple (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")
-       (&type/show-type exo-type))
-  (|do [members-vars (&/map% (constantly &type/fresh-var) ?elems)
+  ;; (prn 'analyse-tuple (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")
+  ;;      (&type/show-type exo-type))
+  (|do [members-vars (&/map% (constantly &type/create-var) ?elems)
         _ (&type/check exo-type (&/V "lux;TupleT" members-vars))
         =elems (&/map% (fn [ve]
                          (|let [[=var elem] ve]
@@ -36,8 +36,8 @@
 
 (defn analyse-variant [analyse exo-type ident ?value]
   (|let [[?module ?name] ident]
-    (do (prn 'analyse-variant (str ?module ";" ?name) (&/show-ast ?value))
-      (|do [:let [_ (prn 'analyse-variant/exo-type (&type/show-type exo-type))]
+    (do ;; (prn 'analyse-variant (str ?module ";" ?name) (&/show-ast ?value))
+      (|do [;; :let [_ (prn 'analyse-variant/exo-type (&type/show-type exo-type))]
             module (if (= "" ?module)
                      &/get-module-name
                      (return ?module))
@@ -53,13 +53,15 @@
 
                         [_]
                         (&type/actual-type exo-type))
-            :let [_ (prn 'exo-type* (&type/show-type exo-type*))]]
+            ;; :let [_ (prn 'analyse-variant/exo-type* (&type/show-type exo-type*))]
+            ]
         (matchv ::M/objects [exo-type*]
           [["lux;VariantT" ?cases]]
           (if-let [vtype (&/|get ?tag ?cases)]
-            (|do [:let [_ (prn 'VARIANT_BODY ?tag (&/show-ast ?value) (&type/show-type vtype))]
+            (|do [;; :let [_ (prn 'VARIANT_BODY ?tag (&/show-ast ?value) (&type/show-type vtype))]
                   =value (&&/analyse-1 analyse vtype ?value)
-                  :let [_ (prn 'GOT_VALUE =value)]]
+                  ;; :let [_ (prn 'GOT_VALUE =value)]
+                  ]
               (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value))
                                                       exo-type)))))
             (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*))))
@@ -178,47 +180,79 @@
         _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case'\" expression.")
         _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case'\" expression.")
         =value ((analyse-1+ analyse) ?value)
+        :let [_ (prn 'analyse-case/GOT_VALUE)]
         =value-type (&&/expr-type =value)
-        =match (&&case/analyse-branches analyse exo-type =value-type (&/|as-pairs ?branches))]
+        =match (&&case/analyse-branches analyse exo-type =value-type (&/|as-pairs ?branches))
+        :let [_ (prn 'analyse-case/GOT_MATCH)]]
     (return (&/|list (&/V "Expression" (&/T (&/V "case" (&/T =value =match))
                                             exo-type))))))
 
-(defn analyse-lambda [analyse exo-type ?self ?arg ?body]
+(defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   ;; (prn 'analyse-lambda ?self ?arg ?body)
-  (|do [=lambda-type* &type/fresh-lambda
-        _ (&type/check exo-type =lambda-type*)]
-    (matchv ::M/objects [=lambda-type*]
-      [["lux;LambdaT" [=arg =return]]]
-      (|do [[=scope =captured =body] (&&lambda/with-lambda ?self =lambda-type*
-                                       ?arg =arg
-                                       (&&/analyse-1 analyse =return ?body))
-            =lambda-type** (&type/clean =return =lambda-type*)
-            =lambda-type (matchv ::M/objects [=arg]
-                           [["lux;VarT" ?id]]
-                           (&/try-all% (&/|list (|do [bound (&type/deref ?id)]
-                                                  (&type/clean =arg =lambda-type**))
-                                                (let [var-name (str (gensym ""))]
-                                                  (|do [_ (&type/set-var ?id (&/V "lux;BoundT" var-name))
-                                                        lambda-type (&type/clean =arg =lambda-type**)]
-                                                    (return (&/V "lux;AllT" (&/T (&/|list) "" var-name lambda-type)))))))
+  (|do [lambda-expr (&&/with-vars [=arg =return]
+                 (|do [:let [_ (prn 'analyse-lambda/_-1 (&type/show-type =arg) (&type/show-type =return))]
+                       :let [=lambda-type* (&/V "lux;LambdaT" (&/T =arg =return))]
+                       :let [_ (prn 'analyse-lambda/_0)]
+                       _ (&type/check exo-type =lambda-type*)
+                       :let [_ (prn 'analyse-lambda/_0.5 (&type/show-type exo-type))]
+                       :let [_ (prn 'analyse-lambda/_1 (&type/show-type =lambda-type*))]
+                       _ (|do [aid (&type/var-id =arg)
+                               atype (&type/deref aid)
+                               rid (&type/var-id =return)
+                               rtype (&type/deref rid)
+                               :let [_ (prn 'analyse-lambda/_1.5 (&type/show-type atype) (&type/show-type rtype))]]
+                           (return nil))
+                       [=scope =captured =body] (&&lambda/with-lambda ?self =lambda-type*
+                                                  ?arg =arg
+                                                  (&&/analyse-1 analyse =return ?body))
+                       :let [_ (prn 'analyse-lambda/_2)]
+                       =lambda-type (matchv ::M/objects [=arg]
+                                      [["lux;VarT" ?id]]
+                                      (|do [? (&type/bound? ?id)]
+                                        (if ?
+                                          (return =lambda-type*)
+                                          (let [var-name (str (gensym ""))]
+                                            (|do [_ (&type/set-var ?id (&/V "lux;BoundT" var-name))]
+                                              (return (&/V "lux;AllT" (&/T (&/|list) "" var-name =lambda-type*)))))))
 
-                           [_]
-                           (fail ""))]
-        (return (&/|list (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured =body)) =lambda-type))))))))
+                                      [_]
+                                      (fail ""))
+                       :let [_ (prn 'analyse-lambda/_3 (&type/show-type =lambda-type))]]
+                   (return (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured =body)) =lambda-type)))))
+        :let [_ (prn 'analyse-lambda/_4)]]
+    (return lambda-expr)))
+
+(defn analyse-lambda [analyse exo-type ?self ?arg ?body]
+  (prn 'analyse-lambda/&& (aget exo-type 0))
+  (|do [output (matchv ::M/objects [exo-type]
+                 [["lux;AllT" _]]
+                 (&&/with-var
+                   (fn [$arg]
+                     (|do [exo-type* (&type/apply-type exo-type $arg)
+                           outputs (analyse-lambda analyse exo-type* ?self ?arg ?body)]
+                       (return (&/|head outputs)))))
+                 
+                 [_]
+                 (analyse-lambda* analyse exo-type ?self ?arg ?body))]
+    (return (&/|list output))))
 
 (defn analyse-def [analyse exo-type ?name ?value]
-  (prn 'analyse-def ?name (&/show-ast ?value))
+  ;; (prn 'analyse-def/CODE ?name (&/show-ast ?value))
   (|do [_ (&type/check exo-type &type/Nothing)
         module-name &/get-module-name
         ? (&&def/defined? module-name ?name)]
     (if ?
       (fail (str "[Analyser Error] Can't redefine " ?name))
-      (|do [=value (&/with-scope ?name
+      (|do [:let [_ (prn 'analyse-def/_0)]
+            =value (&/with-scope ?name
                      (&&/with-var
                        #(&&/analyse-1 analyse % ?value)))
+            :let [_ (prn 'analyse-def/_1)]
             =value-type (&&/expr-type =value)
-            :let [_ (prn 'analyse-def ?name (&type/show-type =value-type))]
-            _ (&&def/define module-name ?name =value-type)]
+            :let [_ (prn 'analyse-def/_2)]
+            ;; :let [_ (prn 'analyse-def/TYPE ?name (&type/show-type =value-type))]
+            _ (&&def/define module-name ?name =value-type)
+            :let [_ (prn 'analyse-def/_3)]]
         (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
 
 (defn analyse-declare-macro [exo-type ident]
@@ -241,12 +275,12 @@
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
         :let [_ (println "analyse-check#4" (&type/show-type ==type))]
-        =value (&&/analyse-1 analyse exo-type ?value)
+        =value (&&/analyse-1 analyse ==type ?value)
         :let [_ (println "analyse-check#5")]]
     (matchv ::M/objects [=value]
       [["Expression" [?expr ?expr-type]]]
       (|do [:let [_ (println "analyse-check#6" (&type/show-type ?expr-type))]
-            _ (&type/check ==type ?expr-type)
+            ;; _ (&type/check ==type ?expr-type)
             :let [_ (println "analyse-check#7")]]
         (return (&/|list (&/V "Expression" (&/T ?expr ==type))))))))
 

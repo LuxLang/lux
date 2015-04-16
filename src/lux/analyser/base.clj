@@ -37,9 +37,21 @@
           (fail "[Analyser Error] Can't expand to other than 2 elements.")))))
 
 (defn with-var [k]
-  (|do [=var &type/fresh-var
+  (|do [=var &type/create-var
         =ret (k =var)]
     (matchv ::M/objects [=ret]
       [["Expression" [?expr ?type]]]
-      (|do [=type (&type/clean =var ?type)]
-        (return (&/V "Expression" (&/T ?expr =type)))))))
+      (|do [id (&type/var-id =var)
+            =type (&type/clean id ?type)
+            :let [_ (prn 'with-var/CLEANING id)]
+            _ (&type/delete-var id)]
+        (return (&/V "Expression" (&/T ?expr =type))))
+
+      [_]
+      (assert false (pr-str '&&/with-var (aget =ret 0))))))
+
+(defmacro with-vars [vars body]
+  (reduce (fn [b v]
+            `(with-var (fn [~v] ~b)))
+          body
+          (reverse vars)))

@@ -8,93 +8,116 @@
                           [env :as &env])))
 
 ;; [Utils]
+(defn ^:private resolve-type [type]
+  (matchv ::M/objects [type]
+    [["lux;VarT" ?idx]]
+    (|do [type* (&type/deref ?idx)]
+      (resolve-type type*))
+
+    [_]
+    (&type/actual-type type)))
+
+(defn ^:private variant-case [case type]
+  (matchv ::M/objects [type]
+    [["lux;VariantT" ?cases]]
+    (if-let [case-type (&/|get case ?cases)]
+      (return case-type)
+      (fail (str "[Pattern-maching error] Variant lacks case: " case)))
+
+    [_]
+    (fail "[Pattern-maching error] Type is not a variant.")))
+
 (defn ^:private analyse-variant [analyse-pattern idx value-type tag value]
   (|do [[idx* test] (analyse-pattern idx value-type value)]
     (return (&/T idx* (&/V "VariantTestAC" (&/T tag test))))))
 
 (defn ^:private analyse-pattern [idx value-type pattern]
-  (prn 'analyse-pattern/pattern (aget pattern 0) (aget pattern 1) (alength (aget pattern 1)))
+  ;; (prn 'analyse-pattern/pattern (aget pattern 0) (aget pattern 1) (alength (aget pattern 1)))
   (matchv ::M/objects [pattern]
     [["lux;Meta" [_ pattern*]]]
     ;; (assert false)
     (do ;; (prn 'analyse-pattern/pattern* (aget pattern* 0))
-      ;; (when (= "lux;Form" (aget pattern* 0))
-      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 0)) ;; "lux;Cons"
-      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 0)) ;; "lux;Meta"
-      ;;   (prn 'analyse-pattern/_2 (alength (aget pattern* 1 1 0 1)))
-      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 1 1 0)) ;; "lux;Tag"
-      ;;   (prn 'analyse-pattern/_2 [(aget pattern* 1 1 0 1 1 1 0) (aget pattern* 1 1 0 1 1 1 1)]) ;; ["" "Cons"]
-      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 0)) ;; "lux;Cons"
-      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 0)) ;; #<Object[] [Ljava.lang.Object;@63c7c38b>
-      ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 1 0)) ;; "lux;Nil"
-      ;;   )
-      ;; ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]
-      ;;                          ["lux;Cons" [?value
-      ;;                                       ["lux;Nil" _]]]]]]
-      (matchv ::M/objects [pattern*]
-        [["lux;Symbol" [?module ?name]]]
-        (return (&/T (inc idx) (&/V "StoreTestAC" (&/T idx (str ?module ";" ?name) value-type))))
+        ;; (when (= "lux;Form" (aget pattern* 0))
+        ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 0)) ;; "lux;Cons"
+        ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 0)) ;; "lux;Meta"
+        ;;   (prn 'analyse-pattern/_2 (alength (aget pattern* 1 1 0 1)))
+        ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 0 1 1 0)) ;; "lux;Tag"
+        ;;   (prn 'analyse-pattern/_2 [(aget pattern* 1 1 0 1 1 1 0) (aget pattern* 1 1 0 1 1 1 1)]) ;; ["" "Cons"]
+        ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 0)) ;; "lux;Cons"
+        ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 0)) ;; #<Object[] [Ljava.lang.Object;@63c7c38b>
+        ;;   (prn 'analyse-pattern/_2 (aget pattern* 1 1 1 1 1 0)) ;; "lux;Nil"
+        ;;   )
+        ;; ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]
+        ;;                          ["lux;Cons" [?value
+        ;;                                       ["lux;Nil" _]]]]]]
+        (matchv ::M/objects [pattern*]
+          [["lux;Symbol" [?module ?name]]]
+          (return (&/T (inc idx) (&/V "StoreTestAC" (&/T idx (str ?module ";" ?name) value-type))))
 
-        [["lux;Bool" ?value]]
-        (|do [_ (&type/check value-type &type/Bool)]
-          (return (&/T idx (&/V "BoolTestAC" ?value))))
+          [["lux;Bool" ?value]]
+          (|do [_ (&type/check value-type &type/Bool)]
+            (return (&/T idx (&/V "BoolTestAC" ?value))))
 
-        [["lux;Int" ?value]]
-        (|do [_ (&type/check value-type &type/Int)]
-          (return (&/T idx (&/V "IntTestAC" ?value))))
+          [["lux;Int" ?value]]
+          (|do [_ (&type/check value-type &type/Int)]
+            (return (&/T idx (&/V "IntTestAC" ?value))))
 
-        [["lux;Real" ?value]]
-        (|do [_ (&type/check value-type &type/Real)]
-          (return (&/T idx (&/V "RealTestAC" ?value))))
+          [["lux;Real" ?value]]
+          (|do [_ (&type/check value-type &type/Real)]
+            (return (&/T idx (&/V "RealTestAC" ?value))))
 
-        [["lux;Char" ?value]]
-        (|do [_ (&type/check value-type &type/Char)]
-          (return (&/T idx (&/V "CharTestAC" ?value))))
+          [["lux;Char" ?value]]
+          (|do [_ (&type/check value-type &type/Char)]
+            (return (&/T idx (&/V "CharTestAC" ?value))))
 
-        [["lux;Text" ?value]]
-        (|do [_ (&type/check value-type &type/Text)]
-          (return (&/T idx (&/V "TextTestAC" ?value))))
+          [["lux;Text" ?value]]
+          (|do [_ (&type/check value-type &type/Text)]
+            (return (&/T idx (&/V "TextTestAC" ?value))))
 
-        [["lux;Tuple" ?members]]
-        (|do [=vars (&/map% (fn [_] &type/fresh-var)
-                            (&/|range (&/|length ?members)))
-              _ (&type/check value-type (&/V "lux;TupleT" =vars))
-              [idx* tests] (&/fold% (fn [idx+subs mv]
-                                      (|let [[_idx subs] idx+subs
-                                             [?member ?var] mv]
-                                        (|do [[idx* test] (analyse-pattern _idx ?var ?member)]
-                                          (return (&/T idx* (&/|cons test subs))))))
-                                    (&/T idx (&/|list))
-                                    (&/zip2 ?members =vars))]
-          (return (&/T idx* (&/V "TupleTestAC" (&/|reverse tests)))))
-        
-        [["lux;Record" ?fields]]
-        (|do [=vars (&/map% (fn [_] &type/fresh-var)
-                            (&/|range (&/|length ?fields)))
-              _ (&type/check value-type (&/V "lux;RecordT" (&/zip2 (&/|keys ?fields) =vars)))
-              tests (&/fold% (fn [idx+subs mv]
-                               (|let [[_idx subs] idx+subs
-                                      [[slot value] ?var] mv]
-                                 (|do [[idx* test] (analyse-pattern _idx ?var value)]
-                                   (return (&/T idx* (&/|cons (&/T slot test) subs))))))
-                             (&/T idx (&/|list)) (&/zip2 ?fields =vars))]
-          (return (&/V "RecordTestAC" tests)))
+          [["lux;Tuple" ?members]]
+          (|do [=vars (&/map% (constantly &type/create-var) ?members)
+                _ (&type/check value-type (&/V "lux;TupleT" =vars))
+                [idx* tests] (&/fold% (fn [idx+subs mv]
+                                        (|let [[_idx subs] idx+subs
+                                               [?member ?var] mv]
+                                          (|do [[idx* test] (analyse-pattern _idx ?var ?member)]
+                                            (return (&/T idx* (&/|cons test subs))))))
+                                      (&/T idx (&/|list))
+                                      (&/zip2 ?members =vars))]
+            (return (&/T idx* (&/V "TupleTestAC" (&/|reverse tests)))))
+          
+          [["lux;Record" ?fields]]
+          (|do [=vars (&/map% (constantly &type/create-var) ?fields)
+                _ (&type/check value-type (&/V "lux;RecordT" (&/zip2 (&/|keys ?fields) =vars)))
+                tests (&/fold% (fn [idx+subs mv]
+                                 (|let [[_idx subs] idx+subs
+                                        [[slot value] ?var] mv]
+                                   (|do [[idx* test] (analyse-pattern _idx ?var value)]
+                                     (return (&/T idx* (&/|cons (&/T slot test) subs))))))
+                               (&/T idx (&/|list)) (&/zip2 ?fields =vars))]
+            (return (&/V "RecordTestAC" tests)))
 
-        [["lux;Tag" [?module ?name]]]
-        (|do [module* (if (= "" ?module)
-                        &/get-module-name
-                        (return ?module))]
-          (analyse-variant analyse-pattern idx value-type (str module* ";" ?name) (&/V "lux;Meta" (&/T (&/T "" -1 -1)
-                                                                                                       (&/V "lux;Tuple" (&/|list))))))
+          [["lux;Tag" [?module ?name]]]
+          (|do [module* (if (= "" ?module)
+                          &/get-module-name
+                          (return ?module))
+                :let [=tag (str module* ";" ?name)]
+                value-type* (resolve-type value-type)
+                case-type (variant-case =tag value-type*)]
+            (analyse-variant analyse-pattern idx case-type =tag (&/V "lux;Meta" (&/T (&/T "" -1 -1)
+                                                                                     (&/V "lux;Tuple" (&/|list))))))
 
-        [["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]
-                                  ["lux;Cons" [?value
-                                               ["lux;Nil" _]]]]]]]
-        (|do [module* (if (= "" ?module)
-                        &/get-module-name
-                        (return ?module))]
-          (analyse-variant analyse-pattern idx value-type (str module* ";" ?name) ?value))
-        ))
+          [["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" [?module ?name]]]]
+                                    ["lux;Cons" [?value
+                                                 ["lux;Nil" _]]]]]]]
+          (|do [module* (if (= "" ?module)
+                          &/get-module-name
+                          (return ?module))
+                :let [=tag (str module* ";" ?name)]
+                value-type* (resolve-type value-type)
+                case-type (variant-case =tag value-type*)]
+            (analyse-variant analyse-pattern idx case-type =tag ?value))
+          ))
     ))
 
 (defn ^:private with-test [test body]
@@ -127,9 +150,9 @@
 
 (let [compare-kv #(compare (aget %1 0) (aget %2 0))]
   (defn ^:private merge-total [struct test+body]
-    (prn 'merge-total (aget struct 0) (class test+body))
-    (prn 'merge-total (aget struct 0) (aget test+body 0))
-    (prn 'merge-total (aget struct 0) (aget test+body 0 0))
+    ;; (prn 'merge-total (aget struct 0) (class test+body))
+    ;; (prn 'merge-total (aget struct 0) (aget test+body 0))
+    ;; (prn 'merge-total (aget struct 0) (aget test+body 0 0))
     (matchv ::M/objects [test+body]
       [[test ?body]]
       (matchv ::M/objects [struct test]
@@ -222,49 +245,41 @@
       [["MatchAC" ?tests]]
       (&/fold% merge-total (&/V "DefaultTotal" false) ?tests))))
 
-(defn ^:private resolve-type [type]
-  (matchv ::M/objects [type]
-    [["lux;VarT" ?idx]]
-    (&type/deref ?idx)
-
-    [_]
-    (return type)))
-
 (defn ^:private check-totality [value-type struct]
   (prn 'check-totality (aget value-type 0) (aget struct 0) (&type/show-type value-type))
-  (matchv ::M/objects [value-type struct]
-    [_ ["BoolTotal" [?total _]]]
+  (matchv ::M/objects [struct]
+    [["BoolTotal" [?total _]]]
     (|do [_ (&type/check value-type &type/Bool)]
       (return ?total))
 
-    [_ ["IntTotal" [?total _]]]
+    [["IntTotal" [?total _]]]
     (|do [_ (&type/check value-type &type/Int)]
       (return ?total))
 
-    [_ ["RealTotal" [?total _]]]
+    [["RealTotal" [?total _]]]
     (|do [_ (&type/check value-type &type/Real)]
       (return ?total))
 
-    [_ ["CharTotal" [?total _]]]
+    [["CharTotal" [?total _]]]
     (|do [_ (&type/check value-type &type/Char)]
       (return ?total))
 
-    [_ ["TextTotal" [?total _]]]
+    [["TextTotal" [?total _]]]
     (|do [_ (&type/check value-type &type/Text)]
       (return ?total))
 
-    [_ ["TupleTotal" [?total ?structs]]]
-    (|do [elems-vars (&/map% (constantly &type/fresh-var) (&/|range (&/|length ?structs)))
+    [["TupleTotal" [?total ?structs]]]
+    (|do [elems-vars (&/map% (constantly &type/create-var) ?structs)
           _ (&type/check value-type (&/V "lux;TupleT" elems-vars))
           totals (&/map% (fn [sv]
-                           (|let [[struct tvar] sv]
-                             (check-totality tvar struct)))
+                           (|let [[sub-struct tvar] sv]
+                             (check-totality tvar sub-struct)))
                          (&/zip2 ?structs elems-vars))]
       (return (or ?total
                   (every? true? totals))))
 
-    [_ ["RecordTotal" [?total ?structs]]]
-    (|do [elems-vars (&/map% (constantly &type/fresh-var) (&/|range (&/|length ?structs)))
+    [["RecordTotal" [?total ?structs]]]
+    (|do [elems-vars (&/map% (constantly &type/create-var) ?structs)
           :let [structs+vars (&/zip2 ?structs elems-vars)
                 record-type (&/V "lux;RecordT" (&/|map (fn [sv]
                                                          (|let [[[k v] tvar] sv]
@@ -278,13 +293,24 @@
       (return (or ?total
                   (every? true? totals))))
 
-    [_ ["VariantTotal" [?total ?structs]]]
+    [["VariantTotal" [?total ?structs]]]
     (&/try-all% (&/|list (|do [real-type (resolve-type value-type)
-                               :let [_ (prn 'real-type (&type/show-type real-type))]]
-                           (assert false))
+                               :let [_ (prn 'real-type/_1 (&type/show-type real-type))]
+                               veredicts (matchv ::M/objects [real-type]
+                                           [["lux;VariantT" ?cases]]
+                                           (&/map% (fn [case]
+                                                     (|let [[ctag ctype] case]
+                                                       (if-let [sub-struct (&/|get ctag ?structs)]
+                                                         (check-totality ctype sub-struct)
+                                                         (return ?total))))
+                                                   ?cases)
+
+                                           [_]
+                                           (fail "[Pattern-maching error] Value is not a variant."))]
+                           (return (&/fold #(and %1 %2) ?total veredicts)))
                          (fail "[Pattern-maching error] Can't pattern-match on an unknown variant type.")))
     
-    [_ ["DefaultTotal" true]]
+    [["DefaultTotal" true]]
     (return true)
     ))
 
