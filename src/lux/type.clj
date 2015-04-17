@@ -98,8 +98,9 @@
   (fn [state]
     (prn 'delete-var id)
     (if-let [tvar (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
-      (return* (&/update$ "lux;types" (fn [ts] (&/update$ "lux;mappings" #(&/|remove id %)
-                                                         ts))
+      (return* (&/update$ "lux;types" #(->> %
+                                            ;; (&/update$ "lux;counter" dec)
+                                            (&/update$ "lux;mappings" (fn [ms] (&/|remove id ms))))
                           state)
                nil)
       (fail* (str "[Type Error] Unknown type-var: " id)))))
@@ -165,6 +166,7 @@
     ))
 
 (defn clean [tvar type]
+  ;; (prn "^^ clean ^^")
   (matchv ::M/objects [tvar]
     [["lux;VarT" ?id]]
     (clean* ?id type)
@@ -228,6 +230,7 @@
     ))
 
 (defn type= [x y]
+  ;; (prn "^^ type= ^^")
   (let [output (matchv ::M/objects [x y]
                  [["lux;AnyT" _] ["lux;AnyT" _]]
                  true
@@ -293,7 +296,7 @@
                         ))
 
                  [_ _]
-                 (do (prn 'type= (show-type x) (show-type y))
+                 (do ;; (prn 'type= (show-type x) (show-type y))
                    false)
                  )]
     ;; (prn 'type= output (show-type x) (show-type y))
@@ -384,6 +387,7 @@
 (def init-fixpoints (&/|list))
 
 (defn ^:private check* [fixpoints expected actual]
+  ;; (prn "^^ check* ^^")
   ;; (prn 'check* (aget expected 0) (aget actual 0))
   ;; (prn 'check* (show-type expected) (show-type actual))
   (matchv ::M/objects [expected actual]
@@ -417,7 +421,7 @@
 
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)
-          _ (prn 'LEFT_APP (&/|length fixpoints))
+          ;; _ (prn 'LEFT_APP (&/|length fixpoints))
           _ (when (> (&/|length fixpoints) 10)
               (println 'FIXPOINTS (->> (&/|keys fixpoints)
                                        (&/|map (fn [pair]
@@ -473,16 +477,6 @@
         (|do [actual* (apply-type actual $arg)]
           (check* fixpoints expected actual*))))
 
-    ;; [["lux;AllT" _] _]
-    ;; (|do [$arg create-var
-    ;;       expected* (apply-type expected $arg)]
-    ;;   (check* fixpoints expected* actual))
-
-    ;; [_ ["lux;AllT" _]]
-    ;; (|do [$arg create-var
-    ;;       actual* (apply-type actual $arg)]
-    ;;   (check* fixpoints expected actual*))
-
     [["lux;DataT" e!name] ["lux;DataT" a!name]]
     (if (= e!name a!name)
       (return (&/T fixpoints nil))
@@ -516,7 +510,7 @@
     [["lux;VariantT" e!cases] ["lux;VariantT" a!cases]]
     (if (= (&/|length e!cases) (&/|length a!cases))
       (|do [fixpoints* (&/fold% (fn [fixp slot]
-                                  (prn 'VARIANT_CASE slot)
+                                  ;; (prn 'VARIANT_CASE slot)
                                   (if-let [e!type (&/|get slot e!cases)]
                                     (if-let [a!type (&/|get slot a!cases)]
                                       (|do [[fixp* _] (check* fixp e!type a!type)]
@@ -531,7 +525,7 @@
     [["lux;RecordT" e!fields] ["lux;RecordT" a!fields]]
     (if (= (&/|length e!fields) (&/|length a!fields))
       (|do [fixpoints* (&/fold% (fn [fixp slot]
-                                  (prn 'RECORD_FIELD slot)
+                                  ;; (prn 'RECORD_FIELD slot)
                                   (if-let [e!type (&/|get slot e!fields)]
                                     (if-let [a!type (&/|get slot a!fields)]
                                       (|do [[fixp* _] (check* fixp e!type a!type)]
@@ -548,6 +542,7 @@
     ))
 
 (defn check [expected actual]
+  ;; (prn "^^ check ^^")
   (|do [_ (check* init-fixpoints expected actual)]
     (return nil)))
 
@@ -587,3 +582,23 @@
 
     [_]
     (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
+
+(let [type-cases #{"lux;AnyT"   , "lux;NothingT", "lux;DataT"
+                   "lux;TupleT" , "lux;VariantT", "lux;RecordT"
+                   "lux;LambdaT", "lux;BoundT"  , "lux;VarT"
+                   "lux;AllT"   , "lux;AppT"}]
+  (defn is-Type? [type]
+    (matchv ::M/objects [type]
+      [["lux;VarT" ?id]]
+      (&/try-all% (&/|list (|do [type* (deref ?id)]
+                             (is-Type? type*))
+                           (return false)))
+
+      [_]
+      (|do [type* (actual-type type)]
+        (matchv ::M/objects [type*]
+          [["lux;VariantT" ?cases]]
+          (return (->> ?cases &/|keys &/->seq set (= type-cases)))
+
+          [_]
+          (return false))))))

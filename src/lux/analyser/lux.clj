@@ -26,56 +26,50 @@
 
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
+  ;; (prn "^^ analyse-tuple ^^")
   ;; (prn 'analyse-tuple (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")
   ;;      (&type/show-type exo-type))
-  (&type/with-vars (&/|length ?elems)
-    (fn [=vars]
-      (|do [_ (&type/check exo-type (&/V "lux;TupleT" =vars))
-            =elems (&/map% (fn [ve]
-                             (|let [[=var elem] ve]
-                               (|do [output (&&/analyse-1 analyse =var elem)]
-                                 (matchv ::M/objects [output]
-                                   [["Expression" [?val ?type]]]
-                                   (|do [=type (&type/clean =var ?type)]
-                                     (return (&/V "Expression" (&/T ?val =type))))))))
-                           (&/zip2 =vars ?elems))]
-        (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems)
-                                                exo-type))))))))
+  (|do [t-members (matchv ::M/objects [exo-type]
+                    [["lux;TupleT" ?members]]
+                    (return ?members)
+
+                    [_]
+                    (fail "[Analyser Error] Tuple requires tuple-type."))
+        =elems (&/map% (fn [ve]
+                         (|let [[elem-t elem] ve]
+                           (&&/analyse-1 analyse elem-t elem)))
+                       (&/zip2 t-members ?elems))]
+    (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems)
+                                            exo-type))))))
 
 (defn analyse-variant [analyse exo-type ident ?value]
-  (|let [[?module ?name] ident]
-    (do ;; (prn 'analyse-variant (str ?module ";" ?name) (&/show-ast ?value))
-      (|do [;; :let [_ (prn 'analyse-variant/exo-type (&type/show-type exo-type))]
-            module (if (= "" ?module)
-                     &/get-module-name
-                     (return ?module))
-            :let [?tag (str module ";" ?name)]
-            exo-type* (matchv ::M/objects [exo-type]
-                        [["lux;VarT" ?id]]
-                        (|do [? (&type/bound? ?id)]
-                          (if ?
-                            (|do [exo-type* (&type/deref ?id)]
-                              (&type/actual-type exo-type*))
-                            (|do [_ (&type/set-var ?id &type/Type)]
-                              (&type/actual-type &type/Type))))
+  ;; (prn "^^ analyse-variant ^^")
+  (|do [;; :let [_ (prn 'analyse-variant/exo-type (&type/show-type exo-type))]
+        ?tag (&&/resolved-ident ident)
+        exo-type* (matchv ::M/objects [exo-type]
+                    [["lux;VarT" ?id]]
+                    (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
+                                           (&type/actual-type exo-type*))
+                                         (|do [_ (&type/set-var ?id &type/Type)]
+                                           (&type/actual-type &type/Type))))
 
-                        [_]
-                        (&type/actual-type exo-type))
-            ;; :let [_ (prn 'analyse-variant/exo-type* (&type/show-type exo-type*))]
-            ]
-        (matchv ::M/objects [exo-type*]
-          [["lux;VariantT" ?cases]]
-          (if-let [vtype (&/|get ?tag ?cases)]
-            (|do [;; :let [_ (prn 'VARIANT_BODY ?tag (&/show-ast ?value) (&type/show-type vtype))]
-                  =value (&&/analyse-1 analyse vtype ?value)
-                  ;; :let [_ (prn 'GOT_VALUE =value)]
-                  ]
-              (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value))
-                                                      exo-type)))))
-            (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*))))
+                    [_]
+                    (&type/actual-type exo-type))
+        ;; :let [_ (prn 'analyse-variant/exo-type* (&type/show-type exo-type*))]
+        ]
+    (matchv ::M/objects [exo-type*]
+      [["lux;VariantT" ?cases]]
+      (if-let [vtype (&/|get ?tag ?cases)]
+        (|do [;; :let [_ (prn 'VARIANT_BODY ?tag (&/show-ast ?value) (&type/show-type vtype))]
+              =value (&&/analyse-1 analyse vtype ?value)
+              ;; :let [_ (prn 'GOT_VALUE =value)]
+              ]
+          (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value))
+                                                  exo-type)))))
+        (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*))))
 
-          [_]
-          (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))))
+      [_]
+      (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
 (defn analyse-record [analyse exo-type ?elems]
   (|do [=elems (&/map% (fn [kv]
@@ -102,6 +96,18 @@
                  &/|keys &/->seq (interpose " ") (reduce str ""))
        "}}"))
 
+(defn ^:private type-test [exo-type binding]
+  (|do [btype (&&/expr-type binding)
+        o?? (&type/is-Type? exo-type)]
+    (if o??
+      (|do [i?? (&type/is-Type? btype)]
+        (if i??
+          (do (println "FOUND TWO TYPES!")
+            (return (&/|list binding)))
+          (fail "[Type Error] Types don't match.")))
+      (|do [_ (&type/check exo-type btype)]
+        (return (&/|list binding))))))
+
 (defn analyse-symbol [analyse exo-type ident]
   (|do [module-name &/get-module-name]
     (fn [state]
@@ -115,9 +121,10 @@
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
           (if-let [global (->> state (&/get$ "lux;global-env") &/from-some (&/get$ "lux;locals") (&/get$ "lux;mappings") (&/|get global-ident))]
-            (&/run-state (|do [=global-type (&&/expr-type global)
-                               _ (&type/check exo-type =global-type)]
-                           (return (&/|list global)))
+            (&/run-state (type-test exo-type global)
+                         ;; (|do [btype (&&/expr-type global)
+                         ;;       _ (&type/check exo-type btype)]
+                         ;;   (return (&/|list global)))
                          state)
             (do (prn (str "((" (->> stack (&/|map show-frame) &/->seq (interpose " ") (reduce str "")) "))"))
               (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident))))
@@ -135,9 +142,10 @@
                                                   (->> top-outer (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|get local-ident)))
                                               (&/|list))
                                          (&/zip2 (&/|reverse inner) scopes))]
-            (&/run-state (|do [=local-type (&&/expr-type =local)
-                               _ (&type/check exo-type =local-type)]
-                           (return (&/|list =local)))
+            (&/run-state (type-test exo-type =local)
+                         ;; (|do [btype (&&/expr-type =local)
+                         ;;       _ (&type/check exo-type btype)]
+                         ;;   (return (&/|list =local)))
                          (&/set$ "lux;local-envs" (&/|++ inner* outer) state)))
           )))
     ))
@@ -201,44 +209,15 @@
 
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   ;; (prn 'analyse-lambda ?self ?arg ?body)
-  (|do [lambda-expr (&type/with-vars 2
-                 (fn [=vars2]
-                   (matchv ::M/objects [=vars2]
-                     [["lux;Cons" [=arg ["lux;Cons" [=return ["lux;Nil" _]]]]]]
-                     (|do [:let [_ (prn 'analyse-lambda/_-1 (&type/show-type =arg) (&type/show-type =return))]
-                           :let [=lambda-type* (&/V "lux;LambdaT" (&/T =arg =return))]
-                           :let [_ (prn 'analyse-lambda/_0)]
-                           _ (&type/check exo-type =lambda-type*)
-                           :let [_ (prn 'analyse-lambda/_0.5 (&type/show-type exo-type))]
-                           :let [_ (prn 'analyse-lambda/_1 (&type/show-type =lambda-type*))]
-                           ;; _ (|do [aid (&type/var-id =arg)
-                           ;;         atype (&type/deref aid)
-                           ;;         rid (&type/var-id =return)
-                           ;;         rtype (&type/deref rid)
-                           ;;         :let [_ (prn 'analyse-lambda/_1.5 (&type/show-type atype) (&type/show-type rtype))]]
-                           ;;     (return nil))
-                           [=scope =captured =body] (&&lambda/with-lambda ?self =lambda-type*
-                                                      ?arg =arg
-                                                      (&&/analyse-1 analyse =return ?body))
-                           =lambda-type** (&type/clean =return =lambda-type*)
-                           :let [_ (prn 'analyse-lambda/_2)]
-                           =lambda-type (matchv ::M/objects [=arg]
-                                          [["lux;VarT" ?id]]
-                                          (|do [? (&type/bound? ?id)]
-                                            (if ?
-                                              (&type/clean =arg =lambda-type**)
-                                              (let [var-name (str (gensym ""))]
-                                                (|do [_ (&type/set-var ?id (&/V "lux;BoundT" var-name))
-                                                      =lambda-type*** (&type/clean =arg =lambda-type**)]
-                                                  (return (&/V "lux;AllT" (&/T (&/|list) "" var-name =lambda-type***)))))))
-
-                                          [_]
-                                          (fail ""))
-                           :let [_ (prn 'analyse-lambda/_3 (&type/show-type =lambda-type))]]
-                       (return (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured =body)) =lambda-type))))
-                     )))
-        :let [_ (prn 'analyse-lambda/_4)]]
-    (return lambda-expr)))
+  (matchv ::M/objects [exo-type]
+    [["lux;LambdaT" [?arg-t ?return-t]]]
+    (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type
+                                     ?arg ?arg-t
+                                     (&&/analyse-1 analyse ?return-t ?body))]
+      (return (&/V "Expression" (&/T (&/V "lambda" (&/T =scope =captured =body)) exo-type))))
+    
+    [_]
+    (fail "[Analyser Error] Functions require function types.")))
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
   (prn 'analyse-lambda**/&& (aget exo-type 0))
@@ -248,10 +227,12 @@
       (fn [$var]
         (|do [exo-type* (&type/apply-type exo-type $var)
               output (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
-          (matchv ::M/objects [output]
-            [["Expression" [?item ?type]]]
-            (|do [=type (&type/clean $var ?type)]
-              (return (&/V "Expression" (&/T ?item =type))))))))
+          (matchv ::M/objects [$var]
+            [["lux;VarT" ?id]]
+            (|do [? (&type/bound? ?id)]
+              (if ?
+                (fail "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions.")
+                (return output)))))))
     
     [_]
     (analyse-lambda* analyse exo-type ?self ?arg ?body)))
@@ -267,15 +248,16 @@
         ? (&&def/defined? module-name ?name)]
     (if ?
       (fail (str "[Analyser Error] Can't redefine " ?name))
-      (|do [:let [_ (prn 'analyse-def/_0)]
+      (|do [;; :let [_ (prn 'analyse-def/_0)]
             =value (&/with-scope ?name
                      (analyse-1+ analyse ?value))
-            :let [_ (prn 'analyse-def/_1)]
+            ;; :let [_ (prn 'analyse-def/_1)]
             =value-type (&&/expr-type =value)
-            :let [_ (prn 'analyse-def/_2)]
-            ;; :let [_ (prn 'analyse-def/TYPE ?name (&type/show-type =value-type))]
+            ;; :let [_ (prn 'analyse-def/_2)]
+            :let [_ (prn 'analyse-def/TYPE ?name (&type/show-type =value-type))]
             _ (&&def/define module-name ?name =value-type)
-            :let [_ (prn 'analyse-def/_3)]]
+            ;; :let [_ (prn 'analyse-def/_3)]
+            ]
         (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
 
 (defn analyse-declare-macro [exo-type ident]
