@@ -10,7 +10,7 @@
     (return* state (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;locals") (&/get$ "lux;counter")))))
 
 (defn with-local [name type body]
-  (prn 'with-local name)
+  ;; (prn 'with-local name)
   (fn [state]
     (let [old-mappings (->> state (&/get$ "lux;local-envs") &/|head (&/get$ "lux;locals") (&/get$ "lux;mappings"))
           =return (body (&/update$ "lux;local-envs"

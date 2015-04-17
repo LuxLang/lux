@@ -1,7 +1,7 @@
 (ns lux.analyser.base
   (:require [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return fail]]
+            (lux [base :as & :refer [|let |do return fail]]
                  [type :as &type])))
 
 ;; [Resources]
@@ -36,22 +36,9 @@
           [_]
           (fail "[Analyser Error] Can't expand to other than 2 elements.")))))
 
-(defn with-var [k]
-  (|do [=var &type/create-var
-        =ret (k =var)]
-    (matchv ::M/objects [=ret]
-      [["Expression" [?expr ?type]]]
-      (|do [id (&type/var-id =var)
-            =type (&type/clean id ?type)
-            :let [_ (prn 'with-var/CLEANING id)]
-            _ (&type/delete-var id)]
-        (return (&/V "Expression" (&/T ?expr =type))))
-
-      [_]
-      (assert false (pr-str '&&/with-var (aget =ret 0))))))
-
-(defmacro with-vars [vars body]
-  (reduce (fn [b v]
-            `(with-var (fn [~v] ~b)))
-          body
-          (reverse vars)))
+(defn resolved-ident [ident]
+  (|let [[?module ?name] ident]
+    (|do [module* (if (= "" ?module)
+                    &/get-module-name
+                    (return ?module))]
+      (return (&/ident->text (&/T module* ?name))))))

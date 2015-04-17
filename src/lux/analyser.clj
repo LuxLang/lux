@@ -436,7 +436,7 @@
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
     (fn [state]
       ;; (prn '(&/show-ast ?fn) (&/show-ast ?fn))
-      (matchv ::M/objects [((&&/with-var #(&&/analyse-1 (partial analyse-ast eval!) % ?fn)) state)]
+      (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval!) % ?fn)) state)]
         [["lux;Right" [state* =fn]]]
         ((&&lux/analyse-apply (partial analyse-ast eval!) exo-type =fn ?args) state*)
 

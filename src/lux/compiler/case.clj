@@ -22,7 +22,7 @@
   (defn ^:private compile-match [writer ?match $target $else]
     (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
-      [["StoreTestAC" [?idx ?name ?value]]]
+      [["StoreTestAC" ?idx]]
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?idx)
         (.visitJumpInsn Opcodes/GOTO $target))
@@ -115,17 +115,15 @@
                        $value-else (new Label)]))))
       )))
 
-(defn ^:private separate-bodies [matches]
-  (prn 'separate-bodies (aget matches 0))
-  (matchv ::M/objects [matches]
-    [["MatchAC" ?tests]]
-    (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
-                                            (|let [[$id mappings =matches] $id+mappings+=matches
-                                                   [pattern body] pattern+body]
-                                              (&/T (inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches))))
-                                          (&/T 0 (&/|table) (&/|table))
-                                          ?tests)]
-      (&/T mappings (&/|reverse patterns*)))))
+(defn ^:private separate-bodies [patterns]
+  ;; (prn 'separate-bodies (aget matches 0))
+  (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
+                                          (|let [[$id mappings =matches] $id+mappings+=matches
+                                                 [pattern body] pattern+body]
+                                            (&/T (inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches))))
+                                        (&/T 0 (&/|table) (&/|table))
+                                        patterns)]
+    (&/T mappings (&/|reverse patterns*))))
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn ^:private compile-pattern-matching [writer compile mappings patterns $end]

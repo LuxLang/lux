@@ -146,12 +146,12 @@
                             (doto (.visitEnd))))]
          ;; :let [_ (prn 'compile-def/pre-body)]
          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (|do [*writer* &/get-writer
-                    :let [_ (.visitCode *writer*)]
+             (|do [**writer** &/get-writer
+                    :let [_ (.visitCode **writer**)]
                     ;; :let [_ (prn 'compile-def/pre-body2)]
                     _ (compile ?body)
                     ;; :let [_ (prn 'compile-def/post-body2)]
-                    :let [_ (doto *writer*
+                    :let [_ (doto **writer**
                               (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
                               (.visitInsn Opcodes/RETURN)
                               (.visitMaxs 0 0)

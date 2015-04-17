@@ -84,16 +84,17 @@
       (fail* (str "[Type Error] Unknown type-var: " id)))))
 
 ;; [Exports]
-(def create-var
+;; Type vars
+(def ^:private create-var
   (fn [state]
     (let [id (->> state (&/get$ "lux;types") (&/get$ "lux;counter"))]
       (return* (&/update$ "lux;types" #(->> %
                                             (&/update$ "lux;counter" inc)
                                             (&/update$ "lux;mappings" (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
                           state)
-               (&/V "lux;VarT" id)))))
+               id))))
 
-(defn delete-var [id]
+(defn ^:private delete-var [id]
   (fn [state]
     (prn 'delete-var id)
     (if-let [tvar (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
@@ -103,69 +104,73 @@
                nil)
       (fail* (str "[Type Error] Unknown type-var: " id)))))
 
-(defn var-id [type]
-  (matchv ::M/objects [type]
-    [["lux;VarT" ?id]]
-    (return ?id)
-    
-    [_]
-    (fail (str "[Type Error] Not type-var: " (show-type type)))))
+(defn with-var [k]
+  (|do [id create-var
+        output (k (&/V "lux;VarT" id))
+        _ (delete-var id)]
+    (return output)))
 
-(defn clean [?tid type]
+(defn with-vars [amount k]
+  (|do [=vars (&/map% (constantly create-var) (&/|range amount))
+        output (k (&/|map #(&/V "lux;VarT" %) =vars))
+        _ (&/map% delete-var (&/|reverse =vars))]
+    (return output)))
+
+(defn ^:private clean* [?tid type]
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
     (if (= ?tid ?id)
       (|do [=type (deref ?id)]
-        (clean ?tid =type))
+        (clean* ?tid =type))
       (return type))
     
     [["lux;LambdaT" [?arg ?return]]]
-    (|do [=arg (clean ?tid ?arg)
-          =return (clean ?tid ?return)]
+    (|do [=arg (clean* ?tid ?arg)
+          =return (clean* ?tid ?return)]
       (return (&/V "lux;LambdaT" (&/T =arg =return))))
 
     [["lux;AppT" [?lambda ?param]]]
-    (|do [=lambda (clean ?tid ?lambda)
-          =param (clean ?tid ?param)]
+    (|do [=lambda (clean* ?tid ?lambda)
+          =param (clean* ?tid ?param)]
       (return (&/V "lux;AppT" (&/T =lambda =param))))
 
     [["lux;TupleT" ?members]]
-    (|do [=members (&/map% (partial clean ?tid) ?members)]
+    (|do [=members (&/map% (partial clean* ?tid) ?members)]
       (return (&/V "lux;TupleT" =members)))
     
     [["lux;VariantT" ?members]]
     (|do [=members (&/map% (fn [[k v]]
-                             (|do [=v (clean ?tid v)]
+                             (|do [=v (clean* ?tid v)]
                                (return (&/T k =v))))
                            ?members)]
       (return (&/V "lux;VariantT" =members)))
 
     [["lux;RecordT" ?members]]
     (|do [=members (&/map% (fn [[k v]]
-                             (|do [=v (clean ?tid v)]
+                             (|do [=v (clean* ?tid v)]
                                (return (&/T k =v))))
                            ?members)]
       (return (&/V "lux;RecordT" =members)))
 
     [["lux;AllT" [?env ?name ?arg ?body]]]
     (|do [=env (&/map% (fn [[k v]]
-                         (|do [=v (clean ?tid v)]
+                         (|do [=v (clean* ?tid v)]
                            (return (&/T k =v))))
                        ?env)
-          body* (clean ?tid ?body)]
+          body* (clean* ?tid ?body)]
       (return (&/V "lux;AllT" (&/T =env ?name ?arg body*))))
 
     [_]
     (return type)
     ))
 
-(defn with-var [k]
-  (|do [=var create-var
-        id (var-id =var)
-        type (k =var)]
-    (|do [type* (clean id type)
-          _ (delete-var id)]
-      (return type*))))
+(defn clean [tvar type]
+  (matchv ::M/objects [tvar]
+    [["lux;VarT" ?id]]
+    (clean* ?id type)
+    
+    [_]
+    (fail (str "[Type Error] Not type-var: " (show-type tvar)))))
 
 (defn show-type [type]
   ;; (prn 'show-type (aget type 0))
@@ -435,6 +440,26 @@
     [_ ["lux;AppT" [F A]]]
     (|do [actual* (apply-type F A)]
       (check* fixpoints expected actual*))
+    ;; (let [fp-pair (&/T expected actual)
+    ;;       _ (prn 'RIGHT_APP (&/|length fixpoints))
+    ;;       _ (when (> (&/|length fixpoints) 10)
+    ;;           (println 'FIXPOINTS (->> (&/|keys fixpoints)
+    ;;                                    (&/|map (fn [pair]
+    ;;                                              (|let [[e a] pair]
+    ;;                                                (str (show-type e) ":+:"
+    ;;                                                     (show-type a)))))
+    ;;                                    (&/|interpose "\n\n")
+    ;;                                    (&/fold str "")))
+    ;;           (assert false))]
+    ;;   (matchv ::M/objects [(fp-get fp-pair fixpoints)]
+    ;;     [["lux;Some" ?]]
+    ;;     (if ?
+    ;;       (return (&/T fixpoints nil))
+    ;;       (fail (check-error expected actual)))
+
+    ;;     [["lux;None" _]]
+    ;;     (|do [actual* (apply-type F A)]
+    ;;       (check* (fp-put fp-pair true fixpoints) expected actual*))))
 
     [["lux;AllT" _] _]
     (with-var
@@ -470,23 +495,23 @@
     [["lux;TupleT" e!members] ["lux;TupleT" a!members]]
     (do ;; (do (prn 'e!members (&/|length e!members))
         ;;   (prn 'a!members (&/|length a!members)))
-      (if (= (&/|length e!members) (&/|length a!members))
-        (|do [fixpoints* (&/fold% (fn [fixp ea]
-                                    (|let [[e a] ea]
-                                      (do ;; (prn "lux;TupleT" 'ITER (show-type e) (show-type a))
-                                          (|do [[fixp* _] (check* fixp e a)]
-                                            (return fixp*)))))
-                                  fixpoints
-                                  (&/zip2 e!members a!members))
-              ;; :let [_ (prn "lux;TupleT" 'DONE)]
-              ]
-          (return (&/T fixpoints* nil)))
-        (do ;; (prn "lux;TupleT" (&/|length e!members) (&/|length a!members))
-            ;; (prn "lux;TupleT"
-            ;;      (&/fold str "" (&/|interpose " " (&/|map show-type e!members)))
-            ;;      (&/fold str "" (&/|interpose " " (&/|map show-type a!members))))
-            ;; (prn "lux;TupleT#fail" (fail "[Type Error] Tuples don't match in size."))
-            (fail "[Type Error] Tuples don't match in size."))))
+        (if (= (&/|length e!members) (&/|length a!members))
+          (|do [fixpoints* (&/fold% (fn [fixp ea]
+                                      (|let [[e a] ea]
+                                        (do ;; (prn "lux;TupleT" 'ITER (show-type e) (show-type a))
+                                            (|do [[fixp* _] (check* fixp e a)]
+                                              (return fixp*)))))
+                                    fixpoints
+                                    (&/zip2 e!members a!members))
+                ;; :let [_ (prn "lux;TupleT" 'DONE)]
+                ]
+            (return (&/T fixpoints* nil)))
+          (do ;; (prn "lux;TupleT" (&/|length e!members) (&/|length a!members))
+              ;; (prn "lux;TupleT"
+              ;;      (&/fold str "" (&/|interpose " " (&/|map show-type e!members)))
+              ;;      (&/fold str "" (&/|interpose " " (&/|map show-type a!members))))
+              ;; (prn "lux;TupleT#fail" (fail "[Type Error] Tuples don't match in size."))
+              (fail "[Type Error] Tuples don't match in size."))))
     
     [["lux;VariantT" e!cases] ["lux;VariantT" a!cases]]
     (if (= (&/|length e!cases) (&/|length a!cases))
@@ -519,16 +544,7 @@
       (fail "[Type Error] Records don't match in size."))
 
     [_ _]
-    (do (prn (show-type expected) (show-type actual))
-      (assert false))
-
-    ;; [["lux;BoundT" name] _]
-    ;; (do (prn "lux;BoundT" name)
-    ;;   (assert false))
-    ;; ...
-    
-    ;; [_ ["lux;BoundT" name]]
-    ;; ...
+    (fail (println-str "[Type Error] Can't type-check: " (show-type expected) (show-type actual)))
     ))
 
 (defn check [expected actual]
@@ -543,9 +559,10 @@
 
     [["lux;AllT" [local-env local-name local-arg local-def]]]
     (with-var
-      (fn [$arg]
-        (|do [func* (apply-type func $arg)]
-          (apply-lambda func* param))))
+      (fn [$var]
+        (|do [func* (apply-type func $var)
+              =return (apply-lambda func* param)]
+          (clean $var =return))))
 
     [_]
     (fail (str "[Type System] Can't apply type " (show-type func) " to type " (show-type param)))
@@ -560,3 +577,13 @@
     [_]
     (return type)
     ))
+
+(defn variant-case [case type]
+  (matchv ::M/objects [type]
+    [["lux;VariantT" ?cases]]
+    (if-let [case-type (&/|get case ?cases)]
+      (return case-type)
+      (fail (str "[Type Error] Variant lacks case: " case)))
+
+    [_]
+    (fail (str "[Type Error] Type is not a variant: " (show-type type)))))

@@ -150,7 +150,6 @@
   ;; (prn 'bind m-value step)
   (fn [state]
     (let [inputs (m-value state)]
-      ;; (prn 'bind/inputs (aget inputs 0))
       (matchv ::M/objects [inputs]
         [["lux;Right" [?state ?datum]]]
         (let [next-fn (step ?datum)]
@@ -159,7 +158,11 @@
           (next-fn ?state))
         
         [["lux;Left" _]]
-        inputs))))
+        inputs
+
+        ;; [_]
+        ;; (assert false (pr-str 'bind/inputs (aget inputs 0)))
+        ))))
 
 (defmacro |do [steps return]
   (assert (not= 0 (count steps)) "The steps can't be empty!")
@@ -168,13 +171,13 @@
             (case label
               :let `(|let ~computation ~inner)
               ;; else
-              ;; `(bind ~computation
-              ;;        (fn [val#]
-              ;;          (matchv ::M/objects [val#]
-              ;;            [~label]
-              ;;            ~inner)))
               `(bind ~computation
-                     (fn [~label] ~inner))
+                     (fn [val#]
+                       (matchv ::M/objects [val#]
+                         [~label]
+                         ~inner)))
+              ;; `(bind ~computation
+              ;;        (fn [~label] ~inner))
               ))
           return
           (reverse (partition 2 steps))))
@@ -374,12 +377,6 @@
             (|interpose " ")
             (fold str ""))
        "}}"))
-
-(defn if% [text-m then-m else-m]
-  (|do [? text-m]
-    (if ?
-      then-m
-      else-m)))
 
 (defn apply% [monad call-state]
   (fn [state]
@@ -726,3 +723,7 @@
     [["lux;Meta" [_ ["lux;Form" ?elems]]]]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
     ))
+
+(defn ident->text [ident]
+  (|let [[?module ?name] ident]
+    (str ?module ";" ?name)))

@@ -182,8 +182,8 @@
                                                                                                                                                                    ["lux;Nil" _]]]]]]]]]]
                                                                                                  ["lux;Nil" _]]]]]]]]]]]
                               (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
-                                  (|do [?inputs (&/map% extract-ident ?inputs)]
-                                    (return [?member-name [?inputs ?output]])))
+                                  (|do [inputs* (&/map% extract-ident ?inputs)]
+                                    (return [?member-name [inputs* ?output]])))
                               
                               [_]
                               (fail "[Analyser Error] Invalid method signature!")))
