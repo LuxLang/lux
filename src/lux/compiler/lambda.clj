@@ -39,7 +39,8 @@
     (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
           (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
-        (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
+        (->> (let [captured-name (str &&/closure-prefix ?captured-id)
+                   _ (prn 'add-lambda-<init> class-name ?captured-id)])
              (matchv ::M/objects [?name+?captured]
                [[?name ["Expression" [["captured" [_ ?captured-id ?source]] _]]]])
              (doseq [?name+?captured (&/->seq env)])))

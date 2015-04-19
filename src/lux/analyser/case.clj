@@ -22,91 +22,92 @@
   (matchv ::M/objects [pattern]
     [["lux;Meta" [_ pattern*]]]
     ;; (assert false)
-    (matchv ::M/objects [pattern*]
-      [["lux;Symbol" ?ident]]
-      (|do [=kont (&env/with-local (&/ident->text ?ident) value-type
-                    kont)
-            idx &env/next-local-idx]
-        (return (&/T (&/V "StoreTestAC" idx) =kont)))
+    (do ;; (prn 'analyse-pattern/pattern* (aget pattern* 0))
+      (matchv ::M/objects [pattern*]
+        [["lux;Symbol" ?ident]]
+        (|do [=kont (&env/with-local (&/ident->text ?ident) value-type
+                      kont)
+              idx &env/next-local-idx]
+          (return (&/T (&/V "StoreTestAC" idx) =kont)))
 
-      [["lux;Bool" ?value]]
-      (|do [_ (&type/check value-type &type/Bool)
-            =kont kont]
-        (return (&/T (&/V "BoolTestAC" ?value) =kont)))
+        [["lux;Bool" ?value]]
+        (|do [_ (&type/check value-type &type/Bool)
+              =kont kont]
+          (return (&/T (&/V "BoolTestAC" ?value) =kont)))
 
-      [["lux;Int" ?value]]
-      (|do [=kont kont
-            _ (&type/check value-type &type/Int)]
-        (return (&/T (&/V "IntTestAC" ?value) =kont)))
+        [["lux;Int" ?value]]
+        (|do [_ (&type/check value-type &type/Int)
+              =kont kont]
+          (return (&/T (&/V "IntTestAC" ?value) =kont)))
 
-      [["lux;Real" ?value]]
-      (|do [=kont kont
-            _ (&type/check value-type &type/Real)]
-        (return (&/T (&/V "RealTestAC" ?value) =kont)))
+        [["lux;Real" ?value]]
+        (|do [_ (&type/check value-type &type/Real)
+              =kont kont]
+          (return (&/T (&/V "RealTestAC" ?value) =kont)))
 
-      [["lux;Char" ?value]]
-      (|do [=kont kont
-            _ (&type/check value-type &type/Char)]
-        (return (&/T (&/V "CharTestAC" ?value) =kont)))
+        [["lux;Char" ?value]]
+        (|do [_ (&type/check value-type &type/Char)
+              =kont kont]
+          (return (&/T (&/V "CharTestAC" ?value) =kont)))
 
-      [["lux;Text" ?value]]
-      (|do [=kont kont
-            _ (&type/check value-type &type/Text)]
-        (return (&/T (&/V "TextTestAC" ?value) =kont)))
+        [["lux;Text" ?value]]
+        (|do [_ (&type/check value-type &type/Text)
+              =kont kont]
+          (return (&/T (&/V "TextTestAC" ?value) =kont)))
 
-      [["lux;Tuple" ?members]]
-      (&type/with-vars (&/|length ?members)
-        (fn [=vars]
-          (|do [_ (&type/check value-type (&/V "lux;TupleT" =vars))
-                [=tests =kont] (&/fold (fn [kont* vm]
-                                         (|let [[v m] vm]
-                                           (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                             (matchv ::M/objects [=kont]
-                                               [["Expression" [?val ?type]]]
-                                               (|do [=type (&type/clean v ?type)]
-                                                 (return (&/T (&/|cons =test =tests)
-                                                              (&/V "Expression" (&/T ?val =type)))))))))
-                                       (|do [=kont kont]
-                                         (return (&/T (&/|list) =kont)))
-                                       (&/|reverse (&/zip2 =vars ?members)))]
-            (return (&/T (&/V "TupleTestAC" =tests) =kont)))))
+        [["lux;Tuple" ?members]]
+        (matchv ::M/objects [value-type]
+          [["lux;TupleT" ?member-types]]
+          (if (not (= (&/|length ?member-types) (&/|length ?members)))
+            (fail (str "[Analyser error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
+            (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                           (|let [[v m] vm]
+                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
+                                               (return (&/T (&/|cons =test =tests) =kont)))))
+                                         (|do [=kont kont]
+                                           (return (&/T (&/|list) =kont)))
+                                         (&/|reverse (&/zip2 ?member-types ?members)))]
+              (return (&/T (&/V "TupleTestAC" =tests) =kont))))
 
-      [["lux;Record" ?fields]]
-      (&type/with-vars (&/|length ?fields)
-        (fn [=vars]
-          (|do [_ (&type/check value-type (&/V "lux;RecordT" (&/zip2 (&/|keys ?fields) =vars)))
-                [=tests =kont] (&/fold (fn [kont* vm]
-                                         (|let [[v [k m]] vm]
-                                           (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                             (matchv ::M/objects [=kont]
-                                               [["Expression" [?val ?type]]]
-                                               (|do [=type (&type/clean v ?type)]
-                                                 (return (&/T (&/|put k =test =tests)
-                                                              (&/V "Expression" (&/T ?val =type)))))))))
-                                       (|do [=kont kont]
-                                         (return (&/T (&/|table) =kont)))
-                                       (&/|reverse (&/zip2 =vars ?fields)))]
-            (return (&/T (&/V "RecordTestAC" =tests) =kont)))))
+          [_]
+          (fail "[Analyser Error] Tuple requires tuple-type."))
 
-      [["lux;Tag" ?ident]]
-      (|do [=tag (&&/resolved-ident ?ident)
-            value-type* (resolve-type value-type)
-            case-type (&type/variant-case =tag value-type*)
-            [=test =kont] (analyse-pattern case-type (&/V "lux;Meta" (&/T (&/T "" -1 -1)
-                                                                          (&/V "lux;Tuple" (&/|list))))
-                                           kont)]
-        (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
+        [["lux;Record" ?fields]]
+        (&type/with-vars (&/|length ?fields)
+          (fn [=vars]
+            (|do [_ (&type/check value-type (&/V "lux;RecordT" (&/zip2 (&/|keys ?fields) =vars)))
+                  [=tests =kont] (&/fold (fn [kont* vm]
+                                           (|let [[v [k m]] vm]
+                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
+                                               (matchv ::M/objects [=kont]
+                                                 [["Expression" [?val ?type]]]
+                                                 (|do [=type (&type/clean v ?type)]
+                                                   (return (&/T (&/|put k =test =tests)
+                                                                (&/V "Expression" (&/T ?val =type)))))))))
+                                         (|do [=kont kont]
+                                           (return (&/T (&/|table) =kont)))
+                                         (&/|reverse (&/zip2 =vars ?fields)))]
+              (return (&/T (&/V "RecordTestAC" =tests) =kont)))))
 
-      [["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?ident]]]
-                                ["lux;Cons" [?value
-                                             ["lux;Nil" _]]]]]]]
-      (|do [=tag (&&/resolved-ident ?ident)
-            value-type* (resolve-type value-type)
-            case-type (&type/variant-case =tag value-type*)
-            [=test =kont] (analyse-pattern case-type ?value
-                                           kont)]
-        (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
-      )))
+        [["lux;Tag" ?ident]]
+        (|do [=tag (&&/resolved-ident ?ident)
+              value-type* (resolve-type value-type)
+              case-type (&type/variant-case =tag value-type*)
+              [=test =kont] (analyse-pattern case-type (&/V "lux;Meta" (&/T (&/T "" -1 -1)
+                                                                            (&/V "lux;Tuple" (&/|list))))
+                                             kont)]
+          (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
+
+        [["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?ident]]]
+                                  ["lux;Cons" [?value
+                                               ["lux;Nil" _]]]]]]]
+        (|do [=tag (&&/resolved-ident ?ident)
+              value-type* (resolve-type value-type)
+              case-type (&type/variant-case =tag value-type*)
+              [=test =kont] (analyse-pattern case-type ?value
+                                             kont)]
+          (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
+        ))))
 
 (defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
   (|do [pattern+body (analyse-pattern value-type pattern
@@ -115,8 +116,7 @@
 
 (let [compare-kv #(compare (aget %1 0) (aget %2 0))]
   (defn ^:private merge-total [struct test+body]
-    (matchv ::M/objects [test+body]
-      [[test ?body]]
+    (|let [[test ?body] test+body]
       (matchv ::M/objects [struct test]
         [["DefaultTotal" total?] ["StoreTestAC" ?idx]]
         (return (&/V "DefaultTotal" true))
@@ -191,14 +191,15 @@
           (fail "[Pattern-matching error] Inconsistent record-size."))
 
         [["DefaultTotal" total?] ["VariantTestAC" [?tag ?test]]]
-        (|do [struct (merge-total (&/V "DefaultTotal" total?) (&/T ?test ?body))]
-          (return (&/V "VariantTotal" (&/T total? (&/|put ?tag struct (&/|table))))))
+        (|do [sub-struct (merge-total (&/V "DefaultTotal" total?)
+                                      (&/T ?test ?body))]
+          (return (&/V "VariantTotal" (&/T total? (&/|put ?tag sub-struct (&/|table))))))
 
         [["VariantTotal" [total? ?branches]] ["VariantTestAC" [?tag ?test]]]
-        (|do [struct (merge-total (or (&/|get ?tag ?branches)
-                                      (&/V "DefaultTotal" total?))
-                                  (&/T ?test ?body))]
-          (return (&/V "VariantTotal" (&/T total? (&/|put ?tag struct ?branches)))))
+        (|do [sub-struct (merge-total (or (&/|get ?tag ?branches)
+                                          (&/V "DefaultTotal" total?))
+                                      (&/T ?test ?body))]
+          (return (&/V "VariantTotal" (&/T total? (&/|put ?tag sub-struct ?branches)))))
         ))))
 
 (defn ^:private check-totality [value-type struct]
@@ -222,17 +223,16 @@
     [["TupleTotal" [?total ?structs]]]
     (if ?total
       (return true)
-      (|do [value-type* (resolve-type value-type)]
-        (matchv ::M/objects [value-type*]
-          [["lux;TupleT" ?members]]
-          (|do [totals (&/map% (fn [sv]
-                                 (|let [[sub-struct ?member] sv]
-                                   (check-totality ?member sub-struct)))
-                               (&/zip2 ?structs ?members))]
-            (return (&/fold #(and %1 %2) true totals)))
+      (matchv ::M/objects [value-type]
+        [["lux;TupleT" ?members]]
+        (|do [totals (&/map% (fn [sv]
+                               (|let [[sub-struct ?member] sv]
+                                 (check-totality ?member sub-struct)))
+                             (&/zip2 ?structs ?members))]
+          (return (&/fold #(and %1 %2) true totals)))
 
-          [_]
-          (fail ""))))
+        [_]
+        (fail "")))
 
     [["RecordTotal" [?total ?structs]]]
     (if ?total
@@ -279,8 +279,10 @@
                               (analyse-branch analyse exo-type value-type pattern body patterns)))
                           (&/|list)
                           branches)
+        :let [_ (prn 'PRE_MERGE_TOTALS)]
         struct (&/fold% merge-total (&/V "DefaultTotal" false) patterns)
         ? (check-totality value-type struct)]
     (if ?
-      (return (&/|reverse patterns))
+      ;; (return (&/|reverse patterns))
+      (return patterns)
       (fail "[Pattern-maching error] Pattern-matching is non-total."))))

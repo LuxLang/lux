@@ -328,7 +328,7 @@
     (fail "[Compiler Error] Can't compile expressions as top-level forms.")))
 
 (defn ^:private eval! [expr]
-  (prn 'eval! (aget expr 0))
+  ;; (prn 'eval! (aget expr 0))
   ;; (assert false)
   (|do [eval-ctor &/get-eval-ctor
          :let [class-name (str eval-ctor)

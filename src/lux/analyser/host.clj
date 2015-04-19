@@ -23,11 +23,7 @@
   (let [input-type (&/V "lux;DataT" <input-class>)
         output-type (&/V "lux;DataT" <output-class>)]
     (defn <name> [analyse ?x ?y]
-      (|do [[=x =y] (&&/analyse-2 analyse ?x ?y)
-             =x-type (&&/expr-type =x)
-             =y-type (&&/expr-type =y)
-             _ (&type/check input-type =x-type)
-             _ (&type/check input-type =y-type)]
+      (|do [[=x =y] (&&/analyse-2 analyse input-type ?x input-type ?y)]
         (return (&/|list (&/V "Expression" (&/T (&/V <output-tag> (&/T =x =y)) output-type)))))))
 
   analyse-jvm-iadd "jvm-iadd" "java.lang.Integer" "java.lang.Integer"

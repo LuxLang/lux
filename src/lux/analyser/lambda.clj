@@ -1,7 +1,8 @@
 (ns lux.analyser.lambda
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail]])
+            (lux [base :as & :refer [|let |do return fail]]
+                 [host :as &host])
             (lux.analyser [base :as &&]
                           [env :as &env])))
 
@@ -20,11 +21,20 @@
               (return (&/T scope-name =captured =return)))))))))
 
 (defn close-over [scope ident register frame]
-  ;; (prn 'close-over scope ident register frame)
+  (prn 'close-over
+       (&host/location scope)
+       (&host/location (&/|list ident))
+       register
+       (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter")))
   (matchv ::M/objects [register]
     [["Expression" [_ register-type]]]
-    (let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter")) register)) register-type))]
+    (|let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope
+                                                                 (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter"))
+                                                                 register))
+                                            register-type))
+           [?module ?name] ident
+           full-name (str ?module ";" ?name)]
       (&/T register* (&/update$ "lux;closure" #(->> %
                                                     (&/update$ "lux;counter" inc)
-                                                    (&/update$ "lux;mappings" (fn [mps] (&/|put ident register* mps))))
+                                                    (&/update$ "lux;mappings" (fn [mps] (&/|put full-name register* mps))))
                                 frame)))))

@@ -20,7 +20,7 @@
       +oclass+ (&host/->class "java.lang.Object")
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
   (defn ^:private compile-match [writer ?match $target $else]
-    (prn 'compile-match (aget ?match 0) $target $else)
+    ;; (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
       [["StoreTestAC" ?idx]]
       (doto writer

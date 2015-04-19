@@ -4,7 +4,7 @@
             (lux [base :as & :refer [|let |do return fail]]
                  [type :as &type])))
 
-;; [Resources]
+;; [Exports]
 (defn expr-type [syntax+]
   ;; (prn 'expr-type syntax+)
   ;; (prn 'expr-type (aget syntax+ 0))
@@ -26,14 +26,16 @@
           [_]
           (fail "[Analyser Error] Can't expand to other than 1 element.")))))
 
-(defn analyse-2 [analyse el1 el2]
-  (|do [output (&/flat-map% analyse (&/|list el1 el2))]
+(defn analyse-2 [analyse exo-type1 el1 exo-type2 el2]
+  (|do [output1 (analyse exo-type1 el1)
+        output2 (analyse exo-type2 el2)]
     (do ;; (prn 'analyse-2 (aget output 0))
-        (matchv ::M/objects [output]
-          [["lux;Cons" [x ["lux;Cons" [y ["lux;Nil" _]]]]]]
-          (return [x y])
+        (matchv ::M/objects [output1 output2]
+          [["lux;Cons" [x ["lux;Nil" _]]]
+           ["lux;Cons" [y ["lux;Nil" _]]]]
+          (return (&/T x y))
 
-          [_]
+          [_ _]
           (fail "[Analyser Error] Can't expand to other than 2 elements.")))))
 
 (defn resolved-ident [ident]
@@ -42,3 +44,10 @@
                     &/get-module-name
                     (return ?module))]
       (return (&/ident->text (&/T module* ?name))))))
+
+(defn resolved-ident* [ident]
+  (|let [[?module ?name] ident]
+    (|do [module* (if (= "" ?module)
+                    &/get-module-name
+                    (return ?module))]
+      (return (&/T module* ?name)))))

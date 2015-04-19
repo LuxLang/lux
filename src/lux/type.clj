@@ -57,16 +57,16 @@
 (defn deref [id]
   (fn [state]
     (let [mappings (->> state (&/get$ "lux;types") (&/get$ "lux;mappings"))]
-      (do (prn 'deref/mappings (&/->seq (&/|keys mappings)))
-        (if-let [type* (->> mappings (&/|get id))]
-          (do ;; (prn 'deref/type* (aget type* 0))
-            (matchv ::M/objects [type*]
-              [["lux;Some" type]]
-              (return* state type)
-              
-              [["lux;None" _]]
-              (fail* (str "[Type Error] Unbound type-var: " id))))
-          (fail* (str "[Type Error] Unknown type-var: " id)))))))
+      (do ;; (prn 'deref/mappings (&/->seq (&/|keys mappings)))
+          (if-let [type* (->> mappings (&/|get id))]
+            (do ;; (prn 'deref/type* (aget type* 0))
+                (matchv ::M/objects [type*]
+                  [["lux;Some" type]]
+                  (return* state type)
+                  
+                  [["lux;None" _]]
+                  (fail* (str "[Type Error] Unbound type-var: " id))))
+            (fail* (str "[Type Error] Unknown type-var: " id)))))))
 
 (defn set-var [id type]
   (fn [state]
@@ -96,10 +96,10 @@
 
 (defn ^:private delete-var [id]
   (fn [state]
-    (prn 'delete-var id)
+    ;; (prn 'delete-var id)
     (if-let [tvar (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
       (return* (&/update$ "lux;types" #(->> %
-                                            ;; (&/update$ "lux;counter" dec)
+                                            (&/update$ "lux;counter" dec)
                                             (&/update$ "lux;mappings" (fn [ms] (&/|remove id ms))))
                           state)
                nil)
@@ -422,7 +422,7 @@
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)
           ;; _ (prn 'LEFT_APP (&/|length fixpoints))
-          _ (when (> (&/|length fixpoints) 10)
+          _ (when (> (&/|length fixpoints) 20)
               (println 'FIXPOINTS (->> (&/|keys fixpoints)
                                        (&/|map (fn [pair]
                                                  (|let [[e a] pair]
