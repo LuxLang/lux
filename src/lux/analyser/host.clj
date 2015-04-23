@@ -167,27 +167,27 @@
 (defn analyse-jvm-interface [analyse ?name ?members]
   ;; (prn 'analyse-jvm-interface ?name ?members)
   (|do [=members (&/map% (fn [member]
-                            ;; (prn 'analyse-jvm-interface (&/show-ast member))
-                            (matchv ::M/objects [member]
-                              [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ":"]]]]
-                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?member-name]]]]
-                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "->"]]]]
-                                                                                                                                         ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?inputs]]]
-                                                                                                                                                      ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?output]]]]
-                                                                                                                                                                   ["lux;Nil" _]]]]]]]]]]
-                                                                                                 ["lux;Nil" _]]]]]]]]]]]
-                              (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
-                                  (|do [inputs* (&/map% extract-ident ?inputs)]
-                                    (return [?member-name [inputs* ?output]])))
-                              
-                              [_]
-                              (fail "[Analyser Error] Invalid method signature!")))
-                          ?members)
-         :let [;; _ (prn '=members =members)
-               =methods (into {} (for [[method [inputs output]] (&/->seq =members)]
-                                   [method {:access :public
-                                            :type [inputs output]}]))]
-         $module &/get-module-name]
+                           ;; (prn 'analyse-jvm-interface (&/show-ast member))
+                           (matchv ::M/objects [member]
+                             [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":'"]]]]
+                                                                      ["lux;Cons" [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "->"]]]]
+                                                                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?inputs]]]
+                                                                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?output]]]]
+                                                                                                                                                     ["lux;Nil" _]]]]]]]]]]
+                                                                                   ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?member-name]]]]
+                                                                                                ["lux;Nil" _]]]]]]]]]]]
+                             (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
+                                 (|do [inputs* (&/map% extract-ident ?inputs)]
+                                   (return [?member-name [inputs* ?output]])))
+                             
+                             [_]
+                             (fail "[Analyser Error] Invalid method signature!")))
+                         ?members)
+        :let [;; _ (prn '=members =members)
+              =methods (into {} (for [[method [inputs output]] (&/->seq =members)]
+                                  [method {:access :public
+                                           :type [inputs output]}]))]
+        $module &/get-module-name]
     (return (&/|list (&/V "Statement" (&/V "jvm-interface" (&/T $module ?name =methods)))))))
 
 (defn analyse-jvm-try [analyse ?body [?catches ?finally]]

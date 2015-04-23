@@ -374,7 +374,7 @@
           (matchv ::M/objects [(&/run-state (&/exhaust% compiler-step) (->> state
                                                                             (&/set$ "lux;source" (&/V "lux;Some" (&reader/from (str "source/" name ".lux"))))
                                                                             (&/set$ "lux;global-env" (&/V "lux;Some" (&/env name)))
-                                                                            (&/set$ "lux;writer" (&/V "lux;Some" =class))
+                                                                            (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
                                                                             (&/update$ "lux;modules" #(&/|put name &a-def/init-module %))))]
             [["lux;Right" [?state _]]]
             (do (.visitEnd =class)

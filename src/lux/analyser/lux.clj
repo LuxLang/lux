@@ -297,7 +297,9 @@
       (fail "Can't declare macros from foreign modules."))))
 
 (defn analyse-import [analyse exo-type ?path]
-  (assert false)
+  (return (&/|list)))
+
+(defn analyse-export [analyse ?ident]
   (return (&/|list)))
 
 (defn analyse-check [analyse eval! exo-type ?type ?value]

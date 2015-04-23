@@ -3,6 +3,12 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
+;; [Fields]
+(def $WRITER "lux;writer")
+(def $LOADER "lux;loader")
+(def $EVAL-CTOR "lux;eval-ctor")
+(def $HOST "lux;host")
+
 ;; [Exports]
 (def +name-separator+ ";")
 
@@ -16,6 +22,7 @@
   (to-array kvs))
 
 (defn get$ [slot record]
+  ;; (prn 'get$ slot)
   (let [size (alength record)]
     (loop [idx 0]
       (if (< idx size)
@@ -514,7 +521,7 @@
 
 (def loader
   (fn [state]
-    (return* state (get$ "lux;loader" state))))
+    (return* state (->> state (get$ $HOST) (get$ $LOADER)))))
 
 (def +init-bindings+
   (R "lux;counter" 0
@@ -526,6 +533,11 @@
      "lux;locals"  +init-bindings+
      "lux;closure" +init-bindings+))
 
+(defn host [_]
+  (R $WRITER    (V "lux;None" nil)
+     $LOADER    (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
+     $EVAL-CTOR 0))
+
 (defn init-state [_]
   (R "lux;source"         (V "lux;None" nil)
      "lux;modules"        (|table)
@@ -533,9 +545,7 @@
      "lux;global-env"     (V "lux;None" nil)
      "lux;local-envs"     (|list)
      "lux;types"          +init-bindings+
-     "lux;writer"         (V "lux;None" nil)
-     "lux;loader"         (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
-     "lux;eval-ctor"      0))
+     $HOST (host nil)))
 
 (defn from-some [some]
   (matchv ::M/objects [some]
@@ -545,43 +555,14 @@
     [_]
     (assert false)))
 
-(defn show-state [state]
-  (let [source (get$ "lux;source" state)
-        modules (get$ "lux;modules" state)
-        global-env (get$ "lux;global-env" state)
-        local-envs (get$ "lux;local-envs" state)
-        types (get$ "lux;types" state)
-        writer (get$ "lux;writer" state)
-        loader (get$ "lux;loader" state)
-        eval-ctor (get$ "lux;eval-ctor" state)]
-    (str "{"
-         (->> (for [slot ["lux;source", "lux;modules", "lux;global-env", "lux;local-envs", "lux;types", "lux;writer", "lux;loader", "lux;eval-ctor"]
-                    :let [value (get$ slot state)]]
-                (str "#" slot " " (case slot
-                                    "lux;source" "???"
-                                    "lux;modules" "???"
-                                    "lux;global-env" (->> value from-some (get$ "lux;locals") (get$ "lux;mappings") show-table)
-                                    "lux;local-envs" (str "("
-                                                          (->> value
-                                                               (|map #(->> % (get$ "lux;locals") (get$ "lux;mappings") show-table))
-                                                               (|interpose " ")
-                                                               (fold str ""))
-                                                          ")")
-                                    "lux;types" "???"
-                                    "lux;writer" "???"
-                                    "lux;loader" "???"
-                                    "lux;eval-ctor" value)))
-              (interpose " ")
-              (reduce str ""))
-         "}")))
-
 (def get-eval-ctor
   (fn [state]
-    (return* (update$ "lux;eval-ctor" inc state) (get$ "lux;eval-ctor" state))))
+    (return* (update$ $HOST #(update$ $EVAL-CTOR inc %) state)
+             (get$ $EVAL-CTOR (get$ $HOST state)))))
 
 (def get-writer
   (fn [state]
-    (let [writer* (get$ "lux;writer" state)]
+    (let [writer* (->> state (get$ $HOST) (get$ $WRITER))]
       ;; (prn 'get-writer (class writer*))
       ;; (prn 'get-writer (aget writer* 0))
       (matchv ::M/objects [writer*]
@@ -643,9 +624,9 @@
 
 (defn with-closure [body]
   (|do [closure-info (try-all% (|list (|do [top get-top-local-env]
-                                         (return (T true (->> top (get$ "lux;inner-closures") str))))
-                                       (|do [global get-current-module-env]
-                                         (return (T false (->> global (get$ "lux;inner-closures") str))))))]
+                                        (return (T true (->> top (get$ "lux;inner-closures") str))))
+                                      (|do [global get-current-module-env]
+                                        (return (T false (->> global (get$ "lux;inner-closures") str))))))]
     (matchv ::M/objects [closure-info]
       [[local? closure-name]]
       (fn [state]
@@ -671,10 +652,11 @@
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (set$ "lux;writer" (V "lux;Some" writer) state))]
+    (let [output (body (update$ $HOST #(set$ $WRITER (V "lux;Some" writer) %) state))]
       (matchv ::M/objects [output]
         [["lux;Right" [?state ?value]]]
-        (return* (set$ "lux;writer" (get$ "lux;writer" state) ?state) ?value)
+        (return* (update$ $HOST #(set$ $WRITER (->> state (get$ $HOST) (get$ $WRITER)) %) ?state)
+                 ?value)
 
         [_]
         output))))

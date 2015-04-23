@@ -101,17 +101,22 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&&lux/analyse-import analyse ?path)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":"]]]]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":'"]]]]
                                                 ["lux;Cons" [?type
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&lux/analyse-check analyse eval! exo-type ?type ?value)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":!"]]]]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":!'"]]]]
                                                 ["lux;Cons" [?type
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&lux/analyse-coerce analyse eval! ?type ?value)
+
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "export'"]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?ident]]]
+                                                             ["lux;Nil" _]]]]]]]]]
+    (&&lux/analyse-export analyse ?ident)
 
     ;; Host special forms
     ;; Integer arithmetic

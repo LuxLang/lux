@@ -205,8 +205,9 @@
 (defn ^:private check-totality [value-type struct]
   ;; (prn 'check-totality (aget value-type 0) (aget struct 0) (&type/show-type value-type))
   (matchv ::M/objects [struct]
-    [["BoolTotal" [?total _]]]
-    (return ?total)
+    [["BoolTotal" [?total ?values]]]
+    (return (or ?total
+                (= #{true false} (set (&/->seq ?values)))))
 
     [["IntTotal" [?total _]]]
     (return ?total)
