@@ -29,21 +29,24 @@
   (fn [state]
     (let [full-name (str module &/+name-separator+ name)
           bound (&/V "Expression" (&/T (&/V "global" (&/T module name)) type))]
-      (return* (->> state
-                    (&/update$ "lux;modules" (fn [ms] (&/|update module (fn [m] (&/update$ "lux;defs" #(&/|put name type %) m)) ms)))
-                    (&/update$ "lux;global-env" #(matchv ::M/objects [%]
-                                                   [["lux;None" _]]
-                                                   (assert false)
-
-                                                   [["lux;Some" table]]
-                                                   (&/V "lux;Some" (&/update$ "lux;locals" (fn [locals]
-                                                                                             (&/update$ "lux;mappings" (fn [mappings]
-                                                                                                                         (&/|merge (&/|table full-name bound, name bound)
-                                                                                                                                   mappings))
-                                                                                                        locals))
-                                                                              table))
-                                                   )))
-               nil))))
+      (matchv ::M/objects [(&/get$ &/$ENVS state)]
+        [["lux;Cons" [?env ["lux;Nil" _]]]]
+        (return* (->> state
+                      (&/update$ "lux;modules" (fn [ms]
+                                                 (&/|update module (fn [m]
+                                                                     (&/update$ "lux;defs" #(&/|put full-name type %)
+                                                                                m))
+                                                            ms)))
+                      (&/set$ &/$ENVS (&/|list (&/update$ "lux;locals" (fn [locals]
+                                                                         (&/update$ "lux;mappings" (fn [mappings]
+                                                                                                     (&/|put full-name bound mappings))
+                                                                                    locals))
+                                                          ?env))))
+                 nil)
+        
+        [_]
+        (fail "[Analyser Error] Can't create a new global definition outside of a global environment."))
+      )))
 
 (defn module-exists? [name]
   (fn [state]

@@ -8,6 +8,7 @@
 (def $LOADER "lux;loader")
 (def $EVAL-CTOR "lux;eval-ctor")
 (def $HOST "lux;host")
+(def $ENVS "lux;envs")
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -542,8 +543,7 @@
   (R "lux;source"         (V "lux;None" nil)
      "lux;modules"        (|table)
      "lux;module-aliases" (|table)
-     "lux;global-env"     (V "lux;None" nil)
-     "lux;local-envs"     (|list)
+     $ENVS     (|list)
      "lux;types"          +init-bindings+
      $HOST (host nil)))
 
@@ -574,21 +574,10 @@
 
 (def get-top-local-env
   (fn [state]
-    (try (let [top (|head (get$ "lux;local-envs" state))]
+    (try (let [top (|head (get$ $ENVS state))]
            (return* state top))
       (catch Throwable _
         (fail "No local environment.")))))
-
-(def get-current-module-env
-  (fn [state]
-    (let [global-env* (get$ "lux;global-env" state)]
-      ;; (prn 'get-current-module-env (aget global-env* 0))
-      (matchv ::M/objects [global-env*]
-        [["lux;Some" datum]]
-        (return* state datum)
-
-        [_]
-        (fail* "Module hasn't been set.")))))
 
 (defn ->seq [xs]
   (matchv ::M/objects [xs]
@@ -609,46 +598,41 @@
     (|list)))
 
 (def get-module-name
-  (|do [module get-current-module-env]
-    (return (get$ "lux;name" module))))
+  (fn [state]
+    (matchv ::M/objects [(|reverse (get$ $ENVS state))]
+      [["lux;Nil"]]
+      (fail* "[Analyser Error] Can't get the module-name without a module.")
+
+      [["lux;Cons" [?global _]]]
+      (return* state (get$ "lux;name" ?global)))))
 
 (defn with-scope [name body]
   (fn [state]
-    (let [output (body (update$ "lux;local-envs" #(|cons (env name) %) state))]
+    (let [output (body (update$ $ENVS #(|cons (env name) %) state))]
       (matchv ::M/objects [output]
         [["lux;Right" [state* datum]]]
-        (return* (update$ "lux;local-envs" |tail state*) datum)
+        (return* (update$ $ENVS |tail state*) datum)
         
         [_]
         output))))
 
-(defn with-closure [body]
-  (|do [closure-info (try-all% (|list (|do [top get-top-local-env]
-                                        (return (T true (->> top (get$ "lux;inner-closures") str))))
-                                      (|do [global get-current-module-env]
-                                        (return (T false (->> global (get$ "lux;inner-closures") str))))))]
-    (matchv ::M/objects [closure-info]
-      [[local? closure-name]]
-      (fn [state]
-        (let [body* (with-scope closure-name
-                      body)]
-          (body* (if local?
-                   (update$ "lux;local-envs" #(|cons (update$ "lux;inner-closures" inc (|head %))
-                                                     (|tail %))
-                            state)
-                   (update$ "lux;global-env" #(matchv ::M/objects [%]
-                                                [["lux;Some" global-env]]
-                                                (V "lux;Some" (update$ "lux;inner-closures" inc global-env))
+(defn run-state [monad state]
+  (monad state))
 
-                                                [_]
-                                                %)
-                            state)))))
-      )))
+(defn with-closure [body]
+  (|do [closure-name (|do [top get-top-local-env]
+                       (return (->> top (get$ "lux;inner-closures") str)))]
+    (fn [state]
+      (let [body* (with-scope closure-name
+                    body)]
+        (run-state body* (update$ $ENVS #(|cons (update$ "lux;inner-closures" inc (|head %))
+                                                (|tail %))
+                                  state))))))
 
 (def get-scope-name
   (|do [module-name get-module-name]
     (fn [state]
-      (return* state (->> state (get$ "lux;local-envs") (|map #(get$ "lux;name" %)) |reverse (|cons module-name))))))
+      (return* state (->> state (get$ $ENVS) (|map #(get$ "lux;name" %)) |reverse (|cons module-name))))))
 
 (defn with-writer [writer body]
   (fn [state]
@@ -660,9 +644,6 @@
 
         [_]
         output))))
-
-(defn run-state [monad state]
-  (monad state))
 
 (defn show-ast [ast]
   ;; (prn 'show-ast (aget ast 0))

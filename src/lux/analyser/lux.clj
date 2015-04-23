@@ -113,20 +113,24 @@
       (|let [[?module ?name] ident
              local-ident (str ?module ";" ?name)
              global-ident (str (if (= "" ?module) module-name ?module) ";" ?name)
-             stack (&/get$ "lux;local-envs" state)
+             stack (&/get$ &/$ENVS state)
              no-binding? #(and (->> % (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|contains? local-ident) not)
-                               (->> % (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|contains? local-ident) not))
+                               (->> % (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|contains? local-ident) not)
+                               (->> % (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|contains? global-ident) not)
+                               (->> % (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|contains? global-ident) not))
              [inner outer] (&/|split-with no-binding? stack)]
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
-          (if-let [global (->> state (&/get$ "lux;global-env") &/from-some (&/get$ "lux;locals") (&/get$ "lux;mappings") (&/|get global-ident))]
+          (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident))
+
+          [["lux;Cons" [?genv ["lux;Nil" _]]]]
+          (if-let [global (->> ?genv (&/get$ "lux;locals") (&/get$ "lux;mappings") (&/|get global-ident))]
             (&/run-state (type-test exo-type global)
                          ;; (|do [btype (&&/expr-type global)
                          ;;       _ (&type/check exo-type btype)]
                          ;;   (return (&/|list global)))
                          state)
-            (do ;; (prn (str "((" (->> stack (&/|map show-frame) &/->seq (interpose " ") (reduce str "")) "))"))
-              (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident))))
+            (fail* ""))
 
           [["lux;Cons" [top-outer _]]]
           (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ "lux;name" %2) %1)
@@ -145,7 +149,7 @@
                          ;; (|do [btype (&&/expr-type =local)
                          ;;       _ (&type/check exo-type btype)]
                          ;;   (return (&/|list =local)))
-                         (&/set$ "lux;local-envs" (&/|++ inner* outer) state)))
+                         (&/set$ &/$ENVS (&/|++ inner* outer) state)))
           )))
     ))
 
