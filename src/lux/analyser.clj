@@ -101,13 +101,13 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&&lux/analyse-import analyse ?path)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "check'"]]]]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":"]]]]
                                                 ["lux;Cons" [?type
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&lux/analyse-check analyse eval! exo-type ?type ?value)
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "coerce'"]]]]
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":!"]]]]
                                                 ["lux;Cons" [?type
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
@@ -435,7 +435,7 @@
     
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
     (fn [state]
-      ;; (prn '(&/show-ast ?fn) (&/show-ast ?fn))
+      ;; (prn 'analyse-ast '(&/show-ast ?fn) (&/show-ast ?fn))
       (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval!) % ?fn)) state)]
         [["lux;Right" [state* =fn]]]
         ((&&lux/analyse-apply (partial analyse-ast eval!) exo-type =fn ?args) state*)

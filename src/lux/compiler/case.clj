@@ -142,7 +142,7 @@
                  (doseq [?body+?match (&/->seq patterns)
                          :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
                                ;; _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
-                               _ (prn '?body+?match (aget ?body+?match 0))
+                               ;; _ (prn '?body+?match (aget ?body+?match 0))
                                $else (new Label)]])))
         (.visitInsn Opcodes/POP)
         (.visitTypeInsn Opcodes/NEW ex-class)

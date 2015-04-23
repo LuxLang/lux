@@ -203,7 +203,7 @@
         ))))
 
 (defn ^:private check-totality [value-type struct]
-  (prn 'check-totality (aget value-type 0) (aget struct 0) (&type/show-type value-type))
+  ;; (prn 'check-totality (aget value-type 0) (aget struct 0) (&type/show-type value-type))
   (matchv ::M/objects [struct]
     [["BoolTotal" [?total _]]]
     (return ?total)
@@ -279,7 +279,7 @@
                               (analyse-branch analyse exo-type value-type pattern body patterns)))
                           (&/|list)
                           branches)
-        :let [_ (prn 'PRE_MERGE_TOTALS)]
+        ;; :let [_ (prn 'PRE_MERGE_TOTALS)]
         struct (&/fold% merge-total (&/V "DefaultTotal" false) patterns)
         ? (check-totality value-type struct)]
     (if ?

@@ -21,11 +21,11 @@
               (return (&/T scope-name =captured =return)))))))))
 
 (defn close-over [scope ident register frame]
-  (prn 'close-over
-       (&host/location scope)
-       (&host/location (&/|list ident))
-       register
-       (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter")))
+  ;; (prn 'close-over
+  ;;      (&host/location scope)
+  ;;      (&host/location (&/|list ident))
+  ;;      register
+  ;;      (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter")))
   (matchv ::M/objects [register]
     [["Expression" [_ register-type]]]
     (|let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope

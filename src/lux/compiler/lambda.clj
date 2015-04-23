@@ -40,7 +40,8 @@
           (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
         (->> (let [captured-name (str &&/closure-prefix ?captured-id)
-                   _ (prn 'add-lambda-<init> class-name ?captured-id)])
+                   ;; _ (prn 'add-lambda-<init> class-name ?captured-id)
+                   ])
              (matchv ::M/objects [?name+?captured]
                [[?name ["Expression" [["captured" [_ ?captured-id ?source]] _]]]])
              (doseq [?name+?captured (&/->seq env)])))
@@ -78,23 +79,50 @@
       (return ret))))
 
 (defn ^:private instance-closure [compile lambda-class closed-over init-signature]
-  ;; (prn 'instance-closure lambda-class closed-over init-signature)
+  ;; (prn 'instance-closure lambda-class (&/|length closed-over) init-signature)
   (|do [*writer* &/get-writer
-         :let [_ (doto *writer*
-                   (.visitTypeInsn Opcodes/NEW lambda-class)
-                   (.visitInsn Opcodes/DUP))]
-         _ (->> closed-over
-                &/->seq
-                (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
-                         [["Expression" [["captured" [_ ?cid1 _]] _]]
-                          ["Expression" [["captured" [_ ?cid2 _]] _]]]
-                         (< ?cid1 ?cid2)))
-                &/->list
-                (&/map% (fn [?name+?captured]
-                          (matchv ::M/objects [?name+?captured]
-                            [[?name ["Expression" [["captured" [_ _ ?source]] _]]]]
-                            (compile ?source)))))
-         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/NEW lambda-class)
+                  (.visitInsn Opcodes/DUP))
+              ;; _ (prn 'closed-over/pre
+              ;;        (&/->seq (&/|map #(matchv ::M/objects [(&/|second %1)]
+              ;;                            [["Expression" [["captured" [_ ?cid _]] _]]]
+              ;;                            ?cid)
+              ;;                         closed-over)))
+              ;; _ (prn 'closed-over/post
+              ;;        (->> closed-over
+              ;;             &/->seq
+              ;;             (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
+              ;;                      [["Expression" [["captured" [_ ?cid1 _]] _]]
+              ;;                       ["Expression" [["captured" [_ ?cid2 _]] _]]]
+              ;;                      (< ?cid1 ?cid2)))
+              ;;             &/->list
+              ;;             (&/|map #(matchv ::M/objects [(&/|second %1)]
+              ;;                        [["Expression" [["captured" [_ ?cid _]] _]]]
+              ;;                        ?cid))
+              ;;             &/->seq))
+              ]
+        _ (->> closed-over
+               &/->seq
+               (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
+                        [["Expression" [["captured" [_ ?cid1 _]] _]]
+                         ["Expression" [["captured" [_ ?cid2 _]] _]]]
+                        (< ?cid1 ?cid2)))
+               &/->list
+               (&/map% (fn [?name+?captured]
+                         (matchv ::M/objects [?name+?captured]
+                           [[?name ["Expression" [["captured" [_ _ ?source]] _]]]]
+                           (do ;; (prn '?source (aget ?source 1 0 0)
+                               ;;      (cond (= "captured" (aget ?source 1 0 0))
+                               ;;            ["captured" (aget ?source 1 0 1 1)]
+
+                               ;;            (= "local" (aget ?source 1 0 0))
+                               ;;            ["local" (aget ?source 1 0 1)]
+
+                               ;;            :else
+                               ;;            '???))
+                             (compile ?source))))))
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
     (return nil)))
 
 ;; [Exports]

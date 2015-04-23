@@ -23,7 +23,8 @@
   (let [input-type (&/V "lux;DataT" <input-class>)
         output-type (&/V "lux;DataT" <output-class>)]
     (defn <name> [analyse ?x ?y]
-      (|do [[=x =y] (&&/analyse-2 analyse input-type ?x input-type ?y)]
+      (|do [=x (&&/analyse-1 analyse input-type ?x)
+            =y (&&/analyse-1 analyse input-type ?y)]
         (return (&/|list (&/V "Expression" (&/T (&/V <output-tag> (&/T =x =y)) output-type)))))))
 
   analyse-jvm-iadd "jvm-iadd" "java.lang.Integer" "java.lang.Integer"
@@ -136,11 +137,9 @@
                                                                                                          (&/V "lux;Nil" nil)))))))))
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
-  (|do [=array+=elem (&&/analyse-2 analyse ?array ?elem)
-         :let [[=array =elem] (matchv ::M/objects [=array+=elem]
-                                [[=array =elem]]
-                                [=array =elem])]
-         =array-type (&&/expr-type =array)]
+  (|do [=array (&&/analyse-1 analyse &type/Nothing ?array)
+        =elem (&&/analyse-1 analyse &type/Nothing ?elem)
+        =array-type (&&/expr-type =array)]
     (return (&/|list (&/V "Expression" (&/T (&/V "jvm-aastore" (&/T =array ?idx =elem)) =array-type))))))
 
 (defn analyse-jvm-aaload [analyse ?array ?idx]
