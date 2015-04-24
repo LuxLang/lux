@@ -45,7 +45,7 @@
 
 (defn bound? [id]
   (fn [state]
-    (if-let [type* (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
+    (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
       (matchv ::M/objects [type*]
         [["lux;Some" _]]
         (return* state true)
@@ -56,7 +56,7 @@
 
 (defn deref [id]
   (fn [state]
-    (let [mappings (->> state (&/get$ "lux;types") (&/get$ "lux;mappings"))]
+    (let [mappings (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS))]
       (do ;; (prn 'deref/mappings (&/->seq (&/|keys mappings)))
           (if-let [type* (->> mappings (&/|get id))]
             (do ;; (prn 'deref/type* (aget type* 0))
@@ -70,14 +70,14 @@
 
 (defn set-var [id type]
   (fn [state]
-    (if-let [tvar (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
+    (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
       (do ;; (prn 'set-var (aget tvar 0))
           (matchv ::M/objects [tvar]
             [["lux;Some" bound]]
             (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
             
             [["lux;None" _]]
-            (return* (&/update$ "lux;types" (fn [ts] (&/update$ "lux;mappings" #(&/|put id (&/V "lux;Some" type) %)
+            (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V "lux;Some" type) %)
                                                                ts))
                                 state)
                      nil)))
@@ -87,20 +87,20 @@
 ;; Type vars
 (def ^:private create-var
   (fn [state]
-    (let [id (->> state (&/get$ "lux;types") (&/get$ "lux;counter"))]
-      (return* (&/update$ "lux;types" #(->> %
-                                            (&/update$ "lux;counter" inc)
-                                            (&/update$ "lux;mappings" (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
+    (let [id (->> state (&/get$ &/$TYPES) (&/get$ &/$COUNTER))]
+      (return* (&/update$ &/$TYPES #(->> %
+                                            (&/update$ &/$COUNTER inc)
+                                            (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
                           state)
                id))))
 
 (defn ^:private delete-var [id]
   (fn [state]
     ;; (prn 'delete-var id)
-    (if-let [tvar (->> state (&/get$ "lux;types") (&/get$ "lux;mappings") (&/|get id))]
-      (return* (&/update$ "lux;types" #(->> %
-                                            (&/update$ "lux;counter" dec)
-                                            (&/update$ "lux;mappings" (fn [ms] (&/|remove id ms))))
+    (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+      (return* (&/update$ &/$TYPES #(->> %
+                                            (&/update$ &/$COUNTER dec)
+                                            (&/update$ &/$MAPPINGS (fn [ms] (&/|remove id ms))))
                           state)
                nil)
       (fail* (str "[Type Error] Unknown type-var: " id)))))

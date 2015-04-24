@@ -91,7 +91,7 @@
     (return (&/|list (&/V "Expression" (&/T (&/V "lux;record" =elems) (&/V "lux;RecordT" =elems-types)))))))
 
 (defn ^:private show-frame [frame]
-  (str "{{" (->> frame (&/get$ "lux;locals") (&/get$ "lux;mappings")
+  (str "{{" (->> frame (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS)
                  &/|keys &/->seq (interpose " ") (reduce str ""))
        "}}"))
 
@@ -114,17 +114,17 @@
              local-ident (str ?module ";" ?name)
              global-ident (str (if (= "" ?module) module-name ?module) ";" ?name)
              stack (&/get$ &/$ENVS state)
-             no-binding? #(and (->> % (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|contains? local-ident) not)
-                               (->> % (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|contains? local-ident) not)
-                               (->> % (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|contains? global-ident) not)
-                               (->> % (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|contains? global-ident) not))
+             no-binding? #(and (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not)
+                               (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not)
+                               (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? global-ident) not)
+                               (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? global-ident) not))
              [inner outer] (&/|split-with no-binding? stack)]
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
           (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident))
 
           [["lux;Cons" [?genv ["lux;Nil" _]]]]
-          (if-let [global (->> ?genv (&/get$ "lux;locals") (&/get$ "lux;mappings") (&/|get global-ident))]
+          (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get global-ident))]
             (&/run-state (type-test exo-type global)
                          ;; (|do [btype (&&/expr-type global)
                          ;;       _ (&type/check exo-type btype)]
@@ -133,16 +133,16 @@
             (fail* ""))
 
           [["lux;Cons" [top-outer _]]]
-          (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ "lux;name" %2) %1)
-                                          (&/|map #(&/get$ "lux;name" %) outer)
+          (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
+                                          (&/|map #(&/get$ &/$NAME %) outer)
                                           (&/|reverse inner)))
                  [=local inner*] (&/fold (fn [register+new-inner frame+in-scope]
                                            (|let [[register new-inner] register+new-inner
                                                   [frame in-scope] frame+in-scope
                                                   [register* frame*] (&&lambda/close-over (&/|cons module-name (&/|reverse in-scope)) ident register frame)]
                                              (&/T register* (&/|cons frame* new-inner))))
-                                         (&/T (or (->> top-outer (&/get$ "lux;locals")  (&/get$ "lux;mappings") (&/|get local-ident))
-                                                  (->> top-outer (&/get$ "lux;closure") (&/get$ "lux;mappings") (&/|get local-ident)))
+                                         (&/T (or (->> top-outer (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|get local-ident))
+                                                  (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get local-ident)))
                                               (&/|list))
                                          (&/zip2 (&/|reverse inner) scopes))]
             (&/run-state (type-test exo-type =local)

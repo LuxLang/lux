@@ -7,7 +7,7 @@
 ;; [Utils]
 (defn ^:private with-line [body]
   (fn [state]
-    (matchv ::M/objects [(&/get$ "lux;source" state)]
+    (matchv ::M/objects [(&/get$ &/$SOURCE state)]
       [["lux;None" _]]
       (fail* "[Reader Error] No source code.")
 
@@ -21,11 +21,11 @@
         (fail* msg)
 
         [["Yes" [meta ["lux;None" _]]]]
-        (return* (&/set$ "lux;source" (&/V "lux;Some" more) state)
+        (return* (&/set$ &/$SOURCE (&/V "lux;Some" more) state)
                  meta)
 
         [["Yes" [meta ["lux;Some" line-meta]]]]
-        (return* (&/set$ "lux;source" (&/V "lux;Some" (&/|cons line-meta more)) state)
+        (return* (&/set$ &/$SOURCE (&/V "lux;Some" (&/|cons line-meta more)) state)
                  meta))
       )))
 
@@ -87,7 +87,7 @@
 
 (def current-line
   (fn [state]
-    (matchv ::M/objects [(&/get$ "lux;source" state)]
+    (matchv ::M/objects [(&/get$ &/$SOURCE state)]
       [["lux;None" _]]
       (fail* "[Reader Error] No source code.")
 

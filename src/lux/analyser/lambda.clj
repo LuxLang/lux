@@ -25,16 +25,16 @@
   ;;      (&host/location scope)
   ;;      (&host/location (&/|list ident))
   ;;      register
-  ;;      (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter")))
+  ;;      (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER)))
   (matchv ::M/objects [register]
     [["Expression" [_ register-type]]]
     (|let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope
-                                                                 (->> frame (&/get$ "lux;closure") (&/get$ "lux;counter"))
+                                                                 (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER))
                                                                  register))
                                             register-type))
            [?module ?name] ident
            full-name (str ?module ";" ?name)]
-      (&/T register* (&/update$ "lux;closure" #(->> %
-                                                    (&/update$ "lux;counter" inc)
-                                                    (&/update$ "lux;mappings" (fn [mps] (&/|put full-name register* mps))))
+      (&/T register* (&/update$ &/$CLOSURE #(->> %
+                                                    (&/update$ &/$COUNTER inc)
+                                                    (&/update$ &/$MAPPINGS (fn [mps] (&/|put full-name register* mps))))
                                 frame)))))

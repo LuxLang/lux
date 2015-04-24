@@ -4,11 +4,28 @@
             clojure.core.match.array))
 
 ;; [Fields]
-(def $WRITER "lux;writer")
-(def $LOADER "lux;loader")
-(def $EVAL-CTOR "lux;eval-ctor")
-(def $HOST "lux;host")
-(def $ENVS "lux;envs")
+;; Binding
+(def $COUNTER 0)
+(def $MAPPINGS 1)
+
+;; Env
+(def $CLOSURE 0)
+(def $INNER-CLOSURES 1)
+(def $LOCALS 2)
+(def $NAME 3)
+
+;; Host
+(def $EVAL-CTOR 0)
+(def $LOADER 1)
+(def $WRITER 2)
+
+;; CompilerState
+(def $ENVS 0)
+(def $HOST 1)
+(def $MODULE-ALIASES 2)
+(def $MODULES 3)
+(def $SOURCE 4)
+(def $TYPES 5)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -23,25 +40,13 @@
   (to-array kvs))
 
 (defn get$ [slot record]
-  ;; (prn 'get$ slot)
-  (let [size (alength record)]
-    (loop [idx 0]
-      (if (< idx size)
-        (if (= slot (aget record idx))
-          (aget record (+ 1 idx))
-          (recur (+ 2 idx)))
-        (assert false)))))
+  (aget record slot))
 
 (defn set$ [slot value record]
-  (let [record (aclone record)
+  (let [record* (aclone record)
         size (alength record)]
-    (loop [idx 0]
-      (if (< idx size)
-        (if (= slot (aget record idx))
-          (doto record
-            (aset (+ 1 idx) value))
-          (recur (+ 2 idx)))
-        (assert false)))))
+    (aset record* slot value)
+    record*))
 
 (defmacro update$ [slot f record]
   `(let [record# ~record]
@@ -440,7 +445,7 @@
 
 (def source-consumed?
   (fn [state]
-    (matchv ::M/objects [(get$ "lux;source" state)]
+    (matchv ::M/objects [(get$ $SOURCE state)]
       [["lux;None" _]]
       (fail* "No source code.")
 
@@ -525,27 +530,44 @@
     (return* state (->> state (get$ $HOST) (get$ $LOADER)))))
 
 (def +init-bindings+
-  (R "lux;counter" 0
-     "lux;mappings" (|table)))
+  (R ;; "lux;counter"
+   0
+   ;; "lux;mappings"
+   (|table)))
 
 (defn env [name]
-  (R "lux;name" name
-     "lux;inner-closures" 0
-     "lux;locals"  +init-bindings+
-     "lux;closure" +init-bindings+))
+  (R ;; "lux;closure"
+   +init-bindings+
+   ;; "lux;inner-closures"
+   0
+   ;; "lux;locals"
+   +init-bindings+
+   ;; "lux;name"
+   name
+   ))
 
 (defn host [_]
-  (R $WRITER    (V "lux;None" nil)
-     $LOADER    (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
-     $EVAL-CTOR 0))
+  (R ;; "lux;eval-ctor"
+   0
+   ;; "lux;loader"
+   (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
+   ;; "lux;writer"
+   (V "lux;None" nil)))
 
 (defn init-state [_]
-  (R "lux;source"         (V "lux;None" nil)
-     "lux;modules"        (|table)
-     "lux;module-aliases" (|table)
-     $ENVS     (|list)
-     "lux;types"          +init-bindings+
-     $HOST (host nil)))
+  (R ;; "lux;envs"
+   (|list)
+   ;; "lux;host"
+   (host nil)
+   ;; "lux;module-aliases"
+   (|table)
+   ;; "lux;modules"
+   (|table)
+   ;; "lux;source"
+   (V "lux;None" nil)
+   ;; "lux;types"
+   +init-bindings+
+   ))
 
 (defn from-some [some]
   (matchv ::M/objects [some]
@@ -604,7 +626,7 @@
       (fail* "[Analyser Error] Can't get the module-name without a module.")
 
       [["lux;Cons" [?global _]]]
-      (return* state (get$ "lux;name" ?global)))))
+      (return* state (get$ $NAME ?global)))))
 
 (defn with-scope [name body]
   (fn [state]
@@ -621,18 +643,18 @@
 
 (defn with-closure [body]
   (|do [closure-name (|do [top get-top-local-env]
-                       (return (->> top (get$ "lux;inner-closures") str)))]
+                       (return (->> top (get$ $INNER-CLOSURES) str)))]
     (fn [state]
       (let [body* (with-scope closure-name
                     body)]
-        (run-state body* (update$ $ENVS #(|cons (update$ "lux;inner-closures" inc (|head %))
+        (run-state body* (update$ $ENVS #(|cons (update$ $INNER-CLOSURES inc (|head %))
                                                 (|tail %))
                                   state))))))
 
 (def get-scope-name
   (|do [module-name get-module-name]
     (fn [state]
-      (return* state (->> state (get$ $ENVS) (|map #(get$ "lux;name" %)) |reverse (|cons module-name))))))
+      (return* state (->> state (get$ $ENVS) (|map #(get$ $NAME %)) |reverse (|cons module-name))))))
 
 (defn with-writer [writer body]
   (fn [state]

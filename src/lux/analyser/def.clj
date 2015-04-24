@@ -5,24 +5,29 @@
             (lux [base :as & :refer [|do return return* fail]])
             [lux.analyser.base :as &&]))
 
+(def $DEFS 0)
+(def $MACROS 1)
+
 ;; [Exports]
 (def init-module
-  (&/R "lux;defs" (&/|table)
-       "lux;macros" (&/|table)))
+  (&/R ;; "lux;defs"
+       (&/|table)
+       ;; "lux;macros"
+       (&/|table)))
 
 (do-template [<name> <category>]
   (defn <name> [module name]
     (fn [state]
       (return* state
-               (->> state (&/get$ "lux;modules") (&/|get module) (&/get$ <category>) (&/|contains? name)))))
+               (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ <category>) (&/|contains? name)))))
 
-  defined? "lux;defs"
-  macro?   "lux;macros"
+  defined? $DEFS
+  macro?   $MACROS
   )
 
 (defn declare-macro [module name]
   (fn [state]
-    (return* (&/update$ "lux;modules" (fn [ms] (&/|update module (fn [m] (&/update$ "lux;macros" #(&/|put name true %) m)) ms)) state)
+    (return* (&/update$ &/$MODULES (fn [ms] (&/|update module (fn [m] (&/update$ $MACROS #(&/|put name true %) m)) ms)) state)
              nil)))
 
 (defn define [module name type]
@@ -32,13 +37,13 @@
       (matchv ::M/objects [(&/get$ &/$ENVS state)]
         [["lux;Cons" [?env ["lux;Nil" _]]]]
         (return* (->> state
-                      (&/update$ "lux;modules" (fn [ms]
+                      (&/update$ &/$MODULES (fn [ms]
                                                  (&/|update module (fn [m]
-                                                                     (&/update$ "lux;defs" #(&/|put full-name type %)
+                                                                     (&/update$ $DEFS #(&/|put full-name type %)
                                                                                 m))
                                                             ms)))
-                      (&/set$ &/$ENVS (&/|list (&/update$ "lux;locals" (fn [locals]
-                                                                         (&/update$ "lux;mappings" (fn [mappings]
+                      (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
+                                                                         (&/update$ &/$MAPPINGS (fn [mappings]
                                                                                                      (&/|put full-name bound mappings))
                                                                                     locals))
                                                           ?env))))
@@ -51,10 +56,10 @@
 (defn module-exists? [name]
   (fn [state]
     (return* state
-             (->> state (&/get$ "lux;modules") (&/|contains? name)))))
+             (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
 
 (defn unalias-module [name]
   (fn [state]
-    (if-let [real-name (->> state (&/get$ "lux;module-aliases") (&/|get name))]
+    (if-let [real-name (->> state (&/get$ &/$MODULE-ALIASES) (&/|get name))]
       (return* state real-name)
       (fail "Unknown alias."))))
