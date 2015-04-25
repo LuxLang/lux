@@ -19,7 +19,7 @@
                                               "")
                                             (.getSimpleName class)))]
     (if (= "void" base)
-      (return (&/V "lux;NothingT" nil))
+      (return &type/$Void)
       (return (&/V "lux;DataT" (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
                                     base)))
       )))
@@ -76,12 +76,6 @@
 
 (defn ->java-sig [type]
   (matchv ::M/objects [type]
-    [["lux;AnyT" _]]
-    (->type-signature "java.lang.Object")
-
-    [["lux;NothingT" _]]
-    "V"
-    
     [["lux;DataT" ?name]]
     (->type-signature ?name)
 

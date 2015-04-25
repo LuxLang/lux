@@ -7,14 +7,13 @@
 (declare show-type)
 
 ;; [Util]
-(def Any (&/V "lux;AnyT" nil))
-(def Nothing (&/V "lux;NothingT" nil))
 (def Bool (&/V "lux;DataT" "java.lang.Boolean"))
 (def Int (&/V "lux;DataT" "java.lang.Long"))
 (def Real (&/V "lux;DataT" "java.lang.Double"))
 (def Char (&/V "lux;DataT" "java.lang.Character"))
 (def Text (&/V "lux;DataT" "java.lang.String"))
 (def Unit (&/V "lux;TupleT" (&/|list)))
+(def $Void (&/V "lux;VariantT" (&/|list)))
 
 (def List
   (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "List" "a"
@@ -33,9 +32,7 @@
         TypeEnv (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Type))))
         TypePair (&/V "lux;TupleT" (&/|list Type Type))]
     (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "Type" "_"
-                                              (&/V "lux;VariantT" (&/|list (&/T "lux;AnyT" Unit)
-                                                                           (&/T "lux;NothingT" Unit)
-                                                                           (&/T "lux;DataT" Text)
+                                              (&/V "lux;VariantT" (&/|list (&/T "lux;DataT" Text)
                                                                            (&/T "lux;TupleT" (&/V "lux;AppT" (&/T List Type)))
                                                                            (&/T "lux;VariantT" TypeEnv)
                                                                            (&/T "lux;RecordT" TypeEnv)
@@ -45,7 +42,7 @@
                                                                            (&/T "lux;AllT" (&/V "lux;TupleT" (&/|list (&/V "lux;AppT" (&/T Maybe TypeEnv)) Text Text Type)))
                                                                            (&/T "lux;AppT" TypePair)
                                                                            ))))
-                         (&/V "lux;NothingT" nil)))))
+                         $Void))))
 
 (defn bound? [id]
   (fn [state]
@@ -187,12 +184,6 @@
 (defn show-type [type]
   ;; (prn 'show-type (aget type 0))
   (matchv ::M/objects [type]
-    [["lux;AnyT" _]]
-    "Any"
-
-    [["lux;NothingT" _]]
-    "Nothing"
-
     [["lux;DataT" name]]
     (str "(^ " name ")")
     
@@ -242,12 +233,6 @@
 (defn type= [x y]
   ;; (prn "^^ type= ^^")
   (let [output (matchv ::M/objects [x y]
-                 [["lux;AnyT" _] ["lux;AnyT" _]]
-                 true
-
-                 [["lux;NothingT" _] ["lux;NothingT" _]]
-                 true
-
                  [["lux;DataT" xname] ["lux;DataT" yname]]
                  (= xname yname)
 
@@ -418,12 +403,6 @@
   ;; (prn 'check* (aget expected 0) (aget actual 0))
   ;; (prn 'check* (show-type expected) (show-type actual))
   (matchv ::M/objects [expected actual]
-    [["lux;AnyT" _] _]
-    (return (&/T fixpoints nil))
-
-    [_ ["lux;NothingT" _]]
-    (return (&/T fixpoints nil))
-
     [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
     (if (= ?eid ?aid)
       (return (&/T fixpoints nil))
@@ -610,10 +589,9 @@
     [_]
     (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
 
-(let [type-cases #{"lux;AnyT"   , "lux;NothingT", "lux;DataT"
-                   "lux;TupleT" , "lux;VariantT", "lux;RecordT"
-                   "lux;LambdaT", "lux;BoundT"  , "lux;VarT"
-                   "lux;AllT"   , "lux;AppT"}]
+(let [type-cases #{"lux;DataT" , "lux;LambdaT" , "lux;AppT"
+                   "lux;TupleT", "lux;VariantT", "lux;RecordT"
+                   "lux;AllT"  , "lux;VarT"    , "lux;BoundT"}]
   (defn is-Type? [type]
     (matchv ::M/objects [type]
       [["lux;VarT" ?id]]

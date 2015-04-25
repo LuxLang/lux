@@ -67,7 +67,7 @@
                  $start (new Label)
                  $end (new Label)
                  _ (doto *writer*
-                     (-> (.visitLocalVariable (str &&/local-prefix idx) (&host/->java-sig (&/V "lux;AnyT" nil)) nil $start $end (+ 2 idx))
+                     (-> (.visitLocalVariable (str &&/local-prefix idx) (&host/->java-sig (&/V "lux;DataT" "java.lang.Object")) nil $start $end (+ 2 idx))
                          (->> (dotimes [idx num-locals])))
                      (.visitLabel $start))]
            ret (compile impl-body)

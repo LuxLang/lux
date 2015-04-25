@@ -455,4 +455,4 @@
 ;; [Resources]
 (defn analyse [eval!]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast eval! &type/Nothing) asts)))
+    (&/flat-map% (partial analyse-ast eval! &type/$Void) asts)))
