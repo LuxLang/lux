@@ -17,18 +17,22 @@
 (def Unit (&/V "lux;TupleT" (&/|list)))
 
 (def List
-  (&/V "lux;AllT" (&/T (&/|table) "List" "a"
-                       (&/V "lux;VariantT" (&/|list (&/T "lux;Nil" (&/V "lux;TupleT" (&/|list)))
+  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "List" "a"
+                       (&/V "lux;VariantT" (&/|list (&/T "lux;Nil" Unit)
                                                     (&/T "lux;Cons" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "a")
                                                                                                (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "List")
                                                                                                                     (&/V "lux;BoundT" "a")))))))))))
 
+(def Maybe
+  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "Maybe" "a"
+                       (&/V "lux;VariantT" (&/|list (&/T "lux;None" Unit)
+                                                    (&/T "lux;Some" (&/V "lux;BoundT" "a")))))))
+
 (def Type
   (let [Type (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Type") (&/V "lux;BoundT" "_")))
         TypeEnv (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Type))))
-        Unit (&/V "lux;TupleT" (&/|list))
         TypePair (&/V "lux;TupleT" (&/|list Type Type))]
-    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/|list) "Type" "_"
+    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "Type" "_"
                                               (&/V "lux;VariantT" (&/|list (&/T "lux;AnyT" Unit)
                                                                            (&/T "lux;NothingT" Unit)
                                                                            (&/T "lux;DataT" Text)
@@ -38,7 +42,7 @@
                                                                            (&/T "lux;LambdaT" TypePair)
                                                                            (&/T "lux;BoundT" Text)
                                                                            (&/T "lux;VarT" Int)
-                                                                           (&/T "lux;AllT" (&/V "lux;TupleT" (&/|list TypeEnv Text Text Type)))
+                                                                           (&/T "lux;AllT" (&/V "lux;TupleT" (&/|list (&/V "lux;AppT" (&/T Maybe TypeEnv)) Text Text Type)))
                                                                            (&/T "lux;AppT" TypePair)
                                                                            ))))
                          (&/V "lux;NothingT" nil)))))
@@ -154,10 +158,16 @@
       (return (&/V "lux;RecordT" =members)))
 
     [["lux;AllT" [?env ?name ?arg ?body]]]
-    (|do [=env (&/map% (fn [[k v]]
-                         (|do [=v (clean* ?tid v)]
-                           (return (&/T k =v))))
-                       ?env)
+    (|do [=env (matchv ::M/objects [?env]
+                 [["lux;None" _]]
+                 (return ?env)
+
+                 [["lux;Some" ?env*]]
+                 (|do [clean-env (&/map% (fn [[k v]]
+                                           (|do [=v (clean* ?tid v)]
+                                             (return (&/T k =v))))
+                                         ?env*)]
+                   (return (&/V "lux;Some" clean-env))))
           body* (clean* ?tid ?body)]
       (return (&/V "lux;AllT" (&/T =env ?name ?arg body*))))
 
@@ -284,20 +294,27 @@
                      ;;      'NAME [xname yname] (= xname yname)
                      ;;      'ARG (= xarg yarg)
                      ;;      'LENGTH [(&/|length xenv) (&/|length yenv)] (= (&/|length xenv) (&/|length yenv)))
-                   (and (= xname yname)
-                        (= xarg yarg)
-                        (type= xbody ybody)
-                        ;; (= (&/|length xenv) (&/|length yenv))
-                        ;; (&/fold (fn [old bname]
-                        ;;           (and old
-                        ;;                (type= (&/|get bname xenv) (&/|get bname yenv))))
-                        ;;         true
-                        ;;         (&/|keys xenv))
-                        ))
+                     (and (= xname yname)
+                          (= xarg yarg)
+                          ;; (matchv ::M/objects [xenv yenv]
+                          ;;   [["lux;None" _] ["lux;None" _]]
+                          ;;   true
+
+                          ;;   [["lux;Some" xenv*] ["lux;Some" yenv*]]
+                          ;;   (&/fold (fn [old bname]
+                          ;;             (and old
+                          ;;                  (type= (&/|get bname xenv*) (&/|get bname yenv*))))
+                          ;;           (= (&/|length xenv*) (&/|length yenv*))
+                          ;;           (&/|keys xenv*))
+
+                          ;;   [_ _]
+                          ;;   false)
+                          (type= xbody ybody)
+                          ))
 
                  [_ _]
                  (do ;; (prn 'type= (show-type x) (show-type y))
-                   false)
+                     false)
                  )]
     ;; (prn 'type= output (show-type x) (show-type y))
     output))
@@ -343,16 +360,19 @@
     (&/V "lux;AppT" (&/T (beta-reduce env ?type-fn) (beta-reduce env ?type-arg)))
 
     [["lux;AllT" [?local-env ?local-name ?local-arg ?local-def]]]
-    (&/V "lux;AllT" (&/T (&/|merge ?local-env env) ?local-name ?local-arg ?local-def))
+    (matchv ::M/objects [?local-env]
+      [["lux;None" _]]
+      (&/V "lux;AllT" (&/T (&/V "lux;Some" env) ?local-name ?local-arg ?local-def))
+
+      [["lux;Some" _]]
+      type)
 
     [["lux;LambdaT" [?input ?output]]]
     (&/V "lux;LambdaT" (&/T (beta-reduce env ?input) (beta-reduce env ?output)))
 
     [["lux;BoundT" ?name]]
     (if-let [bound (&/|get ?name env)]
-      (do ;; (prn 'beta-reduce "lux;BoundT" ?name (->> (&/|keys env) (&/|interpose " ") (&/fold str ""))
-          ;;      (show-type bound))
-          (beta-reduce env bound))
+      (beta-reduce env bound)
       type)
 
     [_]
@@ -372,10 +392,17 @@
   ;; (prn 'apply-type (aget type-fn 0) (aget param 0))
   (matchv ::M/objects [type-fn]
     [["lux;AllT" [local-env local-name local-arg local-def]]]
-    (return (beta-reduce (->> local-env
-                              (&/|put local-name type-fn)
-                              (&/|put local-arg param))
-                         local-def))
+    (let [;; _ (prn 'apply-type/local-env (aget local-env 0) (show-type type-fn))
+          local-env* (matchv ::M/objects [local-env]
+                       [["lux;None" _]]
+                       (&/|table)
+
+                       [["lux;Some" local-env*]]
+                       local-env*)]
+      (return (beta-reduce (->> local-env*
+                                (&/|put local-name type-fn)
+                                (&/|put local-arg param))
+                           local-def)))
 
     [["lux;AppT" [F A]]]
     (|do [type-fn* (apply-type F A)]
@@ -552,7 +579,7 @@
     (|do [_ (check* init-fixpoints input param)]
       (return output))
 
-    [["lux;AllT" [local-env local-name local-arg local-def]]]
+    [["lux;AllT" _]]
     (with-var
       (fn [$var]
         (|do [func* (apply-type func $var)
