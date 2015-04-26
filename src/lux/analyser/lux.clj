@@ -116,9 +116,16 @@
                                          (return ?type)
 
                                          [["lux;MacroD" _]]
-                                         (return &type/Macro))
+                                         (return &type/Macro)
+
+                                         [["lux;TypeD" _]]
+                                         (return &type/Type))
                              ;; :let [_ (println "Got endo-type:" endo-type)]
-                             _ (&type/check exo-type endo-type)
+                             _ (if (and (= &type/Type endo-type) (= &type/Type exo-type))
+                                 (do ;; (println "OH YEAH" (if (= "" ?module) module-name ?module)
+                                     ;;          ?name)
+                                   (return nil))
+                                 (&type/check exo-type endo-type))
                              ;; :let [_ (println "Type-checked:" exo-type endo-type)]
                              ]
                          (return (&/|list (&/V "Expression" (&/T (&/V "global" (&/T (if (= "" ?module) module-name ?module)
@@ -138,9 +145,15 @@
                                              (return ?type)
 
                                              [["lux;MacroD" _]]
-                                             (return &type/Macro))
+                                             (return &type/Macro)
+
+                                             [["lux;TypeD" _]]
+                                             (return &type/Type))
                                  ;; :let [_ (println "Got endo-type:" endo-type)]
-                                 _ (&type/check exo-type endo-type)
+                                 _ (if (and (= &type/Type endo-type) (= &type/Type exo-type))
+                                     (do ;; (println "OH YEAH" ?module* ?name*)
+                                       (return nil))
+                                     (&type/check exo-type endo-type))
                                  ;; :let [_ (println "Type-checked:" exo-type endo-type)]
                                  ]
                              (return (&/|list (&/V "Expression" (&/T (&/V "global" (&/T ?module* ?name*))
@@ -292,7 +305,7 @@
     (return (&/|list output))))
 
 (defn analyse-def [analyse ?name ?value]
-  (prn 'analyse-def/CODE ?name (&/show-ast ?value))
+  ;; (prn 'analyse-def/CODE ?name (&/show-ast ?value))
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
@@ -303,11 +316,16 @@
             ;; :let [_ (prn 'analyse-def/_1)]
             =value-type (&&/expr-type =value)
             ;; :let [_ (prn 'analyse-def/_2)]
-            :let [_ (prn 'analyse-def/TYPE ?name (&type/show-type =value-type))
-                  _ (println)
-                  def-data (if (&type/type= &type/Macro =value-type)
-                             (&/V "lux;MacroD" (&/V "lux;None" nil))
-                             (&/V "lux;ValueD" =value-type))]
+            :let [;; _ (prn 'analyse-def/TYPE ?name (&type/show-type =value-type))
+                  ;; _ (println)
+                  def-data (cond (&type/type= &type/Macro =value-type)
+                                 (&/V "lux;MacroD" (&/V "lux;None" nil))
+
+                                 (&type/type= &type/Type =value-type)
+                                 (&/V "lux;TypeD" nil)
+                                 
+                                 :else
+                                 (&/V "lux;ValueD" =value-type))]
             _ (&&module/define module-name ?name def-data)
             ;; :let [_ (prn 'analyse-def/_3)]
             ]
