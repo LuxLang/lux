@@ -442,6 +442,7 @@
 
         [_]
         (do ;; (prn 'analyse-ast/token (aget token 0) (&/show-state state))
+            ;; (prn 'NOT_A_FUNCTION (&/show-ast ?fn))
             ((analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token) state))))
     
     [_]

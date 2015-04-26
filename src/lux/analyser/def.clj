@@ -44,7 +44,7 @@
                                                             ms)))
                       (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
                                                                          (&/update$ &/$MAPPINGS (fn [mappings]
-                                                                                                     (&/|put full-name bound mappings))
+                                                                                                     (&/|put (str "" &/+name-separator+ name) bound mappings))
                                                                                     locals))
                                                           ?env))))
                  nil)

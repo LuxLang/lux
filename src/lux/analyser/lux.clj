@@ -115,16 +115,23 @@
              global-ident (str (if (= "" ?module) module-name ?module) ";" ?name)
              stack (&/get$ &/$ENVS state)
              no-binding? #(and (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not)
-                               (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not)
-                               (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? global-ident) not)
-                               (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? global-ident) not))
+                               (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not))
              [inner outer] (&/|split-with no-binding? stack)]
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
-          (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident))
+          (if-let [module-env (->> state
+                                   (&/get$ &/$MODULES)
+                                   (&/|get (if (= "" ?module) module-name ?module)))]
+            (if-let [def-type (do ;; (->> module-env (&/get$ &&def/$DEFS) &/|keys &/->seq (prn 'module-env global-ident))
+                                (->> module-env (&/get$ &&def/$DEFS) (&/|get global-ident)))]
+              (do ;; (prn 'GOT_DEF-TYPE global-ident)
+                (return* state (&/|list (&/V "Expression" (&/T (&/V "global" (&/T (if (= "" ?module) module-name ?module) ?name))
+                                                               def-type)))))
+              (fail* (str "[Analyser Error] Unknown module: " (if (= "" ?module) module-name ?module))))
+            (fail* (str "[Analyser Error] Unrecognized identifier: " local-ident)))
 
           [["lux;Cons" [?genv ["lux;Nil" _]]]]
-          (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get global-ident))]
+          (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get local-ident))]
             (&/run-state (type-test exo-type global)
                          ;; (|do [btype (&&/expr-type global)
                          ;;       _ (&type/check exo-type btype)]
