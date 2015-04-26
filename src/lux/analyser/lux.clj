@@ -267,7 +267,8 @@
             [["lux;VarT" ?id]]
             (|do [? (&type/bound? ?id)]
               (if ?
-                (fail "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions.")
+                (|do [dtype (&type/deref ?id)]
+                  (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id (&type/show-type dtype))))
                 (return output)))))))
     
     [_]

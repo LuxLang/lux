@@ -138,10 +138,17 @@
 
 (defn bound? [id]
   (fn [state]
-    (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
-      (matchv ::M/objects [type*]
-        [["lux;Some" _]]
-        (return* state true)
+    (if-let [type (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+      (matchv ::M/objects [type]
+        [["lux;Some" type*]]
+        (matchv ::M/objects [type*]
+          [["lux;VarT" ?id]]
+          (&/run-state (&/try-all% (&/|list (bound? ?id)
+                                            (return false)))
+                       state)
+
+          [_]
+          (return* state true))
         
         [["lux;None" _]]
         (return* state false))
