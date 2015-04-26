@@ -44,6 +44,98 @@
                                                                            ))))
                          $Void))))
 
+(defn fAll [name arg body]
+  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) name arg body)))
+
+(def Bindings
+  (fAll "Bindings" "k"
+        (fAll "" "v"
+              (&/V "lux;RecordT" (&/|list (&/T "lux;counter" Int)
+                                          (&/T "lux;mappings" (&/V "lux;AppT" (&/T List
+                                                                                   (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "k")
+                                                                                                              (&/V "lux;BoundT" "v")))))))))))
+
+(def Env
+  (let [bindings (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings (&/V "lux;BoundT" "k")))
+                                      (&/V "lux;BoundT" "v")))]
+    (fAll "Env" "k"
+          (fAll "" "v"
+                (&/V "lux;RecordT"
+                     (&/|list (&/T "lux;name" Text)
+                              (&/T "lux;inner-closures" Int)
+                              (&/T "lux;locals" bindings)
+                              (&/T "lux;closure" bindings)
+                              ))))))
+
+(def Cursor
+  (&/V "lux;TupleT" (&/|list Text Int Int)))
+
+(def Meta
+  (fAll "Meta" "m"
+        (fAll "" "v"
+              (&/V "lux;VariantT" (&/|list (&/T "lux;Meta" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
+                                                                                      (&/V "lux;BoundT" "v")))))))))
+
+(def Reader
+  (&/V "lux;AppT" (&/T List
+                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Meta Cursor))
+                                            Text)))))
+
+(def HostState
+  (&/V "lux;RecordT"
+       (&/|list (&/T "lux;writer" (&/V "lux;DataT" "org.objectweb.asm.ClassWriter"))
+                (&/T "lux;loader" (&/V "lux;DataT" "java.lang.ClassLoader"))
+                (&/T "lux;eval-ctor" Int))))
+
+(def CompilerState
+  (&/V "lux;RecordT"
+       (&/|list (&/T "lux;source" (&/V "lux;AppT" (&/T Maybe Reader)))
+                (&/T "lux;modules" (&/V "lux;AppT" (&/T List $Void)))
+                (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
+                (&/T "lux;envs" (&/V "lux;AppT" (&/T List
+                                                     (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
+                                                                          $Void)))))
+                (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
+                (&/T "lux;host" HostState))))
+
+(def Syntax*
+  (let [Syntax* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
+                                     (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Syntax'")
+                                                          (&/V "lux;BoundT" "w")))))
+        Syntax*List (&/V "lux;AppT" (&/T List Syntax*))
+        Ident (&/V "lux;TupleT" (&/|list Text Text))]
+    (fAll "Syntax'" "w"
+          (&/V "lux;VariantT" (&/|list (&/T "lux;Bool" Bool)
+                                       (&/T "lux;Int" Int)
+                                       (&/T "lux;Real" Real)
+                                       (&/T "lux;Char" Char)
+                                       (&/T "lux;Text" Text)
+                                       (&/T "lux;Symbol" Ident)
+                                       (&/T "lux;Tag" Ident)
+                                       (&/T "lux;Form" Syntax*List)
+                                       (&/T "lux;Tuple" Syntax*List)
+                                       (&/T "lux;Record" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Syntax*))))))
+               ))))
+
+(def Syntax
+  (let [w (&/V "lux;AppT" (&/T Meta Cursor))]
+    (&/V "lux;AppT" (&/T w (&/V "lux;AppT" (&/T Syntax* w))))))
+
+(def Either
+  (fAll "_" "l"
+        (fAll "" "r"
+              (&/V "lux;VariantT" (&/|list (&/T "lux;Left" (&/V "lux;BoundT" "l"))
+                                           (&/T "lux;Right" (&/V "lux;BoundT" "r")))))))
+
+(def Macro
+  (let [SyntaxList (&/V "lux;AppT" (&/T List Syntax))]
+    (&/V "lux;LambdaT" (&/T SyntaxList
+                            (&/V "lux;LambdaT" (&/T CompilerState
+                                                    (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Either Text))
+                                                                         (&/V "lux;TupleT" (&/|list CompilerState
+                                                                                                    SyntaxList))))))))
+    ))
+
 (defn bound? [id]
   (fn [state]
     (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]

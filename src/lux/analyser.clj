@@ -91,11 +91,6 @@
         ;;   (prn "if" (&/show-ast ?value)))
         (&&lux/analyse-def analyse ?name ?value))
 
-    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "declare-macro'"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?ident]]]
-                                                             ["lux;Nil" _]]]]]]]]]
-    (&&lux/analyse-declare-macro ?ident)
-    
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "import'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?path]]]
                                                              ["lux;Nil" _]]]]]]]]]

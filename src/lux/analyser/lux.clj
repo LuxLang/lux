@@ -285,20 +285,12 @@
             :let [_ (prn 'analyse-def/TYPE ?name (&type/show-type =value-type))
                   _ (println)]
             _ (&&def/define module-name ?name =value-type)
+            _ (if (&type/type= &type/Macro =value-type)
+                (&&def/declare-macro module-name ?name)
+                (return nil))
             ;; :let [_ (prn 'analyse-def/_3)]
             ]
         (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value)))))))))
-
-(defn analyse-declare-macro [ident]
-  (|do [current-module &/get-module-name
-        ;; :let [_ (prn 'analyse-declare-macro/current-module current-module)]
-        [?module ?name] (&&/resolved-ident* ident)
-        ;; :let [_ (prn 'analyse-declare-macro '[?module ?name] [?module ?name])]
-        ]
-    (if (= ?module current-module)
-      (|do [_ (&&def/declare-macro ?module ?name)]
-        (return (&/|list)))
-      (fail "Can't declare macros from foreign modules."))))
 
 (defn analyse-import [analyse exo-type ?path]
   (return (&/|list)))
