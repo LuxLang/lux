@@ -2,7 +2,7 @@
   (:require [clojure.template :refer [do-template]]
             (lux [base :as & :refer [|do return* return fail fail*]]
                  [reader :as &reader])
-            [lux.analyser.def :as &def]))
+            [lux.analyser.module :as &module]))
 
 ;; [Utils]
 (defn ^:private escape-char [escaped]
@@ -85,9 +85,9 @@
                        (|do [[_ [meta token]] (&reader/read-regex +ident-re+)]
                          (&/try-all% (&/|list (|do [_ (&reader/read-text ";")
                                                      [_ [_ local-token]] (&reader/read-regex +ident-re+)]
-                                                (&/try-all% (&/|list (|do [unaliased (&def/unalias-module token)]
+                                                (&/try-all% (&/|list (|do [unaliased (&module/dealias token)]
                                                                        (return (&/V "lux;Meta" (&/T meta (&/T unaliased local-token)))))
-                                                                     (|do [? (&def/module-exists? token)]
+                                                                     (|do [? (&module/exists? token)]
                                                                        (if ?
                                                                          (return (&/V "lux;Meta" (&/T meta (&/T token local-token))))
                                                                          (fail (str "[Lexer Error] Unknown module: " token))))

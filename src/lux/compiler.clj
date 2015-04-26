@@ -14,7 +14,7 @@
                  [optimizer :as &optimizer]
                  [host :as &host])
             [lux.analyser.base :as &a]
-            [lux.analyser.def :as &a-def]
+            [lux.analyser.module :as &a-module]
             (lux.compiler [base :as &&]
                           [lux :as &&lux]
                           [host :as &&host]
@@ -315,8 +315,8 @@
     [["Statement" ?form]]
     (do ;; (prn 'compile-statement (aget syntax 0) (aget ?form 0))
         (matchv ::M/objects [?form]
-          [["def" [?name ?body]]]
-          (&&lux/compile-def compile-expression ?name ?body)
+          [["def" [?name ?body ?def-data]]]
+          (&&lux/compile-def compile-expression ?name ?body ?def-data)
           
           [["jvm-interface" [?package ?name ?methods]]]
           (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
@@ -375,7 +375,7 @@
                                                                             (&/set$ &/$SOURCE (&/V "lux;Some" (&reader/from (str "source/" name ".lux"))))
                                                                             (&/set$ &/$ENVS (&/|list (&/env name)))
                                                                             (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
-                                                                            (&/update$ &/$MODULES #(&/|put name &a-def/init-module %))))]
+                                                                            (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]
             [["lux;Right" [?state _]]]
             (do (.visitEnd =class)
               ;; (prn 'compile-module 'DONE name)
