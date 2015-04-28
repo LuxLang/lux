@@ -367,7 +367,7 @@
   (defn ^:private compile-module [name]
     (fn [state]
       (if (->> state (&/get$ &/$MODULES) (&/|contains? name))
-        (fail "[Compiler Error] Can't redefine a module!")
+        (fail* "[Compiler Error] Can't redefine a module!")
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]

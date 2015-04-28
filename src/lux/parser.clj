@@ -9,7 +9,7 @@
 (do-template [<name> <close-tag> <description> <tag>]
   (defn <name> [parse]
     (|do [elems (&/repeat% parse)
-           token &lexer/lex]
+          token &lexer/lex]
       (matchv ::M/objects [token]
         [["lux;Meta" [meta [<close-token> _]]]]
         (return (&/V <tag> (&/fold &/|++ (&/|list) elems)))
@@ -22,13 +22,19 @@
   )
 
 (defn ^:private parse-record [parse]
-  (|do [elems* (&/repeat% parse)
-         token &lexer/lex
-         :let [elems (&/fold &/|++ (&/|list) elems*)]]
+  (|do [;; :let [_ (prn 'parse-record 0)]
+        elems* (&/repeat% parse)
+        ;; :let [_ (prn 'parse-record 1)]
+        token &lexer/lex
+        ;; :let [_ (prn 'parse-record 2)]
+        :let [elems (&/fold &/|++ (&/|list) elems*)]
+        ;; :let [_ (prn 'parse-record 3)]
+        ]
     (matchv ::M/objects [token]
       [["lux;Meta" [meta ["Close_Brace" _]]]]
       (if (even? (&/|length elems))
-        (return (&/V "lux;Record" (&/|as-pairs elems)))
+        (do ;; (prn 'PARSED_RECORD (&/|length elems))
+          (return (&/V "lux;Record" (&/|as-pairs elems))))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
       
       [_]
@@ -37,9 +43,9 @@
 ;; [Interface]
 (def parse
   (|do [token &lexer/lex
-         ;; :let [_ (prn 'parse/token token)]
-         ;; :let [_ (prn 'parse (aget token 0))]
-         ]
+        ;; :let [_ (prn 'parse/token token)]
+        ;; :let [_ (prn 'parse (aget token 0))]
+        ]
     (matchv ::M/objects [token]
       [["lux;Meta" [meta ["White_Space" _]]]]
       (return (&/|list))

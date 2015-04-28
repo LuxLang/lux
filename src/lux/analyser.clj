@@ -6,7 +6,6 @@
                  [reader :as &reader]
                  [parser :as &parser]
                  [type :as &type]
-                 [macro :as &macro]
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [lux :as &&lux]
@@ -61,7 +60,7 @@
     (&&lux/analyse-tuple analyse exo-type ?elems)
 
     [["lux;Meta" [meta ["lux;Record" ?elems]]]]
-    (&&lux/analyse-record analyse ?elems)
+    (&&lux/analyse-record analyse exo-type ?elems)
 
     [["lux;Meta" [meta ["lux;Tag" ?ident]]]]
     (&&lux/analyse-variant analyse exo-type ?ident (_meta (&/V "lux;Tuple" (|list))))

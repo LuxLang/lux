@@ -27,10 +27,11 @@
                nil)
       
       [_]
-      (fail "[Analyser Error] Can't create a new global definition outside of a global environment."))))
+      (fail* "[Analyser Error] Can't create a new global definition outside of a global environment."))))
 
 (defn exists? [name]
   (fn [state]
+    ;; (prn `exists? name (->> state (&/get$ &/$MODULES) (&/|contains? name)))
     (return* state
              (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
 
@@ -38,7 +39,7 @@
   (fn [state]
     (if-let [real-name (->> state (&/get$ &/$MODULE-ALIASES) (&/|get name))]
       (return* state real-name)
-      (fail (str "Unknown alias: " name)))))
+      (fail* (str "Unknown alias: " name)))))
 
 (defn find-def [module name]
   (fn [state]

@@ -29,6 +29,7 @@
 
       [["BoolTestAC" ?value]]
       (doto writer
+        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Boolean"))
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Boolean") "booleanValue" "()Z")
         (.visitLdcInsn ?value)
@@ -38,6 +39,7 @@
 
       [["IntTestAC" ?value]]
       (doto writer
+        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Long"))
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Long") "longValue" "()J")
         (.visitLdcInsn ?value)
@@ -48,6 +50,7 @@
 
       [["RealTestAC" ?value]]
       (doto writer
+        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Double"))
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Double") "doubleValue" "()D")
         (.visitLdcInsn ?value)
@@ -58,6 +61,7 @@
 
       [["CharTestAC" ?value]]
       (doto writer
+        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Character"))
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Character") "charValue" "()C")
         (.visitLdcInsn ?value)

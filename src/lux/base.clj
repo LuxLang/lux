@@ -429,20 +429,6 @@
     [_]
     (return nil)))
 
-(defn repeat% [monad]
-  (fn [state]
-    (matchv ::M/objects [(monad state)]
-      [["lux;Right" [?state ?head]]]
-      (do ;; (prn 'repeat-m/?state ?state)
-          (matchv ::M/objects [((repeat% monad) ?state)]
-            [["lux;Right" [?state* ?tail]]]
-            (do ;; (prn 'repeat-m/?state* ?state*)
-                (return* ?state* (|cons ?head ?tail)))))
-      
-      [["lux;Left" ?message]]
-      (do ;; (println "Failed at last:" ?message)
-          (return* state (V "lux;Nil" nil))))))
-
 (def source-consumed?
   (fn [state]
     (matchv ::M/objects [(get$ $SOURCE state)]
@@ -475,6 +461,12 @@
           )))
     ))
 
+(defn repeat% [monad]
+  (try-all% (|list (|do [head monad
+                         tail (repeat% monad)]
+                     (return (|cons head tail)))
+                   (return (|list)))))
+
 (defn exhaust% [step]
   (fn [state]
     (matchv ::M/objects [(step state)]
@@ -485,7 +477,7 @@
       ((|do [? source-consumed?]
          (if ?
            (return nil)
-           (fail* msg)))
+           (fail msg)))
        state)
       ;; (if (= "[Reader Error] EOF" msg)
       ;;   ((|do [? source-consumed?
@@ -599,7 +591,7 @@
     (try (let [top (|head (get$ $ENVS state))]
            (return* state top))
       (catch Throwable _
-        (fail "No local environment.")))))
+        (fail* "No local environment.")))))
 
 (defn ->seq [xs]
   (matchv ::M/objects [xs]
@@ -704,6 +696,13 @@
 
     [["lux;Meta" [_ ["lux;Tuple" ?elems]]]]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
+
+    [["lux;Meta" [_ ["lux;Record" ?elems]]]]
+    (str "{" (->> ?elems
+                  (|map (fn [elem]
+                          (|let [[k v] elem]
+                            (str "#" (show-ast k) " " (show-ast v)))))
+                  (|interpose " ") (fold str "")) "}")
 
     [["lux;Meta" [_ ["lux;Form" ?elems]]]]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")

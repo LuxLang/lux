@@ -177,10 +177,11 @@
             (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
             
             [["lux;None" _]]
-            (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V "lux;Some" type) %)
-                                                               ts))
-                                state)
-                     nil)))
+            (do ;; (prn 'set-var id (show-type type))
+              (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V "lux;Some" type) %)
+                                                              ts))
+                                  state)
+                       nil))))
       (fail* (str "[Type Error] Unknown type-var: " id)))))
 
 ;; [Exports]
@@ -309,7 +310,7 @@
                     (&/|map (fn [kv]
                               (matchv ::M/objects [kv]
                                 [[k v]]
-                                (str "(#" k " " (show-type v) ")"))))
+                                (str "#" k " " (show-type v)))))
                     (&/|interpose " ")
                     (&/fold str "")) ")")
 
@@ -326,7 +327,15 @@
     (str "(" (show-type ?lambda) " " (show-type ?param) ")")
     
     [["lux;AllT" [?env ?name ?arg ?body]]]
-    (str "(All " ?name " " ?arg " " (show-type ?body) ")")
+    (let [[args body] (loop [args (list ?arg)
+                             body* ?body]
+                        (matchv ::M/objects [body*]
+                          [["lux;AllT" [?env* ?name* ?arg* ?body*]]]
+                          (recur (cons ?arg* args) ?body*)
+
+                          [_]
+                          [args body*]))]
+      (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
     ))
 
 (defn type= [x y]
@@ -523,6 +532,21 @@
                            (return (&/T fixpoints nil)))
                          (|do [bound (deref ?id)]
                            (check* fixpoints expected bound))))
+
+    ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [F2 A2]]]
+    ;; (|do [_ (check* fixpoints F1 F2)
+    ;;       _ (check* fixpoints A1 A2)]
+    ;;   (return (&/T fixpoints nil)))
+
+    [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
+    (|do [[fixpoints _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+          [fixpoints _] (check* fixpoints A1 A2)]
+      (return (&/T fixpoints nil)))
+
+    [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+    (|do [[fixpoints _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+          [fixpoints _] (check* fixpoints A1 A2)]
+      (return (&/T fixpoints nil)))
 
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)

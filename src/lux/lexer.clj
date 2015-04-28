@@ -102,7 +102,10 @@
 
 (def ^:private lex-tag
   (|do [[_ [meta _]] (&reader/read-text "#")
-         [_ [_ ident]] lex-ident]
+        ;; :let [_ (prn 'lex-tag)]
+        [_ [_ ident]] lex-ident
+        ;; :let [_ (prn 'lex-tag [(aget ident 0) (aget ident 1)])]
+        ]
     (return (&/V "lux;Meta" (&/T meta (&/V "Tag" ident))))))
 
 (do-template [<name> <text> <tag>]

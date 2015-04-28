@@ -68,26 +68,26 @@
     (return nil)))
 
 (defn compile-record [compile *type* ?elems]
+  ;; (prn 'compile-record (str "{{" (->> ?elems &/|keys (&/|interpose " ") (&/fold str "")) "}}"))
   (|do [*writer* &/get-writer
-        :let [num-elems (&/|length ?elems)
+        :let [elems* (->> ?elems
+                          &/->seq
+                          (sort #(compare (&/|first %1) (&/|first %2)))
+                          &/->list)
+              ;; _ (prn 'compile-record (str "{{" (->> elems* &/|keys (&/|interpose " ") (&/fold str "")) "}}"))
+              num-elems (&/|length elems*)
               _ (doto *writer*
-                  (.visitLdcInsn (int (* 2 num-elems)))
+                  (.visitLdcInsn (int num-elems))
                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
         _ (&/map% (fn [idx+kv]
                     (|let [[idx [k v]] idx+kv]
-                      (|do [:let [idx* (* 2 idx)
-                                  _ (doto *writer*
+                      (|do [:let [_ (doto *writer*
                                       (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int idx*))
-                                      (.visitLdcInsn k)
-                                      (.visitInsn Opcodes/AASTORE))]
-                            :let [_ (doto *writer*
-                                      (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int (inc idx*))))]
+                                      (.visitLdcInsn (int idx)))]
                             ret (compile v)
                             :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                         (return ret))))
-                  (&/zip2 (&/|range num-elems) ?elems))]
+                  (&/zip2 (&/|range num-elems) elems*))]
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
