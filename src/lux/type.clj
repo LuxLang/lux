@@ -114,7 +114,7 @@
                                        (&/T "lux;Tag" Ident)
                                        (&/T "lux;Form" Syntax*List)
                                        (&/T "lux;Tuple" Syntax*List)
-                                       (&/T "lux;Record" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Syntax*))))))
+                                       (&/T "lux;Record" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Syntax* Syntax*))))))
                ))))
 
 (def Syntax
@@ -141,14 +141,7 @@
     (if-let [type (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
       (matchv ::M/objects [type]
         [["lux;Some" type*]]
-        (matchv ::M/objects [type*]
-          [["lux;VarT" ?id]]
-          (&/run-state (&/try-all% (&/|list (bound? ?id)
-                                            (return false)))
-                       state)
-
-          [_]
-          (return* state true))
+        (return* state true)
         
         [["lux;None" _]]
         (return* state false))
@@ -222,8 +215,7 @@
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
     (if (= ?tid ?id)
-      (|do [=type (deref ?id)]
-        (clean* ?tid =type))
+      (deref ?id)
       (return type))
     
     [["lux;LambdaT" [?arg ?return]]]
@@ -514,12 +506,36 @@
     [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
     (if (= ?eid ?aid)
       (return (&/T fixpoints nil))
-      (&/try-all% (&/|list (|do [ebound (deref ?eid)]
-                             (check* fixpoints ebound actual))
-                           (|do [abound (deref ?aid)]
-                             (check* fixpoints expected abound))
-                           (|do [_ (set-var ?eid actual)]
-                             (return (&/T fixpoints nil))))))
+      ;; (&/try-all% (&/|list (|do [ebound (deref ?eid)]
+      ;;                        (check* fixpoints ebound actual))
+      ;;                      (|do [abound (deref ?aid)]
+      ;;                        (check* fixpoints expected abound))
+      ;;                      (|do [_ (set-var ?eid actual)]
+      ;;                        (return (&/T fixpoints nil)))))
+      (|do [ebound (&/try-all% (&/|list (|do [ebound (deref ?eid)]
+                                          (return (&/V "lux;Some" ebound)))
+                                        (return (&/V "lux;None" nil))))
+            abound (&/try-all% (&/|list (|do [abound (deref ?aid)]
+                                          (return (&/V "lux;Some" abound)))
+                                        (return (&/V "lux;None" nil))))]
+        (matchv ::M/objects [ebound abound]
+          [["lux;None" _] ["lux;None" _]]
+          (|do [_ (set-var ?eid actual)]
+            (return (&/T fixpoints nil)))
+
+          [["lux;Some" etype] ["lux;None" _]]
+          (check* fixpoints etype actual)
+          ;; (|do [_ (set-var ?aid etype)]
+          ;;   (return (&/T fixpoints nil)))
+
+          [["lux;None" _] ["lux;Some" atype]]
+          (check* fixpoints expected atype)
+          ;; (|do [_ (set-var ?eid atype)]
+          ;;   (return (&/T fixpoints nil)))
+
+          [["lux;Some" etype] ["lux;Some" atype]]
+          (check* fixpoints etype atype)))
+      )
     
     [["lux;VarT" ?id] _]
     (&/try-all% (&/|list (|do [_ (set-var ?id actual)]
