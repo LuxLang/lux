@@ -53,20 +53,26 @@
 
                     [_]
                     (&type/actual-type exo-type))
-        ?tag (&&/resolved-ident ident)
         ;; :let [_ (prn 'analyse-variant/exo-type* (&type/show-type exo-type*))]
         ]
     (matchv ::M/objects [exo-type*]
       [["lux;VariantT" ?cases]]
-      (if-let [vtype (&/|get ?tag ?cases)]
-        (|do [;; :let [_ (prn 'VARIANT_BODY ?tag (&/show-ast ?value) (&type/show-type vtype))]
-              =value (&&/analyse-1 analyse vtype ?value)
-              ;; :let [_ (prn 'GOT_VALUE =value)]
-              ]
-          (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value))
-                                                  exo-type)))))
-        (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*))))
+      (|do [?tag (&&/resolved-ident ident)]
+        (if-let [vtype (&/|get ?tag ?cases)]
+          (|do [;; :let [_ (prn 'VARIANT_BODY ?tag (&/show-ast ?value) (&type/show-type vtype))]
+                =value (&&/analyse-1 analyse vtype ?value)
+                ;; :let [_ (prn 'GOT_VALUE =value)]
+                ]
+            (return (&/|list (&/V "Expression" (&/T (&/V "variant" (&/T ?tag =value))
+                                                    exo-type)))))
+          (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
 
+      [["lux;AllT" _]]
+      (&type/with-var
+        (fn [$var]
+          (|do [exo-type** (&type/apply-type exo-type* $var)]
+            (analyse-variant analyse exo-type** ident ?value))))
+      
       [_]
       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
@@ -291,7 +297,7 @@
     [_]
     (fail (str "[Analyser Error] Functions require function types: "
                ;; (str (aget ?self 0) ";" (aget ?self 1))
-               ;; (str (aget ?arg 0) ";" (aget ?arg 1))
+               ;; (str( aget ?arg 0) ";" (aget ?arg 1))
                ;; (&/show-ast ?body)
                (&type/show-type exo-type)))))
 

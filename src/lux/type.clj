@@ -235,7 +235,8 @@
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
     (if (= ?tid ?id)
-      (deref ?id)
+      (&/try-all% (&/|list (deref ?id)
+                           (return type)))
       (return type))
     
     [["lux;LambdaT" [?arg ?return]]]
@@ -573,16 +574,32 @@
     ;; (|do [_ (check* fixpoints F1 F2)
     ;;       _ (check* fixpoints A1 A2)]
     ;;   (return (&/T fixpoints nil)))
-
+    [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
+    (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+          _ (check* fixpoints A1 A2)]
+      (return (&/T fixpoints nil)))
+    
+    ;; [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
+    ;; (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+    ;;       [fixpoints** _] (check* fixpoints* A1 A2)]
+    ;;   (return (&/T fixpoints** nil)))
     [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-    (|do [[fixpoints _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
-          [fixpoints _] (check* fixpoints A1 A2)]
-      (return (&/T fixpoints nil)))
+    (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+          e* (apply-type F2 A1)
+          a* (apply-type F2 A2)
+          [fixpoints** _] (check* fixpoints* e* a*)]
+      (return (&/T fixpoints** nil)))
 
+    ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+    ;; (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+    ;;       [fixpoints** _] (check* fixpoints* A1 A2)]
+    ;;   (return (&/T fixpoints** nil)))
     [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
-    (|do [[fixpoints _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
-          [fixpoints _] (check* fixpoints A1 A2)]
-      (return (&/T fixpoints nil)))
+    (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+          e* (apply-type F1 A1)
+          a* (apply-type F1 A2)
+          [fixpoints** _] (check* fixpoints* e* a*)]
+      (return (&/T fixpoints** nil)))
 
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)
@@ -733,6 +750,12 @@
     [["lux;AppT" [?all ?param]]]
     (|do [type* (apply-type ?all ?param)]
       (actual-type type*))
+
+    ;; [["lux;AllT" [?env ?self ?arg ?body]]]
+    ;; (with-var
+    ;;   (fn [$var]
+    ;;     (|do [type* (apply-type type $var)]
+    ;;       (actual-type type*))))
 
     [_]
     (return type)

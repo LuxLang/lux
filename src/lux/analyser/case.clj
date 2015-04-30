@@ -72,22 +72,31 @@
           [_]
           (fail "[Analyser Error] Tuple requires tuple-type."))
 
-        [["lux;Record" ?fields]]
-        (&type/with-vars (&/|length ?fields)
-          (fn [=vars]
-            (|do [_ (&type/check value-type (&/V "lux;RecordT" (&/zip2 (&/|keys ?fields) =vars)))
-                  [=tests =kont] (&/fold (fn [kont* vm]
-                                           (|let [[v [k m]] vm]
-                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                               (matchv ::M/objects [=kont]
-                                                 [["Expression" [?val ?type]]]
-                                                 (|do [=type (&type/clean v ?type)]
-                                                   (return (&/T (&/|put k =test =tests)
-                                                                (&/V "Expression" (&/T ?val =type)))))))))
-                                         (|do [=kont kont]
-                                           (return (&/T (&/|table) =kont)))
-                                         (&/|reverse (&/zip2 =vars ?fields)))]
-              (return (&/T (&/V "RecordTestAC" =tests) =kont)))))
+        [["lux;Record" ?slots]]
+        (|do [value-type* (resolve-type value-type)]
+          (matchv ::M/objects [value-type*]
+            [["lux;RecordT" ?slot-types]]
+            (if (not (= (&/|length ?slot-types) (&/|length ?slots)))
+              (fail (str "[Analyser error] Pattern-matching mismatch. Require record[" (&/|length ?slot-types) "]. Given record[" (&/|length ?slots) "]"))
+              (|do [[=tests =kont] (&/fold (fn [kont* slot]
+                                             (|let [[sn sv] slot]
+                                               (matchv ::M/objects [sn]
+                                                 [["lux;Meta" [_ ["lux;Tag" ?ident]]]]
+                                                 (|do [=tag (&&/resolved-ident ?ident)]
+                                                   (if-let [=slot-type (&/|get =tag ?slot-types)]
+                                                     (|do [[=test [=tests =kont]] (analyse-pattern =slot-type sv kont*)]
+                                                       (return (&/T (&/|put =tag =test =tests) =kont)))
+                                                     (fail (str "[Pattern-Matching Error] Record-type lacks slot: " =tag))))
+
+                                                 [_]
+                                                 (fail (str "[Pattern-Matching Error] Record must use tags as slot-names: " (&/show-ast sn))))))
+                                           (|do [=kont kont]
+                                             (return (&/T (&/|table) =kont)))
+                                           (&/|reverse ?slots))]
+                (return (&/T (&/V "RecordTestAC" =tests) =kont))))
+
+            [_]
+            (fail "[Analyser Error] Record requires record-type.")))
 
         [["lux;Tag" ?ident]]
         (|do [=tag (&&/resolved-ident ?ident)
@@ -172,21 +181,27 @@
         [["DefaultTotal" total?] ["RecordTestAC" ?tests]]
         (|do [structs (&/map% (fn [t]
                                 (|let [[slot value] t]
-                                  (|do [struct (merge-total (&/V "DefaultTotal" total?) (&/T value ?body))]
-                                    (return (&/T slot struct)))))
-                              (sort compare-kv ?tests))]
+                                  (|do [struct* (merge-total (&/V "DefaultTotal" total?) (&/T value ?body))]
+                                    (return (&/T slot struct*)))))
+                              (->> ?tests
+                                   &/->seq
+                                   (sort compare-kv)
+                                   &/->list))]
           (return (&/V "RecordTotal" (&/T total? structs))))
 
         [["RecordTotal" [total? ?values]] ["RecordTestAC" ?tests]]
         (if (= (&/|length ?values) (&/|length ?tests))
           (|do [structs (&/map% (fn [lr]
-                                  (|let [[[lslot struct] [rslot value]] lr]
+                                  (|let [[[lslot sub-struct] [rslot value]] lr]
                                     (if (= lslot rslot)
-                                      (|do [struct (merge-total (&/V "DefaultTotal" total?) (&/T value ?body))]
-                                        (return (&/T lslot struct)))
+                                      (|do [sub-struct* (merge-total sub-struct (&/T value ?body))]
+                                        (return (&/T lslot sub-struct*)))
                                       (fail "[Pattern-matching error] Record slots mismatch."))))
                                 (&/zip2 ?values
-                                        (sort compare-kv ?tests)))]
+                                        (->> ?tests
+                                             &/->seq
+                                             (sort compare-kv)
+                                             &/->list)))]
             (return (&/V "RecordTotal" (&/T total? structs))))
           (fail "[Pattern-matching error] Inconsistent record-size."))
 

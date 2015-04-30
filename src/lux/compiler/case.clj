@@ -18,7 +18,8 @@
 ;; [Utils]
 (let [+tag-sig+ (&host/->type-signature "java.lang.String")
       +oclass+ (&host/->class "java.lang.Object")
-      +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")]
+      +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")
+      compare-kv #(compare (aget %1 0) (aget %2 0))]
   (defn ^:private compile-match [writer ?match $target $else]
     ;; (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
@@ -93,6 +94,28 @@
                         $next (new Label)
                         $sub-else (new Label)])
                  (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?members)) ?members))])))
+        (.visitInsn Opcodes/POP)
+        (.visitJumpInsn Opcodes/GOTO $target))
+
+      [["RecordTestAC" ?slots]]
+      (doto writer
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (-> (doto (.visitInsn Opcodes/DUP)
+              (.visitLdcInsn (int idx))
+              (.visitInsn Opcodes/AALOAD)
+              (compile-match test $next $sub-else)
+              (.visitLabel $sub-else)
+              (.visitInsn Opcodes/POP)
+              (.visitJumpInsn Opcodes/GOTO $else)
+              (.visitLabel $next))
+            (->> (|let [[idx [_ test]] idx+member
+                        $next (new Label)
+                        $sub-else (new Label)])
+                 (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?slots))
+                                                     (->> ?slots
+                                                          &/->seq
+                                                          (sort compare-kv)
+                                                          &/->list)))])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       
