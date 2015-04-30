@@ -188,16 +188,36 @@
                           state)
                id))))
 
+(declare clean*)
 (defn ^:private delete-var [id]
   (fn [state]
-    ;; (prn 'delete-var id)
-    (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
-      (return* (&/update$ &/$TYPES #(->> %
-                                            (&/update$ &/$COUNTER dec)
-                                            (&/update$ &/$MAPPINGS (fn [ms] (&/|remove id ms))))
-                          state)
-               nil)
-      (fail* (str "[Type Error] Unknown type-var: " id)))))
+    (&/run-state (|do [mappings* (&/map% (fn [binding]
+                                           (|let [[?id ?type] binding]
+                                             (if (= id ?id)
+                                               (return binding)
+                                               (matchv ::M/objects [?type]
+                                                 [["lux;Some" ?type*]]
+                                                 (matchv ::M/objects [?type*]
+                                                   [["lux;VarT" ?id*]]
+                                                   (if (= id ?id*)
+                                                     (return (&/T ?id (&/V "lux;None" nil)))
+                                                     (|do [?type** (clean* id ?type*)]
+                                                       (return (&/T ?id (&/V "lux;Some" ?type**)))))
+
+                                                   [_]
+                                                   (|do [?type** (clean* id ?type*)]
+                                                     (return (&/T ?id (&/V "lux;Some" ?type**)))))
+                                                 
+                                                 [["lux;None" _]]
+                                                 (return binding)))))
+                                         (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
+                   (fn [state]
+                     (return* (&/update$ &/$TYPES #(->> %
+                                                        (&/update$ &/$COUNTER dec)
+                                                        (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
+                                         state)
+                              nil)))
+                 state)))
 
 (defn with-var [k]
   (|do [id create-var
