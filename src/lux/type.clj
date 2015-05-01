@@ -150,7 +150,8 @@
                                                                                 (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
                                                                                                      $Void)))))
                                            (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
-                                           (&/T "lux;host" HostState))))
+                                           (&/T "lux;host" HostState)
+                                           (&/T "lux;seed" Int))))
                        $Void)))
 
 (def Macro
@@ -212,37 +213,42 @@
 
 (declare clean*)
 (defn ^:private delete-var [id]
-  (fn [state]
-    (&/run-state (|do [mappings* (&/map% (fn [binding]
-                                           (|let [[?id ?type] binding]
-                                             (if (= id ?id)
-                                               (return binding)
-                                               (matchv ::M/objects [?type]
-                                                 [["lux;None" _]]
+  (|do [? (bound? id)
+        _ (if ?
+            (return nil)
+            (|do [seed &/gen-id]
+              (set-var id (&/V "lux;BoundT" (str seed)))))]
+    (fn [state]
+      (&/run-state (|do [mappings* (&/map% (fn [binding]
+                                             (|let [[?id ?type] binding]
+                                               (if (= id ?id)
                                                  (return binding)
+                                                 (matchv ::M/objects [?type]
+                                                   [["lux;None" _]]
+                                                   (return binding)
 
-                                                 [["lux;Some" ?type*]]
-                                                 (matchv ::M/objects [?type*]
-                                                   [["lux;VarT" ?id*]]
-                                                   (if (= id ?id*)
-                                                     (return (&/T ?id (&/V "lux;None" nil)))
-                                                     (return binding)
-                                                     ;; (|do [?type** (clean* id ?type*)]
-                                                     ;;   (return (&/T ?id (&/V "lux;Some" ?type**))))
-                                                     )
+                                                   [["lux;Some" ?type*]]
+                                                   (matchv ::M/objects [?type*]
+                                                     [["lux;VarT" ?id*]]
+                                                     (if (= id ?id*)
+                                                       (return (&/T ?id (&/V "lux;None" nil)))
+                                                       (return binding)
+                                                       ;; (|do [?type** (clean* id ?type*)]
+                                                       ;;   (return (&/T ?id (&/V "lux;Some" ?type**))))
+                                                       )
 
-                                                   [_]
-                                                   (|do [?type** (clean* id ?type*)]
-                                                     (return (&/T ?id (&/V "lux;Some" ?type**)))))
-                                                 ))))
-                                         (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
-                   (fn [state]
-                     (return* (&/update$ &/$TYPES #(->> %
-                                                        (&/update$ &/$COUNTER dec)
-                                                        (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
-                                         state)
-                              nil)))
-                 state)))
+                                                     [_]
+                                                     (|do [?type** (clean* id ?type*)]
+                                                       (return (&/T ?id (&/V "lux;Some" ?type**)))))
+                                                   ))))
+                                           (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
+                     (fn [state]
+                       (return* (&/update$ &/$TYPES #(->> %
+                                                          (&/update$ &/$COUNTER dec)
+                                                          (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
+                                           state)
+                                nil)))
+                   state))))
 
 (defn with-var [k]
   (|do [id create-var
@@ -748,6 +754,11 @@
                                 (&/|keys e!fields))]
         (return (&/T fixpoints* nil)))
       (fail "[Type Error] Records don't match in size."))
+
+    [["lux;BoundT" e!name] ["lux;BoundT" a!name]]
+    (if (= e!name a!name)
+      (return (&/T fixpoints nil))
+      (check-error expected actual))
 
     [_ _]
     (fail (println-str "[Type Error] Can't type-check: " (show-type expected) (show-type actual)))

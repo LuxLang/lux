@@ -165,3 +165,7 @@
         ;; :let [_ (prn 'compile-def/_2 ?name)]
         ]
     (return nil)))
+
+(defn compile-declare-macro [compile module name]
+  (|do [_ (&a-module/declare-macro module name)]
+    (return nil)))

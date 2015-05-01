@@ -24,8 +24,9 @@
 (def $HOST 1)
 (def $MODULE-ALIASES 2)
 (def $MODULES 3)
-(def $SOURCE 4)
-(def $TYPES 5)
+(def $SEED 4)
+(def $SOURCE 5)
+(def $TYPES 6)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -555,6 +556,8 @@
    (|table)
    ;; "lux;modules"
    (|table)
+   ;; "lux;seed"
+   0
    ;; "lux;source"
    (V "lux;None" nil)
    ;; "lux;types"
@@ -592,6 +595,11 @@
            (return* state top))
       (catch Throwable _
         (fail* "No local environment.")))))
+
+(def gen-id
+  (fn [state]
+    (let [seed (get$ $SEED state)]
+      (return* (set$ $SEED (inc seed) state) seed))))
 
 (defn ->seq [xs]
   (matchv ::M/objects [xs]

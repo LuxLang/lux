@@ -317,6 +317,9 @@
         (matchv ::M/objects [?form]
           [["def" [?name ?body ?def-data]]]
           (&&lux/compile-def compile-expression ?name ?body ?def-data)
+
+          [["declare-macro" [?module ?name]]]
+          (&&lux/compile-declare-macro compile-expression ?module ?name)
           
           [["jvm-interface" [?package ?name ?methods]]]
           (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
