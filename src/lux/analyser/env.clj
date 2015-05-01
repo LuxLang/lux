@@ -18,7 +18,7 @@
                                      (let [bound-unit (&/V "local" (->> (&/|head stack) (&/get$ &/$LOCALS) (&/get$ &/$COUNTER)))]
                                        (&/|cons (->> (&/|head stack)
                                                      (&/update$ &/$LOCALS #(&/update$ &/$COUNTER inc %))
-                                                     (&/update$ &/$LOCALS #(&/update$ &/$MAPPINGS (fn [m] (&/|put name (&/V "Expression" (&/T bound-unit type)) m)) %)))
+                                                     (&/update$ &/$LOCALS #(&/update$ &/$MAPPINGS (fn [m] (&/|put name (&/T bound-unit type) m)) %)))
                                                 (&/|tail stack))))
                                    state))]
       (matchv ::M/objects [=return]

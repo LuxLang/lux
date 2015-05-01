@@ -38,23 +38,23 @@
     ;; Standard special forms
     [["lux;Meta" [meta ["lux;Bool" ?value]]]]
     (|do [_ (&type/check exo-type &type/Bool)]
-      (return (&/|list (&/V "Expression" (&/T (&/V "bool" ?value) exo-type)))))
+      (return (&/|list (&/T (&/V "bool" ?value) exo-type))))
 
     [["lux;Meta" [meta ["lux;Int" ?value]]]]
     (|do [_ (&type/check exo-type &type/Int)]
-      (return (&/|list (&/V "Expression" (&/T (&/V "int" ?value) exo-type)))))
+      (return (&/|list (&/T (&/V "int" ?value) exo-type))))
 
     [["lux;Meta" [meta ["lux;Real" ?value]]]]
     (|do [_ (&type/check exo-type &type/Real)]
-      (return (&/|list (&/V "Expression" (&/T (&/V "real" ?value) exo-type)))))
+      (return (&/|list (&/T (&/V "real" ?value) exo-type))))
 
     [["lux;Meta" [meta ["lux;Char" ?value]]]]
     (|do [_ (&type/check exo-type &type/Char)]
-      (return (&/|list (&/V "Expression" (&/T (&/V "char" ?value) exo-type)))))
+      (return (&/|list (&/T (&/V "char" ?value) exo-type))))
 
     [["lux;Meta" [meta ["lux;Text" ?value]]]]
     (|do [_ (&type/check exo-type &type/Text)]
-      (return (&/|list (&/V "Expression" (&/T (&/V "text" ?value) exo-type)))))
+      (return (&/|list (&/T (&/V "text" ?value) exo-type))))
 
     [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
     (&&lux/analyse-tuple analyse exo-type ?elems)
@@ -66,7 +66,7 @@
     (&&lux/analyse-variant analyse exo-type ?ident (_meta (&/V "lux;Tuple" (|list))))
     
     [["lux;Meta" [meta ["lux;Symbol" ["" "jvm-null"]]]]]
-    (return (&/|list (&/V "Expression" (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null")))))
+    (return (&/|list (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null"))))
     
     [["lux;Meta" [meta ["lux;Symbol" ?ident]]]]
     (&&lux/analyse-symbol analyse exo-type ?ident)

@@ -34,7 +34,7 @@
 (defn total-locals [expr]
   ;; (prn 'total-locals1 (aget expr 0))
   (matchv ::M/objects [expr]
-    [["Expression" [?struct ?type]]]
+    [[?struct ?type]]
     (do ;; (prn 'total-locals2 (aget ?struct 0))
         (matchv ::M/objects [?struct]
           [["case" [?variant ?base-register ?num-registers ?branches]]]

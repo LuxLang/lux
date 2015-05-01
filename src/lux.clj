@@ -14,9 +14,6 @@
 
   ;; Finish total-locals
 
-  ;; TODO: Change &type/check to it returns a tuple with the new expected & actual types
-  ;; TODO: Stop passing-along the exo-types and instead pass-along endo-types where possible
-  
   (time (&compiler/compile-all (&/|list "lux")))
   (System/gc)
   (time (&compiler/compile-all (&/|list "lux" "test2")))

@@ -31,7 +31,7 @@
 (defn ^:private compile-expression [syntax]
   ;; (prn 'compile-expression (aget syntax 0))
   (matchv ::M/objects [syntax]
-    [["Expression" [?form ?type]]]
+    [[?form ?type]]
     (do ;; (prn 'compile-expression2 (aget ?form 0))
         (matchv ::M/objects [?form]
           [["bool" ?value]]
@@ -305,30 +305,22 @@
           [["jvm-program" ?body]]
           (&&host/compile-jvm-program compile-expression ?type ?body)
           ))
-
-    [_]
-    (fail "[Compiler Error] Can't compile statements as expressions.")))
+    ))
 
 (defn ^:private compile-statement [syntax]
   ;; (prn 'compile-statement syntax)
   (matchv ::M/objects [syntax]
-    [["Statement" ?form]]
-    (do ;; (prn 'compile-statement (aget syntax 0) (aget ?form 0))
-        (matchv ::M/objects [?form]
-          [["def" [?name ?body ?def-data]]]
-          (&&lux/compile-def compile-expression ?name ?body ?def-data)
+    [["def" [?name ?body ?def-data]]]
+    (&&lux/compile-def compile-expression ?name ?body ?def-data)
 
-          [["declare-macro" [?module ?name]]]
-          (&&lux/compile-declare-macro compile-expression ?module ?name)
-          
-          [["jvm-interface" [?package ?name ?methods]]]
-          (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
+    [["declare-macro" [?module ?name]]]
+    (&&lux/compile-declare-macro compile-expression ?module ?name)
+    
+    [["jvm-interface" [?package ?name ?methods]]]
+    (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
 
-          [["jvm-class" [?package ?name ?super-class ?fields ?methods]]]
-          (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods)))
-
-    [_]
-    (fail "[Compiler Error] Can't compile expressions as top-level forms.")))
+    [["jvm-class" [?package ?name ?super-class ?fields ?methods]]]
+    (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods)))
 
 (defn ^:private eval! [expr]
   ;; (prn 'eval! (aget expr 0))

@@ -43,7 +43,7 @@
                    ;; _ (prn 'add-lambda-<init> class-name ?captured-id)
                    ])
              (matchv ::M/objects [?name+?captured]
-               [[?name ["Expression" [["captured" [_ ?captured-id ?source]] _]]]])
+               [[?name [["captured" [_ ?captured-id ?source]] _]]])
              (doseq [?name+?captured (&/->seq env)])))
     (.visitInsn Opcodes/RETURN)
     (.visitMaxs 0 0)
@@ -86,32 +86,32 @@
                   (.visitInsn Opcodes/DUP))
               ;; _ (prn 'closed-over/pre
               ;;        (&/->seq (&/|map #(matchv ::M/objects [(&/|second %1)]
-              ;;                            [["Expression" [["captured" [_ ?cid _]] _]]]
+              ;;                            [[["captured" [_ ?cid _]] _]]
               ;;                            ?cid)
               ;;                         closed-over)))
               ;; _ (prn 'closed-over/post
               ;;        (->> closed-over
               ;;             &/->seq
               ;;             (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
-              ;;                      [["Expression" [["captured" [_ ?cid1 _]] _]]
-              ;;                       ["Expression" [["captured" [_ ?cid2 _]] _]]]
+              ;;                      [[["captured" [_ ?cid1 _]] _]
+              ;;                       [["captured" [_ ?cid2 _]] _]]
               ;;                      (< ?cid1 ?cid2)))
               ;;             &/->list
               ;;             (&/|map #(matchv ::M/objects [(&/|second %1)]
-              ;;                        [["Expression" [["captured" [_ ?cid _]] _]]]
+              ;;                        [[["captured" [_ ?cid _]] _]]
               ;;                        ?cid))
               ;;             &/->seq))
               ]
         _ (->> closed-over
                &/->seq
                (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
-                        [["Expression" [["captured" [_ ?cid1 _]] _]]
-                         ["Expression" [["captured" [_ ?cid2 _]] _]]]
+                        [[["captured" [_ ?cid1 _]] _]
+                         [["captured" [_ ?cid2 _]] _]]
                         (< ?cid1 ?cid2)))
                &/->list
                (&/map% (fn [?name+?captured]
                          (matchv ::M/objects [?name+?captured]
-                           [[?name ["Expression" [["captured" [_ _ ?source]] _]]]]
+                           [[?name [["captured" [_ _ ?source]] _]]]
                            (do ;; (prn '?source (aget ?source 1 0 0)
                                ;;      (cond (= "captured" (aget ?source 1 0 0))
                                ;;            ["captured" (aget ?source 1 0 1 1)]
@@ -136,7 +136,7 @@
                               (.visitEnd))
                             (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                  (matchv ::M/objects [?name+?captured]
-                                   [[?name ["Expression" [["captured" [_ ?captured-id ?source]] _]]]])
+                                   [[?name [["captured" [_ ?captured-id ?source]] _]]])
                                  (doseq [?name+?captured (&/->seq ?env)
                                          ;; :let [_ (prn '?name+?captured (alength ?name+?captured))
                                          ;;       _ (prn '?name+?captured (aget ?name+?captured 1 0))

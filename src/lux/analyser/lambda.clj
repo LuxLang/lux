@@ -27,14 +27,14 @@
   ;;      register
   ;;      (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER)))
   (matchv ::M/objects [register]
-    [["Expression" [_ register-type]]]
-    (|let [register* (&/V "Expression" (&/T (&/V "captured" (&/T scope
-                                                                 (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER))
-                                                                 register))
-                                            register-type))
+    [[_ register-type]]
+    (|let [register* (&/T (&/V "captured" (&/T scope
+                                               (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER))
+                                               register))
+                          register-type)
            [?module ?name] ident
            full-name (str ?module ";" ?name)]
       (&/T register* (&/update$ &/$CLOSURE #(->> %
-                                                    (&/update$ &/$COUNTER inc)
-                                                    (&/update$ &/$MAPPINGS (fn [mps] (&/|put full-name register* mps))))
+                                                 (&/update$ &/$COUNTER inc)
+                                                 (&/update$ &/$MAPPINGS (fn [mps] (&/|put full-name register* mps))))
                                 frame)))))

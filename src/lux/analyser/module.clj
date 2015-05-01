@@ -21,7 +21,7 @@
                     (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
                                                                     (&/update$ &/$MAPPINGS (fn [mappings]
                                                                                              (&/|put (str "" &/+name-separator+ name)
-                                                                                                     (&/V "Expression" (&/T (&/V "global" (&/T module name)) &type/$Void))
+                                                                                                     (&/T (&/V "global" (&/T module name)) &type/$Void)
                                                                                                      mappings))
                                                                                locals))
                                                         ?env))))

@@ -9,12 +9,8 @@
   ;; (prn 'expr-type syntax+)
   ;; (prn 'expr-type (aget syntax+ 0))
   (matchv ::M/objects [syntax+]
-    [["Expression" [_ type]]]
-    (do ;; (prn 'expr-type (&type/show-type type))
-        (return type))
-    
-    [["Statement" _]]
-    (fail (str "[Analyser Error] Can't retrieve the type of a statement: " (pr-str syntax+)))))
+    [[_ type]]
+    (return type)))
 
 (defn analyse-1 [analyse exo-type elem]
   (|do [output (analyse exo-type elem)]
