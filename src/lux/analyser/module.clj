@@ -2,7 +2,8 @@
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [|do return return* fail fail*]]
-                 [type :as &type])
+                 [type :as &type]
+                 [host :as &host])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
@@ -53,6 +54,35 @@
   (&/try-all% (&/|list (|do [_ (find-def module name)]
                          (return true))
                        (return false))))
+
+(defn declare-macro [module name]
+  (fn [state]
+    (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
+      (if-let [$def (&/|get name $module)]
+        (matchv ::M/objects [$def]
+          [["lux;ValueD" ?type]]
+          (do ;; (prn 'declare-macro/?type (aget ?type 0))
+            (&/run-state (|do [_ (&type/check &type/Macro ?type)
+                               loader &/loader
+                               :let [macro (-> (.loadClass loader (&host/location (&/|list module name)))
+                                               (.getField "_datum")
+                                               (.get nil))]]
+                           (fn [state*]
+                             (return* (&/update$ &/$MODULES
+                                                 (fn [$modules]
+                                                   (&/|put module (&/|put name (&/V "lux;MacroD" (&/V "lux;Some" macro)) $module)
+                                                           $modules))
+                                                 state*)
+                                      nil)))
+                         state))
+          
+          [["lux;MacroD" _]]
+          (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))
+
+          [["lux;TypeD" _]]
+          (fail* (str "[Analyser Error] Definition doesn't have macro type: " module ";" name)))
+        (fail* (str "[Analyser Error] Definition doesn't exist: " (str module &/+name-separator+ name))))
+      (fail* (str "[Analyser Error] Module doesn't exist: " module)))))
 
 (defn install-macro [module name macro]
   (fn [state]

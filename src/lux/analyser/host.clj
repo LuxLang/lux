@@ -2,7 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return fail]]
+            (lux [base :as & :refer [|let |do return fail]]
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
@@ -102,16 +102,19 @@
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]
-    ;; (prn '<name> ?class ?method)
+    (prn '<name> ?class ?method)
     (|do [=class (&host/full-class-name ?class)
           ;; :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
           =classes (&/map% &host/extract-jvm-param ?classes)
           ;; :let [_ (prn 'analyse-jvm-invokevirtual/=classes =classes)]
           =return (&host/lookup-virtual-method =class ?method =classes)
           ;; :let [_ (prn 'analyse-jvm-invokevirtual/=return =return)]
-          =object (&&/analyse-1 analyse ?object)
+          =object (&&/analyse-1 analyse (&/V "lux;DataT" ?class) ?object)
           ;; :let [_ (prn 'analyse-jvm-invokevirtual/=object =object)]
-          =args (&/flat-map% analyse ?args)
+          =args (&/map% (fn [c+o]
+                          (|let [[?c ?o] c+o]
+                            (&&/analyse-1 analyse (&/V "lux;DataT" ?c) ?o)))
+                        (&/zip2 =classes ?args))
           ;; :let [_ (prn 'analyse-jvm-invokevirtual/=args =args)]
           ]
       (return (&/|list (&/V "Expression" (&/T (&/V <tag> (&/T =class ?method =classes =object =args)) =return))))))

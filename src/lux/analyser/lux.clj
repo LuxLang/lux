@@ -38,6 +38,12 @@
         (return (&/|list (&/V "Expression" (&/T (&/V "tuple" =elems)
                                                 exo-type)))))
 
+      [["lux;AllT" _]]
+      (&type/with-var
+        (fn [$var]
+          (|do [exo-type** (&type/apply-type exo-type* $var)]
+            (analyse-tuple analyse exo-type** ?elems))))
+
       [_]
       (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*))))))
 
@@ -315,12 +321,38 @@
               (if ?
                 (|do [dtype (&type/deref ?id)]
                   (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype))))
-                (return output)))))))
+                (matchv ::M/objects [output]
+                  [["Expression" [_expr _]]]
+                  ;; (|do [_ (&type/set-var ?id (&/V "lux;BoundT" _arg))]
+                  ;;   (return (&/V "Expression" (&/T _expr exo-type))))
+                  (return (&/V "Expression" (&/T _expr exo-type)))
+                  )))))))
     
     [_]
     (|do [exo-type* (&type/actual-type exo-type)]
       (analyse-lambda* analyse exo-type* ?self ?arg ?body))
     ))
+
+;; (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
+;;   ;; (prn 'analyse-lambda**/&& (aget exo-type 0))
+;;   (matchv ::M/objects [exo-type]
+;;     [["lux;AllT" [_env _self _arg _body]]]
+;;     (&type/with-var
+;;       (fn [$var]
+;;         (|do [exo-type* (&type/apply-type exo-type $var)
+;;               output (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
+;;           (matchv ::M/objects [$var]
+;;             [["lux;VarT" ?id]]
+;;             (|do [? (&type/bound? ?id)]
+;;               (if ?
+;;                 (|do [dtype (&type/deref ?id)]
+;;                   (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype))))
+;;                 (return output)))))))
+    
+;;     [_]
+;;     (|do [exo-type* (&type/actual-type exo-type)]
+;;       (analyse-lambda* analyse exo-type* ?self ?arg ?body))
+;;     ))
 
 (defn analyse-lambda [analyse exo-type ?self ?arg ?body]
   (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
@@ -341,10 +373,7 @@
             :let [_ (prn 'analyse-def/TYPE ?name ;; (&type/show-type =value-type)
                          )
                   _ (println)
-                  def-data (cond (&type/type= &type/Macro =value-type)
-                                 (&/V "lux;MacroD" (&/V "lux;None" nil))
-
-                                 (&type/type= &type/Type =value-type)
+                  def-data (cond (&type/type= &type/Type =value-type)
                                  (&/V "lux;TypeD" nil)
                                  
                                  :else
@@ -353,6 +382,11 @@
             ;; :let [_ (prn 'analyse-def/_3)]
             ]
         (return (&/|list (&/V "Statement" (&/V "def" (&/T ?name =value def-data)))))))))
+
+(defn analyse-declare-macro [analyse ?name]
+  (|do [module-name &/get-module-name
+        _ (&&module/declare-macro module-name ?name)]
+    (return (&/|list))))
 
 (defn analyse-import [analyse exo-type ?path]
   (return (&/|list)))

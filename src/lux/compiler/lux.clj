@@ -163,16 +163,5 @@
         ;; :let [_ (prn 'compile-def/_1 ?name current-class)]
         _ (&&/save-class! current-class (.toByteArray =class))
         ;; :let [_ (prn 'compile-def/_2 ?name)]
-        loader &/loader
-        :let [full-macro-name (&host/location (&/|list module-name ?name))]
-        _ (if-let [macro (matchv ::M/objects [?def-data]
-                           [["lux;MacroD" ["lux;None" _]]]
-                           (-> (.loadClass loader full-macro-name)
-                               (.getField "_datum")
-                               (.get nil))
-                           
-                           [_]
-                           nil)]
-            (&a-module/install-macro module-name ?name macro)
-            (return nil))]
+        ]
     (return nil)))

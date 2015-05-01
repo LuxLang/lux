@@ -76,28 +76,6 @@
               (&/V "lux;VariantT" (&/|list (&/T "lux;Meta" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
                                                                                       (&/V "lux;BoundT" "v")))))))))
 
-(def Reader
-  (&/V "lux;AppT" (&/T List
-                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Meta Cursor))
-                                            Text)))))
-
-(def HostState
-  (&/V "lux;RecordT"
-       (&/|list (&/T "lux;writer" (&/V "lux;DataT" "org.objectweb.asm.ClassWriter"))
-                (&/T "lux;loader" (&/V "lux;DataT" "java.lang.ClassLoader"))
-                (&/T "lux;eval-ctor" Int))))
-
-(def CompilerState
-  (&/V "lux;RecordT"
-       (&/|list (&/T "lux;source" (&/V "lux;AppT" (&/T Maybe Reader)))
-                (&/T "lux;modules" (&/V "lux;AppT" (&/T List $Void)))
-                (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
-                (&/T "lux;envs" (&/V "lux;AppT" (&/T List
-                                                     (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
-                                                                          $Void)))))
-                (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
-                (&/T "lux;host" HostState))))
-
 (def Syntax*
   (let [Syntax* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
                                      (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Syntax'")
@@ -121,20 +99,64 @@
   (let [w (&/V "lux;AppT" (&/T Meta Cursor))]
     (&/V "lux;AppT" (&/T w (&/V "lux;AppT" (&/T Syntax* w))))))
 
+(def ^:private SyntaxList (&/V "lux;AppT" (&/T List Syntax)))
+
 (def Either
   (fAll "_" "l"
         (fAll "" "r"
               (&/V "lux;VariantT" (&/|list (&/T "lux;Left" (&/V "lux;BoundT" "l"))
                                            (&/T "lux;Right" (&/V "lux;BoundT" "r")))))))
 
+(def StateE
+  (fAll "StateE" "s"
+        (fAll "" "a"
+              (&/V "lux;LambdaT" (&/T (&/V "lux;BoundT" "s")
+                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Either Text))
+                                                           (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "s")
+                                                                                      (&/V "lux;BoundT" "a"))))))))))
+
+(def Reader
+  (&/V "lux;AppT" (&/T List
+                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Meta Cursor))
+                                            Text)))))
+
+(def HostState
+  (&/V "lux;RecordT"
+       (&/|list (&/T "lux;writer" (&/V "lux;DataT" "org.objectweb.asm.ClassWriter"))
+                (&/T "lux;loader" (&/V "lux;DataT" "java.lang.ClassLoader"))
+                (&/T "lux;eval-ctor" Int))))
+
+(def DefData*
+  (fAll "DefData'" ""
+        (&/V "lux;VariantT" (&/|list (&/T "lux;TypeD" Unit)
+                                     (&/T "lux;ValueD" Type)
+                                     (&/T "lux;MacroD" (&/V "lux;BoundT" ""))))))
+
+(def CompilerState
+  (&/V "lux;AppT" (&/T (fAll "CompilerState" ""
+                             (&/V "lux;RecordT"
+                                  (&/|list (&/T "lux;source" (&/V "lux;AppT" (&/T Maybe Reader)))
+                                           (&/T "lux;modules" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
+                                                                                             (&/|list Text
+                                                                                                      (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
+                                                                                                                                     (&/|list Text
+                                                                                                                                              (&/V "lux;AppT" (&/T DefData*
+                                                                                                                                                                   (&/V "lux;LambdaT" (&/T SyntaxList
+                                                                                                                                                                                           (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "CompilerState")
+                                                                                                                                                                                                                                                                 (&/V "lux;BoundT" "")))))
+                                                                                                                                                                                                                SyntaxList)))))))))))))))
+                                           (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
+                                           (&/T "lux;envs" (&/V "lux;AppT" (&/T List
+                                                                                (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
+                                                                                                     $Void)))))
+                                           (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
+                                           (&/T "lux;host" HostState))))
+                       $Void)))
+
 (def Macro
-  (let [SyntaxList (&/V "lux;AppT" (&/T List Syntax))]
-    (&/V "lux;LambdaT" (&/T SyntaxList
-                            (&/V "lux;LambdaT" (&/T CompilerState
-                                                    (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Either Text))
-                                                                         (&/V "lux;TupleT" (&/|list CompilerState
-                                                                                                    SyntaxList))))))))
-    ))
+  (&/V "lux;LambdaT" (&/T SyntaxList
+                          (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE CompilerState))
+                                               SyntaxList)))))
 
 (defn bound? [id]
   (fn [state]
@@ -145,7 +167,7 @@
         
         [["lux;None" _]]
         (return* state false))
-      (fail* (str "[Type Error] Unknown type-var: " id)))))
+      (fail* (str "[Type Error] <bound?> Unknown type-var: " id)))))
 
 (defn deref [id]
   (fn [state]
@@ -159,7 +181,7 @@
                   
                   [["lux;None" _]]
                   (fail* (str "[Type Error] Unbound type-var: " id))))
-            (fail* (str "[Type Error] Unknown type-var: " id)))))))
+            (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))))
 
 (defn set-var [id type]
   (fn [state]
@@ -175,7 +197,7 @@
                                                               ts))
                                   state)
                        nil))))
-      (fail* (str "[Type Error] Unknown type-var: " id)))))
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) &/|length))))))
 
 ;; [Exports]
 ;; Type vars
@@ -196,20 +218,23 @@
                                              (if (= id ?id)
                                                (return binding)
                                                (matchv ::M/objects [?type]
+                                                 [["lux;None" _]]
+                                                 (return binding)
+
                                                  [["lux;Some" ?type*]]
                                                  (matchv ::M/objects [?type*]
                                                    [["lux;VarT" ?id*]]
                                                    (if (= id ?id*)
                                                      (return (&/T ?id (&/V "lux;None" nil)))
-                                                     (|do [?type** (clean* id ?type*)]
-                                                       (return (&/T ?id (&/V "lux;Some" ?type**)))))
+                                                     (return binding)
+                                                     ;; (|do [?type** (clean* id ?type*)]
+                                                     ;;   (return (&/T ?id (&/V "lux;Some" ?type**))))
+                                                     )
 
                                                    [_]
                                                    (|do [?type** (clean* id ?type*)]
                                                      (return (&/T ?id (&/V "lux;Some" ?type**)))))
-                                                 
-                                                 [["lux;None" _]]
-                                                 (return binding)))))
+                                                 ))))
                                          (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
                    (fn [state]
                      (return* (&/update$ &/$TYPES #(->> %
@@ -237,6 +262,7 @@
     (if (= ?tid ?id)
       (&/try-all% (&/|list (deref ?id)
                            (return type)))
+      ;; (deref ?id)
       (return type))
     
     [["lux;LambdaT" [?arg ?return]]]
@@ -349,6 +375,9 @@
                           [_]
                           [args body*]))]
       (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
+
+    [_]
+    (assert false (prn-str 'show-type (aget type 0) (class (aget type 1))))
     ))
 
 (defn type= [x y]
@@ -604,7 +633,7 @@
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)
           ;; _ (prn 'LEFT_APP (&/|length fixpoints))
-          _ (when (> (&/|length fixpoints) 20)
+          _ (when (> (&/|length fixpoints) 40)
               (println 'FIXPOINTS (->> (&/|keys fixpoints)
                                        (&/|map (fn [pair]
                                                  (|let [[e a] pair]
@@ -660,7 +689,8 @@
           (check* fixpoints expected actual*))))
 
     [["lux;DataT" e!name] ["lux;DataT" a!name]]
-    (if (= e!name a!name)
+    (if (or (= e!name a!name)
+            (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
       (return (&/T fixpoints nil))
       (fail (str "[Type Error] Names don't match: " e!name " & " a!name)))
 

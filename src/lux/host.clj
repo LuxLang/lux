@@ -4,7 +4,6 @@
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let]]
-                 [parser :as &parser]
                  [type :as &type])))
 
 ;; [Constants]

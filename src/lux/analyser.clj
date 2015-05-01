@@ -90,6 +90,11 @@
         ;;   (prn "if" (&/show-ast ?value)))
         (&&lux/analyse-def analyse ?name ?value))
 
+    [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "declare-macro'"]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?name]]]]
+                                                             ["lux;Nil" _]]]]]]]]]
+    (&&lux/analyse-declare-macro analyse ?name)
+
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "import'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?path]]]
                                                              ["lux;Nil" _]]]]]]]]]
@@ -256,7 +261,7 @@
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokestatic"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?method]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?args]]]
                                                                                                     ["lux;Nil" _]]]]]]]]]]]]]]]
@@ -264,7 +269,7 @@
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokevirtual"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?method]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [?object
                                                                                                     ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?args]]]
@@ -272,8 +277,8 @@
     (&&host/analyse-jvm-invokevirtual analyse ?class ?method ?classes ?object ?args)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokeinterface"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?method]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [?object
                                                                                                     ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?args]]]
@@ -282,7 +287,7 @@
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokespecial"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?method]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [?object
                                                                                                     ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?args]]]
