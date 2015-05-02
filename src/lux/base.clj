@@ -645,8 +645,7 @@
   (|do [closure-name (|do [top get-top-local-env]
                        (return (->> top (get$ $INNER-CLOSURES) str)))]
     (fn [state]
-      (let [body* (with-scope closure-name
-                    body)]
+      (let [body* (with-scope closure-name body)]
         (run-state body* (update$ $ENVS #(|cons (update$ $INNER-CLOSURES inc (|head %))
                                                 (|tail %))
                                   state))))))

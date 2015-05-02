@@ -949,7 +949,7 @@
   (case' tokens
          (#Cons [(#Meta [_ (#Symbol ["" class-name])]) #Nil])
          (return (:' SyntaxList
-                     (list (` (#DataT (~ (_meta (#Text class-name))))))))
+                     (list (` (#;DataT (~ (_meta (#Text class-name))))))))
 
          _
          (fail "Wrong syntax for ^")))
@@ -969,7 +969,7 @@
 
 (defmacro #export (, tokens)
   (return (:' SyntaxList
-              (list (` (#TupleT (list (~@ tokens))))))))
+              (list (` (#;TupleT (;list (~@ tokens))))))))
 
 (defmacro (do tokens)
   (case' tokens
@@ -977,10 +977,15 @@
          (let [body' (fold (:' (-> Syntax (, Syntax Syntax) Syntax)
                                (lambda [body' binding]
                                  (let [[var value] binding]
-                                   (` (;bind (lambda' (~ ($symbol ["" ""]))
-                                                 (~ var)
-                                                 (~ body'))
-                                             (~ value))))))
+                                   (case' var
+                                          (#Meta [_ (#Tag ["" "let"])])
+                                          (` (;let (~ value) (~ body')))
+
+                                          _
+                                          (` (;bind (lambda' (~ ($symbol ["" ""]))
+                                                        (~ var)
+                                                        (~ body'))
+                                                    (~ value)))))))
                            body
                            (reverse (as-pairs bindings)))]
            (return (:' SyntaxList
@@ -1180,7 +1185,7 @@
                      (lambda [token]
                        (case' token
                               (#Meta [_ (#Tag ident)])
-                              (;return (:' Syntax (` [(~ ($text (ident->text ident))) (,)])))
+                              (;return (:' Syntax (` [(~ ($text (ident->text ident))) (;,)])))
 
                               (#Meta [_ (#Form (#Cons [(#Meta [_ (#Tag ident)]) (#Cons [value #Nil])]))])
                               (;return (:' Syntax (` [(~ ($text (ident->text ident))) (~ value)])))
@@ -1188,7 +1193,7 @@
                               _
                               (fail "Wrong syntax for |"))))
                  tokens)]
-    (;return (:' SyntaxList (list (` (#VariantT (list (~@ pairs)))))))))
+    (;return (:' SyntaxList (list (` (#;VariantT (;list (~@ pairs)))))))))
 
 (defmacro #export (& tokens)
   (if (not (multiple? 2 (length tokens)))
@@ -1204,7 +1209,7 @@
                                 _
                                 (fail "Wrong syntax for &"))))
                    (as-pairs tokens))]
-      (;return (:' SyntaxList (list (` (#RecordT (list (~@ pairs))))))))))
+      (;return (:' SyntaxList (list (` (#;RecordT (;list (~@ pairs))))))))))
 
 (def (replace-syntax reps syntax)
   (-> RepEnv Syntax Syntax)
@@ -1252,15 +1257,15 @@
                          
                          (#Cons [harg targs])
                          (let [replacements (map (:' (-> Text (, Text Syntax))
-                                                     (lambda [ident] [ident (` (#BoundT (~ ($text ident))))]))
+                                                     (lambda [ident] [ident (` (#;BoundT (~ ($text ident))))]))
                                                  (list& self-ident idents))
                                body' (fold (:' (-> Syntax Text Syntax)
                                                (lambda [body' arg']
-                                                 (` (#AllT [#None "" (~ ($text arg')) (~ body')]))))
+                                                 (` (#;AllT [#;None "" (~ ($text arg')) (~ body')]))))
                                            (replace-syntax replacements body)
                                            (reverse targs))]
                            (return (:' SyntaxList
-                                       (list (` (#AllT [#None (~ ($text self-ident)) (~ ($text harg)) (~ body')])))))))
+                                       (list (` (#;AllT [#;None (~ ($text self-ident)) (~ ($text harg)) (~ body')])))))))
                   
                   #None
                   (fail "'All' arguments must be symbols."))
@@ -1303,12 +1308,64 @@
     (-> ($' List ($' List a)) ($' List a)))
   (fold list:++ #Nil xs))
 
+(def #export (normalize ident state)
+  (-> Ident ($' Lux Ident))
+  (case' ident
+         ["" name]
+         (case' state
+                {#source source #modules modules #module-aliases module-aliases
+                 #envs   envs   #types   types   #host           host
+                 #seed   seed}
+                (case' (reverse envs)
+                       #Nil
+                       (#Left "Can't normalize Ident without a global environment.")
+
+                       (#Cons [{#name prefix #inner-closures _ #locals _ #closure _} _])
+                       (#Right [state [prefix name]])))
+         
+         _
+         (#Right [state ident])))
+
+## (def #export (macro-expand syntax)
+##   (-> Syntax ($' Lux ($' List Syntax)))
+##   (case' syntax
+##          (#Meta [_ (#Form (#Cons [(#Meta [_ (#Symbol macro-name)]) args]))])
+##          (do Lux:Monad
+##            [macro-name' (normalize macro-name)
+##             ?macro (find-macro macro-name')]
+##            (case' (:' ($' Maybe Macro) ?macro)
+##                   (#Some macro)
+##                   (do Lux:Monad
+##                     [expansion (macro args)
+##                      expansion' (map% Lux:Monad macro-expand expansion)]
+##                     (;return (:' SyntaxList (list:join expansion'))))
+                  
+##                   #None
+##                   (do Lux:Monad
+##                     [parts' (map% Lux:Monad macro-expand (list& ($symbol macro-name) args))]
+##                     (;return (:' SyntaxList (list ($form (list:join parts'))))))))
+
+##          ## (#Meta [_ (#Form (#Cons [harg targs]))])
+##          ## (do Lux:Monad
+##          ##   [harg+ (macro-expand harg)
+##          ##    targs+ (map% Lux:Monad macro-expand targs)]
+##          ##   (;return (:' SyntaxList (list:++ harg+ (list:join targs+)))))
+
+##          (#Meta [_ (#Tuple members)])
+##          (do Lux:Monad
+##            [members' (map% Lux:Monad macro-expand members)]
+##            (;return (:' SyntaxList (list ($tuple (list:join members'))))))
+
+##          _
+##          (return (:' SyntaxList (list syntax)))))
+
 (def #export (macro-expand syntax)
   (-> Syntax ($' Lux ($' List Syntax)))
   (case' syntax
          (#Meta [_ (#Form (#Cons [(#Meta [_ (#Symbol macro-name)]) args]))])
          (do Lux:Monad
-           [?macro (find-macro macro-name)]
+           [macro-name' (normalize macro-name)
+            ?macro (find-macro macro-name')]
            (case' (:' ($' Maybe Macro) ?macro)
                   (#Some macro)
                   (do Lux:Monad
@@ -1321,6 +1378,12 @@
                     [parts' (map% Lux:Monad macro-expand (list& ($symbol macro-name) args))]
                     (;return (:' SyntaxList (list ($form (list:join parts'))))))))
 
+         ## (#Meta [_ (#Form (#Cons [harg targs]))])
+         ## (do Lux:Monad
+         ##   [harg+ (macro-expand harg)
+         ##    targs+ (map% Lux:Monad macro-expand targs)]
+         ##   (;return (:' SyntaxList (list:++ harg+ (list:join targs+)))))
+
          (#Meta [_ (#Tuple members)])
          (do Lux:Monad
            [members' (map% Lux:Monad macro-expand members)]
@@ -1329,84 +1392,150 @@
          _
          (return (:' SyntaxList (list syntax)))))
 
-## ## (def (walk-type type)
-## ##   (-> Syntax ($' Lux Syntax))
-## ##   (case' type
-## ##          (#Meta [_ (#Form (#Cons [(#Meta [_ (#Symbol sym)]) args]))])
-## ##          (do' [macro' (find-macro sym)]
-## ##               (case' macro'
-## ##                      (#Some macro)
-## ##                      (do' [expansion (macro args)]
-## ##                           (case' expansion
-## ##                                  (#Cons [expansion' #Nil])
-## ##                                  (walk-type expansion')
+(def (walk-type type)
+  (-> Syntax Syntax)
+  (case' type
+         (#Meta [_ (#Form (#Cons [(#Meta [_ (#Tag tag)]) parts]))])
+         ($form (#Cons [($tag tag) (map walk-type parts)]))
 
-## ##                                  _
-## ##                                  (fail "Macro can't expand to more than 1 output.")))
+         (#Meta [_ (#Tuple members)])
+         ($tuple (map walk-type members))
 
-## ##                      #None
-## ##                      (do' [args' (map% walk-type args)]
-## ##                           (return (fold (:' (-> Syntax Syntax Syntax)
-## ##                                              (lambda [f a]
-## ##                                                (` (#AppT [(~ f) (~ a)]))))
-## ##                                          sym
-## ##                                          args')))))
+         (#Meta [_ (#Form (#Cons [type-fn args]))])
+         (fold (:' (-> Syntax Syntax Syntax)
+                   (lambda [type-fn arg]
+                     (` (#;AppT [(~ type-fn) (~ arg)]))))
+               (walk-type type-fn)
+               (map walk-type args))
+         
+         _
+         type))
 
-## ##          (#Meta [_ (#Form (#Cons [(#Meta [_ (#Tag tag)]) args]))])
-## ##          ...
+(defmacro #export (type` tokens)
+  (case' tokens
+         (#Cons [type #Nil])
+         (do Lux:Monad
+           [type+ (macro-expand type)]
+           (case' (:' SyntaxList type+)
+                  (#Cons [type' #Nil])
+                  (;return (:' SyntaxList (list (walk-type type'))))
+                  
+                  _
+                  (fail "type`: The expansion of the type-syntax had to yield a single element.")))
 
-## ##          (#Meta [_ (#Symbol _)])
-## ##          (return type)
+         _
+         (fail "Wrong syntax for type`")))
 
-## ##          _
-## ##          (fail "Wrong syntax for walk-type")))
+(defmacro #export (: tokens)
+  (case' tokens
+         (#Cons [type (#Cons [value #Nil])])
+         (return (:' SyntaxList (list (` (:' (;type` (~ type)) (~ value))))))
 
-## ## (defmacro (->type tokens)
-## ##   (case' tokens
-## ##          (#Cons [type #Nil])
-## ##          (do' [type' (walk-type type)]
-## ##               (return (list type')))
+         _
+         (fail "Wrong syntax for :")))
 
-## ##          _
-## ##          (fail "Wrong syntax for ->type")))
+(defmacro #export (:! tokens)
+  (case' tokens
+         (#Cons [type (#Cons [value #Nil])])
+         (return (:' SyntaxList (list (` (:!' (;type` (~ type)) (~ value))))))
 
-## ## (defmacro (: tokens)
-## ##   (case' tokens
-## ##          (#Cons [type (#Cons [value #Nil])])
-## ##          (return (list (` (:' (->type (~ type)) (~ value)))))
+         _
+         (fail "Wrong syntax for :!")))
 
-## ##          _
-## ##          (fail "Wrong syntax for :")))
+(defmacro #export (deftype tokens)
+  (let [[export? tokens'] (: (, Bool (List Syntax))
+                             (case' tokens
+                                    (#Cons [(#Meta [_ (#Tag ["" "export"])]) tokens'])
+                                    [true tokens']
 
-## ## (defmacro (:! tokens)
-## ##   (case' tokens
-## ##          (#Cons [type (#Cons [value #Nil])])
-## ##          (return (list (` (:!' (->type (~ type)) (~ value)))))
+                                    _
+                                    [false tokens]))
+        ## parts (: (Maybe (, Syntax (List Syntax) Syntax))
+        ##          (case' tokens'
+        ##                 (#Cons [(#Meta [_ (#Symbol name)]) (#Cons [type #Nil])])
+        ##                 (#Some [($symbol name) #Nil type])
 
-## ##          _
-## ##          (fail "Wrong syntax for :!")))
+        ##                 (#Cons [(#Meta [_ (#Form (#Cons [(#Meta [_ (#Symbol name)]) args]))]) (#Cons [type #Nil])])
+        ##                 (#Some [($symbol name) args type])
 
-## ## (deftype (IO a)
-## ##   (-> (,) a))
+        ##                 _
+        ##                 #None))
+        ]
+    (return (: (List Syntax) #Nil))
+    ## (case' parts
+    ##        (#Some [name args type])
+    ##        (let [with-export (: (List Syntax)
+    ##                             (if export?
+    ##                               (list (` (export' (~ name))))
+    ##                               #Nil))
+    ##              type' (: Syntax
+    ##                       (case' args
+    ##                              #Nil
+    ##                              type
 
-## ## (defmacro (io tokens)
-## ##   (case' tokens
-## ##          (#Cons [value #Nil])
-## ##          (return (list (` (lambda [_] (~ value)))))))
+    ##                              _
+    ##                              (` (;All (~ name) [(~@ args)] (~ type)))))]
+    ##          (return (: (List Syntax)
+    ##                     (list& type' with-export))))
 
-## (defmacro #export (exec tokens)
-##   (case' (reverse tokens)
-##          (#Cons [value actions])
-##          (let [dummy ($symbol ["" ""])]
-##            (return (:' SyntaxList
-##                        (list (fold (:' (-> Syntax Syntax Syntax)
-##                                        (lambda [post pre]
-##                                          (` (case' (~ pre) (~ dummy) (~ post)))))
-##                                    value
-##                                    actions)))))
+    ##        #None
+    ##        (fail "Wrong syntax for deftype"))
+    ))
 
-##          _
-##          (fail "Wrong syntax for exec")))
+(deftype #export (IO a)
+  (-> (,) a))
+
+(defmacro #export (io tokens)
+  (case' tokens
+         (#Cons [value #Nil])
+         (let [blank ($symbol ["" ""])]
+           (return (list (` (lambda' (~ blank) (~ blank) (~ value))))))
+
+         _
+         (fail "Wrong syntax for io")))
+
+(defmacro #export (exec tokens)
+  (case' (reverse tokens)
+         (#Cons [value actions])
+         (let [dummy ($symbol ["" ""])]
+           (return (:' SyntaxList
+                       (list (fold (:' (-> Syntax Syntax Syntax)
+                                       (lambda [post pre]
+                                         (` (case' (~ pre) (~ dummy) (~ post)))))
+                                   value
+                                   actions)))))
+
+         _
+         (fail "Wrong syntax for exec")))
+
+(def (rejoin-pair pair)
+  (-> (, Syntax Syntax) (List Syntax))
+  (let [[left right] pair]
+    (list left right)))
+
+(defmacro #export (case tokens)
+  (case' tokens
+         (#Cons value branches)
+         (do Lux:Monad
+           [expansions (map% Lux:Monad
+                             (: (-> (, Syntax Syntax) (Lux (List (, Syntax Syntax))))
+                                (lambda expander [branch]
+                                   (let [[pattern body] branch]
+                                     (case' pattern
+                                            (#Cons [(#Meta [_ (#Symbol macro-name)]) macro-args])
+                                            (do Lux:Monad
+                                              [expansion (macro-expand (list& ($symbol macro-name) body macro-args))]
+                                              (map% Lux:Monad expander (as-pairs expansion)))
+
+                                            _
+                                            (;return (: (List (, Syntax Syntax)) (list branch)))))))
+                             (as-pairs branches))]
+           (;return (: (List (, Syntax Syntax))
+                       (list (` (case' (~ value)
+                                       (~@ (|> expansions list:join (map rejoin-pair) list:join))))))))
+
+         _
+         (fail "Wrong syntax for case")))
 
 ## (def #export (print x)
 ##   (-> Text (IO (,)))
@@ -1486,33 +1615,3 @@
 
 ## ##              [first  f]
 ## ##              [second s])
-
-## ## (defmacro (case tokens)
-## ##   (case' tokens
-## ##          (#Cons value branches)
-## ##          (loop [kind #Pattern
-## ##                 pieces branches
-## ##                 new-pieces (list)]
-## ##            (case' pieces
-## ##                   #Nil
-## ##                   (return (list (' (case' (~ value) (~@ new-pieces)))))
-
-## ##                   (#Cons piece pieces')
-## ##                   (let [[kind' expanded more-pieces] (case' kind
-## ##                                                             #Body
-## ##                                                             [#Pattern (list piece) #Nil]
-
-## ##                                                             #Pattern
-## ##                                                             (do [expansion (macro-expand piece)]
-## ##                                                               (case' expansion
-## ##                                                                      #Nil
-## ##                                                                      [#Pattern #Nil #Nil]
-
-## ##                                                                      (#Cons exp #Nil)
-## ##                                                                      [#Body (list exp) #Nil]
-
-## ##                                                                      (#Cons exp exps)
-## ##                                                                      [#Body (list exp) exps]))
-## ##                                                             )]
-## ##                     (recur kind' (++ expanded new-pieces) (++ more-pieces pieces))))
-## ##            )))

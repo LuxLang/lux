@@ -266,7 +266,9 @@
                 (matchv ::M/objects [_macro]
                   [["lux;Some" macro]]
                   (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))]
-                    (&/flat-map% (partial analyse exo-type) macro-expansion))
+                    (do (when (= "type`" ?name)
+                          (prn 'macro-expansion (str ?module ";" ?name) (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+                      (&/flat-map% (partial analyse exo-type) macro-expansion)))
 
                   [["lux;None" _]]
                   (fail (str "[Analyser Error] Macro has yet to be compiled: " (str ?module ";" ?name))))
