@@ -10,8 +10,9 @@
 ;; [Utils]
 (defn ^:private resolve-type [type]
   (matchv ::M/objects [type]
-    [["lux;VarT" ?idx]]
-    (|do [type* (&type/deref ?idx)]
+    [["lux;VarT" ?id]]
+    (|do [type* (&/try-all% (&/|list (&type/deref ?id)
+                                     (fail "##9##")))]
       (resolve-type type*))
 
     [_]

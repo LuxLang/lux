@@ -52,7 +52,8 @@
   (|do [;; :let [_ (prn 'analyse-variant/exo-type (&type/show-type exo-type))]
         exo-type* (matchv ::M/objects [exo-type]
                     [["lux;VarT" ?id]]
-                    (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
+                    (&/try-all% (&/|list (|do [exo-type* (&/try-all% (&/|list (&type/deref ?id)
+                                                                              (fail "##8##")))]
                                            (&type/actual-type exo-type*))
                                          (|do [_ (&type/set-var ?id &type/Type)]
                                            (&type/actual-type &type/Type))))
@@ -85,7 +86,8 @@
 (defn analyse-record [analyse exo-type ?elems]
   (|do [exo-type* (matchv ::M/objects [exo-type]
                     [["lux;VarT" ?id]]
-                    (|do [exo-type* (&type/deref ?id)]
+                    (|do [exo-type* (&/try-all% (&/|list (&type/deref ?id)
+                                                         (fail "##7##")))]
                       (&type/actual-type exo-type*))
 
                     [_]
@@ -111,11 +113,6 @@
                            (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
                        ?elems)]
     (return (&/|list (&/T (&/V "record" =slots) (&/V "lux;RecordT" exo-type))))))
-
-(defn ^:private show-frame [frame]
-  (str "{{" (->> frame (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS)
-                 &/|keys &/->seq (interpose " ") (reduce str ""))
-       "}}"))
 
 (defn analyse-symbol [analyse exo-type ident]
   (|do [module-name &/get-module-name]
@@ -224,12 +221,22 @@
             (fn [$var]
               (|do [type* (&type/apply-type ?fun-type* $var)
                     output (analyse-apply* analyse exo-type (&/T ?fun-expr type*) ?args)]
-                (matchv ::M/objects [output]
-                  [[?expr* ?type*]]
-                  (|do [type** (&type/clean $var ?type*)]
+                (matchv ::M/objects [output $var]
+                  [[?expr* ?type*] ["lux;VarT" ?id]]
+                  ;; (|do [? (&type/bound? ?id)]
+                  ;;   (if ?
+                  ;;     (return (&/T ?expr* ?type*))
+                  ;;     (|do [type** (&type/clean $var ?type*)]
+                  ;;       (return (&/T ?expr* type**)))))
+                  (|do [? (&type/bound? ?id)
+                        _ (if ?
+                            (return nil)
+                            (|do [ex &type/existential]
+                              (&type/set-var ?id ex)))
+                        type** (&type/clean $var ?type*)]
                     (return (&/T ?expr* type**)))
 
-                  [_]
+                  [_ _]
                   (assert false (prn-str 'analyse-apply*/output (aget output 0)))))))
 
           [["lux;LambdaT" [?input-t ?output-t]]]
@@ -315,7 +322,8 @@
             [["lux;VarT" ?id]]
             (|do [? (&type/bound? ?id)]
               (if ?
-                (|do [dtype (&type/deref ?id)]
+                (|do [dtype (&/try-all% (&/|list (&type/deref ?id)
+                                                 (fail "##6##")))]
                   (matchv ::M/objects [dtype]
                     [["lux;ExT" _]]
                     (return (&/T _expr exo-type))
@@ -366,6 +374,7 @@
             ;; :let [_ (prn 'analyse-def/_1)]
             =value-type (&&/expr-type =value)
             ;; :let [_ (prn 'analyse-def/_2)]
+            ;; _ &type/delete-vars
             :let [_ (prn 'analyse-def/TYPE ?name ;; (&type/show-type =value-type)
                          )
                   _ (println)

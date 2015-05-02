@@ -174,16 +174,23 @@
 (defn deref [id]
   (fn [state]
     (let [mappings (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS))]
-      (do ;; (prn 'deref/mappings (&/->seq (&/|keys mappings)))
-          (if-let [type* (->> mappings (&/|get id))]
-            (do ;; (prn 'deref/type* (aget type* 0))
-                (matchv ::M/objects [type*]
-                  [["lux;Some" type]]
-                  (return* state type)
-                  
-                  [["lux;None" _]]
-                  (fail* (str "[Type Error] Unbound type-var: " id))))
-            (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))))
+      (if-let [type* (->> mappings (&/|get id))]
+        (matchv ::M/objects [type*]
+          [["lux;Some" type]]
+          (return* state type)
+          
+          [["lux;None" _]]
+          (fail* (str "[Type Error] Unbound type-var: " id)))
+        (fail* (str "[Type Error] <deref> Unknown type-var: " id))))))
+
+(defn set-var* [id type]
+  (fn [state]
+    (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+      (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V "lux;Some" type) %)
+                                                      ts))
+                          state)
+               nil)
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) &/|length))))))
 
 (defn set-var [id type]
   (fn [state]
@@ -212,13 +219,17 @@
                           state)
                id))))
 
+(def existential
+  (|do [seed &/gen-id]
+    (return (&/V "lux;ExT" seed))))
+
 (declare clean*)
 (defn ^:private delete-var [id]
   (|do [? (bound? id)
         _ (if ?
             (return nil)
-            (|do [seed &/gen-id]
-              (set-var id (&/V "lux;ExT" seed))))]
+            (|do [ex existential]
+              (set-var id ex)))]
     (fn [state]
       (&/run-state (|do [mappings* (&/map% (fn [binding]
                                              (|let [[?id ?type] binding]
@@ -257,6 +268,11 @@
         _ (delete-var id)]
     (return output)))
 
+;; (def delete-vars
+;;   (|do [vars #(->> % (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) &/|keys (return* %))
+;;         _ (&/map% delete-var vars)]
+;;     (return nil)))
+
 (defn with-vars [amount k]
   (|do [=vars (&/map% (constantly create-var) (&/|range amount))
         output (k (&/|map #(&/V "lux;VarT" %) =vars))
@@ -268,8 +284,7 @@
     [["lux;VarT" ?id]]
     (if (= ?tid ?id)
       (&/try-all% (&/|list (deref ?id)
-                           (return type)))
-      ;; (deref ?id)
+                           (fail "##5##")))
       (return type))
     
     [["lux;LambdaT" [?arg ?return]]]
@@ -569,16 +584,12 @@
     [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
     (if (= ?eid ?aid)
       (return (&/T fixpoints nil))
-      ;; (&/try-all% (&/|list (|do [ebound (deref ?eid)]
-      ;;                        (check* fixpoints ebound actual))
-      ;;                      (|do [abound (deref ?aid)]
-      ;;                        (check* fixpoints expected abound))
-      ;;                      (|do [_ (set-var ?eid actual)]
-      ;;                        (return (&/T fixpoints nil)))))
-      (|do [ebound (&/try-all% (&/|list (|do [ebound (deref ?eid)]
+      (|do [ebound (&/try-all% (&/|list (|do [ebound (&/try-all% (&/|list (deref ?eid)
+                                                                          (fail "##4##")))]
                                           (return (&/V "lux;Some" ebound)))
                                         (return (&/V "lux;None" nil))))
-            abound (&/try-all% (&/|list (|do [abound (deref ?aid)]
+            abound (&/try-all% (&/|list (|do [abound (&/try-all% (&/|list (deref ?aid)
+                                                                          (fail "##3##")))]
                                           (return (&/V "lux;Some" abound)))
                                         (return (&/V "lux;None" nil))))]
         (matchv ::M/objects [ebound abound]
@@ -590,13 +601,9 @@
           
           [["lux;Some" etype] ["lux;None" _]]
           (check* fixpoints etype actual)
-          ;; (|do [_ (set-var ?aid etype)]
-          ;;   (return (&/T fixpoints nil)))
 
           [["lux;None" _] ["lux;Some" atype]]
           (check* fixpoints expected atype)
-          ;; (|do [_ (set-var ?eid atype)]
-          ;;   (return (&/T fixpoints nil)))
 
           [["lux;Some" etype] ["lux;Some" atype]]
           (check* fixpoints etype atype)))
@@ -605,19 +612,17 @@
     [["lux;VarT" ?id] _]
     (&/try-all% (&/|list (|do [_ (set-var ?id actual)]
                            (return (&/T fixpoints nil)))
-                         (|do [bound (deref ?id)]
+                         (|do [bound (&/try-all% (&/|list (deref ?id)
+                                                          (fail "##1##")))]
                            (check* fixpoints bound actual))))
     
     [_ ["lux;VarT" ?id]]
     (&/try-all% (&/|list (|do [_ (set-var ?id expected)]
                            (return (&/T fixpoints nil)))
-                         (|do [bound (deref ?id)]
+                         (|do [bound (&/try-all% (&/|list (deref ?id)
+                                                          (fail "##2##")))]
                            (check* fixpoints expected bound))))
 
-    ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [F2 A2]]]
-    ;; (|do [_ (check* fixpoints F1 F2)
-    ;;       _ (check* fixpoints A1 A2)]
-    ;;   (return (&/T fixpoints nil)))
     [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
     (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
           _ (check* fixpoints A1 A2)]
@@ -645,6 +650,11 @@
           [fixpoints** _] (check* fixpoints* e* a*)]
       (return (&/T fixpoints** nil)))
 
+    ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [F2 A2]]]
+    ;; (|do [[fixpoints* _] (check* (fp-put fp-pair true fixpoints) F1 F2)
+    ;;       [fixpoints** _] (check* fixpoints* A1 A2)]
+    ;;   (return (&/T fixpoints** nil)))
+    
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)
           ;; _ (prn 'LEFT_APP (&/|length fixpoints))
@@ -714,25 +724,18 @@
       (check* fixpoints* eO aO))
 
     [["lux;TupleT" e!members] ["lux;TupleT" a!members]]
-    (do ;; (do (prn 'e!members (&/|length e!members))
-        ;;   (prn 'a!members (&/|length a!members)))
-        (if (= (&/|length e!members) (&/|length a!members))
-          (|do [fixpoints* (&/fold% (fn [fixp ea]
-                                      (|let [[e a] ea]
-                                        (do ;; (prn "lux;TupleT" 'ITER (show-type e) (show-type a))
-                                            (|do [[fixp* _] (check* fixp e a)]
-                                              (return fixp*)))))
-                                    fixpoints
-                                    (&/zip2 e!members a!members))
-                ;; :let [_ (prn "lux;TupleT" 'DONE)]
-                ]
-            (return (&/T fixpoints* nil)))
-          (do ;; (prn "lux;TupleT" (&/|length e!members) (&/|length a!members))
-              ;; (prn "lux;TupleT"
-              ;;      (&/fold str "" (&/|interpose " " (&/|map show-type e!members)))
-              ;;      (&/fold str "" (&/|interpose " " (&/|map show-type a!members))))
-              ;; (prn "lux;TupleT#fail" (fail "[Type Error] Tuples don't match in size."))
-              (fail "[Type Error] Tuples don't match in size."))))
+    (if (= (&/|length e!members) (&/|length a!members))
+      (|do [fixpoints* (&/fold% (fn [fixp ea]
+                                  (|let [[e a] ea]
+                                    (do ;; (prn "lux;TupleT" 'ITER (show-type e) (show-type a))
+                                        (|do [[fixp* _] (check* fixp e a)]
+                                          (return fixp*)))))
+                                fixpoints
+                                (&/zip2 e!members a!members))
+            ;; :let [_ (prn "lux;TupleT" 'DONE)]
+            ]
+        (return (&/T fixpoints* nil)))
+      (fail "[Type Error] Tuples don't match in size."))
     
     [["lux;VariantT" e!cases] ["lux;VariantT" a!cases]]
     (if (= (&/|length e!cases) (&/|length a!cases))
@@ -800,12 +803,6 @@
     [["lux;AppT" [?all ?param]]]
     (|do [type* (apply-type ?all ?param)]
       (actual-type type*))
-
-    ;; [["lux;AllT" [?env ?self ?arg ?body]]]
-    ;; (with-var
-    ;;   (fn [$var]
-    ;;     (|do [type* (apply-type type $var)]
-    ;;       (actual-type type*))))
 
     [_]
     (return type)
