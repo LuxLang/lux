@@ -41,6 +41,7 @@
                                                                            (&/T "lux;VarT" Int)
                                                                            (&/T "lux;AllT" (&/V "lux;TupleT" (&/|list (&/V "lux;AppT" (&/T Maybe TypeEnv)) Text Text Type)))
                                                                            (&/T "lux;AppT" TypePair)
+                                                                           (&/T "lux;ExT" Int)
                                                                            ))))
                          $Void))))
 
@@ -217,7 +218,7 @@
         _ (if ?
             (return nil)
             (|do [seed &/gen-id]
-              (set-var id (&/V "lux;BoundT" (str seed)))))]
+              (set-var id (&/V "lux;ExT" seed))))]
     (fn [state]
       (&/run-state (|do [mappings* (&/map% (fn [binding]
                                              (|let [[?id ?type] binding]
@@ -368,6 +369,9 @@
     [["lux;BoundT" name]]
     name
 
+    [["lux;ExT" ?id]]
+    (str "⟨" ?id "⟩")
+
     [["lux;AppT" [?lambda ?param]]]
     (str "(" (show-type ?lambda) " " (show-type ?param) ")")
     
@@ -425,6 +429,9 @@
 
                  [["lux;BoundT" xname] ["lux;BoundT" yname]]
                  (= xname yname)
+
+                 [["lux;ExT" xid] ["lux;ExT" yid]]
+                 (= xid yid)
 
                  [["lux;AppT" [xlambda xparam]] ["lux;AppT" [ylambda yparam]]]
                  (and (type= xlambda ylambda)
@@ -576,9 +583,11 @@
                                         (return (&/V "lux;None" nil))))]
         (matchv ::M/objects [ebound abound]
           [["lux;None" _] ["lux;None" _]]
+          ;; (|do [_ (set-var ?aid expected)]
+          ;;   (return (&/T fixpoints nil)))
           (|do [_ (set-var ?eid actual)]
             (return (&/T fixpoints nil)))
-
+          
           [["lux;Some" etype] ["lux;None" _]]
           (check* fixpoints etype actual)
           ;; (|do [_ (set-var ?aid etype)]
@@ -755,8 +764,8 @@
         (return (&/T fixpoints* nil)))
       (fail "[Type Error] Records don't match in size."))
 
-    [["lux;BoundT" e!name] ["lux;BoundT" a!name]]
-    (if (= e!name a!name)
+    [["lux;ExT" e!id] ["lux;ExT" a!id]]
+    (if (= e!id a!id)
       (return (&/T fixpoints nil))
       (check-error expected actual))
 
@@ -811,22 +820,3 @@
 
     [_]
     (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
-
-(let [type-cases #{"lux;DataT" , "lux;LambdaT" , "lux;AppT"
-                   "lux;TupleT", "lux;VariantT", "lux;RecordT"
-                   "lux;AllT"  , "lux;VarT"    , "lux;BoundT"}]
-  (defn is-Type? [type]
-    (matchv ::M/objects [type]
-      [["lux;VarT" ?id]]
-      (&/try-all% (&/|list (|do [type* (deref ?id)]
-                             (is-Type? type*))
-                           (return false)))
-
-      [_]
-      (|do [type* (actual-type type)]
-        (matchv ::M/objects [type*]
-          [["lux;VariantT" ?cases]]
-          (return (->> ?cases &/|keys &/->seq set (= type-cases)))
-
-          [_]
-          (return false))))))

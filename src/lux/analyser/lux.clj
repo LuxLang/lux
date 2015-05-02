@@ -310,29 +310,19 @@
     (&type/with-var
       (fn [$var]
         (|do [exo-type* (&type/apply-type exo-type $var)
-              output (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
+              [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
           (matchv ::M/objects [$var]
             [["lux;VarT" ?id]]
             (|do [? (&type/bound? ?id)]
               (if ?
                 (|do [dtype (&type/deref ?id)]
                   (matchv ::M/objects [dtype]
-                    [["lux;BoundT" _]]
-                    (matchv ::M/objects [output]
-                      [[_expr _]]
-                      ;; (|do [_ (&type/set-var ?id (&/V "lux;BoundT" _arg))]
-                      ;;   (return (&/T _expr exo-type)))
-                      (return (&/T _expr exo-type))
-                      )
+                    [["lux;ExT" _]]
+                    (return (&/T _expr exo-type))
 
                     [_]
                     (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype)))))
-                (matchv ::M/objects [output]
-                  [[_expr _]]
-                  ;; (|do [_ (&type/set-var ?id (&/V "lux;BoundT" _arg))]
-                  ;;   (return (&/T _expr exo-type)))
-                  (return (&/T _expr exo-type))
-                  )))))))
+                (return (&/T _expr exo-type))))))))
     
     [_]
     (|do [exo-type* (&type/actual-type exo-type)]
