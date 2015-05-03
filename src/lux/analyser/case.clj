@@ -124,7 +124,7 @@
                                       (&&/analyse-1 analyse exo-type body))]
     (return (&/|cons pattern+body patterns))))
 
-(let [compare-kv #(compare (aget %1 0) (aget %2 0))]
+(let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private merge-total [struct test+body]
     (|let [[test ?body] test+body]
       (matchv ::M/objects [struct test]

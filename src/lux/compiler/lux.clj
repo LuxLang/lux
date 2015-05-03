@@ -25,14 +25,14 @@
 (let [+class+ (&host/->class "java.lang.Boolean")
       +sig+ (&host/->type-signature "java.lang.Boolean")]
   (defn compile-bool [compile *type* ?value]
-    (|do [*writer* &/get-writer
+    (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") (if ?value "TRUE" "FALSE") (&host/->type-signature "java.lang.Boolean"))]]
       (return nil))))
 
 (do-template [<name> <class> <sig> <caster>]
   (let [+class+ (&host/->class <class>)]
     (defn <name> [compile *type* value]
-      (|do [*writer* &/get-writer
+      (|do [^MethodVisitor *writer* &/get-writer
             :let [_ (doto *writer*
                       (.visitTypeInsn Opcodes/NEW +class+)
                       (.visitInsn Opcodes/DUP)
@@ -46,12 +46,12 @@
   )
 
 (defn compile-text [compile *type* ?value]
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitLdcInsn *writer* ?value)]]
     (return nil)))
 
 (defn compile-tuple [compile *type* ?elems]
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [num-elems (&/|length ?elems)
               _ (doto *writer*
                   (.visitLdcInsn (int num-elems))
@@ -69,7 +69,7 @@
 
 (defn compile-record [compile *type* ?elems]
   ;; (prn 'compile-record (str "{{" (->> ?elems &/|keys (&/|interpose " ") (&/fold str "")) "}}"))
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [elems* (->> ?elems
                           &/->seq
                           (sort #(compare (&/|first %1) (&/|first %2)))
@@ -91,7 +91,7 @@
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitLdcInsn (int 2))
                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object"))
@@ -106,13 +106,13 @@
     (return nil)))
 
 (defn compile-local [compile *type* ?idx]
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitVarInsn *writer* Opcodes/ALOAD (int ?idx))]]
     (return nil)))
 
 (defn compile-captured [compile *type* ?scope ?captured-id ?source]
   ;; (prn 'compile-captured ?scope ?captured-id)
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitFieldInsn Opcodes/GETFIELD
@@ -122,19 +122,19 @@
     (return nil)))
 
 (defn compile-global [compile *type* ?owner-class ?name]
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (&/|list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-apply [compile *type* ?fn ?arg]
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?fn)
         _ (compile ?arg)
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
     (return nil)))
 
 (defn compile-def [compile ?name ?body ?def-data]
-  (|do [*writer* &/get-writer
+  (|do [^ClassWriter *writer* &/get-writer
         module-name &/get-module-name
         :let [outer-class (&host/->class module-name)
               datum-sig (&host/->type-signature "java.lang.Object")
@@ -147,7 +147,7 @@
                            (doto (.visitEnd))))]
         ;; :let [_ (prn 'compile-def/pre-body)]
         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-            (|do [**writer** &/get-writer
+            (|do [^MethodVisitor **writer** &/get-writer
                   :let [_ (.visitCode **writer**)]
                   ;; :let [_ (prn 'compile-def/pre-body2)]
                   _ (compile ?body)

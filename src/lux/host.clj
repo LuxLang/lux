@@ -4,14 +4,15 @@
             [clojure.core.match :as M :refer [match matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let]]
-                 [type :as &type])))
+                 [type :as &type]))
+  (:import (java.lang.reflect Field Method Modifier)))
 
 ;; [Constants]
 (def prefix "lux.")
 (def function-class (str prefix "Function"))
 
 ;; [Utils]
-(defn ^:private class->type [class]
+(defn ^:private class->type [^Class class]
   (if-let [[_ base arr-level] (re-find #"^([^\[]+)(\[\])*$"
                                        (str (if-let [pkg (.getPackage class)]
                                               (str (.getName pkg) ".")
@@ -23,7 +24,7 @@
                                     base)))
       )))
 
-(defn ^:private method->type [method]
+(defn ^:private method->type [^Method method]
   (|do [;; =args (&/map% class->type (&/->list (seq (.getParameterTypes method))))
          =return (class->type (.getReturnType method))]
     (return =return)))
@@ -46,10 +47,10 @@
 
 (defn full-class-name [class-name]
   ;; (prn 'full-class-name class-name)
-  (|do [=class (full-class class-name)]
+  (|do [^Class =class (full-class class-name)]
     (return (.getName =class))))
 
-(defn ->class [class]
+(defn ^String ->class [class]
   (string/replace class #"\." "/"))
 
 (def ->package ->class)
@@ -73,7 +74,7 @@
         (str "L" class* ";")))
     ))
 
-(defn ->java-sig [type]
+(defn ->java-sig [^objects type]
   (matchv ::M/objects [type]
     [["lux;DataT" ?name]]
     (->type-signature ?name)
@@ -104,10 +105,10 @@
 (do-template [<name> <static?>]
   (defn <name> [target field]
     (let [target (Class/forName target)]
-      (if-let [type* (first (for [=field (.getFields target)
+      (if-let [type* (first (for [^Field =field (.getFields target)
                                   :when (and (= target (.getDeclaringClass =field))
                                              (= field (.getName =field))
-                                             (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =field))))]
+                                             (= <static?> (Modifier/isStatic (.getModifiers =field))))]
                               (.getType =field)))]
         (|do [=type (class->type type*)]
           (return =type))
@@ -120,18 +121,18 @@
 (do-template [<name> <static?>]
   (defn <name> [target method-name args]
     (let [target (Class/forName target)]
-      (if-let [method (first (for [=method (.getMethods target)
+      (if-let [method (first (for [^Method =method (.getMethods target)
                                    ;; :let [_ (prn '<name> '=method =method (mapv #(.getName %) (.getParameterTypes =method)))]
                                    :when (and (= target (.getDeclaringClass =method))
                                               (= method-name (.getName =method))
-                                              (= <static?> (java.lang.reflect.Modifier/isStatic (.getModifiers =method)))
+                                              (= <static?> (Modifier/isStatic (.getModifiers =method)))
                                               (&/fold #(and %1 %2)
                                                       true
                                                       (&/|map (fn [xy]
                                                                 (|let [[x y] xy]
                                                                   (= x y)))
                                                               (&/zip2 args
-                                                                      (&/|map #(.getName %) (&/->list (seq (.getParameterTypes =method))))))))]
+                                                                      (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))))]
                                =method))]
         (method->type method)
         (fail (str "[Analyser Error] Method does not exist: " target method-name)))))

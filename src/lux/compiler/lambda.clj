@@ -32,7 +32,7 @@
        <init>-return))
 
 (defn ^:private add-lambda-<init> [class class-name env]
-  (doto (.visitMethod class Opcodes/ACC_PUBLIC "<init>" (lambda-<init>-signature env) nil nil)
+  (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "<init>" (lambda-<init>-signature env) nil nil)
     (.visitCode)
     (.visitVarInsn Opcodes/ALOAD 0)
     (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
@@ -50,7 +50,7 @@
     (.visitEnd)))
 
 (defn ^:private add-lambda-apply [class class-name env]
-  (doto (.visitMethod class Opcodes/ACC_PUBLIC "apply" &&/apply-signature nil nil)
+  (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "apply" &&/apply-signature nil nil)
     (.visitCode)
     (.visitVarInsn Opcodes/ALOAD 0)
     (.visitVarInsn Opcodes/ALOAD 1)
@@ -60,9 +60,9 @@
     (.visitEnd)))
 
 (defn ^:private add-lambda-impl [class compile impl-signature impl-body]
-  (&/with-writer (doto (.visitMethod class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
+  (&/with-writer (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
                    (.visitCode))
-    (|do [*writer* &/get-writer
+    (|do [^MethodVisitor *writer* &/get-writer
           :let [num-locals (&&/total-locals impl-body)
                 $start (new Label)
                 $end (new Label)
@@ -80,28 +80,10 @@
 
 (defn ^:private instance-closure [compile lambda-class closed-over init-signature]
   ;; (prn 'instance-closure lambda-class (&/|length closed-over) init-signature)
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW lambda-class)
-                  (.visitInsn Opcodes/DUP))
-              ;; _ (prn 'closed-over/pre
-              ;;        (&/->seq (&/|map #(matchv ::M/objects [(&/|second %1)]
-              ;;                            [[["captured" [_ ?cid _]] _]]
-              ;;                            ?cid)
-              ;;                         closed-over)))
-              ;; _ (prn 'closed-over/post
-              ;;        (->> closed-over
-              ;;             &/->seq
-              ;;             (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
-              ;;                      [[["captured" [_ ?cid1 _]] _]
-              ;;                       [["captured" [_ ?cid2 _]] _]]
-              ;;                      (< ?cid1 ?cid2)))
-              ;;             &/->list
-              ;;             (&/|map #(matchv ::M/objects [(&/|second %1)]
-              ;;                        [[["captured" [_ ?cid _]] _]]
-              ;;                        ?cid))
-              ;;             &/->seq))
-              ]
+                  (.visitInsn Opcodes/DUP))]
         _ (->> closed-over
                &/->seq
                (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
@@ -112,16 +94,7 @@
                (&/map% (fn [?name+?captured]
                          (matchv ::M/objects [?name+?captured]
                            [[?name [["captured" [_ _ ?source]] _]]]
-                           (do ;; (prn '?source (aget ?source 1 0 0)
-                               ;;      (cond (= "captured" (aget ?source 1 0 0))
-                               ;;            ["captured" (aget ?source 1 0 1 1)]
-
-                               ;;            (= "local" (aget ?source 1 0 0))
-                               ;;            ["local" (aget ?source 1 0 1)]
-
-                               ;;            :else
-                               ;;            '???))
-                               (compile ?source))))))
+                           (compile ?source)))))
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
     (return nil)))
 

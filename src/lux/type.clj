@@ -342,7 +342,7 @@
     [_]
     (fail (str "[Type Error] Not type-var: " (show-type tvar)))))
 
-(defn show-type [type]
+(defn show-type [^objects type]
   ;; (prn 'show-type (aget type 0))
   (matchv ::M/objects [type]
     [["lux;DataT" name]]

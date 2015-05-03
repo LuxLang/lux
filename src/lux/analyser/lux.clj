@@ -235,9 +235,7 @@
                               (&type/set-var ?id ex)))
                         type** (&type/clean $var ?type*)]
                     (return (&/T ?expr* type**)))
-
-                  [_ _]
-                  (assert false (prn-str 'analyse-apply*/output (aget output 0)))))))
+                  ))))
 
           [["lux;LambdaT" [?input-t ?output-t]]]
           ;; (|do [=arg (&&/analyse-1 analyse ?input-t ?arg)]
@@ -264,10 +262,7 @@
               (matchv ::M/objects [$def]
                 [["lux;MacroD" macro]]
                 (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))]
-                  (do ;; (when (or (= "type`" ?name)
-                      ;;           (= "deftype" ?name))
-                      ;;   (prn 'macro-expansion (str ?module ";" ?name) (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
-                    (&/flat-map% (partial analyse exo-type) macro-expansion)))
+                  (&/flat-map% (partial analyse exo-type) macro-expansion))
 
                 [_]
                 (|do [output (analyse-apply* analyse exo-type =fn ?args)]

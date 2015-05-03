@@ -40,10 +40,10 @@
 (defn R [& kvs]
   (to-array kvs))
 
-(defn get$ [slot record]
+(defn get$ [slot ^objects record]
   (aget record slot))
 
-(defn set$ [slot value record]
+(defn set$ [slot value ^objects record]
   (let [record* (aclone record)
         size (alength record)]
     (aset record* slot value)
@@ -157,25 +157,14 @@
     (V "lux;Right" (T state value))))
 
 (defn bind [m-value step]
-  (when (not (fn? m-value))
-    (prn 'bind (aget m-value 0)))
-  (when (not (fn? step))
-    (prn 'bind (aget step 0)))
-  ;; (prn 'bind m-value step)
   (fn [state]
     (let [inputs (m-value state)]
       (matchv ::M/objects [inputs]
         [["lux;Right" [?state ?datum]]]
-        (let [next-fn (step ?datum)]
-          (when (not (fn? next-fn))
-            (prn 'bind (aget next-fn 0) (aget next-fn 1)))
-          (next-fn ?state))
+        ((step ?datum) ?state)
         
         [["lux;Left" _]]
         inputs
-
-        ;; [_]
-        ;; (assert false (pr-str 'bind/inputs (aget inputs 0)))
         ))))
 
 (defmacro |do [steps return]

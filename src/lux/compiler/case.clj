@@ -19,8 +19,8 @@
 (let [+tag-sig+ (&host/->type-signature "java.lang.String")
       +oclass+ (&host/->class "java.lang.Object")
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")
-      compare-kv #(compare (aget %1 0) (aget %2 0))]
-  (defn ^:private compile-match [writer ?match $target $else]
+      compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
+  (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
     ;; (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
       [["StoreTestAC" ?idx]]
@@ -153,7 +153,7 @@
     (&/T mappings (&/|reverse patterns*))))
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
-  (defn ^:private compile-pattern-matching [writer compile mappings patterns $end]
+  (defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
     ;; (prn 'compile-pattern-matching ?matches $end)
     (let [entries (&/|map (fn [?branch+?body]
                             (|let [[?branch ?body] ?branch+?body
@@ -188,7 +188,7 @@
 ;; [Resources]
 (defn compile-case [compile *type* ?value ?matches]
   ;; (prn 'compile-case ?value ?matches)
-  (|do [*writer* &/get-writer
+  (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)]
         _ (compile ?value)
         _ (|let [[mappings patterns] (separate-bodies ?matches)]

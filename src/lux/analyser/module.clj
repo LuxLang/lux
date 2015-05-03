@@ -63,7 +63,7 @@
           [["lux;ValueD" ?type]]
           (do ;; (prn 'declare-macro/?type (aget ?type 0))
             (&/run-state (|do [_ (&type/check &type/Macro ?type)
-                               loader &/loader
+                               ^ClassLoader loader &/loader
                                :let [macro (-> (.loadClass loader (&host/location (&/|list module name)))
                                                (.getField "_datum")
                                                (.get nil))]]

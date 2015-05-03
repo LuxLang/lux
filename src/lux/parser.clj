@@ -62,7 +62,7 @@
       [["lux;Meta" [meta ["Real" ?value]]]]
       (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Real" (Float/parseFloat ?value))))))
 
-      [["lux;Meta" [meta ["Char" ?value]]]]
+      [["lux;Meta" [meta ["Char" ^String ?value]]]]
       (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Char" (.charAt ?value 0))))))
 
       [["lux;Meta" [meta ["Text" ?value]]]]

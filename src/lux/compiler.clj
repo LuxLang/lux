@@ -176,9 +176,6 @@
           [["jvm-dgt" [?x ?y]]]
           (&&host/compile-jvm-dgt compile-expression ?type ?x ?y)
           
-          [["|do" ?exprs]]
-          (&&host/compile-|do compile-expression ?type ?exprs)
-
           [["jvm-null" _]]
           (&&host/compile-jvm-null compile-expression ?type)
 
@@ -333,7 +330,7 @@
                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_eval" "Ljava/lang/Object;" nil nil)
                             (doto (.visitEnd))))]
          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (|do [*writer* &/get-writer
+             (|do [^MethodVisitor *writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
                     _ (compile-expression expr)
                     :let [_ (doto *writer*
@@ -346,7 +343,7 @@
                                         .visitEnd))]
          _ (&&/save-class! class-name bytecode)
          loader &/loader]
-    (-> (.loadClass loader class-name)
+    (-> (.loadClass ^ClassLoader loader class-name)
         (.getField "_eval")
         (.get nil)
         return)))

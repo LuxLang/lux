@@ -15,14 +15,14 @@
 (def closure-prefix "c")
 (def apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;")
 
-(defn write-file [file data]
+(defn write-file [^String file ^bytes data]
   (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
     (.write stream data)))
 
 (defn write-class [name data]
   (write-file (str "output/" name ".class") data))
 
-(defn load-class! [loader name]
+(defn load-class! [^ClassLoader loader name]
   (.loadClass loader name))
 
 (defn save-class! [name bytecode]

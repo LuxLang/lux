@@ -32,8 +32,8 @@
 ;; [Exports]
 (defn read-regex [regex]
   (with-line
-    (fn [file-name line-num column-num line]
-      (if-let [[match] (re-find regex line)]
+    (fn [file-name line-num column-num ^String line]
+      (if-let [[^String match] (re-find regex line)]
         (let [match-length (.length match)
               line* (.substring line match-length)
               ;; _ (prn 'with-line line*)
@@ -46,8 +46,8 @@
 
 (defn read-regex2 [regex]
   (with-line
-    (fn [file-name line-num column-num line]
-      (if-let [[match tok1 tok2] (re-find regex line)]
+    (fn [file-name line-num column-num ^String line]
+      (if-let [[^String match tok1 tok2] (re-find regex line)]
         (let [match-length (.length match)
               line* (.substring line match-length)
               ;; _ (prn 'with-line line*)
@@ -58,9 +58,9 @@
                             (&/V "lux;Some" (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*)))))))
         (&/V "No" (str "[Reader Error] Pattern failed: " regex))))))
 
-(defn read-text [text]
+(defn read-text [^String text]
   (with-line
-    (fn [file-name line-num column-num line]
+    (fn [file-name line-num column-num ^String line]
       ;; (prn 'read-text text line)
       (if (.startsWith line text)
         (let [match-length (.length text)
