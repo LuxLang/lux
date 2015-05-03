@@ -1609,6 +1609,195 @@
          _
          (fail "Wrong syntax for case")))
 
+(defmacro #export (\ tokens)
+  (case tokens
+    (#Cons [body (#Cons [pattern #Nil])])
+    (do Lux:Monad
+      [pattern+ (macro-expand pattern)]
+      (case (: (List Syntax) pattern+)
+        (#Cons [pattern' #Nil])
+        (;return (: (List Syntax) (list pattern' body)))
+        
+        _
+        (fail "\\ can only expand to 1 pattern.")))
+    
+    _
+    (fail "Wrong syntax for \\")))
+
+(defmacro #export (\or tokens)
+  (case tokens
+    (#Cons [body patterns])
+    (case patterns
+      #Nil
+      (fail "\\or can't have 0 patterns")
+
+      _
+      (do Lux:Monad
+        [patterns' (map% Lux:Monad macro-expand patterns)]
+        (;return (: (List Syntax) (list:join (map (: (-> Syntax (List Syntax))
+                                                     (lambda [pattern]
+                                                       (list pattern body)))
+                                                  (list:join (: (List (List Syntax)) patterns'))))))))
+    
+    _
+    (fail "Wrong syntax for \\or")))
+
+(do-template [<name> <offset>]
+  [(def <name> (int:+ <offset>))]
+
+  [inc  1]
+  [dec -1])
+
+(def #export (int:show int)
+  (-> Int Text)
+  (jvm-invokevirtual java.lang.Object toString []
+                     int []))
+
+(def #export (gensym prefix state)
+  (-> Text (Lux Syntax))
+  (case state
+    {#source source #modules modules #module-aliases module-aliases
+     #envs   envs   #types   types   #host           host
+     #seed   seed}
+    (#Right [{#source source #modules modules #module-aliases module-aliases
+              #envs   envs   #types   types   #host           host
+              #seed   (inc seed)}
+             ($symbol ["__gensym__" (int:show seed)])])))
+
+(def #export (macro-expand-1 token)
+  (-> Syntax (Lux Syntax))
+  (do Lux:Monad
+    [token+ (macro-expand token)]
+    (case (: (List Syntax) token+)
+      (\ (list token'))
+      (;return token')
+
+      _
+      (fail "Macro expanded to more than 1 element."))))
+
+(defmacro #export (sig tokens)
+  (do Lux:Monad
+    [tokens' (map% Lux:Monad macro-expand-1 tokens)
+     members (map% Lux:Monad
+                   (: (-> Syntax (Lux (, Ident Syntax)))
+                      (lambda [token]
+                        (case token
+                          (\ (#Meta [_ (#Form (list (#Meta [_ (#Symbol ["" ":'"])]) type (#Meta [_ (#Symbol name)])))]))
+                          (do Lux:Monad
+                            [name' (normalize name)]
+                            (;return (: (, Ident Syntax) [name' type])))
+
+                          _
+                          (fail "Signatures require typed members!"))))
+                   (: (List Syntax) tokens'))]
+    (;return (: (List Syntax)
+                (list (` (#;RecordT (list (~@ (map (: (-> (, Ident Syntax) Syntax)
+                                                      (lambda [pair]
+                                                        (let [[name type] pair]
+                                                          (` [(~ (|> name ident->text $text))
+                                                              (~ type)]))))
+                                                   (: (List (, Ident Syntax)) members)))))))))))
+
+(defmacro #export (defsig tokens)
+  (let [[export? tokens'] (: (, Bool (List Syntax))
+                             (case tokens
+                               (\ (list& (#Meta [_ (#Tag ["" "export"])]) tokens'))
+                               [true tokens']
+
+                               _
+                               [false tokens]))
+        ?parts (: (Maybe (, Syntax (List Syntax) (List Syntax)))
+                  (case tokens'
+                    (\ (list& (#Meta [_ (#Form (list& name args))]) sigs))
+                    (#Some [name args sigs])
+
+                    (\ (list& name sigs))
+                    (#Some [name #Nil sigs])
+
+                    _
+                    #None))]
+    (case ?parts
+      (#Some [name args sigs])
+      (let [sigs' (: Syntax (case args
+                              #Nil
+                              (` (;sig (~@ sigs)))
+
+                              _
+                              (` (;All (~ name) [(~@ args)] (;sig (~@ sigs))))))]
+        (return (: (List Syntax)
+                   (list& (` (def' (~ name) (~ sigs')))
+                          (if export?
+                            (list (` (export' (~ name))))
+                            #Nil)))))
+
+      #None
+      (fail "Wrong syntax for defsig"))))
+
+(defmacro #export (struct tokens)
+  (do Lux:Monad
+    [tokens' (map% Lux:Monad macro-expand-1 tokens)
+     members (map% Lux:Monad
+                   (: (-> Syntax (Lux (, Syntax Syntax)))
+                      (lambda [token]
+                        (case token
+                          (\ (#Meta [_ (#Form (list (#Meta [_ (#Symbol ["" "def'"])]) (#Meta [_ (#Symbol name)]) value))]))
+                          (do Lux:Monad
+                            [name' (normalize name)]
+                            (;return (: (, Syntax Syntax) [($tag name') value])))
+
+                          _
+                          (fail "Structures require defined members!"))))
+                   (: (List Syntax) tokens'))]
+    (;return (: (List Syntax)
+                (list ($record members))))))
+
+(defmacro #export (defstruct tokens)
+  (let [[export? tokens'] (: (, Bool (List Syntax))
+                             (case tokens
+                               (\ (list& (#Meta [_ (#Tag ["" "export"])]) tokens'))
+                               [true tokens']
+
+                               _
+                               [false tokens]))
+        ?parts (: (Maybe (, Syntax (List Syntax) Syntax (List Syntax)))
+                  (case tokens'
+                    (\ (list& (#Meta [_ (#Form (list& name args))]) type defs))
+                    (#Some [name args type defs])
+
+                    (\ (list& name type defs))
+                    (#Some [name #Nil type defs])
+
+                    _
+                    #None))]
+    (case ?parts
+      (#Some [name args type defs])
+      (let [defs' (: Syntax (case args
+                              #Nil
+                              (` (;struct (~@ defs)))
+
+                              _
+                              (` (;lambda (~ name) [(~@ args)] (;struct (~@ defs))))))]
+        (return (: (List Syntax)
+                   (list& (` (def (~ name) (~ type) (~ defs')))
+                          (if export?
+                            (list (` (export' (~ name))))
+                            #Nil)))))
+
+      #None
+      (fail "Wrong syntax for defsig"))))
+
+(defsig #export (Eq a)
+  (: (-> a a Bool)
+     =))
+
+(do-template [<name> <type> <test>]
+  [(defstruct #export <name> (Eq <type>)
+     (def (= x y)
+       (<test> x y)))]
+
+  [Int:Eq  Int  jvm-leq]
+  [Real:Eq Real jvm-deq])
+
 ## (def #export (print x)
 ##   (-> Text (IO (,)))
 ##   (io (jvm-invokevirtual java.io.PrintStream print [java.lang.Object]
@@ -1625,12 +1814,6 @@
 ## ##            (return (list (#Form (#Cons [(` (lambda (~ (#Symbol ["" "recur"])) (~ (#Tuple (map first pairs)))
 ## ##                                               (~ body)))
 ## ##                                         (map second pairs)])))))))
-
-## ## ## (do-template [<name> <offset>]
-## ## ##              (def <name> (int+ <offset>))
-
-## ## ##              [inc  1]
-## ## ##              [dec -1])
 
 ## ## ## (defmacro (get@ tokens)
 ## ## ##   (let [output (case' tokens
@@ -1667,17 +1850,6 @@
 ## ## ##                       (` (lambda [func record]
 ## ## ##                            (set@' (~ tag) (func (get@' (~ tag) record)) record))))]
 ## ## ##     (return (list output))))
-
-## ## (def (show-int int)
-## ##   (-> Int Text)
-## ##   (jvm-invokevirtual java.lang.Object "toString" []
-## ##                      int []))
-
-## ## (def gensym
-## ##   (LuxStateM Syntax)
-## ##   (lambda [state]
-## ##     [(update@ [#gen-seed] inc state)
-## ##      (_meta (#Symbol ($ text-++ "__" (show-int (get@ [#gen-seed] state)) "__")))]))
 
 ## ## (do-template [<name> <member>]
 ## ##              (def (<name> pair)

@@ -70,7 +70,7 @@
 
 (def ^:private lex-char
   (|do [[_ [meta _]] (&reader/read-text "#\"")
-         token (&/try-all% (&/|list (|do [escaped (&reader/read-regex #"^(\\.)")]
+         token (&/try-all% (&/|list (|do [[_ [_ escaped]] (&reader/read-regex #"^(\\.)")]
                                       (escape-char escaped))
                                     (|do [[_ [_ char]] (&reader/read-regex #"^(.)")]
                                       (return char))))

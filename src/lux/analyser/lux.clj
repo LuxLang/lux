@@ -264,9 +264,9 @@
               (matchv ::M/objects [$def]
                 [["lux;MacroD" macro]]
                 (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))]
-                  (do (when (or (= "type`" ?name)
-                                (= "deftype" ?name))
-                        (prn 'macro-expansion (str ?module ";" ?name) (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+                  (do ;; (when (or (= "type`" ?name)
+                      ;;           (= "deftype" ?name))
+                      ;;   (prn 'macro-expansion (str ?module ";" ?name) (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
                     (&/flat-map% (partial analyse exo-type) macro-expansion)))
 
                 [_]
