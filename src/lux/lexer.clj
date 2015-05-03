@@ -84,12 +84,9 @@
     (return (&/V "lux;Meta" (&/T meta (&/V "Text" token))))))
 
 (def ^:private lex-ident
-  (&/try-all% (&/|list (|do [[_ [meta _]] (&reader/read-text ";")
-                              [_ [_ token]] (&reader/read-regex +ident-re+)]
-                         (return (&/V "lux;Meta" (&/T meta (&/T "lux" token)))))
-                       (|do [[_ [meta token]] (&reader/read-regex +ident-re+)]
+  (&/try-all% (&/|list (|do [[_ [meta token]] (&reader/read-regex +ident-re+)]
                          (&/try-all% (&/|list (|do [_ (&reader/read-text ";")
-                                                     [_ [_ local-token]] (&reader/read-regex +ident-re+)]
+                                                    [_ [_ local-token]] (&reader/read-regex +ident-re+)]
                                                 (&/try-all% (&/|list (|do [unaliased (&module/dealias token)]
                                                                        (return (&/V "lux;Meta" (&/T meta (&/T unaliased local-token)))))
                                                                      (|do [? (&module/exists? token)]
@@ -99,6 +96,13 @@
                                                                      )))
                                               (return (&/V "lux;Meta" (&/T meta (&/T "" token))))
                                               )))
+                       (|do [[_ [meta _]] (&reader/read-text ";;")
+                             [_ [_ token]] (&reader/read-regex +ident-re+)
+                             module-name &/get-module-name]
+                         (return (&/V "lux;Meta" (&/T meta (&/T module-name token)))))
+                       (|do [[_ [meta _]] (&reader/read-text ";")
+                             [_ [_ token]] (&reader/read-regex +ident-re+)]
+                         (return (&/V "lux;Meta" (&/T meta (&/T "lux" token)))))
                        )))
 
 (def ^:private lex-symbol
