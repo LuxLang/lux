@@ -70,7 +70,7 @@
                            (fn [state*]
                              (return* (&/update$ &/$MODULES
                                                  (fn [$modules]
-                                                   (&/|put module (&/|put name (&/V "lux;MacroD" (&/V "lux;Some" macro)) $module)
+                                                   (&/|put module (&/|put name (&/V "lux;MacroD" macro) $module)
                                                            $modules))
                                                  state*)
                                       nil)))
@@ -83,25 +83,3 @@
           (fail* (str "[Analyser Error] Definition doesn't have macro type: " module ";" name)))
         (fail* (str "[Analyser Error] Definition doesn't exist: " (str module &/+name-separator+ name))))
       (fail* (str "[Analyser Error] Module doesn't exist: " module)))))
-
-(defn install-macro [module name macro]
-  (fn [state]
-    (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
-      (if-let [$def (&/|get name $module)]
-        (matchv ::M/objects [$def]
-          [["lux;MacroD" ["lux;None" _]]]
-          (return* (&/update$ &/$MODULES
-                              (fn [$modules]
-                                (&/|put module (&/|put name (&/V "lux;MacroD" (&/V "lux;Some" macro)) $module)
-                                        $modules))
-                              state)
-                   nil)
-
-          [["lux;MacroD" ["lux;Some" _]]]
-          (fail* (str "[Analyser Error] Can't re-install a macro: " (str module &/+name-separator+ name)))
-
-          [_]
-          (fail* (str "[Analyser Error] Can't install a non-macro: " (str module &/+name-separator+ name))))
-        (fail* (str "[Analyser Error] Definition doesn't exist: " (str module &/+name-separator+ name))))
-      (fail* (str "[Analyser Error] Module doesn't exist: " module)))
-    ))

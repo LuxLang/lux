@@ -232,35 +232,35 @@
     (&&host/analyse-jvm-new analyse ?class ?classes ?args)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-getstatic"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?field]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?field]]]]
                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-getstatic analyse ?class ?field)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-getfield"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?field]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?field]]]]
                                                                           ["lux;Cons" [?object
                                                                                        ["lux;Nil" _]]]]]]]]]]]]]
     (&&host/analyse-jvm-getfield analyse ?class ?field ?object)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-putstatic"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?field]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?field]]]]
                                                                           ["lux;Cons" [?value
                                                                                        ["lux;Nil" _]]]]]]]]]]]]]
     (&&host/analyse-jvm-putstatic analyse ?class ?field ?value)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-putfield"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Text" ?field]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
+                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?field]]]]
                                                                           ["lux;Cons" [?object
                                                                                        ["lux;Cons" [?value
                                                                                                     ["lux;Nil" _]]]]]]]]]]]]]]]
     (&&host/analyse-jvm-putfield analyse ?class ?field ?object ?value)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokestatic"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?args]]]
@@ -268,7 +268,7 @@
     (&&host/analyse-jvm-invokestatic analyse ?class ?method ?classes ?args)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokevirtual"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [?object
@@ -286,7 +286,7 @@
     (&&host/analyse-jvm-invokeinterface analyse ?class ?method ?classes ?object ?args)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" "jvm-invokespecial"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?class]]]]
                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?method]]]]
                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?classes]]]
                                                                                        ["lux;Cons" [?object

@@ -6,6 +6,7 @@
 
 ;; [Utils]
 (defn ^:private escape-char [escaped]
+  ;; (prn 'escape-char escaped)
   (condp = escaped
     "\\t"  (return "\t")
     "\\b"  (return "\b")
@@ -17,10 +18,14 @@
     ;; else
     (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
-(defn ^:private lex-text-body [_____]
+(defn ^:private lex-text-body [_]
   (&/try-all% (&/|list (|do [[_ [_ [prefix escaped]]] (&reader/read-regex2 #"(?s)^([^\"\\]*)(\\.)")
-                              unescaped (escape-char escaped)
-                              [_ [_ postfix]] (lex-text-body nil)]
+                             ;; :let [_ (prn '[prefix escaped] [prefix escaped])]
+                             unescaped (escape-char escaped)
+                             ;; :let [_ (prn 'unescaped unescaped)]
+                             postfix (lex-text-body nil)
+                             ;; :let [_ (prn 'postfix postfix)]
+                             ]
                          (return (str prefix unescaped postfix)))
                        (|do [[_ [_ body]] (&reader/read-regex #"(?s)^([^\"\\]*)")]
                          (return body)))))
@@ -37,7 +42,7 @@
          [_ [_ comment]] (&reader/read-regex #"^(.*)$")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
-(defn ^:private lex-multi-line-comment [___]
+(defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
          [meta comment] (&/try-all% (&/|list (|do [[_ [meta comment]] (&reader/read-regex #"(?is)^((?!#\().)*?(?=\)#)")]
                                                (return comment))

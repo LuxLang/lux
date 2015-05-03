@@ -262,16 +262,12 @@
             [["global" [?module ?name]]]
             (|do [$def (&&module/find-def ?module ?name)]
               (matchv ::M/objects [$def]
-                [["lux;MacroD" _macro]]
-                (matchv ::M/objects [_macro]
-                  [["lux;Some" macro]]
-                  (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))]
-                    (do (when (= "type`" ?name)
-                          (prn 'macro-expansion (str ?module ";" ?name) (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
-                      (&/flat-map% (partial analyse exo-type) macro-expansion)))
-
-                  [["lux;None" _]]
-                  (fail (str "[Analyser Error] Macro has yet to be compiled: " (str ?module ";" ?name))))
+                [["lux;MacroD" macro]]
+                (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))]
+                  (do (when (or (= "type`" ?name)
+                                (= "deftype" ?name))
+                        (prn 'macro-expansion (str ?module ";" ?name) (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+                    (&/flat-map% (partial analyse exo-type) macro-expansion)))
 
                 [_]
                 (|do [output (analyse-apply* analyse exo-type =fn ?args)]

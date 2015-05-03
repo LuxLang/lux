@@ -813,7 +813,7 @@
     [["lux;VariantT" ?cases]]
     (if-let [case-type (&/|get case ?cases)]
       (return case-type)
-      (fail (str "[Type Error] Variant lacks case: " case)))
+      (fail (str "[Type Error] Variant lacks case: " case " | " (show-type type))))
 
     [_]
     (fail (str "[Type Error] Type is not a variant: " (show-type type)))))

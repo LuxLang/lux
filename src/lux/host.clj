@@ -79,7 +79,13 @@
     (->type-signature ?name)
 
     [["lux;LambdaT" [_ _]]]
-    (->type-signature function-class)))
+    (->type-signature function-class)
+
+    [["lux;VariantT" ["lux;Nil" _]]]
+    "V"
+    
+    [_]
+    (assert false (prn-str '->java-sig (aget type 0)))))
 
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]

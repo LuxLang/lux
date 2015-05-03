@@ -52,7 +52,7 @@
               line* (.substring line match-length)
               ;; _ (prn 'with-line line*)
               ]
-          (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) [tok1 tok2]))
+          (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
                           (if (empty? line*)
                             (&/V "lux;None" nil)
                             (&/V "lux;Some" (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*)))))))
