@@ -221,7 +221,7 @@
 
 ## (deftype #rec CompilerState
 ##   (& #source         (Maybe Reader)
-##      #modules        (List (, Text (List (, Text (DefData' (-> (List Syntax) (StateE CompilerState (List Syntax))))))))
+##      #modules        (List (, Text (List (, Text (, Bool (DefData' (-> (List Syntax) (StateE CompilerState (List Syntax)))))))))
 ##      #module-aliases (List Void)
 ##      #envs           (List (Env Text Void))
 ##      #types          (Bindings Int Type)
@@ -231,10 +231,11 @@
                   (#RecordT (#Cons [["lux;source" (#AppT [Maybe Reader])]
                                     (#Cons [["lux;modules" (#AppT [List (#TupleT (#Cons [Text
                                                                                          (#Cons [(#AppT [List (#TupleT (#Cons [Text
-                                                                                                                               (#Cons [(#AppT [DefData' (#LambdaT [SyntaxList
-                                                                                                                                                                   (#AppT [(#AppT [StateE (#AppT [(#BoundT "CompilerState")
-                                                                                                                                                                                                  (#BoundT "")])])
-                                                                                                                                                                           SyntaxList])])])
+                                                                                                                               (#Cons [(#TupleT (#Cons [Bool (#Cons [(#AppT [DefData' (#LambdaT [SyntaxList
+                                                                                                                                                                                                 (#AppT [(#AppT [StateE (#AppT [(#BoundT "CompilerState")
+                                                                                                                                                                                                                                (#BoundT "")])])
+                                                                                                                                                                                                         SyntaxList])])])
+                                                                                                                                                                     #Nil])]))
                                                                                                                                        #Nil])]))])
                                                                                                  #Nil])]))])]
                                             (#Cons [["lux;module-aliases" (#AppT [List Void])]
@@ -303,37 +304,31 @@
   (:' (#LambdaT [Text Syntax])
       (lambda' _ text
                (_meta (#Text text)))))
-(export' $text)
 
 (def' $symbol
   (:' (#LambdaT [Ident Syntax])
       (lambda' _ ident
                (_meta (#Symbol ident)))))
-(export' $symbol)
 
 (def' $tag
   (:' (#LambdaT [Ident Syntax])
       (lambda' _ ident
                (_meta (#Tag ident)))))
-(export' $tag)
 
 (def' $form
   (:' (#LambdaT [(#AppT [List Syntax]) Syntax])
       (lambda' _ tokens
                (_meta (#Form tokens)))))
-(export' $form)
 
 (def' $tuple
   (:' (#LambdaT [(#AppT [List Syntax]) Syntax])
       (lambda' _ tokens
                (_meta (#Tuple tokens)))))
-(export' $tuple)
 
 (def' $record
   (:' (#LambdaT [(#AppT [List (#TupleT (#Cons [Syntax (#Cons [Syntax #Nil])]))]) Syntax])
       (lambda' _ tokens
                (_meta (#Record tokens)))))
-(export' $record)
 
 (def' let'
   (:' Macro
@@ -1263,28 +1258,6 @@
          #Nil
          #None))
 
-(def__ #export (find-macro ident state)
-  (-> Ident ($' Lux ($' Maybe Macro)))
-  (let [[module name] ident]
-    (case' state
-           {#source source #modules modules #module-aliases module-aliases
-            #envs   envs   #types   types   #host           host
-            #seed   seed}
-           (#Right [state (do Maybe:Monad
-                            [bindings (get module modules)
-                             gdef (get name bindings)]
-                            (case' (:' ($' DefData' Macro) gdef)
-                                   (#MacroD macro')
-                                   (#Some macro')
-
-                                   _
-                                   #None))]))))
-
-(def__ (list:join xs)
-  (All [a]
-    (-> ($' List ($' List a)) ($' List a)))
-  (fold list:++ #Nil xs))
-
 (def__ #export (get-module-name state)
   ($' Lux Text)
   (case' state
@@ -1297,6 +1270,45 @@
 
                 (#Cons [{#name module-name #inner-closures _ #locals _ #closure _} _])
                 (#Right [state module-name]))))
+
+(def__ (find-macro' modules current-module module name)
+  (-> ($' List (, Text ($' List (, Text (, Bool ($' DefData' (-> ($' List Syntax) ($' StateE CompilerState ($' List Syntax)))))))))
+      Text Text Text
+      ($' Maybe Macro))
+  (do Maybe:Monad
+    [bindings (get module modules)
+     gdef (get name bindings)]
+    (case' (:' (, Bool ($' DefData' Macro)) gdef)
+           [exported? (#MacroD macro')]
+           (if exported?
+             (#Some macro')
+             (if (text:= module current-module)
+               (#Some macro')
+               #None))
+
+           [_ (#AliasD [r-module r-name])]
+           (find-macro' modules current-module r-module r-name)
+           
+           _
+           #None)))
+
+(def__ #export (find-macro ident)
+  (-> Ident ($' Lux ($' Maybe Macro)))
+  (do Lux:Monad
+    [current-module get-module-name]
+    (let [[module name] ident]
+      (:' ($' Lux ($' Maybe Macro))
+          (lambda [state]
+            (case' state
+                   {#source source #modules modules #module-aliases module-aliases
+                    #envs   envs   #types   types   #host           host
+                    #seed   seed}
+                   (#Right [state (find-macro' modules current-module module name)])))))))
+
+(def__ (list:join xs)
+  (All [a]
+    (-> ($' List ($' List a)) ($' List a)))
+  (fold list:++ #Nil xs))
 
 (def__ #export (normalize ident state)
   (-> Ident ($' Lux Ident))
@@ -1879,8 +1891,8 @@
        _
        (fail <message>)))]
 
-  [and (if (~ pre) true (~ post))  "and requires >=1 elements."]
-  [or  (if (~ pre) (~ post) false) "or requires >=1 elements."])
+  [and (if (~ pre) true (~ post))  "and requires >=1 clauses."]
+  [or  (if (~ pre) (~ post) false) "or requires >=1 clauses."])
 
 (do-template [<name> <type> <lt> <gt> <eq>]
   [(defstruct #export <name> (Ord <type>)
@@ -1898,6 +1910,31 @@
   [Int:Ord  Int  jvm-llt jvm-lgt jvm-leq]
   [Real:Ord Real jvm-dlt jvm-dgt jvm-deq])
 
+(defmacro #export (alias-lux tokens state)
+  (case state
+    {#source source #modules modules #module-aliases module-aliases
+     #envs   envs   #types   types   #host           host
+     #seed   seed}
+    (case (get "lux" modules)
+      (#Some lux)
+      (let [to-alias (map (: (-> (, Text (, Bool (DefData' (-> (List Syntax) (StateE CompilerState (List Syntax))))))
+                                 (List Text))
+                             (lambda [gdef]
+                               (let [[name [export? _]] gdef]
+                                 (if export?
+                                   (list name)
+                                   (list)))))
+                          lux)]
+        (#Right [state (map (: (-> Text Syntax)
+                               (lambda [name]
+                                 (` ((~ ($symbol ["" "def'"])) (~ ($symbol ["" name]))
+                                     (~ ($symbol ["lux" name]))))))
+                            (list:join to-alias))]))
+      
+      #None
+      (#Left "Uh, oh... The universe is not working properly..."))
+    ))
+
 ## (def #export (print x)
 ##   (-> Text (IO (,)))
 ##   (io (jvm-invokevirtual java.io.PrintStream print [java.lang.Object]
@@ -1907,55 +1944,56 @@
 ##   (-> Text (IO (,)))
 ##   (print (text:++ x "\n")))
 
-## ## (defmacro (loop tokens)
-## ##   (case' tokens
-## ##          (#Cons [bindings (#Cons [body #Nil])])
-## ##          (let [pairs (as-pairs bindings)]
-## ##            (return (list (#Form (#Cons [(` (lambda (~ (#Symbol ["" "recur"])) (~ (#Tuple (map first pairs)))
-## ##                                               (~ body)))
-## ##                                         (map second pairs)])))))))
+## (defmacro (loop tokens)
+##   (case' tokens
+##          (#Cons [bindings (#Cons [body #Nil])])
+##          (let [pairs (as-pairs bindings)]
+##            (return (list (#Form (#Cons [(` (lambda (~ (#Symbol ["" "recur"])) (~ (#Tuple (map first pairs)))
+##                                               (~ body)))
+##                                         (map second pairs)])))))))
 
-## ## ## (defmacro (get@ tokens)
-## ## ##   (let [output (case' tokens
-## ## ##                       (#Cons [tag (#Cons [record #Nil])])
-## ## ##                       (` (get@' (~ tag) (~ record)))
+## (defmacro (get@ tokens)
+##   (let [output (case' tokens
+##                       (#Cons [tag (#Cons [record #Nil])])
+##                       (` (get@' (~ tag) (~ record)))
 
-## ## ##                       (#Cons [tag #Nil])
-## ## ##                       (` (lambda [record] (get@' (~ tag) record))))]
-## ## ##     (return (list output))))
+##                       (#Cons [tag #Nil])
+##                       (` (lambda [record] (get@' (~ tag) record))))]
+##     (return (list output))))
 
-## ## ## (defmacro (set@ tokens)
-## ## ##   (let [output (case' tokens
-## ## ##                       (#Cons [tag (#Cons [value (#Cons [record #Nil])])])
-## ## ##                       (` (set@' (~ tag) (~ value) (~ record)))
+## (defmacro (set@ tokens)
+##   (let [output (case' tokens
+##                       (#Cons [tag (#Cons [value (#Cons [record #Nil])])])
+##                       (` (set@' (~ tag) (~ value) (~ record)))
 
-## ## ##                       (#Cons [tag (#Cons [value #Nil])])
-## ## ##                       (` (lambda [record] (set@' (~ tag) (~ value) record)))
+##                       (#Cons [tag (#Cons [value #Nil])])
+##                       (` (lambda [record] (set@' (~ tag) (~ value) record)))
 
-## ## ##                       (#Cons [tag #Nil])
-## ## ##                       (` (lambda [value record] (set@' (~ tag) value record))))]
-## ## ##     (return (list output))))
+##                       (#Cons [tag #Nil])
+##                       (` (lambda [value record] (set@' (~ tag) value record))))]
+##     (return (list output))))
 
-## ## ## (defmacro (update@ tokens)
-## ## ##   (let [output (case' tokens
-## ## ##                       (#Cons [tag (#Cons [func (#Cons [record #Nil])])])
-## ## ##                       (` (let [_record_ (~ record)]
-## ## ##                            (set@' (~ tag) ((~ func) (get@' (~ tag) _record_)) _record_)))
+## (defmacro (update@ tokens)
+##   (let [output (case' tokens
+##                       (#Cons [tag (#Cons [func (#Cons [record #Nil])])])
+##                       (` (let [_record_ (~ record)]
+##                            (set@' (~ tag) ((~ func) (get@' (~ tag) _record_)) _record_)))
 
-## ## ##                       (#Cons [tag (#Cons [func #Nil])])
-## ## ##                       (` (lambda [record]
-## ## ##                            (` (set@' (~ tag) ((~ func) (get@' (~ tag) record)) record))))
+##                       (#Cons [tag (#Cons [func #Nil])])
+##                       (` (lambda [record]
+##                            (` (set@' (~ tag) ((~ func) (get@' (~ tag) record)) record))))
 
-## ## ##                       (#Cons [tag #Nil])
-## ## ##                       (` (lambda [func record]
-## ## ##                            (set@' (~ tag) (func (get@' (~ tag) record)) record))))]
-## ## ##     (return (list output))))
+##                       (#Cons [tag #Nil])
+##                       (` (lambda [func record]
+##                            (set@' (~ tag) (func (get@' (~ tag) record)) record))))]
+##     (return (list output))))
 
-## ## (do-template [<name> <member>]
-## ##              (def (<name> pair)
-## ##                (case' pair
-## ##                       [f s]
-## ##                       <member>))
+## (do-template [<name> <member> <type>]
+##   (def (<name> pair)
+##     (All [a b] (-> (, a b) <type>))
+##     (case pair
+##       [f s]
+##       <member>))
 
-## ##              [first  f]
-## ##              [second s])
+##   [first  f a]
+##   [second s b])

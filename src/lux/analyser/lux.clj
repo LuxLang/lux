@@ -114,15 +114,6 @@
                        ?elems)]
     (return (&/|list (&/T (&/V "record" =slots) (&/V "lux;RecordT" exo-type))))))
 
-(defn find-def+ [?module ?name]
-  (|do [$def (&&module/find-def ?module ?name)]
-    (matchv ::M/objects [$def]
-      [["lux;AliasD" [?r-module ?r-name]]]
-      (find-def+ ?r-module ?r-name)
-
-      [_]
-      (return $def))))
-
 (defn analyse-symbol [analyse exo-type ident]
   (|do [module-name &/get-module-name]
     (fn [state]
@@ -135,8 +126,8 @@
              [inner outer] (&/|split-with no-binding? stack)]
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
-          (&/run-state (|do [$def (find-def+ (if (= "" ?module) module-name ?module)
-                                             ?name)
+          (&/run-state (|do [[[r-module r-name] $def] (&&module/find-def (if (= "" ?module) module-name ?module)
+                                                                         ?name)
                              endo-type (matchv ::M/objects [$def]
                                          [["lux;ValueD" ?type]]
                                          (return ?type)
@@ -154,8 +145,7 @@
                                  (&type/check exo-type endo-type))
                              ;; :let [_ (println "Type-checked:" exo-type endo-type)]
                              ]
-                         (return (&/|list (&/T (&/V "global" (&/T (if (= "" ?module) module-name ?module)
-                                                                  ?name))
+                         (return (&/|list (&/T (&/V "global" (&/T r-module r-name))
                                                endo-type))))
                        state)
 
@@ -164,7 +154,9 @@
             (do ;; (prn 'GOT_GLOBAL local-ident)
                 (matchv ::M/objects [global]
                   [[["global" [?module* ?name*]] _]]
-                  (&/run-state (|do [$def (&&module/find-def ?module* ?name*)
+                  (&/run-state (|do [;; :let [_ (prn 'GLOBAL/_1 ?module* ?name*)]
+                                     [[r-module r-name] $def] (&&module/find-def ?module* ?name*)
+                                     ;; :let [_ (prn 'GLOBAL/_2 r-module r-name)]
                                      ;; :let [_ (println "Found def:" ?module* ?name*)]
                                      endo-type (matchv ::M/objects [$def]
                                                  [["lux;ValueD" ?type]]
@@ -182,7 +174,7 @@
                                          (&type/check exo-type endo-type))
                                      ;; :let [_ (println "Type-checked:" exo-type endo-type)]
                                      ]
-                                 (return (&/|list (&/T (&/V "global" (&/T ?module* ?name*))
+                                 (return (&/|list (&/T (&/V "global" (&/T r-module r-name))
                                                        endo-type))))
                                state)
 
@@ -265,10 +257,21 @@
       (do ;; (prn 'analyse-apply2 (aget =fn-form 0))
           (matchv ::M/objects [=fn-form]
             [["global" [?module ?name]]]
-            (|do [$def (&&module/find-def ?module ?name)]
+            (|do [[[r-module r-name] $def] (&&module/find-def ?module ?name)
+                  ;; :let [_ (prn 'apply [?module ?name] (aget $def 0))]
+                  ]
               (matchv ::M/objects [$def]
                 [["lux;MacroD" macro]]
-                (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))]
+                (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
+                      ;; :let [_ (cond (= ?name "def")
+                      ;;               (println (str "def " ?module ";" ?name ": " (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+
+                      ;;               (= ?name "type`")
+                      ;;               (println (str "type`: " (->> macro-expansion (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+
+                      ;;               :else
+                      ;;               nil)]
+                      ]
                   (&/flat-map% (partial analyse exo-type) macro-expansion))
 
                 [_]
@@ -363,7 +366,8 @@
     (return (&/|list output))))
 
 (defn analyse-def [analyse ?name ?value]
-  (prn 'analyse-def/CODE ?name (&/show-ast ?value))
+  ;; (prn 'analyse-def/CODE ?name (&/show-ast ?value))
+  (prn 'analyse-def/BEGIN ?name)
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
@@ -371,11 +375,13 @@
       (|do [;; :let [_ (prn 'analyse-def/_0)]
             =value (&/with-scope ?name
                      (analyse-1+ analyse ?value))
-            ;; :let [_ (prn 'analyse-def/_1 (aget =value 0 0))]
+            ;; :let [_ (prn 'analyse-def/_1 [?name ?value] (aget =value 0 0))]
             ]
         (matchv ::M/objects [=value]
-          [["global" [?r-module ?r-name]]]
-          (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name)]
+          [[["global" [?r-module ?r-name]] _]]
+          (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name)
+                :let [_ (println 'analyse-def/ALIAS (str module-name ";" ?name) '=> (str ?r-module ";" ?r-name))
+                      _ (println)]]
             (return (&/|list)))
 
           [_]
@@ -403,8 +409,10 @@
 (defn analyse-import [analyse exo-type ?path]
   (return (&/|list)))
 
-(defn analyse-export [analyse ?ident]
-  (return (&/|list)))
+(defn analyse-export [analyse name]
+  (|do [module-name &/get-module-name
+        _ (&&module/export module-name name)]
+    (return (&/|list))))
 
 (defn analyse-check [analyse eval! exo-type ?type ?value]
   ;; (println "analyse-check#0")

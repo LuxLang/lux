@@ -113,7 +113,7 @@
     (&&lux/analyse-coerce analyse eval! ?type ?value)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "export'"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?ident]]]
+                                                ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?ident]]]]
                                                              ["lux;Nil" _]]]]]]]]]
     (&&lux/analyse-export analyse ?ident)
 

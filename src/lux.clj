@@ -6,6 +6,8 @@
 (comment
   ;; TODO: Finish total-locals
 
+  (time (&compiler/compile-all (&/|list "program")))
+  
   (time (&compiler/compile-all (&/|list "lux")))
   (System/gc)
   (time (&compiler/compile-all (&/|list "lux" "test2")))

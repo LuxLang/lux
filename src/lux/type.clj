@@ -143,11 +143,12 @@
                                                                                              (&/|list Text
                                                                                                       (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
                                                                                                                                      (&/|list Text
-                                                                                                                                              (&/V "lux;AppT" (&/T DefData*
-                                                                                                                                                                   (&/V "lux;LambdaT" (&/T SyntaxList
-                                                                                                                                                                                           (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "CompilerState")
-                                                                                                                                                                                                                                                                 (&/V "lux;BoundT" "")))))
-                                                                                                                                                                                                                SyntaxList)))))))))))))))
+                                                                                                                                              (&/V "lux;TupleT" (&/|list Bool
+                                                                                                                                                                         (&/V "lux;AppT" (&/T DefData*
+                                                                                                                                                                                              (&/V "lux;LambdaT" (&/T SyntaxList
+                                                                                                                                                                                                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "CompilerState")
+                                                                                                                                                                                                                                                                                            (&/V "lux;BoundT" "")))))
+                                                                                                                                                                                                                                           SyntaxList)))))))))))))))))
                                            (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
                                            (&/T "lux;envs" (&/V "lux;AppT" (&/T List
                                                                                 (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))

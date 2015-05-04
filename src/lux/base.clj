@@ -127,8 +127,8 @@
 
     [["lux;Cons" [[k* v] table*]]]
     (if (= k k*)
-      (V "lux;Cons" (T (T k (f v)) table*))
-      (|update k f table*))))
+      (V "lux;Cons" (T (T k* (f v)) table*))
+      (V "lux;Cons" (T (T k* v) (|update k f table*))))))
 
 (defn |head [xs]
   (matchv ::M/objects [xs]

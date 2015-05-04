@@ -102,7 +102,7 @@
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]
-    (prn '<name> ?class ?method)
+    ;; (prn '<name> ?class ?method)
     (|do [=class (&host/full-class-name ?class)
           ;; :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
           =classes (&/map% &host/extract-jvm-param ?classes)

@@ -358,8 +358,11 @@
                       )]
   (defn ^:private compile-module [name]
     (fn [state]
+      (prn 'compile-module name (->> state (&/get$ &/$MODULES) &/|keys &/->seq))
       (if (->> state (&/get$ &/$MODULES) (&/|contains? name))
-        (fail* "[Compiler Error] Can't redefine a module!")
+        (if (= name "lux")
+          (return* state nil)
+          (fail* "[Compiler Error] Can't redefine a module!"))
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
@@ -380,7 +383,7 @@
 ;; [Resources]
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
-  (matchv ::M/objects [(&/run-state (&/map% compile-module modules) (&/init-state nil))]
+  (matchv ::M/objects [(&/run-state (&/map% compile-module (&/|cons "lux" modules)) (&/init-state nil))]
     [["lux;Right" [?state _]]]
     (println (str "Compilation complete! " (str "[" (->> modules
                                                          (&/|interpose " ")
