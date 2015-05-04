@@ -5,7 +5,8 @@
             :reload-all))
 
 (defn -main [& _]
-  (time (&compiler/compile-all (&/|list "program"))))
+  (time (&compiler/compile-all (&/|list "program")))
+  (System/exit 0))
 
 (comment
   ;; TODO: Finish total-locals

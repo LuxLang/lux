@@ -2,7 +2,7 @@
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return fail |list]]
+            (lux [base :as & :refer [|do return fail return* fail* |list]]
                  [reader :as &reader]
                  [parser :as &parser]
                  [type :as &type]
@@ -29,11 +29,7 @@
 (defn ^:private _meta [token]
   (&/V "lux;Meta" (&/T (&/T "" -1 -1) token)))
 
-(defn ^:private analyse-basic-ast [analyse eval! exo-type token]
-  ;; (prn 'analyse-basic-ast (aget token 0))
-  ;; (when (= "lux;Tag" (aget token 0))
-  ;;   (prn 'analyse-basic-ast/tag (aget token 1)))
-  ;; (prn 'analyse-basic-ast token (&/show-ast token))
+(defn ^:private aba1 [analyse eval! exo-type token]
   (matchv ::M/objects [token]
     ;; Standard special forms
     [["lux;Meta" [meta ["lux;Bool" ?value]]]]
@@ -67,7 +63,13 @@
     
     [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
     (return (&/|list (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null"))))
-    
+
+    [_]
+    (fail "")
+    ))
+
+(defn ^:private aba2 [analyse eval! exo-type token]
+  (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;Symbol" ?ident]]]]
     (&&lux/analyse-symbol analyse exo-type ?ident)
 
@@ -117,6 +119,11 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&&lux/analyse-export analyse ?ident)
 
+    [_]
+    (fail "")))
+
+(defn ^:private aba3 [analyse eval! exo-type token]
+  (matchv ::M/objects [token]
     ;; Host special forms
     ;; Integer arithmetic
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-iadd"]]]] ["lux;Cons" [?y ["lux;Cons" [?x ["lux;Nil" _]]]]]]]]]]]
@@ -168,6 +175,11 @@
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-lgt"]]]] ["lux;Cons" [?y ["lux;Cons" [?x ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-lgt analyse ?x ?y)
 
+    [_]
+    (fail "")))
+
+(defn ^:private aba4 [analyse eval! exo-type token]
+  (matchv ::M/objects [token]
     ;; Float arithmetic
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-fadd"]]]] ["lux;Cons" [?y ["lux;Cons" [?x ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-fadd analyse ?x ?y)
@@ -218,6 +230,11 @@
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-dgt"]]]] ["lux;Cons" [?y ["lux;Cons" [?x ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-dgt analyse ?x ?y)
 
+    [_]
+    (fail "")))
+
+(defn ^:private aba5 [analyse eval! exo-type token]
+  (matchv ::M/objects [token]
     ;; Objects
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-null?"]]]]
                                                 ["lux;Cons" [?object
@@ -316,6 +333,11 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&&host/analyse-jvm-monitorexit analyse ?monitor)
 
+    [_]
+    (fail "")))
+
+(defn ^:private aba6 [analyse eval! exo-type token]
+  (matchv ::M/objects [token]
     ;; Primitive conversions
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-d2f"]]]] ["lux;Cons" [?value ["lux;Nil" _]]]]]]]]]
     (&&host/analyse-jvm-d2f analyse ?value)
@@ -386,7 +408,12 @@
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-lushr"]]]] ["lux;Cons" [?x ["lux;Cons" [?y ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-lushr analyse ?x ?y)
-    
+
+    [_]
+    (fail "")))
+
+(defn ^:private aba7 [analyse eval! exo-type token]
+  (matchv ::M/objects [token]
     ;; Arrays
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "jvm-new-array"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?class]]]]
@@ -428,7 +455,50 @@
     (&&host/analyse-jvm-program analyse ?args ?body)
     
     [_]
-    (fail (str "[Analyser Error] Unmatched token: " (&/show-ast token)))))
+    (fail "")))
+
+(defn ^:private analyse-basic-ast [analyse eval! exo-type token]
+  ;; (prn 'analyse-basic-ast (aget token 0))
+  ;; (when (= "lux;Tag" (aget token 0))
+  ;;   (prn 'analyse-basic-ast/tag (aget token 1)))
+  ;; (prn 'analyse-basic-ast token (&/show-ast token))
+  (fn [state]
+    (matchv ::M/objects [((aba1 analyse eval! exo-type token) state)]
+      [["lux;Right" [state* output]]]
+      (return* state* output)
+
+      [_]
+      (matchv ::M/objects [((aba2 analyse eval! exo-type token) state)]
+        [["lux;Right" [state* output]]]
+        (return* state* output)
+
+        [_]
+        (matchv ::M/objects [((aba3 analyse eval! exo-type token) state)]
+          [["lux;Right" [state* output]]]
+          (return* state* output)
+
+          [_]
+          (matchv ::M/objects [((aba4 analyse eval! exo-type token) state)]
+            [["lux;Right" [state* output]]]
+            (return* state* output)
+
+            [_]
+            (matchv ::M/objects [((aba5 analyse eval! exo-type token) state)]
+              [["lux;Right" [state* output]]]
+              (return* state* output)
+
+              [_]
+              (matchv ::M/objects [((aba6 analyse eval! exo-type token) state)]
+                [["lux;Right" [state* output]]]
+                (return* state* output)
+
+                [_]
+                (matchv ::M/objects [((aba7 analyse eval! exo-type token) state)]
+                  [["lux;Right" [state* output]]]
+                  (return* state* output)
+
+                  [_]
+                  (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))))))))))
 
 (defn ^:private analyse-ast [eval! exo-type token]
   ;; (prn 'analyse-ast (aget token 0))
