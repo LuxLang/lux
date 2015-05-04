@@ -697,7 +697,7 @@
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
-                            (str "#" (show-ast k) " " (show-ast v)))))
+                            (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
     [["lux;Meta" [_ ["lux;Form" ?elems]]]]

@@ -31,7 +31,7 @@
 
 ;; [Resources]
 (defn full-class [class-name]
-  (case class
+  (case class-name
     "boolean" (return Boolean/TYPE)
     "byte"    (return Byte/TYPE)
     "short"   (return Short/TYPE)
@@ -43,7 +43,7 @@
     ;; else
     (try (return (Class/forName class-name))
       (catch Exception e
-        (fail "[Analyser Error] Unknown class.")))))
+        (fail (str "[Analyser Error] Unknown class: " class-name))))))
 
 (defn full-class-name [class-name]
   ;; (prn 'full-class-name class-name)
@@ -92,12 +92,6 @@
   (matchv ::M/objects [token]
     [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
     (full-class-name ?ident)
-
-    [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "Array"]]]]
-                                             ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?inner]]]]
-                                                          ["lux;Nil" _]]]]]]]]]
-    (|do [=inner (full-class-name ?inner)]
-      (return (str "[L" (->class =inner) ";")))
 
     [_]
     (fail (str "[Host] Unknown JVM param: " (pr-str token)))))

@@ -51,19 +51,19 @@
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
       
       [["lux;DataT" "byte"]]
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class byte-class) "valueOf" (str "(J)" (&host/->type-signature byte-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class byte-class) "valueOf" (str "(B)" (&host/->type-signature byte-class)))
 
       [["lux;DataT" "short"]]
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class short-class) "valueOf" (str "(J)" (&host/->type-signature short-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class short-class) "valueOf" (str "(S)" (&host/->type-signature short-class)))
 
       [["lux;DataT" "int"]]
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class int-class) "valueOf" (str "(J)" (&host/->type-signature int-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class int-class) "valueOf" (str "(I)" (&host/->type-signature int-class)))
 
       [["lux;DataT" "long"]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
       [["lux;DataT" "float"]]
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class float-class) "valueOf" (str "(D)" (&host/->type-signature float-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class float-class) "valueOf" (str "(F)" (&host/->type-signature float-class)))
 
       [["lux;DataT" "double"]]
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class double-class) "valueOf" (str "(D)" (&host/->type-signature double-class)))
@@ -419,6 +419,7 @@
                     (.visitInsn Opcodes/DUP))]
           _ (compile ?value)
           :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host/->class <from-class>))
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from-class>) <from-method> <from-sig>)
                     (.visitInsn <op>)
                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class <to-class>) "<init>" <to-sig>))]]
@@ -451,9 +452,13 @@
                     (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))
                     (.visitInsn Opcodes/DUP))]
           _ (compile ?x)
-          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (&host/->class <from1-class>) <from1-method> <from1-sig>)]
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host/->class <from1-class>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from1-class>) <from1-method> <from1-sig>))]
           _ (compile ?y)
-          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL (&host/->class <from2-class>) <from2-method> <from2-sig>)]
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host/->class <from2-class>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from2-class>) <from2-method> <from2-sig>))]
           :let [_ (doto *writer*
                     (.visitInsn <op>)
                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class <to-class>) "<init>" <to-sig>))]]
@@ -471,13 +476,13 @@
   compile-jvm-lushr Opcodes/LUSHR "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
   )
 
-(defn compile-jvm-program [compile *type* ?body]
+(defn compile-jvm-program [compile ?body]
   (|do [^ClassWriter *writer* &/get-writer]
     (&/with-writer (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "main" "([Ljava/lang/String;)V" nil nil)
                      (.visitCode))
-      (|do [*writer* &/get-writer
+      (|do [main-writer &/get-writer
             _ (compile ?body)
-            :let [_ (doto ^MethodVisitor *writer*
+            :let [_ (doto ^MethodVisitor main-writer
                       (.visitInsn Opcodes/POP)
                       (.visitInsn Opcodes/RETURN)
                       (.visitMaxs 0 0)

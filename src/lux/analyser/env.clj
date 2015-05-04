@@ -15,7 +15,7 @@
     (let [old-mappings (->> state (&/get$ &/$ENVS) &/|head (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS))
           =return (body (&/update$ &/$ENVS
                                    (fn [stack]
-                                     (let [bound-unit (&/V "local" (->> (&/|head stack) (&/get$ &/$LOCALS) (&/get$ &/$COUNTER)))]
+                                     (let [bound-unit (&/V "lux;Local" (->> (&/|head stack) (&/get$ &/$LOCALS) (&/get$ &/$COUNTER)))]
                                        (&/|cons (->> (&/|head stack)
                                                      (&/update$ &/$LOCALS #(&/update$ &/$COUNTER inc %))
                                                      (&/update$ &/$LOCALS #(&/update$ &/$MAPPINGS (fn [m] (&/|put name (&/T bound-unit type) m)) %)))

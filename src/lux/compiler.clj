@@ -55,13 +55,13 @@
           [["record" ?elems]]
           (&&lux/compile-record compile-expression ?type ?elems)
 
-          [["local" ?idx]]
+          [["lux;Local" ?idx]]
           (&&lux/compile-local compile-expression ?type ?idx)
 
           [["captured" [?scope ?captured-id ?source]]]
           (&&lux/compile-captured compile-expression ?type ?scope ?captured-id ?source)
 
-          [["global" [?owner-class ?name]]]
+          [["lux;Global" [?owner-class ?name]]]
           (&&lux/compile-global compile-expression ?type ?owner-class ?name)
 
           [["apply" [?fn ?arg]]]
@@ -298,9 +298,6 @@
 
           [["jvm-lushr" [?x ?y]]]
           (&&host/compile-jvm-lushr compile-expression ?type ?x ?y)
-
-          [["jvm-program" ?body]]
-          (&&host/compile-jvm-program compile-expression ?type ?body)
           ))
     ))
 
@@ -312,6 +309,9 @@
 
     [["declare-macro" [?module ?name]]]
     (&&lux/compile-declare-macro compile-expression ?module ?name)
+
+    [["jvm-program" ?body]]
+    (&&host/compile-jvm-program compile-expression ?body)
     
     [["jvm-interface" [?package ?name ?methods]]]
     (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)

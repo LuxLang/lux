@@ -10,7 +10,7 @@
 (def init-module
   (&/|table))
 
-(defn define [module name def-data]
+(defn define [module name def-data type]
   (fn [state]
     (matchv ::M/objects [(&/get$ &/$ENVS state)]
       [["lux;Cons" [?env ["lux;Nil" _]]]]
@@ -21,7 +21,7 @@
                     (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
                                                                     (&/update$ &/$MAPPINGS (fn [mappings]
                                                                                              (&/|put (str "" &/+name-separator+ name)
-                                                                                                     (&/T (&/V "global" (&/T module name)) &type/$Void)
+                                                                                                     (&/T (&/V "lux;Global" (&/T module name)) type)
                                                                                                      mappings))
                                                                                locals))
                                                         ?env))))
@@ -30,7 +30,7 @@
       [_]
       (fail* "[Analyser Error] Can't create a new global definition outside of a global environment."))))
 
-(defn def-alias [a-module a-name r-module r-name]
+(defn def-alias [a-module a-name r-module r-name type]
   (fn [state]
     ;; (prn 'def-alias [a-module a-name] '=> [r-module r-name])
     (matchv ::M/objects [(&/get$ &/$ENVS state)]
@@ -42,7 +42,7 @@
                     (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
                                                                     (&/update$ &/$MAPPINGS (fn [mappings]
                                                                                              (&/|put (str "" &/+name-separator+ a-name)
-                                                                                                     (&/T (&/V "global" (&/T r-module r-name)) &type/$Void)
+                                                                                                     (&/T (&/V "lux;Global" (&/T r-module r-name)) type)
                                                                                                      mappings))
                                                                                locals))
                                                         ?env))))

@@ -18,6 +18,17 @@
     [_]
     (fail "[Analyser Error] Can't extract Symbol.")))
 
+(defn ^:private analyse-1+ [analyse ?token]
+  (&type/with-var
+    (fn [$var]
+      ;; (prn 'analyse-1+ (aget $var 1) (&/show-ast ?token))
+      (|do [=expr (&&/analyse-1 analyse $var ?token)]
+        (matchv ::M/objects [=expr]
+          [[?item ?type]]
+          (|do [=type (&type/clean $var ?type)]
+            (return (&/T ?item =type)))
+          )))))
+
 ;; [Resources]
 (do-template [<name> <output-tag> <input-class> <output-class>]
   (let [input-type (&/V "lux;DataT" <input-class>)
@@ -218,7 +229,7 @@
 
 (do-template [<name> <tag> <from-class> <to-class>]
   (defn <name> [analyse ?value]
-    (|do [=value (&&/analyse-1 analyse ?value)]
+    (|do [=value (&&/analyse-1 analyse (&/V "lux;DataT" <from-class>) ?value)]
       (return (&/|list (&/T (&/V <tag> =value) (&/V "lux;DataT" <to-class>))))))
 
   analyse-jvm-d2f "jvm-d2f" "java.lang.Double"  "java.lang.Float"
@@ -243,7 +254,7 @@
 
 (do-template [<name> <tag> <from-class> <to-class>]
   (defn <name> [analyse ?value]
-    (|do [=value (&&/analyse-1 analyse ?value)]
+    (|do [=value (&&/analyse-1 analyse (&/V "lux;DataT" <from-class>) ?value)]
       (return (&/|list (&/T (&/V <tag> =value) (&/V "lux;DataT" <to-class>))))))
 
   analyse-jvm-iand  "jvm-iand"  "java.lang.Integer" "java.lang.Integer"
@@ -259,6 +270,11 @@
   )
 
 (defn analyse-jvm-program [analyse ?args ?body]
-  (|do [=body (&&env/with-local ?args (&/V "lux;AppT" (&/T &type/List &type/Text))
-                (&&/analyse-1 analyse ?body))]
+  (|do [;; =body (&&env/with-local ?args (&/V "lux;AppT" (&/T &type/List &type/Text))
+        ;;         (&&/analyse-1 analyse ?body))
+        =body (&/with-scope ""
+                (&&env/with-local "" (&/V "lux;AppT" (&/T &type/List &type/Text))
+                  (analyse-1+ analyse ?body)))
+        ;; =body (analyse-1+ analyse ?body)
+        ]
     (return (&/|list (&/V "jvm-program" =body)))))

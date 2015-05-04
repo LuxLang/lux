@@ -1,3 +1,11 @@
+##   Copyright (c) Eduardo Julian. All rights reserved.
+##   The use and distribution terms for this software are covered by the
+##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+##   which can be found in the file epl-v10.html at the root of this distribution.
+##   By using this software in any fashion, you are agreeing to be bound by
+##   the terms of this license.
+##   You must not remove this notice, or any other, from this software.
+
 ## First things first, must define functions
 (jvm-interface Function
                (:' (-> [java.lang.Object] java.lang.Object)
@@ -219,11 +227,20 @@
                                              (#Cons [["lux;AliasD" Ident]
                                                      #Nil])])])]))]))
 
+## (deftype LuxVar
+##   (| (#Local Int)
+##      (#Global Ident)))
+(def' LuxVar
+  (#VariantT (#Cons [["lux;Local" Int]
+                     (#Cons [["lux;Global" Ident]
+                             #Nil])])))
+(export' LuxVar)
+
 ## (deftype #rec CompilerState
 ##   (& #source         (Maybe Reader)
 ##      #modules        (List (, Text (List (, Text (, Bool (DefData' (-> (List Syntax) (StateE CompilerState (List Syntax)))))))))
 ##      #module-aliases (List Void)
-##      #envs           (List (Env Text Void))
+##      #envs           (List (Env Text (, LuxVar Type)))
 ##      #types          (Bindings Int Type)
 ##      #host           HostState))
 (def' CompilerState
@@ -239,7 +256,8 @@
                                                                                                                                        #Nil])]))])
                                                                                                  #Nil])]))])]
                                             (#Cons [["lux;module-aliases" (#AppT [List Void])]
-                                                    (#Cons [["lux;envs" (#AppT [List (#AppT [(#AppT [Env Text]) Void])])]
+                                                    (#Cons [["lux;envs" (#AppT [List (#AppT [(#AppT [Env Text])
+                                                                                             (#TupleT (#Cons [LuxVar (#Cons [Type #Nil])]))])])]
                                                             (#Cons [["lux;types" (#AppT [(#AppT [Bindings Int]) Type])]
                                                                     (#Cons [["lux;host" HostState]
                                                                             (#Cons [["lux;seed" Int]
@@ -1173,7 +1191,7 @@
   (-> Bool Bool)
   (if x false true))
 
-(def__ (text:++ x y)
+(def__ #export (text:++ x y)
   (-> Text Text Text)
   (jvm-invokevirtual java.lang.String concat [java.lang.String]
                      x [y]))
@@ -1367,7 +1385,7 @@
                    (as-pairs tokens))]
       (;return (:' SyntaxList (list (`' (#;RecordT (;list (~@ pairs))))))))))
 
-(def__ (->text x)
+(def__ #export (->text x)
   (-> (^ java.lang.Object) Text)
   (jvm-invokevirtual java.lang.Object toString [] x []))
 
@@ -1415,12 +1433,12 @@
          ($ text:++ "(" (|> members (map syntax:show) (interpose " ") (fold text:++ "")) ")")
 
          (#Meta [_ (#Record slots)])
-         ($ text:++ "(" (|> slots
+         ($ text:++ "{" (|> slots
                             (map (:' (-> (, Syntax Syntax) Text)
                                      (lambda [slot]
                                        (let [[k v] slot]
                                          ($ text:++ (syntax:show k) " " (syntax:show v))))))
-                            (interpose " ") (fold text:++ "")) ")")
+                            (interpose " ") (fold text:++ "")) "}")
          ))
 
 (def__ #export (macro-expand syntax)
@@ -1614,7 +1632,10 @@
                                   
                                   #None
                                   body'))]
-             (return (: (List Syntax) (list (`' (def' (~ name) (~ body'')))))))
+             (return (: (List Syntax) (list& (`' (def' (~ name) (~ body'')))
+                                             (if export?
+                                               (list (`' (export' (~ name))))
+                                               #Nil)))))
            
            #None
            (fail "Wrong syntax for def"))))
@@ -1935,14 +1956,117 @@
       (#Left "Uh, oh... The universe is not working properly..."))
     ))
 
-## (def #export (print x)
-##   (-> Text (IO (,)))
-##   (io (jvm-invokevirtual java.io.PrintStream print [java.lang.Object]
-##                          (jvm-getstatic java.lang.System out) [x])))
+(def #export (print x)
+  (-> Text (,))
+  (jvm-invokevirtual java.io.PrintStream print [java.lang.Object]
+                     (jvm-getstatic java.lang.System out) [x]))
 
-## (def #export (println x)
-##   (-> Text (IO (,)))
-##   (print (text:++ x "\n")))
+(def #export (println x)
+  (-> Text (,))
+  (print (text:++ x "\n")))
+
+(def #export (some f xs)
+  (All [a b]
+    (-> (-> a (Maybe b)) (List a) (Maybe b)))
+  (case xs
+    #Nil
+    #None
+
+    (#Cons [x xs'])
+    (case (f x)
+      #None
+      (some f xs')
+
+      (#Some y)
+      (#Some y))))
+
+
+(def (index-of part text)
+  (-> Text Text Int)
+  (jvm-i2l (jvm-invokevirtual java.lang.String indexOf [java.lang.String]
+                              text [part])))
+
+(def (substring1 idx text)
+  (-> Int Text Text)
+  (jvm-invokevirtual java.lang.String substring [int]
+                     text [(jvm-l2i idx)]))
+
+(def (substring2 idx1 idx2 text)
+  (-> Int Int Text Text)
+  (jvm-invokevirtual java.lang.String substring [int int]
+                     text [(jvm-l2i idx1) (jvm-l2i idx2)]))
+
+(def (split-slot slot)
+  (-> Text (, Text Text))
+  (let [idx (index-of ";" slot)
+        module (substring2 0 idx slot)
+        name (substring1 (inc idx) slot)]
+    [module name]))
+
+(def (resolve-struct-type type)
+  (-> Type (Maybe Type))
+  (case type
+    (#RecordT slots)
+    (#Some type)
+
+    (#AppT [fun arg])
+    (resolve-struct-type fun)
+
+    (#AllT [_ _ _ body])
+    (resolve-struct-type body)
+
+    _
+    #None))
+
+(defmacro #export (using tokens state)
+  (case tokens
+    (\ (list struct body))
+    (case struct
+      (#Meta [_ (#Symbol vname)])
+      (let [vname' (ident->text vname)]
+        (case state
+          {#source source #modules modules #module-aliases module-aliases
+           #envs   envs   #types   types   #host           host
+           #seed   seed}
+          (let [?struct-type (some (: (-> (Env Text (, LuxVar Type)) (Maybe Type))
+                                      (lambda [env]
+                                        (case env
+                                          {#name _ #inner-closures _ #locals {#counter _ #mappings mappings} #closure _}
+                                          (some (: (-> (, Text (, LuxVar Type)) (Maybe Type))
+                                                   (lambda [binding]
+                                                     (let [[bname [_ type]] binding]
+                                                       (if (text:= vname' bname)
+                                                         (#Some type)
+                                                         #None))))
+                                                mappings))))
+                                   envs)]
+            (case ?struct-type
+              #None
+              (#Left ($ text:++ "Unknown structure: " vname'))
+
+              (#Some struct-type)
+              (case (resolve-struct-type struct-type)
+                (#Some (#RecordT slots))
+                (let [pattern ($record (map (: (-> (, Text Type) (, Syntax Syntax))
+                                               (lambda [slot]
+                                                 (let [[sname stype] slot
+                                                       [module name] (split-slot sname)]
+                                                   [($tag [module name]) ($symbol ["" name])])))
+                                            slots))
+                      _ (println (text:++ "Using pattern: " (syntax:show pattern)))]
+                  (#Right [state (list (` (case' (~ struct) (~ pattern) (~ body))))]))
+
+                _
+                (#Left "Can only \"use\" records."))))))
+
+      _
+      (let [dummy ($symbol ["" ""])]
+        (#Right [state (list (` (case' (~ struct)
+                                       (~ dummy)
+                                       (using (~ dummy) (~ body)))))])))
+
+    _
+    (#Left "Wrong syntax for defsig")))
 
 ## (defmacro (loop tokens)
 ##   (case' tokens

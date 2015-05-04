@@ -135,6 +135,10 @@
                                      (&/T "lux;MacroD" (&/V "lux;BoundT" ""))
                                      (&/T "lux;AliasD" Ident)))))
 
+(def LuxVar
+  (&/V "lux;VariantT" (&/|list (&/T "lux;Local" Int)
+                               (&/T "lux;Global" Ident))))
+
 (def CompilerState
   (&/V "lux;AppT" (&/T (fAll "CompilerState" ""
                              (&/V "lux;RecordT"
@@ -152,7 +156,7 @@
                                            (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
                                            (&/T "lux;envs" (&/V "lux;AppT" (&/T List
                                                                                 (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
-                                                                                                     $Void)))))
+                                                                                                     (&/V "lux;TupleT" (&/|list LuxVar Type)))))))
                                            (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
                                            (&/T "lux;host" HostState)
                                            (&/T "lux;seed" Int))))
@@ -715,6 +719,54 @@
       (fn [$arg]
         (|do [actual* (apply-type actual $arg)]
           (check* fixpoints expected actual*))))
+
+    [["lux;DataT" "boolean"] ["lux;DataT" "java.lang.Boolean"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "byte"] ["lux;DataT" "java.lang.Byte"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "short"] ["lux;DataT" "java.lang.Short"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "int"] ["lux;DataT" "java.lang.Integer"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "long"] ["lux;DataT" "java.lang.Long"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "float"] ["lux;DataT" "java.lang.Float"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "double"] ["lux;DataT" "java.lang.Double"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "char"] ["lux;DataT" "java.lang.Character"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Boolean"] ["lux;DataT" "boolean"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Byte"] ["lux;DataT" "byte"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Short"] ["lux;DataT" "short"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Integer"] ["lux;DataT" "int"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Long"] ["lux;DataT" "long"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Float"] ["lux;DataT" "float"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Double"] ["lux;DataT" "double"]]
+    (return (&/T fixpoints nil))
+
+    [["lux;DataT" "java.lang.Character"] ["lux;DataT" "char"]]
+    (return (&/T fixpoints nil))
 
     [["lux;DataT" e!name] ["lux;DataT" a!name]]
     (if (or (= e!name a!name)
