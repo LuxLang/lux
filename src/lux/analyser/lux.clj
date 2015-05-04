@@ -114,6 +114,15 @@
                        ?elems)]
     (return (&/|list (&/T (&/V "record" =slots) (&/V "lux;RecordT" exo-type))))))
 
+(defn find-def+ [?module ?name]
+  (|do [$def (&&module/find-def ?module ?name)]
+    (matchv ::M/objects [$def]
+      [["lux;AliasD" [?r-module ?r-name]]]
+      (find-def+ ?r-module ?r-name)
+
+      [_]
+      (return $def))))
+
 (defn analyse-symbol [analyse exo-type ident]
   (|do [module-name &/get-module-name]
     (fn [state]
@@ -126,10 +135,8 @@
              [inner outer] (&/|split-with no-binding? stack)]
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
-          (&/run-state (|do [$def (&&module/find-def (if (= "" ?module) module-name ?module)
-                                                     ?name)
-                             ;; :let [_ (println "Found def:" (if (= "" ?module) module-name ?module)
-                             ;;                  ?name)]
+          (&/run-state (|do [$def (find-def+ (if (= "" ?module) module-name ?module)
+                                             ?name)
                              endo-type (matchv ::M/objects [$def]
                                          [["lux;ValueD" ?type]]
                                          (return ?type)
@@ -364,22 +371,25 @@
       (|do [;; :let [_ (prn 'analyse-def/_0)]
             =value (&/with-scope ?name
                      (analyse-1+ analyse ?value))
-            ;; :let [_ (prn 'analyse-def/_1)]
-            =value-type (&&/expr-type =value)
-            ;; :let [_ (prn 'analyse-def/_2)]
-            ;; _ &type/delete-vars
-            :let [_ (prn 'analyse-def/TYPE ?name ;; (&type/show-type =value-type)
-                         )
-                  _ (println)
-                  def-data (cond (&type/type= &type/Type =value-type)
-                                 (&/V "lux;TypeD" nil)
-                                 
-                                 :else
-                                 (&/V "lux;ValueD" =value-type))]
-            _ (&&module/define module-name ?name def-data)
-            ;; :let [_ (prn 'analyse-def/_3)]
+            ;; :let [_ (prn 'analyse-def/_1 (aget =value 0 0))]
             ]
-        (return (&/|list (&/V "def" (&/T ?name =value def-data))))))))
+        (matchv ::M/objects [=value]
+          [["global" [?r-module ?r-name]]]
+          (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name)]
+            (return (&/|list)))
+
+          [_]
+          (|do [=value-type (&&/expr-type =value)
+                :let [_ (prn 'analyse-def/END ?name)
+                      _ (println)
+                      def-data (cond (&type/type= &type/Type =value-type)
+                                     (&/V "lux;TypeD" nil)
+                                     
+                                     :else
+                                     (&/V "lux;ValueD" =value-type))]
+                _ (&&module/define module-name ?name def-data)]
+            (return (&/|list (&/V "def" (&/T ?name =value def-data))))))
+        ))))
 
 (defn analyse-declare-macro [analyse ?name]
   (|do [module-name &/get-module-name

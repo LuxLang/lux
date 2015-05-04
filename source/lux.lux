@@ -22,6 +22,9 @@
 (def' Void (#VariantT #Nil))
 (export' Void)
 
+(def' Ident (#TupleT (#Cons [Text (#Cons [Text #Nil])])))
+(export' Ident)
+
 ## (deftype (List a)
 ##   (| #Nil
 ##      (#Cons (, a (List a)))))
@@ -137,23 +140,20 @@
          Syntax
          (case' (#AppT [List Syntax])
                 SyntaxList
-                (case' (#TupleT (#Cons [Text (#Cons [Text #Nil])]))
-                       Ident
-                       (#AllT [#None "Syntax'" "w"
-                               (#VariantT (#Cons [["lux;Bool" Bool]
-                                                  (#Cons [["lux;Int" Int]
-                                                          (#Cons [["lux;Real" Real]
-                                                                  (#Cons [["lux;Char" Char]
-                                                                          (#Cons [["lux;Text" Text]
-                                                                                  (#Cons [["lux;Symbol" Ident]
-                                                                                          (#Cons [["lux;Tag" Ident]
-                                                                                                  (#Cons [["lux;Form" SyntaxList]
-                                                                                                          (#Cons [["lux;Tuple" SyntaxList]
-                                                                                                                  (#Cons [["lux;Record" (#AppT [List (#TupleT (#Cons [Syntax (#Cons [Syntax #Nil])]))])]
-                                                                                                                          #Nil])
-                                                                                                                  ])])])])])])])])])
-                                          )])
-                       ))))
+                (#AllT [#None "Syntax'" "w"
+                        (#VariantT (#Cons [["lux;Bool" Bool]
+                                           (#Cons [["lux;Int" Int]
+                                                   (#Cons [["lux;Real" Real]
+                                                           (#Cons [["lux;Char" Char]
+                                                                   (#Cons [["lux;Text" Text]
+                                                                           (#Cons [["lux;Symbol" Ident]
+                                                                                   (#Cons [["lux;Tag" Ident]
+                                                                                           (#Cons [["lux;Form" SyntaxList]
+                                                                                                   (#Cons [["lux;Tuple" SyntaxList]
+                                                                                                           (#Cons [["lux;Record" (#AppT [List (#TupleT (#Cons [Syntax (#Cons [Syntax #Nil])]))])]
+                                                                                                                   #Nil])
+                                                                                                           ])])])])])])])])])
+                                   )]))))
 (export' Syntax')
 
 ## (deftype Syntax
@@ -209,13 +209,15 @@
 ## (deftype (DefData' m)
 ##   (| #TypeD
 ##      (#ValueD Type)
-##      (#MacroD m)))
+##      (#MacroD m)
+##      (#AliasD Ident)))
 (def' DefData'
   (#AllT [#None "DefData'" ""
           (#VariantT (#Cons [["lux;TypeD" (#TupleT #Nil)]
                              (#Cons [["lux;ValueD" Type]
                                      (#Cons [["lux;MacroD" (#BoundT "")]
-                                             #Nil])])]))]))
+                                             (#Cons [["lux;AliasD" Ident]
+                                                     #Nil])])])]))]))
 
 ## (deftype #rec CompilerState
 ##   (& #source         (Maybe Reader)
@@ -296,10 +298,6 @@
       (lambda' _ msg
                (lambda' _ state
                         (#Left msg)))))
-
-(def' Ident
-  (#TupleT (#Cons [Text (#Cons [Text #Nil])])))
-(export' Ident)
 
 (def' $text
   (:' (#LambdaT [Text Syntax])
@@ -835,7 +833,6 @@
          (wrap-meta ($form (list ($tag ["lux" "Text"]) (_meta (#Text value)))))
 
          (#Meta [_ (#Tag [module name])])
-         (case' name)
          (let [module' (case' module
                               ""
                               subst
@@ -1191,39 +1188,6 @@
   (let [[module name] ident]
     ($ text:++ module ";" name)))
 
-(defmacro #export (| tokens)
-  (do Lux:Monad
-    [pairs (map% Lux:Monad
-                 (:' (-> Syntax ($' Lux Syntax))
-                     (lambda [token]
-                       (case' token
-                              (#Meta [_ (#Tag ident)])
-                              (;return (:' Syntax (`' [(~ ($text (ident->text ident))) (;,)])))
-
-                              (#Meta [_ (#Form (#Cons [(#Meta [_ (#Tag ident)]) (#Cons [value #Nil])]))])
-                              (;return (:' Syntax (`' [(~ ($text (ident->text ident))) (~ value)])))
-                              
-                              _
-                              (fail "Wrong syntax for |"))))
-                 tokens)]
-    (;return (:' SyntaxList (list (`' (#;VariantT (;list (~@ pairs)))))))))
-
-(defmacro #export (& tokens)
-  (if (not (multiple? 2 (length tokens)))
-    (fail "& expects an even number of arguments.")
-    (do Lux:Monad
-      [pairs (map% Lux:Monad
-                   (:' (-> (, Syntax Syntax) ($' Lux Syntax))
-                       (lambda [pair]
-                         (case' pair
-                                [(#Meta [_ (#Tag ident)]) value]
-                                (;return (:' Syntax (`' [(~ ($text (ident->text ident))) (~ value)])))
-                                
-                                _
-                                (fail "Wrong syntax for &"))))
-                   (as-pairs tokens))]
-      (;return (:' SyntaxList (list (`' (#;RecordT (;list (~@ pairs))))))))))
-
 (def__ (replace-syntax reps syntax)
   (-> RepEnv Syntax Syntax)
   (case' syntax
@@ -1351,6 +1315,45 @@
          
          _
          (#Right [state ident])))
+
+(defmacro #export (| tokens)
+  (do Lux:Monad
+    [pairs (map% Lux:Monad
+                 (:' (-> Syntax ($' Lux Syntax))
+                     (lambda [token]
+                       (case' token
+                              (#Meta [_ (#Tag ident)])
+                              (do Lux:Monad
+                                [ident (normalize ident)]
+                                (;return (:' Syntax (`' [(~ ($text (ident->text ident))) (;,)]))))
+
+                              (#Meta [_ (#Form (#Cons [(#Meta [_ (#Tag ident)]) (#Cons [value #Nil])]))])
+                              (do Lux:Monad
+                                [ident (normalize ident)]
+                                (;return (:' Syntax (`' [(~ ($text (ident->text ident))) (~ value)]))))
+                              
+                              _
+                              (fail "Wrong syntax for |"))))
+                 tokens)]
+    (;return (:' SyntaxList (list (`' (#;VariantT (;list (~@ pairs)))))))))
+
+(defmacro #export (& tokens)
+  (if (not (multiple? 2 (length tokens)))
+    (fail "& expects an even number of arguments.")
+    (do Lux:Monad
+      [pairs (map% Lux:Monad
+                   (:' (-> (, Syntax Syntax) ($' Lux Syntax))
+                       (lambda [pair]
+                         (case' pair
+                                [(#Meta [_ (#Tag ident)]) value]
+                                (do Lux:Monad
+                                  [ident (normalize ident)]
+                                  (;return (:' Syntax (`' [(~ ($text (ident->text ident))) (~ value)]))))
+                                
+                                _
+                                (fail "Wrong syntax for &"))))
+                   (as-pairs tokens))]
+      (;return (:' SyntaxList (list (`' (#;RecordT (;list (~@ pairs))))))))))
 
 (def__ (->text x)
   (-> (^ java.lang.Object) Text)
@@ -1674,10 +1677,21 @@
   [inc  1]
   [dec -1])
 
-(def #export (int:show int)
+(def (int:show int)
   (-> Int Text)
   (jvm-invokevirtual java.lang.Object toString []
                      int []))
+
+(defmacro #export (` tokens)
+  (do Lux:Monad
+    [module-name get-module-name]
+    (case tokens
+      (\ (list template))
+      (;return (: (List Syntax)
+                  (list (untemplate (: Text module-name) template))))
+
+      _
+      (fail "Wrong syntax for `"))))
 
 (def #export (gensym prefix state)
   (-> Text (Lux Syntax))
@@ -1842,16 +1856,47 @@
   [Real:Show Real (->text x)]
   [Char:Show Char ($ text:++ "#\"" (->text x) "\"")])
 
-(defmacro #export (` tokens)
-  (do Lux:Monad
-    [module-name get-module-name]
-    (case tokens
-      (\ (list template))
-      (;return (: (List Syntax)
-                  (list (untemplate (: Text module-name) template))))
+(defsig #export (Ord a)
+  (: (-> a a Bool)
+     <)
+  (: (-> a a Bool)
+     <=)
+  (: (-> a a Bool)
+     >)
+  (: (-> a a Bool)
+     >=))
 
-      _
-      (fail "Wrong syntax for `"))))
+(do-template [<name> <form> <message>]
+  [(defmacro #export (<name> tokens)
+     (case (reverse tokens)
+       (\ (list& last init))
+       (return (: (List Syntax)
+                  (list (fold (: (-> Syntax Syntax Syntax)
+                                 (lambda [post pre] (` <form>)))
+                              last
+                              init))))
+       
+       _
+       (fail <message>)))]
+
+  [and (if (~ pre) true (~ post))  "and requires >=1 elements."]
+  [or  (if (~ pre) (~ post) false) "or requires >=1 elements."])
+
+(do-template [<name> <type> <lt> <gt> <eq>]
+  [(defstruct #export <name> (Ord <type>)
+     (def (< x y)
+       (<lt> x y))
+     (def (<= x y)
+       (or (<lt> x y)
+           (<eq> x y)))
+     (def (> x y)
+       (<gt> x y))
+     (def (>= x y)
+       (or (<gt> x y)
+           (<eq> x y))))]
+
+  [Int:Ord  Int  jvm-llt jvm-lgt jvm-leq]
+  [Real:Ord Real jvm-dlt jvm-dgt jvm-deq])
 
 ## (def #export (print x)
 ##   (-> Text (IO (,)))

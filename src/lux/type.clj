@@ -77,12 +77,13 @@
               (&/V "lux;VariantT" (&/|list (&/T "lux;Meta" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
                                                                                       (&/V "lux;BoundT" "v")))))))))
 
+(def Ident (&/V "lux;TupleT" (&/|list Text Text)))
+
 (def Syntax*
   (let [Syntax* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
                                      (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Syntax'")
                                                           (&/V "lux;BoundT" "w")))))
-        Syntax*List (&/V "lux;AppT" (&/T List Syntax*))
-        Ident (&/V "lux;TupleT" (&/|list Text Text))]
+        Syntax*List (&/V "lux;AppT" (&/T List Syntax*))]
     (fAll "Syntax'" "w"
           (&/V "lux;VariantT" (&/|list (&/T "lux;Bool" Bool)
                                        (&/T "lux;Int" Int)
@@ -131,7 +132,8 @@
   (fAll "DefData'" ""
         (&/V "lux;VariantT" (&/|list (&/T "lux;TypeD" Unit)
                                      (&/T "lux;ValueD" Type)
-                                     (&/T "lux;MacroD" (&/V "lux;BoundT" ""))))))
+                                     (&/T "lux;MacroD" (&/V "lux;BoundT" ""))
+                                     (&/T "lux;AliasD" Ident)))))
 
 (def CompilerState
   (&/V "lux;AppT" (&/T (fAll "CompilerState" ""

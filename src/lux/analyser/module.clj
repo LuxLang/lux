@@ -30,6 +30,26 @@
       [_]
       (fail* "[Analyser Error] Can't create a new global definition outside of a global environment."))))
 
+(defn def-alias [a-module a-name r-module r-name]
+  (fn [state]
+    (matchv ::M/objects [(&/get$ &/$ENVS state)]
+      [["lux;Cons" [?env ["lux;Nil" _]]]]
+      (return* (->> state
+                    (&/update$ &/$MODULES (fn [ms]
+                                            (&/|update a-module #(&/|put a-name (&/V "lux;AliasD" (&/T r-module r-name)) %)
+                                                       ms)))
+                    (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
+                                                                    (&/update$ &/$MAPPINGS (fn [mappings]
+                                                                                             (&/|put (str "" &/+name-separator+ name)
+                                                                                                     (&/T (&/V "global" (&/T r-module r-name)) &type/$Void)
+                                                                                                     mappings))
+                                                                               locals))
+                                                        ?env))))
+               nil)
+      
+      [_]
+      (fail* "[Analyser Error] Can't alias a global definition outside of a global environment."))))
+
 (defn exists? [name]
   (fn [state]
     ;; (prn `exists? name (->> state (&/get$ &/$MODULES) (&/|contains? name)))
