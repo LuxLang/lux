@@ -65,7 +65,7 @@ If you wonder what types look like without makeup, feel free to read the first f
 
 The module system is heavily inspired by ML, and both signatures & structures are suported.
 
-The main difference between Lux and ML is that ML separates signaturs & structures from the rest of the language, whereas Lux implements them on-top of the base language.
+The main difference between Lux and ML is that ML separates signatures & structures from the rest of the language, whereas Lux implements them on-top of the base language.
 
 How?
 By implementing signatures as record-types and structures as actual records.
