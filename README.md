@@ -138,7 +138,7 @@ But you can also use them to destructure them inside pattern-matching:
 	  _
 	  #None)
 
-There is also the special **\or** macro, which instroduces *or patterns*
+There is also the special **\or** macro, which introduces *or patterns*
 
 	(deftype Weekday
 	  (| #Monday
