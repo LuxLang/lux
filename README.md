@@ -17,7 +17,7 @@ However, some small programs can be written to try out Lux and get a feeling for
 
 ### How can I use it?
 
-Download the 0.1 compiler from here: https://github.com/LuxLang/lux/raw/master/lux-jvm-0.1.0-standalone.jar
+Download the 0.1 compiler from here: https://github.com/LuxLang/lux/releases/download/0.1.0/lux-jvm-0.1.0-standalone.jar
 
 Right now, the current version of Lux (0.1) is mostly to play around with the language, so it's a bit limited on what you can do.
 Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
