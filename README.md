@@ -63,7 +63,7 @@ If you wonder what types look like without makeup, feel free to read the first f
 
 ### Module system
 
-The module system is heavily inspired by ML, and both signatures & structures are suported.
+The module system is heavily inspired by ML, and both signatures & structures are supported.
 
 The main difference between Lux and ML is that ML separates signatures & structures from the rest of the language, whereas Lux implements them on-top of the base language.
 
@@ -98,7 +98,7 @@ However, sharing code between platforms can be a pain in the neck due to the fol
 * differences in features between platforms
 * the languages weren't originally designed with the goal of running both native/JVM and in JavaScript
 
-Lux is being designed from the ground up to target multiple platforms and achieve maximum reusability of code with minimum hassle.
+Lux is being designed from the ground-up to target multiple platforms and achieve maximum reusability of code with minimum hassle.
 
 The mechanism hasn't been added yet to the language (mainly because there's only 1 compiler at the moment), but it will come pretty soon in one of the upcoming releases.
 
@@ -106,11 +106,11 @@ The mechanism hasn't been added yet to the language (mainly because there's only
 
 Unlike in most other lisps, Lux macros are monadic.
 The **(Lux a)** type is the one responsibly for the magic by treading **CompilerState** instances through macros.
-Macros must have the **Macro** and then be declared as macros.
+Macros must have the **Macro** type and then be declared as macros.
 
 However, just using the **defmacro** macro will take care of it for you.
 
-However, in an upcoming release you'll get another macro for defining macros.
+Also, in an upcoming release you'll get another macro for defining macros.
 It will be named **defsyntax** and will use monadic parsing of AST tokens to parse the syntax.
 
 If you want to see how macros are implemented, you can take a look at *lux.lux*.
@@ -132,13 +132,13 @@ But you can also use them to destructure them inside pattern-matching:
 	  #None)
 
 	(case (: (List Int) (list 1 2 3))
-	  (\ (list 1 2 3))
+	  (\ (list x y z))
 	  (#Some ($ int:* x y z))
 
 	  _
 	  #None)
 
-There is also the special **\or** macro, which introduces *or patterns*
+There is also the special **\or** macro, which introduces *or patterns*:
 
 	(deftype Weekday
 	  (| #Monday
@@ -158,7 +158,7 @@ There is also the special **\or** macro, which introduces *or patterns*
 		_
 		false))
 
-##### Please note: \ and \or are just macros like and other and anyone can implement them.
+##### Please note: \ and \or are just macros like any other and anyone can implement them.
 
 I'll be adding more useful pattern-matching macros in upcoming releases of the language.
 
@@ -166,7 +166,7 @@ If you want to see how they work, just check out their implementation inside lux
 
 ### Is there a community for this?
 
-Lux was just born today.
+Lux was born recently.
 
 Come join the budding community by joining the discussion group at: https://groups.google.com/forum/#!forum/lux-programming-language
 
@@ -193,13 +193,13 @@ Bool (implemented as java.lang.Boolean)
 Int (implemented as java.lang.Long)
 
 	1
-	20
+	-20
 	12345
 
 Real (implemented as java.lang.Double)
 
 	1.23
-	0.5
+	-0.5
 
 Char (implemented as java.lang.Character)
 
@@ -209,7 +209,7 @@ Char (implemented as java.lang.Character)
 Text (implemented as java.lang.String)
 
 	"yolo"
-	"Hello\nWorld!"
+	"Hello\tWorld!"
 
 Forms
 
@@ -242,7 +242,7 @@ Variants (aka sum-types, aka discriminated unions)
 
 Records
 
-	{#name "Eduardo" #alive? true}
+	{#name "Lux" #awesome? true}
 
 ### Types
 	(deftype Bool (^ java.lang.Boolean))
@@ -261,16 +261,27 @@ Records
 
 	(deftype (List a)
 	  (| #Nil
-		 (#Cons [a (List a)])))
+		 (#Cons (, a (List a)))))
 
 	(deftype (Maybe a)
 	  (| #None
 		 (#Some a)))
 
-	(deftype Type ...)
+	(deftype #rec Type
+	  (| (#DataT Text)                          ## Host data-type
+	     (#TupleT (List Type))                  ## Tuple types
+	     (#VariantT (List (, Text Type)))       ## Sum-types
+	     (#RecordT (List (, Text Type)))        ## Records
+	     (#LambdaT (, Type Type))               ## Function-types
+	     (#BoundT Text)
+	     (#VarT Int)                            ## Type variables
+	     (#ExT Int)                             ## Existential types
+	     (#AllT (, (Maybe (List (, Text Type))) ## Polymorphic types
+	               Text Text Type))
+	     (#AppT (, Type Type))))                ## Application of polymorphic types
 
 	(deftype (Meta m d)
-	  (| (#Meta [m d])))
+	  (| (#Meta (, m d))))
 
 	(deftype Syntax ...)
 
@@ -348,14 +359,14 @@ e.g.
 ###### $
 e.g.
 
-	## Text/string concatenation
+	## Application of binary functions over variadic arguments.
 	($ text:++ "Hello, " name ".\nHow are you?")
 	=> (text:++ "Hello, " (text:++ name ".\nHow are you?"))
 
 ###### |>
 e.g.
 
-	## Piping macro
+	## Piping
 	(|> elems (map ->text) (interpose " ") (fold text:++ ""))
 	=>
 	(fold text:++ ""
@@ -366,7 +377,7 @@ e.g.
 e.g.
 
 	(if true
-	  "Oh, yeah"
+	  "Oh, yeah!"
 	  "Aw hell naw!")
 
 ###### ^
@@ -388,7 +399,7 @@ e.g.
 
 	(| #Yes #No)
 	
-	(,) ## The empty variant, aka "void"
+	(|) ## The empty variant, aka "void"
 
 ###### &
 e.g.
@@ -410,9 +421,10 @@ e.g.
 	## Universal quantification.
 	(All List [a]
 		 (| #Nil
-		    (#Cons [a (List a)])))
+		    (#Cons (, a (List a)))))
 
-	## It must be explicit, unlike in Haskell. Rank-n types will be possible as well as existential types
+	## It must be explicit, unlike in Haskell.
+	## Rank-n types will be possible as well as existential types
 	(All [a]
 	  (-> a a))
 
@@ -423,6 +435,7 @@ e.g.
 ###### io
 
 	## Just makes sure whatever computation you do returns an IO type. It's here mostly for host-interop.
+	(io (println "Hello, World!"))
 
 ###### :
 e.g.
@@ -442,18 +455,18 @@ e.g.
 	## The type-definition macro
 	(deftype (List a)
 	  (| #Nil
-		 (#Cons [a (List a)])))
+		 (#Cons (, a (List a)))))
 
 ###### exec
 e.g.
 
 	## Sequential execution of expressions (great for side-effects).
 	## But please use the io macro to help keep the purity.
-	(exec
-	  (println "#1")
-	  (println "#2")
-	  (println "#3")
-	  "YOLO")
+	(io (exec
+	      (println "#1")
+	      (println "#2")
+	      (println "#3")
+	      "YOLO"))
 
 ###### def
 e.g.
@@ -477,7 +490,7 @@ e.g.
 	  #None)
 
 	(case (: (List Int) (list 1 2 3))
-	  (\ (list 1 2 3))
+	  (\ (list x y z))
 	  (#Some ($ int:* x y z))
 
 	  _
@@ -585,23 +598,35 @@ e.g.
 
 	(All [a b]
 	  (-> (-> a b a) a (List b) a))
+	
+	(fold text:++ "" (list "Hello, " "World!"))
+	=> "Hello, World!"
 
 ###### reverse
 
 	(All [a]
 	  (-> (List a) (List a)))
+	
+	(reverse (list 1 2 3))
+	=> (list 3 2 1)
 
 ###### map
 
 	(All [a b]
 	  (-> (-> a b) (List a) (List b)))
+	
+	(map (int:+ 1) (list 1 2 3))
+	=> (list 2 3 4)
 
 ###### any?
 
 	(All [a]
 	  (-> (-> a Bool) (List a) Bool))
+	
+	(any? even? (list 1 2 3))
+	=> true
 
-.
+###### .
 
 	## Function composition: (. f g) => (lambda [x] (f (g x)))
 	(All [a b c]
@@ -712,7 +737,7 @@ e.g.
 
 ###### syntax:show
 
-	## Turn Lux synta into user-readable text. (Note: it's not pretty-printed)
+	## Turn Lux syntax into user-readable text. (Note: it's not pretty-printed)
 	(-> Syntax Text)
 
 ###### macro-expand
@@ -731,13 +756,12 @@ e.g.
 
 ###### id
 
-	(All [a] (-> a a))
+	(All [a]
+	  (-> a a))
 
 ###### print
 
 	## Neither print or println return IO right now because I've yet to implement monads & do-notation
-	## Note: The implementation inside lux.lux is not meant for public consumption.
-	## Note: You'll get an implementation of monads, functors et al. soon enough...
 	(-> Text (,))
 
 ###### println
