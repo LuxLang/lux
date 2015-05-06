@@ -110,14 +110,6 @@
       table*
       (V "lux;Cons" (T (T k v) (|remove slot table*))))))
 
-(defn |merge [table1 table2]
-  (matchv ::M/objects [table2]
-    [["lux;Nil" _]]
-    table1
-
-    [["lux;Cons" [[k v] table2*]]]
-    (|merge (|put k v table1) table2*)))
-
 (defn |update [k f table]
   (matchv ::M/objects [table]
     [["lux;Nil" _]]
@@ -180,15 +172,6 @@
           (reverse (partition 2 steps))))
 
 ;; [Resources/Combinators]
-(defn try% [monad]
-  (fn [state]
-    (matchv ::M/objects [(monad state)]
-      [["lux;Right" [?state ?datum]]]
-      (return* ?state ?datum)
-      
-      [_]
-      (return* state nil))))
-
 (defn |cons [head tail]
   (V "lux;Cons" (T head tail)))
 
@@ -360,61 +343,14 @@
         (|list)
         xs))
 
-(defn show-table [table]
-  (str "{{"
-       (->> table
-            (|map (fn [kv] (|let [[k v] kv] (str k " = ???"))))
-            (|interpose " ")
-            (fold str ""))
-       "}}"))
-
-(defn apply% [monad call-state]
-  (fn [state]
-    (let [output (monad call-state)]
-      (matchv ::M/objects [output]
-        [["lux;Right" [?state ?datum]]]
-        (return* state ?datum)
-        
-        [_]
-        output))))
-
 (defn assert! [test message]
   (if test
     (return nil)
     (fail message)))
 
-(defn comp% [f-m g-m]
-  (|do [temp g-m]
-    (f-m temp)))
-
-(defn pass [m-value]
-  (fn [state]
-    m-value))
-
 (def get-state
   (fn [state]
     (return* state state)))
-
-(defn sequence% [m-values]
-  (matchv ::M/objects [m-values]
-    [["lux;Cons" [head tail]]]
-    (|do [_ head]
-      (sequence% tail))
-
-    [_]
-    (return nil)))
-
-(def source-consumed?
-  (fn [state]
-    (matchv ::M/objects [(get$ $SOURCE state)]
-      [["lux;None" _]]
-      (fail* "No source code.")
-
-      [["lux;Some" ["lux;Nil" _]]]
-      (return* state true)
-
-      [["lux;Some" _]]
-      (return* state false))))
 
 (defn try-all% [monads]
   (matchv ::M/objects [monads]
@@ -449,12 +385,9 @@
       ((exhaust% step) state*)
 
       [["lux;Left" msg]]
-      ((|do [? source-consumed?]
-         (if ?
-           (return nil)
-           (fail msg)))
-       state)
-      )))
+      (if (= "[Reader Error] EOF" msg)
+        (return* state nil)
+        (fail* msg)))))
 
 (defn ^:private normalize-char [char]
   (case char
@@ -531,14 +464,6 @@
    ;; "lux;types"
    +init-bindings+
    ))
-
-(defn from-some [some]
-  (matchv ::M/objects [some]
-    [["lux;Some" datum]]
-    datum
-
-    [_]
-    (assert false)))
 
 (def get-eval-ctor
   (fn [state]
@@ -674,19 +599,6 @@
 (defn ident->text [ident]
   (|let [[?module ?name] ident]
     (str ?module ";" ?name)))
-
-(defn map2% [f xs ys]
-  (matchv ::M/objects [xs ys]
-    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
-    (|do [z (f x y)
-          zs (map2% f xs* ys*)]
-      (return (|cons z zs)))
-
-    [["lux;Nil" _] ["lux;Nil" _]]
-    (return (V "lux;Nil" nil))
-
-    [_ _]
-    (fail "Lists don't match in size.")))
 
 (defn fold2% [f init xs ys]
   (matchv ::M/objects [xs ys]
