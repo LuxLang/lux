@@ -54,7 +54,7 @@
 (def ->package ->class)
 
 (defn ->type-signature [class]
-  (assert (string? class))
+  ;; (assert (string? class))
   (case class
     "void"    "V"
     "boolean" "Z"
@@ -96,15 +96,13 @@
 
 (do-template [<name> <static?>]
   (defn <name> [target field]
-    (let [target (Class/forName target)]
-      (if-let [type* (first (for [^Field =field (.getFields target)
-                                  :when (and (= target (.getDeclaringClass =field))
-                                             (= field (.getName =field))
-                                             (= <static?> (Modifier/isStatic (.getModifiers =field))))]
-                              (.getType =field)))]
-        (|do [=type (class->type type*)]
-          (return =type))
-        (fail (str "[Analyser Error] Field does not exist: " target field)))))
+    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName target))
+                                :when (and (= field (.getName =field))
+                                           (= <static?> (Modifier/isStatic (.getModifiers =field))))]
+                            (.getType =field)))]
+      (|do [=type (class->type type*)]
+        (return =type))
+      (fail (str "[Analyser Error] Field does not exist: " target "." field))))
 
   lookup-static-field true
   lookup-field        false
@@ -112,21 +110,16 @@
 
 (do-template [<name> <static?>]
   (defn <name> [target method-name args]
-    (let [target (Class/forName target)]
-      (if-let [method (first (for [^Method =method (.getMethods target)
-                                   :when (and (= target (.getDeclaringClass =method))
-                                              (= method-name (.getName =method))
-                                              (= <static?> (Modifier/isStatic (.getModifiers =method)))
-                                              (&/fold #(and %1 %2)
-                                                      true
-                                                      (&/|map (fn [xy]
-                                                                (|let [[x y] xy]
-                                                                  (= x y)))
-                                                              (&/zip2 args
-                                                                      (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))))]
-                               =method))]
-        (method->type method)
-        (fail (str "[Analyser Error] Method does not exist: " target method-name)))))
+    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName target))
+                                 :when (and (= method-name (.getName =method))
+                                            (= <static?> (Modifier/isStatic (.getModifiers =method)))
+                                            (&/fold2 #(and %1 (= %2 %3))
+                                                     true
+                                                     args
+                                                     (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))]
+                             =method))]
+      (method->type method)
+      (fail (str "[Analyser Error] Method does not exist: " target "." method-name))))
 
   lookup-static-method  true
   lookup-virtual-method false

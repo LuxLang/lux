@@ -612,6 +612,19 @@
     [_ _]
     (fail "Lists don't match in size.")))
 
+(defn map2% [f xs ys]
+  (matchv ::M/objects [xs ys]
+    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+    (|do [z (f x y)
+          zs (map2% f xs* ys*)]
+      (return (|cons z zs)))
+
+    [["lux;Nil" _] ["lux;Nil" _]]
+    (return (V "lux;Nil" nil))
+
+    [_ _]
+    (fail "Lists don't match in size.")))
+
 (defn fold2 [f init xs ys]
   (matchv ::M/objects [xs ys]
     [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
@@ -623,3 +636,16 @@
 
     [_ _]
     false))
+
+(defn enumerate* [idx xs]
+  (matchv ::M/objects [xs]
+    [["lux;Cons" [x xs*]]]
+    (V "lux;Cons" (T (T idx x)
+                     (enumerate* (inc idx) xs*)))
+
+    [["lux;Nil" _]]
+    xs
+    ))
+
+(defn enumerate [xs]
+  (enumerate* 0 xs))

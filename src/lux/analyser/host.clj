@@ -111,10 +111,9 @@
           =classes (&/map% &host/extract-jvm-param ?classes)
           =return (&host/lookup-virtual-method =class ?method =classes)
           =object (&&/analyse-1 analyse (&/V "lux;DataT" ?class) ?object)
-          =args (&/map% (fn [c+o]
-                          (|let [[?c ?o] c+o]
-                            (&&/analyse-1 analyse (&/V "lux;DataT" ?c) ?o)))
-                        (&/zip2 =classes ?args))]
+          =args (&/map2% (fn [?c ?o]
+                           (&&/analyse-1 analyse (&/V "lux;DataT" ?c) ?o))
+                         =classes ?args)]
       (return (&/|list (&/T (&/V <tag> (&/T =class ?method =classes =object =args)) =return)))))
 
   analyse-jvm-invokevirtual   "jvm-invokevirtual"

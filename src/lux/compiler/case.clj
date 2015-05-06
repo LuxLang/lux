@@ -92,7 +92,7 @@
             (->> (|let [[idx test] idx+member
                         $next (new Label)
                         $sub-else (new Label)])
-                 (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?members)) ?members))])))
+                 (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
@@ -110,11 +110,12 @@
             (->> (|let [[idx [_ test]] idx+member
                         $next (new Label)
                         $sub-else (new Label)])
-                 (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?slots))
-                                                     (->> ?slots
-                                                          &/->seq
-                                                          (sort compare-kv)
-                                                          &/->list)))])))
+                 (doseq [idx+member (->> ?slots
+                                         &/->seq
+                                         (sort compare-kv)
+                                         &/->list
+                                         &/enumerate
+                                         &/->seq)])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       

@@ -69,14 +69,13 @@
 (defn from [file-name]
   (let [lines (&/->list (string/split-lines (slurp file-name)))]
     (&/|map (fn [line+line-num]
-              (|let [[line line-num] line+line-num]
+              (|let [[line-num line] line+line-num]
                 (&/V "lux;Meta" (&/T (&/T file-name line-num 0)
                                      line))))
             (&/|filter (fn [line+line-num]
-                         (|let [[line line-num] line+line-num]
+                         (|let [[line-num line] line+line-num]
                            (not (empty? line))))
-                       (&/zip2 lines
-                               (&/|range (&/|length lines)))))))
+                       (&/enumerate lines)))))
 
 (def current-line
   (fn [state]

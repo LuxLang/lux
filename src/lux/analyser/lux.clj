@@ -27,10 +27,9 @@
   (|do [exo-type* (&type/actual-type exo-type)]
     (matchv ::M/objects [exo-type*]
       [["lux;TupleT" ?members]]
-      (|do [=elems (&/map% (fn [ve]
-                             (|let [[elem-t elem] ve]
-                               (&&/analyse-1 analyse elem-t elem)))
-                           (&/zip2 ?members ?elems))]
+      (|do [=elems (&/map2% (fn [elem-t elem]
+                              (&&/analyse-1 analyse elem-t elem))
+                            ?members ?elems)]
         (return (&/|list (&/T (&/V "tuple" =elems)
                               exo-type))))
 
@@ -160,15 +159,14 @@
           (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
                                           (&/|map #(&/get$ &/$NAME %) outer)
                                           (&/|reverse inner)))
-                 [=local inner*] (&/fold (fn [register+new-inner frame+in-scope]
-                                           (|let [[register new-inner] register+new-inner
-                                                  [frame in-scope] frame+in-scope
-                                                  [register* frame*] (&&lambda/close-over (&/|cons module-name (&/|reverse in-scope)) ident register frame)]
-                                             (&/T register* (&/|cons frame* new-inner))))
-                                         (&/T (or (->> top-outer (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|get local-ident))
-                                                  (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get local-ident)))
-                                              (&/|list))
-                                         (&/zip2 (&/|reverse inner) scopes))]
+                 [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
+                                            (|let [[register new-inner] register+new-inner
+                                                   [register* frame*] (&&lambda/close-over (&/|cons module-name (&/|reverse in-scope)) ident register frame)]
+                                              (&/T register* (&/|cons frame* new-inner))))
+                                          (&/T (or (->> top-outer (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|get local-ident))
+                                                   (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get local-ident)))
+                                               (&/|list))
+                                          (&/|reverse inner) scopes)]
             (&/run-state (|do [btype (&&/expr-type =local)
                                _ (&type/check exo-type btype)]
                            (return (&/|list =local)))

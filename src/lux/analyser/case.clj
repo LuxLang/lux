@@ -169,10 +169,9 @@
 
         [["TupleTotal" [total? ?values]] ["TupleTestAC" ?tests]]
         (if (= (&/|length ?values) (&/|length ?tests))
-          (|do [structs (&/map% (fn [vt]
-                                  (|let [[v t] vt]
-                                    (merge-total v (&/T t ?body))))
-                                (&/zip2 ?values ?tests))]
+          (|do [structs (&/map2% (fn [v t]
+                                   (merge-total v (&/T t ?body)))
+                                 ?values ?tests)]
             (return (&/V "TupleTotal" (&/T total? structs))))
           (fail "[Pattern-matching error] Inconsistent tuple-size."))
 
@@ -189,17 +188,18 @@
 
         [["RecordTotal" [total? ?values]] ["RecordTestAC" ?tests]]
         (if (= (&/|length ?values) (&/|length ?tests))
-          (|do [structs (&/map% (fn [lr]
-                                  (|let [[[lslot sub-struct] [rslot value]] lr]
-                                    (if (= lslot rslot)
-                                      (|do [sub-struct* (merge-total sub-struct (&/T value ?body))]
-                                        (return (&/T lslot sub-struct*)))
-                                      (fail "[Pattern-matching error] Record slots mismatch."))))
-                                (&/zip2 ?values
-                                        (->> ?tests
-                                             &/->seq
-                                             (sort compare-kv)
-                                             &/->list)))]
+          (|do [structs (&/map2% (fn [left right]
+                                   (|let [[lslot sub-struct] left
+                                          [rslot value]right]
+                                     (if (= lslot rslot)
+                                       (|do [sub-struct* (merge-total sub-struct (&/T value ?body))]
+                                         (return (&/T lslot sub-struct*)))
+                                       (fail "[Pattern-matching error] Record slots mismatch."))))
+                                 ?values
+                                 (->> ?tests
+                                      &/->seq
+                                      (sort compare-kv)
+                                      &/->list))]
             (return (&/V "RecordTotal" (&/T total? structs))))
           (fail "[Pattern-matching error] Inconsistent record-size."))
 
@@ -238,10 +238,9 @@
       (return true)
       (matchv ::M/objects [value-type]
         [["lux;TupleT" ?members]]
-        (|do [totals (&/map% (fn [sv]
-                               (|let [[sub-struct ?member] sv]
-                                 (check-totality ?member sub-struct)))
-                             (&/zip2 ?structs ?members))]
+        (|do [totals (&/map2% (fn [sub-struct ?member]
+                                (check-totality ?member sub-struct))
+                              ?structs ?members)]
           (return (&/fold #(and %1 %2) true totals)))
 
         [_]

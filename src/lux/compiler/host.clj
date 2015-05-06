@@ -202,12 +202,11 @@
           :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
           _ (compile ?object)
           :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
-          _ (&/map% (fn [class-name+arg]
-                      (|let [[class-name arg] class-name+arg]
-                        (|do [ret (compile arg)
-                              :let [_ (prepare-arg! *writer* class-name)]]
-                          (return ret))))
-                    (&/zip2 ?classes ?args))
+          _ (&/map2% (fn [class-name arg]
+                       (|do [ret (compile arg)
+                             :let [_ (prepare-arg! *writer* class-name)]]
+                         (return ret)))
+                     ?classes ?args)
           :let [_ (doto *writer*
                     (.visitMethodInsn <op> (&host/->class ?class) ?method method-sig)
                     (prepare-return! *type*))]]

@@ -54,15 +54,14 @@
               _ (doto *writer*
                   (.visitLdcInsn (int num-elems))
                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
-        _ (&/map% (fn [idx+elem]
-                    (|let [[idx elem] idx+elem]
-                      (|do [:let [_ (doto *writer*
-                                      (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int idx)))]
-                            ret (compile elem)
-                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                        (return ret))))
-                  (&/zip2 (&/|range num-elems) ?elems))]
+        _ (&/map2% (fn [idx elem]
+                     (|do [:let [_ (doto *writer*
+                                     (.visitInsn Opcodes/DUP)
+                                     (.visitLdcInsn (int idx)))]
+                           ret (compile elem)
+                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                       (return ret)))
+                   (&/|range num-elems) ?elems)]
     (return nil)))
 
 (defn compile-record [compile *type* ?elems]
@@ -75,15 +74,15 @@
               _ (doto *writer*
                   (.visitLdcInsn (int num-elems))
                   (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
-        _ (&/map% (fn [idx+kv]
-                    (|let [[idx [k v]] idx+kv]
-                      (|do [:let [_ (doto *writer*
-                                      (.visitInsn Opcodes/DUP)
-                                      (.visitLdcInsn (int idx)))]
-                            ret (compile v)
-                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                        (return ret))))
-                  (&/zip2 (&/|range num-elems) elems*))]
+        _ (&/map2% (fn [idx kv]
+                     (|let [[k v] kv]
+                       (|do [:let [_ (doto *writer*
+                                       (.visitInsn Opcodes/DUP)
+                                       (.visitLdcInsn (int idx)))]
+                             ret (compile v)
+                             :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                         (return ret))))
+                  (&/|range num-elems) elems*)]
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
