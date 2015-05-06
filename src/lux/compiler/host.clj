@@ -198,7 +198,6 @@
 
 (do-template [<name> <op>]
   (defn <name> [compile *type* ?class ?method ?classes ?object ?args]
-    ;; (prn 'compile-jvm-invokevirtual ?classes *type*)
     (|do [^MethodVisitor *writer* &/get-writer
           :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
           _ (compile ?object)
@@ -327,7 +326,6 @@
     (&&/save-class! full-name (.toByteArray =class))))
 
 (defn compile-jvm-interface [compile ?package ?name ?methods]
-  ;; (prn 'compile-jvm-interface ?package ?name ?methods)
   (let [parent-dir (&host/->package ?package)
         full-name (str parent-dir "/" ?name)
         =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -335,13 +333,10 @@
                              full-name nil "java/lang/Object" nil))
         _ (do (doseq [[?method ?props] ?methods
                       :let [[?args ?return] (:type ?props)
-                            signature (str "(" (&/fold str "" (&/|map &host/->type-signature ?args)) ")" (&host/->type-signature ?return))
-                            ;; _ (prn 'signature signature)
-                            ]]
+                            signature (str "(" (&/fold str "" (&/|map &host/->type-signature ?args)) ")" (&host/->type-signature ?return))]]
                 (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
             (.visitEnd =interface)
             (.mkdirs (java.io.File. (str "output/" parent-dir))))]
-    ;; (prn 'SAVED_CLASS full-name)
     (&&/save-class! full-name (.toByteArray =interface))))
 
 (defn compile-jvm-try [compile *type* ?body ?catches ?finally]

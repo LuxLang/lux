@@ -32,7 +32,6 @@
 
 (defn def-alias [a-module a-name r-module r-name type]
   (fn [state]
-    ;; (prn 'def-alias [a-module a-name] '=> [r-module r-name])
     (matchv ::M/objects [(&/get$ &/$ENVS state)]
       [["lux;Cons" [?env ["lux;Nil" _]]]]
       (return* (->> state
@@ -53,7 +52,6 @@
 
 (defn exists? [name]
   (fn [state]
-    ;; (prn `exists? name (->> state (&/get$ &/$MODULES) (&/|contains? name)))
     (return* state
              (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
 
@@ -96,20 +94,19 @@
       (if-let [$def (&/|get name $module)]
         (matchv ::M/objects [$def]
           [[exported? ["lux;ValueD" ?type]]]
-          (do ;; (prn 'declare-macro/?type (aget ?type 0))
-              (&/run-state (|do [_ (&type/check &type/Macro ?type)
-                                 ^ClassLoader loader &/loader
-                                 :let [macro (-> (.loadClass loader (&host/location (&/|list module name)))
-                                                 (.getField "_datum")
-                                                 (.get nil))]]
-                             (fn [state*]
-                               (return* (&/update$ &/$MODULES
-                                                   (fn [$modules]
-                                                     (&/|put module (&/|put name (&/T exported? (&/V "lux;MacroD" macro)) $module)
-                                                             $modules))
-                                                   state*)
-                                        nil)))
-                           state))
+          (&/run-state (|do [_ (&type/check &type/Macro ?type)
+                             ^ClassLoader loader &/loader
+                             :let [macro (-> (.loadClass loader (&host/location (&/|list module name)))
+                                             (.getField "_datum")
+                                             (.get nil))]]
+                         (fn [state*]
+                           (return* (&/update$ &/$MODULES
+                                               (fn [$modules]
+                                                 (&/|put module (&/|put name (&/T exported? (&/V "lux;MacroD" macro)) $module)
+                                                         $modules))
+                                               state*)
+                                    nil)))
+                       state)
           
           [[_ ["lux;MacroD" _]]]
           (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))

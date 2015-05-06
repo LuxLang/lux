@@ -11,9 +11,7 @@
                  [analyser :as &analyser]
                  [host :as &host])
             [lux.analyser.base :as &a]
-            (lux.compiler [base :as &&])
-            ;; :reload
-            )
+            (lux.compiler [base :as &&]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -39,9 +37,7 @@
     (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
           (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
-        (->> (let [captured-name (str &&/closure-prefix ?captured-id)
-                   ;; _ (prn 'add-lambda-<init> class-name ?captured-id)
-                   ])
+        (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
              (matchv ::M/objects [?name+?captured]
                [[?name [["captured" [_ ?captured-id ?source]] _]]])
              (doseq [?name+?captured (&/->seq env)])))
@@ -79,7 +75,6 @@
       (return ret))))
 
 (defn ^:private instance-closure [compile lambda-class closed-over init-signature]
-  ;; (prn 'instance-closure lambda-class (&/|length closed-over) init-signature)
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW lambda-class)
@@ -100,7 +95,6 @@
 
 ;; [Exports]
 (defn compile-lambda [compile ?scope ?env ?body]
-  ;; (prn 'compile-lambda ?scope (&host/location ?scope) ?env)
   (|do [:let [lambda-class (&host/location ?scope)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
@@ -110,17 +104,11 @@
                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                 (matchv ::M/objects [?name+?captured]
                                   [[?name [["captured" [_ ?captured-id ?source]] _]]])
-                                (doseq [?name+?captured (&/->seq ?env)
-                                        ;; :let [_ (prn '?name+?captured (alength ?name+?captured))
-                                        ;;       _ (prn '?name+?captured (aget ?name+?captured 1 0))
-                                        ;;       _ (prn '?name+?captured (aget ?name+?captured 1 1 0 0))]
-                                        ])))
+                                (doseq [?name+?captured (&/->seq ?env)])))
                        (add-lambda-apply lambda-class ?env)
                        (add-lambda-<init> lambda-class ?env)
                        )]
         _ (add-lambda-impl =class compile lambda-impl-signature ?body)
-        :let [_ (.visitEnd =class)
-              ;; _ (prn 'SAVING_LAMBDA lambda-class)
-              ]
+        :let [_ (.visitEnd =class)]
         _ (&&/save-class! lambda-class (.toByteArray =class))]
     (instance-closure compile lambda-class ?env (lambda-<init>-signature ?env))))

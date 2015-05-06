@@ -21,7 +21,6 @@
       +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")
       compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
-    ;; (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
       [["StoreTestAC" ?idx]]
       (doto writer
@@ -143,7 +142,6 @@
       )))
 
 (defn ^:private separate-bodies [patterns]
-  ;; (prn 'separate-bodies (aget matches 0))
   (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
                                           (|let [[$id mappings =matches] $id+mappings+=matches
                                                  [pattern body] pattern+body]
@@ -154,7 +152,6 @@
 
 (let [ex-class (&host/->class "java.lang.IllegalStateException")]
   (defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
-    ;; (prn 'compile-pattern-matching ?matches $end)
     (let [entries (&/|map (fn [?branch+?body]
                             (|let [[?branch ?body] ?branch+?body
                                    label (new Label)]
@@ -167,10 +164,7 @@
               (.visitLabel $else))
             (->> (|let [[?body ?match] ?body+?match])
                  (doseq [?body+?match (&/->seq patterns)
-                         :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
-                               ;; _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
-                               ;; _ (prn '?body+?match (aget ?body+?match 0))
-                               $else (new Label)]])))
+                         :let [$else (new Label)]])))
         (.visitInsn Opcodes/POP)
         (.visitTypeInsn Opcodes/NEW ex-class)
         (.visitInsn Opcodes/DUP)
@@ -187,7 +181,6 @@
 
 ;; [Resources]
 (defn compile-case [compile *type* ?value ?matches]
-  ;; (prn 'compile-case ?value ?matches)
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)]
         _ (compile ?value)

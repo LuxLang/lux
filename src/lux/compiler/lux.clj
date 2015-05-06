@@ -13,9 +13,7 @@
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler [base :as &&]
-                          [lambda :as &&lambda])
-            ;; :reload
-            )
+                          [lambda :as &&lambda]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -68,13 +66,11 @@
     (return nil)))
 
 (defn compile-record [compile *type* ?elems]
-  ;; (prn 'compile-record (str "{{" (->> ?elems &/|keys (&/|interpose " ") (&/fold str "")) "}}"))
   (|do [^MethodVisitor *writer* &/get-writer
         :let [elems* (->> ?elems
                           &/->seq
                           (sort #(compare (&/|first %1) (&/|first %2)))
                           &/->list)
-              ;; _ (prn 'compile-record (str "{{" (->> elems* &/|keys (&/|interpose " ") (&/fold str "")) "}}"))
               num-elems (&/|length elems*)
               _ (doto *writer*
                   (.visitLdcInsn (int num-elems))
@@ -111,7 +107,6 @@
     (return nil)))
 
 (defn compile-captured [compile *type* ?scope ?captured-id ?source]
-  ;; (prn 'compile-captured ?scope ?captured-id)
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitVarInsn Opcodes/ALOAD 0)
@@ -145,25 +140,18 @@
                                current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                            (doto (.visitEnd))))]
-        ;; :let [_ (prn 'compile-def/pre-body)]
         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
             (|do [^MethodVisitor **writer** &/get-writer
                   :let [_ (.visitCode **writer**)]
-                  ;; :let [_ (prn 'compile-def/pre-body2)]
                   _ (compile ?body)
-                  ;; :let [_ (prn 'compile-def/post-body2)]
                   :let [_ (doto **writer**
                             (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
                             (.visitInsn Opcodes/RETURN)
                             (.visitMaxs 0 0)
                             (.visitEnd))]]
               (return nil)))
-        ;; :let [_ (prn 'compile-def/post-body)]
         :let [_ (.visitEnd *writer*)]
-        ;; :let [_ (prn 'compile-def/_1 ?name current-class)]
-        _ (&&/save-class! current-class (.toByteArray =class))
-        ;; :let [_ (prn 'compile-def/_2 ?name)]
-        ]
+        _ (&&/save-class! current-class (.toByteArray =class))]
     (return nil)))
 
 (defn compile-declare-macro [compile module name]

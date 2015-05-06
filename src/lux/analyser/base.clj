@@ -6,21 +6,18 @@
 
 ;; [Exports]
 (defn expr-type [syntax+]
-  ;; (prn 'expr-type syntax+)
-  ;; (prn 'expr-type (aget syntax+ 0))
   (matchv ::M/objects [syntax+]
     [[_ type]]
     (return type)))
 
 (defn analyse-1 [analyse exo-type elem]
   (|do [output (analyse exo-type elem)]
-    (do ;; (prn 'analyse-1 (aget output 0))
-        (matchv ::M/objects [output]
-          [["lux;Cons" [x ["lux;Nil" _]]]]
-          (return x)
+    (matchv ::M/objects [output]
+      [["lux;Cons" [x ["lux;Nil" _]]]]
+      (return x)
 
-          [_]
-          (fail "[Analyser Error] Can't expand to other than 1 element.")))))
+      [_]
+      (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn resolved-ident [ident]
   (|let [[?module ?name] ident]

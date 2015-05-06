@@ -81,7 +81,6 @@
           (reverse (partition 2 elems))))
 
 (defn |get [slot table]
-  ;; (prn '|get slot (aget table 0))
   (matchv ::M/objects [table]
     [["lux;Nil" _]]
     nil
@@ -112,7 +111,6 @@
       (V "lux;Cons" (T (T k v) (|remove slot table*))))))
 
 (defn |merge [table1 table2]
-  ;; (prn '|merge (aget table1 0) (aget table2 0))
   (matchv ::M/objects [table2]
     [["lux;Nil" _]]
     table1
@@ -149,7 +147,6 @@
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
-    ;; (prn 'FAIL message)
     (V "lux;Left" message)))
 
 (defn return [value]
@@ -178,10 +175,7 @@
                      (fn [val#]
                        (matchv ::M/objects [val#]
                          [~label]
-                         ~inner)))
-              ;; `(bind ~computation
-              ;;        (fn [~label] ~inner))
-              ))
+                         ~inner)))))
           return
           (reverse (partition 2 steps))))
 
@@ -199,7 +193,6 @@
   (V "lux;Cons" (T head tail)))
 
 (defn |++ [xs ys]
-  ;; (prn '|++ (and xs (aget xs 0)) (and ys (aget ys 0)))
   (matchv ::M/objects [xs]
     [["lux;Nil" _]]
     ys
@@ -208,7 +201,6 @@
     (V "lux;Cons" (T x (|++ xs* ys)))))
 
 (defn |map [f xs]
-  ;; (prn '|map (aget xs 0))
   (matchv ::M/objects [xs]
     [["lux;Nil" _]]
     xs
@@ -288,7 +280,6 @@
     (|cons init (folds f (f init x) xs*))))
 
 (defn |length [xs]
-  ;; (prn '|length (aget xs 0))
   (fold (fn [acc _] (inc acc)) 0 xs))
 
 (let [|range* (fn |range* [from to]
@@ -343,16 +334,13 @@
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
-    ;; (prn '<name> 0 (aget xs 0))
     (matchv ::M/objects [xs]
       [["lux;Nil" _]]
       (return xs)
 
       [["lux;Cons" [x xs*]]]
       (|do [y (f x)
-             ;; :let [_ (prn '<name> 1 (class y))
-             ;;       _ (prn '<name> 2 (aget y 0))]
-             ys (<name> f xs*)]
+            ys (<name> f xs*)]
         (return (<joiner> y ys)))))
 
   map%      |cons
@@ -373,7 +361,6 @@
         xs))
 
 (defn show-table [table]
-  ;; (prn 'show-table (aget table 0))
   (str "{{"
        (->> table
             (|map (fn [kv] (|let [[k v] kv] (str k " = ???"))))
@@ -383,9 +370,7 @@
 
 (defn apply% [monad call-state]
   (fn [state]
-    ;; (prn 'apply-m monad call-state)
     (let [output (monad call-state)]
-      ;; (prn 'apply-m/output output)
       (matchv ::M/objects [output]
         [["lux;Right" [?state ?datum]]]
         (return* state ?datum)
@@ -469,12 +454,6 @@
            (return nil)
            (fail msg)))
        state)
-      ;; (if (= "[Reader Error] EOF" msg)
-      ;;   ((|do [? source-consumed?
-      ;;           :let [_ (prn '? ?)]]
-      ;;      (return nil))
-      ;;    state)
-      ;;   (fail* msg))
       )))
 
 (defn ^:private normalize-char [char]
@@ -569,8 +548,6 @@
 (def get-writer
   (fn [state]
     (let [writer* (->> state (get$ $HOST) (get$ $WRITER))]
-      ;; (prn 'get-writer (class writer*))
-      ;; (prn 'get-writer (aget writer* 0))
       (matchv ::M/objects [writer*]
         [["lux;Some" datum]]
         (return* state datum)
@@ -656,16 +633,6 @@
         output))))
 
 (defn show-ast [ast]
-  ;; (prn 'show-ast (aget ast 0))
-  ;; (prn 'show-ast (aget ast 1 1 0))
-  ;; (cond (= "lux;Meta" (aget ast 1 1 0))
-  ;;       (prn 'EXTRA 'show-ast (aget ast 1 1 1 1 0))
-
-  ;;       (= "lux;Symbol" (aget ast 1 1 0))
-  ;;       (prn 'EXTRA 'show-ast (aget ast 1 1 1 1))
-
-  ;;       :else
-  ;;       nil)
   (matchv ::M/objects [ast]
     [["lux;Meta" [_ ["lux;Bool" ?value]]]]
     (pr-str ?value)
@@ -707,3 +674,40 @@
 (defn ident->text [ident]
   (|let [[?module ?name] ident]
     (str ?module ";" ?name)))
+
+(defn map2% [f xs ys]
+  (matchv ::M/objects [xs ys]
+    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+    (|do [z (f x y)
+          zs (map2% f xs* ys*)]
+      (return (|cons z zs)))
+
+    [["lux;Nil" _] ["lux;Nil" _]]
+    (return (V "lux;Nil" nil))
+
+    [_ _]
+    (fail "Lists don't match in size.")))
+
+(defn fold2% [f init xs ys]
+  (matchv ::M/objects [xs ys]
+    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+    (|do [init* (f init x y)]
+      (fold2% f init* xs* ys*))
+
+    [["lux;Nil" _] ["lux;Nil" _]]
+    (return init)
+
+    [_ _]
+    (fail "Lists don't match in size.")))
+
+(defn fold2 [f init xs ys]
+  (matchv ::M/objects [xs ys]
+    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+    (and init
+         (fold2 f (f init x y) xs* ys*))
+
+    [["lux;Nil" _] ["lux;Nil" _]]
+    init
+
+    [_ _]
+    false))

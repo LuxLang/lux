@@ -6,7 +6,6 @@
 
 ;; [Utils]
 (defn ^:private escape-char [escaped]
-  ;; (prn 'escape-char escaped)
   (condp = escaped
     "\\t"  (return "\t")
     "\\b"  (return "\b")
@@ -20,12 +19,8 @@
 
 (defn ^:private lex-text-body [_]
   (&/try-all% (&/|list (|do [[_ [_ [prefix escaped]]] (&reader/read-regex2 #"(?s)^([^\"\\]*)(\\.)")
-                             ;; :let [_ (prn '[prefix escaped] [prefix escaped])]
                              unescaped (escape-char escaped)
-                             ;; :let [_ (prn 'unescaped unescaped)]
-                             postfix (lex-text-body nil)
-                             ;; :let [_ (prn 'postfix postfix)]
-                             ]
+                             postfix (lex-text-body nil)]
                          (return (str prefix unescaped postfix)))
                        (|do [[_ [_ body]] (&reader/read-regex #"(?s)^([^\"\\]*)")]
                          (return body)))))
@@ -54,9 +49,7 @@
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (def ^:private lex-comment
-  (&/try-all% (&/|list lex-single-line-comment
-                       ;; (lex-multi-line-comment nil)
-                       )))
+  (&/try-all% (&/|list lex-single-line-comment)))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
@@ -111,10 +104,7 @@
 
 (def ^:private lex-tag
   (|do [[_ [meta _]] (&reader/read-text "#")
-        ;; :let [_ (prn 'lex-tag)]
-        [_ [_ ident]] lex-ident
-        ;; :let [_ (prn 'lex-tag [(aget ident 0) (aget ident 1)])]
-        ]
+        [_ [_ ident]] lex-ident]
     (return (&/V "lux;Meta" (&/T meta (&/V "Tag" ident))))))
 
 (do-template [<name> <text> <tag>]

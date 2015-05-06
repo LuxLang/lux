@@ -88,9 +88,7 @@
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?name]]]]
                                                              ["lux;Cons" [?value
                                                                           ["lux;Nil" _]]]]]]]]]]]
-    (do ;; (when (= "if" ?name)
-        ;;   (prn "if" (&/show-ast ?value)))
-        (&&lux/analyse-def analyse ?name ?value))
+    (&&lux/analyse-def analyse ?name ?value)
 
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "declare-macro'"]]]]
                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ?name]]]]
@@ -458,10 +456,6 @@
     (fail "")))
 
 (defn ^:private analyse-basic-ast [analyse eval! exo-type token]
-  ;; (prn 'analyse-basic-ast (aget token 0))
-  ;; (when (= "lux;Tag" (aget token 0))
-  ;;   (prn 'analyse-basic-ast/tag (aget token 1)))
-  ;; (prn 'analyse-basic-ast token (&/show-ast token))
   (fn [state]
     (matchv ::M/objects [((aba1 analyse eval! exo-type token) state)]
       [["lux;Right" [state* output]]]
@@ -472,36 +466,53 @@
         [["lux;Right" [state* output]]]
         (return* state* output)
 
-        [_]
+        [["lux;Left" ""]]
         (matchv ::M/objects [((aba3 analyse eval! exo-type token) state)]
           [["lux;Right" [state* output]]]
           (return* state* output)
 
-          [_]
+          [["lux;Left" ""]]
           (matchv ::M/objects [((aba4 analyse eval! exo-type token) state)]
             [["lux;Right" [state* output]]]
             (return* state* output)
 
-            [_]
+            [["lux;Left" ""]]
             (matchv ::M/objects [((aba5 analyse eval! exo-type token) state)]
               [["lux;Right" [state* output]]]
               (return* state* output)
 
-              [_]
+              [["lux;Left" ""]]
               (matchv ::M/objects [((aba6 analyse eval! exo-type token) state)]
                 [["lux;Right" [state* output]]]
                 (return* state* output)
-
-                [_]
+                
+                [["lux;Left" ""]]
                 (matchv ::M/objects [((aba7 analyse eval! exo-type token) state)]
                   [["lux;Right" [state* output]]]
                   (return* state* output)
 
                   [_]
-                  (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))))))))))
+                  (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))
+
+                [_]
+                (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))
+
+              [_]
+              (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))
+
+            [_]
+            (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))
+
+          [_]
+          (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))
+
+        [_]
+        (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))
+
+      [_]
+      (fail* (str "[Analyser Error] Unmatched token: " (&/show-ast token))))))
 
 (defn ^:private analyse-ast [eval! exo-type token]
-  ;; (prn 'analyse-ast (aget token 0))
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?ident]]] ?values]]]]]]
     (do (assert (= 1 (&/|length ?values)) "[Analyser Error] Can only tag 1 value.")
@@ -509,15 +520,12 @@
     
     [["lux;Meta" [meta ["lux;Form" ["lux;Cons" [?fn ?args]]]]]]
     (fn [state]
-      ;; (prn 'analyse-ast '(&/show-ast ?fn) (&/show-ast ?fn))
       (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval!) % ?fn)) state)]
         [["lux;Right" [state* =fn]]]
         ((&&lux/analyse-apply (partial analyse-ast eval!) exo-type =fn ?args) state*)
 
         [_]
-        (do ;; (prn 'analyse-ast/token (aget token 0) (&/show-state state))
-            ;; (prn 'NOT_A_FUNCTION (&/show-ast ?fn))
-            ((analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token) state))))
+        ((analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token) state)))
     
     [_]
     (analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token)))

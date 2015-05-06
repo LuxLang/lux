@@ -25,8 +25,7 @@
       )))
 
 (defn ^:private method->type [^Method method]
-  (|do [;; =args (&/map% class->type (&/->list (seq (.getParameterTypes method))))
-         =return (class->type (.getReturnType method))]
+  (|do [=return (class->type (.getReturnType method))]
     (return =return)))
 
 ;; [Resources]
@@ -46,7 +45,6 @@
         (fail (str "[Analyser Error] Unknown class: " class-name))))))
 
 (defn full-class-name [class-name]
-  ;; (prn 'full-class-name class-name)
   (|do [^Class =class (full-class class-name)]
     (return (.getName =class))))
 
@@ -116,7 +114,6 @@
   (defn <name> [target method-name args]
     (let [target (Class/forName target)]
       (if-let [method (first (for [^Method =method (.getMethods target)
-                                   ;; :let [_ (prn '<name> '=method =method (mapv #(.getName %) (.getParameterTypes =method)))]
                                    :when (and (= target (.getDeclaringClass =method))
                                               (= method-name (.getName =method))
                                               (= <static?> (Modifier/isStatic (.getModifiers =method)))

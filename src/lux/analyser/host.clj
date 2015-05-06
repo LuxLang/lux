@@ -21,7 +21,6 @@
 (defn ^:private analyse-1+ [analyse ?token]
   (&type/with-var
     (fn [$var]
-      ;; (prn 'analyse-1+ (aget $var 1) (&/show-ast ?token))
       (|do [=expr (&&/analyse-1 analyse $var ?token)]
         (matchv ::M/objects [=expr]
           [[?item ?type]]
@@ -77,10 +76,7 @@
 
 (defn analyse-jvm-getstatic [analyse ?class ?field]
   (|do [=class (&host/full-class-name ?class)
-        ;; :let [_ (prn 'analyse-jvm-getstatic/=class =class)]
-        =type (&host/lookup-static-field =class ?field)
-        ;; :let [_ (prn 'analyse-jvm-getstatic/=type =type)]
-        ]
+        =type (&host/lookup-static-field =class ?field)]
     (return (&/|list (&/T (&/V "jvm-getstatic" (&/T =class ?field)) =type)))))
 
 (defn analyse-jvm-getfield [analyse ?class ?field ?object]
@@ -91,9 +87,7 @@
 
 (defn analyse-jvm-putstatic [analyse ?class ?field ?value]
   (|do [=class (&host/full-class-name ?class)
-        ;; :let [_ (prn 'analyse-jvm-getstatic/=class =class)]
         =type (&host/lookup-static-field =class ?field)
-        ;; :let [_ (prn 'analyse-jvm-getstatic/=type =type)]
         =value (&&/analyse-1 analyse ?value)]
     (return (&/|list (&/T (&/V "jvm-putstatic" (&/T =class ?field =value)) =type)))))
 
@@ -113,21 +107,14 @@
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]
-    ;; (prn '<name> ?class ?method)
     (|do [=class (&host/full-class-name ?class)
-          ;; :let [_ (prn 'analyse-jvm-invokevirtual/=class =class)]
           =classes (&/map% &host/extract-jvm-param ?classes)
-          ;; :let [_ (prn 'analyse-jvm-invokevirtual/=classes =classes)]
           =return (&host/lookup-virtual-method =class ?method =classes)
-          ;; :let [_ (prn 'analyse-jvm-invokevirtual/=return =return)]
           =object (&&/analyse-1 analyse (&/V "lux;DataT" ?class) ?object)
-          ;; :let [_ (prn 'analyse-jvm-invokevirtual/=object =object)]
           =args (&/map% (fn [c+o]
                           (|let [[?c ?o] c+o]
                             (&&/analyse-1 analyse (&/V "lux;DataT" ?c) ?o)))
-                        (&/zip2 =classes ?args))
-          ;; :let [_ (prn 'analyse-jvm-invokevirtual/=args =args)]
-          ]
+                        (&/zip2 =classes ?args))]
       (return (&/|list (&/T (&/V <tag> (&/T =class ?method =classes =object =args)) =return)))))
 
   analyse-jvm-invokevirtual   "jvm-invokevirtual"
@@ -179,9 +166,7 @@
     (return (&/|list (&/V "jvm-class" (&/T $module ?name ?super-class =fields {}))))))
 
 (defn analyse-jvm-interface [analyse ?name ?members]
-  ;; (prn 'analyse-jvm-interface ?name ?members)
   (|do [=members (&/map% (fn [member]
-                           ;; (prn 'analyse-jvm-interface (&/show-ast member))
                            (matchv ::M/objects [member]
                              [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":'"]]]]
                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "->"]]]]
@@ -190,15 +175,13 @@
                                                                                                                                                      ["lux;Nil" _]]]]]]]]]]
                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?member-name]]]]
                                                                                                 ["lux;Nil" _]]]]]]]]]]]
-                             (do ;; (prn 'analyse-jvm-interface ?member-name ?inputs ?output)
-                                 (|do [inputs* (&/map% extract-ident ?inputs)]
-                                   (return [?member-name [inputs* ?output]])))
+                             (|do [inputs* (&/map% extract-ident ?inputs)]
+                               (return [?member-name [inputs* ?output]]))
                              
                              [_]
                              (fail "[Analyser Error] Invalid method signature!")))
                          ?members)
-        :let [;; _ (prn '=members =members)
-              =methods (into {} (for [[method [inputs output]] (&/->seq =members)]
+        :let [=methods (into {} (for [[method [inputs output]] (&/->seq =members)]
                                   [method {:access :public
                                            :type [inputs output]}]))]
         $module &/get-module-name]
@@ -270,11 +253,7 @@
   )
 
 (defn analyse-jvm-program [analyse ?args ?body]
-  (|do [;; =body (&&env/with-local ?args (&/V "lux;AppT" (&/T &type/List &type/Text))
-        ;;         (&&/analyse-1 analyse ?body))
-        =body (&/with-scope ""
+  (|do [=body (&/with-scope ""
                 (&&env/with-local "" (&/V "lux;AppT" (&/T &type/List &type/Text))
-                  (analyse-1+ analyse ?body)))
-        ;; =body (analyse-1+ analyse ?body)
-        ]
+                  (analyse-1+ analyse ?body)))]
     (return (&/|list (&/V "jvm-program" =body)))))

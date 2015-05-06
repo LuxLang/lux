@@ -8,8 +8,6 @@
 
 ;; [Resource]
 (defn with-lambda [self self-type arg arg-type body]
-  ;; (prn 'with-lambda (&/|length self) (&/|length arg))
-  ;; (prn 'with-lambda [(aget self 0) (aget self 1)] [(aget arg 0) (aget arg 1)] (alength self) (alength arg))
   (|let [[?module1 ?name1] self
          [?module2 ?name2] arg]
     (&/with-closure
@@ -21,11 +19,6 @@
               (return (&/T scope-name =captured =return)))))))))
 
 (defn close-over [scope ident register frame]
-  ;; (prn 'close-over
-  ;;      (&host/location scope)
-  ;;      (&host/location (&/|list ident))
-  ;;      register
-  ;;      (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER)))
   (matchv ::M/objects [register]
     [[_ register-type]]
     (|let [register* (&/T (&/V "captured" (&/T scope
