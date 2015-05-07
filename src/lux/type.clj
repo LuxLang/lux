@@ -126,7 +126,7 @@
   (&/V "lux;RecordT"
        (&/|list (&/T "lux;writer" (&/V "lux;DataT" "org.objectweb.asm.ClassWriter"))
                 (&/T "lux;loader" (&/V "lux;DataT" "java.lang.ClassLoader"))
-                (&/T "lux;eval-ctor" Int))))
+                )))
 
 (def DefData*
   (fAll "DefData'" ""

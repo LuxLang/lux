@@ -315,27 +315,27 @@
     (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods)))
 
 (defn ^:private eval! [expr]
-  (|do [eval-ctor &/get-eval-ctor
-         :let [class-name (str eval-ctor)
-               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                class-name nil "java/lang/Object" nil)
-                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_eval" "Ljava/lang/Object;" nil nil)
-                            (doto (.visitEnd))))]
-         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-             (|do [^MethodVisitor *writer* &/get-writer
-                    :let [_ (.visitCode *writer*)]
-                    _ (compile-expression expr)
-                    :let [_ (doto *writer*
-                              (.visitFieldInsn Opcodes/PUTSTATIC class-name "_eval" "Ljava/lang/Object;")
-                              (.visitInsn Opcodes/RETURN)
-                              (.visitMaxs 0 0)
-                              (.visitEnd))]]
-               (return nil)))
-         :let [bytecode (.toByteArray (doto =class
-                                        .visitEnd))]
-         _ (&&/save-class! class-name bytecode)
-         loader &/loader]
+  (|do [id &/gen-id
+        :let [class-name (str id)
+              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                               class-name nil "java/lang/Object" nil)
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_eval" "Ljava/lang/Object;" nil nil)
+                           (doto (.visitEnd))))]
+        _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+            (|do [^MethodVisitor *writer* &/get-writer
+                  :let [_ (.visitCode *writer*)]
+                  _ (compile-expression expr)
+                  :let [_ (doto *writer*
+                            (.visitFieldInsn Opcodes/PUTSTATIC class-name "_eval" "Ljava/lang/Object;")
+                            (.visitInsn Opcodes/RETURN)
+                            (.visitMaxs 0 0)
+                            (.visitEnd))]]
+              (return nil)))
+        :let [bytecode (.toByteArray (doto =class
+                                       .visitEnd))]
+        _ (&&/save-class! class-name bytecode)
+        loader &/loader]
     (-> (.loadClass ^ClassLoader loader class-name)
         (.getField "_eval")
         (.get nil)

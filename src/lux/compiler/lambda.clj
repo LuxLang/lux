@@ -63,7 +63,7 @@
                 $start (new Label)
                 $end (new Label)
                 _ (doto *writer*
-                    (-> (.visitLocalVariable (str &&/local-prefix idx) (&host/->java-sig (&/V "lux;DataT" "java.lang.Object")) nil $start $end (+ 2 idx))
+                    (-> (.visitLocalVariable (str &&/local-prefix idx) "Ljava/lang/Object;" nil $start $end (+ 2 idx))
                         (->> (dotimes [idx num-locals])))
                     (.visitLabel $start))]
           ret (compile impl-body)
@@ -92,7 +92,7 @@
   (|do [:let [lambda-class (&host/location ?scope)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               lambda-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
+                               lambda-class nil "java/lang/Object" (into-array ["lux/Function"]))
                        (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                              (.visitEnd))
                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])

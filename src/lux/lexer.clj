@@ -36,18 +36,18 @@
 
 (def ^:private lex-single-line-comment
   (|do [[_ [meta _]] (&reader/read-text "##")
-         [_ [_ comment]] (&reader/read-regex #"^(.*)$")]
+        [_ [_ comment]] (&reader/read-regex #"^(.*)$")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
-         [meta comment] (&/try-all% (&/|list (|do [[_ [meta comment]] (&reader/read-regex #"(?is)^((?!#\().)*?(?=\)#)")]
-                                               (return comment))
-                                             (|do [[_ [meta pre]] (&reader/read-regex #"(?is)^(.+?(?=#\())")
-                                                    [_ inner] (lex-multi-line-comment nil)
-                                                    [_ [_ post]] (&reader/read-regex #"(?is)^(.+?(?=\)#))")]
-                                               (return (str pre "#(" inner ")#" post)))))
-         _ (&reader/read-text ")#")]
+        [meta comment] (&/try-all% (&/|list (|do [[_ [meta comment]] (&reader/read-regex #"(?is)^((?!#\().)*?(?=\)#)")]
+                                              (return comment))
+                                            (|do [[_ [meta pre]] (&reader/read-regex #"(?is)^(.+?(?=#\())")
+                                                  [_ inner] (lex-multi-line-comment nil)
+                                                  [_ [_ post]] (&reader/read-regex #"(?is)^(.+?(?=\)#))")]
+                                              (return (str pre "#(" inner ")#" post)))))
+        _ (&reader/read-text ")#")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (def ^:private lex-comment
@@ -65,17 +65,17 @@
 
 (def ^:private lex-char
   (|do [[_ [meta _]] (&reader/read-text "#\"")
-         token (&/try-all% (&/|list (|do [[_ [_ escaped]] (&reader/read-regex #"^(\\.)")]
-                                      (escape-char escaped))
-                                    (|do [[_ [_ char]] (&reader/read-regex #"^(.)")]
-                                      (return char))))
-         _ (&reader/read-text "\"")]
+        token (&/try-all% (&/|list (|do [[_ [_ escaped]] (&reader/read-regex #"^(\\.)")]
+                                     (escape-char escaped))
+                                   (|do [[_ [_ char]] (&reader/read-regex #"^(.)")]
+                                     (return char))))
+        _ (&reader/read-text "\"")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Char" token))))))
 
 (def ^:private lex-text
   (|do [[_ [meta _]] (&reader/read-text "\"")
-         token (lex-text-body nil)
-         _ (&reader/read-text "\"")]
+        token (lex-text-body nil)
+        _ (&reader/read-text "\"")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Text" token))))))
 
 (def ^:private lex-ident

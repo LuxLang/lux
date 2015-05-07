@@ -15,9 +15,8 @@
 (def $NAME 3)
 
 ;; Host
-(def $EVAL-CTOR 0)
-(def $LOADER 1)
-(def $WRITER 2)
+(def $LOADER 0)
+(def $WRITER 1)
 
 ;; CompilerState
 (def $ENVS 0)
@@ -441,9 +440,7 @@
    ))
 
 (defn host [_]
-  (R ;; "lux;eval-ctor"
-   0
-   ;; "lux;loader"
+  (R ;; "lux;loader"
    (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
    ;; "lux;writer"
    (V "lux;None" nil)))
@@ -464,11 +461,6 @@
    ;; "lux;types"
    +init-bindings+
    ))
-
-(def get-eval-ctor
-  (fn [state]
-    (return* (update$ $HOST #(update$ $EVAL-CTOR inc %) state)
-             (get$ $EVAL-CTOR (get$ $HOST state)))))
 
 (def get-writer
   (fn [state]
