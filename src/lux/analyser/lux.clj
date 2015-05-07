@@ -45,8 +45,7 @@
 (defn analyse-variant [analyse exo-type ident ?value]
   (|do [exo-type* (matchv ::M/objects [exo-type]
                     [["lux;VarT" ?id]]
-                    (&/try-all% (&/|list (|do [exo-type* (&/try-all% (&/|list (&type/deref ?id)
-                                                                              (fail "##8##")))]
+                    (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
                                            (&type/actual-type exo-type*))
                                          (|do [_ (&type/set-var ?id &type/Type)]
                                            (&type/actual-type &type/Type))))
@@ -74,8 +73,7 @@
 (defn analyse-record [analyse exo-type ?elems]
   (|do [exo-type* (matchv ::M/objects [exo-type]
                     [["lux;VarT" ?id]]
-                    (|do [exo-type* (&/try-all% (&/|list (&type/deref ?id)
-                                                         (fail "##7##")))]
+                    (|do [exo-type* (&type/deref ?id)]
                       (&type/actual-type exo-type*))
 
                     [_]
@@ -265,8 +263,7 @@
             [["lux;VarT" ?id]]
             (|do [? (&type/bound? ?id)]
               (if ?
-                (|do [dtype (&/try-all% (&/|list (&type/deref ?id)
-                                                 (fail "##6##")))]
+                (|do [dtype (&type/deref ?id)]
                   (matchv ::M/objects [dtype]
                     [["lux;ExT" _]]
                     (return (&/T _expr exo-type))

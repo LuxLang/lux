@@ -8,50 +8,59 @@
 (defn ^:private with-line [body]
   (fn [state]
     (matchv ::M/objects [(&/get$ &/$SOURCE state)]
-      [["lux;None" _]]
-      (fail* "[Reader Error] No source code.")
-
-      [["lux;Some" ["lux;Nil" _]]]
+      [["lux;Nil" _]]
       (fail* "[Reader Error] EOF")
 
-      [["lux;Some" ["lux;Cons" [["lux;Meta" [[file-name line-num column-num] line]]
-                                more]]]]
+      [["lux;Cons" [["lux;Meta" [[file-name line-num column-num] line]]
+                    more]]]
       (matchv ::M/objects [(body file-name line-num column-num line)]
         [["No" msg]]
         (fail* msg)
 
-        [["Yes" [meta ["lux;None" _]]]]
-        (return* (&/set$ &/$SOURCE (&/V "lux;Some" more) state)
-                 meta)
+        [["Done" output]]
+        (return* (&/set$ &/$SOURCE more state)
+                 output)
 
-        [["Yes" [meta ["lux;Some" line-meta]]]]
-        (return* (&/set$ &/$SOURCE (&/V "lux;Some" (&/|cons line-meta more)) state)
-                 meta))
+        [["Yes" [output line*]]]
+        (return* (&/set$ &/$SOURCE (&/|cons line* more) state)
+                 output))
       )))
 
 ;; [Exports]
+(defn ^:private re-find! [regex line]
+  (let [matcher (.matcher regex line)]
+    (when (.find matcher)
+      (.group matcher 0))))
+
+(defn ^:private re-find3! [regex line]
+  (let [matcher (.matcher regex line)]
+    (when (.find matcher)
+      (list (.group matcher 0)
+            (.group matcher 1)
+            (.group matcher 2)))))
+
 (defn read-regex [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      (if-let [[^String match] (re-find regex line)]
+      (if-let [^String match (re-find! regex line)]
         (let [match-length (.length match)
               line* (.substring line match-length)]
-          (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) match))
-                          (if (empty? line*)
-                            (&/V "lux;None" nil)
-                            (&/V "lux;Some" (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*)))))))
+          (if (empty? line*)
+            (&/V "Done" (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) match)))
+            (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) match))
+                            (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))))))
         (&/V "No" (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex2 [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      (if-let [[^String match tok1 tok2] (re-find regex line)]
+      (if-let [[^String match tok1 tok2] (re-find3! regex line)]
         (let [match-length (.length match)
               line* (.substring line match-length)]
-          (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
-                          (if (empty? line*)
-                            (&/V "lux;None" nil)
-                            (&/V "lux;Some" (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*)))))))
+          (if (empty? line*)
+            (&/V "Done" (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2))))
+            (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
+                            (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))))))
         (&/V "No" (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-text [^String text]
@@ -60,10 +69,10 @@
       (if (.startsWith line text)
         (let [match-length (.length text)
               line* (.substring line match-length)]
-          (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) text))
-                          (if (empty? line*)
-                            (&/V "lux;None" nil)
-                            (&/V "lux;Some" (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*)))))))
+          (if (empty? line*)
+            (&/V "Done" (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) text)))
+            (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) text))
+                            (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))))))
         (&/V "No" (str "[Reader Error] Text failed: " text))))))
 
 (defn from [file-name]
@@ -74,19 +83,5 @@
                                      line))))
             (&/|filter (fn [line+line-num]
                          (|let [[line-num line] line+line-num]
-                           (not (empty? line))))
+                           (not= "" line)))
                        (&/enumerate lines)))))
-
-(def current-line
-  (fn [state]
-    (matchv ::M/objects [(&/get$ &/$SOURCE state)]
-      [["lux;None" _]]
-      (fail* "[Reader Error] No source code.")
-
-      [["lux;Some" ["lux;Nil" _]]]
-      (fail* "[Reader Error] EOF")
-
-      [["lux;Some" ["lux;Cons" [["lux;Meta" [_ line]]
-                                more]]]]
-      (return* state line)
-      )))

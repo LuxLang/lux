@@ -25,10 +25,3 @@
                     &/get-module-name
                     (return ?module))]
       (return (&/ident->text (&/T module* ?name))))))
-
-(defn resolved-ident* [ident]
-  (|let [[?module ?name] ident]
-    (|do [module* (if (= "" ?module)
-                    &/get-module-name
-                    (return ?module))]
-      (return (&/T module* ?name)))))

@@ -79,17 +79,11 @@
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW lambda-class)
                   (.visitInsn Opcodes/DUP))]
-        _ (->> closed-over
-               &/->seq
-               (sort #(matchv ::M/objects [(&/|second %1) (&/|second %2)]
-                        [[["captured" [_ ?cid1 _]] _]
-                         [["captured" [_ ?cid2 _]] _]]
-                        (< ?cid1 ?cid2)))
-               &/->list
-               (&/map% (fn [?name+?captured]
-                         (matchv ::M/objects [?name+?captured]
-                           [[?name [["captured" [_ _ ?source]] _]]]
-                           (compile ?source)))))
+        _ (&/map% (fn [?name+?captured]
+                    (matchv ::M/objects [?name+?captured]
+                      [[?name [["captured" [_ _ ?source]] _]]]
+                      (compile ?source)))
+                  closed-over)
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
     (return nil)))
 

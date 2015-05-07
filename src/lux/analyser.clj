@@ -26,9 +26,6 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&/T catch+ ?finally-body)))
 
-(defn ^:private _meta [token]
-  (&/V "lux;Meta" (&/T (&/T "" -1 -1) token)))
-
 (defn ^:private aba1 [analyse eval! exo-type token]
   (matchv ::M/objects [token]
     ;; Standard special forms
@@ -59,7 +56,7 @@
     (&&lux/analyse-record analyse exo-type ?elems)
 
     [["lux;Meta" [meta ["lux;Tag" ?ident]]]]
-    (&&lux/analyse-variant analyse exo-type ?ident (_meta (&/V "lux;Tuple" (|list))))
+    (&&lux/analyse-variant analyse exo-type ?ident (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;Tuple" (|list)))))
     
     [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
     (return (&/|list (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null"))))

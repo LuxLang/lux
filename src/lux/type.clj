@@ -142,7 +142,7 @@
 (def CompilerState
   (&/V "lux;AppT" (&/T (fAll "CompilerState" ""
                              (&/V "lux;RecordT"
-                                  (&/|list (&/T "lux;source" (&/V "lux;AppT" (&/T Maybe Reader)))
+                                  (&/|list (&/T "lux;source" Reader)
                                            (&/T "lux;modules" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
                                                                                              (&/|list Text
                                                                                                       (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
@@ -180,15 +180,14 @@
 
 (defn deref [id]
   (fn [state]
-    (let [mappings (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS))]
-      (if-let [type* (->> mappings (&/|get id))]
-        (matchv ::M/objects [type*]
-          [["lux;Some" type]]
-          (return* state type)
-          
-          [["lux;None" _]]
-          (fail* (str "[Type Error] Unbound type-var: " id)))
-        (fail* (str "[Type Error] <deref> Unknown type-var: " id))))))
+    (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+      (matchv ::M/objects [type*]
+        [["lux;Some" type]]
+        (return* state type)
+        
+        [["lux;None" _]]
+        (fail* (str "[Type Error] Unbound type-var: " id)))
+      (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))
 
 (defn set-var [id type]
   (fn [state]
@@ -210,8 +209,8 @@
   (fn [state]
     (let [id (->> state (&/get$ &/$TYPES) (&/get$ &/$COUNTER))]
       (return* (&/update$ &/$TYPES #(->> %
-                                            (&/update$ &/$COUNTER inc)
-                                            (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
+                                         (&/update$ &/$COUNTER inc)
+                                         (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
                           state)
                id))))
 
@@ -271,8 +270,7 @@
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
     (if (= ?tid ?id)
-      (&/try-all% (&/|list (deref ?id)
-                           (fail "##5##")))
+      (deref ?id)
       (return type))
     
     [["lux;LambdaT" [?arg ?return]]]
@@ -554,12 +552,10 @@
     [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
     (if (= ?eid ?aid)
       (return (&/T fixpoints nil))
-      (|do [ebound (&/try-all% (&/|list (|do [ebound (&/try-all% (&/|list (deref ?eid)
-                                                                          (fail "##4##")))]
+      (|do [ebound (&/try-all% (&/|list (|do [ebound (deref ?eid)]
                                           (return (&/V "lux;Some" ebound)))
                                         (return (&/V "lux;None" nil))))
-            abound (&/try-all% (&/|list (|do [abound (&/try-all% (&/|list (deref ?aid)
-                                                                          (fail "##3##")))]
+            abound (&/try-all% (&/|list (|do [abound (deref ?aid)]
                                           (return (&/V "lux;Some" abound)))
                                         (return (&/V "lux;None" nil))))]
         (matchv ::M/objects [ebound abound]
@@ -579,15 +575,13 @@
     [["lux;VarT" ?id] _]
     (&/try-all% (&/|list (|do [_ (set-var ?id actual)]
                            (return (&/T fixpoints nil)))
-                         (|do [bound (&/try-all% (&/|list (deref ?id)
-                                                          (fail "##1##")))]
+                         (|do [bound (deref ?id)]
                            (check* fixpoints bound actual))))
     
     [_ ["lux;VarT" ?id]]
     (&/try-all% (&/|list (|do [_ (set-var ?id expected)]
                            (return (&/T fixpoints nil)))
-                         (|do [bound (&/try-all% (&/|list (deref ?id)
-                                                          (fail "##2##")))]
+                         (|do [bound (deref ?id)]
                            (check* fixpoints expected bound))))
 
     [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]

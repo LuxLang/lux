@@ -75,46 +75,40 @@
   )
 
 (defn analyse-jvm-getstatic [analyse ?class ?field]
-  (|do [=class (&host/full-class-name ?class)
-        =type (&host/lookup-static-field =class ?field)]
-    (return (&/|list (&/T (&/V "jvm-getstatic" (&/T =class ?field)) =type)))))
+  (|do [=type (&host/lookup-static-field ?class ?field)]
+    (return (&/|list (&/T (&/V "jvm-getstatic" (&/T ?class ?field)) =type)))))
 
 (defn analyse-jvm-getfield [analyse ?class ?field ?object]
-  (|do [=class (&host/full-class-name ?class)
-        =type (&host/lookup-static-field =class ?field)
+  (|do [=type (&host/lookup-static-field ?class ?field)
         =object (&&/analyse-1 analyse ?object)]
-    (return (&/|list (&/T (&/V "jvm-getfield" (&/T =class ?field =object)) =type)))))
+    (return (&/|list (&/T (&/V "jvm-getfield" (&/T ?class ?field =object)) =type)))))
 
 (defn analyse-jvm-putstatic [analyse ?class ?field ?value]
-  (|do [=class (&host/full-class-name ?class)
-        =type (&host/lookup-static-field =class ?field)
+  (|do [=type (&host/lookup-static-field ?class ?field)
         =value (&&/analyse-1 analyse ?value)]
-    (return (&/|list (&/T (&/V "jvm-putstatic" (&/T =class ?field =value)) =type)))))
+    (return (&/|list (&/T (&/V "jvm-putstatic" (&/T ?class ?field =value)) =type)))))
 
 (defn analyse-jvm-putfield [analyse ?class ?field ?object ?value]
-  (|do [=class (&host/full-class-name ?class)
-        =type (&host/lookup-static-field =class ?field)
+  (|do [=type (&host/lookup-static-field ?class ?field)
         =object (&&/analyse-1 analyse ?object)
         =value (&&/analyse-1 analyse ?value)]
-    (return (&/|list (&/T (&/V "jvm-putfield" (&/T =class ?field =object =value)) =type)))))
+    (return (&/|list (&/T (&/V "jvm-putfield" (&/T ?class ?field =object =value)) =type)))))
 
 (defn analyse-jvm-invokestatic [analyse ?class ?method ?classes ?args]
-  (|do [=class (&host/full-class-name ?class)
-        =classes (&/map% &host/extract-jvm-param ?classes)
-        =return (&host/lookup-static-method =class ?method =classes)
+  (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+        =return (&host/lookup-static-method ?class ?method =classes)
         =args (&/flat-map% analyse ?args)]
-    (return (&/|list (&/T (&/V "jvm-invokestatic" (&/T =class ?method =classes =args)) =return)))))
+    (return (&/|list (&/T (&/V "jvm-invokestatic" (&/T ?class ?method =classes =args)) =return)))))
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]
-    (|do [=class (&host/full-class-name ?class)
-          =classes (&/map% &host/extract-jvm-param ?classes)
-          =return (&host/lookup-virtual-method =class ?method =classes)
+    (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+          =return (&host/lookup-virtual-method ?class ?method =classes)
           =object (&&/analyse-1 analyse (&/V "lux;DataT" ?class) ?object)
           =args (&/map2% (fn [?c ?o]
                            (&&/analyse-1 analyse (&/V "lux;DataT" ?c) ?o))
                          =classes ?args)]
-      (return (&/|list (&/T (&/V <tag> (&/T =class ?method =classes =object =args)) =return)))))
+      (return (&/|list (&/T (&/V <tag> (&/T ?class ?method =classes =object =args)) =return)))))
 
   analyse-jvm-invokevirtual   "jvm-invokevirtual"
   analyse-jvm-invokeinterface "jvm-invokeinterface"
@@ -126,15 +120,13 @@
     (return (&/|list (&/T (&/V "jvm-null?" =object) (&/V "lux;DataT" "java.lang.Boolean"))))))
 
 (defn analyse-jvm-new [analyse ?class ?classes ?args]
-  (|do [=class (&host/full-class-name ?class)
-        =classes (&/map% &host/extract-jvm-param ?classes)
+  (|do [=classes (&/map% &host/extract-jvm-param ?classes)
         =args (&/flat-map% analyse ?args)]
-    (return (&/|list (&/T (&/V "jvm-new" (&/T =class =classes =args)) (&/V "lux;DataT" =class))))))
+    (return (&/|list (&/T (&/V "jvm-new" (&/T ?class =classes =args)) (&/V "lux;DataT" ?class))))))
 
 (defn analyse-jvm-new-array [analyse ?class ?length]
-  (|do [=class (&host/full-class-name ?class)]
-    (return (&/|list (&/T (&/V "jvm-new-array" (&/T =class ?length)) (&/V "array" (&/T (&/V "lux;DataT" =class)
-                                                                                                         (&/V "lux;Nil" nil))))))))
+  (return (&/|list (&/T (&/V "jvm-new-array" (&/T ?class ?length)) (&/V "array" (&/T (&/V "lux;DataT" ?class)
+                                                                                     (&/V "lux;Nil" nil)))))))
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
   (|do [=array (&&/analyse-1 analyse &type/$Void ?array)

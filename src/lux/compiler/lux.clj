@@ -20,27 +20,24 @@
                               MethodVisitor)))
 
 ;; [Exports]
-(let [+class+ (&host/->class "java.lang.Boolean")
-      +sig+ (&host/->type-signature "java.lang.Boolean")]
-  (defn compile-bool [compile *type* ?value]
-    (|do [^MethodVisitor *writer* &/get-writer
-          :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") (if ?value "TRUE" "FALSE") (&host/->type-signature "java.lang.Boolean"))]]
-      (return nil))))
+(defn compile-bool [compile *type* ?value]
+  (|do [^MethodVisitor *writer* &/get-writer
+        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC "java/lang/Boolean" (if ?value "TRUE" "FALSE") "Ljava/lang/Boolean;")]]
+    (return nil)))
 
 (do-template [<name> <class> <sig> <caster>]
-  (let [+class+ (&host/->class <class>)]
-    (defn <name> [compile *type* value]
-      (|do [^MethodVisitor *writer* &/get-writer
-            :let [_ (doto *writer*
-                      (.visitTypeInsn Opcodes/NEW +class+)
-                      (.visitInsn Opcodes/DUP)
-                      (.visitLdcInsn (<caster> value))
-                      (.visitMethodInsn Opcodes/INVOKESPECIAL +class+ "<init>" <sig>))]]
-        (return nil))))
+  (defn <name> [compile *type* value]
+    (|do [^MethodVisitor *writer* &/get-writer
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/NEW <class>)
+                    (.visitInsn Opcodes/DUP)
+                    (.visitLdcInsn (<caster> value))
+                    (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
+      (return nil)))
 
-  compile-int  "java.lang.Long"      "(J)V" long
-  compile-real "java.lang.Double"    "(D)V" double
-  compile-char "java.lang.Character" "(C)V" char
+  compile-int  "java/lang/Long"      "(J)V" long
+  compile-real "java/lang/Double"    "(D)V" double
+  compile-char "java/lang/Character" "(C)V" char
   )
 
 (defn compile-text [compile *type* ?value]
@@ -53,7 +50,7 @@
         :let [num-elems (&/|length ?elems)
               _ (doto *writer*
                   (.visitLdcInsn (int num-elems))
-                  (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
+                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
         _ (&/map2% (fn [idx elem]
                      (|do [:let [_ (doto *writer*
                                      (.visitInsn Opcodes/DUP)
@@ -73,7 +70,7 @@
               num-elems (&/|length elems*)
               _ (doto *writer*
                   (.visitLdcInsn (int num-elems))
-                  (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object")))]
+                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
         _ (&/map2% (fn [idx kv]
                      (|let [[k v] kv]
                        (|do [:let [_ (doto *writer*
@@ -89,7 +86,7 @@
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitLdcInsn (int 2))
-                  (.visitTypeInsn Opcodes/ANEWARRAY (&host/->class "java.lang.Object"))
+                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 0))
                   (.visitLdcInsn ?tag)
@@ -124,19 +121,19 @@
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?fn)
         _ (compile ?arg)
-        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE (&host/->class &host/function-class) "apply" &&/apply-signature)]]
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "lux/Function" "apply" &&/apply-signature)]]
     (return nil)))
 
 (defn compile-def [compile ?name ?body ?def-data]
   (|do [^ClassWriter *writer* &/get-writer
         module-name &/get-module-name
         :let [outer-class (&host/->class module-name)
-              datum-sig (&host/->type-signature "java.lang.Object")
+              datum-sig "Ljava/lang/Object;"
               current-class (&host/location (&/|list outer-class ?name))
               _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               current-class nil "java/lang/Object" (into-array [(&host/->class &host/function-class)]))
+                               current-class nil "java/lang/Object" (into-array ["lux/Function"]))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                            (doto (.visitEnd))))]
         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)

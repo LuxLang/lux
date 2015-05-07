@@ -34,12 +34,6 @@
         [_]
         =return))))
 
-(defn with-locals [locals monad]
-  (reduce (fn [inner [label elem]]
-            (with-local label elem inner))
-          monad
-          (reverse locals)))
-
 (def captured-vars
   (fn [state]
     (return* state (->> state (&/get$ &/$ENVS) &/|head (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS)))))

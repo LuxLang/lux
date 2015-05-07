@@ -29,25 +29,6 @@
     (return =return)))
 
 ;; [Resources]
-(defn full-class [class-name]
-  (case class-name
-    "boolean" (return Boolean/TYPE)
-    "byte"    (return Byte/TYPE)
-    "short"   (return Short/TYPE)
-    "int"     (return Integer/TYPE)
-    "long"    (return Long/TYPE)
-    "float"   (return Float/TYPE)
-    "double"  (return Double/TYPE)
-    "char"    (return Character/TYPE)
-    ;; else
-    (try (return (Class/forName class-name))
-      (catch Exception e
-        (fail (str "[Analyser Error] Unknown class: " class-name))))))
-
-(defn full-class-name [class-name]
-  (|do [^Class =class (full-class class-name)]
-    (return (.getName =class))))
-
 (defn ^String ->class [class]
   (string/replace class #"\." "/"))
 
@@ -89,7 +70,7 @@
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]
     [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
-    (full-class-name ?ident)
+    (return ?ident)
 
     [_]
     (fail (str "[Host] Unknown JVM param: " (pr-str token)))))

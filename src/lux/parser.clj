@@ -38,45 +38,47 @@
 (def parse
   (|do [token &lexer/lex]
     (matchv ::M/objects [token]
-      [["lux;Meta" [meta ["White_Space" _]]]]
-      (return (&/|list))
+      [["lux;Meta" [meta token*]]]
+      (matchv ::M/objects [token*]
+        [["White_Space" _]]
+        (return (&/|list))
 
-      [["lux;Meta" [meta ["Comment" _]]]]
-      (return (&/|list))
-      
-      [["lux;Meta" [meta ["Bool" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Bool" (Boolean/parseBoolean ?value))))))
+        [["Comment" _]]
+        (return (&/|list))
+        
+        [["Bool" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Bool" (Boolean/parseBoolean ?value))))))
 
-      [["lux;Meta" [meta ["Int" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Int" (Integer/parseInt ?value))))))
+        [["Int" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Int" (Integer/parseInt ?value))))))
 
-      [["lux;Meta" [meta ["Real" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Real" (Float/parseFloat ?value))))))
+        [["Real" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Real" (Float/parseFloat ?value))))))
 
-      [["lux;Meta" [meta ["Char" ^String ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Char" (.charAt ?value 0))))))
+        [["Char" ^String ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Char" (.charAt ?value 0))))))
 
-      [["lux;Meta" [meta ["Text" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Text" ?value)))))
+        [["Text" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Text" ?value)))))
 
-      [["lux;Meta" [meta ["Symbol" ?ident]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Symbol" ?ident)))))
+        [["Symbol" ?ident]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Symbol" ?ident)))))
 
-      [["lux;Meta" [meta ["Tag" ?ident]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Tag" ?ident)))))
+        [["Tag" ?ident]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Tag" ?ident)))))
 
-      [["lux;Meta" [meta ["Open_Paren" _]]]]
-      (|do [syntax (parse-form parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
-      
-      [["lux;Meta" [meta ["Open_Bracket" _]]]]
-      (|do [syntax (parse-tuple parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        [["Open_Paren" _]]
+        (|do [syntax (parse-form parse)]
+          (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        
+        [["Open_Bracket" _]]
+        (|do [syntax (parse-tuple parse)]
+          (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
 
-      [["lux;Meta" [meta ["Open_Brace" _]]]]
-      (|do [syntax (parse-record parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        [["Open_Brace" _]]
+        (|do [syntax (parse-record parse)]
+          (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
 
-      [_]
-      (fail "[Parser Error] Unknown lexer token.")
-      )))
+        [_]
+        (fail "[Parser Error] Unknown lexer token.")
+        ))))

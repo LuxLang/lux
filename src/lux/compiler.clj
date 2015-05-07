@@ -353,7 +353,7 @@
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
           (matchv ::M/objects [(&/run-state (&/exhaust% compiler-step) (->> state
-                                                                            (&/set$ &/$SOURCE (&/V "lux;Some" (&reader/from (str "source/" name ".lux"))))
+                                                                            (&/set$ &/$SOURCE (&reader/from (str "source/" name ".lux")))
                                                                             (&/set$ &/$ENVS (&/|list (&/env name)))
                                                                             (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
                                                                             (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]
