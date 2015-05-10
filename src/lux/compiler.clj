@@ -60,8 +60,8 @@
       [["lux;Global" [?owner-class ?name]]]
       (&&lux/compile-global compile-expression ?type ?owner-class ?name)
 
-      [["apply" [?fn ?arg]]]
-      (&&lux/compile-apply compile-expression ?type ?fn ?arg)
+      [["apply" [?fn ?args]]]
+      (&&lux/compile-apply compile-expression ?type ?fn ?args)
 
       [["variant" [?tag ?members]]]
       (&&lux/compile-variant compile-expression ?type ?tag ?members)

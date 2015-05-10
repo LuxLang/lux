@@ -172,42 +172,39 @@
           )))
     ))
 
-(defn ^:private analyse-apply* [analyse exo-type =fn ?args]
-  (matchv ::M/objects [=fn]
-    [[?fun-expr ?fun-type]]
-    (matchv ::M/objects [?args]
-      [["lux;Nil" _]]
-      (|do [_ (&type/check exo-type ?fun-type)]
-        (return =fn))
-      
-      [["lux;Cons" [?arg ?args*]]]
-      (|do [?fun-type* (&type/actual-type ?fun-type)]
-        (matchv ::M/objects [?fun-type*]
-          [["lux;AllT" _]]
-          (&type/with-var
-            (fn [$var]
-              (|do [type* (&type/apply-type ?fun-type* $var)
-                    output (analyse-apply* analyse exo-type (&/T ?fun-expr type*) ?args)]
-                (matchv ::M/objects [output $var]
-                  [[?expr* ?type*] ["lux;VarT" ?id]]
-                  (|do [? (&type/bound? ?id)
-                        _ (if ?
-                            (return nil)
-                            (|do [ex &type/existential]
-                              (&type/set-var ?id ex)))
-                        type** (&type/clean $var ?type*)]
-                    (return (&/T ?expr* type**)))
-                  ))))
+(defn ^:private analyse-apply* [analyse exo-type fun-type args]
+  (matchv ::M/objects [args]
+    [["lux;Nil" _]]
+    (|do [_ (&type/check exo-type fun-type)]
+      (return (&/T (&/|list) fun-type)))
+    
+    [["lux;Cons" [?arg ?args*]]]
+    (|do [?fun-type* (&type/actual-type fun-type)]
+      (matchv ::M/objects [?fun-type*]
+        [["lux;AllT" _]]
+        (&type/with-var
+          (fn [$var]
+            (|do [type* (&type/apply-type ?fun-type* $var)
+                  [?args** ?type**] (analyse-apply* analyse exo-type type* args)]
+              (matchv ::M/objects [$var]
+                [["lux;VarT" ?id]]
+                (|do [? (&type/bound? ?id)
+                      _ (if ?
+                          (return nil)
+                          (|do [ex &type/existential]
+                            (&type/set-var ?id ex)))
+                      type*** (&type/clean $var ?type**)]
+                  (return (&/T ?args** type***)))
+                ))))
 
-          [["lux;LambdaT" [?input-t ?output-t]]]
-          (|do [=arg (&&/analyse-1 analyse ?input-t ?arg)]
-            (analyse-apply* analyse exo-type (&/T (&/V "apply" (&/T =fn =arg))
-                                                  ?output-t)
-                            ?args*))
+        [["lux;LambdaT" [?input-t ?output-t]]]
+        (|do [[=args ?output-t*] (analyse-apply* analyse exo-type ?output-t ?args*)
+              =arg (&&/analyse-1 analyse ?input-t ?arg)]
+          (return (&/T (&/|cons =arg =args) ?output-t*)))
 
-          [_]
-          (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*)))))
-      )))
+        [_]
+        (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*)))))
+    ))
 
 (defn analyse-apply [analyse exo-type =fn ?args]
   (|do [loader &/loader]
@@ -222,12 +219,14 @@
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 
             [_]
-            (|do [output (analyse-apply* analyse exo-type =fn ?args)]
-              (return (&/|list output)))))
+            (|do [[=args =app-type] (analyse-apply* analyse exo-type =fn-type ?args)]
+              (return (&/|list (&/T (&/V "apply" (&/T =fn =args))
+                                    =app-type))))))
         
         [_]
-        (|do [output (analyse-apply* analyse exo-type =fn ?args)]
-          (return (&/|list output))))
+        (|do [[=args =app-type] (analyse-apply* analyse exo-type =fn-type ?args)]
+          (return (&/|list (&/T (&/V "apply" (&/T =fn =args))
+                                =app-type)))))
       )))
 
 (defn analyse-case [analyse exo-type ?value ?branches]

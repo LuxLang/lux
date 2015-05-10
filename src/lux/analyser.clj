@@ -26,44 +26,45 @@
                                                              ["lux;Nil" _]]]]]]]]]
     (&/T catch+ ?finally-body)))
 
-(defn ^:private aba1 [analyse eval! exo-type token]
-  (matchv ::M/objects [token]
-    ;; Standard special forms
-    [["lux;Meta" [meta ["lux;Bool" ?value]]]]
-    (|do [_ (&type/check exo-type &type/Bool)]
-      (return (&/|list (&/T (&/V "bool" ?value) exo-type))))
+(let [unit (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;Tuple" (|list))))]
+  (defn ^:private aba1 [analyse eval! exo-type token]
+    (matchv ::M/objects [token]
+      ;; Standard special forms
+      [["lux;Meta" [meta ["lux;Bool" ?value]]]]
+      (|do [_ (&type/check exo-type &type/Bool)]
+        (return (&/|list (&/T (&/V "bool" ?value) exo-type))))
 
-    [["lux;Meta" [meta ["lux;Int" ?value]]]]
-    (|do [_ (&type/check exo-type &type/Int)]
-      (return (&/|list (&/T (&/V "int" ?value) exo-type))))
+      [["lux;Meta" [meta ["lux;Int" ?value]]]]
+      (|do [_ (&type/check exo-type &type/Int)]
+        (return (&/|list (&/T (&/V "int" ?value) exo-type))))
 
-    [["lux;Meta" [meta ["lux;Real" ?value]]]]
-    (|do [_ (&type/check exo-type &type/Real)]
-      (return (&/|list (&/T (&/V "real" ?value) exo-type))))
+      [["lux;Meta" [meta ["lux;Real" ?value]]]]
+      (|do [_ (&type/check exo-type &type/Real)]
+        (return (&/|list (&/T (&/V "real" ?value) exo-type))))
 
-    [["lux;Meta" [meta ["lux;Char" ?value]]]]
-    (|do [_ (&type/check exo-type &type/Char)]
-      (return (&/|list (&/T (&/V "char" ?value) exo-type))))
+      [["lux;Meta" [meta ["lux;Char" ?value]]]]
+      (|do [_ (&type/check exo-type &type/Char)]
+        (return (&/|list (&/T (&/V "char" ?value) exo-type))))
 
-    [["lux;Meta" [meta ["lux;Text" ?value]]]]
-    (|do [_ (&type/check exo-type &type/Text)]
-      (return (&/|list (&/T (&/V "text" ?value) exo-type))))
+      [["lux;Meta" [meta ["lux;Text" ?value]]]]
+      (|do [_ (&type/check exo-type &type/Text)]
+        (return (&/|list (&/T (&/V "text" ?value) exo-type))))
 
-    [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
-    (&&lux/analyse-tuple analyse exo-type ?elems)
+      [["lux;Meta" [meta ["lux;Tuple" ?elems]]]]
+      (&&lux/analyse-tuple analyse exo-type ?elems)
 
-    [["lux;Meta" [meta ["lux;Record" ?elems]]]]
-    (&&lux/analyse-record analyse exo-type ?elems)
+      [["lux;Meta" [meta ["lux;Record" ?elems]]]]
+      (&&lux/analyse-record analyse exo-type ?elems)
 
-    [["lux;Meta" [meta ["lux;Tag" ?ident]]]]
-    (&&lux/analyse-variant analyse exo-type ?ident (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;Tuple" (|list)))))
-    
-    [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
-    (return (&/|list (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null"))))
+      [["lux;Meta" [meta ["lux;Tag" ?ident]]]]
+      (&&lux/analyse-variant analyse exo-type ?ident unit)
+      
+      [["lux;Meta" [meta ["lux;Symbol" [_ "jvm-null"]]]]]
+      (return (&/|list (&/T (&/V "jvm-null" nil) (&/V "lux;DataT" "null"))))
 
-    [_]
-    (fail "")
-    ))
+      [_]
+      (fail "")
+      )))
 
 (defn ^:private aba2 [analyse eval! exo-type token]
   (matchv ::M/objects [token]
