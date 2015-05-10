@@ -226,33 +226,33 @@
             (|do [ex existential]
               (set-var id ex)))]
     (fn [state]
-      (&/run-state (|do [mappings* (&/map% (fn [binding]
-                                             (|let [[?id ?type] binding]
-                                               (if (= id ?id)
-                                                 (return binding)
-                                                 (matchv ::M/objects [?type]
-                                                   [["lux;None" _]]
-                                                   (return binding)
+      ((|do [mappings* (&/map% (fn [binding]
+                                 (|let [[?id ?type] binding]
+                                   (if (= id ?id)
+                                     (return binding)
+                                     (matchv ::M/objects [?type]
+                                       [["lux;None" _]]
+                                       (return binding)
 
-                                                   [["lux;Some" ?type*]]
-                                                   (matchv ::M/objects [?type*]
-                                                     [["lux;VarT" ?id*]]
-                                                     (if (= id ?id*)
-                                                       (return (&/T ?id (&/V "lux;None" nil)))
-                                                       (return binding))
+                                       [["lux;Some" ?type*]]
+                                       (matchv ::M/objects [?type*]
+                                         [["lux;VarT" ?id*]]
+                                         (if (= id ?id*)
+                                           (return (&/T ?id (&/V "lux;None" nil)))
+                                           (return binding))
 
-                                                     [_]
-                                                     (|do [?type** (clean* id ?type*)]
-                                                       (return (&/T ?id (&/V "lux;Some" ?type**)))))
-                                                   ))))
-                                           (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
-                     (fn [state]
-                       (return* (&/update$ &/$TYPES #(->> %
-                                                          (&/update$ &/$COUNTER dec)
-                                                          (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
-                                           state)
-                                nil)))
-                   state))))
+                                         [_]
+                                         (|do [?type** (clean* id ?type*)]
+                                           (return (&/T ?id (&/V "lux;Some" ?type**)))))
+                                       ))))
+                               (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
+         (fn [state]
+           (return* (&/update$ &/$TYPES #(->> %
+                                              (&/update$ &/$COUNTER dec)
+                                              (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
+                               state)
+                    nil)))
+       state))))
 
 (defn with-var [k]
   (|do [id create-var
@@ -585,24 +585,49 @@
                            (check* fixpoints expected bound))))
 
     [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
-    (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-          _ (check* fixpoints A1 A2)]
-      (return (&/T fixpoints nil)))
+    (&/try-all% (&/|list (|do [F1 (deref ?eid)]
+                           (&/try-all% (&/|list (|do [F2 (deref ?aid)]
+                                                  (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
+                                                (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))))
+                         (|do [F2 (deref ?aid)]
+                           (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
+                         (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+                               [fixpoints** _] (check* fixpoints* A1 A2)]
+                           (return (&/T fixpoints** nil)))))
+    ;; (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+    ;;       _ (check* fixpoints A1 A2)]
+    ;;   (return (&/T fixpoints nil)))
     
     [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-    (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
-          e* (apply-type F2 A1)
-          a* (apply-type F2 A2)
-          [fixpoints** _] (check* fixpoints* e* a*)]
-      (return (&/T fixpoints** nil)))
-
-    [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
-    (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
-          e* (apply-type F1 A1)
-          a* (apply-type F1 A2)
-          [fixpoints** _] (check* fixpoints* e* a*)]
-      (return (&/T fixpoints** nil)))
+    (&/try-all% (&/|list (|do [F1 (deref ?id)]
+                           (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
+                         (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+                               e* (apply-type F2 A1)
+                               a* (apply-type F2 A2)
+                               [fixpoints** _] (check* fixpoints* e* a*)]
+                           (return (&/T fixpoints** nil)))))
+    ;; [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
+    ;; (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+    ;;       e* (apply-type F2 A1)
+    ;;       a* (apply-type F2 A2)
+    ;;       [fixpoints** _] (check* fixpoints* e* a*)]
+    ;;   (return (&/T fixpoints** nil)))
     
+    [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+    (&/try-all% (&/|list (|do [F2 (deref ?id)]
+                           (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
+                         (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+                               e* (apply-type F1 A1)
+                               a* (apply-type F1 A2)
+                               [fixpoints** _] (check* fixpoints* e* a*)]
+                           (return (&/T fixpoints** nil)))))
+    ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+    ;; (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+    ;;       e* (apply-type F1 A1)
+    ;;       a* (apply-type F1 A2)
+    ;;       [fixpoints** _] (check* fixpoints* e* a*)]
+    ;;   (return (&/T fixpoints** nil)))
+
     [["lux;AppT" [F A]] _]
     (let [fp-pair (&/T expected actual)
           _ (when (> (&/|length fixpoints) 40)

@@ -27,12 +27,12 @@
       )))
 
 ;; [Exports]
-(defn ^:private re-find! [regex line]
+(defn ^:private re-find! [^java.util.regex.Pattern regex line]
   (let [matcher (.matcher regex line)]
     (when (.find matcher)
       (.group matcher 0))))
 
-(defn ^:private re-find3! [regex line]
+(defn ^:private re-find3! [^java.util.regex.Pattern regex line]
   (let [matcher (.matcher regex line)]
     (when (.find matcher)
       (list (.group matcher 0)

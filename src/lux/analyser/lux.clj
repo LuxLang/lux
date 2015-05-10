@@ -110,44 +110,44 @@
              [inner outer] (&/|split-with no-binding? stack)]
         (matchv ::M/objects [outer]
           [["lux;Nil" _]]
-          (&/run-state (|do [[[r-module r-name] $def] (&&module/find-def (if (= "" ?module) module-name ?module)
-                                                                         ?name)
-                             endo-type (matchv ::M/objects [$def]
-                                         [["lux;ValueD" ?type]]
-                                         (return ?type)
+          ((|do [[[r-module r-name] $def] (&&module/find-def (if (= "" ?module) module-name ?module)
+                                                             ?name)
+                 endo-type (matchv ::M/objects [$def]
+                             [["lux;ValueD" ?type]]
+                             (return ?type)
 
-                                         [["lux;MacroD" _]]
-                                         (return &type/Macro)
+                             [["lux;MacroD" _]]
+                             (return &type/Macro)
 
-                                         [["lux;TypeD" _]]
-                                         (return &type/Type))
-                             _ (if (and (= &type/Type endo-type) (= &type/Type exo-type))
-                                 (return nil)
-                                 (&type/check exo-type endo-type))]
-                         (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
-                                               endo-type))))
-                       state)
+                             [["lux;TypeD" _]]
+                             (return &type/Type))
+                 _ (if (and (= &type/Type endo-type) (= &type/Type exo-type))
+                     (return nil)
+                     (&type/check exo-type endo-type))]
+             (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
+                                   endo-type))))
+           state)
 
           [["lux;Cons" [?genv ["lux;Nil" _]]]]
           (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get local-ident))]
             (matchv ::M/objects [global]
               [[["lux;Global" [?module* ?name*]] _]]
-              (&/run-state (|do [[[r-module r-name] $def] (&&module/find-def ?module* ?name*)
-                                 endo-type (matchv ::M/objects [$def]
-                                             [["lux;ValueD" ?type]]
-                                             (return ?type)
+              ((|do [[[r-module r-name] $def] (&&module/find-def ?module* ?name*)
+                     endo-type (matchv ::M/objects [$def]
+                                 [["lux;ValueD" ?type]]
+                                 (return ?type)
 
-                                             [["lux;MacroD" _]]
-                                             (return &type/Macro)
+                                 [["lux;MacroD" _]]
+                                 (return &type/Macro)
 
-                                             [["lux;TypeD" _]]
-                                             (return &type/Type))
-                                 _ (if (and (= &type/Type endo-type) (= &type/Type exo-type))
-                                     (return nil)
-                                     (&type/check exo-type endo-type))]
-                             (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
-                                                   endo-type))))
-                           state)
+                                 [["lux;TypeD" _]]
+                                 (return &type/Type))
+                     _ (if (and (= &type/Type endo-type) (= &type/Type exo-type))
+                         (return nil)
+                         (&type/check exo-type endo-type))]
+                 (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
+                                       endo-type))))
+               state)
 
               [_]
               (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))
@@ -165,10 +165,10 @@
                                                    (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get local-ident)))
                                                (&/|list))
                                           (&/|reverse inner) scopes)]
-            (&/run-state (|do [btype (&&/expr-type =local)
-                               _ (&type/check exo-type btype)]
-                           (return (&/|list =local)))
-                         (&/set$ &/$ENVS (&/|++ inner* outer) state)))
+            ((|do [btype (&&/expr-type =local)
+                   _ (&type/check exo-type btype)]
+               (return (&/|list =local)))
+             (&/set$ &/$ENVS (&/|++ inner* outer) state)))
           )))
     ))
 
@@ -263,12 +263,7 @@
             (|do [? (&type/bound? ?id)]
               (if ?
                 (|do [dtype (&type/deref ?id)]
-                  (matchv ::M/objects [dtype]
-                    [["lux;ExT" _]]
-                    (return (&/T _expr exo-type))
-
-                    [_]
-                    (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype)))))
+                  (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype))))
                 (return (&/T _expr exo-type))))))))
     
     [_]

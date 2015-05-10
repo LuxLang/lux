@@ -352,14 +352,15 @@
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                (&host/->class name) nil "java/lang/Object" nil))]
-          (matchv ::M/objects [(&/run-state (&/exhaust% compiler-step) (->> state
-                                                                            (&/set$ &/$SOURCE (&reader/from (str "source/" name ".lux")))
-                                                                            (&/set$ &/$ENVS (&/|list (&/env name)))
-                                                                            (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
-                                                                            (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]
+          (matchv ::M/objects [((&/exhaust% compiler-step)
+                                (->> state
+                                     (&/set$ &/$SOURCE (&reader/from (str "source/" name ".lux")))
+                                     (&/set$ &/$ENVS (&/|list (&/env name)))
+                                     (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
+                                     (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]
             [["lux;Right" [?state _]]]
             (do (.visitEnd =class)
-              (&/run-state (&&/save-class! name (.toByteArray =class)) ?state))
+              ((&&/save-class! name (.toByteArray =class)) ?state))
             
             [["lux;Left" ?message]]
             (fail* ?message)))))))
@@ -367,7 +368,7 @@
 ;; [Resources]
 (defn compile-all [modules]
   (.mkdir (java.io.File. "output"))
-  (matchv ::M/objects [(&/run-state (&/map% compile-module (&/|cons "lux" modules)) (&/init-state nil))]
+  (matchv ::M/objects [((&/map% compile-module (&/|cons "lux" modules)) (&/init-state nil))]
     [["lux;Right" [?state _]]]
     (println (str "Compilation complete! " (str "[" (->> modules
                                                          (&/|interpose " ")

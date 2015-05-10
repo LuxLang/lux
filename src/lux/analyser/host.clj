@@ -159,7 +159,7 @@
 (defn analyse-jvm-interface [analyse ?name ?members]
   (|do [=members (&/map% (fn [member]
                            (matchv ::M/objects [member]
-                             [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":'"]]]]
+                             [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":"]]]]
                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "->"]]]]
                                                                                                                            ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?inputs]]]
                                                                                                                                         ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?output]]]]
