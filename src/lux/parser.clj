@@ -17,8 +17,8 @@
         [_]
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  "Close_Paren"   "parantheses" "lux;Form"
-  ^:private parse-tuple "Close_Bracket" "brackets"    "lux;Tuple"
+  ^:private parse-form  "Close_Paren"   "parantheses" "lux;FormS"
+  ^:private parse-tuple "Close_Bracket" "brackets"    "lux;TupleS"
   )
 
 (defn ^:private parse-record [parse]
@@ -28,7 +28,7 @@
     (matchv ::M/objects [token]
       [["lux;Meta" [meta ["Close_Brace" _]]]]
       (if (even? (&/|length elems))
-        (return (&/V "lux;Record" (&/|as-pairs elems)))
+        (return (&/V "lux;RecordS" (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
       
       [_]
@@ -47,25 +47,25 @@
         (return (&/|list))
         
         [["Bool" ?value]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Bool" (Boolean/parseBoolean ?value))))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;BoolS" (Boolean/parseBoolean ?value))))))
 
         [["Int" ?value]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Int" (Integer/parseInt ?value))))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;IntS" (Integer/parseInt ?value))))))
 
         [["Real" ?value]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Real" (Float/parseFloat ?value))))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;RealS" (Float/parseFloat ?value))))))
 
         [["Char" ^String ?value]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Char" (.charAt ?value 0))))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;CharS" (.charAt ?value 0))))))
 
         [["Text" ?value]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Text" ?value)))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;TextS" ?value)))))
 
         [["Symbol" ?ident]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Symbol" ?ident)))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;SymbolS" ?ident)))))
 
         [["Tag" ?ident]]
-        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Tag" ?ident)))))
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;TagS" ?ident)))))
 
         [["Open_Paren" _]]
         (|do [syntax (parse-form parse)]

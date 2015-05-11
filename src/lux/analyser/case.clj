@@ -22,38 +22,38 @@
   (matchv ::M/objects [pattern]
     [["lux;Meta" [_ pattern*]]]
     (matchv ::M/objects [pattern*]
-      [["lux;Symbol" ?ident]]
+      [["lux;SymbolS" ?ident]]
       (|do [=kont (&env/with-local (&/ident->text ?ident) value-type
                     kont)
             idx &env/next-local-idx]
         (return (&/T (&/V "StoreTestAC" idx) =kont)))
 
-      [["lux;Bool" ?value]]
+      [["lux;BoolS" ?value]]
       (|do [_ (&type/check value-type &type/Bool)
             =kont kont]
         (return (&/T (&/V "BoolTestAC" ?value) =kont)))
 
-      [["lux;Int" ?value]]
+      [["lux;IntS" ?value]]
       (|do [_ (&type/check value-type &type/Int)
             =kont kont]
         (return (&/T (&/V "IntTestAC" ?value) =kont)))
 
-      [["lux;Real" ?value]]
+      [["lux;RealS" ?value]]
       (|do [_ (&type/check value-type &type/Real)
             =kont kont]
         (return (&/T (&/V "RealTestAC" ?value) =kont)))
 
-      [["lux;Char" ?value]]
+      [["lux;CharS" ?value]]
       (|do [_ (&type/check value-type &type/Char)
             =kont kont]
         (return (&/T (&/V "CharTestAC" ?value) =kont)))
 
-      [["lux;Text" ?value]]
+      [["lux;TextS" ?value]]
       (|do [_ (&type/check value-type &type/Text)
             =kont kont]
         (return (&/T (&/V "TextTestAC" ?value) =kont)))
 
-      [["lux;Tuple" ?members]]
+      [["lux;TupleS" ?members]]
       (matchv ::M/objects [value-type]
         [["lux;TupleT" ?member-types]]
         (if (not (= (&/|length ?member-types) (&/|length ?members)))
@@ -70,7 +70,7 @@
         [_]
         (fail "[Analyser Error] Tuple requires tuple-type."))
 
-      [["lux;Record" ?slots]]
+      [["lux;RecordS" ?slots]]
       (|do [value-type* (resolve-type value-type)]
         (matchv ::M/objects [value-type*]
           [["lux;RecordT" ?slot-types]]
@@ -79,7 +79,7 @@
             (|do [[=tests =kont] (&/fold (fn [kont* slot]
                                            (|let [[sn sv] slot]
                                              (matchv ::M/objects [sn]
-                                               [["lux;Meta" [_ ["lux;Tag" ?ident]]]]
+                                               [["lux;Meta" [_ ["lux;TagS" ?ident]]]]
                                                (|do [=tag (&&/resolved-ident ?ident)]
                                                  (if-let [=slot-type (&/|get =tag ?slot-types)]
                                                    (|do [[=test [=tests =kont]] (analyse-pattern =slot-type sv kont*)]
@@ -96,18 +96,18 @@
           [_]
           (fail "[Analyser Error] Record requires record-type.")))
 
-      [["lux;Tag" ?ident]]
+      [["lux;TagS" ?ident]]
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (resolve-type value-type)
             case-type (&type/variant-case =tag value-type*)
             [=test =kont] (analyse-pattern case-type (&/V "lux;Meta" (&/T (&/T "" -1 -1)
-                                                                          (&/V "lux;Tuple" (&/|list))))
+                                                                          (&/V "lux;TupleS" (&/|list))))
                                            kont)]
         (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
 
-      [["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Tag" ?ident]]]
-                                ["lux;Cons" [?value
-                                             ["lux;Nil" _]]]]]]]
+      [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]]
+                                 ["lux;Cons" [?value
+                                              ["lux;Nil" _]]]]]]]
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (resolve-type value-type)
             case-type (&type/variant-case =tag value-type*)

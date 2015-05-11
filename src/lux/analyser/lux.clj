@@ -86,7 +86,7 @@
                 (fail "[Analyser Error] The type of a record must be a record type."))
         =slots (&/map% (fn [kv]
                          (matchv ::M/objects [kv]
-                           [[["lux;Meta" [_ ["lux;Tag" ?ident]]] ?value]]
+                           [[["lux;Meta" [_ ["lux;TagS" ?ident]]] ?value]]
                            (|do [?tag (&&/resolved-ident ?ident)
                                  slot-type (if-let [slot-type (&/|get ?tag types)]
                                              (return slot-type)

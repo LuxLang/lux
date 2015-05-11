@@ -85,16 +85,16 @@
                                                           (&/V "lux;BoundT" "w")))))
         Syntax*List (&/V "lux;AppT" (&/T List Syntax*))]
     (fAll "Syntax'" "w"
-          (&/V "lux;VariantT" (&/|list (&/T "lux;Bool" Bool)
-                                       (&/T "lux;Int" Int)
-                                       (&/T "lux;Real" Real)
-                                       (&/T "lux;Char" Char)
-                                       (&/T "lux;Text" Text)
-                                       (&/T "lux;Symbol" Ident)
-                                       (&/T "lux;Tag" Ident)
-                                       (&/T "lux;Form" Syntax*List)
-                                       (&/T "lux;Tuple" Syntax*List)
-                                       (&/T "lux;Record" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Syntax* Syntax*))))))
+          (&/V "lux;VariantT" (&/|list (&/T "lux;BoolS" Bool)
+                                       (&/T "lux;IntS" Int)
+                                       (&/T "lux;RealS" Real)
+                                       (&/T "lux;CharS" Char)
+                                       (&/T "lux;TextS" Text)
+                                       (&/T "lux;SymbolS" Ident)
+                                       (&/T "lux;TagS" Ident)
+                                       (&/T "lux;FormS" Syntax*List)
+                                       (&/T "lux;TupleS" Syntax*List)
+                                       (&/T "lux;RecordS" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Syntax* Syntax*))))))
                ))))
 
 (def Syntax

@@ -69,7 +69,7 @@
 
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]
-    [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
+    [["lux;Meta" [_ ["lux;SymbolS" [_ ?ident]]]]]
     (return ?ident)
 
     [_]

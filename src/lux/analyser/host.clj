@@ -12,7 +12,7 @@
 ;; [Utils]
 (defn ^:private extract-ident [ident]
   (matchv ::M/objects [ident]
-    [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
+    [["lux;Meta" [_ ["lux;SymbolS" [_ ?ident]]]]]
     (return ?ident)
 
     [_]
@@ -142,9 +142,9 @@
 (defn analyse-jvm-class [analyse ?name ?super-class ?fields]
   (|do [?fields (&/map% (fn [?field]
                           (matchv ::M/objects [?field]
-                            [["lux;Meta" [_ ["lux;Tuple" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?class]]]
-                                                                      ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ?field-name]]]
-                                                                                   ["lux;Nil" _]]]]]]]]]
+                            [["lux;Meta" [_ ["lux;TupleS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?class]]]
+                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?field-name]]]
+                                                                                    ["lux;Nil" _]]]]]]]]]
                             (return [?class ?field-name])
                             
                             [_]
@@ -159,13 +159,13 @@
 (defn analyse-jvm-interface [analyse ?name ?members]
   (|do [=members (&/map% (fn [member]
                            (matchv ::M/objects [member]
-                             [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" ["" ":"]]]]
-                                                                      ["lux;Cons" [["lux;Meta" [_ ["lux;Form" ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ "->"]]]]
-                                                                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;Tuple" ?inputs]]]
-                                                                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?output]]]]
-                                                                                                                                                     ["lux;Nil" _]]]]]]]]]]
-                                                                                   ["lux;Cons" [["lux;Meta" [_ ["lux;Symbol" [_ ?member-name]]]]
-                                                                                                ["lux;Nil" _]]]]]]]]]]]
+                             [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ":"]]]]
+                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "->"]]]]
+                                                                                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?inputs]]]
+                                                                                                                                          ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?output]]]]
+                                                                                                                                                       ["lux;Nil" _]]]]]]]]]]
+                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?member-name]]]]
+                                                                                                 ["lux;Nil" _]]]]]]]]]]]
                              (|do [inputs* (&/map% extract-ident ?inputs)]
                                (return [?member-name [inputs* ?output]]))
                              
