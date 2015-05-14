@@ -35,23 +35,32 @@
     (return (&/V "lux;Meta" (&/T meta (&/V "White_Space" white-space))))))
 
 (def ^:private lex-single-line-comment
-  (|do [[_ [meta _]] (&reader/read-text "##")
-        [_ [_ comment]] (&reader/read-regex #"^(.*)$")]
+  (|do [_ (&reader/read-text "##")
+        [_ [meta comment]] (&reader/read-regex #"^(.*)$")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
-        [meta comment] (&/try-all% (&/|list (|do [[_ [meta comment]] (&reader/read-regex #"(?is)^((?!#\().)*?(?=\)#)")]
-                                              (return comment))
-                                            (|do [[_ [meta pre]] (&reader/read-regex #"(?is)^(.+?(?=#\())")
-                                                  [_ inner] (lex-multi-line-comment nil)
-                                                  [_ [_ post]] (&reader/read-regex #"(?is)^(.+?(?=\)#))")]
-                                              (return (str pre "#(" inner ")#" post)))))
+        [meta comment] (&/try-all% (&/|list (|do [[_ [meta comment]] (&reader/read-regex #"(?is)^(?!#\()(.*?(?=\)#))")
+                                                  ;; :let [_ (prn 'immediate comment)]
+                                                  _ (&reader/read-text ")#")]
+                                              (return (&/T meta comment)))
+                                            (|do [;; :let [_ (prn 'pre/_0)]
+                                                  [_ [meta pre]] (&reader/read-regex+ #"(?is)^(.*?)(#\(|$)")
+                                                  ;; :let [_ (prn 'pre pre)]
+                                                  [_ [_ [_ inner]]] (lex-multi-line-comment nil)
+                                                  ;; :let [_ (prn 'inner inner)]
+                                                  [_ [_ post]] (&reader/read-regex #"(?is)^(.+?(?=\)#))")
+                                                  ;; :let [_ (prn 'post post (str pre "#(" inner ")#" post))]
+                                                  ]
+                                              (return (&/T meta (str pre "#(" inner ")#" post))))))
+        ;; :let [_ (prn 'lex-multi-line-comment (str comment ")#"))]
         _ (&reader/read-text ")#")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (def ^:private lex-comment
-  (&/try-all% (&/|list lex-single-line-comment)))
+  (&/try-all% (&/|list lex-single-line-comment
+                       (lex-multi-line-comment nil))))
 
 (do-template [<name> <tag> <regex>]
   (def <name>

@@ -32,18 +32,12 @@
 
 (defn T [& elems]
   (to-array elems))
-;; (definline T [& elems]
-;;   `(to-array (list ~@elems)))
 
 (defn V [tag value]
   (to-array [tag value]))
-;; (definline V [tag value]
-;;   `(to-array [~tag ~value]))
 
 (defn R [& kvs]
   (to-array kvs))
-;; (definline R [& kvs]
-;;   `(to-array (list ~@kvs)))
 
 (defn get$ [slot ^objects record]
   (aget record slot))
