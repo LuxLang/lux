@@ -9,7 +9,5 @@
   (System/exit 0))
 
 (comment
-  ;; TODO: Finish total-locals
-
   ;; cd output && jar cvf program.jar * && java -cp "program.jar" program && cd ..
   )

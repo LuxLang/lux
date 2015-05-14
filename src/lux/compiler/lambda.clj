@@ -59,13 +59,8 @@
   (&/with-writer (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
                    (.visitCode))
     (|do [^MethodVisitor *writer* &/get-writer
-          :let [num-locals (&&/total-locals impl-body)
-                $start (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (-> (.visitLocalVariable (str &&/local-prefix idx) "Ljava/lang/Object;" nil $start $end (+ 2 idx))
-                        (->> (dotimes [idx num-locals])))
-                    (.visitLabel $start))]
+          :let [$start (new Label)
+                $end (new Label)]
           ret (compile impl-body)
           :let [_ (doto *writer*
                     (.visitLabel $end)
