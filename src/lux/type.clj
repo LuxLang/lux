@@ -16,14 +16,14 @@
 (def $Void (&/V "lux;VariantT" (&/|list)))
 
 (def List
-  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "List" "a"
+  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;List" "a"
                        (&/V "lux;VariantT" (&/|list (&/T "lux;Nil" Unit)
                                                     (&/T "lux;Cons" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "a")
-                                                                                               (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "List")
+                                                                                               (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;List")
                                                                                                                     (&/V "lux;BoundT" "a")))))))))))
 
 (def Maybe
-  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "Maybe" "a"
+  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;Maybe" "a"
                        (&/V "lux;VariantT" (&/|list (&/T "lux;None" Unit)
                                                     (&/T "lux;Some" (&/V "lux;BoundT" "a")))))))
 
@@ -31,7 +31,7 @@
   (let [Type (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Type") (&/V "lux;BoundT" "_")))
         TypeEnv (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Type))))
         TypePair (&/V "lux;TupleT" (&/|list Type Type))]
-    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V "lux;None" nil) "Type" "_"
+    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "Type" "_"
                                               (&/V "lux;VariantT" (&/|list (&/T "lux;DataT" Text)
                                                                            (&/T "lux;TupleT" (&/V "lux;AppT" (&/T List Type)))
                                                                            (&/T "lux;VariantT" TypeEnv)
@@ -49,7 +49,7 @@
   (&/V "lux;AllT" (&/T (&/V "lux;None" nil) name arg body)))
 
 (def Bindings
-  (fAll "Bindings" "k"
+  (fAll "lux;Bindings" "k"
         (fAll "" "v"
               (&/V "lux;RecordT" (&/|list (&/T "lux;counter" Int)
                                           (&/T "lux;mappings" (&/V "lux;AppT" (&/T List
@@ -59,7 +59,7 @@
 (def Env
   (let [bindings (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings (&/V "lux;BoundT" "k")))
                                       (&/V "lux;BoundT" "v")))]
-    (fAll "Env" "k"
+    (fAll "lux;Env" "k"
           (fAll "" "v"
                 (&/V "lux;RecordT"
                      (&/|list (&/T "lux;name" Text)
@@ -72,7 +72,7 @@
   (&/V "lux;TupleT" (&/|list Text Int Int)))
 
 (def Meta
-  (fAll "Meta" "m"
+  (fAll "lux;Meta" "m"
         (fAll "" "v"
               (&/V "lux;VariantT" (&/|list (&/T "lux;Meta" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
                                                                                       (&/V "lux;BoundT" "v")))))))))
@@ -81,10 +81,10 @@
 
 (def Syntax*
   (let [Syntax* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
-                                     (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Syntax'")
+                                     (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Syntax'")
                                                           (&/V "lux;BoundT" "w")))))
         Syntax*List (&/V "lux;AppT" (&/T List Syntax*))]
-    (fAll "Syntax'" "w"
+    (fAll "lux;Syntax'" "w"
           (&/V "lux;VariantT" (&/|list (&/T "lux;BoolS" Bool)
                                        (&/T "lux;IntS" Int)
                                        (&/T "lux;RealS" Real)
@@ -104,13 +104,13 @@
 (def ^:private SyntaxList (&/V "lux;AppT" (&/T List Syntax)))
 
 (def Either
-  (fAll "_" "l"
+  (fAll "lux;Either" "l"
         (fAll "" "r"
               (&/V "lux;VariantT" (&/|list (&/T "lux;Left" (&/V "lux;BoundT" "l"))
                                            (&/T "lux;Right" (&/V "lux;BoundT" "r")))))))
 
 (def StateE
-  (fAll "StateE" "s"
+  (fAll "lux;StateE" "s"
         (fAll "" "a"
               (&/V "lux;LambdaT" (&/T (&/V "lux;BoundT" "s")
                                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Either Text))
@@ -129,7 +129,7 @@
                 )))
 
 (def DefData*
-  (fAll "DefData'" ""
+  (fAll "lux;DefData'" ""
         (&/V "lux;VariantT" (&/|list (&/T "lux;TypeD" Unit)
                                      (&/T "lux;ValueD" Type)
                                      (&/T "lux;MacroD" (&/V "lux;BoundT" ""))
@@ -139,8 +139,8 @@
   (&/V "lux;VariantT" (&/|list (&/T "lux;Local" Int)
                                (&/T "lux;Global" Ident))))
 
-(def CompilerState
-  (&/V "lux;AppT" (&/T (fAll "CompilerState" ""
+(def $Compiler
+  (&/V "lux;AppT" (&/T (fAll "lux;Compiler" ""
                              (&/V "lux;RecordT"
                                   (&/|list (&/T "lux;source" Reader)
                                            (&/T "lux;modules" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
@@ -150,7 +150,7 @@
                                                                                                                                               (&/V "lux;TupleT" (&/|list Bool
                                                                                                                                                                          (&/V "lux;AppT" (&/T DefData*
                                                                                                                                                                                               (&/V "lux;LambdaT" (&/T SyntaxList
-                                                                                                                                                                                                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "CompilerState")
+                                                                                                                                                                                                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Compiler")
                                                                                                                                                                                                                                                                                             (&/V "lux;BoundT" "")))))
                                                                                                                                                                                                                                            SyntaxList)))))))))))))))))
                                            (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
@@ -164,7 +164,7 @@
 
 (def Macro
   (&/V "lux;LambdaT" (&/T SyntaxList
-                          (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE CompilerState))
+                          (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE $Compiler))
                                                SyntaxList)))))
 
 (defn bound? [id]
@@ -433,23 +433,25 @@
                  (and (type= xlambda ylambda) (type= xparam yparam))
                  
                  [["lux;AllT" [xenv xname xarg xbody]] ["lux;AllT" [yenv yname yarg ybody]]]
-                 (and (= xname yname)
-                      (= xarg yarg)
-                      ;; (matchv ::M/objects [xenv yenv]
-                      ;;   [["lux;None" _] ["lux;None" _]]
-                      ;;   true
+                 (or (and (not= "" xname)
+                          (= xname yname))
+                     (and (= xname yname)
+                          (= xarg yarg)
+                          ;; (matchv ::M/objects [xenv yenv]
+                          ;;   [["lux;None" _] ["lux;None" _]]
+                          ;;   true
 
-                      ;;   [["lux;Some" xenv*] ["lux;Some" yenv*]]
-                      ;;   (&/fold (fn [old bname]
-                      ;;             (and old
-                      ;;                  (type= (&/|get bname xenv*) (&/|get bname yenv*))))
-                      ;;           (= (&/|length xenv*) (&/|length yenv*))
-                      ;;           (&/|keys xenv*))
+                          ;;   [["lux;Some" xenv*] ["lux;Some" yenv*]]
+                          ;;   (&/fold (fn [old bname]
+                          ;;             (and old
+                          ;;                  (type= (&/|get bname xenv*) (&/|get bname yenv*))))
+                          ;;           (= (&/|length xenv*) (&/|length yenv*))
+                          ;;           (&/|keys xenv*))
 
-                      ;;   [_ _]
-                      ;;   false)
-                      (type= xbody ybody)
-                      )
+                          ;;   [_ _]
+                          ;;   false)
+                          (type= xbody ybody)
+                          ))
 
                  [_ _]
                  false
