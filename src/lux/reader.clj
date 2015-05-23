@@ -11,7 +11,7 @@
       [["lux;Nil" _]]
       (fail* "[Reader Error] EOF")
 
-      [["lux;Cons" [["lux;Meta" [[file-name line-num column-num] line]]
+      [["lux;Cons" [[[file-name line-num column-num] line]
                     more]]]
       (matchv ::M/objects [(body file-name line-num column-num line)]
         [["No" msg]]
@@ -38,18 +38,24 @@
       )))
 
 ;; [Exports]
-(defn ^:private re-find! [^java.util.regex.Pattern regex line]
-  (let [matcher (.matcher regex line)]
+(defn ^:private re-find! [^java.util.regex.Pattern regex column ^String line]
+  (let [matcher (doto (.matcher regex line)
+                  (.region column (.length line))
+                  (.useAnchoringBounds true))]
     (when (.find matcher)
       (.group matcher 0))))
 
-(defn ^:private re-find1! [^java.util.regex.Pattern regex line]
-  (let [matcher (.matcher regex line)]
+(defn ^:private re-find1! [^java.util.regex.Pattern regex column ^String line]
+  (let [matcher (doto (.matcher regex line)
+                  (.region column (.length line))
+                  (.useAnchoringBounds true))]
     (when (.find matcher)
       (.group matcher 1))))
 
-(defn ^:private re-find3! [^java.util.regex.Pattern regex line]
-  (let [matcher (.matcher regex line)]
+(defn ^:private re-find3! [^java.util.regex.Pattern regex column ^String line]
+  (let [matcher (doto (.matcher regex line)
+                  (.region column (.length line))
+                  (.useAnchoringBounds true))]
     (when (.find matcher)
       (list (.group matcher 0)
             (.group matcher 1)
@@ -58,27 +64,29 @@
 (defn read-regex [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
+      ;; (prn 'read-regex [file-name line-num column-num regex line])
       (if-let [^String match (do ;; (prn '[regex line] [regex line])
-                               (re-find! regex line))]
+                                 (re-find! regex column-num line))]
         (let [;; _ (prn 'match match)
               match-length (.length match)
-              line* (.substring line match-length)]
-          (if (.isEmpty line*)
-            (&/V "Done" (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) match)))
-            (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) match))
-                            (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))))))
+              column-num* (+ column-num match-length)]
+          (if (= column-num* (.length line))
+            (&/V "Done" (&/T (&/T file-name line-num column-num) match))
+            (&/V "Yes" (&/T (&/T (&/T file-name line-num column-num) match)
+                            (&/T (&/T file-name line-num column-num*) line)))))
         (&/V "No" (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex2 [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      (if-let [[^String match tok1 tok2] (re-find3! regex line)]
+      ;; (prn 'read-regex2 [file-name line-num column-num regex line])
+      (if-let [[^String match tok1 tok2] (re-find3! regex column-num line)]
         (let [match-length (.length match)
-              line* (.substring line match-length)]
-          (if (.isEmpty line*)
-            (&/V "Done" (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2))))
-            (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
-                            (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))))))
+              column-num* (+ column-num match-length)]
+          (if (= column-num* (.length line))
+            (&/V "Done" (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
+            (&/V "Yes" (&/T (&/T (&/T file-name line-num column-num) (&/T tok1 tok2))
+                            (&/T (&/T file-name line-num column-num*) line)))))
         (&/V "No" (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex+ [regex]
@@ -90,37 +98,38 @@
           [["lux;Nil" _]]
           (&/V "lux;Left" "[Reader Error] EOF")
 
-          [["lux;Cons" [[_ [[file-name line-num column-num] ^String line]]
+          [["lux;Cons" [[[file-name line-num column-num] ^String line]
                         reader**]]]
           (if-let [^String match (do ;; (prn 'read-regex+ regex line)
-                                   (re-find1! regex line))]
+                                     (re-find1! regex column-num line))]
             (let [match-length (.length match)
-                  line* (.substring line match-length)]
-              (if (.isEmpty line*)
+                  column-num* (+ column-num match-length)]
+              (if (= column-num* (.length line))
                 (recur (str prefix match "\n") reader**)
-                (&/V "lux;Right" (&/T (&/|cons (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))
+                (&/V "lux;Right" (&/T (&/|cons (&/T (&/T file-name line-num column-num*) line)
                                                reader**)
-                                      (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) (str prefix match)))))))
+                                      (&/T (&/T file-name line-num column-num) (str prefix match))))))
             (&/V "lux;Left" (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      (if (.startsWith line text)
+      ;; (prn 'read-text [file-name line-num column-num text line])
+      (if (.startsWith line text column-num)
         (let [match-length (.length text)
-              line* (.substring line match-length)]
-          (if (empty? line*)
-            (&/V "Done" (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) text)))
-            (&/V "Yes" (&/T (&/V "lux;Meta" (&/T (&/T file-name line-num column-num) text))
-                            (&/V "lux;Meta" (&/T (&/T file-name line-num (+ column-num match-length)) line*))))))
+              column-num* (+ column-num match-length)]
+          (if (= column-num* (.length line))
+            (&/V "Done" (&/T (&/T file-name line-num column-num) text))
+            (&/V "Yes" (&/T (&/T (&/T file-name line-num column-num) text)
+                            (&/T (&/T file-name line-num column-num*) line)))))
         (&/V "No" (str "[Reader Error] Text failed: " text))))))
 
 (defn from [file-name]
   (let [lines (&/->list (string/split-lines (slurp file-name)))]
     (&/|map (fn [line+line-num]
               (|let [[line-num line] line+line-num]
-                (&/V "lux;Meta" (&/T (&/T file-name line-num 0)
-                                     line))))
+                (&/T (&/T file-name line-num 0)
+                     line)))
             (&/|filter (fn [line+line-num]
                          (|let [[line-num line] line+line-num]
                            (not= "" line)))

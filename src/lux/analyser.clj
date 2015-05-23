@@ -454,6 +454,7 @@
     (fail "")))
 
 (defn ^:private analyse-basic-ast [analyse eval! exo-type token]
+  ;; (prn 'analyse-basic-ast (&/show-ast token))
   (fn [state]
     (matchv ::M/objects [((aba1 analyse eval! exo-type token) state)]
       [["lux;Right" [state* output]]]

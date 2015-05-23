@@ -117,14 +117,11 @@
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (&/|list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
-(defn compile-apply [compile *type* ?fn ?args]
+(defn compile-apply [compile *type* ?fn ?arg]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?fn)
-        _ (&/map% (fn [?arg]
-                    (|do [_ (compile ?arg)
-                          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "lux/Function" "apply" &&/apply-signature)]]
-                      (return nil)))
-                  ?args)]
+        _ (compile ?arg)
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "lux/Function" "apply" &&/apply-signature)]]
     (return nil)))
 
 (defn compile-def [compile ?name ?body ?def-data]

@@ -151,7 +151,7 @@
 
               [_]
               (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))
-            (fail* ""))
+            (fail* "_{_ analyse-symbol _}_"))
 
           [["lux;Cons" [top-outer _]]]
           (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
@@ -172,39 +172,42 @@
           )))
     ))
 
-(defn ^:private analyse-apply* [analyse exo-type fun-type args]
-  (matchv ::M/objects [args]
-    [["lux;Nil" _]]
-    (|do [_ (&type/check exo-type fun-type)]
-      (return (&/T (&/|list) fun-type)))
-    
-    [["lux;Cons" [?arg ?args*]]]
-    (|do [?fun-type* (&type/actual-type fun-type)]
-      (matchv ::M/objects [?fun-type*]
-        [["lux;AllT" _]]
-        (&type/with-var
-          (fn [$var]
-            (|do [type* (&type/apply-type ?fun-type* $var)
-                  [?args** ?type**] (analyse-apply* analyse exo-type type* args)]
-              (matchv ::M/objects [$var]
-                [["lux;VarT" ?id]]
-                (|do [? (&type/bound? ?id)
-                      _ (if ?
-                          (return nil)
-                          (|do [ex &type/existential]
-                            (&type/set-var ?id ex)))
-                      type*** (&type/clean $var ?type**)]
-                  (return (&/T ?args** type***)))
-                ))))
+(defn ^:private analyse-apply* [analyse exo-type =fn ?args]
+  (matchv ::M/objects [=fn]
+    [[?fun-expr ?fun-type]]
+    (matchv ::M/objects [?args]
+      [["lux;Nil" _]]
+      (|do [_ (&type/check exo-type ?fun-type)]
+        (return =fn))
+      
+      [["lux;Cons" [?arg ?args*]]]
+      (|do [?fun-type* (&type/actual-type ?fun-type)]
+        (matchv ::M/objects [?fun-type*]
+          [["lux;AllT" _]]
+          (&type/with-var
+            (fn [$var]
+              (|do [type* (&type/apply-type ?fun-type* $var)
+                    output (analyse-apply* analyse exo-type (&/T ?fun-expr type*) ?args)]
+                (matchv ::M/objects [output $var]
+                  [[?expr* ?type*] ["lux;VarT" ?id]]
+                  (|do [? (&type/bound? ?id)
+                        _ (if ?
+                            (return nil)
+                            (|do [ex &type/existential]
+                              (&type/set-var ?id ex)))
+                        type** (&type/clean $var ?type*)]
+                    (return (&/T ?expr* type**)))
+                  ))))
 
-        [["lux;LambdaT" [?input-t ?output-t]]]
-        (|do [[=args ?output-t*] (analyse-apply* analyse exo-type ?output-t ?args*)
-              =arg (&&/analyse-1 analyse ?input-t ?arg)]
-          (return (&/T (&/|cons =arg =args) ?output-t*)))
+          [["lux;LambdaT" [?input-t ?output-t]]]
+          (|do [=arg (&&/analyse-1 analyse ?input-t ?arg)]
+            (analyse-apply* analyse exo-type (&/T (&/V "apply" (&/T =fn =arg))
+                                                  ?output-t)
+                            ?args*))
 
-        [_]
-        (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*)))))
-    ))
+          [_]
+          (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*)))))
+      )))
 
 (defn analyse-apply [analyse exo-type =fn ?args]
   (|do [loader &/loader]
@@ -219,14 +222,12 @@
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 
             [_]
-            (|do [[=args =app-type] (analyse-apply* analyse exo-type =fn-type ?args)]
-              (return (&/|list (&/T (&/V "apply" (&/T =fn =args))
-                                    =app-type))))))
+            (|do [output (analyse-apply* analyse exo-type =fn ?args)]
+              (return (&/|list output)))))
         
         [_]
-        (|do [[=args =app-type] (analyse-apply* analyse exo-type =fn-type ?args)]
-          (return (&/|list (&/T (&/V "apply" (&/T =fn =args))
-                                =app-type)))))
+        (|do [output (analyse-apply* analyse exo-type =fn ?args)]
+          (return (&/|list output))))
       )))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
@@ -263,7 +264,12 @@
             (|do [? (&type/bound? ?id)]
               (if ?
                 (|do [dtype (&type/deref ?id)]
-                  (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype))))
+                  (matchv ::M/objects [dtype]
+                    [["lux;ExT" _]]
+                    (return (&/T _expr exo-type))
+
+                    [_]
+                    (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype)))))
                 (return (&/T _expr exo-type))))))))
     
     [_]

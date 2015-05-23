@@ -551,40 +551,40 @@
 
 (defn show-ast [ast]
   (matchv ::M/objects [ast]
-    [["lux;Meta" [_ ["lux;Bool" ?value]]]]
+    [["lux;Meta" [_ ["lux;BoolS" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;Int" ?value]]]]
+    [["lux;Meta" [_ ["lux;IntS" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;Real" ?value]]]]
+    [["lux;Meta" [_ ["lux;RealS" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;Char" ?value]]]]
+    [["lux;Meta" [_ ["lux;CharS" ?value]]]]
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;Text" ?value]]]]
+    [["lux;Meta" [_ ["lux;TextS" ?value]]]]
     (str "\"" ?value "\"")
 
-    [["lux;Meta" [_ ["lux;Tag" [?module ?tag]]]]]
+    [["lux;Meta" [_ ["lux;TagS" [?module ?tag]]]]]
     (str "#" ?module ";" ?tag)
 
-    [["lux;Meta" [_ ["lux;Symbol" [?module ?ident]]]]]
+    [["lux;Meta" [_ ["lux;SymbolS" [?module ?ident]]]]]
     (if (= "" ?module)
       ?ident
       (str ?module ";" ?ident))
 
-    [["lux;Meta" [_ ["lux;Tuple" ?elems]]]]
+    [["lux;Meta" [_ ["lux;TupleS" ?elems]]]]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    [["lux;Meta" [_ ["lux;Record" ?elems]]]]
+    [["lux;Meta" [_ ["lux;RecordS" ?elems]]]]
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
                             (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
-    [["lux;Meta" [_ ["lux;Form" ?elems]]]]
+    [["lux;Meta" [_ ["lux;FormS" ?elems]]]]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
     ))
 
