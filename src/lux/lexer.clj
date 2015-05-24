@@ -6,16 +6,15 @@
 
 ;; [Utils]
 (defn ^:private escape-char [escaped]
-  (condp = escaped
-    "\\t"  (return "\t")
-    "\\b"  (return "\b")
-    "\\n"  (return "\n")
-    "\\r"  (return "\r")
-    "\\f"  (return "\f")
-    "\\\"" (return "\"")
-    "\\\\" (return "\\")
-    ;; else
-    (fail (str "[Lexer Error] Unknown escape character: " escaped))))
+  (cond (.equals ^Object escaped "\\t")  (return "\t")
+        (.equals ^Object escaped "\\b")  (return "\b")
+        (.equals ^Object escaped "\\n")  (return "\n")
+        (.equals ^Object escaped "\\r")  (return "\r")
+        (.equals ^Object escaped "\\f")  (return "\f")
+        (.equals ^Object escaped "\\\"") (return "\"")
+        (.equals ^Object escaped "\\\\") (return "\\")
+        :else
+        (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
 (defn ^:private lex-text-body [_]
   (&/try-all% (&/|list (|do [[_ [prefix escaped]] (&reader/read-regex2 #"(?s)^([^\"\\]*)(\\.)")

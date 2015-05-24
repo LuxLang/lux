@@ -346,7 +346,7 @@
   (defn ^:private compile-module [name]
     (fn [state]
       (if (->> state (&/get$ &/$MODULES) (&/|contains? name))
-        (if (= name "lux")
+        (if (.equals ^Object name "lux")
           (return* state nil)
           (fail* "[Compiler Error] Can't redefine a module!"))
         (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)

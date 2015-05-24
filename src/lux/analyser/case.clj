@@ -56,7 +56,7 @@
       [["lux;TupleS" ?members]]
       (matchv ::M/objects [value-type]
         [["lux;TupleT" ?member-types]]
-        (if (not (= (&/|length ?member-types) (&/|length ?members)))
+        (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
           (fail (str "[Analyser error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
           (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                          (|let [[v m] vm]
@@ -74,7 +74,7 @@
       (|do [value-type* (resolve-type value-type)]
         (matchv ::M/objects [value-type*]
           [["lux;RecordT" ?slot-types]]
-          (if (not (= (&/|length ?slot-types) (&/|length ?slots)))
+          (if (not (.equals ^Object (&/|length ?slot-types) (&/|length ?slots)))
             (fail (str "[Analyser error] Pattern-matching mismatch. Require record[" (&/|length ?slot-types) "]. Given record[" (&/|length ?slots) "]"))
             (|do [[=tests =kont] (&/fold (fn [kont* slot]
                                            (|let [[sn sv] slot]
@@ -168,7 +168,7 @@
           (return (&/V "TupleTotal" (&/T total? structs))))
 
         [["TupleTotal" [total? ?values]] ["TupleTestAC" ?tests]]
-        (if (= (&/|length ?values) (&/|length ?tests))
+        (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
           (|do [structs (&/map2% (fn [v t]
                                    (merge-total v (&/T t ?body)))
                                  ?values ?tests)]
@@ -187,11 +187,11 @@
           (return (&/V "RecordTotal" (&/T total? structs))))
 
         [["RecordTotal" [total? ?values]] ["RecordTestAC" ?tests]]
-        (if (= (&/|length ?values) (&/|length ?tests))
+        (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
           (|do [structs (&/map2% (fn [left right]
                                    (|let [[lslot sub-struct] left
                                           [rslot value]right]
-                                     (if (= lslot rslot)
+                                     (if (.equals ^Object lslot rslot)
                                        (|do [sub-struct* (merge-total sub-struct (&/T value ?body))]
                                          (return (&/T lslot sub-struct*)))
                                        (fail "[Pattern-matching error] Record slots mismatch."))))

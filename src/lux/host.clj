@@ -18,7 +18,7 @@
                                               (str (.getName pkg) ".")
                                               "")
                                             (.getSimpleName class)))]
-    (if (= "void" base)
+    (if (.equals "void" base)
       (return &type/$Void)
       (return (&/V "lux;DataT" (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
                                     base)))
@@ -78,8 +78,8 @@
 (do-template [<name> <static?>]
   (defn <name> [target field]
     (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName target))
-                                :when (and (= field (.getName =field))
-                                           (= <static?> (Modifier/isStatic (.getModifiers =field))))]
+                                :when (and (.equals ^Object field (.getName =field))
+                                           (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
                             (.getType =field)))]
       (|do [=type (class->type type*)]
         (return =type))
@@ -92,9 +92,9 @@
 (do-template [<name> <static?>]
   (defn <name> [target method-name args]
     (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName target))
-                                 :when (and (= method-name (.getName =method))
-                                            (= <static?> (Modifier/isStatic (.getModifiers =method)))
-                                            (&/fold2 #(and %1 (= %2 %3))
+                                 :when (and (.equals ^Object method-name (.getName =method))
+                                            (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
+                                            (&/fold2 #(and %1 (.equals ^Object %2 %3))
                                                      true
                                                      args
                                                      (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))]

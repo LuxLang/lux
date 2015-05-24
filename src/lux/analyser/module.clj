@@ -68,7 +68,7 @@
         (if-let [$def (&/|get name $module)]
           (matchv ::M/objects [$def]
             [[exported? $$def]]
-            (if (or exported? (= current-module module))
+            (if (or exported? (.equals ^Object current-module module))
               (matchv ::M/objects [$$def]
                 [["lux;AliasD" [?r-module ?r-name]]]
                 ((find-def ?r-module ?r-name)

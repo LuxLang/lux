@@ -228,7 +228,7 @@
     (fn [state]
       ((|do [mappings* (&/map% (fn [binding]
                                  (|let [[?id ?type] binding]
-                                   (if (= id ?id)
+                                   (if (.equals ^Object id ?id)
                                      (return binding)
                                      (matchv ::M/objects [?type]
                                        [["lux;None" _]]
@@ -237,7 +237,7 @@
                                        [["lux;Some" ?type*]]
                                        (matchv ::M/objects [?type*]
                                          [["lux;VarT" ?id*]]
-                                         (if (= id ?id*)
+                                         (if (.equals ^Object id ?id*)
                                            (return (&/T ?id (&/V "lux;None" nil)))
                                            (return binding))
 
@@ -269,7 +269,7 @@
 (defn ^:private clean* [?tid type]
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
-    (if (= ?tid ?id)
+    (if (.equals ^Object ?tid ?id)
       (deref ?id)
       (return type))
     
@@ -390,53 +390,52 @@
     ))
 
 (defn type= [x y]
-  (let [output (matchv ::M/objects [x y]
-                 [["lux;DataT" xname] ["lux;DataT" yname]]
-                 (= xname yname)
+  (or (clojure.lang.Util/identical x y)
+      (let [output (matchv ::M/objects [x y]
+                     [["lux;DataT" xname] ["lux;DataT" yname]]
+                     (.equals ^Object xname yname)
 
-                 [["lux;TupleT" xelems] ["lux;TupleT" yelems]]
-                 (&/fold2 (fn [old x y]
-                            (and old (type= x y)))
-                          true
-                          xelems yelems)
+                     [["lux;TupleT" xelems] ["lux;TupleT" yelems]]
+                     (&/fold2 (fn [old x y]
+                                (and old (type= x y)))
+                              true
+                              xelems yelems)
 
-                 [["lux;VariantT" xcases] ["lux;VariantT" ycases]]
-                 (&/fold2 (fn [old xcase ycase]
-                            (|let [[xname xtype] xcase
-                                   [yname ytype] ycase]
-                              (and old (= xname yname) (type= xtype ytype))))
-                          true
-                          xcases ycases)
+                     [["lux;VariantT" xcases] ["lux;VariantT" ycases]]
+                     (&/fold2 (fn [old xcase ycase]
+                                (|let [[xname xtype] xcase
+                                       [yname ytype] ycase]
+                                  (and old (.equals ^Object xname yname) (type= xtype ytype))))
+                              true
+                              xcases ycases)
 
-                 [["lux;RecordT" xslots] ["lux;RecordT" yslots]]
-                 (&/fold2 (fn [old xslot yslot]
-                            (|let [[xname xtype] xslot
-                                   [yname ytype] yslot]
-                              (and old (= xname yname) (type= xtype ytype))))
-                          true
-                          xslots yslots)
+                     [["lux;RecordT" xslots] ["lux;RecordT" yslots]]
+                     (&/fold2 (fn [old xslot yslot]
+                                (|let [[xname xtype] xslot
+                                       [yname ytype] yslot]
+                                  (and old (.equals ^Object xname yname) (type= xtype ytype))))
+                              true
+                              xslots yslots)
 
-                 [["lux;LambdaT" [xinput xoutput]] ["lux;LambdaT" [yinput youtput]]]
-                 (and (type= xinput yinput)
-                      (type= xoutput youtput))
+                     [["lux;LambdaT" [xinput xoutput]] ["lux;LambdaT" [yinput youtput]]]
+                     (and (type= xinput yinput)
+                          (type= xoutput youtput))
 
-                 [["lux;VarT" xid] ["lux;VarT" yid]]
-                 (= xid yid)
+                     [["lux;VarT" xid] ["lux;VarT" yid]]
+                     (.equals ^Object xid yid)
 
-                 [["lux;BoundT" xname] ["lux;BoundT" yname]]
-                 (= xname yname)
+                     [["lux;BoundT" xname] ["lux;BoundT" yname]]
+                     (.equals ^Object xname yname)
 
-                 [["lux;ExT" xid] ["lux;ExT" yid]]
-                 (= xid yid)
+                     [["lux;ExT" xid] ["lux;ExT" yid]]
+                     (.equals ^Object xid yid)
 
-                 [["lux;AppT" [xlambda xparam]] ["lux;AppT" [ylambda yparam]]]
-                 (and (type= xlambda ylambda) (type= xparam yparam))
-                 
-                 [["lux;AllT" [xenv xname xarg xbody]] ["lux;AllT" [yenv yname yarg ybody]]]
-                 (or (and (not= "" xname)
-                          (= xname yname))
-                     (and (= xname yname)
-                          (= xarg yarg)
+                     [["lux;AppT" [xlambda xparam]] ["lux;AppT" [ylambda yparam]]]
+                     (and (type= xlambda ylambda) (type= xparam yparam))
+                     
+                     [["lux;AllT" [xenv xname xarg xbody]] ["lux;AllT" [yenv yname yarg ybody]]]
+                     (and (.equals ^Object xname yname)
+                          (.equals ^Object xarg yarg)
                           ;; (matchv ::M/objects [xenv yenv]
                           ;;   [["lux;None" _] ["lux;None" _]]
                           ;;   true
@@ -451,12 +450,12 @@
                           ;;   [_ _]
                           ;;   false)
                           (type= xbody ybody)
-                          ))
+                          )
 
-                 [_ _]
-                 false
-                 )]
-    output))
+                     [_ _]
+                     false
+                     )]
+        output)))
 
 (defn ^:private fp-get [k fixpoints]
   (|let [[e a] k]
@@ -553,272 +552,274 @@
 (defn ^:private check* [fixpoints expected actual]
   ;; (swap! counter update-in [[(aget expected 0) (aget actual 0)]]
   ;;        #(inc (or % 0)))
-  (matchv ::M/objects [expected actual]
-    [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
-    (if (= ?eid ?aid)
-      (return (&/T fixpoints nil))
-      (|do [ebound (fn [state]
-                     (matchv ::M/objects [((deref ?eid) state)]
-                       [["lux;Right" [state* ebound]]]
-                       (return* state* (&/V "lux;Some" ebound))
+  (if (clojure.lang.Util/identical expected actual)
+    (return (&/T fixpoints nil))
+    (matchv ::M/objects [expected actual]
+      [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
+      (if (.equals ^Object ?eid ?aid)
+        (return (&/T fixpoints nil))
+        (|do [ebound (fn [state]
+                       (matchv ::M/objects [((deref ?eid) state)]
+                         [["lux;Right" [state* ebound]]]
+                         (return* state* (&/V "lux;Some" ebound))
 
-                       [["lux;Left" _]]
-                       (return* state (&/V "lux;None" nil))))
-            abound (fn [state]
-                     (matchv ::M/objects [((deref ?aid) state)]
-                       [["lux;Right" [state* abound]]]
-                       (return* state* (&/V "lux;Some" abound))
+                         [["lux;Left" _]]
+                         (return* state (&/V "lux;None" nil))))
+              abound (fn [state]
+                       (matchv ::M/objects [((deref ?aid) state)]
+                         [["lux;Right" [state* abound]]]
+                         (return* state* (&/V "lux;Some" abound))
 
-                       [["lux;Left" _]]
-                       (return* state (&/V "lux;None" nil))))]
-        (matchv ::M/objects [ebound abound]
-          [["lux;None" _] ["lux;None" _]]
-          (|do [_ (set-var ?eid actual)]
-            (return (&/T fixpoints nil)))
-          
-          [["lux;Some" etype] ["lux;None" _]]
-          (check* fixpoints etype actual)
+                         [["lux;Left" _]]
+                         (return* state (&/V "lux;None" nil))))]
+          (matchv ::M/objects [ebound abound]
+            [["lux;None" _] ["lux;None" _]]
+            (|do [_ (set-var ?eid actual)]
+              (return (&/T fixpoints nil)))
+            
+            [["lux;Some" etype] ["lux;None" _]]
+            (check* fixpoints etype actual)
 
-          [["lux;None" _] ["lux;Some" atype]]
-          (check* fixpoints expected atype)
+            [["lux;None" _] ["lux;Some" atype]]
+            (check* fixpoints expected atype)
 
-          [["lux;Some" etype] ["lux;Some" atype]]
-          (check* fixpoints etype atype))))
-    
-    [["lux;VarT" ?id] _]
-    (fn [state]
-      (matchv ::M/objects [((set-var ?id actual) state)]
-        [["lux;Right" [state* _]]]
-        (return* state* (&/T fixpoints nil))
+            [["lux;Some" etype] ["lux;Some" atype]]
+            (check* fixpoints etype atype))))
+      
+      [["lux;VarT" ?id] _]
+      (fn [state]
+        (matchv ::M/objects [((set-var ?id actual) state)]
+          [["lux;Right" [state* _]]]
+          (return* state* (&/T fixpoints nil))
 
-        [["lux;Left" _]]
-        ((|do [bound (deref ?id)]
-           (check* fixpoints bound actual))
-         state)))
-    
-    [_ ["lux;VarT" ?id]]
-    (fn [state]
-      (matchv ::M/objects [((set-var ?id expected) state)]
-        [["lux;Right" [state* _]]]
-        (return* state* (&/T fixpoints nil))
+          [["lux;Left" _]]
+          ((|do [bound (deref ?id)]
+             (check* fixpoints bound actual))
+           state)))
+      
+      [_ ["lux;VarT" ?id]]
+      (fn [state]
+        (matchv ::M/objects [((set-var ?id expected) state)]
+          [["lux;Right" [state* _]]]
+          (return* state* (&/T fixpoints nil))
 
-        [["lux;Left" _]]
-        ((|do [bound (deref ?id)]
-           (check* fixpoints expected bound))
-         state)))
+          [["lux;Left" _]]
+          ((|do [bound (deref ?id)]
+             (check* fixpoints expected bound))
+           state)))
 
-    [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
-    (fn [state]
-      (matchv ::M/objects [((|do [F1 (deref ?eid)]
-                              (fn [state]
-                                (matchv ::M/objects [((|do [F2 (deref ?aid)]
-                                                        (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
-                                                      state)]
-                                  [["lux;Right" [state* output]]]
-                                  (return* state* output)
+      [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
+      (fn [state]
+        (matchv ::M/objects [((|do [F1 (deref ?eid)]
+                                (fn [state]
+                                  (matchv ::M/objects [((|do [F2 (deref ?aid)]
+                                                          (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
+                                                        state)]
+                                    [["lux;Right" [state* output]]]
+                                    (return* state* output)
 
-                                  [["lux;Left" _]]
-                                  ((check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual)
-                                   state))))
-                            state)]
-        [["lux;Right" [state* output]]]
-        (return* state* output)
+                                    [["lux;Left" _]]
+                                    ((check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual)
+                                     state))))
+                              state)]
+          [["lux;Right" [state* output]]]
+          (return* state* output)
 
-        [["lux;Left" _]]
-        (matchv ::M/objects [((|do [F2 (deref ?aid)]
+          [["lux;Left" _]]
+          (matchv ::M/objects [((|do [F2 (deref ?aid)]
+                                  (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
+                                state)]
+            [["lux;Right" [state* output]]]
+            (return* state* output)
+
+            [["lux;Left" _]]
+            ((|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+                   [fixpoints** _] (check* fixpoints* A1 A2)]
+               (return (&/T fixpoints** nil)))
+             state))))
+      ;; (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+      ;;       _ (check* fixpoints A1 A2)]
+      ;;   (return (&/T fixpoints nil)))
+      
+      [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
+      (fn [state]
+        (matchv ::M/objects [((|do [F1 (deref ?id)]
+                                (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
+                              state)]
+          [["lux;Right" [state* output]]]
+          (return* state* output)
+
+          [["lux;Left" _]]
+          ((|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+                 e* (apply-type F2 A1)
+                 a* (apply-type F2 A2)
+                 [fixpoints** _] (check* fixpoints* e* a*)]
+             (return (&/T fixpoints** nil)))
+           state)))
+      ;; [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
+      ;; (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+      ;;       e* (apply-type F2 A1)
+      ;;       a* (apply-type F2 A2)
+      ;;       [fixpoints** _] (check* fixpoints* e* a*)]
+      ;;   (return (&/T fixpoints** nil)))
+      
+      [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+      (fn [state]
+        (matchv ::M/objects [((|do [F2 (deref ?id)]
                                 (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
                               state)]
           [["lux;Right" [state* output]]]
           (return* state* output)
 
           [["lux;Left" _]]
-          ((|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-                 [fixpoints** _] (check* fixpoints* A1 A2)]
+          ((|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+                 e* (apply-type F1 A1)
+                 a* (apply-type F1 A2)
+                 [fixpoints** _] (check* fixpoints* e* a*)]
              (return (&/T fixpoints** nil)))
-           state))))
-    ;; (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-    ;;       _ (check* fixpoints A1 A2)]
-    ;;   (return (&/T fixpoints nil)))
-    
-    [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-    (fn [state]
-      (matchv ::M/objects [((|do [F1 (deref ?id)]
-                              (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
-                            state)]
-        [["lux;Right" [state* output]]]
-        (return* state* output)
+           state)))
+      ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+      ;; (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+      ;;       e* (apply-type F1 A1)
+      ;;       a* (apply-type F1 A2)
+      ;;       [fixpoints** _] (check* fixpoints* e* a*)]
+      ;;   (return (&/T fixpoints** nil)))
 
-        [["lux;Left" _]]
-        ((|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
-               e* (apply-type F2 A1)
-               a* (apply-type F2 A2)
-               [fixpoints** _] (check* fixpoints* e* a*)]
-           (return (&/T fixpoints** nil)))
-         state)))
-    ;; [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-    ;; (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
-    ;;       e* (apply-type F2 A1)
-    ;;       a* (apply-type F2 A2)
-    ;;       [fixpoints** _] (check* fixpoints* e* a*)]
-    ;;   (return (&/T fixpoints** nil)))
-    
-    [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
-    (fn [state]
-      (matchv ::M/objects [((|do [F2 (deref ?id)]
-                              (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
-                            state)]
-        [["lux;Right" [state* output]]]
-        (return* state* output)
+      [["lux;AppT" [F A]] _]
+      (let [fp-pair (&/T expected actual)
+            _ (when (> (&/|length fixpoints) 40)
+                (println 'FIXPOINTS (->> (&/|keys fixpoints)
+                                         (&/|map (fn [pair]
+                                                   (|let [[e a] pair]
+                                                     (str (show-type e) ":+:"
+                                                          (show-type a)))))
+                                         (&/|interpose "\n\n")
+                                         (&/fold str "")))
+                (assert false))]
+        (matchv ::M/objects [(fp-get fp-pair fixpoints)]
+          [["lux;Some" ?]]
+          (if ?
+            (return (&/T fixpoints nil))
+            (fail (check-error expected actual)))
 
-        [["lux;Left" _]]
-        ((|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
-               e* (apply-type F1 A1)
-               a* (apply-type F1 A2)
-               [fixpoints** _] (check* fixpoints* e* a*)]
-           (return (&/T fixpoints** nil)))
-         state)))
-    ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
-    ;; (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
-    ;;       e* (apply-type F1 A1)
-    ;;       a* (apply-type F1 A2)
-    ;;       [fixpoints** _] (check* fixpoints* e* a*)]
-    ;;   (return (&/T fixpoints** nil)))
+          [["lux;None" _]]
+          (|do [expected* (apply-type F A)]
+            (check* (fp-put fp-pair true fixpoints) expected* actual))))
 
-    [["lux;AppT" [F A]] _]
-    (let [fp-pair (&/T expected actual)
-          _ (when (> (&/|length fixpoints) 40)
-              (println 'FIXPOINTS (->> (&/|keys fixpoints)
-                                       (&/|map (fn [pair]
-                                                 (|let [[e a] pair]
-                                                   (str (show-type e) ":+:"
-                                                        (show-type a)))))
-                                       (&/|interpose "\n\n")
-                                       (&/fold str "")))
-              (assert false))]
-      (matchv ::M/objects [(fp-get fp-pair fixpoints)]
-        [["lux;Some" ?]]
-        (if ?
-          (return (&/T fixpoints nil))
-          (fail (check-error expected actual)))
+      [_ ["lux;AppT" [F A]]]
+      (|do [actual* (apply-type F A)]
+        (check* fixpoints expected actual*))
 
-        [["lux;None" _]]
-        (|do [expected* (apply-type F A)]
-          (check* (fp-put fp-pair true fixpoints) expected* actual))))
+      [["lux;AllT" _] _]
+      (with-var
+        (fn [$arg]
+          (|do [expected* (apply-type expected $arg)]
+            (check* fixpoints expected* actual))))
 
-    [_ ["lux;AppT" [F A]]]
-    (|do [actual* (apply-type F A)]
-      (check* fixpoints expected actual*))
+      [_ ["lux;AllT" _]]
+      (with-var
+        (fn [$arg]
+          (|do [actual* (apply-type actual $arg)]
+            (check* fixpoints expected actual*))))
 
-    [["lux;AllT" _] _]
-    (with-var
-      (fn [$arg]
-        (|do [expected* (apply-type expected $arg)]
-          (check* fixpoints expected* actual))))
-
-    [_ ["lux;AllT" _]]
-    (with-var
-      (fn [$arg]
-        (|do [actual* (apply-type actual $arg)]
-          (check* fixpoints expected actual*))))
-
-    [["lux;DataT" "boolean"] ["lux;DataT" "java.lang.Boolean"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "byte"] ["lux;DataT" "java.lang.Byte"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "short"] ["lux;DataT" "java.lang.Short"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "int"] ["lux;DataT" "java.lang.Integer"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "long"] ["lux;DataT" "java.lang.Long"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "float"] ["lux;DataT" "java.lang.Float"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "double"] ["lux;DataT" "java.lang.Double"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "char"] ["lux;DataT" "java.lang.Character"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Boolean"] ["lux;DataT" "boolean"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Byte"] ["lux;DataT" "byte"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Short"] ["lux;DataT" "short"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Integer"] ["lux;DataT" "int"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Long"] ["lux;DataT" "long"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Float"] ["lux;DataT" "float"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Double"] ["lux;DataT" "double"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" "java.lang.Character"] ["lux;DataT" "char"]]
-    (return (&/T fixpoints nil))
-
-    [["lux;DataT" e!name] ["lux;DataT" a!name]]
-    (if (or (= e!name a!name)
-            (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
+      [["lux;DataT" "boolean"] ["lux;DataT" "java.lang.Boolean"]]
       (return (&/T fixpoints nil))
-      (fail (str "[Type Error] Names don't match: " e!name " & " a!name)))
 
-    [["lux;LambdaT" [eI eO]] ["lux;LambdaT" [aI aO]]]
-    (|do [[fixpoints* _] (check* fixpoints aI eI)]
-      (check* fixpoints* eO aO))
-
-    [["lux;TupleT" e!members] ["lux;TupleT" a!members]]
-    (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                 (|do [[fp* _] (check* fp e a)]
-                                   (return fp*)))
-                               fixpoints
-                               e!members a!members)]
-      (return (&/T fixpoints* nil)))
-    
-    [["lux;VariantT" e!cases] ["lux;VariantT" a!cases]]
-    (|do [fixpoints* (&/fold2% (fn [fp e!case a!case]
-                                 (|let [[e!name e!type] e!case
-                                        [a!name a!type] a!case]
-                                   (if (= e!name a!name)
-                                     (|do [[fp* _] (check* fp e!type a!type)]
-                                       (return fp*))
-                                     (fail (check-error expected actual)))))
-                               fixpoints
-                               e!cases a!cases)]
-      (return (&/T fixpoints* nil)))
-
-    [["lux;RecordT" e!slots] ["lux;RecordT" a!slots]]
-    (|do [fixpoints* (&/fold2% (fn [fp e!slot a!slot]
-                                 (|let [[e!name e!type] e!slot
-                                        [a!name a!type] a!slot]
-                                   (if (= e!name a!name)
-                                     (|do [[fp* _] (check* fp e!type a!type)]
-                                       (return fp*))
-                                     (fail (check-error expected actual)))))
-                               fixpoints
-                               e!slots a!slots)]
-      (return (&/T fixpoints* nil)))
-
-    [["lux;ExT" e!id] ["lux;ExT" a!id]]
-    (if (= e!id a!id)
+      [["lux;DataT" "byte"] ["lux;DataT" "java.lang.Byte"]]
       (return (&/T fixpoints nil))
-      (check-error expected actual))
 
-    [_ _]
-    (fail (println-str "[Type Error] Can't type-check: " (show-type expected) (show-type actual)))
-    ))
+      [["lux;DataT" "short"] ["lux;DataT" "java.lang.Short"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "int"] ["lux;DataT" "java.lang.Integer"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "long"] ["lux;DataT" "java.lang.Long"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "float"] ["lux;DataT" "java.lang.Float"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "double"] ["lux;DataT" "java.lang.Double"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "char"] ["lux;DataT" "java.lang.Character"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Boolean"] ["lux;DataT" "boolean"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Byte"] ["lux;DataT" "byte"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Short"] ["lux;DataT" "short"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Integer"] ["lux;DataT" "int"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Long"] ["lux;DataT" "long"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Float"] ["lux;DataT" "float"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Double"] ["lux;DataT" "double"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" "java.lang.Character"] ["lux;DataT" "char"]]
+      (return (&/T fixpoints nil))
+
+      [["lux;DataT" e!name] ["lux;DataT" a!name]]
+      (if (or (.equals ^Object e!name a!name)
+              (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
+        (return (&/T fixpoints nil))
+        (fail (str "[Type Error] Names don't match: " e!name " & " a!name)))
+
+      [["lux;LambdaT" [eI eO]] ["lux;LambdaT" [aI aO]]]
+      (|do [[fixpoints* _] (check* fixpoints aI eI)]
+        (check* fixpoints* eO aO))
+
+      [["lux;TupleT" e!members] ["lux;TupleT" a!members]]
+      (|do [fixpoints* (&/fold2% (fn [fp e a]
+                                   (|do [[fp* _] (check* fp e a)]
+                                     (return fp*)))
+                                 fixpoints
+                                 e!members a!members)]
+        (return (&/T fixpoints* nil)))
+      
+      [["lux;VariantT" e!cases] ["lux;VariantT" a!cases]]
+      (|do [fixpoints* (&/fold2% (fn [fp e!case a!case]
+                                   (|let [[e!name e!type] e!case
+                                          [a!name a!type] a!case]
+                                     (if (.equals ^Object e!name a!name)
+                                       (|do [[fp* _] (check* fp e!type a!type)]
+                                         (return fp*))
+                                       (fail (check-error expected actual)))))
+                                 fixpoints
+                                 e!cases a!cases)]
+        (return (&/T fixpoints* nil)))
+
+      [["lux;RecordT" e!slots] ["lux;RecordT" a!slots]]
+      (|do [fixpoints* (&/fold2% (fn [fp e!slot a!slot]
+                                   (|let [[e!name e!type] e!slot
+                                          [a!name a!type] a!slot]
+                                     (if (.equals ^Object e!name a!name)
+                                       (|do [[fp* _] (check* fp e!type a!type)]
+                                         (return fp*))
+                                       (fail (check-error expected actual)))))
+                                 fixpoints
+                                 e!slots a!slots)]
+        (return (&/T fixpoints* nil)))
+
+      [["lux;ExT" e!id] ["lux;ExT" a!id]]
+      (if (.equals ^Object e!id a!id)
+        (return (&/T fixpoints nil))
+        (check-error expected actual))
+
+      [_ _]
+      (fail (println-str "[Type Error] Can't type-check: " (show-type expected) (show-type actual)))
+      )))
 
 (defn check [expected actual]
   (|do [_ (check* init-fixpoints expected actual)]

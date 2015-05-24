@@ -514,7 +514,7 @@
 (defn ^:private analyse-ast [eval! exo-type token]
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
-    (do (assert (= 1 (&/|length ?values)) "[Analyser Error] Can only tag 1 value.")
+    (do (assert (.equals ^Object (&/|length ?values) 1) "[Analyser Error] Can only tag 1 value.")
       (&&lux/analyse-variant (partial analyse-ast eval!) exo-type ?ident (&/|head ?values)))
     
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]

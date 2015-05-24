@@ -85,7 +85,7 @@
     nil
     
     [["lux;Cons" [[k v] table*]]]
-    (if (= k slot)
+    (if (.equals ^Object k slot)
       v
       (|get slot table*))))
 
@@ -95,7 +95,7 @@
     (V "lux;Cons" (T (T slot value) (V "lux;Nil" nil)))
     
     [["lux;Cons" [[k v] table*]]]
-    (if (= k slot)
+    (if (.equals ^Object k slot)
       (V "lux;Cons" (T (T slot value) table*))
       (V "lux;Cons" (T (T k v) (|put slot value table*))))))
 
@@ -105,7 +105,7 @@
     table
     
     [["lux;Cons" [[k v] table*]]]
-    (if (= k slot)
+    (if (.equals ^Object k slot)
       table*
       (V "lux;Cons" (T (T k v) (|remove slot table*))))))
 
@@ -115,7 +115,7 @@
     table
 
     [["lux;Cons" [[k* v] table*]]]
-    (if (= k k*)
+    (if (.equals ^Object k k*)
       (V "lux;Cons" (T (T k* (f v)) table*))
       (V "lux;Cons" (T (T k* v) (|update k f table*))))))
 
@@ -233,7 +233,7 @@
     false
 
     [["lux;Cons" [[k* _] table*]]]
-    (or (= k k*)
+    (or (.equals ^Object k k*)
         (|contains? k table*))))
 
 (defn fold [f init xs]
@@ -384,7 +384,7 @@
       ((exhaust% step) state*)
 
       [["lux;Left" msg]]
-      (if (= "[Reader Error] EOF" msg)
+      (if (.equals "[Reader Error] EOF" msg)
         (return* state nil)
         (fail* msg)))))
 
@@ -570,7 +570,7 @@
     (str "#" ?module ";" ?tag)
 
     [["lux;Meta" [_ ["lux;SymbolS" [?module ?ident]]]]]
-    (if (= "" ?module)
+    (if (.equals "" ?module)
       ?ident
       (str ?module ";" ?ident))
 
