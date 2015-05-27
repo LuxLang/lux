@@ -15,6 +15,10 @@
 (def Unit (&/V "lux;TupleT" (&/|list)))
 (def $Void (&/V "lux;VariantT" (&/|list)))
 
+(def IO
+  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "IO" "a"
+                       (&/V "lux;LambdaT" (&/T Unit (&/V "lux;BoundT" "a"))))))
+
 (def List
   (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;List" "a"
                        (&/V "lux;VariantT" (&/|list (&/T "lux;Nil" Unit)
