@@ -349,12 +349,16 @@
         (if (.equals ^Object name "lux")
           (return* state nil)
           (fail* "[Compiler Error] Can't redefine a module!"))
-        (let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+        (let [file-name (str "source/" name ".lux")
+              file-content (slurp file-name)
+              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                               (&host/->class name) nil "java/lang/Object" nil))]
+                               (&host/->class name) nil "java/lang/Object" nil))
+              _ (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil (hash file-content))
+                  .visitEnd)]
           (matchv ::M/objects [((&/exhaust% compiler-step)
                                 (->> state
-                                     (&/set$ &/$SOURCE (&reader/from (str "source/" name ".lux")))
+                                     (&/set$ &/$SOURCE (&reader/from file-name file-content))
                                      (&/set$ &/$ENVS (&/|list (&/env name)))
                                      (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
                                      (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]

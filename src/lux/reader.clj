@@ -124,8 +124,8 @@
                             (&/T (&/T file-name line-num column-num*) line)))))
         (&/V "No" (str "[Reader Error] Text failed: " text))))))
 
-(defn from [file-name]
-  (let [lines (&/->list (string/split-lines (slurp file-name)))]
+(defn from [file-name file-content]
+  (let [lines (&/->list (string/split-lines file-content))]
     (&/|map (fn [line+line-num]
               (|let [[line-num line] line+line-num]
                 (&/T (&/T file-name line-num 0)
