@@ -126,7 +126,7 @@
   (&/V "lux;RecordT"
        (&/|list (&/T "lux;writer" (&/V "lux;DataT" "org.objectweb.asm.ClassWriter"))
                 (&/T "lux;loader" (&/V "lux;DataT" "java.lang.ClassLoader"))
-                )))
+                (&/T "lux;classes" (&/V "lux;DataT" "clojure.lang.Atom")))))
 
 (def DefData*
   (fAll "lux;DefData'" ""

@@ -15,8 +15,9 @@
 (def $NAME 3)
 
 ;; Host
-(def $LOADER 0)
-(def $WRITER 1)
+(def $CLASSES 0)
+(def $LOADER 1)
+(def $WRITER 2)
 
 ;; CompilerState
 (def $ENVS 0)
@@ -422,6 +423,10 @@
   (fn [state]
     (return* state (->> state (get$ $HOST) (get$ $LOADER)))))
 
+(def classes
+  (fn [state]
+    (return* state (->> state (get$ $HOST) (get$ $CLASSES)))))
+
 (def +init-bindings+
   (R ;; "lux;counter"
    0
@@ -439,11 +444,29 @@
    name
    ))
 
+(let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
+                                                                                              (class (byte-array []))
+                                                                                              Integer/TYPE
+                                                                                              Integer/TYPE]))
+                     (.setAccessible true))]
+  (defn memory-class-loader [store]
+    (proxy [java.lang.ClassLoader]
+      []
+      (findClass [^String class-name]
+        ;; (prn 'findClass class-name)
+        (if-let [bytecode (get @store class-name)]
+          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
+          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
+
 (defn host [_]
-  (R ;; "lux;loader"
-   (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
-   ;; "lux;writer"
-   (V "lux;None" nil)))
+  (let [store (atom {})]
+    (R ;; "lux;classes"
+     store
+     ;; "lux;loader"
+     (memory-class-loader store)
+     ;; (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
+     ;; "lux;writer"
+     (V "lux;None" nil))))
 
 (defn init-state [_]
   (R ;; "lux;envs"
