@@ -412,42 +412,44 @@
   (matchv ::M/objects [token]
     ;; Arrays
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_new-array"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?class]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;IntS" ?length]]]
-                                                                          ["lux;Nil" _]]]]]]]]]]]
+                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?class]]]]
+                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;IntS" ?length]]]
+                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-new-array analyse ?class ?length)
 
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_aastore"]]]]
-                                                ["lux;Cons" [?array
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;IntS" ?idx]]]
-                                                                          ["lux;Cons" [?elem
-                                                                                       ["lux;Nil" _]]]]]]]]]]]]]
+                                                 ["lux;Cons" [?array
+                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;IntS" ?idx]]]
+                                                                           ["lux;Cons" [?elem
+                                                                                        ["lux;Nil" _]]]]]]]]]]]]]
     (&&host/analyse-jvm-aastore analyse ?array ?idx ?elem)
 
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_aaload"]]]]
-                                                ["lux;Cons" [?array
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;IntS" ?idx]]]
-                                                                          ["lux;Nil" _]]]]]]]]]]]
+                                                 ["lux;Cons" [?array
+                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;IntS" ?idx]]]
+                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-aaload analyse ?array ?idx)
 
     ;; Classes & interfaces
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_class"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?name]]]]
-                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?super-class]]]]
-                                                                          ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?fields]]]
-                                                                                       ["lux;Nil" _]]]]]]]]]]]]]
-    (&&host/analyse-jvm-class analyse ?name ?super-class ?fields)
+                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?name]]]
+                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?super-class]]]
+                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?interfaces]]]
+                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?fields]]]
+                                                                                                     ?methods]]]]]]]]]]]]]]
+    (&&host/analyse-jvm-class analyse ?name ?super-class ?interfaces ?fields ?methods)
 
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_interface"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?name]]]]
-                                                             ?members]]]]]]]]
-    (&&host/analyse-jvm-interface analyse ?name ?members)
+                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?name]]]
+                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?supers]]]
+                                                                           ?methods]]]]]]]]]]
+    (&&host/analyse-jvm-interface analyse ?name ?supers ?methods)
 
     ;; Programs
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_program"]]]]
-                                                ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?args]]]]
-                                                             ["lux;Cons" [?body
-                                                                          ["lux;Nil" _]]]]]]]]]]]
+                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?args]]]]
+                                                              ["lux;Cons" [?body
+                                                                           ["lux;Nil" _]]]]]]]]]]]
     (&&host/analyse-jvm-program analyse ?args ?body)
     
     [_]

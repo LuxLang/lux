@@ -238,7 +238,7 @@
 
 (defn compile-jvm-new [compile *type* ?class ?classes ?args]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [init-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")V")
+        :let [init-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")V")
               class* (&host/->class ?class)
               _ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW class*)
@@ -247,7 +247,7 @@
                     (|do [ret (compile arg)
                           :let [_ (prepare-arg! *writer* class-name)]]
                       (return ret)))
-                  (map vector ?classes ?args))
+                  (&/zip2 ?classes ?args))
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
@@ -303,40 +303,62 @@
         :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD (&host/->class ?class) ?field (&host/->java-sig *type*))]]
     (return nil)))
 
-(defn compile-jvm-class [compile ?package ?name ?super-class ?fields ?methods]
-  (let [parent-dir (&host/->package ?package)
-        full-name (str parent-dir "/" ?name)
+(defn ^:private modifiers->int [mods]
+  (+ (case (:visibility mods)
+       "default" 0
+       "public" Opcodes/ACC_PUBLIC
+       "private" Opcodes/ACC_PRIVATE
+       "protected" Opcodes/ACC_PROTECTED)
+     (if (:static? mods) Opcodes/ACC_STATIC 0)
+     (if (:final? mods) Opcodes/ACC_FINAL 0)
+     (if (:abstract? mods) Opcodes/ACC_ABSTRACT 0)
+     (case (:concurrency mods)
+       "synchronized" Opcodes/ACC_SYNCHRONIZED
+       "volatile" Opcodes/ACC_VOLATILE
+       ;; else
+       0)))
+
+(defn compile-jvm-class [compile ?name ?super-class ?interfaces ?fields ?methods]
+  (let [name* (&host/->class ?name)
         super-class* (&host/->class ?super-class)
         =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                  (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                         full-name nil super-class* nil))
-        _ (do (doseq [[field props] ?fields]
-                (doto (.visitField =class Opcodes/ACC_PUBLIC field (&host/->type-signature (:type props)) nil nil)
-                  (.visitEnd)))
-            (doto (.visitMethod =class Opcodes/ACC_PUBLIC "<init>" "()V" nil nil)
-              (.visitCode)
-              (.visitVarInsn Opcodes/ALOAD 0)
-              (.visitMethodInsn Opcodes/INVOKESPECIAL super-class* "<init>" "()V")
-              (.visitInsn Opcodes/RETURN)
-              (.visitMaxs 0 0)
-              (.visitEnd))
-            (.visitEnd =class)
-            (.mkdirs (java.io.File. (str "output/" parent-dir))))]
-    (&&/save-class! full-name (.toByteArray =class))))
+                         name* nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String))))
+        _ (&/|map (fn [field]
+                    (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
+                                       (&host/->type-signature (:type field)) nil nil)
+                      (.visitEnd)))
+                  ?fields)]
+    (|do [_ (&/map% (fn [method]
+                      (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
+                                            (&host/->type-signature (:output method)))]
+                        (&/with-writer (.visitMethod =class (modifiers->int (:modifiers method))
+                                                     (:name method)
+                                                     signature nil nil)
+                          (|do [^MethodVisitor =method &/get-writer
+                                :let [_ (.visitCode =method)]
+                                _ (compile (:body method))
+                                :let [_ (doto =method
+                                          (.visitInsn (if (= "void" (:output method)) Opcodes/RETURN Opcodes/ARETURN))
+                                          (.visitMaxs 0 0)
+                                          (.visitEnd))]]
+                            (return nil)))))
+                    ?methods)]
+      (&&/save-class! name* (.toByteArray (doto =class .visitEnd))))))
 
-(defn compile-jvm-interface [compile ?package ?name ?methods]
-  (let [parent-dir (&host/->package ?package)
-        full-name (str parent-dir "/" ?name)
+(defn compile-jvm-interface [compile ?name ?supers ?methods]
+  (prn 'compile-jvm-interface (->> ?supers &/->seq pr-str))
+  (let [name* (&host/->class ?name)
         =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                      (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE)
-                             full-name nil "java/lang/Object" nil))
-        _ (do (doseq [[?method ?props] ?methods
-                      :let [[?args ?return] (:type ?props)
-                            signature (str "(" (&/fold str "" (&/|map &host/->type-signature ?args)) ")" (&host/->type-signature ?return))]]
-                (.visitMethod =interface (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) ?method signature nil nil))
-            (.visitEnd =interface)
-            (.mkdirs (java.io.File. (str "output/" parent-dir))))]
-    (&&/save-class! full-name (.toByteArray =interface))))
+                             name* nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String))))
+        _ (do (&/|map (fn [method]
+                        (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
+                                              (&host/->type-signature (:output method)))]
+                          (.visitMethod =interface (modifiers->int (:modifiers method)) (:name method) signature nil nil)))
+                      ?methods)
+            (.visitEnd =interface))]
+    (&&/save-class! name* (.toByteArray =interface))))
 
 (defn compile-jvm-try [compile *type* ?body ?catches ?finally]
   (|do [^MethodVisitor *writer* &/get-writer

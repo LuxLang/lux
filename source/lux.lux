@@ -7,9 +7,17 @@
 ##   You must not remove this notice, or any other, from this software.
 
 ## First things first, must define functions
-(_jvm_interface Function
-                (: (-> [java.lang.Object] java.lang.Object)
-                   apply))
+(_jvm_interface "lux.Function" []
+                (apply ["java.lang.Object"] "java.lang.Object" ["public" "abstract"]))
+
+## (_jvm_class "lux.MyFunction" "java.lang.Object" ["lux.Function"]
+##             [(foo "java.lang.Object" ["public" "static"])]
+##             (<init> [] "void"
+##                     ["public"]
+##                     (_jvm_invokespecial java.lang.Object <init> [] this []))
+##             (apply [(arg "java.lang.Object")] "java.lang.Object"
+##                    ["public"]
+##                    "YOLO"))
 
 ## Basic types
 (_lux_def Bool (#DataT "java.lang.Boolean"))
@@ -577,7 +585,7 @@
     _
     (fail "Wrong syntax for $'")))
 
-(def' #export (fold f init xs)
+(def' #export (foldL f init xs)
   (All' [a b]
         (->' (->' (B' a) (B' b) (B' a))
              (B' a)
@@ -588,37 +596,50 @@
     init
 
     (#Cons [x xs'])
-    (fold f (f init x) xs')))
+    (foldL f (f init x) xs')))
+
+(def' #export (foldR f init xs)
+  (All' [a b]
+        (->' (->' (B' b) (B' a) (B' a))
+             (B' a)
+             ($' List (B' b))
+             (B' a))) 
+  (_lux_case xs
+    #Nil
+    init
+
+    (#Cons [x xs'])
+    (f x (foldR f init xs'))))
 
 (def' #export (reverse list)
   (All' [a]
         (->' ($' List (B' a)) ($' List (B' a))))
-  (fold (_lux_: (All' [a]
-                      (->' ($' List (B' a)) (B' a) ($' List (B' a))))
-                (lambda' [tail head]
-                         (#Cons [head tail])))
-        #Nil
-        list))
+  (foldL (_lux_: (All' [a]
+                       (->' ($' List (B' a)) (B' a) ($' List (B' a))))
+                 (lambda' [tail head]
+                          (#Cons [head tail])))
+         #Nil
+         list))
 
 (defmacro #export (list xs)
   (return (_lux_: SyntaxList
-                  (#Cons [(fold (lambda' [tail head]
-                                         (_meta (#FormS (#Cons [(_meta (#TagS ["lux" "Cons"]))
-                                                                (#Cons [(_meta (#TupleS (#Cons [head (#Cons [tail #Nil])])))
-                                                                        #Nil])]))))
-                                (_meta (#TagS ["lux" "Nil"]))
-                                (reverse xs))
+                  (#Cons [(foldL (lambda' [tail head]
+                                          (_meta (#FormS (#Cons [(_meta (#TagS ["lux" "Cons"]))
+                                                                 (#Cons [(_meta (#TupleS (#Cons [head (#Cons [tail #Nil])])))
+                                                                         #Nil])]))))
+                                 (_meta (#TagS ["lux" "Nil"]))
+                                 (reverse xs))
                           #Nil]))))
 
 (defmacro #export (list& xs)
   (_lux_case (reverse xs)
     (#Cons [last init])
     (return (_lux_: SyntaxList
-                    (list (fold (lambda' [tail head]
-                                         (_meta (#FormS (list (_meta (#TagS ["lux" "Cons"]))
-                                                              (_meta (#TupleS (list head tail)))))))
-                                last
-                                init))))
+                    (list (foldL (lambda' [tail head]
+                                          (_meta (#FormS (list (_meta (#TagS ["lux" "Cons"]))
+                                                               (_meta (#TupleS (list head tail)))))))
+                                 last
+                                 init))))
 
     _
     (fail "Wrong syntax for list&")))
@@ -642,13 +663,13 @@
                             (list ($form (list ($symbol ["" "_lux_lambda"])
                                                ($symbol name)
                                                harg
-                                               (fold (lambda' [body' arg]
-                                                              ($form (list ($symbol ["" "_lux_lambda"])
-                                                                           ($symbol ["" ""])
-                                                                           arg
-                                                                           body')))
-                                                     body
-                                                     (reverse targs))))))))
+                                               (foldL (lambda' [body' arg]
+                                                               ($form (list ($symbol ["" "_lux_lambda"])
+                                                                            ($symbol ["" ""])
+                                                                            arg
+                                                                            body')))
+                                                      body
+                                                      (reverse targs))))))))
 
           _
           (fail "Wrong syntax for lambda"))))
@@ -714,18 +735,18 @@
   (_lux_case tokens
     (#Cons [(#Meta [_ (#TupleS bindings)]) (#Cons [body #Nil])])
     (return (_lux_: SyntaxList
-                    (list (fold (_lux_: (->' Syntax (#TupleT (list Syntax Syntax))
-                                             Syntax)
-                                        (lambda [body binding]
-                                          (_lux_case binding
-                                            [label value]
-                                            (_meta (#FormS (list (_meta (#SymbolS ["lux" "let'"])) label value body))))))
-                                body
-                                (fold (_lux_: (All' [a]
-                                                    (->' ($' List (B' a)) (B' a) ($' List (B' a))))
-                                              (lambda [tail head] (#Cons [head tail])))
-                                      #Nil
-                                      (as-pairs bindings))))))
+                    (list (foldL (_lux_: (->' Syntax (#TupleT (list Syntax Syntax))
+                                              Syntax)
+                                         (lambda [body binding]
+                                           (_lux_case binding
+                                             [label value]
+                                             (_meta (#FormS (list (_meta (#SymbolS ["lux" "let'"])) label value body))))))
+                                 body
+                                 (foldL (_lux_: (All' [a]
+                                                      (->' ($' List (B' a)) (B' a) ($' List (B' a))))
+                                                (lambda [tail head] (#Cons [head tail])))
+                                        #Nil
+                                        (as-pairs bindings))))))
 
     _
     (fail "Wrong syntax for let")))
@@ -790,9 +811,9 @@
   (_lux_case tokens
     (#Cons [op (#Cons [init args])])
     (return (_lux_: SyntaxList
-                    (list (fold (lambda [a1 a2] ($form (list op a1 a2)))
-                                init
-                                args))))
+                    (list (foldL (lambda [a1 a2] ($form (list op a1 a2)))
+                                 init
+                                 args))))
     
     _
     (fail "Wrong syntax for $")))
@@ -887,16 +908,16 @@
   (_lux_case tokens
     (#Cons [init apps])
     (return (_lux_: SyntaxList
-                    (list (fold (_lux_: (->' Syntax Syntax Syntax)
-                                        (lambda [acc app]
-                                          (_lux_case app
-                                            (#Meta [_ (#FormS parts)])
-                                            ($form (list:++ parts (list acc)))
+                    (list (foldL (_lux_: (->' Syntax Syntax Syntax)
+                                         (lambda [acc app]
+                                           (_lux_case app
+                                             (#Meta [_ (#FormS parts)])
+                                             ($form (list:++ parts (list acc)))
 
-                                            _
-                                            (`' ((~ app) (~ acc))))))
-                                init
-                                apps))))
+                                             _
+                                             (`' ((~ app) (~ acc))))))
+                                 init
+                                 apps))))
 
     _
     (fail "Wrong syntax for |>")))
@@ -974,10 +995,10 @@
   (_lux_case (reverse tokens)
     (#Cons [output inputs])
     (return (_lux_: SyntaxList
-                    (list (fold (_lux_: (->' Syntax Syntax Syntax)
-                                        (lambda [o i] (`' (#;LambdaT [(~ i) (~ o)]))))
-                                output
-                                inputs))))
+                    (list (foldL (_lux_: (->' Syntax Syntax Syntax)
+                                         (lambda [o i] (`' (#;LambdaT [(~ i) (~ o)]))))
+                                 output
+                                 inputs))))
     
     _
     (fail "Wrong syntax for ->")))
@@ -989,20 +1010,20 @@
 (defmacro (do tokens)
   (_lux_case tokens
     (#Cons [monad (#Cons [(#Meta [_ (#TupleS bindings)]) (#Cons [body #Nil])])])
-    (let [body' (fold (_lux_: (-> Syntax (, Syntax Syntax) Syntax)
-                              (lambda [body' binding]
-                                (let [[var value] binding]
-                                  (_lux_case var
-                                    (#Meta [_ (#TagS ["" "let"])])
-                                    (`' (;let (~ value) (~ body')))
+    (let [body' (foldL (_lux_: (-> Syntax (, Syntax Syntax) Syntax)
+                               (lambda [body' binding]
+                                 (let [[var value] binding]
+                                   (_lux_case var
+                                     (#Meta [_ (#TagS ["" "let"])])
+                                     (`' (;let (~ value) (~ body')))
 
-                                    _
-                                    (`' (;bind (_lux_lambda (~ ($symbol ["" ""]))
-                                                 (~ var)
-                                                 (~ body'))
-                                               (~ value)))))))
-                      body
-                      (reverse (as-pairs bindings)))]
+                                     _
+                                     (`' (;bind (_lux_lambda (~ ($symbol ["" ""]))
+                                                  (~ var)
+                                                  (~ body'))
+                                                (~ value)))))))
+                       body
+                       (reverse (as-pairs bindings)))]
       (return (_lux_: SyntaxList
                       (list (`' (_lux_case (~ monad)
                                   {#;return ;return #;bind ;bind}
@@ -1177,7 +1198,7 @@
 
 (def'' #export (length list)
   (-> List Int)
-  (fold (lambda [acc _] (int:+ 1 acc)) 0 list))
+  (foldL (lambda [acc _] (int:+ 1 acc)) 0 list))
 
 (def'' #export (not x)
   (-> Bool Bool)
@@ -1242,11 +1263,11 @@
           (let [replacements (map (_lux_: (-> Text (, Text Syntax))
                                           (lambda [ident] [ident (`' (#;BoundT (~ ($text ident))))]))
                                   (list& self-ident idents))
-                body' (fold (_lux_: (-> Syntax Text Syntax)
-                                    (lambda [body' arg']
-                                      (`' (#;AllT [#;None "" (~ ($text arg')) (~ body')]))))
-                            (replace-syntax replacements body)
-                            (reverse targs))]
+                body' (foldL (_lux_: (-> Syntax Text Syntax)
+                                     (lambda [body' arg']
+                                       (`' (#;AllT [#;None "" (~ ($text arg')) (~ body')]))))
+                             (replace-syntax replacements body)
+                             (reverse targs))]
             (return (_lux_: SyntaxList
                             (list (`' (#;AllT [(#;Some #;Nil) (~ ($text self-ident)) (~ ($text harg)) (~ body')])))))))
         
@@ -1318,7 +1339,7 @@
 (def'' (list:join xs)
   (All [a]
     (-> ($' List ($' List a)) ($' List a)))
-  (fold list:++ #Nil xs))
+  (foldL list:++ #Nil xs))
 
 ## (def'' #export (normalize ident)
 ##   (-> Ident ($' Lux Ident))
@@ -1431,10 +1452,10 @@
     (text:++ "#" (ident->text ident))
 
     (#Meta [_ (#TupleS members)])
-    ($ text:++ "[" (|> members (map syntax:show) (interpose " ") (fold text:++ "")) "]")
+    ($ text:++ "[" (|> members (map syntax:show) (interpose " ") (foldL text:++ "")) "]")
 
     (#Meta [_ (#FormS members)])
-    ($ text:++ "(" (|> members (map syntax:show) (interpose " ") (fold text:++ "")) ")")
+    ($ text:++ "(" (|> members (map syntax:show) (interpose " ") (foldL text:++ "")) ")")
 
     (#Meta [_ (#RecordS slots)])
     ($ text:++ "{"
@@ -1444,7 +1465,7 @@
                           (let [[k v] slot]
                             ($ text:++ (syntax:show k) " " (syntax:show v))))))
            (interpose " ")
-           (fold text:++ ""))
+           (foldL text:++ ""))
        "}")
     ))
 
@@ -1491,10 +1512,10 @@
     ($tuple (map walk-type members))
 
     (#Meta [_ (#FormS (#Cons [type-fn args]))])
-    (fold (_lux_: (-> Syntax Syntax Syntax)
-                  (lambda [type-fn arg] (`' (#;AppT [(~ type-fn) (~ arg)]))))
-          (walk-type type-fn)
-          (map walk-type args))
+    (foldL (_lux_: (-> Syntax Syntax Syntax)
+                   (lambda [type-fn arg] (`' (#;AppT [(~ type-fn) (~ arg)]))))
+           (walk-type type-fn)
+           (map walk-type args))
     
     _
     type))
@@ -1590,10 +1611,10 @@
     (#Cons [value actions])
     (let [dummy ($symbol ["" ""])]
       (return (_lux_: SyntaxList
-                      (list (fold (: (-> Syntax Syntax Syntax)
-                                     (lambda [post pre] (`' (_lux_case (~ pre) (~ dummy) (~ post)))))
-                                  value
-                                  actions)))))
+                      (list (foldL (: (-> Syntax Syntax Syntax)
+                                      (lambda [post pre] (`' (_lux_case (~ pre) (~ dummy) (~ post)))))
+                                   value
+                                   actions)))))
 
     _
     (fail "Wrong syntax for exec")))
@@ -1914,10 +1935,10 @@
      (case (reverse tokens)
        (\ (list& last init))
        (return (: (List Syntax)
-                  (list (fold (: (-> Syntax Syntax Syntax)
-                                 (lambda [post pre] (` <form>)))
-                              last
-                              init))))
+                  (list (foldL (: (-> Syntax Syntax Syntax)
+                                  (lambda [post pre] (` <form>)))
+                               last
+                               init))))
        
        _
        (fail <message>)))]

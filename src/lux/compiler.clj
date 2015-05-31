@@ -25,6 +25,9 @@
                               ClassWriter
                               MethodVisitor)))
 
+;; [Constants]
+(def ^:private version "0.2")
+
 ;; [Utils/Compilers]
 (defn ^:private compile-expression [syntax]
   (matchv ::M/objects [syntax]
@@ -72,6 +75,9 @@
       [["lambda" [?scope ?env ?body]]]
       (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
 
+      [["ann" [?value-ex ?type-ex]]]
+      (&&lux/compile-ann compile-expression ?type ?value-ex ?type-ex)
+      
       ;; Integer arithmetic
       [["jvm-iadd" [?x ?y]]]
       (&&host/compile-jvm-iadd compile-expression ?type ?x ?y)
@@ -308,11 +314,11 @@
     [["jvm-program" ?body]]
     (&&host/compile-jvm-program compile-expression ?body)
     
-    [["jvm-interface" [?package ?name ?methods]]]
-    (&&host/compile-jvm-interface compile-expression ?package ?name ?methods)
+    [["jvm-interface" [?name ?supers ?methods]]]
+    (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
 
-    [["jvm-class" [?package ?name ?super-class ?fields ?methods]]]
-    (&&host/compile-jvm-class compile-expression ?package ?name ?super-class ?fields ?methods)))
+    [["jvm-class" [?name ?super-class ?interfaces ?fields ?methods]]]
+    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)))
 
 (defn ^:private eval! [expr]
   (|do [id &/gen-id
@@ -353,9 +359,18 @@
               file-content (slurp file-name)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                               (&host/->class name) nil "java/lang/Object" nil))
-              _ (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil (hash file-content))
-                  .visitEnd)]
+                               (&host/->class name) nil "java/lang/Object" nil)
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil (hash file-content))
+                           .visitEnd)
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_compiler" "Ljava/lang/String;" nil version)
+                           .visitEnd)
+                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil ...)
+                       ;;     .visitEnd)
+                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_exports" "Ljava/lang/String;" nil ...)
+                       ;;     .visitEnd)
+                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_macros" "Ljava/lang/String;" nil ...)
+                       ;;     .visitEnd)
+                       )]
           (matchv ::M/objects [((&/exhaust% compiler-step)
                                 (->> state
                                      (&/set$ &/$SOURCE (&reader/from file-name file-content))

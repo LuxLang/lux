@@ -329,14 +329,12 @@
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)]
-    (matchv ::M/objects [=value]
-      [[?expr ?expr-type]]
-      (return (&/|list (&/T ?expr ==type))))))
+    (return (&/|list (&/T (&/V "ann" (&/T =value =type))
+                          ==type)))))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         =value (&&/analyse-1 analyse ==type ?value)]
-    (matchv ::M/objects [=value]
-      [[?expr ?expr-type]]
-      (return (&/|list (&/T ?expr ==type))))))
+    (return (&/|list (&/T (&/V "ann" (&/T =value =type))
+                          ==type)))))

@@ -25,8 +25,7 @@
       )))
 
 (defn ^:private method->type [^Method method]
-  (|do [=return (class->type (.getReturnType method))]
-    (return =return)))
+  (class->type (.getReturnType method)))
 
 ;; [Resources]
 (defn ^String ->class [class]

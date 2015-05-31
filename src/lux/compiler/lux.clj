@@ -135,7 +135,12 @@
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                                current-class nil "java/lang/Object" (into-array ["lux/Function"]))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
-                           (doto (.visitEnd))))]
+                           (doto (.visitEnd)))
+                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_mode" datum-sig nil ...)
+                       ;;     (doto (.visitEnd)))
+                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_type" datum-sig nil nil)
+                       ;;     (doto (.visitEnd)))
+                       )]
         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
             (|do [^MethodVisitor **writer** &/get-writer
                   :let [_ (.visitCode **writer**)]
@@ -149,6 +154,9 @@
         :let [_ (.visitEnd *writer*)]
         _ (&&/save-class! current-class (.toByteArray =class))]
     (return nil)))
+
+(defn compile-ann [compile *type* ?value-ex ?type-ex]
+  (compile ?value-ex))
 
 (defn compile-declare-macro [compile module name]
   (|do [_ (&a-module/declare-macro module name)]

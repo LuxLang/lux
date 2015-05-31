@@ -454,7 +454,7 @@
       []
       (findClass [^String class-name]
         ;; (prn 'findClass class-name)
-        (if-let [bytecode (get @store class-name)]
+        (if-let [^bytes bytecode (get @store class-name)]
           (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
           (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
 
@@ -652,7 +652,7 @@
     [_ _]
     false))
 
-(defn enumerate* [idx xs]
+(defn ^:private enumerate* [idx xs]
   (matchv ::M/objects [xs]
     [["lux;Cons" [x xs*]]]
     (V "lux;Cons" (T (T idx x)

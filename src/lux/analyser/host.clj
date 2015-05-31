@@ -18,6 +18,14 @@
     [_]
     (fail "[Analyser Error] Can't extract Symbol.")))
 
+(defn ^:private extract-text [text]
+  (matchv ::M/objects [text]
+    [["lux;Meta" [_ ["lux;TextS" ?text]]]]
+    (return ?text)
+
+    [_]
+    (fail "[Analyser Error] Can't extract Text.")))
+
 (defn ^:private analyse-1+ [analyse ?token]
   (&type/with-var
     (fn [$var]
@@ -112,8 +120,18 @@
 
   analyse-jvm-invokevirtual   "jvm-invokevirtual"
   analyse-jvm-invokeinterface "jvm-invokeinterface"
-  analyse-jvm-invokespecial   "jvm-invokespecial"
   )
+
+(defn analyse-jvm-invokespecial [analyse ?class ?method ?classes ?object ?args]
+  (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+        =return (if (= "<init>" ?method)
+                  (return &type/$Void)
+                  (&host/lookup-virtual-method ?class ?method =classes))
+        =object (&&/analyse-1 analyse (&/V "lux;DataT" ?class) ?object)
+        =args (&/map2% (fn [?c ?o]
+                         (&&/analyse-1 analyse (&/V "lux;DataT" ?c) ?o))
+                       =classes ?args)]
+    (return (&/|list (&/T (&/V "jvm-invokespecial" (&/T ?class ?method =classes =object =args)) =return)))))
 
 (defn analyse-jvm-null? [analyse ?object]
   (|do [=object (&&/analyse-1 analyse ?object)]
@@ -139,44 +157,134 @@
         =array-type (&&/expr-type =array)]
     (return (&/|list (&/T (&/V "jvm-aaload" (&/T =array ?idx)) =array-type)))))
 
-(defn analyse-jvm-class [analyse ?name ?super-class ?fields]
-  (|do [?fields (&/map% (fn [?field]
+(defn ^:private analyse-modifiers [modifiers]
+  (&/fold% (fn [so-far modif]
+             (matchv ::M/objects [modif]
+               [["lux;Meta" [_ ["lux;TextS" "public"]]]]
+               (return (assoc so-far :visibility "public"))
+
+               [["lux;Meta" [_ ["lux;TextS" "private"]]]]
+               (return (assoc so-far :visibility "private"))
+
+               [["lux;Meta" [_ ["lux;TextS" "protected"]]]]
+               (return (assoc so-far :visibility "protected"))
+
+               [["lux;Meta" [_ ["lux;TextS" "static"]]]]
+               (return (assoc so-far :static? true))
+
+               [["lux;Meta" [_ ["lux;TextS" "final"]]]]
+               (return (assoc so-far :final? true))
+
+               [["lux;Meta" [_ ["lux;TextS" "abstract"]]]]
+               (return (assoc so-far :abstract? true))
+
+               [["lux;Meta" [_ ["lux;TextS" "synchronized"]]]]
+               (return (assoc so-far :concurrency "synchronized"))
+
+               [["lux;Meta" [_ ["lux;TextS" "volatile"]]]]
+               (return (assoc so-far :concurrency "volatile"))
+
+               [_]
+               (fail (str "[Analyser Error] Unknown modifier: " (&/show-ast modif)))))
+           {:visibility "default"
+            :static? false
+            :final? false
+            :abstract? false
+            :concurrency nil}
+           modifiers))
+
+(defn ^:private as-otype [tname]
+  (case tname
+    "boolean" "java.lang.Boolean"
+    "byte"    "java.lang.Byte"
+    "short"   "java.lang.Short"
+    "int"     "java.lang.Integer"
+    "long"    "java.lang.Long"
+    "float"   "java.lang.Float"
+    "double"  "java.lang.Double"
+    "char"    "java.lang.Character"
+    ;; else
+    tname
+    ))
+
+(defn analyse-jvm-class [analyse ?name ?super-class ?interfaces ?fields ?methods]
+  (|do [=interfaces (&/map% extract-text ?interfaces)
+        =fields (&/map% (fn [?field]
                           (matchv ::M/objects [?field]
-                            [["lux;Meta" [_ ["lux;TupleS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?class]]]
-                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?field-name]]]
-                                                                                    ["lux;Nil" _]]]]]]]]]
-                            (return [?class ?field-name])
+                            [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?field-name]]]]
+                                                                      ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?field-type]]]
+                                                                                   ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?field-modifiers]]]
+                                                                                                ["lux;Nil" _]]]]]]]]]]]
+                            (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
+                              (return {:name ?field-name
+                                       :modifiers =field-modifiers
+                                       :type ?field-type}))
                             
                             [_]
-                            (fail "[Analyser Error] Fields must be Tuple2 of [Symbol, Symbol]")))
+                            (fail "[Analyser Error] Wrong syntax for field.")))
                         ?fields)
-        :let [=fields (into {} (for [[class field] ?fields]
-                                 [field {:access :public
-                                         :type class}]))]
-        $module &/get-module-name]
-    (return (&/|list (&/V "jvm-class" (&/T $module ?name ?super-class =fields {}))))))
+        =methods (&/map% (fn [?method]
+                           (matchv ::M/objects [?method]
+                             [[?idx ["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?method-name]]]]
+                                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?method-inputs]]]
+                                                                                          ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?method-output]]]
+                                                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?method-modifiers]]]
+                                                                                                                    ["lux;Cons" [?method-body
+                                                                                                                                 ["lux;Nil" _]]]]]]]]]]]]]]]]
+                             (|do [=method-inputs (&/map% (fn [minput]
+                                                            (matchv ::M/objects [minput]
+                                                              [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?input-name]]]
+                                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?input-type]]]
+                                                                                                                     ["lux;Nil" _]]]]]]]]]
+                                                              (return (&/T (&/ident->text ?input-name) ?input-type))
 
-(defn analyse-jvm-interface [analyse ?name ?members]
-  (|do [=members (&/map% (fn [member]
-                           (matchv ::M/objects [member]
-                             [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ":"]]]]
-                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "->"]]]]
-                                                                                                                             ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?inputs]]]
-                                                                                                                                          ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?output]]]]
-                                                                                                                                                       ["lux;Nil" _]]]]]]]]]]
-                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?member-name]]]]
-                                                                                                 ["lux;Nil" _]]]]]]]]]]]
-                             (|do [inputs* (&/map% extract-ident ?inputs)]
-                               (return [?member-name [inputs* ?output]]))
+                                                              [_]
+                                                              (fail "[Analyser Error] Wrong syntax for method.")))
+                                                          ?method-inputs)
+                                   =method-modifiers (analyse-modifiers ?method-modifiers)
+                                   =method-body (&/with-scope (str ?name "_" ?idx)
+                                                  (&/fold (fn [body* input*]
+                                                            (|let [[iname itype] input*]
+                                                              (&&env/with-local iname (&/V "lux;DataT" (as-otype itype))
+                                                                body*)))
+                                                          (if (= "void" ?method-output)
+                                                            (analyse-1+ analyse ?method-body)
+                                                            (&&/analyse-1 analyse (&/V "lux;DataT" (as-otype ?method-output)) ?method-body))
+                                                          (&/|reverse (if (:static? =method-modifiers)
+                                                                        =method-inputs
+                                                                        (&/|cons (&/T ";this" ?super-class)
+                                                                                 =method-inputs)))))]
+                               (return {:name ?method-name
+                                        :modifiers =method-modifiers
+                                        :inputs (&/|map &/|second =method-inputs)
+                                        :output ?method-output
+                                        :body =method-body}))
+                             
+                             [_]
+                             (fail "[Analyser Error] Wrong syntax for method.")))
+                         (&/enumerate ?methods))]
+    (return (&/|list (&/V "jvm-class" (&/T ?name ?super-class =interfaces =fields =methods))))))
+
+(defn analyse-jvm-interface [analyse ?name ?supers ?methods]
+  (|do [=supers (&/map% extract-text ?supers)
+        =methods (&/map% (fn [method]
+                           (matchv ::M/objects [method]
+                             [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?method-name]]]]
+                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?inputs]]]
+                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?output]]]
+                                                                                                 ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?modifiers]]]
+                                                                                                              ["lux;Nil" _]]]]]]]]]]]]]
+                             (|do [=inputs (&/map% extract-text ?inputs)
+                                   =modifiers (analyse-modifiers ?modifiers)]
+                               (return {:name ?method-name
+                                        :modifiers =modifiers
+                                        :inputs =inputs
+                                        :output ?output}))
                              
                              [_]
                              (fail "[Analyser Error] Invalid method signature!")))
-                         ?members)
-        :let [=methods (into {} (for [[method [inputs output]] (&/->seq =members)]
-                                  [method {:access :public
-                                           :type [inputs output]}]))]
-        $module &/get-module-name]
-    (return (&/|list (&/V "jvm-interface" (&/T $module ?name =methods))))))
+                         ?methods)]
+    (return (&/|list (&/V "jvm-interface" (&/T ?name =supers =methods))))))
 
 (defn analyse-jvm-try [analyse ?body [?catches ?finally]]
   (|do [=body (&&/analyse-1 analyse ?body)
