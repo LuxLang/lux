@@ -124,11 +124,13 @@
                             (&/T (&/T file-name line-num column-num*) line)))))
         (&/V "No" (str "[Reader Error] Text failed: " text))))))
 
+(def ^:private +source-dir+ "source/")
 (defn from [file-name file-content]
-  (let [lines (&/->list (string/split-lines file-content))]
+  (let [lines (&/->list (string/split-lines file-content))
+        file-name (.substring file-name (.length +source-dir+))]
     (&/|map (fn [line+line-num]
               (|let [[line-num line] line+line-num]
-                (&/T (&/T file-name line-num 0)
+                (&/T (&/T file-name (inc line-num) 0)
                      line)))
             (&/|filter (fn [line+line-num]
                          (|let [[line-num line] line+line-num]

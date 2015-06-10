@@ -778,7 +778,7 @@
       (if (or (.equals ^Object e!name a!name)
               (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
         (return (&/T fixpoints nil))
-        (fail (str "[Type Error] Names don't match: " e!name " & " a!name)))
+        (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))
 
       [["lux;LambdaT" [eI eO]] ["lux;LambdaT" [aI aO]]]
       (|do [[fixpoints* _] (check* fixpoints aI eI)]
