@@ -143,21 +143,25 @@
   (&/V "lux;VariantT" (&/|list (&/T "lux;Local" Int)
                                (&/T "lux;Global" Ident))))
 
+(def $Module
+  (fAll "lux;$Module" "Compiler"
+        (&/V "lux;RecordT"
+             (&/|list (&/T "lux;aliases" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Text)))))
+                      (&/T "lux;defs" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
+                                                                     (&/|list Text
+                                                                              (&/V "lux;TupleT" (&/|list Bool
+                                                                                                         (&/V "lux;AppT" (&/T DefData*
+                                                                                                                              (&/V "lux;LambdaT" (&/T SyntaxList
+                                                                                                                                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;BoundT" "Compiler")))
+                                                                                                                                                                           SyntaxList)))))))))))))))))
+
 (def $Compiler
   (&/V "lux;AppT" (&/T (fAll "lux;Compiler" ""
                              (&/V "lux;RecordT"
                                   (&/|list (&/T "lux;source" Reader)
                                            (&/T "lux;modules" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
                                                                                              (&/|list Text
-                                                                                                      (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
-                                                                                                                                     (&/|list Text
-                                                                                                                                              (&/V "lux;TupleT" (&/|list Bool
-                                                                                                                                                                         (&/V "lux;AppT" (&/T DefData*
-                                                                                                                                                                                              (&/V "lux;LambdaT" (&/T SyntaxList
-                                                                                                                                                                                                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Compiler")
-                                                                                                                                                                                                                                                                                            (&/V "lux;BoundT" "")))))
-                                                                                                                                                                                                                                           SyntaxList)))))))))))))))))
-                                           (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List $Void)))
+                                                                                                      (&/V "lux;AppT" (&/T $Module (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Compiler") (&/V "lux;BoundT" ""))))))))))
                                            (&/T "lux;envs" (&/V "lux;AppT" (&/T List
                                                                                 (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
                                                                                                      (&/V "lux;TupleT" (&/|list LuxVar Type)))))))

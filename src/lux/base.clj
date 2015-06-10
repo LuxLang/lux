@@ -22,11 +22,10 @@
 ;; CompilerState
 (def $ENVS 0)
 (def $HOST 1)
-(def $MODULE-ALIASES 2)
-(def $MODULES 3)
-(def $SEED 4)
-(def $SOURCE 5)
-(def $TYPES 6)
+(def $MODULES 2)
+(def $SEED 3)
+(def $SOURCE 4)
+(def $TYPES 5)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -473,8 +472,6 @@
    (|list)
    ;; "lux;host"
    (host nil)
-   ;; "lux;module-aliases"
-   (|table)
    ;; "lux;modules"
    (|table)
    ;; "lux;seed"

@@ -6,18 +6,31 @@
                  [host :as &host])
             [lux.analyser.base :as &&]))
 
+;; [Utils]
+(def ^:private $ALIASES 0)
+(def ^:private $DEFS 1)
+
 ;; [Exports]
 (def init-module
-  (&/|table))
+  (&/R ;; "lux;aliases"
+   (&/|table)
+   ;; "lux;defs"
+   (&/|table)
+   ))
 
 (defn define [module name def-data type]
   (fn [state]
     (matchv ::M/objects [(&/get$ &/$ENVS state)]
       [["lux;Cons" [?env ["lux;Nil" _]]]]
       (return* (->> state
-                    (&/update$ &/$MODULES (fn [ms]
-                                            (&/|update module #(&/|put name (&/T false def-data) %)
-                                                       ms)))
+                    (&/update$ &/$MODULES
+                               (fn [ms]
+                                 (&/|update module
+                                            (fn [m]
+                                              (&/update$ $DEFS
+                                                         #(&/|put name (&/T false def-data) %)
+                                                         m))
+                                            ms)))
                     (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
                                                                     (&/update$ &/$MAPPINGS (fn [mappings]
                                                                                              (&/|put (str "" &/+name-separator+ name)
@@ -35,9 +48,14 @@
     (matchv ::M/objects [(&/get$ &/$ENVS state)]
       [["lux;Cons" [?env ["lux;Nil" _]]]]
       (return* (->> state
-                    (&/update$ &/$MODULES (fn [ms]
-                                            (&/|update a-module #(&/|put a-name (&/T false (&/V "lux;AliasD" (&/T r-module r-name))) %)
-                                                       ms)))
+                    (&/update$ &/$MODULES
+                               (fn [ms]
+                                 (&/|update a-module
+                                            (fn [m]
+                                              (&/update$ $DEFS
+                                                         #(&/|put a-name (&/T false (&/V "lux;AliasD" (&/T r-module r-name))) %)
+                                                         m))
+                                            ms)))
                     (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
                                                                     (&/update$ &/$MAPPINGS (fn [mappings]
                                                                                              (&/|put (str "" &/+name-separator+ a-name)
@@ -55,16 +73,30 @@
     (return* state
              (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
 
-(defn dealias [name]
+(defn alias-module [module reference alias]
   (fn [state]
-    (if-let [real-name (->> state (&/get$ &/$MODULE-ALIASES) (&/|get name))]
-      (return* state real-name)
-      (fail* (str "Unknown alias: " name)))))
+    (return* (->> state
+                  (&/update$ &/$MODULES
+                             (fn [ms]
+                               (&/|update module
+                                          #(&/update$ $ALIASES
+                                                      (fn [aliases]
+                                                        (&/|put alias reference aliases))
+                                                      %)
+                                          ms))))
+             nil)))
+
+(defn dealias [name]
+  (|do [current-module &/get-module-name]
+    (fn [state]
+      (if-let [real-name (->> state (&/get$ &/$MODULES) (&/|get current-module) (&/get$ $ALIASES) (&/|get name))]
+        (return* state real-name)
+        (fail* (str "Unknown alias: " name))))))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
+      (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
         (if-let [$def (&/|get name $module)]
           (matchv ::M/objects [$def]
             [[exported? $$def]]
@@ -90,7 +122,7 @@
 
 (defn declare-macro [module name]
   (fn [state]
-    (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
+    (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
       (if-let [$def (&/|get name $module)]
         (matchv ::M/objects [$def]
           [[exported? ["lux;ValueD" ?type]]]
@@ -102,8 +134,12 @@
              (fn [state*]
                (return* (&/update$ &/$MODULES
                                    (fn [$modules]
-                                     (&/|put module (&/|put name (&/T exported? (&/V "lux;MacroD" macro)) $module)
-                                             $modules))
+                                     (&/|update module
+                                                (fn [m]
+                                                  (&/update$ $DEFS
+                                                             #(&/|put name (&/T exported? (&/V "lux;MacroD" macro)) %)
+                                                             m))
+                                                $modules))
                                    state*)
                         nil)))
            state)
@@ -120,7 +156,7 @@
   (fn [state]
     (matchv ::M/objects [(&/get$ &/$ENVS state)]
       [["lux;Cons" [?env ["lux;Nil" _]]]]
-      (if-let [$def (->> state (&/get$ &/$MODULES) (&/|get module) (&/|get name))]
+      (if-let [$def (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS) (&/|get name))]
         (matchv ::M/objects [$def]
           [[true _]]
           (fail* (str "[Analyser Error] Definition has already been exported: " module ";" name))
@@ -128,7 +164,10 @@
           [[false ?data]]
           (return* (->> state
                         (&/update$ &/$MODULES (fn [ms]
-                                                (&/|update module #(&/|put name (&/T true ?data) %)
+                                                (&/|update module (fn [m]
+                                                                    (&/update$ $DEFS
+                                                                               #(&/|put name (&/T true ?data) %)
+                                                                               m))
                                                            ms))))
                    nil))
         (fail* (str "[Analyser Error] Can't export an inexistent definition: " module ";" name)))
