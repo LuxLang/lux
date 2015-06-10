@@ -124,6 +124,147 @@
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "lux/Function" "apply" &&/apply-signature)]]
     (return nil)))
 
+(defn ^:private type->analysis [type]
+  (matchv ::M/objects [type]
+    [["lux;DataT" ?class]]
+    (&/T (&/V "variant" (&/T "lux;DataT"
+                             (&/T (&/V "text" ?class) &type/$Void)))
+         &type/$Void)
+    
+    [["lux;TupleT" ?members]]
+    (&/T (&/V "variant" (&/T "lux;TupleT"
+                             (&/fold (fn [tail head]
+                                       (&/V "variant" (&/T "lux;Cons"
+                                                           (&/T (&/V "tuple" (&/|list (type->analysis head)
+                                                                                      tail))
+                                                                &type/$Void))))
+                                     (&/V "variant" (&/T "lux;Nil"
+                                                         (&/T (&/V "tuple" (&/|list))
+                                                              &type/$Void)))
+                                     (&/|reverse ?members))))
+         &type/$Void)
+
+    [["lux;VariantT" ?cases]]
+    (&/T (&/V "variant" (&/T "lux;VariantT"
+                             (&/fold (fn [tail head]
+                                       (|let [[hlabel htype] head]
+                                         (&/V "variant" (&/T "lux;Cons"
+                                                             (&/T (&/V "tuple" (&/|list (&/T (&/V "tuple" (&/|list (&/T (&/V "text" hlabel) &type/$Void)
+                                                                                                                   (type->analysis htype)))
+                                                                                             &type/$Void)
+                                                                                        tail))
+                                                                  &type/$Void)))))
+                                     (&/V "variant" (&/T "lux;Nil"
+                                                         (&/T (&/V "tuple" (&/|list))
+                                                              &type/$Void)))
+                                     (&/|reverse ?cases))))
+         &type/$Void)
+
+    [["lux;RecordT" ?slots]]
+    (&/T (&/V "variant" (&/T "lux;RecordT"
+                             (&/fold (fn [tail head]
+                                       (|let [[hlabel htype] head]
+                                         (&/V "variant" (&/T "lux;Cons"
+                                                             (&/T (&/V "tuple" (&/|list (&/T (&/V "tuple" (&/|list (&/T (&/V "text" hlabel) &type/$Void)
+                                                                                                                   (type->analysis htype)))
+                                                                                             &type/$Void)
+                                                                                        tail))
+                                                                  &type/$Void)))))
+                                     (&/V "variant" (&/T "lux;Nil"
+                                                         (&/T (&/V "tuple" (&/|list))
+                                                              &type/$Void)))
+                                     (&/|reverse ?slots))))
+         &type/$Void)
+
+    [["lux;LambdaT" [?input ?output]]]
+    (&/T (&/V "variant" (&/T "lux;LambdaT"
+                             (&/T (&/V "tuple" (&/|map type->analysis (&/|list ?input ?output)))
+                                  &type/$Void)))
+         &type/$Void)
+
+    [["lux;AllT" [?env ?name ?arg ?body]]]
+    (&/T (&/V "variant" (&/T "lux;AllT"
+                             (&/T (&/V "tuple" (&/|list (matchv ::M/objects [?env]
+                                                          [["lux;None" _]]
+                                                          (&/V "variant" (&/T "lux;Some"
+                                                                              (&/T (&/V "tuple" (&/|list))
+                                                                                   &type/$Void)))
+
+                                                          [["lux;Some" ??env]]
+                                                          (&/V "variant" (&/T "lux;Some"
+                                                                              (&/T (&/fold (fn [tail head]
+                                                                                             (|let [[hlabel htype] head]
+                                                                                               (&/V "variant" (&/T "lux;Cons"
+                                                                                                                   (&/T (&/V "tuple" (&/|list (&/T (&/V "tuple" (&/|list (&/T (&/V "text" hlabel) &type/$Void)
+                                                                                                                                                                         (type->analysis htype)))
+                                                                                                                                                   &type/$Void)
+                                                                                                                                              tail))
+                                                                                                                        &type/$Void)))))
+                                                                                           (&/V "variant" (&/T "lux;Nil"
+                                                                                                               (&/T (&/V "tuple" (&/|list))
+                                                                                                                    &type/$Void)))
+                                                                                           (&/|reverse ??env))
+                                                                                   &type/$Void))))
+                                                        (&/T (&/V "text" ?name) &type/$Void)
+                                                        (&/T (&/V "text" ?arg) &type/$Void)
+                                                        (type->analysis ?body)))
+                                  &type/$Void)))
+         &type/$Void)
+
+    [["lux;BoundT" ?name]]
+    (&/T (&/V "variant" (&/T "lux;BoundT"
+                             (&/T (&/V "text" ?name) &type/$Void)))
+         &type/$Void)
+
+    [["lux;AppT" [?fun ?arg]]]
+    (&/T (&/V "variant" (&/T "lux;AppT"
+                             (&/T (&/V "tuple" (&/|map type->analysis (&/|list ?fun ?arg)))
+                                  &type/$Void)))
+         &type/$Void)
+    ))
+
+(defn ^:private compile-def-type [compile ?body ?def-data]
+  (|do [^MethodVisitor **writer** &/get-writer]
+    (matchv ::M/objects [?def-data]
+      [["lux;TypeD" _]]
+      (let [_ (doto **writer**
+                ;; Tail: Begin
+                (.visitLdcInsn (int 2)) ;; S
+                (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
+                (.visitInsn Opcodes/DUP) ;; VV
+                (.visitLdcInsn (int 0)) ;; VVI
+                (.visitLdcInsn "lux;TypeD") ;; VVIT
+                (.visitInsn Opcodes/AASTORE) ;; V
+                (.visitInsn Opcodes/DUP) ;; VV
+                (.visitLdcInsn (int 1)) ;; VVI
+                (.visitInsn Opcodes/ACONST_NULL) ;; VVIN
+                (.visitInsn Opcodes/AASTORE) ;; V
+                )]
+        (return nil))
+
+      [["lux;ValueD" _]]
+      (|let [;; _ (prn '?body (aget ?body 0) (aget ?body 1 0))
+             [?def-value ?def-type] (matchv ::M/objects [?body]
+                                      [[["ann" [?def-value ?type-expr]] ?def-type]]
+                                      (&/T ?def-value ?type-expr)
+
+                                      [[?def-value ?def-type]]
+                                      (&/T ?body (type->analysis ?def-type)))]
+        (|do [:let [_ (doto **writer**
+                        (.visitLdcInsn (int 2)) ;; S
+                        (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
+                        (.visitInsn Opcodes/DUP) ;; VV
+                        (.visitLdcInsn (int 0)) ;; VVI
+                        (.visitLdcInsn "lux;ValueD") ;; VVIT
+                        (.visitInsn Opcodes/AASTORE) ;; V
+                        (.visitInsn Opcodes/DUP) ;; VV
+                        (.visitLdcInsn (int 1)) ;; VVI
+                        )]
+              _ (compile ?def-type)
+              :let [_ (.visitInsn **writer** Opcodes/AASTORE)]]
+          (return nil)))
+      )))
+
 (defn compile-def [compile ?name ?body ?def-data]
   (|do [^ClassWriter *writer* &/get-writer
         module-name &/get-module-name
@@ -136,17 +277,16 @@
                                current-class nil "java/lang/Object" (into-array ["lux/Function"]))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                            (doto (.visitEnd)))
-                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_mode" datum-sig nil ...)
-                       ;;     (doto (.visitEnd)))
-                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_type" datum-sig nil nil)
-                       ;;     (doto (.visitEnd)))
-                       )]
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_meta" datum-sig nil nil)
+                           (doto (.visitEnd))))]
         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
             (|do [^MethodVisitor **writer** &/get-writer
                   :let [_ (.visitCode **writer**)]
                   _ (compile ?body)
+                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class "_datum" datum-sig)]
+                  _ (compile-def-type compile ?body ?def-data)
+                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class "_meta" datum-sig)]
                   :let [_ (doto **writer**
-                            (.visitFieldInsn Opcodes/PUTSTATIC current-class "_datum" datum-sig)
                             (.visitInsn Opcodes/RETURN)
                             (.visitMaxs 0 0)
                             (.visitEnd))]]
