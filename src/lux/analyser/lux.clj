@@ -316,8 +316,18 @@
   (|do [module-name &/get-module-name]
     (return (&/|list (&/V "declare-macro" (&/T module-name ?name))))))
 
-(defn analyse-import [analyse exo-type ?path]
-  (return (&/|list)))
+(defn analyse-import [analyse compile-module ?path]
+  (prn 'analyse-import ?path)
+  (fn [state]
+    (let [already-compiled? (&/fold false #(or %1 (= %2 ?path)) (&/get$ &/$SEEN-SOURCES state))]
+      (&/run-state (|do [_ (&&module/add-import ?path)
+                         _ (if already-compiled?
+                             (return nil)
+                             (compile-module ?path))]
+                     (return (&/|list)))
+                   (if already-compiled?
+                     state
+                     (&/update$ &/$SEEN-SOURCES (partial &/|cons ?path) state))))))
 
 (defn analyse-export [analyse name]
   (|do [module-name &/get-module-name

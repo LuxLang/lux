@@ -1,22 +1,37 @@
 (ns lux.analyser.module
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return return* fail fail*]]
+            (lux [base :as & :refer [|let |do return return* fail fail*]]
                  [type :as &type]
                  [host :as &host])
             [lux.analyser.base :as &&]))
 
 ;; [Utils]
-(def ^:private $ALIASES 0)
-(def ^:private $DEFS 1)
+(def ^:private $DEFS 0)
+(def ^:private $ALIASES 1)
+(def ^:private $IMPORTS 2)
 
 ;; [Exports]
 (def init-module
-  (&/R ;; "lux;aliases"
+  (&/R ;; "lux;defs"
    (&/|table)
-   ;; "lux;defs"
+   ;; "lux;module-aliases"
    (&/|table)
+   ;; "lux;imports"
+   (&/|list)
    ))
+
+(defn add-import [module]
+  "(-> Text (Lux (,)))"
+  (|do [current-module &/get-module-name]
+    (fn [state]
+      (return* (&/update$ &/$MODULES
+                          (fn [ms]
+                            (&/|update current-module
+                                       (fn [m] (&/update$ $IMPORTS (partial &/|cons module) m))
+                                       ms))
+                          state)
+               nil))))
 
 (defn define [module name def-data type]
   (fn [state]
@@ -69,6 +84,7 @@
       (fail* "[Analyser Error] Can't alias a global definition outside of a global environment."))))
 
 (defn exists? [name]
+  "(-> Text (Lux Bool))"
   (fn [state]
     (return* state
              (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
@@ -174,3 +190,30 @@
       
       [_]
       (fail* "[Analyser Error] Can't export a global definition outside of a global environment."))))
+
+(def defs
+  (|do [module &/get-module-name]
+    (fn [state]
+      (return* state
+               (&/|map (fn [kv]
+                         (|let [[k v] kv]
+                           (matchv ::M/objects [v]
+                             [[?exported? ?def]]
+                             (matchv ::M/objects [?def]
+                               [["lux;AliasD" [?r-module ?r-name]]]
+                               (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
+                               
+                               [["lux;MacroD" _]]
+                               (&/T ?exported? k "M")
+
+                               [["lux;TypeD" _]]
+                               (&/T ?exported? k "T")
+
+                               [_]
+                               (&/T ?exported? k "V")))))
+                       (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS)))))))
+
+(def imports
+  (|do [module &/get-module-name]
+    (fn [state]
+      (return* state (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $IMPORTS))))))

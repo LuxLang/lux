@@ -146,14 +146,15 @@
 (def $Module
   (fAll "lux;$Module" "Compiler"
         (&/V "lux;RecordT"
-             (&/|list (&/T "lux;aliases" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Text)))))
+             (&/|list (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Text)))))
                       (&/T "lux;defs" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
                                                                      (&/|list Text
                                                                               (&/V "lux;TupleT" (&/|list Bool
                                                                                                          (&/V "lux;AppT" (&/T DefData*
                                                                                                                               (&/V "lux;LambdaT" (&/T SyntaxList
                                                                                                                                                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;BoundT" "Compiler")))
-                                                                                                                                                                           SyntaxList)))))))))))))))))
+                                                                                                                                                                           SyntaxList)))))))))))))
+                      (&/T "lux;imports" (&/V "lux;AppT" (&/T List Text)))))))
 
 (def $Compiler
   (&/V "lux;AppT" (&/T (fAll "lux;Compiler" ""
@@ -167,7 +168,8 @@
                                                                                                      (&/V "lux;TupleT" (&/|list LuxVar Type)))))))
                                            (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
                                            (&/T "lux;host" HostState)
-                                           (&/T "lux;seed" Int))))
+                                           (&/T "lux;seed" Int)
+                                           (&/T "lux;seen-sources" (&/V "lux;AppT" (&/T List Text))))))
                        $Void)))
 
 (def Macro

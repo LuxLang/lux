@@ -15,5 +15,5 @@
 ;; Global var aliasing.
 
 ;; [Exports]
-(defn optimize [eval!]
-  (&analyser/analyse eval!))
+(defn optimize [eval! compile-module]
+  (&analyser/analyse eval! compile-module))

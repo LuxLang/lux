@@ -5,7 +5,7 @@
                      [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail*]]
+            (lux [base :as & :refer [|let |do return* return fail fail*]]
                  [type :as &type]
                  [reader :as &reader]
                  [lexer :as &lexer]
@@ -347,9 +347,9 @@
         (.get nil)
         return)))
 
-(let [compiler-step (|do [analysis+ (&optimizer/optimize eval!)]
-                      (&/map% compile-statement analysis+))]
-  (defn ^:private compile-module [name]
+(defn ^:private compile-module [name]
+  (let [compiler-step (|do [analysis+ (&optimizer/optimize eval! compile-module)]
+                        (&/map% compile-statement analysis+))]
     (fn [state]
       (if (->> state (&/get$ &/$MODULES) (&/|contains? name))
         (if (.equals ^Object name "lux")
@@ -363,14 +363,7 @@
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil (hash file-content))
                            .visitEnd)
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_compiler" "Ljava/lang/String;" nil version)
-                           .visitEnd)
-                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil ...)
-                       ;;     .visitEnd)
-                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_exports" "Ljava/lang/String;" nil ...)
-                       ;;     .visitEnd)
-                       ;; (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_macros" "Ljava/lang/String;" nil ...)
-                       ;;     .visitEnd)
-                       )]
+                           .visitEnd))]
           (matchv ::M/objects [((&/exhaust% compiler-step)
                                 (->> state
                                      (&/set$ &/$SOURCE (&reader/from file-name file-content))
@@ -378,8 +371,23 @@
                                      (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
                                      (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]
             [["lux;Right" [?state _]]]
-            (do (.visitEnd =class)
-              ((&&/save-class! name (.toByteArray =class)) ?state))
+            (&/run-state (|do [defs &a-module/defs
+                               imports &a-module/imports
+                               :let [_ (doto =class
+                                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_defs" "Ljava/lang/String;" nil
+                                                          (->> defs
+                                                               (&/|map (fn [_def]
+                                                                         (|let [[?exported ?name ?ann] _def]
+                                                                           (str (if ?exported "1" "0") " " ?name " " ?ann))))
+                                                               (&/|interpose "\t")
+                                                               (&/fold str "")))
+                                             .visitEnd)
+                                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil
+                                                          (->> imports (&/|interpose ";") (&/fold str "")))
+                                             .visitEnd)
+                                         (.visitEnd))]]
+                           (&&/save-class! name (.toByteArray =class)))
+                         ?state)
             
             [["lux;Left" ?message]]
             (fail* ?message)))))))

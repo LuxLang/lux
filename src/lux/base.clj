@@ -24,8 +24,9 @@
 (def $HOST 1)
 (def $MODULES 2)
 (def $SEED 3)
-(def $SOURCE 4)
-(def $TYPES 5)
+(def $SEEN-SOURCES 4)
+(def $SOURCE 5)
+(def $TYPES 6)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -476,6 +477,8 @@
    (|table)
    ;; "lux;seed"
    0
+   ;; "lux;seen-sources"
+   (|list)
    ;; "lux;source"
    (V "lux;None" nil)
    ;; "lux;types"

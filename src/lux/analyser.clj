@@ -27,7 +27,7 @@
     (&/T catch+ ?finally-body)))
 
 (let [unit (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;TupleS" (|list))))]
-  (defn ^:private aba1 [analyse eval! exo-type token]
+  (defn ^:private aba1 [analyse eval! compile-module exo-type token]
     (matchv ::M/objects [token]
       ;; Standard special forms
       [["lux;BoolS" ?value]]
@@ -66,7 +66,7 @@
       (fail "")
       )))
 
-(defn ^:private aba2 [analyse eval! exo-type token]
+(defn ^:private aba2 [analyse eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     [["lux;SymbolS" ?ident]]
     (&&lux/analyse-symbol analyse exo-type ?ident)
@@ -96,7 +96,7 @@
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_lux_import"]]]]
                                ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?path]]]
                                             ["lux;Nil" _]]]]]]]
-    (&&lux/analyse-import analyse ?path)
+    (&&lux/analyse-import analyse compile-module ?path)
 
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_lux_:"]]]]
                                ["lux;Cons" [?type
@@ -118,7 +118,7 @@
     [_]
     (fail "")))
 
-(defn ^:private aba3 [analyse eval! exo-type token]
+(defn ^:private aba3 [analyse eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     ;; Host special forms
     ;; Integer arithmetic
@@ -174,7 +174,7 @@
     [_]
     (fail "")))
 
-(defn ^:private aba4 [analyse eval! exo-type token]
+(defn ^:private aba4 [analyse eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     ;; Float arithmetic
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_fadd"]]]] ["lux;Cons" [?y ["lux;Cons" [?x ["lux;Nil" _]]]]]]]]]
@@ -229,7 +229,7 @@
     [_]
     (fail "")))
 
-(defn ^:private aba5 [analyse eval! exo-type token]
+(defn ^:private aba5 [analyse eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     ;; Objects
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_null?"]]]]
@@ -332,7 +332,7 @@
     [_]
     (fail "")))
 
-(defn ^:private aba6 [analyse eval! exo-type token]
+(defn ^:private aba6 [analyse eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     ;; Primitive conversions
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_d2f"]]]] ["lux;Cons" [?value ["lux;Nil" _]]]]]]]
@@ -408,7 +408,7 @@
     [_]
     (fail "")))
 
-(defn ^:private aba7 [analyse eval! exo-type token]
+(defn ^:private aba7 [analyse eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     ;; Arrays
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_new-array"]]]]
@@ -455,48 +455,48 @@
     [_]
     (fail "")))
 
-(defn ^:private add-loc [meta msg]
+(defn ^:private add-loc [meta ^String msg]
   (if (.startsWith msg "@")
     msg
     (|let [[file line col] meta]
       (str "@ " file " : " line " , " col "\n" msg))))
 
-(defn ^:private analyse-basic-ast [analyse eval! exo-type token]
+(defn ^:private analyse-basic-ast [analyse eval! compile-module exo-type token]
   ;; (prn 'analyse-basic-ast (&/show-ast token))
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ?token]]]
     (fn [state]
-      (matchv ::M/objects [((aba1 analyse eval! exo-type ?token) state)]
+      (matchv ::M/objects [((aba1 analyse eval! compile-module exo-type ?token) state)]
         [["lux;Right" [state* output]]]
         (return* state* output)
 
         [["lux;Left" ""]]
-        (matchv ::M/objects [((aba2 analyse eval! exo-type ?token) state)]
+        (matchv ::M/objects [((aba2 analyse eval! compile-module exo-type ?token) state)]
           [["lux;Right" [state* output]]]
           (return* state* output)
 
           [["lux;Left" ""]]
-          (matchv ::M/objects [((aba3 analyse eval! exo-type ?token) state)]
+          (matchv ::M/objects [((aba3 analyse eval! compile-module exo-type ?token) state)]
             [["lux;Right" [state* output]]]
             (return* state* output)
 
             [["lux;Left" ""]]
-            (matchv ::M/objects [((aba4 analyse eval! exo-type ?token) state)]
+            (matchv ::M/objects [((aba4 analyse eval! compile-module exo-type ?token) state)]
               [["lux;Right" [state* output]]]
               (return* state* output)
 
               [["lux;Left" ""]]
-              (matchv ::M/objects [((aba5 analyse eval! exo-type ?token) state)]
+              (matchv ::M/objects [((aba5 analyse eval! compile-module exo-type ?token) state)]
                 [["lux;Right" [state* output]]]
                 (return* state* output)
 
                 [["lux;Left" ""]]
-                (matchv ::M/objects [((aba6 analyse eval! exo-type ?token) state)]
+                (matchv ::M/objects [((aba6 analyse eval! compile-module exo-type ?token) state)]
                   [["lux;Right" [state* output]]]
                   (return* state* output)
                   
                   [["lux;Left" ""]]
-                  (matchv ::M/objects [((aba7 analyse eval! exo-type ?token) state)]
+                  (matchv ::M/objects [((aba7 analyse eval! compile-module exo-type ?token) state)]
                     [["lux;Right" [state* output]]]
                     (return* state* output)
 
@@ -521,25 +521,25 @@
         [["lux;Left" msg]]
         (fail* (add-loc meta msg))))))
 
-(defn ^:private analyse-ast [eval! exo-type token]
+(defn ^:private analyse-ast [eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
     (do (assert (.equals ^Object (&/|length ?values) 1) "[Analyser Error] Can only tag 1 value.")
-      (&&lux/analyse-variant (partial analyse-ast eval!) exo-type ?ident (&/|head ?values)))
+      (&&lux/analyse-variant (partial analyse-ast eval! compile-module) exo-type ?ident (&/|head ?values)))
     
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]
     (fn [state]
-      (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval!) % ?fn)) state)]
+      (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)]
         [["lux;Right" [state* =fn]]]
-        ((&&lux/analyse-apply (partial analyse-ast eval!) exo-type =fn ?args) state*)
+        ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type =fn ?args) state*)
 
         [_]
-        ((analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token) state)))
+        ((analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token) state)))
     
     [_]
-    (analyse-basic-ast (partial analyse-ast eval!) eval! exo-type token)))
+    (analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token)))
 
 ;; [Resources]
-(defn analyse [eval!]
+(defn analyse [eval! compile-module]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast eval! &type/$Void) asts)))
+    (&/flat-map% (partial analyse-ast eval! compile-module &type/$Void) asts)))
