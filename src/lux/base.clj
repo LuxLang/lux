@@ -21,12 +21,13 @@
 
 ;; CompilerState
 (def $ENVS 0)
-(def $HOST 1)
-(def $MODULES 2)
-(def $SEED 3)
-(def $SEEN-SOURCES 4)
-(def $SOURCE 5)
-(def $TYPES 6)
+(def $EVAL? 1)
+(def $HOST 2)
+(def $MODULES 3)
+(def $SEED 4)
+(def $SEEN-SOURCES 5)
+(def $SOURCE 6)
+(def $TYPES 7)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -413,6 +414,7 @@
     \< "_LT_"
     \> "_GT_"
     \~ "_TILDE_"
+    \| "_PIPE_"
     ;; default
     char))
 
@@ -456,7 +458,8 @@
         ;; (prn 'findClass class-name)
         (if-let [^bytes bytecode (get @store class-name)]
           (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
-          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
+          (do (prn 'memory-class-loader/store (keys @store))
+            (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name)))))))))
 
 (defn host [_]
   (let [store (atom {})]
@@ -471,6 +474,8 @@
 (defn init-state [_]
   (R ;; "lux;envs"
    (|list)
+   ;; "lux;eval?"
+   false
    ;; "lux;host"
    (host nil)
    ;; "lux;modules"
@@ -484,6 +489,19 @@
    ;; "lux;types"
    +init-bindings+
    ))
+
+(defn with-eval [body]
+  (fn [state]
+    (matchv ::M/objects [(body (set$ $EVAL? true state))]
+      [["lux;Right" [state* output]]]
+      (return* (set$ $EVAL? (get$ $EVAL? state) state*) output)
+
+      [["lux;Left" msg]]
+      (fail* msg))))
+
+(def get-eval
+  (fn [state]
+    (return* state (get$ $EVAL? state))))
 
 (def get-writer
   (fn [state]
@@ -557,9 +575,8 @@
                                   state))))))
 
 (def get-scope-name
-  (|do [module-name get-module-name]
-    (fn [state]
-      (return* state (->> state (get$ $ENVS) (|map #(get$ $NAME %)) |reverse (|cons module-name))))))
+  (fn [state]
+    (return* state (->> state (get$ $ENVS) (|map #(get$ $NAME %)) |reverse))))
 
 (defn with-writer [writer body]
   (fn [state]

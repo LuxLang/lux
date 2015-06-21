@@ -84,7 +84,8 @@
 
 ;; [Exports]
 (defn compile-lambda [compile ?scope ?env ?body]
-  (|do [:let [lambda-class (&host/location ?scope)
+  ;; (prn 'compile-lambda (->> ?scope &/->seq))
+  (|do [:let [lambda-class (str (&/|head ?scope) "/$" (&host/location (&/|tail ?scope)))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                                lambda-class nil "java/lang/Object" (into-array ["lux/Function"]))
@@ -99,5 +100,5 @@
                        )]
         _ (add-lambda-impl =class compile lambda-impl-signature ?body)
         :let [_ (.visitEnd =class)]
-        _ (&&/save-class! lambda-class (.toByteArray =class))]
+        _ (&&/save-class! (str "$" (&host/location (&/|tail ?scope))) (.toByteArray =class))]
     (instance-closure compile lambda-class ?env (lambda-<init>-signature ?env))))

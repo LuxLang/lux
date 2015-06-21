@@ -169,7 +169,8 @@
                                            (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
                                            (&/T "lux;host" HostState)
                                            (&/T "lux;seed" Int)
-                                           (&/T "lux;seen-sources" (&/V "lux;AppT" (&/T List Text))))))
+                                           (&/T "lux;seen-sources" (&/V "lux;AppT" (&/T List Text)))
+                                           (&/T "lux;eval?" Bool))))
                        $Void)))
 
 (def Macro

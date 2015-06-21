@@ -108,7 +108,7 @@
                                ["lux;Cons" [?type
                                             ["lux;Cons" [?value
                                                          ["lux;Nil" _]]]]]]]]]
-    (&&lux/analyse-coerce analyse eval! ?type ?value)
+    (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)
 
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_lux_export"]]]]
                                ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ?ident]]]]
@@ -459,7 +459,7 @@
   (if (.startsWith msg "@")
     msg
     (|let [[file line col] meta]
-      (str "@ " file " : " line " , " col "\n" msg))))
+      (str "@ " file "," line "," col "\n" msg))))
 
 (defn ^:private analyse-basic-ast [analyse eval! compile-module exo-type token]
   ;; (prn 'analyse-basic-ast (&/show-ast token))
@@ -519,7 +519,8 @@
           (fail* (add-loc meta msg)))
 
         [["lux;Left" msg]]
-        (fail* (add-loc meta msg))))))
+        (fail* (add-loc meta msg))
+        ))))
 
 (defn ^:private analyse-ast [eval! compile-module exo-type token]
   (matchv ::M/objects [token]
@@ -531,7 +532,8 @@
     (fn [state]
       (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)]
         [["lux;Right" [state* =fn]]]
-        ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type =fn ?args) state*)
+        (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
+          ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type =fn ?args) state*))
 
         [_]
         ((analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token) state)))

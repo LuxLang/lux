@@ -107,14 +107,14 @@
         :let [_ (doto *writer*
                   (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitFieldInsn Opcodes/GETFIELD
-                                   (&host/location ?scope)
+                                   (str (&/|head ?scope) "/$" (&host/location (&/|tail ?scope)))
                                    (str &&/closure-prefix ?captured-id)
                                    "Ljava/lang/Object;"))]]
     (return nil)))
 
 (defn compile-global [compile *type* ?owner-class ?name]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class (&host/location (&/|list ?owner-class ?name))) "_datum" "Ljava/lang/Object;")]]
+        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str ?owner-class "/$" (&/normalize-ident ?name)) "_datum" "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-apply [compile *type* ?fn ?arg]
@@ -270,11 +270,13 @@
         module-name &/get-module-name
         :let [outer-class (&host/->class module-name)
               datum-sig "Ljava/lang/Object;"
-              current-class (&host/location (&/|list outer-class ?name))
-              _ (.visitInnerClass *writer* current-class outer-class nil (+ Opcodes/ACC_STATIC Opcodes/ACC_SYNTHETIC))
+              current-class (str outer-class "/" (str "$" (&/normalize-ident ?name)))
+              ;; _ (prn 'compile-def 'outer-class outer-class '?name ?name 'current-class current-class)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                                current-class nil "java/lang/Object" (into-array ["lux/Function"]))
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_name" "Ljava/lang/String;" nil ?name)
+                           (doto (.visitEnd)))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
                            (doto (.visitEnd)))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_meta" datum-sig nil nil)
@@ -292,7 +294,7 @@
                             (.visitEnd))]]
               (return nil)))
         :let [_ (.visitEnd *writer*)]
-        _ (&&/save-class! current-class (.toByteArray =class))]
+        _ (&&/save-class! (str "$" (&/normalize-ident ?name)) (.toByteArray =class))]
     (return nil)))
 
 (defn compile-ann [compile *type* ?value-ex ?type-ex]

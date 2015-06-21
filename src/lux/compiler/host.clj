@@ -319,46 +319,46 @@
        0)))
 
 (defn compile-jvm-class [compile ?name ?super-class ?interfaces ?fields ?methods]
-  (let [name* (&host/->class ?name)
-        super-class* (&host/->class ?super-class)
-        =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                 (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                         name* nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String))))
-        _ (&/|map (fn [field]
-                    (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
-                                       (&host/->type-signature (:type field)) nil nil)
-                      (.visitEnd)))
-                  ?fields)]
-    (|do [_ (&/map% (fn [method]
-                      (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
-                                            (&host/->type-signature (:output method)))]
-                        (&/with-writer (.visitMethod =class (modifiers->int (:modifiers method))
-                                                     (:name method)
-                                                     signature nil nil)
-                          (|do [^MethodVisitor =method &/get-writer
-                                :let [_ (.visitCode =method)]
-                                _ (compile (:body method))
-                                :let [_ (doto =method
-                                          (.visitInsn (if (= "void" (:output method)) Opcodes/RETURN Opcodes/ARETURN))
-                                          (.visitMaxs 0 0)
-                                          (.visitEnd))]]
-                            (return nil)))))
-                    ?methods)]
-      (&&/save-class! name* (.toByteArray (doto =class .visitEnd))))))
-
-(defn compile-jvm-interface [compile ?name ?supers ?methods]
-  (prn 'compile-jvm-interface (->> ?supers &/->seq pr-str))
-  (let [name* (&host/->class ?name)
-        =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                     (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE)
-                             name* nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String))))
-        _ (do (&/|map (fn [method]
+  (|do [module &/get-module-name]
+    (let [super-class* (&host/->class ?super-class)
+          =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                   (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                           (str module "/" ?name) nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String))))
+          _ (&/|map (fn [field]
+                      (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
+                                         (&host/->type-signature (:type field)) nil nil)
+                        (.visitEnd)))
+                    ?fields)]
+      (|do [_ (&/map% (fn [method]
                         (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                                               (&host/->type-signature (:output method)))]
-                          (.visitMethod =interface (modifiers->int (:modifiers method)) (:name method) signature nil nil)))
-                      ?methods)
-            (.visitEnd =interface))]
-    (&&/save-class! name* (.toByteArray =interface))))
+                          (&/with-writer (.visitMethod =class (modifiers->int (:modifiers method))
+                                                       (:name method)
+                                                       signature nil nil)
+                            (|do [^MethodVisitor =method &/get-writer
+                                  :let [_ (.visitCode =method)]
+                                  _ (compile (:body method))
+                                  :let [_ (doto =method
+                                            (.visitInsn (if (= "void" (:output method)) Opcodes/RETURN Opcodes/ARETURN))
+                                            (.visitMaxs 0 0)
+                                            (.visitEnd))]]
+                              (return nil)))))
+                      ?methods)]
+        (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))))
+
+(defn compile-jvm-interface [compile ?name ?supers ?methods]
+  ;; (prn 'compile-jvm-interface (->> ?supers &/->seq pr-str))
+  (|do [module &/get-module-name]
+    (let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE)
+                               (str module "/" ?name) nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String))))
+          _ (do (&/|map (fn [method]
+                          (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
+                                                (&host/->type-signature (:output method)))]
+                            (.visitMethod =interface (modifiers->int (:modifiers method)) (:name method) signature nil nil)))
+                        ?methods)
+              (.visitEnd =interface))]
+      (&&/save-class! ?name (.toByteArray =interface)))))
 
 (defn compile-jvm-try [compile *type* ?body ?catches ?finally]
   (|do [^MethodVisitor *writer* &/get-writer
