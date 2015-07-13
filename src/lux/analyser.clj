@@ -115,6 +115,12 @@
                                             ["lux;Nil" _]]]]]]]
     (&&lux/analyse-export analyse ?ident)
 
+    [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_lux_alias"]]]]
+                               ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?alias]]]
+                                            ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?module]]]
+                                                         ["lux;Nil" _]]]]]]]]]
+    (&&lux/analyse-alias analyse ?alias ?module)
+    
     [_]
     (fail "")))
 
@@ -447,7 +453,7 @@
 
     ;; Programs
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_program"]]]]
-                               ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?args]]]]
+                               ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?args]]]
                                             ["lux;Cons" [?body
                                                          ["lux;Nil" _]]]]]]]]]
     (&&host/analyse-jvm-program analyse ?args ?body)
@@ -500,6 +506,9 @@
                     [["lux;Right" [state* output]]]
                     (return* state* output)
 
+                    [["lux;Left" ""]]
+                    (fail* (add-loc meta (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
+                    
                     [["lux;Left" msg]]
                     (fail* (add-loc meta msg)))
 
@@ -522,6 +531,21 @@
         (fail* (add-loc meta msg))
         ))))
 
+(defn ^:private just-analyse [analyse-ast eval! compile-module syntax]
+  (&type/with-var
+    (fn [?var]
+      (|do [[?output-term ?output-type] (&&/analyse-1 (partial analyse-ast eval! compile-module) ?var syntax)]
+        (matchv ::M/objects [?var ?output-type]
+          [["lux;VarT" ?e-id] ["lux;VarT" ?a-id]]
+          (if (= ?e-id ?a-id)
+            (|do [?output-type* (&type/deref ?e-id)]
+              (return (&/T ?output-term ?output-type*)))
+            (return (&/T ?output-term ?output-type)))
+
+          [_ _]
+          (return (&/T ?output-term ?output-type)))
+        ))))
+
 (defn ^:private analyse-ast [eval! compile-module exo-type token]
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
@@ -530,10 +554,12 @@
     
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]
     (fn [state]
-      (matchv ::M/objects [((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)]
+      (matchv ::M/objects [((just-analyse analyse-ast eval! compile-module ?fn) state)
+                           ;; ((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)
+                           ]
         [["lux;Right" [state* =fn]]]
         (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
-          ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type =fn ?args) state*))
+            ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type =fn ?args) state*))
 
         [_]
         ((analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token) state)))

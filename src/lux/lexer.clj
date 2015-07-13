@@ -67,8 +67,8 @@
       (return (&/V "lux;Meta" (&/T meta (&/V <tag> token))))))
 
   ^:private lex-bool  "Bool"  #"^(true|false)"
-  ^:private lex-int   "Int"   #"^-?(0|[1-9][0-9]*)"
-  ^:private lex-real  "Real"  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
+  ^:private lex-int   "Int"   #"^(-?0|-?[1-9][0-9]*)"
+  ^:private lex-real  "Real"  #"^-?(-?0\.[0-9]+|-?[1-9][0-9]*\.[0-9]+)"
   )
 
 (def ^:private lex-char
@@ -89,14 +89,14 @@
 (def ^:private lex-ident
   (&/try-all% (&/|list (|do [[meta token] (&reader/read-regex +ident-re+)]
                          (&/try-all% (&/|list (|do [_ (&reader/read-text ";")
-                                                    [_ local-token] (&reader/read-regex +ident-re+)]
-                                                (&/try-all% (&/|list (|do [unaliased (&module/dealias token)]
-                                                                       (return (&/T meta (&/T unaliased local-token))))
-                                                                     (|do [? (&module/exists? token)]
-                                                                       (if ?
-                                                                         (return (&/T meta (&/T token local-token)))
-                                                                         (fail (str "[Lexer Error] Unknown module: " token))))
-                                                                     )))
+                                                    [_ local-token] (&reader/read-regex +ident-re+)
+                                                    ? (&module/exists? token)]
+                                                (if ?
+                                                  (return (&/T meta (&/T token local-token)))
+                                                  (|do [unaliased (do ;; (prn "Unaliasing: " token ";" local-token)
+                                                                    (&module/dealias token))]
+                                                    (do ;; (prn "Unaliased: " unaliased ";" local-token)
+                                                      (return (&/T meta (&/T unaliased local-token)))))))
                                               (return (&/T meta (&/T "" token)))
                                               )))
                        (|do [[meta _] (&reader/read-text ";;")

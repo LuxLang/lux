@@ -352,7 +352,8 @@
   )
 
 (defn analyse-jvm-program [analyse ?args ?body]
-  (|do [=body (&/with-scope ""
-                (&&env/with-local ?args (&/V "lux;AppT" (&/T &type/List &type/Text))
-                  (&&/analyse-1 analyse (&/V "lux;AppT" (&/T &type/IO &type/Unit)) ?body)))]
-    (return (&/|list (&/V "jvm-program" =body)))))
+  (|let [[_module _name] ?args]
+    (|do [=body (&/with-scope ""
+                  (&&env/with-local (str _module ";" _name) (&/V "lux;AppT" (&/T &type/List &type/Text))
+                    (&&/analyse-1 analyse (&/V "lux;AppT" (&/T &type/IO &type/Unit)) ?body)))]
+      (return (&/|list (&/V "jvm-program" =body))))))

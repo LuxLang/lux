@@ -483,12 +483,24 @@
    ;; "lux;seed"
    0
    ;; "lux;seen-sources"
-   (|list)
+   (|list "lux")
    ;; "lux;source"
    (V "lux;None" nil)
    ;; "lux;types"
    +init-bindings+
    ))
+
+(defn save-module [body]
+  (fn [state]
+    (matchv ::M/objects [(body state)]
+      [["lux;Right" [state* output]]]
+      (return* (->> state*
+                    (set$ $ENVS (get$ $ENVS state))
+                    (set$ $SOURCE (get$ $SOURCE state)))
+               output)
+
+      [["lux;Left" msg]]
+      (fail* msg))))
 
 (defn with-eval [body]
   (fn [state]

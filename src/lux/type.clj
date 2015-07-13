@@ -349,16 +349,18 @@
       (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
     [["lux;VariantT" cases]]
-    (str "(| " (->> cases
-                    (&/|map (fn [kv]
-                              (matchv ::M/objects [kv]
-                                [[k ["Tuple" ["Nil" _]]]]
-                                (str "#" k)
+    (if (&/|empty? cases)
+      "(|)"
+      (str "(| " (->> cases
+                      (&/|map (fn [kv]
+                                (matchv ::M/objects [kv]
+                                  [[k ["lux;TupleT" ["lux;Nil" _]]]]
+                                  (str "#" k)
 
-                                [[k v]]
-                                (str "(#" k " " (show-type v) ")"))))
-                    (&/|interpose " ")
-                    (&/fold str "")) ")")
+                                  [[k v]]
+                                  (str "(#" k " " (show-type v) ")"))))
+                      (&/|interpose " ")
+                      (&/fold str "")) ")"))
     
 
     [["lux;RecordT" fields]]
@@ -485,7 +487,9 @@
   (&/|cons (&/T k v) fixpoints))
 
 (defn ^:private check-error [expected actual]
-  (str "Type " (show-type expected) " does not subsume type " (show-type actual)))
+  (str "[Type Checker]\nExpected: " (show-type expected)
+       "\n\nActual: " (show-type actual)
+       "\n"))
 
 (defn beta-reduce [env type]
   (matchv ::M/objects [type]
@@ -555,7 +559,7 @@
       (apply-type type-fn* param))
     
     [_]
-    (fail (str "[Type System] Can't apply type function " (show-type type-fn) " to type " (show-type param)))))
+    (fail (str "[Type System] Not type function:\n" (show-type type-fn) "\n"))))
 
 (def init-fixpoints (&/|list))
 
@@ -826,10 +830,10 @@
       [["lux;ExT" e!id] ["lux;ExT" a!id]]
       (if (.equals ^Object e!id a!id)
         (return (&/T fixpoints nil))
-        (check-error expected actual))
+        (fail (check-error expected actual)))
 
       [_ _]
-      (fail (println-str "[Type Error] Can't type-check: " (show-type expected) (show-type actual)))
+      (fail (check-error expected actual))
       )))
 
 (defn check [expected actual]
@@ -850,7 +854,7 @@
           (clean $var =return))))
 
     [_]
-    (fail (str "[Type System] Can't apply type " (show-type func) " to type " (show-type param)))
+    (fail (str "[Type System] Not a function type:\n" (show-type func) "\n"))
     ))
 
 (defn actual-type [type]
@@ -859,6 +863,9 @@
     (|do [type* (apply-type ?all ?param)]
       (actual-type type*))
 
+    [["lux;VarT" ?id]]
+    (deref ?id)
+    
     [_]
     (return type)
     ))

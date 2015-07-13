@@ -1,0 +1,107 @@
+##   Copyright (c) Eduardo Julian. All rights reserved.
+##   The use and distribution terms for this software are covered by the
+##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+##   which can be found in the file epl-v10.html at the root of this distribution.
+##   By using this software in any fashion, you are agreeing to be bound by
+##   the terms of this license.
+##   You must not remove this notice, or any other, from this software.
+
+(;import lux
+         (lux/data list
+                   state)
+         (.. (functor #as F)
+             (monoid #as M))
+         lux/meta/macro)
+
+## Signatures
+(defsig #export (Monad m)
+  (: (F;Functor m)
+     _functor)
+  (: (All [a]
+       (-> a (m a)))
+     wrap)
+  (: (All [a]
+       (-> (m (m a)) (m a)))
+     join))
+
+## Syntax
+(defmacro #export (do tokens state)
+  (case tokens
+    (\ (list monad (#;Meta [_ (#;TupleS bindings)]) body))
+    (let [body' (foldL (: (-> Syntax (, Syntax Syntax) Syntax)
+                          (lambda [body' binding]
+                            (let [[var value] binding]
+                              (case var
+                                (#;Meta [_ (#;TagS ["" "let"])])
+                                (` (;let (~ value) (~ body')))
+
+                                _
+                                (` (;case ;;_functor
+                                          {#F;map F;map}
+                                          (;|> (~ value) (F;map (;lambda [(~ var)] (~ body'))) (;;join))))
+                                ## (` (;|> (~ value) (F;map (;lambda [(~ var)] (~ body'))) (;:: ;;_functor) (;;join)))
+                                ))))
+                       body
+                       (reverse (as-pairs bindings)))]
+      (#;Right [state (list (` (;case (~ monad)
+                                      {#;;_functor ;;_functor #;;wrap ;;wrap #;;join ;;join}
+                                      (~ body'))))]))
+
+    _
+    (#;Left "Wrong syntax for do")))
+
+## Structures
+(defstruct #export Maybe:Monad (Monad Maybe)
+  (def _functor F;Maybe:Functor)
+
+  (def (wrap x)
+    (#;Some x))
+
+  (def (join mma)
+    (case mma
+      #;None      #;None
+      (#;Some xs) xs)))
+
+(defstruct #export List:Monad (Monad List)
+  (def _functor F;List:Functor)
+
+  (def (wrap x)
+    (#;Cons [x #;Nil]))
+
+  (def (join xss)
+    (using M;List:Monoid
+      (foldL M;++ M;unit xss))))
+
+(defstruct #export State:Monad (All [s]
+                                 (Monad (State s)))
+  (def _functor F;State:Functor)
+
+  (def (wrap x)
+    (lambda [state]
+      [state x]))
+
+  (def (join mma)
+    (lambda [state]
+      (let [[state' ma] (mma state)]
+        (ma state')))))
+
+## Functions
+(def #export (bind m f ma)
+  (All [m a b]
+    (-> (Monad m) (-> a (m b)) (m a) (m b)))
+  (using m
+    (;;join (:: ;;_functor (F;map f ma)))))
+
+(def #export (map% m f xs)
+  (All [m a b]
+    (-> (Monad m) (-> a (m b)) (List a) (m (List b))))
+  (case xs
+    #;Nil
+    (:: m (;;wrap #;Nil))
+    
+    (#;Cons [x xs'])
+    (do m
+      [y (f x)
+       ys (map% m f xs')]
+      (;;wrap (#;Cons [y ys])))
+    ))

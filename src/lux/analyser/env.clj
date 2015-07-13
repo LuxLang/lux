@@ -16,18 +16,20 @@
           =return (body (&/update$ &/$ENVS
                                    (fn [stack]
                                      (let [bound-unit (&/V "lux;Local" (->> (&/|head stack) (&/get$ &/$LOCALS) (&/get$ &/$COUNTER)))]
-                                       (&/|cons (->> (&/|head stack)
-                                                     (&/update$ &/$LOCALS #(&/update$ &/$COUNTER inc %))
-                                                     (&/update$ &/$LOCALS #(&/update$ &/$MAPPINGS (fn [m] (&/|put name (&/T bound-unit type) m)) %)))
+                                       (&/|cons (&/update$ &/$LOCALS #(->> %
+                                                                           (&/update$ &/$COUNTER inc)
+                                                                           (&/update$ &/$MAPPINGS (fn [m] (&/|put name (&/T bound-unit type) m))))
+                                                           (&/|head stack))
                                                 (&/|tail stack))))
                                    state))]
       (matchv ::M/objects [=return]
         [["lux;Right" [?state ?value]]]
         (return* (&/update$ &/$ENVS (fn [stack*]
-                                               (&/|cons (->> (&/|head stack*)
-                                                             (&/update$ &/$LOCALS #(&/update$ &/$COUNTER dec %))
-                                                             (&/update$ &/$LOCALS #(&/set$ &/$MAPPINGS old-mappings %)))
-                                                        (&/|tail stack*)))
+                                      (&/|cons (&/update$ &/$LOCALS #(->> %
+                                                                          (&/update$ &/$COUNTER dec)
+                                                                          (&/set$ &/$MAPPINGS old-mappings))
+                                                          (&/|head stack*))
+                                               (&/|tail stack*)))
                             ?state)
                  ?value)
         

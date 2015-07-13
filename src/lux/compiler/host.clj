@@ -146,7 +146,7 @@
   compile-jvm-igt Opcodes/IF_ICMPGT "java.lang.Integer" "intValue" "()I"
   )
 
-(do-template [<name> <cmpcode> <ifcode> <wrapper-class> <value-method> <value-method-sig>]
+(do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
   (defn <name> [compile *type* ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
@@ -162,25 +162,26 @@
                 $end (new Label)
                 _ (doto *writer*
                     (.visitInsn <cmpcode>)
-                    (.visitJumpInsn <ifcode> $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE"  (&host/->type-signature "java.lang.Boolean"))
+                    (.visitLdcInsn (int <cmp-output>))
+                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE"  (&host/->type-signature "java.lang.Boolean"))
                     (.visitJumpInsn Opcodes/GOTO $end)
                     (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE" (&host/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE" (&host/->type-signature "java.lang.Boolean"))
                     (.visitLabel $end))]]
       (return nil)))
 
-  compile-jvm-leq Opcodes/LCMP  Opcodes/IFEQ "java.lang.Long"   "longValue"   "()J"
-  compile-jvm-llt Opcodes/LCMP  Opcodes/IFLT "java.lang.Long"   "longValue"   "()J"
-  compile-jvm-lgt Opcodes/LCMP  Opcodes/IFGT "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-leq Opcodes/LCMP  0 "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-llt Opcodes/LCMP  1 "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-lgt Opcodes/LCMP -1 "java.lang.Long"   "longValue"   "()J"
 
-  compile-jvm-feq Opcodes/FCMPG Opcodes/IFEQ "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-flt Opcodes/FCMPG Opcodes/IFLT "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-fgt Opcodes/FCMPG Opcodes/IFGT "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-feq Opcodes/FCMPG  0 "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-flt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-fgt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
   
-  compile-jvm-deq Opcodes/DCMPG Opcodes/IFEQ "java.lang.Double" "doubleValue" "()I"
-  compile-jvm-dlt Opcodes/DCMPG Opcodes/IFLT "java.lang.Double" "doubleValue" "()I"
-  compile-jvm-dgt Opcodes/FCMPG Opcodes/IFGT "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-dlt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-dgt Opcodes/FCMPG -1 "java.lang.Double" "doubleValue" "()I"
   )
 
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]

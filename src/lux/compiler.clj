@@ -342,7 +342,7 @@
                                          .visitEnd))]
           _ (&&/save-class! (str id) bytecode)
           loader &/loader]
-      (-> (.loadClass ^ClassLoader loader (str module "." id))
+      (-> (.loadClass ^ClassLoader loader (str (string/replace module #"/" ".") "." id))
           (.getField "_eval")
           (.get nil)
           return))))

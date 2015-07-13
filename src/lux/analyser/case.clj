@@ -15,6 +15,15 @@
                                      (fail "##9##")))]
       (resolve-type type*))
 
+    [["lux;AllT" ?id]]
+    (|do [$var &type/existential
+          =type (&type/apply-type type $var)]
+      (&type/actual-type =type))
+    ;; (&type/with-var
+    ;;   (fn [$var]
+    ;;     (|do [=type (&type/apply-type type $var)]
+    ;;       (&type/actual-type =type))))
+
     [_]
     (&type/actual-type type)))
 
@@ -68,7 +77,7 @@
             (return (&/T (&/V "TupleTestAC" =tests) =kont))))
 
         [_]
-        (fail "[Analyser Error] Tuple requires tuple-type."))
+        (fail "[Analyser Error] Tuples require tuple-type."))
 
       [["lux;RecordS" ?slots]]
       (|do [value-type* (resolve-type value-type)]

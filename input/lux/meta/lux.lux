@@ -1,0 +1,185 @@
+##   Copyright (c) Eduardo Julian. All rights reserved.
+##   The use and distribution terms for this software are covered by the
+##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+##   which can be found in the file epl-v10.html at the root of this distribution.
+##   By using this software in any fashion, you are agreeing to be bound by
+##   the terms of this license.
+##   You must not remove this notice, or any other, from this software.
+
+(;import lux
+         (.. macro)
+         (lux/control (monoid #as m #refer (#only List:Monoid))
+                      (functor #as F)
+                      (monad #as M #refer (#only do)))
+         (lux/data list
+                   (show #as S)))
+
+## Types
+## (deftype (Lux a)
+##   (-> Compiler (Either Text (, Compiler a))))
+
+## Structures
+(defstruct #export Lux:Functor (F;Functor Lux)
+  (def (F;map f fa)
+    (lambda [state]
+      (case (fa state)
+        (#;Left msg)
+        (#;Left msg)
+
+        (#;Right [state' a])
+        (#;Right [state' (f a)])))))
+
+(defstruct #export Lux:Monad (M;Monad Lux)
+  (def M;_functor Lux:Functor)
+  (def (M;wrap x)
+    (lambda [state]
+      (#;Right [state x])))
+  (def (M;join mma)
+    (lambda [state]
+      (case (mma state)
+        (#;Left msg)
+        (#;Left msg)
+
+        (#;Right [state' ma])
+        (ma state')))))
+
+## Functions
+(def #export (get-module-name state)
+  (Lux Text)
+  (case (reverse (get@ #;envs state))
+    #;Nil
+    (#;Left "Can't get the module name without a module!")
+
+    (#;Cons [env _])
+    (#;Right [state (get@ #;name env)])))
+
+(def (get k plist)
+  (All [a]
+    (-> Text (List (, Text a)) (Maybe a)))
+  (case plist
+    #;Nil
+    #;None
+
+    (#;Cons [[k' v] plist'])
+    (if (text:= k k')
+      (#;Some v)
+      (get k plist'))))
+
+(def (find-macro' modules current-module module name)
+  (-> (List (, Text (Module Compiler))) Text Text Text
+      (Maybe Macro))
+  (do M;Maybe:Monad
+    [$module (get module modules)
+     gdef (|> (: (Module Compiler) $module) (get@ #;defs) (get name))]
+    (case (: (, Bool (DefData' Macro)) gdef)
+      [exported? (#;MacroD macro')]
+      (if (or exported? (text:= module current-module))
+        (#;Some macro')
+        #;None)
+
+      [_ (#;AliasD [r-module r-name])]
+      (find-macro' modules current-module r-module r-name)
+      
+      _
+      #;None)))
+
+(def #export (find-macro ident)
+  (-> Ident (Lux (Maybe Macro)))
+  (do Lux:Monad
+    [current-module get-module-name]
+    (let [[module name] ident]
+      (: (Lux (Maybe Macro))
+         (lambda [state]
+           (#;Right [state (find-macro' (get@ #;modules state) current-module module name)]))))))
+
+(def #export (normalize ident)
+  (-> Ident (Lux Ident))
+  (case ident
+    ["" name]
+    (do Lux:Monad
+      [module-name get-module-name]
+      (M;wrap (: Ident [module-name name])))
+
+    _
+    (:: Lux:Monad (M;wrap ident))))
+
+(def #export (macro-expand syntax)
+  (-> Syntax (Lux (List Syntax)))
+  (case syntax
+    (#;Meta [_ (#;FormS (#;Cons [(#;Meta [_ (#;SymbolS macro-name)]) args]))])
+    (do Lux:Monad
+      [macro-name' (normalize macro-name)
+       ?macro (find-macro macro-name')]
+      (case ?macro
+        (#;Some macro)
+        (do Lux:Monad
+          [expansion (macro args)
+           expansion' (M;map% Lux:Monad macro-expand expansion)]
+          (M;wrap (:: M;List:Monad (M;join expansion'))))
+        
+        #;None
+        (do Lux:Monad
+          [parts' (M;map% Lux:Monad macro-expand (list& (symbol$ macro-name) args))]
+          (M;wrap (list (form$ (:: M;List:Monad (M;join parts'))))))))
+
+    (#;Meta [_ (#;FormS (#;Cons [harg targs]))])
+    (do Lux:Monad
+      [harg+ (macro-expand harg)
+       targs+ (M;map% Lux:Monad macro-expand targs)]
+      (M;wrap (list (form$ (list:++ harg+ (:: M;List:Monad (M;join (: (List (List Syntax)) targs+))))))))
+
+    (#;Meta [_ (#;TupleS members)])
+    (do Lux:Monad
+      [members' (M;map% Lux:Monad macro-expand members)]
+      (M;wrap (list (tuple$ (:: M;List:Monad (M;join members'))))))
+
+    _
+    (:: Lux:Monad (M;wrap (list syntax)))))
+
+(def #export (gensym prefix state)
+  (-> Text (Lux Syntax))
+  (#;Right [(update@ #;seed inc state)
+            (symbol$ ["__gensym__" (:: S;Int:Show (S;show (get@ #;seed state)))])]))
+
+(def #export (fail msg)
+  (All [a]
+    (-> Text (Lux a)))
+  (lambda [_]
+    (#;Left msg)))
+
+(def #export (macro-expand-1 token)
+  (-> Syntax (Lux Syntax))
+  (do Lux:Monad
+    [token+ (macro-expand token)]
+    (case token+
+      (\ (list token'))
+      (M;wrap token')
+
+      _
+      (fail "Macro expanded to more than 1 element."))))
+
+(def #export (module-exists? module state)
+  (-> Text (Lux Bool))
+  (#;Right [state (case (get module (get@ #;modules state))
+                    (#;Some _)
+                    true
+                    
+                    #;None
+                    false)]))
+
+(def #export (exported-defs module state)
+  (-> Text (Lux (List Text)))
+  (case (get module (get@ #;modules state))
+    (#;Some =module)
+    (using M;List:Monad
+      (#;Right [state (M;join (:: M;_functor (F;map (: (-> (, Text (, Bool (DefData' Macro)))
+                                                           (List Text))
+                                                       (lambda [gdef]
+                                                         (let [[name [export? _]] gdef]
+                                                           (if export?
+                                                             (list name)
+                                                             (list)))))
+                                                    (get@ #;defs =module))))]))
+    
+    #;None
+    (#;Left ($ text:++ "Unknown module: " module))))

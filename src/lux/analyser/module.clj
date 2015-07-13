@@ -1,5 +1,6 @@
 (ns lux.analyser.module
-  (:require [clojure.core.match :as M :refer [matchv]]
+  (:require [clojure.string :as string]
+            [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [|let |do return return* fail fail*]]
                  [type :as &type]
@@ -46,13 +47,14 @@
                                                          #(&/|put name (&/T false def-data) %)
                                                          m))
                                             ms)))
-                    (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
-                                                                    (&/update$ &/$MAPPINGS (fn [mappings]
-                                                                                             (&/|put (str "" &/+name-separator+ name)
-                                                                                                     (&/T (&/V "lux;Global" (&/T module name)) type)
-                                                                                                     mappings))
-                                                                               locals))
-                                                        ?env))))
+                    ;; (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
+                    ;;                                                 (&/update$ &/$MAPPINGS (fn [mappings]
+                    ;;                                                                          (&/|put (str "" &/+name-separator+ name)
+                    ;;                                                                                  (&/T (&/V "lux;Global" (&/T module name)) type)
+                    ;;                                                                                  mappings))
+                    ;;                                                            locals))
+                    ;;                                     ?env)))
+                    )
                nil)
       
       [_]
@@ -93,14 +95,15 @@
                                                          #(&/|put a-name (&/T false (&/V "lux;AliasD" (&/T r-module r-name))) %)
                                                          m))
                                             ms)))
-                    (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
-                                                                    (&/update$ &/$MAPPINGS (fn [mappings]
-                                                                                             (&/|put (str "" &/+name-separator+ a-name)
-                                                                                                     (&/T (&/V "lux;Global" (&/T r-module r-name)) type)
-                                                                                                     ;; (aget (->> state (&/get$ &/$MODULES) (&/|get r-module) (&/get$ $DEFS) (&/|get r-name)) 1)
-                                                                                                     mappings))
-                                                                               locals))
-                                                        ?env))))
+                    ;; (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
+                    ;;                                                 (&/update$ &/$MAPPINGS (fn [mappings]
+                    ;;                                                                          (&/|put (str "" &/+name-separator+ a-name)
+                    ;;                                                                                  (&/T (&/V "lux;Global" (&/T r-module r-name)) type)
+                    ;;                                                                                  ;; (aget (->> state (&/get$ &/$MODULES) (&/|get r-module) (&/get$ $DEFS) (&/|get r-name)) 1)
+                    ;;                                                                                  mappings))
+                    ;;                                                            locals))
+                    ;;                                     ?env)))
+                    )
                nil)
       
       [_]
@@ -112,7 +115,7 @@
     (return* state
              (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
 
-(defn alias-module [module reference alias]
+(defn alias [module alias reference]
   (fn [state]
     (return* (->> state
                   (&/update$ &/$MODULES
@@ -136,23 +139,23 @@
   (|do [current-module &/get-module-name]
     (fn [state]
       ;; (prn 'find-def/_0 module name 'current-module current-module)
-      (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
+      (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
         (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
-          (if-let [$def (&/|get name $module)]
-            (matchv ::M/objects [$def]
-              [[exported? $$def]]
-              (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
-                (if (or exported? (.equals ^Object current-module module))
-                  (matchv ::M/objects [$$def]
-                    [["lux;AliasD" [?r-module ?r-name]]]
-                    (do ;; (prn 'find-def/_2 [module name] [?r-module ?r-name])
-                      ((find-def ?r-module ?r-name)
-                       state))
+            (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
+              (matchv ::M/objects [$def]
+                [[exported? $$def]]
+                (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
+                    (if (or exported? (.equals ^Object current-module module))
+                      (matchv ::M/objects [$$def]
+                        [["lux;AliasD" [?r-module ?r-name]]]
+                        (do ;; (prn 'find-def/_2 [module name] [?r-module ?r-name])
+                            ((find-def ?r-module ?r-name)
+                             state))
 
-                    [_]
-                    (return* state (&/T (&/T module name) $$def)))
-                  (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
-            (fail* (str "[Analyser Error] Definition doesn't exist: " (str module &/+name-separator+ name)))))
+                        [_]
+                        (return* state (&/T (&/T module name) $$def)))
+                      (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
+              (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))))
         (do (prn [module name]
                  (str "[Analyser Error] Module doesn't exist: " module)
                  (->> state (&/get$ &/$MODULES) &/|keys &/->seq))
@@ -171,7 +174,7 @@
           [[exported? ["lux;ValueD" ?type]]]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
-                 :let [macro (-> (.loadClass loader (str module ".$" (&/normalize-ident name)))
+                 :let [macro (-> (.loadClass loader (str (string/replace module #"/" ".") ".$" (&/normalize-ident name)))
                                  (.getField "_datum")
                                  (.get nil))]]
              (fn [state*]
@@ -191,9 +194,9 @@
           (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))
 
           [[_ ["lux;TypeD" _]]]
-          (fail* (str "[Analyser Error] Definition doesn't have macro type: " module ";" name)))
-        (fail* (str "[Analyser Error] Definition doesn't exist: " (str module &/+name-separator+ name))))
-      (fail* (str "[Analyser Error] Module doesn't exist: " module)))))
+          (fail* (str "[Analyser Error] Definition does not have macro type: " (str module &/+name-separator+ name))))
+        (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
+      (fail* (str "[Analyser Error] Module does not exist: " module)))))
 
 (defn export [module name]
   (fn [state]
@@ -213,7 +216,7 @@
                                                                                m))
                                                            ms))))
                    nil))
-        (fail* (str "[Analyser Error] Can't export an inexistent definition: " module ";" name)))
+        (fail* (str "[Analyser Error] Can't export an inexistent definition: " (str module &/+name-separator+ name))))
       
       [_]
       (fail* "[Analyser Error] Can't export a global definition outside of a global environment."))))
