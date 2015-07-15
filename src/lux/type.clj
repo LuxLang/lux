@@ -338,6 +338,15 @@
     [_]
     (fail (str "[Type Error] Not type-var: " (show-type tvar)))))
 
+(defn ^:private unravel-app [fun-type]
+  (matchv ::M/objects [fun-type]
+    [["lux;AppT" [?left ?right]]]
+    (|let [[?fun-type ?args] (unravel-app ?left)]
+      (&/T ?fun-type (&/|++ ?args (&/|list ?right))))
+
+    [_]
+    (&/T fun-type (&/|list))))
+
 (defn show-type [^objects type]
   (matchv ::M/objects [type]
     [["lux;DataT" name]]
@@ -384,23 +393,89 @@
     [["lux;ExT" ?id]]
     (str "⟨" ?id "⟩")
 
-    [["lux;AppT" [?lambda ?param]]]
-    (str "(" (show-type ?lambda) " " (show-type ?param) ")")
+    [["lux;AppT" [_ _]]]
+    (|let [[?call-fun ?call-args] (unravel-app type)]
+      (str "(" (show-type ?call-fun) " " (->> ?call-args (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
     [["lux;AllT" [?env ?name ?arg ?body]]]
-    (let [[args body] (loop [args (list ?arg)
-                             body* ?body]
-                        (matchv ::M/objects [body*]
-                          [["lux;AllT" [?env* ?name* ?arg* ?body*]]]
-                          (recur (cons ?arg* args) ?body*)
+    (if (= "" ?name)
+      (let [[args body] (loop [args (list ?arg)
+                               body* ?body]
+                          (matchv ::M/objects [body*]
+                            [["lux;AllT" [?env* ?name* ?arg* ?body*]]]
+                            (recur (cons ?arg* args) ?body*)
 
-                          [_]
-                          [args body*]))]
-      (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
+                            [_]
+                            [args body*]))]
+        (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
+      ?name)
 
     [_]
     (assert false (prn-str 'show-type (aget type 0) (class (aget type 1))))
     ))
+;; (defn show-type [^objects type]
+;;   (matchv ::M/objects [type]
+;;     [["lux;DataT" name]]
+;;     (str "(^ " name ")")
+    
+;;     [["lux;TupleT" elems]]
+;;     (if (&/|empty? elems)
+;;       "(,)"
+;;       (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+
+;;     [["lux;VariantT" cases]]
+;;     (if (&/|empty? cases)
+;;       "(|)"
+;;       (str "(| " (->> cases
+;;                       (&/|map (fn [kv]
+;;                                 (matchv ::M/objects [kv]
+;;                                   [[k ["lux;TupleT" ["lux;Nil" _]]]]
+;;                                   (str "#" k)
+
+;;                                   [[k v]]
+;;                                   (str "(#" k " " (show-type v) ")"))))
+;;                       (&/|interpose " ")
+;;                       (&/fold str "")) ")"))
+    
+
+;;     [["lux;RecordT" fields]]
+;;     (str "(& " (->> fields
+;;                     (&/|map (fn [kv]
+;;                               (matchv ::M/objects [kv]
+;;                                 [[k v]]
+;;                                 (str "#" k " " (show-type v)))))
+;;                     (&/|interpose " ")
+;;                     (&/fold str "")) ")")
+
+;;     [["lux;LambdaT" [input output]]]
+;;     (str "(-> " (show-type input) " " (show-type output) ")")
+
+;;     [["lux;VarT" id]]
+;;     (str "⌈" id "⌋")
+
+;;     [["lux;BoundT" name]]
+;;     name
+
+;;     [["lux;ExT" ?id]]
+;;     (str "⟨" ?id "⟩")
+
+;;     [["lux;AppT" [?lambda ?param]]]
+;;     (str "(" (show-type ?lambda) " " (show-type ?param) ")")
+    
+;;     [["lux;AllT" [?env ?name ?arg ?body]]]
+;;     (let [[args body] (loop [args (list ?arg)
+;;                              body* ?body]
+;;                         (matchv ::M/objects [body*]
+;;                           [["lux;AllT" [?env* ?name* ?arg* ?body*]]]
+;;                           (recur (cons ?arg* args) ?body*)
+
+;;                           [_]
+;;                           [args body*]))]
+;;       (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
+
+;;     [_]
+;;     (assert false (prn-str 'show-type (aget type 0) (class (aget type 1))))
+;;     ))
 
 (defn type= [x y]
   (or (clojure.lang.Util/identical x y)

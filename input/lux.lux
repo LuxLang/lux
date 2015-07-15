@@ -791,48 +791,52 @@
     _
     (fail "Wrong syntax for $")))
 
-(def'' (splice untemplate tag elems)
-  (->' (->' Syntax Syntax) Syntax ($' List Syntax) Syntax)
-  (_lux_case (any? spliced? elems)
+(def'' (splice replace? untemplate tag elems)
+  (->' Bool (->' Syntax Syntax) Syntax ($' List Syntax) Syntax)
+  (_lux_case replace?
     true
-    (let [elems' (map (lambda [elem]
-                        (_lux_case elem
-                          (#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS ["" "~@"])]) (#Cons [spliced #Nil])]))])
-                          spliced
+    (_lux_case (any? spliced? elems)
+      true
+      (let [elems' (map (lambda [elem]
+                          (_lux_case elem
+                            (#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS ["" "~@"])]) (#Cons [spliced #Nil])]))])
+                            spliced
 
-                          _
-                          (form$ (list (symbol$ ["" "_lux_:"])
-                                       (form$ (list (tag$ ["lux" "AppT"]) (tuple$ (list (symbol$ ["lux" "List"]) (symbol$ ["lux" "Syntax"])))))
-                                       (form$ (list (tag$ ["lux" "Cons"]) (tuple$ (list (untemplate elem)
-                                                                                        (tag$ ["lux" "Nil"])))))))))
-                      elems)]
-      (wrap-meta (form$ (list tag
-                              (form$ (list& (symbol$ ["lux" "$"])
-                                            (symbol$ ["lux" "list:++"])
-                                            elems'))))))
+                            _
+                            (form$ (list (symbol$ ["" "_lux_:"])
+                                         (form$ (list (tag$ ["lux" "AppT"]) (tuple$ (list (symbol$ ["lux" "List"]) (symbol$ ["lux" "Syntax"])))))
+                                         (form$ (list (tag$ ["lux" "Cons"]) (tuple$ (list (untemplate elem)
+                                                                                          (tag$ ["lux" "Nil"])))))))))
+                        elems)]
+        (wrap-meta (form$ (list tag
+                                (form$ (list& (symbol$ ["lux" "$"])
+                                              (symbol$ ["lux" "list:++"])
+                                              elems'))))))
 
+      false
+      (wrap-meta (form$ (list tag (untemplate-list (map untemplate elems))))))
     false
     (wrap-meta (form$ (list tag (untemplate-list (map untemplate elems)))))))
 
-(def'' (untemplate subst token)
-  (->' Text Syntax Syntax)
-  (_lux_case token
-    (#Meta [_ (#BoolS value)])
+(def'' (untemplate replace? subst token)
+  (->' Bool Text Syntax Syntax)
+  (_lux_case (_lux_: (#TupleT (list Bool Syntax)) [replace? token])
+    [_ (#Meta [_ (#BoolS value)])]
     (wrap-meta (form$ (list (tag$ ["lux" "BoolS"]) (_meta (#BoolS value)))))
 
-    (#Meta [_ (#IntS value)])
+    [_ (#Meta [_ (#IntS value)])]
     (wrap-meta (form$ (list (tag$ ["lux" "IntS"]) (_meta (#IntS value)))))
 
-    (#Meta [_ (#RealS value)])
+    [_ (#Meta [_ (#RealS value)])]
     (wrap-meta (form$ (list (tag$ ["lux" "RealS"]) (_meta (#RealS value)))))
 
-    (#Meta [_ (#CharS value)])
+    [_ (#Meta [_ (#CharS value)])]
     (wrap-meta (form$ (list (tag$ ["lux" "CharS"]) (_meta (#CharS value)))))
 
-    (#Meta [_ (#TextS value)])
+    [_ (#Meta [_ (#TextS value)])]
     (wrap-meta (form$ (list (tag$ ["lux" "TextS"]) (_meta (#TextS value)))))
 
-    (#Meta [_ (#TagS [module name])])
+    [_ (#Meta [_ (#TagS [module name])])]
     (let [module' (_lux_case module
                     ""
                     subst
@@ -841,7 +845,7 @@
                     module)]
       (wrap-meta (form$ (list (tag$ ["lux" "TagS"]) (tuple$ (list (text$ module') (text$ name)))))))
 
-    (#Meta [_ (#SymbolS [module name])])
+    [_ (#Meta [_ (#SymbolS [module name])])]
     (let [module' (_lux_case module
                     ""
                     subst
@@ -850,31 +854,39 @@
                     module)]
       (wrap-meta (form$ (list (tag$ ["lux" "SymbolS"]) (tuple$ (list (text$ module') (text$ name)))))))
 
-    (#Meta [_ (#TupleS elems)])
-    (splice (untemplate subst) (tag$ ["lux" "TupleS"]) elems)
+    [_ (#Meta [_ (#TupleS elems)])]
+    (splice (untemplate replace? subst) (tag$ ["lux" "TupleS"]) elems)
 
-    (#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS ["" "~"])]) (#Cons [unquoted #Nil])]))])
+    [true (#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS ["" "~"])]) (#Cons [unquoted #Nil])]))])]
     unquoted
 
-    (#Meta [_ (#FormS elems)])
-    (splice (untemplate subst) (tag$ ["lux" "FormS"]) elems)
+    [_ (#Meta [_ (#FormS elems)])]
+    (splice replace? (untemplate replace? subst) (tag$ ["lux" "FormS"]) elems)
 
-    (#Meta [_ (#RecordS fields)])
+    [_ (#Meta [_ (#RecordS fields)])]
     (wrap-meta (form$ (list (tag$ ["lux" "RecordS"])
                             (untemplate-list (map (_lux_: (->' (#TupleT (list Syntax Syntax)) Syntax)
                                                           (lambda [kv]
                                                             (let [[k v] kv]
-                                                              (tuple$ (list (untemplate subst k) (untemplate subst v))))))
+                                                              (tuple$ (list (untemplate replace? subst k) (untemplate replace? subst v))))))
                                                   fields)))))
     ))
 
 (defmacro (`' tokens)
   (_lux_case tokens
     (#Cons [template #Nil])
-    (return (list (untemplate "" template)))
+    (return (list (untemplate true "" template)))
 
     _
     (fail "Wrong syntax for `'")))
+
+(defmacro (' tokens)
+  (_lux_case tokens
+    (#Cons [template #Nil])
+    (return (list (untemplate false "" template)))
+
+    _
+    (fail "Wrong syntax for '")))
 
 (defmacro #export (|> tokens)
   (_lux_case tokens
@@ -1648,7 +1660,7 @@
     [module-name get-module-name]
     (case tokens
       (\ (list template))
-      (;return (list (untemplate module-name template)))
+      (;return (list (untemplate true module-name template)))
 
       _
       (fail "Wrong syntax for `"))))

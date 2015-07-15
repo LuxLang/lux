@@ -77,7 +77,7 @@
             (return (&/T (&/V "TupleTestAC" =tests) =kont))))
 
         [_]
-        (fail "[Analyser Error] Tuples require tuple-type."))
+        (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type value-type))))
 
       [["lux;RecordS" ?slots]]
       (|do [value-type* (resolve-type value-type)]
