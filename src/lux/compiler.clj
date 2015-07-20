@@ -74,6 +74,16 @@
 
       [["ann" [?value-ex ?type-ex]]]
       (&&lux/compile-ann compile-expression ?type ?value-ex ?type-ex)
+
+      ;; Characters
+      [["jvm-ceq" [?x ?y]]]
+      (&&host/compile-jvm-ceq compile-expression ?type ?x ?y)
+
+      [["jvm-clt" [?x ?y]]]
+      (&&host/compile-jvm-clt compile-expression ?type ?x ?y)
+
+      [["jvm-cgt" [?x ?y]]]
+      (&&host/compile-jvm-cgt compile-expression ?type ?x ?y)
       
       ;; Integer arithmetic
       [["jvm-iadd" [?x ?y]]]
@@ -297,6 +307,9 @@
 
       [["jvm-lushr" [?x ?y]]]
       (&&host/compile-jvm-lushr compile-expression ?type ?x ?y)
+
+      [["jvm-instanceof" [?class ?object]]]
+      (&&host/compile-jvm-instanceof compile-expression ?type ?class ?object)
       )
     ))
 

@@ -144,6 +144,10 @@
   compile-jvm-ieq Opcodes/IF_ICMPEQ "java.lang.Integer" "intValue" "()I"
   compile-jvm-ilt Opcodes/IF_ICMPLT "java.lang.Integer" "intValue" "()I"
   compile-jvm-igt Opcodes/IF_ICMPGT "java.lang.Integer" "intValue" "()I"
+
+  compile-jvm-ceq Opcodes/IF_ICMPEQ "java.lang.Character" "charValue" "()C"
+  compile-jvm-clt Opcodes/IF_ICMPLT "java.lang.Character" "charValue" "()C"
+  compile-jvm-cgt Opcodes/IF_ICMPGT "java.lang.Character" "charValue" "()C"
   )
 
 (do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
@@ -186,12 +190,12 @@
 
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [method-sig (str "(" (reduce str "" (map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
-        _ (&/map% (fn [[class-name arg]]
-                    (|do [ret (compile arg)
-                          :let [_ (prepare-arg! *writer* class-name)]]
-                      (return ret)))
-                  (map vector ?classes ?args))
+        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
+        _ (&/map2% (fn [class-name arg]
+                     (|do [ret (compile arg)
+                           :let [_ (prepare-arg! *writer* class-name)]]
+                       (return ret)))
+                   ?classes ?args)
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class ?class) ?method method-sig)
                   (prepare-return! *type*))]]
@@ -318,6 +322,14 @@
        "volatile" Opcodes/ACC_VOLATILE
        ;; else
        0)))
+
+(defn compile-jvm-instanceof [compile *type* class object]
+  (|do [^MethodVisitor *writer* &/get-writer
+        _ (compile object)
+        :let [_ (doto *writer*
+                  (.visitLdcInsn class)
+                  (.visitTypeInsn Opcodes/INSTANCEOF class))]]
+    (return nil)))
 
 (defn compile-jvm-class [compile ?name ?super-class ?interfaces ?fields ?methods]
   (|do [module &/get-module-name]

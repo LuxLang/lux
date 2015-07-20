@@ -158,7 +158,6 @@
         ))))
 
 (defmacro |do [steps return]
-  (assert (not= 0 (count steps)) "The steps can't be empty!")
   (assert (= 0 (rem (count steps) 2)) "The number of steps must be even!")
   (reduce (fn [inner [label computation]]
             (case label
@@ -329,6 +328,9 @@
 
   map%      |cons
   flat-map% |++)
+
+(defn list-join [xss]
+  (fold |++ (V "lux;Nil" nil) xss))
 
 (defn |as-pairs [xs]
   (matchv ::M/objects [xs]
@@ -668,6 +670,14 @@
 
     [_ _]
     (fail "Lists don't match in size.")))
+
+(defn map2 [f xs ys]
+  (matchv ::M/objects [xs ys]
+    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+    (|cons (f x y) (map2 f xs* ys*))
+
+    [_ _]
+    (V "lux;Nil" nil)))
 
 (defn fold2 [f init xs ys]
   (matchv ::M/objects [xs ys]

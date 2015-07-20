@@ -63,28 +63,31 @@
         (return (&/T (&/V "TextTestAC" ?value) =kont)))
 
       [["lux;TupleS" ?members]]
-      (matchv ::M/objects [value-type]
-        [["lux;TupleT" ?member-types]]
-        (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-          (fail (str "[Analyser error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
-          (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                         (|let [[v m] vm]
-                                           (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                             (return (&/T (&/|cons =test =tests) =kont)))))
-                                       (|do [=kont kont]
-                                         (return (&/T (&/|list) =kont)))
-                                       (&/|reverse (&/zip2 ?member-types ?members)))]
-            (return (&/T (&/V "TupleTestAC" =tests) =kont))))
+      (|do [value-type* (resolve-type value-type)]
+        (do ;; (prn 'PM/TUPLE-1 (&type/show-type value-type*))
+          (matchv ::M/objects [value-type*]
+            [["lux;TupleT" ?member-types]]
+            (do ;; (prn 'PM/TUPLE-2 (&/|length ?member-types) (&/|length ?members))
+              (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
+                (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
+                (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                               (|let [[v m] vm]
+                                                 (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
+                                                   (return (&/T (&/|cons =test =tests) =kont)))))
+                                             (|do [=kont kont]
+                                               (return (&/T (&/|list) =kont)))
+                                             (&/|reverse (&/zip2 ?member-types ?members)))]
+                  (return (&/T (&/V "TupleTestAC" =tests) =kont)))))
 
-        [_]
-        (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type value-type))))
+            [_]
+            (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
 
       [["lux;RecordS" ?slots]]
       (|do [value-type* (resolve-type value-type)]
         (matchv ::M/objects [value-type*]
           [["lux;RecordT" ?slot-types]]
           (if (not (.equals ^Object (&/|length ?slot-types) (&/|length ?slots)))
-            (fail (str "[Analyser error] Pattern-matching mismatch. Require record[" (&/|length ?slot-types) "]. Given record[" (&/|length ?slots) "]"))
+            (fail (str "[Analyser Error] Pattern-matching mismatch. Require record[" (&/|length ?slot-types) "]. Given record[" (&/|length ?slots) "]"))
             (|do [[=tests =kont] (&/fold (fn [kont* slot]
                                            (|let [[sn sv] slot]
                                              (matchv ::M/objects [sn]
@@ -93,17 +96,17 @@
                                                  (if-let [=slot-type (&/|get =tag ?slot-types)]
                                                    (|do [[=test [=tests =kont]] (analyse-pattern =slot-type sv kont*)]
                                                      (return (&/T (&/|put =tag =test =tests) =kont)))
-                                                   (fail (str "[Pattern-Matching Error] Record-type lacks slot: " =tag))))
+                                                   (fail (str "[Pattern-matching Error] Record-type lacks slot: " =tag))))
 
                                                [_]
-                                               (fail (str "[Pattern-Matching Error] Record must use tags as slot-names: " (&/show-ast sn))))))
+                                               (fail (str "[Pattern-matching Error] Record must use tags as slot-names: " (&/show-ast sn))))))
                                          (|do [=kont kont]
                                            (return (&/T (&/|table) =kont)))
                                          (&/|reverse ?slots))]
               (return (&/T (&/V "RecordTestAC" =tests) =kont))))
 
           [_]
-          (fail "[Analyser Error] Record requires record-type.")))
+          (fail "[Pattern-matching Error] Record requires record-type.")))
 
       [["lux;TagS" ?ident]]
       (|do [=tag (&&/resolved-ident ?ident)
@@ -182,7 +185,7 @@
                                    (merge-total v (&/T t ?body)))
                                  ?values ?tests)]
             (return (&/V "TupleTotal" (&/T total? structs))))
-          (fail "[Pattern-matching error] Inconsistent tuple-size."))
+          (fail "[Pattern-matching Error] Inconsistent tuple-size."))
 
         [["DefaultTotal" total?] ["RecordTestAC" ?tests]]
         (|do [structs (&/map% (fn [t]
@@ -203,14 +206,14 @@
                                      (if (.equals ^Object lslot rslot)
                                        (|do [sub-struct* (merge-total sub-struct (&/T value ?body))]
                                          (return (&/T lslot sub-struct*)))
-                                       (fail "[Pattern-matching error] Record slots mismatch."))))
+                                       (fail "[Pattern-matching Error] Record slots mismatch."))))
                                  ?values
                                  (->> ?tests
                                       &/->seq
                                       (sort compare-kv)
                                       &/->list))]
             (return (&/V "RecordTotal" (&/T total? structs))))
-          (fail "[Pattern-matching error] Inconsistent record-size."))
+          (fail "[Pattern-matching Error] Inconsistent record-size."))
 
         [["DefaultTotal" total?] ["VariantTestAC" [?tag ?test]]]
         (|do [sub-struct (merge-total (&/V "DefaultTotal" total?)
@@ -245,15 +248,16 @@
     [["TupleTotal" [?total ?structs]]]
     (if ?total
       (return true)
-      (matchv ::M/objects [value-type]
-        [["lux;TupleT" ?members]]
-        (|do [totals (&/map2% (fn [sub-struct ?member]
-                                (check-totality ?member sub-struct))
-                              ?structs ?members)]
-          (return (&/fold #(and %1 %2) true totals)))
+      (|do [value-type* (resolve-type value-type)]
+        (matchv ::M/objects [value-type*]
+          [["lux;TupleT" ?members]]
+          (|do [totals (&/map2% (fn [sub-struct ?member]
+                                  (check-totality ?member sub-struct))
+                                ?structs ?members)]
+            (return (&/fold #(and %1 %2) true totals)))
 
-        [_]
-        (fail "")))
+          [_]
+          (fail "[Pattern-maching Error] Tuple is not total."))))
 
     [["RecordTotal" [?total ?structs]]]
     (if ?total
@@ -270,7 +274,7 @@
             (return (&/fold #(and %1 %2) true totals)))
 
           [_]
-          (fail ""))))
+          (fail "[Pattern-maching Error] Record is not total."))))
 
     [["VariantTotal" [?total ?structs]]]
     (if ?total
@@ -287,7 +291,7 @@
             (return (&/fold #(and %1 %2) true totals)))
 
           [_]
-          (fail ""))))
+          (fail "[Pattern-maching Error] Variant is not total."))))
     
     [["DefaultTotal" ?total]]
     (return ?total)
@@ -304,4 +308,4 @@
         ? (check-totality value-type struct)]
     (if ?
       (return patterns)
-      (fail "[Pattern-maching error] Pattern-matching is non-total."))))
+      (fail "[Pattern-maching Error] Pattern-matching is non-total."))))

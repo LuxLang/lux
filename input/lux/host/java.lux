@@ -1,0 +1,311 @@
+##   Copyright (c) Eduardo Julian. All rights reserved.
+##   The use and distribution terms for this software are covered by the
+##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+##   which can be found in the file epl-v10.html at the root of this distribution.
+##   By using this software in any fashion, you are agreeing to be bound by
+##   the terms of this license.
+##   You must not remove this notice, or any other, from this software.
+
+(;import lux
+         (lux (data list
+                    (text #as text))
+              (control (functor #as F)
+                       (monad #as M #refer (#only do)))
+              (meta lux
+                    macro
+                    syntax)))
+
+## (open List/Functor)
+
+## [Utils/Parsers]
+(def finally^
+  (Parser Syntax)
+  (form^ (do Parser/Monad
+           [_ (symbol?^ ["" "finally"])
+            expr id^
+            _ end^]
+           (M;wrap expr))))
+
+(def catch^
+  (Parser (, Text Ident Syntax))
+  (form^ (do Parser/Monad
+           [_ (symbol?^ ["" "catch"])
+            ex-class local-symbol^
+            ex symbol^
+            expr id^
+            _ end^]
+           (M;wrap [ex-class ex expr]))))
+
+(def method-decl^
+  (Parser (, (List Text) Text (List Text) Text))
+  (form^ (do Parser/Monad
+           [modifiers (*^ local-tag^)
+            name local-symbol^
+            inputs (tuple^ (*^ local-symbol^))
+            output local-symbol^
+            _ end^]
+           (M;wrap [modifiers name inputs output]))))
+
+(def field-decl^
+  (Parser (, (List Text) Text Text))
+  (form^ (do Parser/Monad
+           [modifiers (*^ local-tag^)
+            name local-symbol^
+            class local-symbol^
+            _ end^]
+           (M;wrap [modifiers name class]))))
+
+(def arg-decl^
+  (Parser (, Text Text))
+  (form^ (do Parser/Monad
+           [arg-name local-symbol^
+            arg-class local-symbol^
+            _ end^]
+           (M;wrap [arg-name arg-class]))))
+
+(def method-def^
+  (Parser (, (List Text) Text (List (, Text Text)) Text Syntax))
+  (form^ (do Parser/Monad
+           [modifiers (*^ local-tag^)
+            name local-symbol^
+            inputs (tuple^ (*^ arg-decl^))
+            output local-symbol^
+            body id^
+            _ end^]
+           (M;wrap [modifiers name inputs output body]))))
+
+(def method-call^
+  (Parser (, Text (List Text) (List Syntax)))
+  (form^ (do Parser/Monad
+           [method local-symbol^
+            arity-classes (tuple^ (*^ local-symbol^))
+            arity-args (tuple^ (*^ id^))
+            _ end^
+            _ (: (Parser (,))
+                 (if (i= (size arity-classes)
+                         (size arity-args))
+                   (M;wrap [])
+                   (lambda [_] #;None)))]
+           (M;wrap [method arity-classes arity-args])
+           )))
+
+## [Utils/Lux]
+## (def (find-class-field field class)
+##   (-> Text Text (Lux Type))
+##   ...)
+
+## (def (find-virtual-method method class)
+##   (-> Text Text (Lux (List (, (List Type) Type))))
+##   ...)
+
+## (def (find-static-method method class)
+##   (-> Text Text (Lux (List (, (List Type) Type))))
+##   ...)
+
+
+## [Syntax]
+(defsyntax #export (throw ex)
+  (emit (list (` (_jvm_throw (~ ex))))))
+
+(defsyntax #export (try body [catches (*^ catch^)] [finally (?^ finally^)])
+  (emit (list (` (_jvm_try (~ body)
+                           (~@ (list:++ (:: List/Functor (F;map (: (-> (, Text Ident Syntax) Syntax)
+                                                                   (lambda [catch]
+                                                                     (let [[class ex body] catch]
+                                                                       (` (_jvm_catch (~ (text$ class)) (~ (symbol$ ex)) (~ body))))))
+                                                                catches))
+                                        (case finally
+                                          #;None
+                                          (list)
+
+                                          (#;Some finally)
+                                          (list (` (_jvm_finally (~ finally))))))))))))
+
+(defsyntax #export (definterface [name local-symbol^] [supers (tuple^ (*^ local-symbol^))] [members (*^ method-decl^)])
+  (do Lux/Monad
+    [current-module get-module-name
+     #let [full-name (text;++ (text;replace "/" "." current-module)
+                              name)]]
+    (let [members' (:: List/Functor (F;map (: (-> (, (List Text) Text (List Text) Text) Syntax)
+                                              (lambda [member]
+                                                (let [[modifiers name inputs output] member]
+                                                  (` ((~ (symbol$ ["" name])) [(~@ (:: List/Functor (F;map text$ inputs)))] (~ (text$ output)) [(~@ (:: List/Functor (F;map text$ modifiers)))])))))
+                                           members))]
+      (emit (list (` (_jvm_interface (~ (text$ full-name)) [(~@ (:: List/Functor (F;map text$ supers)))]
+                       (~@ members'))))))))
+
+(defsyntax #export (defclass [name local-symbol^] [super local-symbol^] [interfaces (tuple^ (*^ local-symbol^))]
+                     [fields (*^ field-decl^)]
+                     [methods (*^ method-def^)])
+  (do Lux/Monad
+    [current-module get-module-name
+     #let [full-name (text;++ (text;replace "/" "." current-module)
+                              name)
+           fields' (:: List/Functor (F;map (: (-> (, (List Text) Text Text) Syntax)
+                                              (lambda [field]
+                                                (let [[modifiers name class] field]
+                                                  (` ((~ (symbol$ ["" name]))
+                                                      (~ (text$ class))
+                                                      [(~@ (:: List/Functor (F;map text$ modifiers)))])))))
+                                           fields))
+           methods' (:: List/Functor (F;map (: (-> (, (List Text) Text (List (, Text Text)) Text Syntax) Syntax)
+                                               (lambda [methods]
+                                                 (let [[modifiers name inputs output body] methods]
+                                                   (` ((~ (symbol$ ["" name]))
+                                                       [(~@ (:: List/Functor (F;map (: (-> (, Text Text) Syntax)
+                                                                                       (lambda [in]
+                                                                                         (let [[left right] in]
+                                                                                           (form$ (list (text$ left)
+                                                                                                        (text$ right))))))
+                                                                                    inputs)))]
+                                                       (~ (text$ output))
+                                                       [(~@ (:: List/Functor (F;map text$ modifiers)))]
+                                                       (~ body))))))
+                                            methods))]]
+    (emit (list (` (_jvm_class (~ (text$ full-name)) (~ (text$ super))
+                     [(~@ (:: List/Functor (F;map text$ interfaces)))]
+                     [(~@ fields')]
+                     [(~@ methods')]))))))
+
+(defsyntax #export (new [class local-symbol^] [arg-classes (tuple^ (*^ local-symbol^))] [args (tuple^ (*^ id^))])
+  (emit (list (` (_jvm_new (~ (text$ class))
+                           [(~@ (:: List/Functor (F;map text$ arg-classes)))]
+                           [(~@ args)])))))
+
+(defsyntax #export (instance? [class local-symbol^] obj)
+  (emit (list (` (_jvm_instanceof (~ (text$ class)) (~ obj))))))
+
+(defsyntax #export (locking lock body)
+  (do Lux/Monad
+    [g!lock (gensym "")
+     g!body (gensym "")]
+    (emit (list (` (;let [(~ g!lock) (~ lock)
+                          _ (_jvm_monitor-enter (~ g!lock))
+                          (~ g!body) (~ body)
+                          _ (_jvm_monitor-exit (~ g!lock))]
+                         (~ g!body)))))
+    ))
+
+(defsyntax #export (null? obj)
+  (emit (list (` (_jvm_null? (~ obj))))))
+
+(defsyntax #export (program [args symbol^] body)
+  (emit (list (` (_jvm_program (~ (symbol$ args))
+                   (~ body))))))
+
+## (defsyntax #export (.? [field local-symbol^] obj)
+##   (case obj
+##     (#;Meta [_ (#;SymbolS obj-name)])
+##     (do Lux/Monad
+##       [obj-type (find-var-type obj-name)]
+##       (case obj-type
+##         (#;DataT class)
+##         (do Lux/Monad
+##           [field-class (find-field field class)]
+##           (_jvm_getfield (~ (text$ class)) (~ (text$ field)) (~ (text$ field-class))))
+
+##         _
+##         (fail "Can only get field from object.")))
+
+##     _
+##     (do Lux/Monad
+##       [g!obj (gensym "")]
+##       (emit (list (` (;let [(~ g!obj) (~ obj)]
+##                            (.? (~ field) (~ g!obj)))))))))
+
+## (defsyntax #export (.= [field local-symbol^] value obj)
+##   (case obj
+##     (#;Meta [_ (#;SymbolS obj-name)])
+##     (do Lux/Monad
+##       [obj-type (find-var-type obj-name)]
+##       (case obj-type
+##         (#;DataT class)
+##         (do Lux/Monad
+##           [field-class (find-field field class)]
+##           (_jvm_putfield (~ (text$ class)) (~ (text$ field)) (~ (text$ field-class)) (~ value)))
+
+##         _
+##         (fail "Can only set field of object.")))
+
+##     _
+##     (do Lux/Monad
+##       [g!obj (gensym "")]
+##       (emit (list (` (;let [(~ g!obj) (~ obj)]
+##                            (.= (~ field) (~ value) (~ g!obj)))))))))
+
+## (defsyntax #export (.! [call method-call^] obj)
+##   (case obj
+##     (#;Meta [_ (#;SymbolS obj-name)])
+##     (do Lux/Monad
+##       [obj-type (find-var-type obj-name)]
+##       (case obj-type
+##         (#;DataT class)
+##         (do Lux/Monad
+##           [#let [[m-name ?m-classes m-args] call]
+##            all-m-details (find-virtual-method m-name class)
+##            m-ins (case [?m-classes all-m-details]
+##                    (\ [#;None (list [m-ins m-out])])
+##                    (M;wrap m-ins)
+
+##                    (\ [(#;Some m-ins) _])
+##                    (M;wrap m-ins)
+
+##                    _
+##                    #;None)]
+##           (emit (list (` (_jvm_invokevirtual (~ (text$ m-name)) (~ (text$ class)) [(~@ (:: List/Functor (F;map text$ m-ins)))]
+##                                              (~ obj) [(~@ m-args)])))))
+
+##         _
+##         (fail "Can only call method on object.")))
+
+##     _
+##     (do Lux/Monad
+##       [g!obj (gensym "")]
+##       (emit (list (` (;let [(~ g!obj) (~ obj)]
+##                            (.! (~@ *tokens*)))))))))
+
+## (defsyntax #export (..? [field local-symbol^] [class local-symbol^])
+##   (emit (list (` (_jvm_getstatic (~ (text$ class)) (~ (text$ field)))))))
+
+## (defsyntax #export (..= [field local-symbol^] value [class local-symbol^])
+##   (emit (list (` (_jvm_putstatic (~ (text$ class)) (~ (text$ field)) (~ value))))))
+
+## (defsyntax #export (..! [call method-call^] [class local-symbol^])
+##   (do Lux/Monad
+##     [#let [[m-name ?m-classes m-args] call]
+##      all-m-details (find-static-method m-name class)
+##      m-ins (case [?m-classes all-m-details]
+##              (\ [#;None (list [m-ins m-out])])
+##              (M;wrap m-ins)
+
+##              (\ [(#;Some m-ins) _])
+##              (M;wrap m-ins)
+
+##              _
+##              #;None)]
+##     (emit (list (` (_jvm_invokestatic (~ (text$ m-name)) (~ (text$ class))
+##                                       [(~@ (:: List/Functor (F;map text$ m-ins)))]
+##                                       [(~@ m-args)]))))
+##     ))
+
+## (definterface Function []
+##   (#public #abstract apply [java.lang.Object] java.lang.Object))
+
+## (_jvm_interface "Function" []
+##   (apply ["java.lang.Object"] "java.lang.Object" ["public" "abstract"]))
+
+## (defclass MyFunction [Function]
+##   (#public #static foo java.lang.Object)
+##   (#public <init> [] void
+##            (_jvm_invokespecial java.lang.Object <init> [] this []))
+##   (#public apply [(arg java.lang.Object)] java.lang.Object
+##            "YOLO"))
+
+## (_jvm_class "lux.MyFunction" "java.lang.Object" ["lux.Function"]
+##   [(foo "java.lang.Object" ["public" "static"])]
+##   (<init> [] "void"
+##           ["public"]
+##           (_jvm_invokespecial java.lang.Object <init> [] this []))
+##   (apply [(arg "java.lang.Object")] "java.lang.Object"
+##          ["public"]
+##          "YOLO"))

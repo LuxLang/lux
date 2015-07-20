@@ -248,11 +248,11 @@
             [["lux;MacroD" macro]]
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
                   :let [_ (when (and ;; (= "lux/control/monad" ?module)
-                                     (= "do" ?name))
+                                 (= "case" ?name))
                             (->> (&/|map &/show-ast macro-expansion)
                                  (&/|interpose "\n")
                                  (&/fold str "")
-                                 (prn ?module "do")))]
+                                 (prn ?module "case")))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 
@@ -310,7 +310,9 @@
             [["lux;VarT" ?id]]
             (|do [? (&type/bound? ?id)]
               (if ?
-                (|do [dtype (&type/deref ?id)]
+                (|do [dtype (&type/deref ?id)
+                      ;; dtype* (&type/actual-type dtype)
+                      ]
                   (matchv ::M/objects [dtype]
                     [["lux;ExT" _]]
                     (return (&/T _expr exo-type))
@@ -341,7 +343,7 @@
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
-      (fail (str "[Analyser Error] Can't redefine " ?name))
+      (fail (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
       (|do [=value (&/with-scope ?name
                      (analyse-1+ analyse ?value))
             =value-type (&&/expr-type =value)]

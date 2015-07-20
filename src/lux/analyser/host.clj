@@ -54,6 +54,10 @@
   analyse-jvm-ilt  "jvm-ilt"  "java.lang.Integer" "java.lang.Boolean"
   analyse-jvm-igt  "jvm-igt"  "java.lang.Integer" "java.lang.Boolean"
 
+  analyse-jvm-ceq  "jvm-ceq"  "java.lang.Character" "java.lang.Boolean"
+  analyse-jvm-clt  "jvm-clt"  "java.lang.Character" "java.lang.Boolean"
+  analyse-jvm-cgt  "jvm-cgt"  "java.lang.Character" "java.lang.Boolean"
+
   analyse-jvm-ladd "jvm-ladd" "java.lang.Long"    "java.lang.Long"
   analyse-jvm-lsub "jvm-lsub" "java.lang.Long"    "java.lang.Long"
   analyse-jvm-lmul "jvm-lmul" "java.lang.Long"    "java.lang.Long"
@@ -93,20 +97,36 @@
 
 (defn analyse-jvm-putstatic [analyse ?class ?field ?value]
   (|do [=type (&host/lookup-static-field ?class ?field)
-        =value (&&/analyse-1 analyse ?value)]
+        =value (&&/analyse-1 analyse =type ?value)]
     (return (&/|list (&/T (&/V "jvm-putstatic" (&/T ?class ?field =value)) =type)))))
 
 (defn analyse-jvm-putfield [analyse ?class ?field ?object ?value]
   (|do [=type (&host/lookup-static-field ?class ?field)
         =object (&&/analyse-1 analyse ?object)
-        =value (&&/analyse-1 analyse ?value)]
+        =value (&&/analyse-1 analyse =type ?value)]
     (return (&/|list (&/T (&/V "jvm-putfield" (&/T ?class ?field =object =value)) =type)))))
 
 (defn analyse-jvm-invokestatic [analyse ?class ?method ?classes ?args]
   (|do [=classes (&/map% &host/extract-jvm-param ?classes)
         =return (&host/lookup-static-method ?class ?method =classes)
-        =args (&/flat-map% analyse ?args)]
+        :let [_ (matchv ::M/objects [=return]
+                  [["lux;DataT" _return-class]]
+                  (prn 'analyse-jvm-invokestatic ?class ?method _return-class))]
+        =args (&/map2% (fn [_class _arg]
+                         (&&/analyse-1 analyse (&/V "lux;DataT" _class) _arg))
+                       =classes
+                       ?args)]
     (return (&/|list (&/T (&/V "jvm-invokestatic" (&/T ?class ?method =classes =args)) =return)))))
+
+(defn analyse-jvm-instanceof [analyse ?class ?object]
+  (|do [=object (analyse-1+ analyse ?object)
+        :let [[_obj _type] =object]]
+    (matchv ::M/objects [_type]
+      [["lux;DataT" _]]
+      (return (&/|list (&/T (&/V "jvm-instanceof" (&/T ?class ?object)) (&/V "lux;DataT" "java.lang.Boolean"))))
+
+      [_]
+      (fail "[Analyser Error] Can only use instanceof with object types."))))
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]

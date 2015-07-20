@@ -8,18 +8,25 @@
 
 (;import lux
          (.. macro)
-         (lux/control (monoid #as m #refer (#only List:Monoid))
+         (lux/control (monoid #as m)
                       (functor #as F)
                       (monad #as M #refer (#only do)))
          (lux/data list
+                   maybe
                    (show #as S)))
 
-## Types
+## [Types]
 ## (deftype (Lux a)
 ##   (-> Compiler (Either Text (, Compiler a))))
 
-## Structures
-(defstruct #export Lux:Functor (F;Functor Lux)
+## [Utils]
+(def (ident->text ident)
+  (-> Ident Text)
+  (let [[pre post] ident]
+    ($ text:++ pre ";" post)))
+
+## [Structures]
+(defstruct #export Lux/Functor (F;Functor Lux)
   (def (F;map f fa)
     (lambda [state]
       (case (fa state)
@@ -29,8 +36,8 @@
         (#;Right [state' a])
         (#;Right [state' (f a)])))))
 
-(defstruct #export Lux:Monad (M;Monad Lux)
-  (def M;_functor Lux:Functor)
+(defstruct #export Lux/Monad (M;Monad Lux)
+  (def M;_functor Lux/Functor)
   (def (M;wrap x)
     (lambda [state]
       (#;Right [state x])))
@@ -68,7 +75,7 @@
 (def (find-macro' modules current-module module name)
   (-> (List (, Text (Module Compiler))) Text Text Text
       (Maybe Macro))
-  (do M;Maybe:Monad
+  (do Maybe/Monad
     [$module (get module modules)
      gdef (|> (: (Module Compiler) $module) (get@ #;defs) (get name))]
     (case (: (, Bool (DefData' Macro)) gdef)
@@ -85,7 +92,7 @@
 
 (def #export (find-macro ident)
   (-> Ident (Lux (Maybe Macro)))
-  (do Lux:Monad
+  (do Lux/Monad
     [current-module get-module-name]
     (let [[module name] ident]
       (: (Lux (Maybe Macro))
@@ -96,50 +103,56 @@
   (-> Ident (Lux Ident))
   (case ident
     ["" name]
-    (do Lux:Monad
+    (do Lux/Monad
       [module-name get-module-name]
       (M;wrap (: Ident [module-name name])))
 
     _
-    (:: Lux:Monad (M;wrap ident))))
+    (:: Lux/Monad (M;wrap ident))))
 
 (def #export (macro-expand syntax)
   (-> Syntax (Lux (List Syntax)))
   (case syntax
     (#;Meta [_ (#;FormS (#;Cons [(#;Meta [_ (#;SymbolS macro-name)]) args]))])
-    (do Lux:Monad
+    (do Lux/Monad
       [macro-name' (normalize macro-name)
        ?macro (find-macro macro-name')]
       (case ?macro
         (#;Some macro)
-        (do Lux:Monad
+        (do Lux/Monad
           [expansion (macro args)
-           expansion' (M;map% Lux:Monad macro-expand expansion)]
-          (M;wrap (:: M;List:Monad (M;join expansion'))))
+           expansion' (M;map% Lux/Monad macro-expand expansion)]
+          (M;wrap (:: List/Monad (M;join expansion'))))
         
         #;None
-        (do Lux:Monad
-          [parts' (M;map% Lux:Monad macro-expand (list& (symbol$ macro-name) args))]
-          (M;wrap (list (form$ (:: M;List:Monad (M;join parts'))))))))
+        (do Lux/Monad
+          [parts' (M;map% Lux/Monad macro-expand (list& (symbol$ macro-name) args))]
+          (M;wrap (list (form$ (:: List/Monad (M;join parts'))))))))
 
     (#;Meta [_ (#;FormS (#;Cons [harg targs]))])
-    (do Lux:Monad
+    (do Lux/Monad
       [harg+ (macro-expand harg)
-       targs+ (M;map% Lux:Monad macro-expand targs)]
-      (M;wrap (list (form$ (list:++ harg+ (:: M;List:Monad (M;join (: (List (List Syntax)) targs+))))))))
+       targs+ (M;map% Lux/Monad macro-expand targs)]
+      (M;wrap (list (form$ (list:++ harg+ (:: List/Monad (M;join (: (List (List Syntax)) targs+))))))))
 
     (#;Meta [_ (#;TupleS members)])
-    (do Lux:Monad
-      [members' (M;map% Lux:Monad macro-expand members)]
-      (M;wrap (list (tuple$ (:: M;List:Monad (M;join members'))))))
+    (do Lux/Monad
+      [members' (M;map% Lux/Monad macro-expand members)]
+      (M;wrap (list (tuple$ (:: List/Monad (M;join members'))))))
 
     _
-    (:: Lux:Monad (M;wrap (list syntax)))))
+    (:: Lux/Monad (M;wrap (list syntax)))))
 
 (def #export (gensym prefix state)
   (-> Text (Lux Syntax))
   (#;Right [(update@ #;seed inc state)
-            (symbol$ ["__gensym__" (:: S;Int:Show (S;show (get@ #;seed state)))])]))
+            (symbol$ ["__gensym__" (:: S;Int/Show (S;show (get@ #;seed state)))])]))
+
+(def #export (emit datum)
+  (All [a]
+    (-> a (Lux a)))
+  (lambda [state]
+    (#;Right [state datum])))
 
 (def #export (fail msg)
   (All [a]
@@ -149,7 +162,7 @@
 
 (def #export (macro-expand-1 token)
   (-> Syntax (Lux Syntax))
-  (do Lux:Monad
+  (do Lux/Monad
     [token+ (macro-expand token)]
     (case token+
       (\ (list token'))
@@ -171,7 +184,7 @@
   (-> Text (Lux (List Text)))
   (case (get module (get@ #;modules state))
     (#;Some =module)
-    (using M;List:Monad
+    (using List/Monad
       (#;Right [state (M;join (:: M;_functor (F;map (: (-> (, Text (, Bool (DefData' Macro)))
                                                            (List Text))
                                                        (lambda [gdef]
@@ -183,3 +196,91 @@
     
     #;None
     (#;Left ($ text:++ "Unknown module: " module))))
+
+(def (show-envs envs)
+  (-> (List (Env Text (, LuxVar Type))) Text)
+  (|> envs
+      (F;map (lambda [env]
+               (case env
+                 {#;name name #;inner-closures _ #;locals {#;counter _ #;mappings locals} #;closure _}
+                 ($ text:++ name ": " (|> locals
+                                          (F;map (: (All [a] (-> (, Text a) Text))
+                                                    (lambda [b] (let [[label _] b] label))))
+                                          (:: List/Functor)
+                                          (interpose " ")
+                                          (foldL text:++ ""))))))
+      (:: List/Functor)
+      (interpose "\n")
+      (foldL text:++ "")))
+
+(def (try-both f x1 x2)
+  (All [a b]
+    (-> (-> a (Maybe b)) a a (Maybe b)))
+  (case (f x1)
+    #;None     (f x2)
+    (#;Some y) (#;Some y)))
+
+(def (find-in-env name state)
+  (-> Ident Compiler (Maybe Type))
+  (let [vname' (ident->text name)]
+    (case state
+      {#;source source #;modules modules
+       #;envs   envs   #;types   types             #;host  host
+       #;seed   seed   #;seen-sources seen-sources #;eval? eval?}
+      (some (: (-> (Env Text (, LuxVar Type)) (Maybe Type))
+               (lambda [env]
+                 (case env
+                   {#;name _ #;inner-closures _ #;locals {#;counter _ #;mappings locals} #;closure {#;counter _ #;mappings closure}}
+                   (try-both (some (: (-> (, Text (, LuxVar Type)) (Maybe Type))
+                                      (lambda [binding]
+                                        (let [[bname [_ type]] binding]
+                                          (if (text:= vname' bname)
+                                            (#;Some type)
+                                            #;None)))))
+                             locals
+                             closure))))
+            envs))))
+
+(def (find-in-defs name state)
+  (-> Ident Compiler (Maybe Type))
+  (let [[v-prefix v-name] name
+        {#;source source #;modules modules
+         #;envs   envs   #;types   types   #;host           host
+         #;seed   seed   #;seen-sources seen-sources #;eval? eval?} state]
+    (case (get v-prefix modules)
+      #;None
+      #;None
+
+      (#;Some {#;defs defs #;module-aliases _ #;imports _})
+      (case (get v-name defs)
+        #;None
+        #;None
+
+        (#;Some [_ def-data])
+        (case def-data
+          #;TypeD          (#;Some Type)
+          (#;ValueD type)  (#;Some type)
+          (#;MacroD m)     (#;Some Macro)
+          (#;AliasD name') (find-in-defs name' state))))))
+
+(def #export (find-var-type name)
+  (-> Ident (Lux Type))
+  (do Lux/Monad
+    [name' (normalize name)]
+    (: (Lux Type)
+       (lambda [state]
+         (case (find-in-env name state)
+           (#;Some struct-type)
+           (#;Right [state struct-type])
+
+           _
+           (case (find-in-defs name' state)
+             (#;Some struct-type)
+             (#;Right [state struct-type])
+
+             _
+             (let [{#;source source #;modules      modules
+                    #;envs   envs   #;types        types        #;host  host
+                    #;seed   seed   #;seen-sources seen-sources #;eval? eval?} state]
+               (#;Left ($ text:++ "Unknown var: " (ident->text name) "\n\n" (show-envs envs))))))))
+    ))
