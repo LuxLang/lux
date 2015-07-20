@@ -7,6 +7,7 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns lux.analyser.module
+  (:refer-clojure :exclude [alias])
   (:require [clojure.string :as string]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array

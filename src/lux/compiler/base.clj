@@ -18,31 +18,35 @@
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
-                              MethodVisitor)))
+                              MethodVisitor)
+           (java.io File
+                    BufferedOutputStream
+                    FileOutputStream)
+           (java.lang.reflect Field)))
 
 ;; [Utils]
 (defn ^:private write-file [^String file ^bytes data]
-  (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. file))]
+  (with-open [stream (BufferedOutputStream. (FileOutputStream. file))]
     (.write stream data)))
 
 (defn ^:private write-output [module name data]
   (let [module* module]
-    (.mkdirs (java.io.File. (str "output/jvm/" module*)))
+    (.mkdirs (File. (str "output/jvm/" module*)))
     (write-file (str "output/jvm/" module* "/" name ".class") data)))
 
 (defn ^:private write-cache [module name data]
   (let [module* (string/replace module #"/" " ")]
-    (.mkdirs (java.io.File. (str "cache/jvm/" module*)))
+    (.mkdirs (File. (str "cache/jvm/" module*)))
     (write-file (str "cache/jvm/" module* "/" name ".class") data)))
 
-(defn ^:private clean-file [^java.io.File file]
+(defn ^:private clean-file [^File file]
   (if (.isDirectory file)
     (do (doseq [f (seq (.listFiles file))]
           (clean-file f))
       (.delete file))
     (.delete file)))
 
-(defn ^:private read-file [file]
+(defn ^:private read-file [^File file]
   (with-open [reader (io/input-stream file)]
     (let [length (.length file)
           buffer (byte-array length)]
@@ -74,11 +78,11 @@
     (return nil)))
 
 (defn cached? [module]
-  (.exists (java.io.File. (str "cache/jvm/" (string/replace module #"/" " ") "/_.class"))))
+  (.exists (File. (str "cache/jvm/" (string/replace module #"/" " ") "/_.class"))))
 
 (defn delete-cache [module]
   (fn [state]
-    (do (clean-file (java.io.File. (str "cache/jvm/" (string/replace module #"/" " "))))
+    (do (clean-file (File. (str "cache/jvm/" (string/replace module #"/" " "))))
       (return* state nil))))
 
 (defn ^:private replace-several [content & replacements]
@@ -90,7 +94,7 @@
                  (throw e)))
             content replacement-list)))
 
-(defn ^:private replace-cache [cache-name]
+(defn ^:private replace-cache [^String cache-name]
   (if (.startsWith cache-name "$")
     (replace-several cache-name
                      #"_ASTER_" "*"
@@ -118,16 +122,19 @@
                      #"_PIPE_" "|")
     cache-name))
 
+(defn ^:private get-field [^String field-name ^Class class]
+  (-> class ^Field (.getField field-name) (.get nil)))
+
 (defn load-cache [module module-hash compile-module]
   (|do [loader &/loader
         !classes &/classes]
     (let [module-path (str "cache/jvm/" (string/replace module #"/" " "))
           module* (string/replace module #"/" ".")
           class-name (str module* "._")
-          module-meta (do (swap! !classes assoc class-name (read-file (java.io.File. (str module-path "/_.class"))))
-                        (load-class! loader class-name))]
-      (if (and (= module-hash (-> module-meta (.getField "_hash") (.get nil)))
-               (= version (-> module-meta (.getField "_compiler") (.get nil))))
+          ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
+                               (load-class! loader class-name))]
+      (if (and (= module-hash (get-field "_hash" module-meta))
+               (= version (get-field "_compiler" module-meta)))
         (let [imports (string/split (-> module-meta (.getField "_imports") (.get nil)) #"\t")
               ;; _ (prn module 'imports imports)
               ]
@@ -137,9 +144,10 @@
                                 (&/|list)
                                 (&/->list imports)))]
             (if (->> loads &/->seq (every? true?))
-              (do (doseq [file (seq (.listFiles (java.io.File. module-path)))
-                          :when (not= "_.class" (.getName file))]
-                    (let [real-name (second (re-find #"^(.*)\.class$" (.getName file)))
+              (do (doseq [^File file (seq (.listFiles (File. module-path)))
+                          :let [file-name (.getName file)]
+                          :when (not= "_.class" file-name)]
+                    (let [real-name (second (re-find #"^(.*)\.class$" file-name))
                           bytecode (read-file file)
                           ;; _ (prn 'load-cache module real-name)
                           ]
@@ -149,18 +157,18 @@
                       ;; (swap! !classes assoc (-> (load-class! loader "__temp__") (.getField "_name") (.get nil)) bytecode)
                       (write-output module real-name bytecode)))
                 ;; (swap! !classes dissoc "__temp__")
-                (let [defs (string/split (-> module-meta (.getField "_defs") (.get nil)) #"\t")]
+                (let [defs (string/split (get-field "_defs" module-meta) #"\t")]
                   (|do [_ (fn [state]
                             (&/run-state (&/map% (fn [_def]
                                                    (let [[_exported? _name _ann] (string/split _def #" ")
                                                          ;; _ (prn '[_exported? _name _ann] [_exported? _name _ann])
                                                          def-class (load-class! loader (str module* ".$" (&/normalize-ident _name)))
-                                                         def-name (-> def-class (.getField "_name") (.get nil))]
+                                                         def-name (get-field "_name" def-class)]
                                                      (|do [_ (case _ann
                                                                "T" (&a-module/define module def-name (&/V "lux;TypeD" nil) &type/Type)
                                                                "M" (|do [_ (&a-module/define module def-name (&/V "lux;ValueD" &type/Macro) &type/Macro)]
                                                                      (&a-module/declare-macro module def-name))
-                                                               "V" (let [def-type (-> def-class (.getField "_meta") (.get nil))]
+                                                               "V" (let [def-type (get-field "_meta" def-class)]
                                                                      (matchv ::M/objects [def-type]
                                                                        [["lux;ValueD" _def-type]]
                                                                        (&a-module/define module def-name def-type _def-type)))
@@ -168,7 +176,7 @@
                                                                (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]
                                                                  (|do [__type (&a-module/def-type __module __name)]
                                                                    (do ;; (prn '__type [__module __name] (&type/show-type __type))
-                                                                     (&a-module/def-alias module def-name __module __name __type)))))]
+                                                                       (&a-module/def-alias module def-name __module __name __type)))))]
                                                        (if (= "1" _exported?)
                                                          (&a-module/export module def-name)
                                                          (return nil)))
