@@ -30,6 +30,11 @@
             (return (&/T ?item =type)))
           )))))
 
+(defn ^:private with-cursor [cursor form]
+  (matchv ::M/objects [form]
+    [["lux;Meta" [_ syntax]]]
+    (&/V "lux;Meta" (&/T cursor syntax))))
+
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
   (|do [exo-type* (&type/actual-type exo-type)]
@@ -245,7 +250,7 @@
         (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*)))))
     ))
 
-(defn analyse-apply [analyse exo-type =fn ?args]
+(defn analyse-apply [analyse exo-type form-cursor =fn ?args]
   (|do [loader &/loader]
     (matchv ::M/objects [=fn]
       [[=fn-form =fn-type]]
@@ -255,14 +260,15 @@
           (matchv ::M/objects [$def]
             [["lux;MacroD" macro]]
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
+                  :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
                   :let [_ (when (and ;; (= "lux/control/monad" ?module)
                                  (= "case" ?name))
-                            (->> (&/|map &/show-ast macro-expansion)
+                            (->> (&/|map &/show-ast macro-expansion*)
                                  (&/|interpose "\n")
                                  (&/fold str "")
                                  (prn ?module "case")))]
                   ]
-              (&/flat-map% (partial analyse exo-type) macro-expansion))
+              (&/flat-map% (partial analyse exo-type) macro-expansion*))
 
             [_]
             (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]

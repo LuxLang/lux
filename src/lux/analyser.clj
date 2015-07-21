@@ -535,7 +535,7 @@
                            ]
         [["lux;Right" [state* =fn]]]
         (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
-            ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type =fn ?args) state*))
+            ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type meta =fn ?args) state*))
 
         [_]
         ((analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token) state)))
