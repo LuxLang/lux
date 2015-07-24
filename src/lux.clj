@@ -14,7 +14,7 @@
             :reload-all))
 
 (defn -main [& _]
-  (do (time (&compiler/compile-all (&/|list "program")))
+  (do (time (&compiler/compile-all (&/|list "lux" "program")))
     ;; (prn @&type/counter)
     )
   (System/exit 0))

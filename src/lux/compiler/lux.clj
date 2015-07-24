@@ -87,7 +87,7 @@
                              ret (compile v)
                              :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                          (return ret))))
-                  (&/|range num-elems) elems*)]
+                   (&/|range num-elems) elems*)]
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]

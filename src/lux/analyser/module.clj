@@ -20,9 +20,7 @@
 (def ^:private $DEFS 0)
 (def ^:private $ALIASES 1)
 (def ^:private $IMPORTS 2)
-
-;; [Exports]
-(def init-module
+(def ^:private +init+
   (&/R ;; "lux;defs"
    (&/|table)
    ;; "lux;module-aliases"
@@ -31,6 +29,7 @@
    (&/|list)
    ))
 
+;; [Exports]
 (defn add-import [module]
   "(-> Text (Lux (,)))"
   (|do [current-module &/get-module-name]
@@ -55,15 +54,7 @@
                                               (&/update$ $DEFS
                                                          #(&/|put name (&/T false def-data) %)
                                                          m))
-                                            ms)))
-                    ;; (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
-                    ;;                                                 (&/update$ &/$MAPPINGS (fn [mappings]
-                    ;;                                                                          (&/|put (str "" &/+name-separator+ name)
-                    ;;                                                                                  (&/T (&/V "lux;Global" (&/T module name)) type)
-                    ;;                                                                                  mappings))
-                    ;;                                                            locals))
-                    ;;                                     ?env)))
-                    )
+                                            ms))))
                nil)
       
       [_]
@@ -75,18 +66,21 @@
     (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
         (matchv ::M/objects [$def]
-          [["lux;TypeD" _]]
+          [[_ ["lux;TypeD" _]]]
           (return* state &type/Type)
 
-          [["lux;MacroD" _]]
+          [[_ ["lux;MacroD" _]]]
           (return* state &type/Macro)
 
-          [["lux;ValueD" _type]]
+          [[_ ["lux;ValueD" _type]]]
           (return* state _type)
 
-          [["lux;AliasD" [?r-module ?r-name]]]
+          [[_ ["lux;AliasD" [?r-module ?r-name]]]]
           (&/run-state (def-type ?r-module ?r-name)
-                       state))
+                       state)
+
+          [_]
+          (assert false (prn-str 'def-type (str module ";" name) (aget $def 0))))
         (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
@@ -103,16 +97,7 @@
                                               (&/update$ $DEFS
                                                          #(&/|put a-name (&/T false (&/V "lux;AliasD" (&/T r-module r-name))) %)
                                                          m))
-                                            ms)))
-                    ;; (&/set$ &/$ENVS (&/|list (&/update$ &/$LOCALS (fn [locals]
-                    ;;                                                 (&/update$ &/$MAPPINGS (fn [mappings]
-                    ;;                                                                          (&/|put (str "" &/+name-separator+ a-name)
-                    ;;                                                                                  (&/T (&/V "lux;Global" (&/T r-module r-name)) type)
-                    ;;                                                                                  ;; (aget (->> state (&/get$ &/$MODULES) (&/|get r-module) (&/get$ $DEFS) (&/|get r-name)) 1)
-                    ;;                                                                                  mappings))
-                    ;;                                                            locals))
-                    ;;                                     ?env)))
-                    )
+                                            ms))))
                nil)
       
       [_]
@@ -150,7 +135,12 @@
       ;; (prn 'find-def/_0 module name 'current-module current-module)
       (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
         (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
-            (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
+            (if-let [$def (try (->> $module (&/get$ $DEFS) (&/|get name))
+                            (catch StackOverflowError e
+                              (assert false (prn-str 'find-def
+                                                     (str module ";" name)
+                                                     (&/->seq (&/|keys (&/get$ $DEFS $module)))
+                                                     (&/->seq (&/|keys (&/get$ &/$MODULES state)))))))]
               (matchv ::M/objects [$def]
                 [[exported? $$def]]
                 (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
@@ -165,10 +155,7 @@
                         (return* state (&/T (&/T module name) $$def)))
                       (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
               (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))))
-        (do (prn [module name]
-                 (str "[Analyser Error] Module doesn't exist: " module)
-                 (->> state (&/get$ &/$MODULES) &/|keys &/->seq))
-          (fail* (str "[Analyser Error] Module doesn't exist: " module)))))))
+        (fail* (str "[Analyser Error] Module doesn't exist: " module))))))
 
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def module name)]
@@ -239,21 +226,32 @@
                            (matchv ::M/objects [v]
                              [[?exported? ?def]]
                              (do ;; (prn 'defs k ?exported?)
-                               (matchv ::M/objects [?def]
-                                 [["lux;AliasD" [?r-module ?r-name]]]
-                                 (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
-                                 
-                                 [["lux;MacroD" _]]
-                                 (&/T ?exported? k "M")
+                                 (matchv ::M/objects [?def]
+                                   [["lux;AliasD" [?r-module ?r-name]]]
+                                   (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
+                                   
+                                   [["lux;MacroD" _]]
+                                   (&/T ?exported? k "M")
 
-                                 [["lux;TypeD" _]]
-                                 (&/T ?exported? k "T")
+                                   [["lux;TypeD" _]]
+                                   (&/T ?exported? k "T")
 
-                                 [_]
-                                 (&/T ?exported? k "V"))))))
+                                   [_]
+                                   (&/T ?exported? k "V"))))))
                        (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS)))))))
 
 (def imports
   (|do [module &/get-module-name]
     (fn [state]
       (return* state (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $IMPORTS))))))
+
+(defn create-module [name]
+  (fn [state]
+    (return* (&/update$ &/$MODULES #(&/|put name +init+ %) state) nil)))
+
+(defn enter-module [name]
+  (fn [state]
+    (return* (->> state
+                  (&/update$ &/$MODULES #(&/|put name +init+ %))
+                  (&/set$ &/$ENVS (&/|list (&/env name))))
+             nil)))

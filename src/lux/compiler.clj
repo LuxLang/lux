@@ -372,52 +372,53 @@
   ;; (prn 'compile-module name)
   (if (&&/cached? name)
     (do ;; (println "YOLO")
-      (let [file-name (str "input/" name ".lux")
-            file-content (slurp file-name)]
-        (&&/load-cache name (hash file-content) compile-module)))
+        (let [file-name (str "input/" name ".lux")
+              file-content (slurp file-name)]
+          (&&/load-cache name (hash file-content) compile-module)))
     (let [compiler-step (|do [analysis+ (&optimizer/optimize eval! compile-module)]
                           (&/map% compile-statement analysis+))]
-      (fn [state]
-        (if (->> state (&/get$ &/$MODULES) (&/|contains? name))
+      (|do [module-exists? (&a-module/exists? name)]
+        (if module-exists?
           (if (.equals ^Object name "lux")
-            (return* state nil)
-            (fail* "[Compiler Error] Can't redefine a module!"))
-          (let [file-name (str "input/" name ".lux")
-                file-content (slurp file-name)
-                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                 (str name "/_") nil "java/lang/Object" nil)
-                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil (hash file-content))
-                             .visitEnd)
-                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_compiler" "Ljava/lang/String;" nil &&/version)
-                             .visitEnd))]
-            (matchv ::M/objects [((&/exhaust% compiler-step)
-                                  (->> state
-                                       (&/set$ &/$SOURCE (&reader/from file-name file-content))
-                                       (&/set$ &/$ENVS (&/|list (&/env name)))
-                                       (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))
-                                       (&/update$ &/$MODULES #(&/|put name &a-module/init-module %))))]
-              [["lux;Right" [?state _]]]
-              (&/run-state (|do [defs &a-module/defs
-                                 imports &a-module/imports
-                                 :let [_ (doto =class
-                                           (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_defs" "Ljava/lang/String;" nil
-                                                            (->> defs
-                                                                 (&/|map (fn [_def]
-                                                                           (|let [[?exported ?name ?ann] _def]
-                                                                             (str (if ?exported "1" "0") " " ?name " " ?ann))))
-                                                                 (&/|interpose "\t")
-                                                                 (&/fold str "")))
-                                               .visitEnd)
-                                           (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil
-                                                            (->> imports (&/|interpose "\t") (&/fold str "")))
-                                               .visitEnd)
-                                           (.visitEnd))]]
-                             (&&/save-class! "_" (.toByteArray =class)))
-                           ?state)
-              
-              [["lux;Left" ?message]]
-              (fail* ?message))))))))
+            (return nil)
+            (fail "[Compiler Error] Can't redefine a module!"))
+          (|do [_ (&a-module/enter-module name)
+                :let [file-name (str "input/" name ".lux")
+                      file-content (slurp file-name)
+                      =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                               (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                       (str name "/_") nil "java/lang/Object" nil)
+                               (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil (hash file-content))
+                                   .visitEnd)
+                               (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_compiler" "Ljava/lang/String;" nil &&/version)
+                                   .visitEnd))]]
+            (fn [state]
+              (matchv ::M/objects [((&/exhaust% compiler-step)
+                                    (->> state
+                                         (&/set$ &/$SOURCE (&reader/from file-name file-content))
+                                         (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))))]
+                [["lux;Right" [?state _]]]
+                (&/run-state (|do [defs &a-module/defs
+                                   imports &a-module/imports
+                                   :let [_ (doto =class
+                                             (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_defs" "Ljava/lang/String;" nil
+                                                              (->> defs
+                                                                   (&/|map (fn [_def]
+                                                                             (|let [[?exported ?name ?ann] _def]
+                                                                               (str (if ?exported "1" "0") " " ?name " " ?ann))))
+                                                                   (&/|interpose "\t")
+                                                                   (&/fold str "")))
+                                                 .visitEnd)
+                                             (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil
+                                                              (->> imports (&/|interpose "\t") (&/fold str "")))
+                                                 .visitEnd)
+                                             (.visitEnd))]]
+                               (&&/save-class! "_" (.toByteArray =class)))
+                             ?state)
+                
+                [["lux;Left" ?message]]
+                (fail* ?message)))))))
+    ))
 
 (defn ^:private clean-file [^java.io.File file]
   (if (.isDirectory file)
@@ -437,7 +438,7 @@
 ;; [Resources]
 (defn compile-all [modules]
   (setup-dirs!)
-  (matchv ::M/objects [((&/map% compile-module (&/|cons "lux" modules)) (&/init-state nil))]
+  (matchv ::M/objects [((&/map% compile-module modules) (&/init-state nil))]
     [["lux;Right" [?state _]]]
     (println (str "Compilation complete! " (str "[" (->> modules
                                                          (&/|interpose " ")

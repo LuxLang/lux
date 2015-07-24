@@ -292,14 +292,18 @@
 
 (defn compile-jvm-getstatic [compile *type* ?class ?field]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (&host/->class ?class) ?field (&host/->java-sig *type*))]]
+        :let [_ (doto *writer*
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class ?class) ?field (&host/->java-sig *type*))
+                  (prepare-return! *type*))]]
     (return nil)))
 
 (defn compile-jvm-getfield [compile *type* ?class ?field ?object]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class ?class))]
-        :let [_ (.visitFieldInsn *writer* Opcodes/GETFIELD (&host/->class ?class) ?field (&host/->java-sig *type*))]]
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST (&host/->class ?class))
+                  (.visitFieldInsn Opcodes/GETFIELD (&host/->class ?class) ?field (&host/->java-sig *type*))
+                  (prepare-return! *type*))]]
     (return nil)))
 
 (defn compile-jvm-putstatic [compile *type* ?class ?field ?value]

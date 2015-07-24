@@ -261,12 +261,12 @@
             [["lux;MacroD" macro]]
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
                   :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
-                  :let [_ (when (and ;; (= "lux/control/monad" ?module)
-                                 (= "case" ?name))
-                            (->> (&/|map &/show-ast macro-expansion*)
-                                 (&/|interpose "\n")
-                                 (&/fold str "")
-                                 (prn ?module "case")))]
+                  ;; :let [_ (when (and ;; (= "lux/control/monad" ?module)
+                  ;;                (= "case" ?name))
+                  ;;           (->> (&/|map &/show-ast macro-expansion*)
+                  ;;                (&/|interpose "\n")
+                  ;;                (&/fold str "")
+                  ;;                (prn ?module "case")))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion*))
 
@@ -388,21 +388,18 @@
     (return (&/|list (&/V "declare-macro" (&/T module-name ?name))))))
 
 (defn analyse-import [analyse compile-module ?path]
-  (|do [module-name &/get-module-name]
-    (if (= module-name ?path)
-      (fail (str "[Analyser Error] Module can't import itself: " ?path))
-      (&/save-module
-       (fn [state]
-         (let [already-compiled? (&/fold #(or %1 (= %2 ?path)) false (&/get$ &/$SEEN-SOURCES state))]
-           (prn 'analyse-import module-name ?path already-compiled?)
-           (&/run-state (|do [_ (&&module/add-import ?path)
-                              _ (if already-compiled?
-                                  (return nil)
-                                  (compile-module ?path))]
-                          (return (&/|list)))
-                        (if already-compiled?
-                          state
-                          (&/update$ &/$SEEN-SOURCES (partial &/|cons ?path) state)))))))))
+  (|do [module-name &/get-module-name
+        _ (if (= module-name ?path)
+            (fail (str "[Analyser Error] Module can't import itself: " ?path))
+            (return nil))]
+    (&/save-module
+     (|do [already-compiled? (&/source-seen? ?path)
+           :let [must-compile? (not already-compiled?)
+                 _ (prn 'analyse-import module-name ?path already-compiled?)]
+           _ (&/when% must-compile? (&/see-source ?path))
+           _ (&&module/add-import ?path)
+           _ (&/when% must-compile? (compile-module ?path))]
+       (return (&/|list))))))
 
 (defn analyse-export [analyse name]
   (|do [module-name &/get-module-name

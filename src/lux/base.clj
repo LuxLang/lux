@@ -468,7 +468,7 @@
         ;; (prn 'findClass class-name)
         (if-let [^bytes bytecode (get @store class-name)]
           (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
-          (do (prn 'memory-class-loader/store (keys @store))
+          (do (prn 'memory-class-loader/store class-name (keys @store))
             (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name)))))))))
 
 (defn host [_]
@@ -477,7 +477,6 @@
      store
      ;; "lux;loader"
      (memory-class-loader store)
-     ;; (-> (java.io.File. "./output/") .toURL vector into-array java.net.URLClassLoader.)
      ;; "lux;writer"
      (V "lux;None" nil))))
 
@@ -493,7 +492,7 @@
    ;; "lux;seed"
    0
    ;; "lux;seen-sources"
-   (|list "lux")
+   (|list)
    ;; "lux;source"
    (V "lux;None" nil)
    ;; "lux;types"
@@ -711,3 +710,19 @@
 
 (defn enumerate [xs]
   (enumerate* 0 xs))
+
+(defn source-seen? [path]
+  "(-> Text (Lux Bool))"
+  (fn [state]
+    (return* state (fold #(or %1 (= %2 path)) false (get$ $SEEN-SOURCES state)))))
+
+(defn see-source [path]
+  "(-> Text (Lux (,)))"
+  (fn [state]
+    (return* (update$ $SEEN-SOURCES (partial |cons path) state) nil)))
+
+(defn when% [test body]
+  "(-> Bool (Lux (,)) (Lux (,)))"
+  (if test
+    body
+    (return nil)))
