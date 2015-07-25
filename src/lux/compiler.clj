@@ -369,7 +369,7 @@
           return))))
 
 (defn ^:private compile-module [name]
-  ;; (prn 'compile-module name)
+  (prn 'compile-module name (&&/cached? name))
   (if (&&/cached? name)
     (do ;; (println "YOLO")
         (let [file-name (str "input/" name ".lux")

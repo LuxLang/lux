@@ -393,12 +393,10 @@
             (fail (str "[Analyser Error] Module can't import itself: " ?path))
             (return nil))]
     (&/save-module
-     (|do [already-compiled? (&/source-seen? ?path)
-           :let [must-compile? (not already-compiled?)
-                 _ (prn 'analyse-import module-name ?path already-compiled?)]
-           _ (&/when% must-compile? (&/see-source ?path))
+     (|do [already-compiled? (&&module/exists? ?path)
+           :let [_ (prn 'analyse-import module-name ?path already-compiled?)]
            _ (&&module/add-import ?path)
-           _ (&/when% must-compile? (compile-module ?path))]
+           _ (&/when% (not already-compiled?) (compile-module ?path))]
        (return (&/|list))))))
 
 (defn analyse-export [analyse name]

@@ -33,9 +33,8 @@
 (def $HOST 2)
 (def $MODULES 3)
 (def $SEED 4)
-(def $SEEN-SOURCES 5)
-(def $SOURCE 6)
-(def $TYPES 7)
+(def $SOURCE 5)
+(def $TYPES 6)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -491,8 +490,6 @@
    (|table)
    ;; "lux;seed"
    0
-   ;; "lux;seen-sources"
-   (|list)
    ;; "lux;source"
    (V "lux;None" nil)
    ;; "lux;types"
@@ -711,15 +708,10 @@
 (defn enumerate [xs]
   (enumerate* 0 xs))
 
-(defn source-seen? [path]
-  "(-> Text (Lux Bool))"
+(def modules
+  "(Lux (List Text))"
   (fn [state]
-    (return* state (fold #(or %1 (= %2 path)) false (get$ $SEEN-SOURCES state)))))
-
-(defn see-source [path]
-  "(-> Text (Lux (,)))"
-  (fn [state]
-    (return* (update$ $SEEN-SOURCES (partial |cons path) state) nil)))
+    (return* state (|keys (get$ $MODULES state)))))
 
 (defn when% [test body]
   "(-> Bool (Lux (,)) (Lux (,)))"
