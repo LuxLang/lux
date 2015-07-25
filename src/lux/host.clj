@@ -39,7 +39,10 @@
 (defn ^String ->class [class]
   (string/replace class #"\." "/"))
 
-(def ->package ->class)
+(defn ^String ->module-class [module-name]
+  (string/replace module-name #"/" " "))
+
+(def ->package ->module-class)
 
 (defn ->type-signature [class]
   ;; (assert (string? class))
@@ -70,9 +73,7 @@
 
     [["lux;VariantT" ["lux;Nil" _]]]
     "V"
-    
-    [_]
-    (assert false (prn-str '->java-sig (aget type 0)))))
+    ))
 
 (defn extract-jvm-param [token]
   (matchv ::M/objects [token]
@@ -114,4 +115,4 @@
   )
 
 (defn location [scope]
-  (->> scope (&/|map &/normalize-ident) (&/|interpose "$") (&/fold str "")))
+  (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))

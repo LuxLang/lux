@@ -93,20 +93,21 @@
 ;; [Exports]
 (defn compile-lambda [compile ?scope ?env ?body]
   ;; (prn 'compile-lambda (->> ?scope &/->seq))
-  (|do [:let [lambda-class (str (&/|head ?scope) "/$" (&host/location (&/|tail ?scope)))
+  (|do [:let [name (&host/location (&/|tail ?scope))
+              class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               lambda-class nil "java/lang/Object" (into-array ["lux/Function"]))
+                               class-name nil "java/lang/Object" (into-array ["lux/Function"]))
                        (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                              (.visitEnd))
                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                 (matchv ::M/objects [?name+?captured]
                                   [[?name [["captured" [_ ?captured-id ?source]] _]]])
                                 (doseq [?name+?captured (&/->seq ?env)])))
-                       (add-lambda-apply lambda-class ?env)
-                       (add-lambda-<init> lambda-class ?env)
+                       (add-lambda-apply class-name ?env)
+                       (add-lambda-<init> class-name ?env)
                        )]
         _ (add-lambda-impl =class compile lambda-impl-signature ?body)
         :let [_ (.visitEnd =class)]
-        _ (&&/save-class! (str "$" (&host/location (&/|tail ?scope))) (.toByteArray =class))]
-    (instance-closure compile lambda-class ?env (lambda-<init>-signature ?env))))
+        _ (&&/save-class! name (.toByteArray =class))]
+    (instance-closure compile class-name ?env (lambda-<init>-signature ?env))))

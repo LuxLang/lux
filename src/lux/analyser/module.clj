@@ -77,10 +77,7 @@
 
           [[_ ["lux;AliasD" [?r-module ?r-name]]]]
           (&/run-state (def-type ?r-module ?r-name)
-                       state)
-
-          [_]
-          (assert false (prn-str 'def-type (str module ";" name) (aget $def 0))))
+                       state))
         (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
@@ -135,12 +132,7 @@
       ;; (prn 'find-def/_0 module name 'current-module current-module)
       (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
         (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
-            (if-let [$def (try (->> $module (&/get$ $DEFS) (&/|get name))
-                            (catch StackOverflowError e
-                              (assert false (prn-str 'find-def
-                                                     (str module ";" name)
-                                                     (&/->seq (&/|keys (&/get$ $DEFS $module)))
-                                                     (&/->seq (&/|keys (&/get$ &/$MODULES state)))))))]
+            (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
               (matchv ::M/objects [$def]
                 [[exported? $$def]]
                 (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
@@ -170,7 +162,7 @@
           [[exported? ["lux;ValueD" ?type]]]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
-                 :let [macro (-> (.loadClass loader (str (string/replace module #"/" ".") ".$" (&/normalize-ident name)))
+                 :let [macro (-> (.loadClass loader (str (&host/->module-class module) "." (&/normalize-name name)))
                                  (.getField "_datum")
                                  (.get nil))]]
              (fn [state*]

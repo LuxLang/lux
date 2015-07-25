@@ -12,7 +12,8 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail*]]
-                 [type :as &type])
+                 [type :as &type]
+                 [host :as &host])
             (lux.analyser [base :as &a]
                           [module :as &a-module]))
   (:import (org.objectweb.asm Opcodes
@@ -30,12 +31,12 @@
     (.write stream data)))
 
 (defn ^:private write-output [module name data]
-  (let [module* module]
+  (let [module* (&host/->module-class module)]
     (.mkdirs (File. (str "output/jvm/" module*)))
     (write-file (str "output/jvm/" module* "/" name ".class") data)))
 
 (defn ^:private write-cache [module name data]
-  (let [module* (string/replace module #"/" " ")]
+  (let [module* (&host/->module-class module)]
     (.mkdirs (File. (str "cache/jvm/" module*)))
     (write-file (str "cache/jvm/" module* "/" name ".class") data)))
 
@@ -70,7 +71,7 @@
         module &/get-module-name
         loader &/loader
         !classes &/classes
-        :let [real-name (str (string/replace module #"/" ".") "." name)
+        :let [real-name (str (&host/->module-class module) "." name)
               _ (swap! !classes assoc real-name bytecode)
               _ (load-class! loader real-name)
               _ (when (not eval?)
@@ -79,11 +80,11 @@
     (return nil)))
 
 (defn cached? [module]
-  (.exists (File. (str "cache/jvm/" (string/replace module #"/" " ") "/_.class"))))
+  (.exists (File. (str "cache/jvm/" (&host/->module-class module) "/_.class"))))
 
 (defn delete-cache [module]
   (fn [state]
-    (do (clean-file (File. (str "cache/jvm/" (string/replace module #"/" " "))))
+    (do (clean-file (File. (str "cache/jvm/" (&host/->module-class module))))
       (return* state nil))))
 
 (defn ^:private replace-several [content & replacements]
@@ -94,34 +95,6 @@
                  (prn 'replace-several content %1 %2)
                  (throw e)))
             content replacement-list)))
-
-(defn ^:private replace-cache [^String cache-name]
-  (if (.startsWith cache-name "$")
-    (replace-several cache-name
-                     #"_ASTER_" "*"
-                     #"_PLUS_" "+"
-                     #"_DASH_" "-"
-                     #"_SLASH_" "/"
-                     #"_BSLASH_" "\\"
-                     #"_UNDERS_" "_"
-                     #"_PERCENT_" "%"
-                     #"_DOLLAR_" "$"
-                     #"_QUOTE_" "'"
-                     #"_BQUOTE_" "`"
-                     #"_AT_" "@"
-                     #"_CARET_" "^"
-                     #"_AMPERS_" "&"
-                     #"_EQ_" "="
-                     #"_BANG_" "!"
-                     #"_QM_" "?"
-                     #"_COLON_" ":"
-                     #"_PERIOD_" "."
-                     #"_COMMA_" ","
-                     #"_LT_" "<"
-                     #"_GT_" ">"
-                     #"_TILDE_" "~"
-                     #"_PIPE_" "|")
-    cache-name))
 
 (defn ^:private get-field [^String field-name ^Class class]
   (-> class ^Field (.getField field-name) (.get nil))
@@ -144,8 +117,8 @@
         (return true)
         (if (cached? module)
           (do (prn 'load-cache/HASH module module-hash)
-            (let [module-path (str "cache/jvm/" (string/replace module #"/" " "))
-                  module* (string/replace module #"/" ".")
+            (let [module* (&host/->module-class module)
+                  module-path (str "cache/jvm/" module*)
                   class-name (str module* "._")
                   ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
                                        (load-class! loader class-name))]
@@ -167,12 +140,8 @@
                                   bytecode (read-file file)
                                   ;; _ (prn 'load-cache module real-name)
                                   ]
-                              ;; (swap! !classes assoc (str module* "." (replace-cache real-name)) bytecode)
                               (swap! !classes assoc (str module* "." real-name) bytecode)
-                              ;; (swap! !classes assoc "__temp__" bytecode)
-                              ;; (swap! !classes assoc (-> (load-class! loader "__temp__") (.getField "_name") (.get nil)) bytecode)
                               (write-output module real-name bytecode)))
-                        ;; (swap! !classes dissoc "__temp__")
                         (let [defs (string/split (get-field "_defs" module-meta) #"\t")]
                           ;; (prn 'load-cache module defs)
                           (|do [_ (&a-module/enter-module module)
@@ -184,8 +153,8 @@
                                                         "T" (&a-module/define module _name (&/V "lux;TypeD" nil) &type/Type)
                                                         "M" (|do [_ (&a-module/define module _name (&/V "lux;ValueD" &type/Macro) &type/Macro)]
                                                               (&a-module/declare-macro module _name))
-                                                        "V" (let [def-class (load-class! loader (str module* ".$" (&/normalize-ident _name)))
-                                                                  ;; _ (println "Fetching _meta" module _name (str module* ".$" (&/normalize-ident _name)) def-class)
+                                                        "V" (let [def-class (load-class! loader (str module* "." (&/normalize-name _name)))
+                                                                  ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)
                                                                   def-type (get-field "_meta" def-class)]
                                                               (matchv ::M/objects [def-type]
                                                                 [["lux;ValueD" _def-type]]

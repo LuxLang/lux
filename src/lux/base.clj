@@ -427,7 +427,7 @@
     ;; default
     char))
 
-(defn normalize-ident [ident]
+(defn normalize-name [ident]
   (reduce str "" (map normalize-char ident)))
 
 (def loader
