@@ -394,7 +394,7 @@
             (return nil))]
     (&/save-module
      (|do [already-compiled? (&&module/exists? ?path)
-           :let [_ (prn 'analyse-import module-name ?path already-compiled?)]
+           ;; :let [_ (prn 'analyse-import module-name ?path already-compiled?)]
            _ (&&module/add-import ?path)
            _ (&/when% (not already-compiled?) (compile-module ?path))]
        (return (&/|list))))))

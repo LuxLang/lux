@@ -117,9 +117,9 @@
 (defn analyse-jvm-invokestatic [analyse ?class ?method ?classes ?args]
   (|do [=classes (&/map% &host/extract-jvm-param ?classes)
         =return (&host/lookup-static-method ?class ?method =classes)
-        :let [_ (matchv ::M/objects [=return]
-                  [["lux;DataT" _return-class]]
-                  (prn 'analyse-jvm-invokestatic ?class ?method _return-class))]
+        ;; :let [_ (matchv ::M/objects [=return]
+        ;;           [["lux;DataT" _return-class]]
+        ;;           (prn 'analyse-jvm-invokestatic ?class ?method _return-class))]
         =args (&/map2% (fn [_class _arg]
                          (&&/analyse-1 analyse (&/V "lux;DataT" _class) _arg))
                        =classes

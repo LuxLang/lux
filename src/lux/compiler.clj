@@ -24,6 +24,7 @@
             [lux.analyser.base :as &a]
             [lux.analyser.module :as &a-module]
             (lux.compiler [base :as &&]
+                          [cache :as &&cache]
                           [lux :as &&lux]
                           [host :as &&host]
                           [case :as &&case]
@@ -369,12 +370,12 @@
           return))))
 
 (defn ^:private compile-module [name]
-  ;; (prn 'compile-module name (&&/cached? name))
-  (let [file-name (str "input/" name ".lux")
+  ;; (prn 'compile-module name (&&cache/cached? name))
+  (let [file-name (str &&/input-dir "/" name ".lux")
         file-content (slurp file-name)
         file-hash (hash file-content)]
-    (if (&&/cached? name)
-      (&&/load-cache name file-hash compile-module)
+    (if (&&cache/cached? name)
+      (&&cache/load name file-hash compile-module)
       (let [compiler-step (|do [analysis+ (&optimizer/optimize eval! compile-module)]
                             (&/map% compile-statement analysis+))]
         (|do [module-exists? (&a-module/exists? name)]
@@ -416,31 +417,16 @@
                   (fail* ?message)))))))
       )))
 
-(defn ^:private clean-file [^java.io.File file]
-  (if (.isDirectory file)
-    (do (doseq [f (seq (.listFiles file))]
-          (clean-file f))
-      (.delete file))
-    (.delete file)))
-
-(defn ^:private setup-dirs! []
-  (.mkdir (java.io.File. "cache"))
-  (.mkdir (java.io.File. "cache/jvm"))
-  (.mkdir (java.io.File. "output"))
-  (.mkdir (java.io.File. "output/jvm"))
-  (doseq [f (seq (.listFiles (java.io.File. "output/jvm")))]
-    (clean-file f)))
+(defn ^:private init! []
+  (.mkdirs (java.io.File. &&/output-dir)))
 
 ;; [Resources]
 (defn compile-all [modules]
-  (setup-dirs!)
+  (init!)
   (matchv ::M/objects [((&/map% compile-module modules) (&/init-state nil))]
     [["lux;Right" [?state _]]]
-    (println "Compilation complete!")
+    (do (println "Compilation complete!")
+      (&&cache/clean ?state))
 
     [["lux;Left" ?message]]
     (assert false ?message)))
-
-(comment
-  (compile-all ["lux"])
-  )
