@@ -284,7 +284,7 @@
         _ (&/map% delete-var (&/|reverse =vars))]
     (return output)))
 
-(defn ^:private clean* [?tid type]
+(defn clean* [?tid type]
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
     (if (.equals ^Object ?tid ?id)
@@ -345,6 +345,15 @@
     [_]
     (fail (str "[Type Error] Not type-var: " (show-type tvar)))))
 
+(defn ^:private unravel-fun [type]
+  (matchv ::M/objects [type]
+    [["lux;LambdaT" [?in ?out]]]
+    (|let [[??out ?args] (unravel-fun ?out)]
+      (&/T ??out (&/|cons ?in ?args)))
+
+    [_]
+    (&/T type (&/|list))))
+
 (defn ^:private unravel-app [fun-type]
   (matchv ::M/objects [fun-type]
     [["lux;AppT" [?left ?right]]]
@@ -389,16 +398,17 @@
                     (&/fold str "")) ")")
 
     [["lux;LambdaT" [input output]]]
-    (str "(-> " (show-type input) " " (show-type output) ")")
+    (|let [[?out ?ins] (unravel-fun type)]
+      (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
 
     [["lux;VarT" id]]
     (str "⌈" id "⌋")
 
-    [["lux;BoundT" name]]
-    name
-
     [["lux;ExT" ?id]]
     (str "⟨" ?id "⟩")
+
+    [["lux;BoundT" name]]
+    name
 
     [["lux;AppT" [_ _]]]
     (|let [[?call-fun ?call-args] (unravel-app type)]

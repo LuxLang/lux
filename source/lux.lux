@@ -1069,7 +1069,7 @@
     _
     #Nil))
 
-(def'' #export (text:= x y)
+(def'' (text:= x y)
   (-> Text Text Bool)
   (_jvm_invokevirtual java.lang.Object equals [java.lang.Object]
                       x [y]))
@@ -1196,7 +1196,7 @@
   (-> Bool Bool)
   (if x false true))
 
-(def'' #export (text:++ x y)
+(def'' (text:++ x y)
   (-> Text Text Text)
   (_jvm_invokevirtual java.lang.String concat [java.lang.String]
                       x [y]))
@@ -1883,8 +1883,11 @@
      (#Exclude (List Text))
      #Nothing))
 
+(deftype Openings
+  (, Text (List Ident)))
+
 (deftype Import
-  (, Text (Maybe Text) Referrals))
+  (, Text (Maybe Text) Referrals (Maybe Openings)))
 
 (def (extract-defs defs)
   (-> (List Syntax) (Lux (List Text)))
@@ -1932,6 +1935,26 @@
     _
     (return (: (, Referrals (List Syntax)) [#Nothing tokens]))))
 
+(def (extract-symbol syntax)
+  (-> Syntax (Lux Ident))
+  (case syntax
+    (#Meta [_ (#SymbolS ident)])
+    (return ident)
+
+    _
+    (fail "Not a symbol.")))
+
+(def (parse-openings tokens)
+  (-> (List Syntax) (Lux (, (Maybe Openings) (List Syntax))))
+  (case tokens
+    (\ (list& (#Meta [_ (#TagS ["" "open"])]) (#Meta [_ (#FormS (list& (#Meta [_ (#TextS prefix)]) structs))]) tokens'))
+    (do Lux/Monad
+      [structs' (map% Lux/Monad extract-symbol structs)]
+      (return (: (, (Maybe Openings) (List Syntax)) [(#Some [prefix structs']) tokens'])))
+
+    _
+    (return (: (, (Maybe Openings) (List Syntax)) [#None tokens]))))
+
 (def (decorate-imports super-name tokens)
   (-> Text (List Syntax) (Lux (List Syntax)))
   (map% Lux/Monad
@@ -1951,33 +1974,31 @@
 (def (parse-imports imports)
   (-> (List Syntax) (Lux (List Import)))
   (do Lux/Monad
-    [referrals' (map% Lux/Monad
-                      (: (-> Syntax (Lux (List Import)))
-                         (lambda [token]
-                           (case token
-                             (#Meta [_ (#SymbolS ["" m-name])])
-                             (;return (list [m-name #None #All]))
+    [imports' (map% Lux/Monad
+                    (: (-> Syntax (Lux (List Import)))
+                       (lambda [token]
+                         (case token
+                           (#Meta [_ (#SymbolS ["" m-name])])
+                           (;return (list [m-name #None #All #None]))
 
-                             (\ (#Meta [_ (#FormS (list& (#Meta [_ (#SymbolS ["" m-name])]) extra))]))
-                             (do Lux/Monad
-                               [alias+extra' (parse-alias extra)
-                                #let [[alias extra'] (: (, (Maybe Text) (List Syntax))
-                                                        alias+extra')]
-                                referral+extra'' (parse-referrals extra')
-                                #let [[referral extra''] (: (, Referrals (List Syntax))
-                                                            referral+extra'')]
-                                extra''' (decorate-imports m-name extra'')
-                                sub-imports (parse-imports extra''')]
-                               (;return (case referral
-                                          #Nothing (case alias
-                                                     #None     sub-imports
-                                                     (#Some _) (list& [m-name alias referral] sub-imports))
-                                          _        (list& [m-name alias referral] sub-imports))))
+                           (\ (#Meta [_ (#FormS (list& (#Meta [_ (#SymbolS ["" m-name])]) extra))]))
+                           (do Lux/Monad
+                             [alias+extra (parse-alias extra)
+                              #let [[alias extra] alias+extra]
+                              referral+extra (parse-referrals extra)
+                              #let [[referral extra] referral+extra]
+                              openings+extra (parse-openings extra)
+                              #let [[openings extra] openings+extra]
+                              extra (decorate-imports m-name extra)
+                              sub-imports (parse-imports extra)]
+                             (;return (case (: (, Referrals (Maybe Text) (Maybe Openings)) [referral alias openings])
+                                        [#Nothing #None #None] sub-imports
+                                        _                      (list& [m-name alias referral openings] sub-imports))))
 
-                             _
-                             (fail "Wrong syntax for import"))))
-                      imports)]
-    (;return (list:join referrals'))))
+                           _
+                           (fail "Wrong syntax for import"))))
+                    imports)]
+    (;return (list:join imports'))))
 
 (def (module-exists? module state)
   (-> Text (Lux Bool))
@@ -2131,16 +2152,16 @@
                    (: (-> Import (Lux Import))
                       (lambda [import]
                         (case import
-                          [m-name m-alias m-referrals]
+                          [m-name m-alias m-referrals m-openings]
                           (do Lux/Monad
                             [m-name (clean-module m-name)]
-                            (;return (: Import [m-name m-alias m-referrals]))))))
+                            (;return (: Import [m-name m-alias m-referrals m-openings]))))))
                    imports)
      unknowns' (map% Lux/Monad
                      (: (-> Import (Lux (List Text)))
                         (lambda [import]
                           (case import
-                            [m-name _ _]
+                            [m-name _ _ _]
                             (do Lux/Monad
                               [? (module-exists? m-name)]
                               (;return (if ?
@@ -2155,7 +2176,7 @@
                        (: (-> Import (Lux (List Syntax)))
                           (lambda [import]
                             (case import
-                              [m-name m-alias m-referrals]
+                              [m-name m-alias m-referrals m-openings]
                               (do Lux/Monad
                                 [defs (case m-referrals
                                         #All
@@ -2172,7 +2193,18 @@
                                           (;return (filter (. not (is-member? -defs)) *defs)))
 
                                         #Nothing
-                                        (;return (list)))]
+                                        (;return (list)))
+                                 #let [openings (: (List Syntax)
+                                                   (case m-openings
+                                                     #None
+                                                     (list)
+
+                                                     (#Some [prefix structs])
+                                                     (map (: (-> Ident Syntax)
+                                                             (lambda [struct]
+                                                               (let [[_ name] struct]
+                                                                 (` (open (~ (symbol$ [m-name name])) (~ (text$ prefix)))))))
+                                                          structs)))]]
                                 (;return ($ list:++
                                            (list (` (_lux_import (~ (text$ m-name)))))
                                            (case m-alias
@@ -2181,7 +2213,8 @@
                                            (map (: (-> Text Syntax)
                                                    (lambda [def]
                                                      (` ((~ (symbol$ ["" "_lux_def"])) (~ (symbol$ ["" def])) (~ (symbol$ [m-name def]))))))
-                                                defs)))))))
+                                                defs)
+                                           openings))))))
                        imports)]
         (;return (list:join output')))
 
@@ -2583,16 +2616,22 @@
 
 (defmacro #export (open tokens)
   (case tokens
-    (\ (list (#Meta [_ (#SymbolS struct-name)])))
+    (\ (list& (#Meta [_ (#SymbolS struct-name)]) tokens'))
     (do Lux/Monad
-      [struct-type (find-var-type struct-name)]
+      [#let [prefix (case tokens'
+                      (\ (list (#Meta [_ (#TextS prefix)])))
+                      prefix
+                      
+                      _
+                      "")]
+       struct-type (find-var-type struct-name)]
       (case (resolve-struct-type struct-type)
         (#Some (#RecordT slots))
         (return (map (: (-> (, Text Type) Syntax)
                         (lambda [slot]
                           (let [[sname stype] slot
                                 [module name] (split-slot sname)]
-                            (` (_lux_def (~ (symbol$ ["" name]))
+                            (` (_lux_def (~ (symbol$ ["" (text:++ prefix name)]))
                                  (get@ (~ (tag$ [module name])) (~ (symbol$ struct-name))))))))
                      slots))
 

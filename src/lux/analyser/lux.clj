@@ -219,7 +219,7 @@
     [["lux;Cons" [?arg ?args*]]]
     (|do [?fun-type* (&type/actual-type fun-type)]
       (matchv ::M/objects [?fun-type*]
-        [["lux;AllT" _]]
+        [["lux;AllT" [_aenv _aname _aarg _abody]]]
         ;; (|do [$var &type/existential
         ;;       type* (&type/apply-type ?fun-type* $var)]
         ;;   (analyse-apply* analyse exo-type type* ?args))
@@ -230,11 +230,10 @@
               (matchv ::M/objects [$var]
                 [["lux;VarT" ?id]]
                 (|do [? (&type/bound? ?id)
-                      _ (if ?
-                          (return nil)
-                          (|do [ex &type/existential]
-                            (&type/set-var ?id ex)))
-                      type** (&type/clean $var =output-t)]
+                      type** (if ?
+                               (&type/clean $var =output-t)
+                               (|do [_ (&type/set-var ?id (&/V "lux;BoundT" _aarg))]
+                                 (&type/clean $var =output-t)))]
                   (return (&/T type** =args)))
                 ))))
 
@@ -262,11 +261,11 @@
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
                   :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
                   ;; :let [_ (when (and ;; (= "lux/control/monad" ?module)
-                  ;;                (= "case" ?name))
+                  ;;                (= "open" ?name))
                   ;;           (->> (&/|map &/show-ast macro-expansion*)
                   ;;                (&/|interpose "\n")
                   ;;                (&/fold str "")
-                  ;;                (prn ?module "case")))]
+                  ;;                (prn ?module "open")))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion*))
 
@@ -328,6 +327,9 @@
                       ;; dtype* (&type/actual-type dtype)
                       ]
                   (matchv ::M/objects [dtype]
+                    [["lux;BoundT" ?vname]]
+                    (return (&/T _expr exo-type))
+                    
                     [["lux;ExT" _]]
                     (return (&/T _expr exo-type))
 

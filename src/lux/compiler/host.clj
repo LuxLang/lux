@@ -593,7 +593,7 @@
             _ (compile ?body)
             :let [_ (doto main-writer
                       (.visitInsn Opcodes/ACONST_NULL)
-                      (.visitMethodInsn Opcodes/INVOKEINTERFACE "lux/Function" "apply" &&/apply-signature))]
+                      (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))]
             :let [_ (doto main-writer
                           (.visitInsn Opcodes/POP)
                           (.visitInsn Opcodes/RETURN)

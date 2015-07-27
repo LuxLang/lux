@@ -21,7 +21,8 @@
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler [base :as &&]
-                          [lambda :as &&lambda]))
+                          [lambda :as &&lambda]
+                          [type :as &&type]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -63,7 +64,10 @@
                      (|do [:let [_ (doto *writer*
                                      (.visitInsn Opcodes/DUP)
                                      (.visitLdcInsn (int idx)))]
-                           ret (compile elem)
+                           ret (try (compile elem)
+                                 (catch Exception e
+                                   (prn 'compile-tuple (aget elem 0) (->> ?elems (&/|map #(aget % 0)) &/->seq))
+                                   (throw e)))
                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                        (return ret)))
                    (&/|range num-elems) ?elems)]
@@ -130,109 +134,10 @@
         _ (compile ?fn)
         _ (&/map% (fn [?arg]
                     (|do [=arg (compile ?arg)
-                          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE "lux/Function" "apply" &&/apply-signature)]]
+                          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature)]]
                       (return =arg)))
                   ?args)]
     (return nil)))
-
-(defn ^:private type->analysis [type]
-  (matchv ::M/objects [type]
-    [["lux;DataT" ?class]]
-    (&/T (&/V "variant" (&/T "lux;DataT"
-                             (&/T (&/V "text" ?class) &type/$Void)))
-         &type/$Void)
-    
-    [["lux;TupleT" ?members]]
-    (&/T (&/V "variant" (&/T "lux;TupleT"
-                             (&/fold (fn [tail head]
-                                       (&/V "variant" (&/T "lux;Cons"
-                                                           (&/T (&/V "tuple" (&/|list (type->analysis head)
-                                                                                      tail))
-                                                                &type/$Void))))
-                                     (&/V "variant" (&/T "lux;Nil"
-                                                         (&/T (&/V "tuple" (&/|list))
-                                                              &type/$Void)))
-                                     (&/|reverse ?members))))
-         &type/$Void)
-
-    [["lux;VariantT" ?cases]]
-    (&/T (&/V "variant" (&/T "lux;VariantT"
-                             (&/fold (fn [tail head]
-                                       (|let [[hlabel htype] head]
-                                         (&/V "variant" (&/T "lux;Cons"
-                                                             (&/T (&/V "tuple" (&/|list (&/T (&/V "tuple" (&/|list (&/T (&/V "text" hlabel) &type/$Void)
-                                                                                                                   (type->analysis htype)))
-                                                                                             &type/$Void)
-                                                                                        tail))
-                                                                  &type/$Void)))))
-                                     (&/V "variant" (&/T "lux;Nil"
-                                                         (&/T (&/V "tuple" (&/|list))
-                                                              &type/$Void)))
-                                     (&/|reverse ?cases))))
-         &type/$Void)
-
-    [["lux;RecordT" ?slots]]
-    (&/T (&/V "variant" (&/T "lux;RecordT"
-                             (&/fold (fn [tail head]
-                                       (|let [[hlabel htype] head]
-                                         (&/V "variant" (&/T "lux;Cons"
-                                                             (&/T (&/V "tuple" (&/|list (&/T (&/V "tuple" (&/|list (&/T (&/V "text" hlabel) &type/$Void)
-                                                                                                                   (type->analysis htype)))
-                                                                                             &type/$Void)
-                                                                                        tail))
-                                                                  &type/$Void)))))
-                                     (&/V "variant" (&/T "lux;Nil"
-                                                         (&/T (&/V "tuple" (&/|list))
-                                                              &type/$Void)))
-                                     (&/|reverse ?slots))))
-         &type/$Void)
-
-    [["lux;LambdaT" [?input ?output]]]
-    (&/T (&/V "variant" (&/T "lux;LambdaT"
-                             (&/T (&/V "tuple" (&/|map type->analysis (&/|list ?input ?output)))
-                                  &type/$Void)))
-         &type/$Void)
-
-    [["lux;AllT" [?env ?name ?arg ?body]]]
-    (&/T (&/V "variant" (&/T "lux;AllT"
-                             (&/T (&/V "tuple" (&/|list (matchv ::M/objects [?env]
-                                                          [["lux;None" _]]
-                                                          (&/V "variant" (&/T "lux;Some"
-                                                                              (&/T (&/V "tuple" (&/|list))
-                                                                                   &type/$Void)))
-
-                                                          [["lux;Some" ??env]]
-                                                          (&/V "variant" (&/T "lux;Some"
-                                                                              (&/T (&/fold (fn [tail head]
-                                                                                             (|let [[hlabel htype] head]
-                                                                                               (&/V "variant" (&/T "lux;Cons"
-                                                                                                                   (&/T (&/V "tuple" (&/|list (&/T (&/V "tuple" (&/|list (&/T (&/V "text" hlabel) &type/$Void)
-                                                                                                                                                                         (type->analysis htype)))
-                                                                                                                                                   &type/$Void)
-                                                                                                                                              tail))
-                                                                                                                        &type/$Void)))))
-                                                                                           (&/V "variant" (&/T "lux;Nil"
-                                                                                                               (&/T (&/V "tuple" (&/|list))
-                                                                                                                    &type/$Void)))
-                                                                                           (&/|reverse ??env))
-                                                                                   &type/$Void))))
-                                                        (&/T (&/V "text" ?name) &type/$Void)
-                                                        (&/T (&/V "text" ?arg) &type/$Void)
-                                                        (type->analysis ?body)))
-                                  &type/$Void)))
-         &type/$Void)
-
-    [["lux;BoundT" ?name]]
-    (&/T (&/V "variant" (&/T "lux;BoundT"
-                             (&/T (&/V "text" ?name) &type/$Void)))
-         &type/$Void)
-
-    [["lux;AppT" [?fun ?arg]]]
-    (&/T (&/V "variant" (&/T "lux;AppT"
-                             (&/T (&/V "tuple" (&/|map type->analysis (&/|list ?fun ?arg)))
-                                  &type/$Void)))
-         &type/$Void)
-    ))
 
 (defn ^:private compile-def-type [compile ?body ?def-data]
   (|do [^MethodVisitor **writer** &/get-writer]
@@ -260,7 +165,7 @@
                                       (&/T ?def-value ?type-expr)
 
                                       [[?def-value ?def-type]]
-                                      (&/T ?body (type->analysis ?def-type)))]
+                                      (&/T ?body (&&type/->analysis ?def-type)))]
         (|do [:let [_ (doto **writer**
                         (.visitLdcInsn (int 2)) ;; S
                         (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
@@ -284,7 +189,7 @@
               current-class (str (&host/->module-class module-name) "/" def-name)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               current-class nil "java/lang/Object" (into-array ["lux/Function"]))
+                               current-class nil "java/lang/Object" (into-array [&&/function-class]))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_name" "Ljava/lang/String;" nil ?name)
                            (doto (.visitEnd)))
                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)

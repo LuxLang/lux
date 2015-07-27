@@ -97,7 +97,7 @@
               class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               class-name nil "java/lang/Object" (into-array ["lux/Function"]))
+                               class-name nil "java/lang/Object" (into-array [&&/function-class]))
                        (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                              (.visitEnd))
                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])

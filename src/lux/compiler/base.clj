@@ -29,6 +29,7 @@
 (def ^String version "0.2")
 (def ^String input-dir "source")
 (def ^String output-dir "target/jvm")
+(def ^String function-class "lux/Function")
 
 (def ^String local-prefix "l")
 (def ^String partial-prefix "p")
