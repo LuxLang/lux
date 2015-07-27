@@ -18,14 +18,6 @@
                           [env :as &&env])))
 
 ;; [Utils]
-(defn ^:private extract-ident [ident]
-  (matchv ::M/objects [ident]
-    [["lux;Meta" [_ ["lux;SymbolS" [_ ?ident]]]]]
-    (return ?ident)
-
-    [_]
-    (fail "[Analyser Error] Can't extract Symbol.")))
-
 (defn ^:private extract-text [text]
   (matchv ::M/objects [text]
     [["lux;Meta" [_ ["lux;TextS" ?text]]]]
@@ -115,7 +107,7 @@
     (return (&/|list (&/T (&/V "jvm-putfield" (&/T ?class ?field =object =value)) =type)))))
 
 (defn analyse-jvm-invokestatic [analyse ?class ?method ?classes ?args]
-  (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+  (|do [=classes (&/map% extract-text ?classes)
         =return (&host/lookup-static-method ?class ?method =classes)
         ;; :let [_ (matchv ::M/objects [=return]
         ;;           [["lux;DataT" _return-class]]
@@ -138,7 +130,7 @@
 
 (do-template [<name> <tag>]
   (defn <name> [analyse ?class ?method ?classes ?object ?args]
-    (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+    (|do [=classes (&/map% extract-text ?classes)
           =return (&host/lookup-virtual-method ?class ?method =classes)
           =object (&&/analyse-1 analyse (&/V "lux;DataT" ?class) ?object)
           =args (&/map2% (fn [?c ?o]
@@ -151,7 +143,7 @@
   )
 
 (defn analyse-jvm-invokespecial [analyse ?class ?method ?classes ?object ?args]
-  (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+  (|do [=classes (&/map% extract-text ?classes)
         =return (if (= "<init>" ?method)
                   (return &type/$Void)
                   (&host/lookup-virtual-method ?class ?method =classes))
@@ -166,7 +158,7 @@
     (return (&/|list (&/T (&/V "jvm-null?" =object) (&/V "lux;DataT" "java.lang.Boolean"))))))
 
 (defn analyse-jvm-new [analyse ?class ?classes ?args]
-  (|do [=classes (&/map% &host/extract-jvm-param ?classes)
+  (|do [=classes (&/map% extract-text ?classes)
         =args (&/flat-map% analyse ?args)]
     (return (&/|list (&/T (&/V "jvm-new" (&/T ?class =classes =args)) (&/V "lux;DataT" ?class))))))
 
@@ -239,7 +231,7 @@
   (|do [=interfaces (&/map% extract-text ?interfaces)
         =fields (&/map% (fn [?field]
                           (matchv ::M/objects [?field]
-                            [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?field-name]]]]
+                            [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?field-name]]]
                                                                       ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?field-type]]]
                                                                                    ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?field-modifiers]]]
                                                                                                 ["lux;Nil" _]]]]]]]]]]]
@@ -253,7 +245,7 @@
                         ?fields)
         =methods (&/map% (fn [?method]
                            (matchv ::M/objects [?method]
-                             [[?idx ["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?method-name]]]]
+                             [[?idx ["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?method-name]]]
                                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?method-inputs]]]
                                                                                           ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?method-output]]]
                                                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?method-modifiers]]]
@@ -297,7 +289,7 @@
   (|do [=supers (&/map% extract-text ?supers)
         =methods (&/map% (fn [method]
                            (matchv ::M/objects [method]
-                             [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?method-name]]]]
+                             [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?method-name]]]
                                                                        ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?inputs]]]
                                                                                     ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?output]]]
                                                                                                  ["lux;Cons" [["lux;Meta" [_ ["lux;TupleS" ?modifiers]]]

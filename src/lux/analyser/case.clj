@@ -101,8 +101,8 @@
                                      (fail "##9##")))]
       (adjust-type* up type*))
 
-    [_]
-    (assert false (aget type 0))
+    ;; [_]
+    ;; (assert false (aget type 0))
     ))
 
 (defn adjust-type [type]

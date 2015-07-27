@@ -64,10 +64,7 @@
                      (|do [:let [_ (doto *writer*
                                      (.visitInsn Opcodes/DUP)
                                      (.visitLdcInsn (int idx)))]
-                           ret (try (compile elem)
-                                 (catch Exception e
-                                   (prn 'compile-tuple (aget elem 0) (->> ?elems (&/|map #(aget % 0)) &/->seq))
-                                   (throw e)))
+                           ret (compile elem)
                            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                        (return ret)))
                    (&/|range num-elems) ?elems)]

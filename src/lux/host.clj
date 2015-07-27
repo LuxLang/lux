@@ -75,14 +75,6 @@
     "V"
     ))
 
-(defn extract-jvm-param [token]
-  (matchv ::M/objects [token]
-    [["lux;Meta" [_ ["lux;SymbolS" [_ ?ident]]]]]
-    (return ?ident)
-
-    [_]
-    (fail (str "[Host] Unknown JVM param: " (pr-str token)))))
-
 (do-template [<name> <static?>]
   (defn <name> [target field]
     (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName target))
