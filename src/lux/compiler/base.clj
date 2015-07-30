@@ -7,7 +7,8 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns lux.compiler.base
-  (:require [clojure.string :as string]
+  (:require (clojure [template :refer [do-template]]
+                     [string :as string])
             [clojure.java.io :as io]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
@@ -29,6 +30,7 @@
 (def ^String version "0.2")
 (def ^String input-dir "source")
 (def ^String output-dir "target/jvm")
+(def ^String output-package (str output-dir "/program.jar"))
 (def ^String function-class "lux/Function")
 
 (def ^String local-prefix "l")
@@ -59,7 +61,31 @@
         !classes &/classes
         :let [real-name (str (&host/->module-class module) "." name)
               _ (swap! !classes assoc real-name bytecode)
-              _ (load-class! loader real-name)
               _ (when (not eval?)
-                  (write-output module name bytecode))]]
+                  (write-output module name bytecode))
+              _ (load-class! loader real-name)]]
     (return nil)))
+
+(do-template [<name> <class> <sig> <dup>]
+  (defn <name> [^MethodVisitor writer]
+    (doto writer
+      (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str <sig> (&host/->type-signature <class>))))
+    ;; (doto writer
+    ;;   ;; X
+    ;;   (.visitTypeInsn Opcodes/NEW <class>) ;; XW
+    ;;   (.visitInsn <dup>) ;; WXW
+    ;;   (.visitInsn <dup>) ;; WWXW
+    ;;   (.visitInsn Opcodes/POP) ;; WWX
+    ;;   (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>) ;; W
+    ;;   )
+    )
+
+  wrap-boolean "java/lang/Boolean"   "(Z)" Opcodes/DUP_X1
+  wrap-byte    "java/lang/Byte"      "(B)" Opcodes/DUP_X1
+  wrap-short   "java/lang/Short"     "(S)" Opcodes/DUP_X1
+  wrap-int     "java/lang/Integer"   "(I)" Opcodes/DUP_X1
+  wrap-long    "java/lang/Long"      "(J)" Opcodes/DUP_X2
+  wrap-float   "java/lang/Float"     "(F)" Opcodes/DUP_X1
+  wrap-double  "java/lang/Double"    "(D)" Opcodes/DUP_X2
+  wrap-char    "java/lang/Character" "(C)" Opcodes/DUP_X1
+  )

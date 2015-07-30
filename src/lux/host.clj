@@ -18,6 +18,7 @@
 ;; [Constants]
 (def prefix "lux.")
 (def function-class (str prefix "Function"))
+(def module-separator "_")
 
 ;; [Utils]
 (defn ^:private class->type [^Class class]
@@ -27,7 +28,7 @@
                                               "")
                                             (.getSimpleName class)))]
     (if (.equals "void" base)
-      (return &type/$Void)
+      (return &type/Unit)
       (return (&/V "lux;DataT" (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
                                     base)))
       )))
@@ -40,7 +41,7 @@
   (string/replace class #"\." "/"))
 
 (defn ^String ->module-class [module-name]
-  (string/replace module-name #"/" " "))
+  (string/replace module-name #"/" module-separator))
 
 (def ->package ->module-class)
 
@@ -71,13 +72,13 @@
     [["lux;LambdaT" [_ _]]]
     (->type-signature function-class)
 
-    [["lux;VariantT" ["lux;Nil" _]]]
+    [["lux;TupleT" ["lux;Nil" _]]]
     "V"
     ))
 
 (do-template [<name> <static?>]
-  (defn <name> [target field]
-    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName target))
+  (defn <name> [class-loader target field]
+    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName (&type/as-obj target) true class-loader))
                                 :when (and (.equals ^Object field (.getName =field))
                                            (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
                             (.getType =field)))]
@@ -90,8 +91,9 @@
   )
 
 (do-template [<name> <static?>]
-  (defn <name> [target method-name args]
-    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName target))
+  (defn <name> [class-loader target method-name args]
+    ;; (prn '<name> target method-name)
+    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&type/as-obj target) true class-loader))
                                  :when (and (.equals ^Object method-name (.getName =method))
                                             (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
                                             (&/fold2 #(and %1 (.equals ^Object %2 %3))

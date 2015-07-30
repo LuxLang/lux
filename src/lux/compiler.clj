@@ -28,7 +28,8 @@
                           [lux :as &&lux]
                           [host :as &&host]
                           [case :as &&case]
-                          [lambda :as &&lambda]))
+                          [lambda :as &&lambda]
+                          [package :as &&package]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -383,17 +384,18 @@
             (fail "[Compiler Error] Can't redefine a module!")
             (|do [_ (&a-module/enter-module name)
                   :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                 (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                 (.visit Opcodes/V1_6 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                          (str (&host/->module-class name) "/_") nil "java/lang/Object" nil)
                                  (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil file-hash)
                                      .visitEnd)
                                  (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_compiler" "Ljava/lang/String;" nil &&/version)
-                                     .visitEnd))]]
+                                     .visitEnd))
+                        ;; _ (prn 'compile-module name =class)
+                        ]]
               (fn [state]
-                (matchv ::M/objects [((&/exhaust% compiler-step)
-                                      (->> state
-                                           (&/set$ &/$SOURCE (&reader/from file-name file-content))
-                                           (&/update$ &/$HOST #(&/set$ &/$WRITER (&/V "lux;Some" =class) %))))]
+                (matchv ::M/objects [((&/with-writer =class
+                                        (&/exhaust% compiler-step))
+                                      (&/set$ &/$SOURCE (&reader/from file-name file-content) state))]
                   [["lux;Right" [?state _]]]
                   (&/run-state (|do [defs &a-module/defs
                                      imports &a-module/imports
@@ -409,7 +411,9 @@
                                                (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil
                                                                 (->> imports (&/|interpose "\t") (&/fold str "")))
                                                    .visitEnd)
-                                               (.visitEnd))]]
+                                               (.visitEnd))
+                                           ;; _ (prn 'CLOSED name =class)
+                                           ]]
                                  (&&/save-class! "_" (.toByteArray =class)))
                                ?state)
                   
@@ -421,12 +425,13 @@
   (.mkdirs (java.io.File. &&/output-dir)))
 
 ;; [Resources]
-(defn compile-all [modules]
+(defn compile-program [program-module]
   (init!)
-  (matchv ::M/objects [((&/map% compile-module modules) (&/init-state nil))]
+  (matchv ::M/objects [((&/map% compile-module (&/|list "lux" program-module)) (&/init-state nil))]
     [["lux;Right" [?state _]]]
     (do (println "Compilation complete!")
-      (&&cache/clean ?state))
+      (&&cache/clean ?state)
+      (&&package/package program-module))
 
     [["lux;Left" ?message]]
     (assert false ?message)))

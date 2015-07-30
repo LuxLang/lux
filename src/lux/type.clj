@@ -587,12 +587,24 @@
     [_]
     (fail (str "[Type System] Not type function:\n" (show-type type-fn) "\n"))))
 
-(def init-fixpoints (&/|list))
+(defn as-obj [class]
+  (case class
+    "boolean" "java.lang.Boolean"
+    "byte"    "java.lang.Byte"
+    "short"   "java.lang.Short"
+    "int"     "java.lang.Integer"
+    "long"    "java.lang.Long"
+    "float"   "java.lang.Float"
+    "double"  "java.lang.Double"
+    "char"    "java.lang.Character"
+    ;; else
+    class))
 
-(def counter (atom {}))
-(defn ^:private check* [fixpoints expected actual]
-  ;; (swap! counter update-in [[(aget expected 0) (aget actual 0)]]
-  ;;        #(inc (or % 0)))
+(def ^:private primitive-types #{"boolean" "byte" "short" "int" "long" "float" "double" "char"})
+
+(def ^:private init-fixpoints (&/|list))
+
+(defn ^:private check* [class-loader fixpoints expected actual]
   (if (clojure.lang.Util/identical expected actual)
     (return (&/T fixpoints nil))
     (matchv ::M/objects [expected actual]
@@ -619,13 +631,13 @@
               (return (&/T fixpoints nil)))
             
             [["lux;Some" etype] ["lux;None" _]]
-            (check* fixpoints etype actual)
+            (check* class-loader fixpoints etype actual)
 
             [["lux;None" _] ["lux;Some" atype]]
-            (check* fixpoints expected atype)
+            (check* class-loader fixpoints expected atype)
 
             [["lux;Some" etype] ["lux;Some" atype]]
-            (check* fixpoints etype atype))))
+            (check* class-loader fixpoints etype atype))))
       
       [["lux;VarT" ?id] _]
       (fn [state]
@@ -635,7 +647,7 @@
 
           [["lux;Left" _]]
           ((|do [bound (deref ?id)]
-             (check* fixpoints bound actual))
+             (check* class-loader fixpoints bound actual))
            state)))
       
       [_ ["lux;VarT" ?id]]
@@ -646,7 +658,7 @@
 
           [["lux;Left" _]]
           ((|do [bound (deref ?id)]
-             (check* fixpoints expected bound))
+             (check* class-loader fixpoints expected bound))
            state)))
 
       [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
@@ -654,13 +666,13 @@
         (matchv ::M/objects [((|do [F1 (deref ?eid)]
                                 (fn [state]
                                   (matchv ::M/objects [((|do [F2 (deref ?aid)]
-                                                          (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
+                                                          (check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
                                                         state)]
                                     [["lux;Right" [state* output]]]
                                     (return* state* output)
 
                                     [["lux;Left" _]]
-                                    ((check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual)
+                                    ((check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual)
                                      state))))
                               state)]
           [["lux;Right" [state* output]]]
@@ -668,62 +680,62 @@
 
           [["lux;Left" _]]
           (matchv ::M/objects [((|do [F2 (deref ?aid)]
-                                  (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
+                                  (check* class-loader fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
                                 state)]
             [["lux;Right" [state* output]]]
             (return* state* output)
 
             [["lux;Left" _]]
-            ((|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-                   [fixpoints** _] (check* fixpoints* A1 A2)]
+            ((|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+                   [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
                (return (&/T fixpoints** nil)))
              state))))
-      ;; (|do [_ (check* fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-      ;;       _ (check* fixpoints A1 A2)]
+      ;; (|do [_ (check* class-loader fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
+      ;;       _ (check* class-loader fixpoints A1 A2)]
       ;;   (return (&/T fixpoints nil)))
       
       [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
       (fn [state]
         (matchv ::M/objects [((|do [F1 (deref ?id)]
-                                (check* fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
+                                (check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
                               state)]
           [["lux;Right" [state* output]]]
           (return* state* output)
 
           [["lux;Left" _]]
-          ((|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+          ((|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?id) F2)
                  e* (apply-type F2 A1)
                  a* (apply-type F2 A2)
-                 [fixpoints** _] (check* fixpoints* e* a*)]
+                 [fixpoints** _] (check* class-loader fixpoints* e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
       ;; [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-      ;; (|do [[fixpoints* _] (check* fixpoints (&/V "lux;VarT" ?id) F2)
+      ;; (|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?id) F2)
       ;;       e* (apply-type F2 A1)
       ;;       a* (apply-type F2 A2)
-      ;;       [fixpoints** _] (check* fixpoints* e* a*)]
+      ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
       ;;   (return (&/T fixpoints** nil)))
       
       [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
       (fn [state]
         (matchv ::M/objects [((|do [F2 (deref ?id)]
-                                (check* fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
+                                (check* class-loader fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
                               state)]
           [["lux;Right" [state* output]]]
           (return* state* output)
 
           [["lux;Left" _]]
-          ((|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+          ((|do [[fixpoints* _] (check* class-loader fixpoints F1 (&/V "lux;VarT" ?id))
                  e* (apply-type F1 A1)
                  a* (apply-type F1 A2)
-                 [fixpoints** _] (check* fixpoints* e* a*)]
+                 [fixpoints** _] (check* class-loader fixpoints* e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
       ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
-      ;; (|do [[fixpoints* _] (check* fixpoints F1 (&/V "lux;VarT" ?id))
+      ;; (|do [[fixpoints* _] (check* class-loader fixpoints F1 (&/V "lux;VarT" ?id))
       ;;       e* (apply-type F1 A1)
       ;;       a* (apply-type F1 A2)
-      ;;       [fixpoints** _] (check* fixpoints* e* a*)]
+      ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
       ;;   (return (&/T fixpoints** nil)))
 
       [["lux;AppT" [F A]] _]
@@ -745,85 +757,44 @@
 
           [["lux;None" _]]
           (|do [expected* (apply-type F A)]
-            (check* (fp-put fp-pair true fixpoints) expected* actual))))
+            (check* class-loader (fp-put fp-pair true fixpoints) expected* actual))))
 
       [_ ["lux;AppT" [F A]]]
       (|do [actual* (apply-type F A)]
-        (check* fixpoints expected actual*))
+        (check* class-loader fixpoints expected actual*))
 
       [["lux;AllT" _] _]
       (with-var
         (fn [$arg]
           (|do [expected* (apply-type expected $arg)]
-            (check* fixpoints expected* actual))))
+            (check* class-loader fixpoints expected* actual))))
 
       [_ ["lux;AllT" _]]
       (with-var
         (fn [$arg]
           (|do [actual* (apply-type actual $arg)]
-            (check* fixpoints expected actual*))))
+            (check* class-loader fixpoints expected actual*))))
 
-      [["lux;DataT" "boolean"] ["lux;DataT" "java.lang.Boolean"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "byte"] ["lux;DataT" "java.lang.Byte"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "short"] ["lux;DataT" "java.lang.Short"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "int"] ["lux;DataT" "java.lang.Integer"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "long"] ["lux;DataT" "java.lang.Long"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "float"] ["lux;DataT" "java.lang.Float"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "double"] ["lux;DataT" "java.lang.Double"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "char"] ["lux;DataT" "java.lang.Character"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Boolean"] ["lux;DataT" "boolean"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Byte"] ["lux;DataT" "byte"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Short"] ["lux;DataT" "short"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Integer"] ["lux;DataT" "int"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Long"] ["lux;DataT" "long"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Float"] ["lux;DataT" "float"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Double"] ["lux;DataT" "double"]]
-      (return (&/T fixpoints nil))
-
-      [["lux;DataT" "java.lang.Character"] ["lux;DataT" "char"]]
-      (return (&/T fixpoints nil))
+      [["lux;DataT" e!name] ["lux;DataT" "null"]]
+      (if (contains? primitive-types e!name)
+        (fail (str "[Type Error] Can't use \"null\" with primitive types."))
+        (return (&/T fixpoints nil)))
 
       [["lux;DataT" e!name] ["lux;DataT" a!name]]
-      (if (or (.equals ^Object e!name a!name)
-              (.isAssignableFrom (Class/forName e!name) (Class/forName a!name)))
-        (return (&/T fixpoints nil))
-        (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))
+      (let [e!name (as-obj e!name)
+            a!name (as-obj a!name)]
+        (if (or (.equals ^Object e!name a!name)
+                (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader)))
+          (return (&/T fixpoints nil))
+          (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name))))
 
       [["lux;LambdaT" [eI eO]] ["lux;LambdaT" [aI aO]]]
-      (|do [[fixpoints* _] (check* fixpoints aI eI)]
-        (check* fixpoints* eO aO))
+      (|do [[fixpoints* _] (check* class-loader fixpoints aI eI)]
+        (check* class-loader fixpoints* eO aO))
 
       [["lux;TupleT" e!members] ["lux;TupleT" a!members]]
       (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                   (|do [[fp* _] (check* fp e a)]
+                                   (|do [[fp* _] (check* class-loader fp e a)]
                                      (return fp*)))
                                  fixpoints
                                  e!members a!members)]
@@ -834,7 +805,7 @@
                                    (|let [[e!name e!type] e!case
                                           [a!name a!type] a!case]
                                      (if (.equals ^Object e!name a!name)
-                                       (|do [[fp* _] (check* fp e!type a!type)]
+                                       (|do [[fp* _] (check* class-loader fp e!type a!type)]
                                          (return fp*))
                                        (fail (check-error expected actual)))))
                                  fixpoints
@@ -846,7 +817,7 @@
                                    (|let [[e!name e!type] e!slot
                                           [a!name a!type] a!slot]
                                      (if (.equals ^Object e!name a!name)
-                                       (|do [[fp* _] (check* fp e!type a!type)]
+                                       (|do [[fp* _] (check* class-loader fp e!type a!type)]
                                          (return fp*))
                                        (fail (check-error expected actual)))))
                                  fixpoints
@@ -863,7 +834,8 @@
       )))
 
 (defn check [expected actual]
-  (|do [_ (check* init-fixpoints expected actual)]
+  (|do [class-loader &/loader
+        _ (check* class-loader init-fixpoints expected actual)]
     (return nil)))
 
 (defn apply-lambda [func param]

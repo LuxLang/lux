@@ -466,7 +466,10 @@
       (findClass [^String class-name]
         ;; (prn 'findClass class-name)
         (if-let [^bytes bytecode (get @store class-name)]
-          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
+          (try (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
+            (catch java.lang.reflect.InvocationTargetException e
+              (prn 'InvocationTargetException (.getCause e))
+              (throw e)))
           (do (prn 'memory-class-loader/store class-name (keys @store))
             (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name)))))))))
 

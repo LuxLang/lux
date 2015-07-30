@@ -55,8 +55,11 @@
 (defn clean [state]
   "(-> Compiler (,))"
   (let [needed-modules (->> state (&/get$ &/$MODULES) &/|keys &/->seq set)
-        outdated? #(-> ^File % .getName (string/replace " " "/") (->> (contains? needed-modules)) not)
-        outdate-files (->> &&/output-dir (new File) .listFiles seq (filter outdated?))]
+        outdated? #(-> ^File % .getName (string/replace &host/module-separator "/") (->> (contains? needed-modules)) not)
+        outdate-files (->> &&/output-dir (new File) .listFiles seq (filter outdated?))
+        program-file (new File &&/output-package)]
+    (when (.exists program-file)
+      (.delete program-file))
     (doseq [f outdate-files]
       (clean-file f))
     nil))

@@ -261,11 +261,11 @@
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
                   :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
                   ;; :let [_ (when (and ;; (= "lux/control/monad" ?module)
-                  ;;                (= "open" ?name))
+                  ;;                (= "case" ?name))
                   ;;           (->> (&/|map &/show-ast macro-expansion*)
                   ;;                (&/|interpose "\n")
                   ;;                (&/fold str "")
-                  ;;                (prn ?module "open")))]
+                  ;;                (prn ?module "case")))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion*))
 

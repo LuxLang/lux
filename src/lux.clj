@@ -10,13 +10,15 @@
   (:gen-class)
   (:require [lux.base :as &]
             [lux.compiler :as &compiler]
-            [lux.type :as &type]
             :reload-all))
 
-(defn -main [& _]
-  (time (&compiler/compile-all (&/|list "lux" "program")))
-  (System/exit 0))
+(defn -main [& [program-module & _]]
+  (if program-module
+    (time (&compiler/compile-program program-module))
+    (println "Please provide a module name to compile."))
+  (System/exit 0)
+  )
 
 (comment
-  ;; cd output && jar cvf program.jar * && java -cp "program.jar" program && cd ..
+  (-main "program")
   )
