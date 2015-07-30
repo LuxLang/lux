@@ -5,37 +5,34 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-v0.1
+v0.2
 
 ### How far ahead is the project?
 
-The Java-bytecode compiler is close to completion.
+The Java-bytecode compiler is almost complete.
 
-Some features are missing and the compiler is not as fast as I would like.
+A few features are missing and the compiler is not as fast as I would like.
 
-However, some small programs can be written to try out Lux and get a feeling for the language.
+However, programs can be written to try out Lux and get a feeling for the language.
 
 ### How can I use it?
 
-Download the 0.1 compiler from here: https://github.com/LuxLang/lux/releases/download/0.1.0/lux-jvm-0.1.0-standalone.jar
+Download the 0.2 compiler from here: https://github.com/LuxLang/lux/releases/download/0.2.0/lux-jvm-0.2.0-standalone.jar
 
-Right now, the current version of Lux (0.1) is mostly to play around with the language, so it's a bit limited on what you can do.
 Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
 
-"source" must contain 2 files.
-One will be the Lux prelude (lux.lux), the other will be program.lux
-You can write anything you want inside program.lux to play around with the language.
+You can run the compiler like this:
 
-##### Note: You can download the lux.lux & program.lux files in the source/ directory in this repo to get started.
+	java -jar -Xss4m lux-jvm-0.2.0-standalone.jar program
 
-To run the compiler, open your terminal and write this:
+The **program** module is already inside **source/** to make it easier to start.
 
-	java -jar lux-jvm-0.1.0-standalone.jar
+##### Note: You can download all the files inside the source/ directory in this repo to get started.
 
-This will generate a directory named "output" and put all the .class files there.
-Then, you can package the program and run it using this:
+This will generate a directory named "target" and put all the .class files there.
+Then, you can run the program like this:
 
-	cd output && jar cvf program.jar * && java -cp "program.jar" program && cd ..
+	cd target/jvm/ && java -jar program.jar
 
 ### What's the license?
 
@@ -87,7 +84,7 @@ Functions are curried and partial application is as simple as just applying a fu
 
 e.g.
 
-	(let [inc (int:+ 1)]
+	(let [inc (i+ 1)]
 	  (map inc (list 1 2 3 4 5)))
 
 ### Code portability
@@ -105,15 +102,11 @@ The mechanism hasn't been added yet to the language (mainly because there's only
 ### Macros
 
 Unlike in most other lisps, Lux macros are monadic.
-The **(Lux a)** type is the one responsibly for the magic by treading **CompilerState** instances through macros.
+The **(Lux a)** type is the one responsibly for the magic by treading **Compiler** instances through macros.
 Macros must have the **Macro** type and then be declared as macros.
 
 However, just using the **defmacro** macro will take care of it for you.
-
-Also, in an upcoming release you'll get another macro for defining macros.
-It will be named **defsyntax** and will use monadic parsing of AST tokens to parse the syntax.
-
-If you want to see how macros are implemented, you can take a look at *lux.lux*.
+Alternatively, you can use the **defsyntax** macro, which also offers monadic parsing of AST tokens for convenience.
 
 ### Custom pattern-matching
 
@@ -176,639 +169,9 @@ If you want to communicate with me directly, just email me at luxlisp@gmail.com
 
 Check out the Emacs plugin for it: https://github.com/LuxLang/lux-mode
 
-## What's available?
+## Where do I learn Lux?
 
-### Base syntax
-
-Comments
-
-	## This is a single-line comment
-	## Multi-line comments are comming soon
-
-Bool (implemented as java.lang.Boolean)
-
-	true
-	false
-
-Int (implemented as java.lang.Long)
-
-	1
-	-20
-	12345
-
-Real (implemented as java.lang.Double)
-
-	1.23
-	-0.5
-
-Char (implemented as java.lang.Character)
-
-	#"a"
-	#"\n"
-
-Text (implemented as java.lang.String)
-
-	"yolo"
-	"Hello\tWorld!"
-
-Forms
-
-	(+ 1 2)
-	(lambda [x] (foo 10 x))
-
-Symbols
-
-	foo     ## Unprefixed symbol (compiler will assume it's in the current module)
-	bar;baz ## Prefixed symbol (compiler will assume it's in the module specified by the prefix)
-	;fold   ## With just the semi-colon, compiler wil assume it's the same as lux;fold
-	;;quux  ## With 2 semi-colons, it will get automatically prefixed with the current-module
-
-Tags
-
-	#Nil
-	#lux;Cons
-	#;Some
-	#;;MyTag
-
-Tuples
-
-	[]
-	["yolo" 10 true]
-
-Variants (aka sum-types, aka discriminated unions)
-
-	#Nil
-	(#Cons [10 #Nil])
-
-Records
-
-	{#name "Lux" #awesome? true}
-
-### Types
-	(deftype Bool (^ java.lang.Boolean))
-
-	(deftype Int (^ java.lang.Long))
-
-	(deftype Real (^ java.lang.Double))
-
-	(deftype Char (^ java.lang.Character))
-
-	(deftype Text (^ java.lang.String))
-
-	(deftype Void (|))
-
-	(deftype Ident (, Text Text))
-
-	(deftype (List a)
-	  (| #Nil
-		 (#Cons (, a (List a)))))
-
-	(deftype (Maybe a)
-	  (| #None
-		 (#Some a)))
-
-	(deftype #rec Type
-	  (| (#DataT Text)                          ## Host data-type
-	     (#TupleT (List Type))                  ## Tuple types
-	     (#VariantT (List (, Text Type)))       ## Sum-types
-	     (#RecordT (List (, Text Type)))        ## Records
-	     (#LambdaT (, Type Type))               ## Function-types
-	     (#BoundT Text)
-	     (#VarT Int)                            ## Type variables
-	     (#ExT Int)                             ## Existential types
-	     (#AllT (, (Maybe (List (, Text Type))) ## Polymorphic types
-	               Text Text Type))
-	     (#AppT (, Type Type))))                ## Application of polymorphic types
-
-	(deftype (Meta m d)
-	  (| (#Meta (, m d))))
-
-	(deftype Syntax ...)
-
-	(deftype (Either l r)
-	  (| (#Left l)
-		 (#Right r)))
-
-	(deftype Reader ...)
-
-	(deftype LuxVar ...)
-
-	(deftype CompilerState ...)
-
-	(deftype (Lux a)
-	  (-> CompilerState (Either Text (, CompilerState a))))
-
-	(deftype Macro
-	  (-> (List Syntax) (Lux (List Syntax))))
-
-	(deftype (IO a)
-	  (-> (,) a))
-
-### Macros
-###### defmacro
-e.g.
-
-	(defmacro #export (and tokens)
-	  (case (reverse tokens)
-		(\ (list& last init))
-		(return (: (List Syntax)
-		           (list (fold (: (-> Syntax Syntax Syntax)
-		                          (lambda [post pre]
-		                            (` (if (~ pre)
-		                                 true
-		                                 (~ post)))))
-		                       last
-		                       init))))
-		
-		_
-		(fail "and requires >=1 clauses.")))
-
-###### comment
-e.g.
-
-	(comment 1 2 3 4) ## Same as not writing anything...
-
-###### list
-e.g.
-
-	(list 1 2 3)
-	=> (#Cons [1 (#Cons [2 (#Cons [3 #Nil])])])
-
-###### list&
-e.g.
-
-	(list& 0 (list 1 2 3))
-	=> (#Cons [0 (list 1 2 3)])
-
-###### lambda
-e.g.
-
-	(def const
-	  (lambda [x y] x))
-
-	(def const
-	  (lambda const [x y] x))
-
-###### let
-e.g.
-
-	(let [x (foo bar)
-		  y (baz quux)]
-	  ...)
-
-###### $
-e.g.
-
-	## Application of binary functions over variadic arguments.
-	($ text:++ "Hello, " name ".\nHow are you?")
-	=> (text:++ "Hello, " (text:++ name ".\nHow are you?"))
-
-###### |>
-e.g.
-
-	## Piping
-	(|> elems (map ->text) (interpose " ") (fold text:++ ""))
-	=>
-	(fold text:++ ""
-		  (interpose " "
-		             (map ->text elems)))
-
-###### if
-e.g.
-
-	(if true
-	  "Oh, yeah!"
-	  "Aw hell naw!")
-
-###### ^
-e.g.
-
-	## Macro to treat classes as types
-	(^ java.lang.Object)
-
-###### ,
-e.g.
-
-	## Tuples
-	(, Text Int Bool)
-	
-	(,) ## The empty tuple, aka "unit"
-
-###### |
-e.g.
-
-	(| #Yes #No)
-	
-	(|) ## The empty variant, aka "void"
-
-###### &
-e.g.
-
-	## Records
-	(& #name Text
-	   #age Int
-	   #alive? Bool)
-
-###### ->
-e.g.
-	
-	## Function types
-	(-> Int Int Int) ## This is the type of a function that takes 2 Ints and returns an Int
-
-###### All
-e.g.
-
-	## Universal quantification.
-	(All List [a]
-		 (| #Nil
-		    (#Cons (, a (List a)))))
-
-	## It must be explicit, unlike in Haskell.
-	## Rank-n types will be possible as well as existential types
-	(All [a]
-	  (-> a a))
-
-###### type`
-
-	## This macro is not meant to be used directly. It's used by :, :!, deftype, struct, sig
-
-###### io
-
-	## Just makes sure whatever computation you do returns an IO type. It's here mostly for host-interop.
-	(io (println "Hello, World!"))
-
-###### :
-e.g.
-
-	## The type-annotation macro
-	(: (List Int) (list 1 2 3))
-
-###### :!
-e.g.
-
-	## The type-coercion macro
-	(:! Dinosaur (list 1 2 3))
-
-###### deftype
-e.g.
-
-	## The type-definition macro
-	(deftype (List a)
-	  (| #Nil
-		 (#Cons (, a (List a)))))
-
-###### exec
-e.g.
-
-	## Sequential execution of expressions (great for side-effects).
-	## But please use the io macro to help keep the purity.
-	(io (exec
-	      (println "#1")
-	      (println "#2")
-	      (println "#3")
-	      "YOLO"))
-
-###### def
-e.g.
-
-	## Macro for definining global constants/functions.
-	(def (rejoin-pair pair)
-	  (-> (, Syntax Syntax) (List Syntax))
-	  (let [[left right] pair]
-		(list left right)))
-
-###### case
-e.g.
-
-	## The pattern-matching macro.
-	## Allows the usage of macros within the patterns to provide custom syntax.
-	(case (: (List Int) (list 1 2 3))
-	  (#Cons [x (#Cons [y (#Cons [z #Nil])])])
-	  (#Some ($ int:* x y z))
-
-	  _
-	  #None)
-
-	(case (: (List Int) (list 1 2 3))
-	  (\ (list x y z))
-	  (#Some ($ int:* x y z))
-
-	  _
-	  #None)
-
-	(deftype Weekday
-	  (| #Monday
-		 #Tuesday
-		 #Wednesday
-		 #Thursday
-		 #Friday
-		 #Saturday
-		 #Sunday))
-
-	(def (weekend? day)
-	  (-> Weekday Bool)
-	  (case day
-		(\or #Saturday #Sunday)
-		true
-
-		_
-		false))
-
-###### \
-
-	## It's a special macro meant to be used with case
-
-###### \or
-
-	## It's a special macro meant to be used with case
-
-###### `
-
-	## Quasi-quotation as a macro. Unquote (~) and unquote-splice (~@) must also be used as forms
-	e.g.
-	(` (def (~ name)
-		 (lambda [(~@ args)]
-		   (~ body))))
-
-###### sig
-
-	## Not mean to be used directly. Prefer defsig
-
-###### struct
-
-	## Not mean to be used directly. Prefer defstruct
-
-###### defsig
-e.g.
-
-	## Definition of signatures ala ML
-	(defsig #export (Ord a)
-	  (: (-> a a Bool)
-		 <)
-	  (: (-> a a Bool)
-		 <=)
-	  (: (-> a a Bool)
-		 >)
-	  (: (-> a a Bool)
-		 >=))
-
-###### defstruct
-e.g.
-
-	## Definition of structures ala ML
-	(defstruct #export Int:Ord (Ord Int)
-	  (def (< x y)
-		(jvm-llt x y))
-	  (def (<= x y)
-		(or (jvm-llt x y)
-		    (jvm-leq x y)))
-	  (def (> x y)
-		(jvm-lgt x y))
-	  (def (>= x y)
-		(or (jvm-lgt x y)
-		    (jvm-leq x y))))
-
-###### and
-e.g.
-
-	(and true false true) ## => false
-
-###### or
-e.g.
-
-	(or true false true) ## => true
-
-###### alias-lux
-
-	## Just creates local aliases of everything defined & exported in lux.lux
-e.g.
-
-	(;alias-lux)
-
-###### using
-e.g.
-
-	## The Lux equivalent to ML's open.
-	## Opens up a structure and provides all the definitions as local variables.
-	(using Int:Ord
-	  (< 5 10))
-
-### Functions
-###### fold
-
-	(All [a b]
-	  (-> (-> a b a) a (List b) a))
-	
-	(fold text:++ "" (list "Hello, " "World!"))
-	=> "Hello, World!"
-
-###### reverse
-
-	(All [a]
-	  (-> (List a) (List a)))
-	
-	(reverse (list 1 2 3))
-	=> (list 3 2 1)
-
-###### map
-
-	(All [a b]
-	  (-> (-> a b) (List a) (List b)))
-	
-	(map (int:+ 1) (list 1 2 3))
-	=> (list 2 3 4)
-
-###### any?
-
-	(All [a]
-	  (-> (-> a Bool) (List a) Bool))
-	
-	(any? even? (list 1 2 3))
-	=> true
-
-###### .
-
-	## Function composition: (. f g) => (lambda [x] (f (g x)))
-	(All [a b c]
-	  (-> (-> b c) (-> a b) (-> a c)))
-
-###### int:+
-
-	(-> Int Int Int)
-
-###### int:-
-
-	(-> Int Int Int)
-
-###### int:*
-
-	(-> Int Int Int)
-
-###### int:/
-
-	(-> Int Int Int)
-
-###### int:%
-
-	(-> Int Int Int)
-
-###### int:=
-
-	(-> Int Int Bool)
-
-###### int:>
-
-	(-> Int Int Bool)
-
-###### int:<
-
-	(-> Int Int Bool)
-
-###### real:+
-
-	(-> Real Real Real)
-
-###### real:-
-
-	(-> Real Real Real)
-
-###### real:*
-
-	(-> Real Real Real)
-
-###### real:/
-
-	(-> Real Real Real)
-
-###### real:%
-
-	(-> Real Real Real)
-
-###### real:=
-
-	(-> Real Real Bool)
-
-###### real:>
-
-	(-> Real Real Bool)
-
-###### real:<
-
-	(-> Real Real Bool)
-
-###### length
-
-	## List length
-	(All [a]
-	  (-> (List a) Int))
-
-###### not
-
-	(-> Bool Bool)
-
-###### text:++
-
-	## Text/string concatenation
-	(-> Text Text Text)
-
-###### get-module-name
-
-	## Obtain the name of the currently-compiling module while in a macro.
-	(Lux Text)
-
-###### find-macro
-
-	## Given the name of a macro, try to obtain it.
-	(-> Ident (Lux (Maybe Macro)))
-
-###### normalize
-
-	## Normalizes a name so if it lacks a module prefix, it gets the one of the current module.
-	(-> Ident (Lux Ident))
-
-###### ->text
-
-	(-> (^ java.lang.Object) Text)
-
-###### interpose
-
-	(All [a]
-	  (-> a (List a) (List a)))
-
-###### syntax:show
-
-	## Turn Lux syntax into user-readable text. (Note: it's not pretty-printed)
-	(-> Syntax Text)
-
-###### macro-expand
-
-	## The standard macro-expand function.
-	(-> Syntax (Lux (List Syntax)))
-
-###### gensym
-
-	## Can't forget gensym!
-	(-> Text (Lux Syntax))
-
-###### macro-expand-1
-
-	(-> Syntax (Lux Syntax))
-
-###### id
-
-	(All [a]
-	  (-> a a))
-
-###### print
-
-	## Neither print or println return IO right now because I've yet to implement monads & do-notation
-	(-> Text (,))
-
-###### println
-
-	(-> Text (,))
-
-###### some
-
-	(All [a b]
-	  (-> (-> a (Maybe b)) (List a) (Maybe b)))
-
-### Signatures
-###### Eq
-
-	(defsig #export (Eq a)
-	  (: (-> a a Bool)
-		 =))
-
-###### Show
-
-	(defsig #export (Show a)
-	  (: (-> a Text)
-		 show))
-
-###### Ord
-
-	(defsig #export (Ord a)
-	  (: (-> a a Bool)
-		 <)
-	  (: (-> a a Bool)
-		 <=)
-	  (: (-> a a Bool)
-		 >)
-	  (: (-> a a Bool)
-		 >=))
-
-### Structures
-###### Int:Eq
-###### Real:Eq
-
-###### Bool:Show
-###### Int:Show
-###### Real:Show
-###### Char:Show
-
-###### Int:Ord
-###### Real:Ord
+Just head to the wiki and check out the documentation for the currently available modules, and the tutorials.
 
 ## Caveats
 
@@ -817,7 +180,7 @@ The compiler is not fully stable so you might get an error if you do anything fu
 
 Also, the error messages could really use an overhaul, so any error message you get will probably startle you.
 
-Don't worry about it, version 0.2 will improve error reporting a lot.
+Don't worry about it, version 0.3 will improve error reporting a lot.
 If you have any doubts, feel free to ask/complain in the Google Group.
 
 ### Tags
