@@ -1,3 +1,11 @@
+;;   Copyright (c) Eduardo Julian. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
+
 (ns lux.parser
   (:require [clojure.template :refer [do-template]]
             [clojure.core.match :as M :refer [matchv]]
@@ -17,24 +25,18 @@
         [_]
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  "Close_Paren"   "parantheses" "lux;Form"
-  ^:private parse-tuple "Close_Bracket" "brackets"    "lux;Tuple"
+  ^:private parse-form  "Close_Paren"   "parantheses" "lux;FormS"
+  ^:private parse-tuple "Close_Bracket" "brackets"    "lux;TupleS"
   )
 
 (defn ^:private parse-record [parse]
-  (|do [;; :let [_ (prn 'parse-record 0)]
-        elems* (&/repeat% parse)
-        ;; :let [_ (prn 'parse-record 1)]
+  (|do [elems* (&/repeat% parse)
         token &lexer/lex
-        ;; :let [_ (prn 'parse-record 2)]
-        :let [elems (&/fold &/|++ (&/|list) elems*)]
-        ;; :let [_ (prn 'parse-record 3)]
-        ]
+        :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (matchv ::M/objects [token]
       [["lux;Meta" [meta ["Close_Brace" _]]]]
       (if (even? (&/|length elems))
-        (do ;; (prn 'PARSED_RECORD (&/|length elems))
-          (return (&/V "lux;Record" (&/|as-pairs elems))))
+        (return (&/V "lux;RecordS" (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
       
       [_]
@@ -42,50 +44,49 @@
 
 ;; [Interface]
 (def parse
-  (|do [token &lexer/lex
-        ;; :let [_ (prn 'parse/token token)]
-        ;; :let [_ (prn 'parse (aget token 0))]
-        ]
+  (|do [token &lexer/lex]
     (matchv ::M/objects [token]
-      [["lux;Meta" [meta ["White_Space" _]]]]
-      (return (&/|list))
+      [["lux;Meta" [meta token*]]]
+      (matchv ::M/objects [token*]
+        [["White_Space" _]]
+        (return (&/|list))
 
-      [["lux;Meta" [meta ["Comment" _]]]]
-      (return (&/|list))
-      
-      [["lux;Meta" [meta ["Bool" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Bool" (Boolean/parseBoolean ?value))))))
+        [["Comment" _]]
+        (return (&/|list))
+        
+        [["Bool" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;BoolS" (Boolean/parseBoolean ?value))))))
 
-      [["lux;Meta" [meta ["Int" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Int" (Integer/parseInt ?value))))))
+        [["Int" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;IntS" (Integer/parseInt ?value))))))
 
-      [["lux;Meta" [meta ["Real" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Real" (Float/parseFloat ?value))))))
+        [["Real" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;RealS" (Float/parseFloat ?value))))))
 
-      [["lux;Meta" [meta ["Char" ^String ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Char" (.charAt ?value 0))))))
+        [["Char" ^String ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;CharS" (.charAt ?value 0))))))
 
-      [["lux;Meta" [meta ["Text" ?value]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Text" ?value)))))
+        [["Text" ?value]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;TextS" ?value)))))
 
-      [["lux;Meta" [meta ["Symbol" ?ident]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Symbol" ?ident)))))
+        [["Symbol" ?ident]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;SymbolS" ?ident)))))
 
-      [["lux;Meta" [meta ["Tag" ?ident]]]]
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;Tag" ?ident)))))
+        [["Tag" ?ident]]
+        (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;TagS" ?ident)))))
 
-      [["lux;Meta" [meta ["Open_Paren" _]]]]
-      (|do [syntax (parse-form parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
-      
-      [["lux;Meta" [meta ["Open_Bracket" _]]]]
-      (|do [syntax (parse-tuple parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        [["Open_Paren" _]]
+        (|do [syntax (parse-form parse)]
+          (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        
+        [["Open_Bracket" _]]
+        (|do [syntax (parse-tuple parse)]
+          (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
 
-      [["lux;Meta" [meta ["Open_Brace" _]]]]
-      (|do [syntax (parse-record parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        [["Open_Brace" _]]
+        (|do [syntax (parse-record parse)]
+          (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
 
-      [_]
-      (fail "[Parser Error] Unknown lexer token.")
-      )))
+        [_]
+        (fail "[Parser Error] Unknown lexer token.")
+        ))))

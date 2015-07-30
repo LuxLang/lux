@@ -1,25 +1,24 @@
+;;   Copyright (c) Eduardo Julian. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
+
 (ns lux
   (:gen-class)
   (:require [lux.base :as &]
             [lux.compiler :as &compiler]
             :reload-all))
 
-(defn -main [& _]
-  (time (&compiler/compile-all (&/|list "program")))
-  (System/exit 0))
+(defn -main [& [program-module & _]]
+  (if program-module
+    (time (&compiler/compile-program program-module))
+    (println "Please provide a module name to compile."))
+  (System/exit 0)
+  )
 
 (comment
-  ;; TODO: Finish total-locals
-
-  (time (&compiler/compile-all (&/|list "program")))
-  
-  (time (&compiler/compile-all (&/|list "lux")))
-  (System/gc)
-  (time (&compiler/compile-all (&/|list "lux" "test2")))
-
-  ;; jar cvf test2.jar *.class test2 && java -cp "test2.jar" test2
-  ;; jar cvf program.jar output/*.class output/program && java -cp "program.jar" program
-  ;; cd output && jar cvf test2.jar * && java -cp "test2.jar" test2 && cd ..
-
-  ;; cd output && jar cvf program.jar * && java -cp "program.jar" program && cd ..
+  (-main "program")
   )

@@ -1,3 +1,11 @@
+;;   Copyright (c) Eduardo Julian. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
+
 (ns lux.analyser.lambda
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
@@ -8,8 +16,6 @@
 
 ;; [Resource]
 (defn with-lambda [self self-type arg arg-type body]
-  ;; (prn 'with-lambda (&/|length self) (&/|length arg))
-  ;; (prn 'with-lambda [(aget self 0) (aget self 1)] [(aget arg 0) (aget arg 1)] (alength self) (alength arg))
   (|let [[?module1 ?name1] self
          [?module2 ?name2] arg]
     (&/with-closure
@@ -21,11 +27,6 @@
               (return (&/T scope-name =captured =return)))))))))
 
 (defn close-over [scope ident register frame]
-  ;; (prn 'close-over
-  ;;      (&host/location scope)
-  ;;      (&host/location (&/|list ident))
-  ;;      register
-  ;;      (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER)))
   (matchv ::M/objects [register]
     [[_ register-type]]
     (|let [register* (&/T (&/V "captured" (&/T scope

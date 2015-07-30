@@ -1,3 +1,11 @@
+;;   Copyright (c) Eduardo Julian. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
+
 (ns lux.lexer
   (:require [clojure.template :refer [do-template]]
             (lux [base :as & :refer [|do return* return fail fail*]]
@@ -6,120 +14,120 @@
 
 ;; [Utils]
 (defn ^:private escape-char [escaped]
-  ;; (prn 'escape-char escaped)
-  (condp = escaped
-    "\\t"  (return "\t")
-    "\\b"  (return "\b")
-    "\\n"  (return "\n")
-    "\\r"  (return "\r")
-    "\\f"  (return "\f")
-    "\\\"" (return "\"")
-    "\\\\" (return "\\")
-    ;; else
-    (fail (str "[Lexer Error] Unknown escape character: " escaped))))
+  (cond (.equals ^Object escaped "\\t")  (return "\t")
+        (.equals ^Object escaped "\\b")  (return "\b")
+        (.equals ^Object escaped "\\n")  (return "\n")
+        (.equals ^Object escaped "\\r")  (return "\r")
+        (.equals ^Object escaped "\\f")  (return "\f")
+        (.equals ^Object escaped "\\\"") (return "\"")
+        (.equals ^Object escaped "\\\\") (return "\\")
+        :else
+        (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
 (defn ^:private lex-text-body [_]
-  (&/try-all% (&/|list (|do [[_ [_ [prefix escaped]]] (&reader/read-regex2 #"(?s)^([^\"\\]*)(\\.)")
-                             ;; :let [_ (prn '[prefix escaped] [prefix escaped])]
+  (&/try-all% (&/|list (|do [[_ [prefix escaped]] (&reader/read-regex2 #"(?s)^([^\"\\]*)(\\.)")
                              unescaped (escape-char escaped)
-                             ;; :let [_ (prn 'unescaped unescaped)]
-                             postfix (lex-text-body nil)
-                             ;; :let [_ (prn 'postfix postfix)]
-                             ]
+                             postfix (lex-text-body nil)]
                          (return (str prefix unescaped postfix)))
-                       (|do [[_ [_ body]] (&reader/read-regex #"(?s)^([^\"\\]*)")]
+                       (|do [[_ body] (&reader/read-regex #"(?s)^([^\"\\]*)")]
                          (return body)))))
 
-(def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)")
+(def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)"
+  ;; #"^([^0-9\[\]\(\)\{\};#\s\"][^\[\]\(\)\{\};#\s\"]*)"
+  )
 
 ;; [Lexers]
 (def ^:private lex-white-space
-  (|do [[_ [meta white-space]] (&reader/read-regex #"^(\s+)")]
+  (|do [[meta white-space] (&reader/read-regex #"^(\s+)")]
     (return (&/V "lux;Meta" (&/T meta (&/V "White_Space" white-space))))))
 
 (def ^:private lex-single-line-comment
-  (|do [[_ [meta _]] (&reader/read-text "##")
-         [_ [_ comment]] (&reader/read-regex #"^(.*)$")]
+  (|do [_ (&reader/read-text "##")
+        [meta comment] (&reader/read-regex #"^(.*)$")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
-         [meta comment] (&/try-all% (&/|list (|do [[_ [meta comment]] (&reader/read-regex #"(?is)^((?!#\().)*?(?=\)#)")]
-                                               (return comment))
-                                             (|do [[_ [meta pre]] (&reader/read-regex #"(?is)^(.+?(?=#\())")
-                                                    [_ inner] (lex-multi-line-comment nil)
-                                                    [_ [_ post]] (&reader/read-regex #"(?is)^(.+?(?=\)#))")]
-                                               (return (str pre "#(" inner ")#" post)))))
-         _ (&reader/read-text ")#")]
+        [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex #"(?is)^(?!#\()(.*?(?=\)#))")
+                                                  ;; :let [_ (prn 'immediate comment)]
+                                                  _ (&reader/read-text ")#")]
+                                              (return (&/T meta comment)))
+                                            (|do [;; :let [_ (prn 'pre/_0)]
+                                                  [meta pre] (&reader/read-regex+ #"(?is)^(.*?)(#\(|$)")
+                                                  ;; :let [_ (prn 'pre pre)]
+                                                  [_ inner] (lex-multi-line-comment nil)
+                                                  ;; :let [_ (prn 'inner inner)]
+                                                  [_ post] (&reader/read-regex #"(?is)^(.+?(?=\)#))")
+                                                  ;; :let [_ (prn 'post post (str pre "#(" inner ")#" post))]
+                                                  ]
+                                              (return (&/T meta (str pre "#(" inner ")#" post))))))
+        ;; :let [_ (prn 'lex-multi-line-comment (str comment ")#"))]
+        _ (&reader/read-text ")#")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Comment" comment))))))
 
 (def ^:private lex-comment
   (&/try-all% (&/|list lex-single-line-comment
-                       ;; (lex-multi-line-comment nil)
-                       )))
+                       (lex-multi-line-comment nil))))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
-    (|do [[_ [meta token]] (&reader/read-regex <regex>)]
+    (|do [[meta token] (&reader/read-regex <regex>)]
       (return (&/V "lux;Meta" (&/T meta (&/V <tag> token))))))
 
   ^:private lex-bool  "Bool"  #"^(true|false)"
-  ^:private lex-int   "Int"   #"^-?(0|[1-9][0-9]*)"
-  ^:private lex-real  "Real"  #"^-?(0|[1-9][0-9]*)\.[0-9]+"
+  ^:private lex-int   "Int"   #"^(-?0|-?[1-9][0-9]*)"
+  ^:private lex-real  "Real"  #"^-?(-?0\.[0-9]+|-?[1-9][0-9]*\.[0-9]+)"
   )
 
 (def ^:private lex-char
-  (|do [[_ [meta _]] (&reader/read-text "#\"")
-         token (&/try-all% (&/|list (|do [[_ [_ escaped]] (&reader/read-regex #"^(\\.)")]
-                                      (escape-char escaped))
-                                    (|do [[_ [_ char]] (&reader/read-regex #"^(.)")]
-                                      (return char))))
-         _ (&reader/read-text "\"")]
+  (|do [[meta _] (&reader/read-text "#\"")
+        token (&/try-all% (&/|list (|do [[_ escaped] (&reader/read-regex #"^(\\.)")]
+                                     (escape-char escaped))
+                                   (|do [[_ char] (&reader/read-regex #"^(.)")]
+                                     (return char))))
+        _ (&reader/read-text "\"")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Char" token))))))
 
 (def ^:private lex-text
-  (|do [[_ [meta _]] (&reader/read-text "\"")
-         token (lex-text-body nil)
-         _ (&reader/read-text "\"")]
+  (|do [[meta _] (&reader/read-text "\"")
+        token (lex-text-body nil)
+        _ (&reader/read-text "\"")]
     (return (&/V "lux;Meta" (&/T meta (&/V "Text" token))))))
 
 (def ^:private lex-ident
-  (&/try-all% (&/|list (|do [[_ [meta token]] (&reader/read-regex +ident-re+)]
+  (&/try-all% (&/|list (|do [[meta token] (&reader/read-regex +ident-re+)]
                          (&/try-all% (&/|list (|do [_ (&reader/read-text ";")
-                                                    [_ [_ local-token]] (&reader/read-regex +ident-re+)]
-                                                (&/try-all% (&/|list (|do [unaliased (&module/dealias token)]
-                                                                       (return (&/V "lux;Meta" (&/T meta (&/T unaliased local-token)))))
-                                                                     (|do [? (&module/exists? token)]
-                                                                       (if ?
-                                                                         (return (&/V "lux;Meta" (&/T meta (&/T token local-token))))
-                                                                         (fail (str "[Lexer Error] Unknown module: " token))))
-                                                                     )))
-                                              (return (&/V "lux;Meta" (&/T meta (&/T "" token))))
+                                                    [_ local-token] (&reader/read-regex +ident-re+)
+                                                    ? (&module/exists? token)]
+                                                (if ?
+                                                  (return (&/T meta (&/T token local-token)))
+                                                  (|do [unaliased (do ;; (prn "Unaliasing: " token ";" local-token)
+                                                                    (&module/dealias token))]
+                                                    (do ;; (prn "Unaliased: " unaliased ";" local-token)
+                                                      (return (&/T meta (&/T unaliased local-token)))))))
+                                              (return (&/T meta (&/T "" token)))
                                               )))
-                       (|do [[_ [meta _]] (&reader/read-text ";;")
-                             [_ [_ token]] (&reader/read-regex +ident-re+)
+                       (|do [[meta _] (&reader/read-text ";;")
+                             [_ token] (&reader/read-regex +ident-re+)
                              module-name &/get-module-name]
-                         (return (&/V "lux;Meta" (&/T meta (&/T module-name token)))))
-                       (|do [[_ [meta _]] (&reader/read-text ";")
-                             [_ [_ token]] (&reader/read-regex +ident-re+)]
-                         (return (&/V "lux;Meta" (&/T meta (&/T "lux" token)))))
+                         (return (&/T meta (&/T module-name token))))
+                       (|do [[meta _] (&reader/read-text ";")
+                             [_ token] (&reader/read-regex +ident-re+)]
+                         (return (&/T meta (&/T "lux" token))))
                        )))
 
 (def ^:private lex-symbol
-  (|do [[_ [meta ident]] lex-ident]
+  (|do [[meta ident] lex-ident]
     (return (&/V "lux;Meta" (&/T meta (&/V "Symbol" ident))))))
 
 (def ^:private lex-tag
-  (|do [[_ [meta _]] (&reader/read-text "#")
-        ;; :let [_ (prn 'lex-tag)]
-        [_ [_ ident]] lex-ident
-        ;; :let [_ (prn 'lex-tag [(aget ident 0) (aget ident 1)])]
-        ]
+  (|do [[meta _] (&reader/read-text "#")
+        [_ ident] lex-ident]
     (return (&/V "lux;Meta" (&/T meta (&/V "Tag" ident))))))
 
 (do-template [<name> <text> <tag>]
   (def <name>
-    (|do [[_ [meta _]] (&reader/read-text <text>)]
+    (|do [[meta _] (&reader/read-text <text>)]
       (return (&/V "lux;Meta" (&/T meta (&/V <tag> nil))))))
 
   ^:private lex-open-paren    "(" "Open_Paren"

@@ -1,0 +1,250 @@
+##   Copyright (c) Eduardo Julian. All rights reserved.
+##   The use and distribution terms for this software are covered by the
+##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+##   which can be found in the file epl-v10.html at the root of this distribution.
+##   By using this software in any fashion, you are agreeing to be bound by
+##   the terms of this license.
+##   You must not remove this notice, or any other, from this software.
+
+(;import lux
+         (lux/control (monoid #as m #refer #all)
+                      (functor #as F #refer #all)
+                      (monad #as M #refer #all))
+         lux/meta/macro)
+
+## Types
+## (deftype (List a)
+##   (| #Nil
+##      (#Cons (, a (List a)))))
+
+## Functions
+(def #export (foldL f init xs)
+  (All [a b]
+    (-> (-> a b a) a (List b) a)) 
+  (case xs
+    #;Nil
+    init
+
+    (#;Cons [x xs'])
+    (foldL f (f init x) xs')))
+
+(def #export (foldR f init xs)
+  (All [a b]
+    (-> (-> b a a) a (List b) a)) 
+  (case xs
+    #;Nil
+    init
+
+    (#;Cons [x xs'])
+    (f x (foldR f init xs'))))
+
+(def #export (reverse xs)
+  (All [a]
+    (-> (List a) (List a)))
+  (foldL (lambda [tail head] (#;Cons [head tail]))
+         #;Nil
+         xs))
+
+(def #export (filter p xs)
+  (All [a]
+    (-> (-> a Bool) (List a) (List a)))
+  (case xs
+    #;Nil
+    #;Nil
+    
+    (#;Cons [x xs'])
+    (if (p x)
+      (#;Cons [x (filter p xs')])
+      (filter p xs'))))
+
+(def #export (partition p xs)
+  (All [a] (-> (-> a Bool) (List a) (, (List a) (List a))))
+  [(filter p xs) (filter (complement p) xs)])
+
+(def #export (as-pairs xs)
+  (All [a] (-> (List a) (List (, a a))))
+  (case xs
+    (\ (#;Cons [x1 (#;Cons [x2 xs'])]))
+    (#;Cons [[x1 x2] (as-pairs xs')])
+
+    _
+    #;Nil))
+
+(do-template [<name> <then> <else>]
+  [(def #export (<name> n xs)
+     (All [a]
+       (-> Int (List a) (List a)))
+     (if (i> n 0)
+       (case xs
+         #;Nil
+         #;Nil
+         
+         (#;Cons [x xs'])
+         <then>)
+       <else>))]
+  
+  [take (#;Cons [x (take (dec n) xs')]) #;Nil]
+  [drop (drop (dec n) xs') xs]
+  )
+
+(do-template [<name> <then> <else>]
+  [(def #export (<name> p xs)
+     (All [a]
+       (-> (-> a Bool) (List a) (List a)))
+     (case xs
+       #;Nil
+       #;Nil
+       
+       (#;Cons [x xs'])
+       (if (p x)
+         <then>
+         <else>)))]
+
+  [take-while (#;Cons [x (take-while p xs')]) #;Nil]
+  [drop-while (drop-while p xs') xs]
+  )
+
+(def #export (split n xs)
+  (All [a]
+    (-> Int (List a) (, (List a) (List a))))
+  (if (i> n 0)
+    (case xs
+      #;Nil
+      [#;Nil #;Nil]
+      
+      (#;Cons [x xs'])
+      (let [[tail rest] (split (dec n) xs')]
+        [(#;Cons [x tail]) rest]))
+    [#;Nil xs]))
+
+(def (split-with' p ys xs)
+  (All [a]
+    (-> (-> a Bool) (List a) (List a) (, (List a) (List a))))
+  (case xs
+    #;Nil
+    [ys xs]
+
+    (#;Cons [x xs'])
+    (if (p x)
+      (split-with' p (#;Cons [x ys]) xs')
+      [ys xs])))
+
+(def #export (split-with p xs)
+  (All [a]
+    (-> (-> a Bool) (List a) (, (List a) (List a))))
+  (let [[ys' xs'] (split-with' p #;Nil xs)]
+    [(reverse ys') xs']))
+
+(def #export (repeat n x)
+  (All [a]
+    (-> Int a (List a)))
+  (if (i> n 0)
+    (#;Cons [x (repeat (dec n) x)])
+    #;Nil))
+
+(def #export (iterate f x)
+  (All [a]
+    (-> (-> a (Maybe a)) a (List a)))
+  (case (f x)
+    (#;Some x')
+    (#;Cons [x (iterate f x')])
+
+    #;None
+    (#;Cons [x #;Nil])))
+
+(def #export (some f xs)
+  (All [a b]
+    (-> (-> a (Maybe b)) (List a) (Maybe b)))
+  (case xs
+    #;Nil
+    #;None
+
+    (#;Cons [x xs'])
+    (case (f x)
+      #;None
+      (some f xs')
+
+      (#;Some y)
+      (#;Some y))))
+
+(def #export (interpose sep xs)
+  (All [a]
+    (-> a (List a) (List a)))
+  (case xs
+    #;Nil
+    xs
+
+    (#;Cons [x #;Nil])
+    xs
+
+    (#;Cons [x xs'])
+    (#;Cons [x (#;Cons [sep (interpose sep xs')])])))
+
+(def #export (size list)
+  (-> List Int)
+  (foldL (lambda [acc _] (i+ 1 acc)) 0 list))
+
+(do-template [<name> <init> <op>]
+  [(def #export (<name> p xs)
+     (All [a]
+       (-> (-> a Bool) (List a) Bool))
+     (foldL (lambda [_1 _2] (<op> _1 (p _2))) <init> xs))]
+
+  [every? true  and]
+  [any?   false or])
+
+(def #export (@ i xs)
+  (All [a]
+    (-> Int (List a) (Maybe a)))
+  (case xs
+    #;Nil
+    #;None
+
+    (#;Cons [x xs'])
+    (if (i= 0 i)
+      (#;Some x)
+      (@ (dec i) xs'))))
+
+## Syntax
+(defmacro #export (list xs state)
+  (#;Right [state (#;Cons [(foldL (lambda [tail head]
+                                    (` (#;Cons [(~ head) (~ tail)])))
+                                  (` #;Nil)
+                                  (reverse xs))
+                           #;Nil])]))
+
+(defmacro #export (list& xs state)
+  (case (reverse xs)
+    (#;Cons [last init])
+    (#;Right [state (list (foldL (lambda [tail head]
+                                   (` (#;Cons [(~ head) (~ tail)])))
+                                 last
+                                 init))])
+
+    _
+    (#;Left "Wrong syntax for list&")))
+
+## Structures
+(defstruct #export List/Monoid (All [a]
+                                 (Monoid (List a)))
+  (def m;unit #;Nil)
+  (def (m;++ xs ys)
+    (case xs
+      #;Nil            ys
+      (#;Cons [x xs']) (#;Cons [x (m;++ xs' ys)]))))
+
+(defstruct #export List/Functor (Functor List)
+  (def (F;map f ma)
+    (case ma
+      #;Nil            #;Nil
+      (#;Cons [a ma']) (#;Cons [(f a) (F;map f ma')]))))
+
+(defstruct #export List/Monad (Monad List)
+  (def M;_functor List/Functor)
+
+  (def (M;wrap a)
+    (#;Cons [a #;Nil]))
+
+  (def (M;join mma)
+    (using List/Monoid
+      (foldL ++ unit mma))))

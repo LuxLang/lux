@@ -1,3 +1,11 @@
+;;   Copyright (c) Eduardo Julian. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
+
 (ns lux.host
   (:require (clojure [string :as string]
                      [template :refer [do-template]])
@@ -10,6 +18,7 @@
 ;; [Constants]
 (def prefix "lux.")
 (def function-class (str prefix "Function"))
+(def module-separator "_")
 
 ;; [Utils]
 (defn ^:private class->type [^Class class]
@@ -18,45 +27,26 @@
                                               (str (.getName pkg) ".")
                                               "")
                                             (.getSimpleName class)))]
-    (if (= "void" base)
-      (return &type/$Void)
+    (if (.equals "void" base)
+      (return &type/Unit)
       (return (&/V "lux;DataT" (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
                                     base)))
       )))
 
 (defn ^:private method->type [^Method method]
-  (|do [;; =args (&/map% class->type (&/->list (seq (.getParameterTypes method))))
-         =return (class->type (.getReturnType method))]
-    (return =return)))
+  (class->type (.getReturnType method)))
 
 ;; [Resources]
-(defn full-class [class-name]
-  (case class-name
-    "boolean" (return Boolean/TYPE)
-    "byte"    (return Byte/TYPE)
-    "short"   (return Short/TYPE)
-    "int"     (return Integer/TYPE)
-    "long"    (return Long/TYPE)
-    "float"   (return Float/TYPE)
-    "double"  (return Double/TYPE)
-    "char"    (return Character/TYPE)
-    ;; else
-    (try (return (Class/forName class-name))
-      (catch Exception e
-        (fail (str "[Analyser Error] Unknown class: " class-name))))))
-
-(defn full-class-name [class-name]
-  ;; (prn 'full-class-name class-name)
-  (|do [^Class =class (full-class class-name)]
-    (return (.getName =class))))
-
 (defn ^String ->class [class]
   (string/replace class #"\." "/"))
 
-(def ->package ->class)
+(defn ^String ->module-class [module-name]
+  (string/replace module-name #"/" module-separator))
+
+(def ->package ->module-class)
 
 (defn ->type-signature [class]
-  (assert (string? class))
+  ;; (assert (string? class))
   (case class
     "void"    "V"
     "boolean" "Z"
@@ -82,58 +72,41 @@
     [["lux;LambdaT" [_ _]]]
     (->type-signature function-class)
 
-    [["lux;VariantT" ["lux;Nil" _]]]
+    [["lux;TupleT" ["lux;Nil" _]]]
     "V"
-    
-    [_]
-    (assert false (prn-str '->java-sig (aget type 0)))))
-
-(defn extract-jvm-param [token]
-  (matchv ::M/objects [token]
-    [["lux;Meta" [_ ["lux;Symbol" [_ ?ident]]]]]
-    (full-class-name ?ident)
-
-    [_]
-    (fail (str "[Host] Unknown JVM param: " (pr-str token)))))
+    ))
 
 (do-template [<name> <static?>]
-  (defn <name> [target field]
-    (let [target (Class/forName target)]
-      (if-let [type* (first (for [^Field =field (.getFields target)
-                                  :when (and (= target (.getDeclaringClass =field))
-                                             (= field (.getName =field))
-                                             (= <static?> (Modifier/isStatic (.getModifiers =field))))]
-                              (.getType =field)))]
-        (|do [=type (class->type type*)]
-          (return =type))
-        (fail (str "[Analyser Error] Field does not exist: " target field)))))
+  (defn <name> [class-loader target field]
+    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName (&type/as-obj target) true class-loader))
+                                :when (and (.equals ^Object field (.getName =field))
+                                           (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
+                            (.getType =field)))]
+      (|do [=type (class->type type*)]
+        (return =type))
+      (fail (str "[Analyser Error] Field does not exist: " target "." field))))
 
   lookup-static-field true
   lookup-field        false
   )
 
 (do-template [<name> <static?>]
-  (defn <name> [target method-name args]
-    (let [target (Class/forName target)]
-      (if-let [method (first (for [^Method =method (.getMethods target)
-                                   ;; :let [_ (prn '<name> '=method =method (mapv #(.getName %) (.getParameterTypes =method)))]
-                                   :when (and (= target (.getDeclaringClass =method))
-                                              (= method-name (.getName =method))
-                                              (= <static?> (Modifier/isStatic (.getModifiers =method)))
-                                              (&/fold #(and %1 %2)
-                                                      true
-                                                      (&/|map (fn [xy]
-                                                                (|let [[x y] xy]
-                                                                  (= x y)))
-                                                              (&/zip2 args
-                                                                      (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))))]
-                               =method))]
-        (method->type method)
-        (fail (str "[Analyser Error] Method does not exist: " target method-name)))))
+  (defn <name> [class-loader target method-name args]
+    ;; (prn '<name> target method-name)
+    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&type/as-obj target) true class-loader))
+                                 :when (and (.equals ^Object method-name (.getName =method))
+                                            (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
+                                            (&/fold2 #(and %1 (.equals ^Object %2 %3))
+                                                     true
+                                                     args
+                                                     (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))]
+                             =method))]
+      (method->type method)
+      (fail (str "[Analyser Error] Method does not exist: " target "." method-name))))
 
   lookup-static-method  true
   lookup-virtual-method false
   )
 
 (defn location [scope]
-  (->> scope (&/|map &/normalize-ident) (&/|interpose "$") (&/fold str "")))
+  (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))

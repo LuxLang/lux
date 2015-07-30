@@ -1,6 +1,6 @@
-(defproject lux-jvm "0.1.0"
+(defproject lux-jvm "0.2.0"
   :description "The JVM compiler for the Lux programming language."
-  :url "http://example.com/FIXME"
+  :url "https://github.com/LuxLang/lux"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.6.0"]

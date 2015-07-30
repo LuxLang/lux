@@ -1,3 +1,11 @@
+;;   Copyright (c) Eduardo Julian. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
+
 (ns lux.compiler.case
   (:require (clojure [set :as set]
                      [template :refer [do-template]])
@@ -16,12 +24,8 @@
                               MethodVisitor)))
 
 ;; [Utils]
-(let [+tag-sig+ (&host/->type-signature "java.lang.String")
-      +oclass+ (&host/->class "java.lang.Object")
-      +equals-sig+ (str "(" (&host/->type-signature "java.lang.Object") ")Z")
-      compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
+(let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
-    ;; (prn 'compile-match (aget ?match 0) $target $else)
     (matchv ::M/objects [?match]
       [["StoreTestAC" ?idx]]
       (doto writer
@@ -30,9 +34,9 @@
 
       [["BoolTestAC" ?value]]
       (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Boolean"))
+        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
         (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Boolean") "booleanValue" "()Z")
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Boolean" "booleanValue" "()Z")
         (.visitLdcInsn ?value)
         (.visitJumpInsn Opcodes/IF_ICMPNE $else)
         (.visitInsn Opcodes/POP)
@@ -40,9 +44,9 @@
 
       [["IntTestAC" ?value]]
       (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Long"))
+        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
         (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Long") "longValue" "()J")
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
         (.visitLdcInsn ?value)
         (.visitInsn Opcodes/LCMP)
         (.visitJumpInsn Opcodes/IFNE $else)
@@ -51,9 +55,9 @@
 
       [["RealTestAC" ?value]]
       (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Double"))
+        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
         (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Double") "doubleValue" "()D")
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
         (.visitLdcInsn ?value)
         (.visitInsn Opcodes/DCMPL)
         (.visitJumpInsn Opcodes/IFNE $else)
@@ -62,9 +66,9 @@
 
       [["CharTestAC" ?value]]
       (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Character"))
+        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
         (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Character") "charValue" "()C")
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Character" "charValue" "()C")
         (.visitLdcInsn ?value)
         (.visitJumpInsn Opcodes/IF_ICMPNE $else)
         (.visitInsn Opcodes/POP)
@@ -74,7 +78,7 @@
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn ?value)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class "java.lang.Object") "equals" (str "(" (&host/->type-signature "java.lang.Object") ")Z"))
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
         (.visitJumpInsn Opcodes/IFEQ $else)
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
@@ -93,7 +97,7 @@
             (->> (|let [[idx test] idx+member
                         $next (new Label)
                         $sub-else (new Label)])
-                 (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?members)) ?members))])))
+                 (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
@@ -111,11 +115,12 @@
             (->> (|let [[idx [_ test]] idx+member
                         $next (new Label)
                         $sub-else (new Label)])
-                 (doseq [idx+member (&/->seq (&/zip2 (&/|range (&/|length ?slots))
-                                                     (->> ?slots
-                                                          &/->seq
-                                                          (sort compare-kv)
-                                                          &/->list)))])))
+                 (doseq [idx+member (->> ?slots
+                                         &/->seq
+                                         (sort compare-kv)
+                                         &/->list
+                                         &/enumerate
+                                         &/->seq)])))
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       
@@ -126,7 +131,7 @@
         (.visitLdcInsn (int 0))
         (.visitInsn Opcodes/AALOAD)
         (.visitLdcInsn ?tag)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL +oclass+ "equals" +equals-sig+)
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
         (.visitJumpInsn Opcodes/IFEQ $else)
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn (int 1))
@@ -143,7 +148,6 @@
       )))
 
 (defn ^:private separate-bodies [patterns]
-  ;; (prn 'separate-bodies (aget matches 0))
   (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
                                           (|let [[$id mappings =matches] $id+mappings+=matches
                                                  [pattern body] pattern+body]
@@ -152,42 +156,36 @@
                                         patterns)]
     (&/T mappings (&/|reverse patterns*))))
 
-(let [ex-class (&host/->class "java.lang.IllegalStateException")]
-  (defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
-    ;; (prn 'compile-pattern-matching ?matches $end)
-    (let [entries (&/|map (fn [?branch+?body]
-                            (|let [[?branch ?body] ?branch+?body
-                                   label (new Label)]
-                              (&/T (&/T ?branch label)
-                                   (&/T label ?body))))
-                          mappings)
-          mappings* (&/|map &/|first entries)]
-      (doto writer
-        (-> (doto (compile-match ?match (&/|get ?body mappings*) $else)
-              (.visitLabel $else))
-            (->> (|let [[?body ?match] ?body+?match])
-                 (doseq [?body+?match (&/->seq patterns)
-                         :let [;; _ (prn 'compile-pattern-matching/pattern pattern)
-                               ;; _ (prn '?body+?match (alength ?body+?match) (aget ?body+?match 0))
-                               ;; _ (prn '?body+?match (aget ?body+?match 0))
-                               $else (new Label)]])))
-        (.visitInsn Opcodes/POP)
-        (.visitTypeInsn Opcodes/NEW ex-class)
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKESPECIAL ex-class "<init>" "()V")
-        (.visitInsn Opcodes/ATHROW))
-      (&/map% (fn [?label+?body]
-                (|let [[?label ?body] ?label+?body]
-                  (|do [:let [_ (.visitLabel writer ?label)]
-                        ret (compile ?body)
-                        :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
-                    (return ret))))
-              (&/|map &/|second entries))
-      )))
+(defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
+  (let [entries (&/|map (fn [?branch+?body]
+                          (|let [[?branch ?body] ?branch+?body
+                                 label (new Label)]
+                            (&/T (&/T ?branch label)
+                                 (&/T label ?body))))
+                        mappings)
+        mappings* (&/|map &/|first entries)]
+    (doto writer
+      (-> (doto (compile-match ?match (&/|get ?body mappings*) $else)
+            (.visitLabel $else))
+          (->> (|let [[?body ?match] ?body+?match])
+               (doseq [?body+?match (&/->seq patterns)
+                       :let [$else (new Label)]])))
+      (.visitInsn Opcodes/POP)
+      (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "()V")
+      (.visitInsn Opcodes/ATHROW))
+    (&/map% (fn [?label+?body]
+              (|let [[?label ?body] ?label+?body]
+                (|do [:let [_ (.visitLabel writer ?label)]
+                      ret (compile ?body)
+                      :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
+                  (return ret))))
+            (&/|map &/|second entries))
+    ))
 
 ;; [Resources]
 (defn compile-case [compile *type* ?value ?matches]
-  ;; (prn 'compile-case ?value ?matches)
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)]
         _ (compile ?value)
