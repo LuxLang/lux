@@ -7,17 +7,66 @@
 ##   You must not remove this notice, or any other, from this software.
 
 (;import lux
-         (lux/control (monoid #as m #refer #all)
-                      (functor #as F #refer #all)
-                      (monad #as M #refer #all))
-         lux/meta/macro)
+         (lux (control (monoid #as m #refer #all)
+                       (functor #as F #refer #all)
+                       (monad #as M #refer #all)
+                       (eq #as E)
+                       (dict #as D #refer #all))
+              (data/number (int #open ("i" Int/Number Int/Ord Int/Eq)))
+              meta/macro))
 
 ## Types
 ## (deftype (List a)
 ##   (| #Nil
 ##      (#Cons (, a (List a)))))
 
-## Functions
+(deftype #export (PList k v)
+  (| (#PList (, (E;Eq k) (List (, k v))))))
+
+## [Utils]
+(def (pl-get eq k kvs)
+  (All [k v]
+    (-> (E;Eq k) k (List (, k v)) (Maybe v)))
+  (case kvs
+    #;Nil
+    #;None
+    
+    (#;Cons [[k' v'] kvs'])
+    (if (:: eq (E;= k k'))
+      (#;Some v')
+      (pl-get eq k kvs'))))
+
+(def (pl-put eq k v kvs)
+  (All [k v]
+    (-> (E;Eq k) k v (List (, k v)) (List (, k v))))
+  (case kvs
+    #;Nil
+    (#;Cons [[k v] kvs])
+    
+    (#;Cons [[k' v'] kvs'])
+    (if (:: eq (E;= k k'))
+      (#;Cons [[k v] kvs'])
+      (#;Cons [[k' v'] (pl-put eq k v kvs')]))))
+
+(def (pl-remove eq k kvs)
+  (All [k v]
+    (-> (E;Eq k) k (List (, k v)) (List (, k v))))
+  (case kvs
+    #;Nil
+    kvs
+    
+    (#;Cons [[k' v'] kvs'])
+    (if (:: eq (E;= k k'))
+      kvs'
+      (#;Cons [[k' v'] (pl-remove eq k kvs')]))))
+
+## [Constructors]
+(def #export (plist eq)
+  (All [k v]
+    (-> (E;Eq k) (PList k v)))
+  (#PList [eq #;Nil]))
+
+## [Functions]
 (def #export (foldL f init xs)
   (All [a b]
     (-> (-> a b a) a (List b) a)) 
@@ -37,6 +86,12 @@
 
     (#;Cons [x xs'])
     (f x (foldR f init xs'))))
+
+(def #export (fold mon xs)
+  (All [a]
+    (-> (m;Monoid a) (List a) a))
+  (using mon
+    (foldL ++ unit xs)))
 
 (def #export (reverse xs)
   (All [a]
@@ -83,8 +138,8 @@
          <then>)
        <else>))]
   
-  [take (#;Cons [x (take (dec n) xs')]) #;Nil]
-  [drop (drop (dec n) xs') xs]
+  [take (#;Cons [x (take (i+ -1 n) xs')]) #;Nil]
+  [drop (drop (i+ -1 n) xs') xs]
   )
 
 (do-template [<name> <then> <else>]
@@ -113,7 +168,7 @@
       [#;Nil #;Nil]
       
       (#;Cons [x xs'])
-      (let [[tail rest] (split (dec n) xs')]
+      (let [[tail rest] (split (i+ -1 n) xs')]
         [(#;Cons [x tail]) rest]))
     [#;Nil xs]))
 
@@ -139,7 +194,7 @@
   (All [a]
     (-> Int a (List a)))
   (if (i> n 0)
-    (#;Cons [x (repeat (dec n) x)])
+    (#;Cons [x (repeat (i+ -1 n) x)])
     #;Nil))
 
 (def #export (iterate f x)
@@ -203,7 +258,7 @@
     (#;Cons [x xs'])
     (if (i= 0 i)
       (#;Some x)
-      (@ (dec i) xs'))))
+      (@ (i+ -1 i) xs'))))
 
 ## Syntax
 (defmacro #export (list xs state)
@@ -225,6 +280,17 @@
     (#;Left "Wrong syntax for list&")))
 
 ## Structures
+## (defstruct #export (List/Eq eq) (All [a] (-> (Eq a) (Eq (List a))))
+##   (def (E;= xs ys)
+##     (case [xs ys]
+##       [#;Nil #;Nil]
+##       true
+
+##       [(#;Cons [x xs']) (#;Cons [y ys'])]
+##       (and (:: eq (E;= x y))
+##            (E;= xs' ys'))
+##       )))
+
 (defstruct #export List/Monoid (All [a]
                                  (Monoid (List a)))
   (def m;unit #;Nil)
@@ -248,3 +314,16 @@
   (def (M;join mma)
     (using List/Monoid
       (foldL ++ unit mma))))
+
+(defstruct #export PList/Dict (Dict PList)
+  (def (D;get k plist)
+    (let [(#PList [eq kvs]) plist]
+      (pl-get eq k kvs)))
+
+  (def (D;put k v plist)
+    (let [(#PList [eq kvs]) plist]
+      (#PList [eq (pl-put eq k v kvs)])))
+
+  (def (D;remove k plist)
+    (let [(#PList [eq kvs]) plist]
+      (#PList [eq (pl-remove eq k kvs)]))))

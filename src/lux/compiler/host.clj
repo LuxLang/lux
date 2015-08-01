@@ -88,11 +88,11 @@
   (defn <name> [compile *type* ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
+          _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?y)
+          _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
@@ -191,9 +191,9 @@
   compile-jvm-flt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
   compile-jvm-fgt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
   
-  compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()I"
-  compile-jvm-dlt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()I"
-  compile-jvm-dgt Opcodes/FCMPG -1 "java.lang.Double" "doubleValue" "()I"
+  compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()D"
+  compile-jvm-dlt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()D"
+  compile-jvm-dgt Opcodes/FCMPG -1 "java.lang.Double" "doubleValue" "()D"
   )
 
 (defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]

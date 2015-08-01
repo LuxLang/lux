@@ -17,7 +17,8 @@
                  [host :as &host])
             (lux.analyser [base :as &a]
                           [module :as &a-module])
-            (lux.compiler [base :as &&]))
+            (lux.compiler [base :as &&]
+                          [io :as &&io]))
   (:import (java.io File
                     BufferedOutputStream
                     FileOutputStream)
@@ -74,65 +75,66 @@
                            (return false))]]
     (do ;; (prn 'load module 'sources already-loaded?
         ;;      (&/->seq _modules))
-      (if already-loaded?
-        (return true)
-        (if (cached? module)
-          (do ;; (prn 'load/HASH module module-hash)
-            (let [module* (&host/->module-class module)
-                  module-path (str &&/output-dir "/" module*)
-                  class-name (str module* "._")
-                  ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
-                                       (&&/load-class! loader class-name))]
-              (if (and (= module-hash (get-field "_hash" module-meta))
-                       (= &&/version (get-field "_compiler" module-meta)))
-                (let [imports (string/split (-> module-meta (.getField "_imports") (.get nil)) #"\t")
-                      ;; _ (prn 'load/IMPORTS module imports)
-                      ]
-                  (|do [loads (&/map% (fn [_import]
-                                        (load _import (-> (str &&/input-dir "/" _import ".lux") slurp hash) compile-module))
-                                      (if (= [""] imports)
-                                        (&/|list)
-                                        (&/->list imports)))]
-                    (if (->> loads &/->seq (every? true?))
-                      (do (doseq [^File file (seq (.listFiles (File. module-path)))
-                                  :let [file-name (.getName file)]
-                                  :when (not= "_.class" file-name)]
-                            (let [real-name (second (re-find #"^(.*)\.class$" file-name))
-                                  bytecode (read-file file)
-                                  ;; _ (prn 'load module real-name)
-                                  ]
-                              (swap! !classes assoc (str module* "." real-name) bytecode)))
-                        (let [defs (string/split (get-field "_defs" module-meta) #"\t")]
-                          ;; (prn 'load module defs)
-                          (|do [_ (&a-module/enter-module module)
-                                _ (&/map% (fn [_def]
-                                            (let [[_exported? _name _ann] (string/split _def #" ")
-                                                  ;; _ (prn '[_exported? _name _ann] [_exported? _name _ann])
-                                                  ]
-                                              (|do [_ (case _ann
-                                                        "T" (&a-module/define module _name (&/V "lux;TypeD" nil) &type/Type)
-                                                        "M" (|do [_ (&a-module/define module _name (&/V "lux;ValueD" &type/Macro) &type/Macro)]
-                                                              (&a-module/declare-macro module _name))
-                                                        "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
-                                                                  ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)
-                                                                  def-type (get-field "_meta" def-class)]
-                                                              (matchv ::M/objects [def-type]
-                                                                [["lux;ValueD" _def-type]]
-                                                                (&a-module/define module _name def-type _def-type)))
-                                                        ;; else
-                                                        (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]
-                                                          (|do [__type (&a-module/def-type __module __name)]
-                                                            (do ;; (prn '__type [__module __name] (&type/show-type __type))
-                                                                (&a-module/def-alias module _name __module __name __type)))))]
-                                                (if (= "1" _exported?)
-                                                  (&a-module/export module _name)
-                                                  (return nil)))
-                                              ))
-                                          (if (= [""] defs)
+        (if already-loaded?
+          (return true)
+          (if (cached? module)
+            (do ;; (prn 'load/HASH module module-hash)
+                (let [module* (&host/->module-class module)
+                      module-path (str &&/output-dir "/" module*)
+                      class-name (str module* "._")
+                      ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
+                                           (&&/load-class! loader class-name))]
+                  (if (and (= module-hash (get-field "_hash" module-meta))
+                           (= &&/version (get-field "_compiler" module-meta)))
+                    (let [imports (string/split (-> module-meta (.getField "_imports") (.get nil)) #"\t")
+                          ;; _ (prn 'load/IMPORTS module imports)
+                          ]
+                      (|do [loads (&/map% (fn [_import]
+                                            (|do [content (&&io/read-file (str &&/input-dir "/" _import ".lux"))]
+                                              (load _import (hash content) compile-module)))
+                                          (if (= [""] imports)
                                             (&/|list)
-                                            (&/->list defs)))]
-                            (return true))))
-                      redo-cache)))
-                redo-cache)
-              ))
-          redo-cache)))))
+                                            (&/->list imports)))]
+                        (if (->> loads &/->seq (every? true?))
+                          (do (doseq [^File file (seq (.listFiles (File. module-path)))
+                                      :let [file-name (.getName file)]
+                                      :when (not= "_.class" file-name)]
+                                (let [real-name (second (re-find #"^(.*)\.class$" file-name))
+                                      bytecode (read-file file)
+                                      ;; _ (prn 'load module real-name)
+                                      ]
+                                  (swap! !classes assoc (str module* "." real-name) bytecode)))
+                            (let [defs (string/split (get-field "_defs" module-meta) #"\t")]
+                              ;; (prn 'load module defs)
+                              (|do [_ (&a-module/enter-module module)
+                                    _ (&/map% (fn [_def]
+                                                (let [[_exported? _name _ann] (string/split _def #" ")
+                                                      ;; _ (prn '[_exported? _name _ann] [_exported? _name _ann])
+                                                      ]
+                                                  (|do [_ (case _ann
+                                                            "T" (&a-module/define module _name (&/V "lux;TypeD" nil) &type/Type)
+                                                            "M" (|do [_ (&a-module/define module _name (&/V "lux;ValueD" &type/Macro) &type/Macro)]
+                                                                  (&a-module/declare-macro module _name))
+                                                            "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
+                                                                      ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)
+                                                                      def-type (get-field "_meta" def-class)]
+                                                                  (matchv ::M/objects [def-type]
+                                                                    [["lux;ValueD" _def-type]]
+                                                                    (&a-module/define module _name def-type _def-type)))
+                                                            ;; else
+                                                            (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]
+                                                              (|do [__type (&a-module/def-type __module __name)]
+                                                                (do ;; (prn '__type [__module __name] (&type/show-type __type))
+                                                                    (&a-module/def-alias module _name __module __name __type)))))]
+                                                    (if (= "1" _exported?)
+                                                      (&a-module/export module _name)
+                                                      (return nil)))
+                                                  ))
+                                              (if (= [""] defs)
+                                                (&/|list)
+                                                (&/->list defs)))]
+                                (return true))))
+                          redo-cache)))
+                    redo-cache)
+                  ))
+            redo-cache)))))

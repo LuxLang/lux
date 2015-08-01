@@ -102,7 +102,7 @@ The mechanism hasn't been added yet to the language (mainly because there's only
 ### Macros
 
 Unlike in most other lisps, Lux macros are monadic.
-The **(Lux a)** type is the one responsibly for the magic by treading **Compiler** instances through macros.
+The **(Lux a)** type is the one responsible for the magic by treading **Compiler** instances through macros.
 Macros must have the **Macro** type and then be declared as macros.
 
 However, just using the **defmacro** macro will take care of it for you.
