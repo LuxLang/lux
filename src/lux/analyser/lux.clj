@@ -55,7 +55,25 @@
       [_]
       (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*))))))
 
-(defn analyse-variant [analyse exo-type ident ?value]
+(defn ^:private analyse-variant-body [analyse exo-type ?values]
+  (|do [output (matchv ::M/objects [?values]
+                 [["lux;Nil" _]]
+                 (analyse-tuple analyse exo-type (&/|list))
+
+                 [["lux;Cons" [?value ["lux;Nil" _]]]]
+                 (analyse exo-type ?value)
+
+                 [_]
+                 (analyse-tuple analyse exo-type ?values)
+                 )]
+    (matchv ::M/objects [output]
+      [["lux;Cons" [x ["lux;Nil" _]]]]
+      (return x)
+
+      [_]
+      (fail "[Analyser Error] Can't expand to other than 1 element."))))
+
+(defn analyse-variant [analyse exo-type ident ?values]
   (|do [exo-type* (matchv ::M/objects [exo-type]
                     [["lux;VarT" ?id]]
                     (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
@@ -69,7 +87,7 @@
       [["lux;VariantT" ?cases]]
       (|do [?tag (&&/resolved-ident ident)]
         (if-let [vtype (&/|get ?tag ?cases)]
-          (|do [=value (&&/analyse-1 analyse vtype ?value)]
+          (|do [=value (analyse-variant-body analyse vtype ?values)]
             (return (&/|list (&/T (&/V "variant" (&/T ?tag =value))
                                   exo-type))))
           (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
@@ -78,7 +96,7 @@
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-variant analyse exo-type** ident ?value))))
+            (analyse-variant analyse exo-type** ident ?values))))
       
       [_]
       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
@@ -108,6 +126,8 @@
                 (fail (str "[Analyser Error] The type of a record must be a record type:\n"
                            (&type/show-type exo-type*)
                            "\n")))
+        _ (&/assert! (= (&/|length types) (&/|length ?elems))
+                     (str "[Analyser Error] Record length mismatch. Expected: " (&/|length types) "; actual: " (&/|length ?elems)))
         =slots (&/map% (fn [kv]
                          (matchv ::M/objects [kv]
                            [[["lux;Meta" [_ ["lux;TagS" ?ident]]] ?value]]
@@ -258,14 +278,17 @@
         (|do [[[r-module r-name] $def] (&&module/find-def ?module ?name)]
           (matchv ::M/objects [$def]
             [["lux;MacroD" macro]]
-            (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
+            (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (str r-module ";" r-name))]
+                  macro-expansion #(-> macro (.apply ?args) (.apply %))
+                  ;; :let [_ (prn 'MACRO-EXPAND|POST (str r-module ";" r-name))]
                   :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
-                  ;; :let [_ (when (and ;; (= "lux/control/monad" ?module)
-                  ;;                (= "case" ?name))
+                  ;; :let [_ (when (or (= "loop" r-name)
+                  ;;                   ;; (= "struct" r-name)
+                  ;;                   )
                   ;;           (->> (&/|map &/show-ast macro-expansion*)
                   ;;                (&/|interpose "\n")
                   ;;                (&/fold str "")
-                  ;;                (prn ?module "case")))]
+                  ;;                (prn (str r-module ";" r-name))))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion*))
 
@@ -356,6 +379,8 @@
 
 (defn analyse-def [analyse ?name ?value]
   ;; (prn 'analyse-def/BEGIN ?name)
+  ;; (when (= "PList/Dict" ?name)
+  ;;   (prn 'DEF ?name (&/show-ast ?value)))
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?

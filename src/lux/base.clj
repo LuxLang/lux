@@ -11,6 +11,9 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
+;; [Tags]
+(def $Cons "lux;Cons")
+
 ;; [Fields]
 ;; Binding
 (def $COUNTER 0)
@@ -27,14 +30,15 @@
 (def $LOADER 1)
 (def $WRITER 2)
 
-;; CompilerState
+;; Compiler
 (def $ENVS 0)
 (def $EVAL? 1)
-(def $HOST 2)
-(def $MODULES 3)
-(def $SEED 4)
-(def $SOURCE 5)
-(def $TYPES 6)
+(def $EXPECTED 2)
+(def $HOST 3)
+(def $MODULES 4)
+(def $SEED 5)
+(def $SOURCE 6)
+(def $TYPES 7)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -487,6 +491,8 @@
    (|list)
    ;; "lux;eval?"
    false
+   ;; "lux;expected"
+   (V "lux;VariantT" (|list))
    ;; "lux;host"
    (host nil)
    ;; "lux;modules"
@@ -605,6 +611,18 @@
       (matchv ::M/objects [output]
         [["lux;Right" [?state ?value]]]
         (return* (update$ $HOST #(set$ $WRITER (->> state (get$ $HOST) (get$ $WRITER)) %) ?state)
+                 ?value)
+
+        [_]
+        output))))
+
+(defn with-expected-type [type body]
+  "(All [a] (-> Type (Lux a)))"
+  (fn [state]
+    (let [output (body (set$ $EXPECTED type state))]
+      (matchv ::M/objects [output]
+        [["lux;Right" [?state ?value]]]
+        (return* (set$ $EXPECTED (get$ $EXPECTED state) ?state)
                  ?value)
 
         [_]

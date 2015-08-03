@@ -446,45 +446,44 @@
     [_]
     (aba3 analyse eval! compile-module exo-type token)))
 
-(let [unit (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;TupleS" (&/|list))))]
-  (defn ^:private aba1 [analyse eval! compile-module exo-type token]
-    (matchv ::M/objects [token]
-      ;; Standard special forms
-      [["lux;BoolS" ?value]]
-      (|do [_ (&type/check exo-type &type/Bool)]
-        (return (&/|list (&/T (&/V "bool" ?value) exo-type))))
+(defn ^:private aba1 [analyse eval! compile-module exo-type token]
+  (matchv ::M/objects [token]
+    ;; Standard special forms
+    [["lux;BoolS" ?value]]
+    (|do [_ (&type/check exo-type &type/Bool)]
+      (return (&/|list (&/T (&/V "bool" ?value) exo-type))))
 
-      [["lux;IntS" ?value]]
-      (|do [_ (&type/check exo-type &type/Int)]
-        (return (&/|list (&/T (&/V "int" ?value) exo-type))))
+    [["lux;IntS" ?value]]
+    (|do [_ (&type/check exo-type &type/Int)]
+      (return (&/|list (&/T (&/V "int" ?value) exo-type))))
 
-      [["lux;RealS" ?value]]
-      (|do [_ (&type/check exo-type &type/Real)]
-        (return (&/|list (&/T (&/V "real" ?value) exo-type))))
+    [["lux;RealS" ?value]]
+    (|do [_ (&type/check exo-type &type/Real)]
+      (return (&/|list (&/T (&/V "real" ?value) exo-type))))
 
-      [["lux;CharS" ?value]]
-      (|do [_ (&type/check exo-type &type/Char)]
-        (return (&/|list (&/T (&/V "char" ?value) exo-type))))
+    [["lux;CharS" ?value]]
+    (|do [_ (&type/check exo-type &type/Char)]
+      (return (&/|list (&/T (&/V "char" ?value) exo-type))))
 
-      [["lux;TextS" ?value]]
-      (|do [_ (&type/check exo-type &type/Text)]
-        (return (&/|list (&/T (&/V "text" ?value) exo-type))))
+    [["lux;TextS" ?value]]
+    (|do [_ (&type/check exo-type &type/Text)]
+      (return (&/|list (&/T (&/V "text" ?value) exo-type))))
 
-      [["lux;TupleS" ?elems]]
-      (&&lux/analyse-tuple analyse exo-type ?elems)
+    [["lux;TupleS" ?elems]]
+    (&&lux/analyse-tuple analyse exo-type ?elems)
 
-      [["lux;RecordS" ?elems]]
-      (&&lux/analyse-record analyse exo-type ?elems)
+    [["lux;RecordS" ?elems]]
+    (&&lux/analyse-record analyse exo-type ?elems)
 
-      [["lux;TagS" ?ident]]
-      (&&lux/analyse-variant analyse exo-type ?ident unit)
-      
-      [["lux;SymbolS" [_ "_jvm_null"]]]
-      (&&host/analyse-jvm-null analyse exo-type)
+    [["lux;TagS" ?ident]]
+    (&&lux/analyse-variant analyse exo-type ?ident (&/|list))
+    
+    [["lux;SymbolS" [_ "_jvm_null"]]]
+    (&&host/analyse-jvm-null analyse exo-type)
 
-      [_]
-      (aba2 analyse eval! compile-module exo-type token)
-      )))
+    [_]
+    (aba2 analyse eval! compile-module exo-type token)
+    ))
 
 (defn ^:private add-loc [meta ^String msg]
   (if (.startsWith msg "@")
@@ -512,10 +511,10 @@
     ;; (assert false (aget token 0))
     ))
 
-(defn ^:private just-analyse [analyse-ast eval! compile-module syntax]
+(defn ^:private just-analyse [analyser syntax]
   (&type/with-var
     (fn [?var]
-      (|do [[?output-term ?output-type] (&&/analyse-1 (partial analyse-ast eval! compile-module) ?var syntax)]
+      (|do [[?output-term ?output-type] (&&/analyse-1 analyser ?var syntax)]
         (matchv ::M/objects [?var ?output-type]
           [["lux;VarT" ?e-id] ["lux;VarT" ?a-id]]
           (if (= ?e-id ?a-id)
@@ -528,25 +527,25 @@
         ))))
 
 (defn ^:private analyse-ast [eval! compile-module exo-type token]
-  (matchv ::M/objects [token]
-    [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
-    (do (assert (.equals ^Object (&/|length ?values) 1) "[Analyser Error] Can only tag 1 value.")
-      (&&lux/analyse-variant (partial analyse-ast eval! compile-module) exo-type ?ident (&/|head ?values)))
-    
-    [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]
-    (fn [state]
-      (matchv ::M/objects [((just-analyse analyse-ast eval! compile-module ?fn) state)
-                           ;; ((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)
-                           ]
-        [["lux;Right" [state* =fn]]]
-        (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
-            ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type meta =fn ?args) state*))
+  (&/with-expected-type exo-type
+    (matchv ::M/objects [token]
+      [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
+      (&&lux/analyse-variant (partial analyse-ast eval! compile-module) exo-type ?ident ?values)
+      
+      [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]
+      (fn [state]
+        (matchv ::M/objects [((just-analyse (partial analyse-ast eval! compile-module) ?fn) state)
+                             ;; ((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)
+                             ]
+          [["lux;Right" [state* =fn]]]
+          (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
+              ((&&lux/analyse-apply (partial analyse-ast eval! compile-module) exo-type meta =fn ?args) state*))
 
-        [_]
-        ((analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token) state)))
-    
-    [_]
-    (analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token)))
+          [_]
+          ((analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token) state)))
+      
+      [_]
+      (analyse-basic-ast (partial analyse-ast eval! compile-module) eval! compile-module exo-type token))))
 
 ;; [Resources]
 (defn analyse [eval! compile-module]

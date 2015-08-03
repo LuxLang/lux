@@ -11,7 +11,7 @@
             ))
 
 ;; [Resources]
-(defn read-file [path]
+(defn read-file [^String path]
   (let [file (new java.io.File path)]
     (if (.exists file)
       (return (slurp file))

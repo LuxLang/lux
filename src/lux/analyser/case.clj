@@ -16,6 +16,9 @@
                           [env :as &env])))
 
 ;; [Utils]
+(def ^:private unit
+  (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;TupleS" (&/|list)))))
+
 (defn ^:private resolve-type [type]
   (matchv ::M/objects [type]
     [["lux;VarT" ?id]]
@@ -198,19 +201,19 @@
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
             case-type (&type/variant-case =tag value-type*)
-            [=test =kont] (analyse-pattern case-type (&/V "lux;Meta" (&/T (&/T "" -1 -1)
-                                                                          (&/V "lux;TupleS" (&/|list))))
-                                           kont)]
+            [=test =kont] (analyse-pattern case-type unit kont)]
         (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
 
       [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]]
-                                 ["lux;Cons" [?value
-                                              ["lux;Nil" _]]]]]]]
+                                 ?values]]]]
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
             case-type (&type/variant-case =tag value-type*)
-            [=test =kont] (analyse-pattern case-type ?value
-                                           kont)]
+            [=test =kont] (case (&/|length ?values)
+                            0 (analyse-pattern case-type unit kont)
+                            1 (analyse-pattern case-type (&/|head ?values) kont)
+                            ;; 1+
+                            (analyse-pattern case-type (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;TupleS" ?values))) kont))]
         (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
       )))
 
