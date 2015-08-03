@@ -326,8 +326,8 @@
 
 (defn ^:private compile-statement [syntax]
   (matchv ::M/objects [syntax]
-    [["def" [?name ?body ?def-data]]]
-    (&&lux/compile-def compile-expression ?name ?body ?def-data)
+    [["def" [?name ?body]]]
+    (&&lux/compile-def compile-expression ?name ?body)
 
     [["declare-macro" [?module ?name]]]
     (&&lux/compile-declare-macro compile-expression ?module ?name)
@@ -340,6 +340,26 @@
 
     [["jvm-class" [?name ?super-class ?interfaces ?fields ?methods]]]
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)))
+
+(defn ^:private compile-token [syntax]
+  (matchv ::M/objects [syntax]
+    [["def" [?name ?body]]]
+    (&&lux/compile-def compile-expression ?name ?body)
+
+    [["declare-macro" [?module ?name]]]
+    (&&lux/compile-declare-macro compile-expression ?module ?name)
+
+    [["jvm-program" ?body]]
+    (&&host/compile-jvm-program compile-expression ?body)
+    
+    [["jvm-interface" [?name ?supers ?methods]]]
+    (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
+
+    [["jvm-class" [?name ?super-class ?interfaces ?fields ?methods]]]
+    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)
+
+    [_]
+    (compile-expression syntax)))
 
 (defn ^:private eval! [expr]
   (&/with-eval
@@ -378,8 +398,7 @@
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
         (&&cache/load name file-hash compile-module)
-        (let [compiler-step (|do [analysis+ (&optimizer/optimize eval! compile-module)]
-                              (&/map% compile-statement analysis+))]
+        (let [compiler-step (&optimizer/optimize eval! compile-module compile-token)]
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")

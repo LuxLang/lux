@@ -22,5 +22,5 @@
 ;; Local var aliasing.
 
 ;; [Exports]
-(defn optimize [eval! compile-module]
-  (&analyser/analyse eval! compile-module))
+(defn optimize [eval! compile-module compile-token]
+  (&analyser/analyse eval! compile-module compile-token))

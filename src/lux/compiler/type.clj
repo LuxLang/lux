@@ -75,7 +75,7 @@
     (variant$ "lux;AllT"
               (tuple$ (&/|list (matchv ::M/objects [?env]
                                  [["lux;None" _]]
-                                 (variant$ "lux;Some" (tuple$ (&/|list)))
+                                 (variant$ "lux;None" (tuple$ (&/|list)))
 
                                  [["lux;Some" ??env]]
                                  (variant$ "lux;Some"

@@ -72,7 +72,7 @@
           [[_ ["lux;MacroD" _]]]
           (return* state &type/Macro)
 
-          [[_ ["lux;ValueD" _type]]]
+          [[_ ["lux;ValueD" [_type _]]]]
           (return* state _type)
 
           [[_ ["lux;AliasD" [?r-module ?r-name]]]]
@@ -159,7 +159,7 @@
     (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
       (if-let [$def (&/|get name $module)]
         (matchv ::M/objects [$def]
-          [[exported? ["lux;ValueD" ?type]]]
+          [[exported? ["lux;ValueD" [?type _]]]]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
                  :let [macro (-> (.loadClass loader (str (&host/->module-class module) "." (&/normalize-name name)))
@@ -181,7 +181,7 @@
           [[_ ["lux;MacroD" _]]]
           (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))
 
-          [[_ ["lux;TypeD" _]]]
+          [[_ _]]
           (fail* (str "[Analyser Error] Definition does not have macro type: " (str module &/+name-separator+ name))))
         (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
       (fail* (str "[Analyser Error] Module does not exist: " module)))))

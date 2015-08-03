@@ -26,6 +26,7 @@
 
 ;; [Utils]
 (defn ^:private read-file [^File file]
+  "(-> File (Array Byte))"
   (with-open [reader (io/input-stream file)]
     (let [length (.length file)
           buffer (byte-array length)]
@@ -33,6 +34,7 @@
       buffer)))
 
 (defn ^:private clean-file [^File file]
+  "(-> File (,))"
   (if (.isDirectory file)
     (do (doseq [f (seq (.listFiles file))]
           (clean-file f))
@@ -40,6 +42,7 @@
     (.delete file)))
 
 (defn ^:private get-field [^String field-name ^Class class]
+  "(-> Text Class Object)"
   (-> class ^Field (.getField field-name) (.get nil)))
 
 ;; [Resources]
@@ -66,6 +69,7 @@
     nil))
 
 (defn load [module module-hash compile-module]
+  "(-> Text Int (-> Text (Lux (,))) (Lux Bool))"
   (|do [loader &/loader
         !classes &/classes
         already-loaded? (&a-module/exists? module)
@@ -112,15 +116,19 @@
                                                       ;; _ (prn '[_exported? _name _ann] [_exported? _name _ann])
                                                       ]
                                                   (|do [_ (case _ann
-                                                            "T" (&a-module/define module _name (&/V "lux;TypeD" nil) &type/Type)
-                                                            "M" (|do [_ (&a-module/define module _name (&/V "lux;ValueD" &type/Macro) &type/Macro)]
-                                                                  (&a-module/declare-macro module _name))
+                                                            "T" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
+                                                                      def-value (get-field "_datum" def-class)]
+                                                                  (&a-module/define module _name (&/V "lux;TypeD" def-value) &type/Type))
+                                                            "M" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
+                                                                      def-value (get-field "_datum" def-class)]
+                                                                  (|do [_ (&a-module/define module _name (&/V "lux;ValueD" (&/T &type/Macro def-value)) &type/Macro)]
+                                                                    (&a-module/declare-macro module _name)))
                                                             "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)
-                                                                      def-type (get-field "_meta" def-class)]
-                                                                  (matchv ::M/objects [def-type]
-                                                                    [["lux;ValueD" _def-type]]
-                                                                    (&a-module/define module _name def-type _def-type)))
+                                                                      def-meta (get-field "_meta" def-class)]
+                                                                  (matchv ::M/objects [def-meta]
+                                                                    [["lux;ValueD" [def-type _]]]
+                                                                    (&a-module/define module _name def-meta def-type)))
                                                             ;; else
                                                             (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]
                                                               (|do [__type (&a-module/def-type __module __name)]

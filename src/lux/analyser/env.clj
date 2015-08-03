@@ -20,6 +20,7 @@
 (defn with-local [name type body]
   ;; (prn 'with-local name)
   (fn [state]
+    ;; (prn 'with-local name)
     (let [old-mappings (->> state (&/get$ &/$ENVS) &/|head (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS))
           =return (body (&/update$ &/$ENVS
                                    (fn [stack]

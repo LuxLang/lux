@@ -163,7 +163,7 @@
                                                                  ?name)
                      ;; :let [_ (prn 'analyse-symbol/_1.1 r-module r-name)]
                      endo-type (matchv ::M/objects [$def]
-                                 [["lux;ValueD" ?type]]
+                                 [["lux;ValueD" [?type _]]]
                                  (return ?type)
 
                                  [["lux;MacroD" _]]
@@ -188,7 +188,7 @@
                       ((|do [[[r-module r-name] $def] (&&module/find-def ?module* ?name*)
                              ;; :let [_ (prn 'analyse-symbol/_2.1.1 r-module r-name)]
                              endo-type (matchv ::M/objects [$def]
-                                         [["lux;ValueD" ?type]]
+                                         [["lux;ValueD" [?type _]]]
                                          (return ?type)
 
                                          [["lux;MacroD" _]]
@@ -282,7 +282,7 @@
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (str r-module ";" r-name))]
                   :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
-                  ;; :let [_ (when (or (= "loop" r-name)
+                  ;; :let [_ (when (or (= "<>" r-name)
                   ;;                   ;; (= "struct" r-name)
                   ;;                   )
                   ;;           (->> (&/|map &/show-ast macro-expansion*)
@@ -377,7 +377,7 @@
   (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
-(defn analyse-def [analyse ?name ?value]
+(defn analyse-def [analyse compile-token ?name ?value]
   ;; (prn 'analyse-def/BEGIN ?name)
   ;; (when (= "PList/Dict" ?name)
   ;;   (prn 'DEF ?name (&/show-ast ?value)))
@@ -397,24 +397,17 @@
             (return (&/|list)))
 
           [_]
-          (|do [=value-type (&&/expr-type =value)
-                :let [;; _ (prn 'analyse-def/END ?name)
-                      _ (println 'DEF (str module-name ";" ?name))
-                      ;; _ (println)
-                      def-data (cond (&type/type= &type/Type =value-type)
-                                     (&/V "lux;TypeD" nil)
-                                     
-                                     :else
-                                     (&/V "lux;ValueD" =value-type))]
-                _ (&&module/define module-name ?name def-data =value-type)]
-            (return (&/|list (&/V "def" (&/T ?name =value def-data))))))
+          (do (println 'DEF (str module-name ";" ?name))
+            (|do [_ (compile-token (&/V "def" (&/T ?name =value)))]
+              (return (&/|list)))))
         ))))
 
-(defn analyse-declare-macro [analyse ?name]
+(defn analyse-declare-macro [analyse compile-token ?name]
   (|do [module-name &/get-module-name]
-    (return (&/|list (&/V "declare-macro" (&/T module-name ?name))))))
+    (|do [_ (compile-token (&/V "declare-macro" (&/T module-name ?name)))]
+      (return (&/|list)))))
 
-(defn analyse-import [analyse compile-module ?path]
+(defn analyse-import [analyse compile-module compile-token ?path]
   (|do [module-name &/get-module-name
         _ (if (= module-name ?path)
             (fail (str "[Analyser Error] Module can't import itself: " ?path))
@@ -426,12 +419,12 @@
            _ (&/when% (not already-compiled?) (compile-module ?path))]
        (return (&/|list))))))
 
-(defn analyse-export [analyse name]
+(defn analyse-export [analyse compile-token name]
   (|do [module-name &/get-module-name
         _ (&&module/export module-name name)]
     (return (&/|list))))
 
-(defn analyse-alias [analyse ex-alias ex-module]
+(defn analyse-alias [analyse compile-token ex-alias ex-module]
   (|do [module-name &/get-module-name
         _ (&&module/alias module-name ex-alias ex-module)]
     (return (&/|list))))

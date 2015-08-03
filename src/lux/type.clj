@@ -142,8 +142,8 @@
 
 (def DefData*
   (fAll "lux;DefData'" ""
-        (&/V "lux;VariantT" (&/|list (&/T "lux;TypeD" Unit)
-                                     (&/T "lux;ValueD" Type)
+        (&/V "lux;VariantT" (&/|list (&/T "lux;TypeD" Type)
+                                     (&/T "lux;ValueD" (&/V "lux;TupleT" (&/|list Type Unit)))
                                      (&/T "lux;MacroD" (&/V "lux;BoundT" ""))
                                      (&/T "lux;AliasD" Ident)))))
 

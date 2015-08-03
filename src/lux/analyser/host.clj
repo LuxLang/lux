@@ -273,7 +273,7 @@
     tname
     ))
 
-(defn analyse-jvm-class [analyse ?name ?super-class ?interfaces ?fields ?methods]
+(defn analyse-jvm-class [analyse compile-token ?name ?super-class ?interfaces ?fields ?methods]
   (|do [=interfaces (&/map% extract-text ?interfaces)
         =fields (&/map% (fn [?field]
                           (matchv ::M/objects [?field]
@@ -328,10 +328,11 @@
                              
                              [_]
                              (fail "[Analyser Error] Wrong syntax for method.")))
-                         (&/enumerate ?methods))]
-    (return (&/|list (&/V "jvm-class" (&/T ?name ?super-class =interfaces =fields =methods))))))
+                         (&/enumerate ?methods))
+        _ (compile-token (&/V "jvm-class" (&/T ?name ?super-class =interfaces =fields =methods)))]
+    (return (&/|list))))
 
-(defn analyse-jvm-interface [analyse ?name ?supers ?methods]
+(defn analyse-jvm-interface [analyse compile-token ?name ?supers ?methods]
   (|do [=supers (&/map% extract-text ?supers)
         =methods (&/map% (fn [method]
                            (matchv ::M/objects [method]
@@ -349,8 +350,9 @@
                              
                              [_]
                              (fail (str "[Analyser Error] Invalid method signature: " (&/show-ast method)))))
-                         ?methods)]
-    (return (&/|list (&/V "jvm-interface" (&/T ?name =supers =methods))))))
+                         ?methods)
+        _ (compile-token (&/V "jvm-interface" (&/T ?name =supers =methods)))]
+    (return (&/|list))))
 
 (defn analyse-jvm-try [analyse exo-type ?body ?catches+?finally]
   (|do [:let [[?catches ?finally] ?catches+?finally]
@@ -431,9 +433,10 @@
   analyse-jvm-lushr "jvm-lushr" "java.lang.Long"    "java.lang.Integer"
   )
 
-(defn analyse-jvm-program [analyse ?args ?body]
+(defn analyse-jvm-program [analyse compile-token ?args ?body]
   (|let [[_module _name] ?args]
     (|do [=body (&/with-scope ""
                   (&&env/with-local (str _module ";" _name) (&/V "lux;AppT" (&/T &type/List &type/Text))
-                    (&&/analyse-1 analyse (&/V "lux;AppT" (&/T &type/IO &type/Unit)) ?body)))]
-      (return (&/|list (&/V "jvm-program" =body))))))
+                    (&&/analyse-1 analyse (&/V "lux;AppT" (&/T &type/IO &type/Unit)) ?body)))
+          _ (compile-token (&/V "jvm-program" =body))]
+      (return (&/|list)))))

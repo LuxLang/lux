@@ -40,6 +40,9 @@
 (defn ^String ->class [class]
   (string/replace class #"\." "/"))
 
+(defn ^String ->class-name [module]
+  (string/replace module #"/" "."))
+
 (defn ^String ->module-class [module-name]
   (string/replace module-name #"/" module-separator))
 

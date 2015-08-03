@@ -136,33 +136,38 @@
                   ?args)]
     (return nil)))
 
-(defn ^:private compile-def-type [compile ?body ?def-data]
+(defn ^:private compile-def-type [compile current-class ?body def-type]
   (|do [^MethodVisitor **writer** &/get-writer]
-    (matchv ::M/objects [?def-data]
-      [["lux;TypeD" _]]
-      (let [_ (doto **writer**
-                ;; Tail: Begin
-                (.visitLdcInsn (int 2)) ;; S
-                (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
-                (.visitInsn Opcodes/DUP) ;; VV
-                (.visitLdcInsn (int 0)) ;; VVI
-                (.visitLdcInsn "lux;TypeD") ;; VVIT
-                (.visitInsn Opcodes/AASTORE) ;; V
-                (.visitInsn Opcodes/DUP) ;; VV
-                (.visitLdcInsn (int 1)) ;; VVI
-                (.visitInsn Opcodes/ACONST_NULL) ;; VVIN
-                (.visitInsn Opcodes/AASTORE) ;; V
-                )]
+    (matchv ::M/objects [def-type]
+      ["type"]
+      (|do [:let [;; ?type* (&&type/->analysis ?type)
+                  _ (doto **writer**
+                      ;; Tail: Begin
+                      (.visitLdcInsn (int 2)) ;; S
+                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
+                      (.visitInsn Opcodes/DUP) ;; VV
+                      (.visitLdcInsn (int 0)) ;; VVI
+                      (.visitLdcInsn "lux;TypeD") ;; VVIT
+                      (.visitInsn Opcodes/AASTORE) ;; V
+                      (.visitInsn Opcodes/DUP) ;; VV
+                      (.visitLdcInsn (int 1)) ;; VVI
+                      (.visitFieldInsn Opcodes/GETSTATIC current-class "_datum" "Ljava/lang/Object;")
+                      ;; (.visitInsn Opcodes/ACONST_NULL) ;; VVIN
+                      (.visitInsn Opcodes/AASTORE) ;; V
+                      )]
+            ;; _ (compile ?type*)
+            ;; :let [_ (.visitInsn **writer** Opcodes/AASTORE)]
+            ]
         (return nil))
 
-      [["lux;ValueD" _]]
+      ["value"]
       (|let [;; _ (prn '?body (aget ?body 0) (aget ?body 1 0))
-             [?def-value ?def-type] (matchv ::M/objects [?body]
-                                      [[["ann" [?def-value ?type-expr]] ?def-type]]
-                                      (&/T ?def-value ?type-expr)
+             ?def-type (matchv ::M/objects [?body]
+                         [[["ann" [?def-value ?type-expr]] ?def-type]]
+                         ?type-expr
 
-                                      [[?def-value ?def-type]]
-                                      (&/T ?body (&&type/->analysis ?def-type)))]
+                         [[?def-value ?def-type]]
+                         (&&type/->analysis ?def-type))]
         (|do [:let [_ (doto **writer**
                         (.visitLdcInsn (int 2)) ;; S
                         (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
@@ -173,13 +178,31 @@
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 1)) ;; VVI
                         )]
+              :let [_ (doto **writer**
+                        (.visitLdcInsn (int 2)) ;; S
+                        (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
+                        (.visitInsn Opcodes/DUP) ;; VV
+                        (.visitLdcInsn (int 0)) ;; VVI
+                        )]
               _ (compile ?def-type)
+              :let [_ (.visitInsn **writer** Opcodes/AASTORE)]
+              :let [_ (doto **writer**
+                        (.visitInsn Opcodes/DUP) ;; VV
+                        (.visitLdcInsn (int 1)) ;; VVI
+                        (.visitFieldInsn Opcodes/GETSTATIC current-class "_datum" "Ljava/lang/Object;")
+                        (.visitInsn Opcodes/AASTORE))]
               :let [_ (.visitInsn **writer** Opcodes/AASTORE)]]
           (return nil)))
       )))
 
-(defn compile-def [compile ?name ?body ?def-data]
-  (|do [^ClassWriter *writer* &/get-writer
+(defn compile-def [compile ?name ?body]
+  (|do [=value-type (&a/expr-type ?body)
+        :let [def-type (cond (&type/type= &type/Type =value-type)
+                             "type"
+                             
+                             :else
+                             "value")]
+        ^ClassWriter *writer* &/get-writer
         module-name &/get-module-name
         :let [datum-sig "Ljava/lang/Object;"
               def-name (&/normalize-name ?name)
@@ -198,7 +221,7 @@
                   :let [_ (.visitCode **writer**)]
                   _ (compile ?body)
                   :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class "_datum" datum-sig)]
-                  _ (compile-def-type compile ?body ?def-data)
+                  _ (compile-def-type compile current-class ?body def-type)
                   :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class "_meta" datum-sig)]
                   :let [_ (doto **writer**
                             (.visitInsn Opcodes/RETURN)
@@ -206,7 +229,10 @@
                             (.visitEnd))]]
               (return nil)))
         :let [_ (.visitEnd *writer*)]
-        _ (&&/save-class! def-name (.toByteArray =class))]
+        _ (&&/save-class! def-name (.toByteArray =class))
+        class-loader &/loader
+        :let [def-class (&&/load-class! class-loader (&host/->class-name current-class))]
+        _ (&a-module/define module-name ?name (-> def-class (.getField "_meta") (.get nil)) =value-type)]
     (return nil)))
 
 (defn compile-ann [compile *type* ?value-ex ?type-ex]
