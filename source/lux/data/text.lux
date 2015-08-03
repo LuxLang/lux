@@ -7,11 +7,15 @@
 ##   You must not remove this notice, or any other, from this software.
 
 (;import lux
-         (lux (control (monoid #as m)
+         (lux (meta macro)
+              (control (monoid #as m)
                        (eq #as E)
                        (ord #as O)
-                       (show #as S))
-              (data/number (int #open ("i" Int/Number Int/Ord Int/Eq)))))
+                       (show #as S)
+                       (monad #as M #refer #all))
+              (data (number (int #open ("i" Int/Number Int/Ord Int/Eq)))
+                    maybe
+                    (list #refer (#only foldL list list&)))))
 
 ## [Functions]
 (def #export (size x)
@@ -132,11 +136,44 @@
     [O;>= i>=]))
 
 (defstruct #export Text/Show (S;Show Text)
-  (def (S;show x)
-    x))
+  (def S;show id))
 
 (defstruct #export Text/Monoid (m;Monoid Text)
   (def m;unit "")
   (def (m;++ x y)
     (_jvm_invokevirtual "java.lang.String" "concat" ["java.lang.String"]
                         x [y])))
+
+## [Syntax]
+(def (extract-var template)
+  (-> Text (Maybe (, Text Text Text)))
+  (exec (_jvm_invokevirtual "java.io.PrintStream" "println" ["java.lang.Object"]
+                            (_jvm_getstatic "java.lang.System" "out") [(:: Text/Monoid (m;++ "Template: " template))])
+    (do Maybe/Monad
+      [pre-idx (index-of "#{" template)
+       [pre in] (split pre-idx template)
+       [_ in] (split 2 in)
+       post-idx (index-of "}" in)
+       [var post] (split post-idx in)
+       [_ post] (split 1 post)]
+      (M;wrap [pre var post]))))
+
+(def (unravel-template template)
+  (-> Text (List Syntax))
+  (case (extract-var template)
+    (#;Some [pre var post])
+    (list& (text$ pre) (symbol$ ["" var])
+           (unravel-template post))
+
+    #;None
+    (list (text$ template))))
+
+(defmacro #export (<> tokens state)
+  (case tokens
+    (\ (list (#;Meta _ (#;TextS template))))
+    (let [++ (symbol$ ["" ""])]
+      (#;Right state (list (` (;let [(~ ++) (;:: Text/Monoid m;++)]
+                                    (;$ (~ ++) (~@ (unravel-template template))))))))
+
+    _
+    (#;Left "Wrong syntax for <>")))
