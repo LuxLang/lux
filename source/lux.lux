@@ -2674,6 +2674,20 @@
            #seed   seed   #eval? eval? #expected expected} state]
       (#Right state expected))))
 
+(def (use-field field-name type)
+  (-> Text Type (, Syntax Syntax))
+  (let [[module name] (split-slot field-name)
+        pattern (: Syntax
+                   (case (resolve-struct-type type)
+                     (#Some (#RecordT slots))
+                     (record$ (map (: (-> (, Text Type) (, Syntax Syntax))
+                                      (lambda [[sname stype]] (use-field sname stype)))
+                                   slots))
+
+                     _
+                     (symbol$ ["" name])))]
+    [(tag$ [module name]) pattern]))
+
 (defmacro #export (using tokens)
   (case tokens
     (\ (list struct body))
@@ -2684,10 +2698,7 @@
         (case (resolve-struct-type struct-type)
           (#Some (#RecordT slots))
           (let [pattern (record$ (map (: (-> (, Text Type) (, Syntax Syntax))
-                                         (lambda [slot]
-                                           (let [[sname stype] slot
-                                                 [module name] (split-slot sname)]
-                                             [(tag$ [module name]) (symbol$ ["" name])])))
+                                         (lambda [[sname stype]] (use-field sname stype)))
                                       slots))]
             (return (list (` (_lux_case (~ struct) (~ pattern) (~ body))))))
 
@@ -2762,6 +2773,19 @@
     _
     (fail "Wrong syntax for get@")))
 
+(def (open-field prefix field-name source type)
+  (-> Text Text Syntax Type (List Syntax))
+  (let [[module name] (split-slot field-name)
+        source+ (: Syntax (` (get@ (~ (tag$ [module name])) (~ source))))]
+    (case (resolve-struct-type type)
+      (#Some (#RecordT slots))
+      (list:join (map (: (-> (, Text Type) (List Syntax))
+                         (lambda [[sname stype]] (open-field prefix sname source+ stype)))
+                      slots))
+
+      _
+      (list (` (_lux_def (~ (symbol$ ["" (text:++ prefix name)])) (~ source+)))))))
+
 (defmacro #export (open tokens)
   (case tokens
     (\ (list& (#Meta _ (#SymbolS struct-name)) tokens'))
@@ -2772,16 +2796,13 @@
                       
                       _
                       "")]
-       struct-type (find-var-type struct-name)]
+       struct-type (find-var-type struct-name)
+       #let [source (symbol$ struct-name)]]
       (case (resolve-struct-type struct-type)
         (#Some (#RecordT slots))
-        (return (map (: (-> (, Text Type) Syntax)
-                        (lambda [slot]
-                          (let [[sname stype] slot
-                                [module name] (split-slot sname)]
-                            (` (_lux_def (~ (symbol$ ["" (text:++ prefix name)]))
-                                 (get@ (~ (tag$ [module name])) (~ (symbol$ struct-name))))))))
-                     slots))
+        (return (list:join (map (: (-> (, Text Type) (List Syntax))
+                                   (lambda [[sname stype]] (open-field prefix sname source stype)))
+                                slots)))
 
         _
         (fail "Can only \"open\" records.")))
@@ -3051,10 +3072,5 @@
     _
     (fail "Wrong syntax for loop")))
 
-## (defmacro #export (extend tokens)
-##   (case tokens
-##     (\ (list (#Meta _ (#SymbolS name))))
-    
-
-##     _
-##     (fail "Wrong syntax for extend")))
+(defmacro #export (export tokens)
+  (return (map (lambda [token] (` (_lux_export (~ token)))) tokens)))
