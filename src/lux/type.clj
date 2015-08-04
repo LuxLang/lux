@@ -91,12 +91,12 @@
 
 (def Ident (&/V "lux;TupleT" (&/|list Text Text)))
 
-(def Syntax*
-  (let [Syntax* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
-                                     (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Syntax'")
+(def AST*
+  (let [AST* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
+                                     (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;AST'")
                                                           (&/V "lux;BoundT" "w")))))
-        Syntax*List (&/V "lux;AppT" (&/T List Syntax*))]
-    (fAll "lux;Syntax'" "w"
+        AST*List (&/V "lux;AppT" (&/T List AST*))]
+    (fAll "lux;AST'" "w"
           (&/V "lux;VariantT" (&/|list (&/T "lux;BoolS" Bool)
                                        (&/T "lux;IntS" Int)
                                        (&/T "lux;RealS" Real)
@@ -104,16 +104,16 @@
                                        (&/T "lux;TextS" Text)
                                        (&/T "lux;SymbolS" Ident)
                                        (&/T "lux;TagS" Ident)
-                                       (&/T "lux;FormS" Syntax*List)
-                                       (&/T "lux;TupleS" Syntax*List)
-                                       (&/T "lux;RecordS" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Syntax* Syntax*))))))
+                                       (&/T "lux;FormS" AST*List)
+                                       (&/T "lux;TupleS" AST*List)
+                                       (&/T "lux;RecordS" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list AST* AST*))))))
                ))))
 
-(def Syntax
+(def AST
   (let [w (&/V "lux;AppT" (&/T Meta Cursor))]
-    (&/V "lux;AppT" (&/T w (&/V "lux;AppT" (&/T Syntax* w))))))
+    (&/V "lux;AppT" (&/T w (&/V "lux;AppT" (&/T AST* w))))))
 
-(def ^:private SyntaxList (&/V "lux;AppT" (&/T List Syntax)))
+(def ^:private ASTList (&/V "lux;AppT" (&/T List AST)))
 
 (def Either
   (fAll "lux;Either" "l"
@@ -159,9 +159,9 @@
                                                                      (&/|list Text
                                                                               (&/V "lux;TupleT" (&/|list Bool
                                                                                                          (&/V "lux;AppT" (&/T DefData*
-                                                                                                                              (&/V "lux;LambdaT" (&/T SyntaxList
+                                                                                                                              (&/V "lux;LambdaT" (&/T ASTList
                                                                                                                                                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;BoundT" "Compiler")))
-                                                                                                                                                                           SyntaxList)))))))))))))
+                                                                                                                                                                           ASTList)))))))))))))
                       (&/T "lux;imports" (&/V "lux;AppT" (&/T List Text)))))))
 
 (def $Compiler
@@ -183,9 +183,9 @@
                        $Void)))
 
 (def Macro
-  (&/V "lux;LambdaT" (&/T SyntaxList
+  (&/V "lux;LambdaT" (&/T ASTList
                           (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE $Compiler))
-                                               SyntaxList)))))
+                                               ASTList)))))
 
 (defn bound? [id]
   (fn [state]
