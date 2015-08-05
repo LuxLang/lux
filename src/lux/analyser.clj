@@ -501,10 +501,10 @@
         (return* state* output)
 
         [["lux;Left" ""]]
-        (fail* (add-loc meta (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
+        (fail* (add-loc (&/get$ &/$cursor state) (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
 
         [["lux;Left" msg]]
-        (fail* (add-loc meta msg))
+        (fail* (add-loc (&/get$ &/$cursor state) msg))
         ))
 
     ;; [_]
@@ -527,25 +527,26 @@
         ))))
 
 (defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]
-  (&/with-expected-type exo-type
-    (matchv ::M/objects [token]
-      [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
-      (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
-      
-      [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]
-      (fn [state]
-        (matchv ::M/objects [((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
-                             ;; ((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)
-                             ]
-          [["lux;Right" [state* =fn]]]
-          (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
-              ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*))
+  (&/with-cursor (aget token 1 0)
+    (&/with-expected-type exo-type
+      (matchv ::M/objects [token]
+        [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;TagS" ?ident]]] ?values]]]]]]
+        (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
+        
+        [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [?fn ?args]]]]]]
+        (fn [state]
+          (matchv ::M/objects [((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
+                               ;; ((&type/with-var #(&&/analyse-1 (partial analyse-ast eval! compile-module) % ?fn)) state)
+                               ]
+            [["lux;Right" [state* =fn]]]
+            (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
+                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*))
 
-          [_]
-          ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
-      
-      [_]
-      (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token))))
+            [_]
+            ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
+        
+        [_]
+        (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token)))))
 
 ;; [Resources]
 (defn analyse [eval! compile-module compile-token]

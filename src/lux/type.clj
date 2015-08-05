@@ -179,6 +179,7 @@
                                            (&/T "lux;seed" Int)
                                            (&/T "lux;eval?" Bool)
                                            (&/T "lux;expected" Type)
+                                           (&/T "lux;cursor" Cursor)
                                            )))
                        $Void)))
 

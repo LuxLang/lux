@@ -31,14 +31,15 @@
 (def $WRITER 2)
 
 ;; Compiler
-(def $ENVS 0)
-(def $EVAL? 1)
-(def $EXPECTED 2)
-(def $HOST 3)
-(def $MODULES 4)
-(def $SEED 5)
-(def $SOURCE 6)
-(def $TYPES 7)
+(def $cursor 0)
+(def $ENVS 1)
+(def $EVAL? 2)
+(def $EXPECTED 3)
+(def $HOST 4)
+(def $MODULES 5)
+(def $SEED 6)
+(def $SOURCE 7)
+(def $TYPES 8)
 
 ;; [Exports]
 (def +name-separator+ ";")
@@ -487,7 +488,9 @@
      (V "lux;None" nil))))
 
 (defn init-state [_]
-  (R ;; "lux;envs"
+  (R ;; "lux;cursor"
+   (T "" -1 -1)
+   ;; "lux;envs"
    (|list)
    ;; "lux;eval?"
    false
@@ -627,6 +630,20 @@
 
         [_]
         output))))
+
+(defn with-cursor [cursor body]
+  "(All [a] (-> Cursor (Lux a)))"
+  (if (= "" (aget cursor 0))
+    body
+    (fn [state]
+      (let [output (body (set$ $cursor cursor state))]
+        (matchv ::M/objects [output]
+          [["lux;Right" [?state ?value]]]
+          (return* (set$ $cursor (get$ $cursor state) ?state)
+                   ?value)
+
+          [_]
+          output)))))
 
 (defn show-ast [ast]
   (matchv ::M/objects [ast]
