@@ -1975,22 +1975,252 @@
       #None
       (fail "Wrong syntax for defsig"))))
 
+(def (some f xs)
+  (All [a b]
+    (-> (-> a (Maybe b)) (List a) (Maybe b)))
+  (case xs
+    #Nil
+    #None
+
+    (#Cons x xs')
+    (case (f x)
+      #None
+      (some f xs')
+
+      (#Some y)
+      (#Some y))))
+
+(def (last-index-of part text)
+  (-> Text Text Int)
+  (_jvm_i2l (_jvm_invokevirtual "java.lang.String" "lastIndexOf" ["java.lang.String"]
+                                text [part])))
+
+(def (index-of part text)
+  (-> Text Text Int)
+  (_jvm_i2l (_jvm_invokevirtual "java.lang.String" "indexOf" ["java.lang.String"]
+                                text [part])))
+
+(def (substring1 idx text)
+  (-> Int Text Text)
+  (_jvm_invokevirtual "java.lang.String" "substring" ["int"]
+                      text [(_jvm_l2i idx)]))
+
+(def (substring2 idx1 idx2 text)
+  (-> Int Int Text Text)
+  (_jvm_invokevirtual "java.lang.String" "substring" ["int" "int"]
+                      text [(_jvm_l2i idx1) (_jvm_l2i idx2)]))
+
+(def (split-module-contexts module)
+  (-> Text (List Text))
+  (#Cons module (let [idx (last-index-of "/" module)]
+                  (if (i< idx 0)
+                    #Nil
+                    (split-module-contexts (substring2 0 idx module))))))
+
+(def (split-module module)
+  (-> Text (List Text))
+  (let [idx (index-of "/" module)]
+    (if (i< idx 0)
+      (#Cons module #Nil)
+      (#Cons (substring2 0 idx module)
+             (split-module (substring1 (i+ 1 idx) module))))))
+
+(def (split-slot slot)
+  (-> Text (, Text Text))
+  (let [idx (index-of ";" slot)
+        module (substring2 0 idx slot)
+        name (substring1 (i+ 1 idx) slot)]
+    [module name]))
+
+(def (type:show type)
+  (-> Type Text)
+  (case type
+    (#DataT name)
+    ($ text:++ "(^ " name ")")
+
+    (#TupleT elems)
+    (case elems
+      #;Nil
+      "(,)"
+
+      _
+      ($ text:++ "(, " (|> elems (map type:show) (interpose " ") (foldL text:++ "")) ")"))
+
+    (#VariantT cases)
+    (case cases
+      #;Nil
+      "(|)"
+
+      _
+      ($ text:++ "(| "
+         (|> cases
+             (map (: (-> (, Text Type) Text)
+                     (lambda [kv]
+                       (case kv
+                         [k (#TupleT #;Nil)]
+                         ($ text:++ "#" k)
+
+                         [k v]
+                         ($ text:++ "(#" k " " (type:show v) ")")))))
+             (interpose " ")
+             (foldL text:++ ""))
+         ")"))
+
+    (#RecordT fields)
+    (case fields
+      #;Nil
+      "(&)"
+
+      _
+      ($ text:++ "(& "
+         (|> fields
+             (map (: (-> (, Text Type) Text)
+                     (: (-> (, Text Type) Text)
+                        (lambda [kv]
+                          (let [[k v] kv]
+                            ($ text:++ "(#" k " " (type:show v) ")"))))))
+             (interpose " ")
+             (foldL text:++ ""))
+         ")"))
+
+    (#LambdaT input output)
+    ($ text:++ "(-> " (type:show input) " " (type:show output) ")")
+
+    (#VarT id)
+    ($ text:++ "⌈" (->text id) "⌋")
+
+    (#BoundT name)
+    name
+
+    (#ExT ?id)
+    ($ text:++ "⟨" (->text ?id) "⟩")
+
+    (#AppT ?lambda ?param)
+    ($ text:++ "(" (type:show ?lambda) " " (type:show ?param) ")")
+
+    (#AllT ?env ?name ?arg ?body)
+    ($ text:++ "(All " ?name " [" ?arg "] " (type:show ?body) ")")
+    ))
+
+(def (beta-reduce env type)
+  (-> (List (, Text Type)) Type Type)
+  (case type
+    (#VariantT ?cases)
+    (#VariantT (map (: (-> (, Text Type) (, Text Type))
+                       (lambda [kv]
+                         (let [[k v] kv]
+                           [k (beta-reduce env v)])))
+                    ?cases))
+
+    (#RecordT ?fields)
+    (#RecordT (map (: (-> (, Text Type) (, Text Type))
+                      (lambda [kv]
+                        (let [[k v] kv]
+                          [k (beta-reduce env v)])))
+                   ?fields))
+
+    (#TupleT ?members)
+    (#TupleT (map (beta-reduce env) ?members))
+
+    (#AppT ?type-fn ?type-arg)
+    (#AppT (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
+
+    (#AllT ?local-env ?local-name ?local-arg ?local-def)
+    (case ?local-env
+      #None
+      (#AllT (#Some env) ?local-name ?local-arg ?local-def)
+
+      (#Some _)
+      type)
+
+    (#LambdaT ?input ?output)
+    (#LambdaT (beta-reduce env ?input) (beta-reduce env ?output))
+
+    (#BoundT ?name)
+    (case (get ?name env)
+      (#Some bound)
+      bound
+
+      _
+      type)
+    
+    _
+    type
+    ))
+
+(def (apply-type type-fn param)
+  (-> Type Type (Maybe Type))
+  (case type-fn
+    (#AllT env name arg body)
+    (#Some (beta-reduce (|> (case env
+                              (#Some env) env
+                              _           (list))
+                            (put name type-fn)
+                            (put arg param))
+                        body))
+
+    (#AppT F A)
+    (do Maybe/Monad
+      [type-fn* (apply-type F A)]
+      (apply-type type-fn* param))
+    
+    _
+    #None))
+
+(def (resolve-struct-type type)
+  (-> Type (Maybe Type))
+  (case type
+    (#RecordT slots)
+    (#Some type)
+
+    (#AppT fun arg)
+    (apply-type fun arg)
+
+    (#AllT _ _ _ body)
+    (resolve-struct-type body)
+
+    _
+    #None))
+
+(def expected-type
+  (Lux Type)
+  (lambda [state]
+    (let [{#source source #modules modules
+           #envs   envs   #types   types   #host           host
+           #seed   seed   #eval? eval? #expected expected} state]
+      (#Right state expected))))
+
 (defmacro #export (struct tokens)
   (do Lux/Monad
     [tokens' (map% Lux/Monad macro-expand tokens)
-     members (map% Lux/Monad
-                   (: (-> AST (Lux (, AST AST)))
-                      (lambda [token]
-                        (case token
-                          (\ (#Meta _ (#FormS (list (#Meta _ (#SymbolS _ "_lux_def")) (#Meta _ (#SymbolS name)) value))))
-                          (do Lux/Monad
-                            [name' (normalize name)]
-                            (;return (: (, AST AST) [(tag$ name') value])))
+     struct-type expected-type]
+    (case (resolve-struct-type struct-type)
+      (#Some (#RecordT slots))
+      (do Lux/Monad
+        [#let [translations (map (: (-> (, Text Type) (, Text Ident))
+                                    (lambda [[sname _]]
+                                      (let [[module name] (split-slot sname)]
+                                        [name [module name]])))
+                                 slots)]
+         members (map% Lux/Monad
+                       (: (-> AST (Lux (, AST AST)))
+                          (lambda [token]
+                            (case token
+                              (\ (#Meta _ (#FormS (list (#Meta _ (#SymbolS _ "_lux_def")) (#Meta _ (#SymbolS ["" name])) value))))
+                              (case (get name translations)
+                                (#Some tag-name)
+                                (;return (: (, AST AST) [(tag$ tag-name) value]))
+                                
+                                _
+                                (fail "Structures require defined members"))
 
-                          _
-                          (fail "Structures require defined members"))))
-                   (list:join tokens'))]
-    (;return (list (record$ members)))))
+                              _
+                              (fail "Structures members must be unqualified."))))
+                       (list:join tokens'))]
+        (;return (list (record$ members))))
+      
+      _
+      (fail "struct can only use records."))))
 
 (defmacro #export (defstruct tokens)
   (let [[export? tokens'] (: (, Bool (List AST))
@@ -2205,41 +2435,6 @@
       (#Left ($ text:++ "Unknown module: " module)))
     ))
 
-(def (last-index-of part text)
-  (-> Text Text Int)
-  (_jvm_i2l (_jvm_invokevirtual "java.lang.String" "lastIndexOf" ["java.lang.String"]
-                                text [part])))
-
-(def (index-of part text)
-  (-> Text Text Int)
-  (_jvm_i2l (_jvm_invokevirtual "java.lang.String" "indexOf" ["java.lang.String"]
-                                text [part])))
-
-(def (substring1 idx text)
-  (-> Int Text Text)
-  (_jvm_invokevirtual "java.lang.String" "substring" ["int"]
-                      text [(_jvm_l2i idx)]))
-
-(def (substring2 idx1 idx2 text)
-  (-> Int Int Text Text)
-  (_jvm_invokevirtual "java.lang.String" "substring" ["int" "int"]
-                      text [(_jvm_l2i idx1) (_jvm_l2i idx2)]))
-
-(def (split-module-contexts module)
-  (-> Text (List Text))
-  (#Cons module (let [idx (last-index-of "/" module)]
-                  (if (i< idx 0)
-                    #Nil
-                    (split-module-contexts (substring2 0 idx module))))))
-
-(def (split-module module)
-  (-> Text (List Text))
-  (let [idx (index-of "/" module)]
-    (if (i< idx 0)
-      (#Cons module #Nil)
-      (#Cons (substring2 0 idx module)
-             (split-module (substring1 (i+ 1 idx) module))))))
-
 (def (@ idx xs)
   (All [a]
     (-> Int (List a) (Maybe a)))
@@ -2392,178 +2587,6 @@
                                 unknowns)
                            (list (` (import (~@ tokens))))))))))
 
-(def (some f xs)
-  (All [a b]
-    (-> (-> a (Maybe b)) (List a) (Maybe b)))
-  (case xs
-    #Nil
-    #None
-
-    (#Cons x xs')
-    (case (f x)
-      #None
-      (some f xs')
-
-      (#Some y)
-      (#Some y))))
-
-(def (split-slot slot)
-  (-> Text (, Text Text))
-  (let [idx (index-of ";" slot)
-        module (substring2 0 idx slot)
-        name (substring1 (i+ 1 idx) slot)]
-    [module name]))
-
-(def (type:show type)
-  (-> Type Text)
-  (case type
-    (#DataT name)
-    ($ text:++ "(^ " name ")")
-
-    (#TupleT elems)
-    (case elems
-      #;Nil
-      "(,)"
-
-      _
-      ($ text:++ "(, " (|> elems (map type:show) (interpose " ") (foldL text:++ "")) ")"))
-
-    (#VariantT cases)
-    (case cases
-      #;Nil
-      "(|)"
-
-      _
-      ($ text:++ "(| "
-         (|> cases
-             (map (: (-> (, Text Type) Text)
-                     (lambda [kv]
-                       (case kv
-                         [k (#TupleT #;Nil)]
-                         ($ text:++ "#" k)
-
-                         [k v]
-                         ($ text:++ "(#" k " " (type:show v) ")")))))
-             (interpose " ")
-             (foldL text:++ ""))
-         ")"))
-
-    (#RecordT fields)
-    (case fields
-      #;Nil
-      "(&)"
-
-      _
-      ($ text:++ "(& "
-         (|> fields
-             (map (: (-> (, Text Type) Text)
-                     (: (-> (, Text Type) Text)
-                        (lambda [kv]
-                          (let [[k v] kv]
-                            ($ text:++ "(#" k " " (type:show v) ")"))))))
-             (interpose " ")
-             (foldL text:++ ""))
-         ")"))
-
-    (#LambdaT input output)
-    ($ text:++ "(-> " (type:show input) " " (type:show output) ")")
-
-    (#VarT id)
-    ($ text:++ "⌈" (->text id) "⌋")
-
-    (#BoundT name)
-    name
-
-    (#ExT ?id)
-    ($ text:++ "⟨" (->text ?id) "⟩")
-
-    (#AppT ?lambda ?param)
-    ($ text:++ "(" (type:show ?lambda) " " (type:show ?param) ")")
-
-    (#AllT ?env ?name ?arg ?body)
-    ($ text:++ "(All " ?name " [" ?arg "] " (type:show ?body) ")")
-    ))
-
-(def (beta-reduce env type)
-  (-> (List (, Text Type)) Type Type)
-  (case type
-    (#VariantT ?cases)
-    (#VariantT (map (: (-> (, Text Type) (, Text Type))
-                       (lambda [kv]
-                         (let [[k v] kv]
-                           [k (beta-reduce env v)])))
-                    ?cases))
-
-    (#RecordT ?fields)
-    (#RecordT (map (: (-> (, Text Type) (, Text Type))
-                      (lambda [kv]
-                        (let [[k v] kv]
-                          [k (beta-reduce env v)])))
-                   ?fields))
-
-    (#TupleT ?members)
-    (#TupleT (map (beta-reduce env) ?members))
-
-    (#AppT ?type-fn ?type-arg)
-    (#AppT (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
-
-    (#AllT ?local-env ?local-name ?local-arg ?local-def)
-    (case ?local-env
-      #None
-      (#AllT (#Some env) ?local-name ?local-arg ?local-def)
-
-      (#Some _)
-      type)
-
-    (#LambdaT ?input ?output)
-    (#LambdaT (beta-reduce env ?input) (beta-reduce env ?output))
-
-    (#BoundT ?name)
-    (case (get ?name env)
-      (#Some bound)
-      bound
-
-      _
-      type)
-    
-    _
-    type
-    ))
-
-(def (apply-type type-fn param)
-  (-> Type Type (Maybe Type))
-  (case type-fn
-    (#AllT env name arg body)
-    (#Some (beta-reduce (|> (case env
-                              (#Some env) env
-                              _           (list))
-                            (put name type-fn)
-                            (put arg param))
-                        body))
-
-    (#AppT F A)
-    (do Maybe/Monad
-      [type-fn* (apply-type F A)]
-      (apply-type type-fn* param))
-    
-    _
-    #None))
-
-(def (resolve-struct-type type)
-  (-> Type (Maybe Type))
-  (case type
-    (#RecordT slots)
-    (#Some type)
-
-    (#AppT fun arg)
-    (apply-type fun arg)
-
-    (#AllT _ _ _ body)
-    (resolve-struct-type body)
-
-    _
-    #None))
-
 (def (try-both f x1 x2)
   (All [a b]
     (-> (-> a (Maybe b)) a a (Maybe b)))
@@ -2665,14 +2688,6 @@
                  #envs   envs   #types   types   #host           host
                  #seed   seed   #eval? eval? #expected expected} state]
             (#Left ($ text:++ "Unknown var: " (ident->text name) "\n\n" (show-envs envs)))))))))
-
-(def expected-type
-  (Lux Type)
-  (lambda [state]
-    (let [{#source source #modules modules
-           #envs   envs   #types   types   #host           host
-           #seed   seed   #eval? eval? #expected expected} state]
-      (#Right state expected))))
 
 (def (use-field field-name type)
   (-> Text Type (, AST AST))
