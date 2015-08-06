@@ -24,15 +24,18 @@
   (matchv ::M/objects [token]
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_catch"]]]]
                                                  ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?ex-class]]]
-                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ ?ex-arg]]]]
+                                                              ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ?ex-arg]]]]
                                                                            ["lux;Cons" [?catch-body
                                                                                         ["lux;Nil" _]]]]]]]]]]]]]
-    (&/T (&/|++ catch+ (&/|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+)
+    (return (&/T (&/|++ catch+ (&/|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+))
 
     [["lux;Meta" [meta ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_finally"]]]]
                                                  ["lux;Cons" [?finally-body
                                                               ["lux;Nil" _]]]]]]]]]
-    (&/T catch+ (&/V "lux;Some" ?finally-body))))
+    (return (&/T catch+ (&/V "lux;Some" ?finally-body)))
+
+    [_]
+    (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token)))))
 
 (defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
   (matchv ::M/objects [token]
@@ -74,7 +77,7 @@
 
     ;; Programs
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_program"]]]]
-                               ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?args]]]
+                               ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ?args]]]]
                                             ["lux;Cons" [?body
                                                          ["lux;Nil" _]]]]]]]]]
     (&&host/analyse-jvm-program analyse compile-token ?args ?body)
@@ -246,7 +249,8 @@
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_try"]]]]
                                ["lux;Cons" [?body
                                             ?handlers]]]]]]
-    (&&host/analyse-jvm-try analyse exo-type ?body (&/fold parse-handler (&/T (&/|list) (&/V "lux;None" nil)) ?handlers))
+    (|do [catches+finally (&/fold% parse-handler (&/T (&/|list) (&/V "lux;None" nil)) ?handlers)]
+      (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
 
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_jvm_throw"]]]]
                                ["lux;Cons" [?ex
@@ -398,8 +402,8 @@
     (&&lux/analyse-case analyse exo-type ?value ?branches)
     
     [["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" [_ "_lux_lambda"]]]]
-                               ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?self]]]
-                                            ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?arg]]]
+                               ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ?self]]]]
+                                            ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ?arg]]]]
                                                          ["lux;Cons" [?body
                                                                       ["lux;Nil" _]]]]]]]]]]]
     (&&lux/analyse-lambda analyse exo-type ?self ?arg ?body)

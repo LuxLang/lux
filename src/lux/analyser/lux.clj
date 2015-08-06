@@ -143,90 +143,91 @@
                        ?elems)]
     (return (&/|list (&/T (&/V "record" =slots) (&/V "lux;RecordT" exo-type))))))
 
+(defn ^:private analyse-global [analyse exo-type module name]
+  (|do [[[r-module r-name] $def] (&&module/find-def module name)
+        ;; :let [_ (prn 'analyse-symbol/_1.1 r-module r-name)]
+        endo-type (matchv ::M/objects [$def]
+                    [["lux;ValueD" [?type _]]]
+                    (return ?type)
+
+                    [["lux;MacroD" _]]
+                    (return &type/Macro)
+
+                    [["lux;TypeD" _]]
+                    (return &type/Type))
+        _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
+                   (clojure.lang.Util/identical &type/Type exo-type))
+            (return nil)
+            (&type/check exo-type endo-type))]
+    (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
+                          endo-type)))))
+
+(defn ^:private analyse-local [analyse exo-type name]
+  (fn [state]
+    (|let [stack (&/get$ &/$ENVS state)
+           no-binding? #(and (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? name) not)
+                             (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? name) not))
+           [inner outer] (&/|split-with no-binding? stack)]
+      (matchv ::M/objects [outer]
+        [["lux;Nil" _]]
+        (&/run-state (|do [module-name &/get-module-name]
+                       (analyse-global analyse exo-type module-name name))
+                     state)
+
+        [["lux;Cons" [?genv ["lux;Nil" _]]]]
+        (do ;; (prn 'analyse-symbol/_2 ?module name name (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) &/|keys &/->seq))
+            (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get name))]
+              (do ;; (prn 'analyse-symbol/_2.1 ?module name name (aget global 0))
+                  (matchv ::M/objects [global]
+                    [[["lux;Global" [?module* name*]] _]]
+                    ((|do [[[r-module r-name] $def] (&&module/find-def ?module* name*)
+                           ;; :let [_ (prn 'analyse-symbol/_2.1.1 r-module r-name)]
+                           endo-type (matchv ::M/objects [$def]
+                                       [["lux;ValueD" [?type _]]]
+                                       (return ?type)
+
+                                       [["lux;MacroD" _]]
+                                       (return &type/Macro)
+
+                                       [["lux;TypeD" _]]
+                                       (return &type/Type))
+                           _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
+                                      (clojure.lang.Util/identical &type/Type exo-type))
+                               (return nil)
+                               (&type/check exo-type endo-type))]
+                       (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
+                                             endo-type))))
+                     state)
+
+                    [_]
+                    (do ;; (prn 'analyse-symbol/_2.1.2 ?module name name)
+                        (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))))
+              (fail* "_{_ analyse-symbol _}_")))
+        
+        [["lux;Cons" [top-outer _]]]
+        (do ;; (prn 'analyse-symbol/_3 ?module name)
+            (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
+                                            (&/|map #(&/get$ &/$NAME %) outer)
+                                            (&/|reverse inner)))
+                   [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
+                                              (|let [[register new-inner] register+new-inner
+                                                     [register* frame*] (&&lambda/close-over (&/|reverse in-scope) name register frame)]
+                                                (&/T register* (&/|cons frame* new-inner))))
+                                            (&/T (or (->> top-outer (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|get name))
+                                                     (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get name)))
+                                                 (&/|list))
+                                            (&/|reverse inner) scopes)]
+              ((|do [btype (&&/expr-type =local)
+                     _ (&type/check exo-type btype)]
+                 (return (&/|list =local)))
+               (&/set$ &/$ENVS (&/|++ inner* outer) state))))
+        ))))
+
 (defn analyse-symbol [analyse exo-type ident]
-  (|do [module-name &/get-module-name]
-    (fn [state]
-      (|let [[?module ?name] ident
-             ;; _ (prn 'analyse-symbol/_0 ?module ?name)
-             local-ident (str ?module ";" ?name)
-             stack (&/get$ &/$ENVS state)
-             no-binding? #(and (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not)
-                               (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? local-ident) not))
-             [inner outer] (&/|split-with no-binding? stack)]
-        (matchv ::M/objects [outer]
-          [["lux;Nil" _]]
-          (do ;; (prn 'analyse-symbol/_1
-              ;;      [?module ?name]
-              ;;      [(if (.equals "" ?module) module-name ?module)
-              ;;       ?name])
-              ((|do [[[r-module r-name] $def] (&&module/find-def (if (.equals "" ?module) module-name ?module)
-                                                                 ?name)
-                     ;; :let [_ (prn 'analyse-symbol/_1.1 r-module r-name)]
-                     endo-type (matchv ::M/objects [$def]
-                                 [["lux;ValueD" [?type _]]]
-                                 (return ?type)
-
-                                 [["lux;MacroD" _]]
-                                 (return &type/Macro)
-
-                                 [["lux;TypeD" _]]
-                                 (return &type/Type))
-                     _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
-                                (clojure.lang.Util/identical &type/Type exo-type))
-                         (return nil)
-                         (&type/check exo-type endo-type))]
-                 (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
-                                       endo-type))))
-               state))
-
-          [["lux;Cons" [?genv ["lux;Nil" _]]]]
-          (do ;; (prn 'analyse-symbol/_2 ?module ?name local-ident (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) &/|keys &/->seq))
-              (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get local-ident))]
-                (do ;; (prn 'analyse-symbol/_2.1 ?module ?name local-ident (aget global 0))
-                    (matchv ::M/objects [global]
-                      [[["lux;Global" [?module* ?name*]] _]]
-                      ((|do [[[r-module r-name] $def] (&&module/find-def ?module* ?name*)
-                             ;; :let [_ (prn 'analyse-symbol/_2.1.1 r-module r-name)]
-                             endo-type (matchv ::M/objects [$def]
-                                         [["lux;ValueD" [?type _]]]
-                                         (return ?type)
-
-                                         [["lux;MacroD" _]]
-                                         (return &type/Macro)
-
-                                         [["lux;TypeD" _]]
-                                         (return &type/Type))
-                             _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
-                                        (clojure.lang.Util/identical &type/Type exo-type))
-                                 (return nil)
-                                 (&type/check exo-type endo-type))]
-                         (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
-                                               endo-type))))
-                       state)
-
-                      [_]
-                      (do ;; (prn 'analyse-symbol/_2.1.2 ?module ?name local-ident)
-                          (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))))
-                (fail* "_{_ analyse-symbol _}_")))
-          
-          [["lux;Cons" [top-outer _]]]
-          (do ;; (prn 'analyse-symbol/_3 ?module ?name)
-              (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
-                                              (&/|map #(&/get$ &/$NAME %) outer)
-                                              (&/|reverse inner)))
-                     [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
-                                                (|let [[register new-inner] register+new-inner
-                                                       [register* frame*] (&&lambda/close-over (&/|reverse in-scope) ident register frame)]
-                                                  (&/T register* (&/|cons frame* new-inner))))
-                                              (&/T (or (->> top-outer (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|get local-ident))
-                                                       (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get local-ident)))
-                                                   (&/|list))
-                                              (&/|reverse inner) scopes)]
-                ((|do [btype (&&/expr-type =local)
-                       _ (&type/check exo-type btype)]
-                   (return (&/|list =local)))
-                 (&/set$ &/$ENVS (&/|++ inner* outer) state))))
-          )))
+  (|do [:let [[?module ?name] ident]]
+    (if (= "" ?module)
+      (analyse-local analyse exo-type ?name)
+      (analyse-global analyse exo-type ?module ?name))
     ))
 
 (defn ^:private analyse-apply* [analyse exo-type fun-type ?args]

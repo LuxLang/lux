@@ -299,10 +299,10 @@
                                                                                                                                  ["lux;Nil" _]]]]]]]]]]]]]]]]
                              (|do [=method-inputs (&/map% (fn [minput]
                                                             (matchv ::M/objects [minput]
-                                                              [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ?input-name]]]
+                                                              [["lux;Meta" [_ ["lux;FormS" ["lux;Cons" [["lux;Meta" [_ ["lux;SymbolS" ["" ?input-name]]]]
                                                                                                         ["lux;Cons" [["lux;Meta" [_ ["lux;TextS" ?input-type]]]
                                                                                                                      ["lux;Nil" _]]]]]]]]]
-                                                              (return (&/T (&/ident->text ?input-name) ?input-type))
+                                                              (return (&/T ?input-name ?input-type))
 
                                                               [_]
                                                               (fail "[Analyser Error] Wrong syntax for method input.")))
@@ -358,7 +358,7 @@
   (|do [:let [[?catches ?finally] ?catches+?finally]
         =body (&&/analyse-1 analyse exo-type ?body)
         =catches (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
-                           (|do [=catch-body (&&env/with-local (str ";" ?ex-arg) (&/V "lux;DataT" ?ex-class)
+                           (|do [=catch-body (&&env/with-local ?ex-arg (&/V "lux;DataT" ?ex-class)
                                                (&&/analyse-1 analyse exo-type ?catch-body))
                                  idx &&env/next-local-idx]
                              (return (&/T ?ex-class idx =catch-body))))
@@ -434,9 +434,8 @@
   )
 
 (defn analyse-jvm-program [analyse compile-token ?args ?body]
-  (|let [[_module _name] ?args]
-    (|do [=body (&/with-scope ""
-                  (&&env/with-local (str _module ";" _name) (&/V "lux;AppT" (&/T &type/List &type/Text))
-                    (&&/analyse-1 analyse (&/V "lux;AppT" (&/T &type/IO &type/Unit)) ?body)))
-          _ (compile-token (&/V "jvm-program" =body))]
-      (return (&/|list)))))
+  (|do [=body (&/with-scope ""
+                (&&env/with-local ?args (&/V "lux;AppT" (&/T &type/List &type/Text))
+                  (&&/analyse-1 analyse (&/V "lux;AppT" (&/T &type/IO &type/Unit)) ?body)))
+        _ (compile-token (&/V "jvm-program" =body))]
+    (return (&/|list))))

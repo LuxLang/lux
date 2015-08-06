@@ -116,11 +116,14 @@
   (matchv ::M/objects [pattern]
     [["lux;Meta" [_ pattern*]]]
     (matchv ::M/objects [pattern*]
-      [["lux;SymbolS" ?ident]]
-      (|do [=kont (&env/with-local (&/ident->text ?ident) value-type
+      [["lux;SymbolS" ["" name]]]
+      (|do [=kont (&env/with-local name value-type
                     kont)
             idx &env/next-local-idx]
         (return (&/T (&/V "StoreTestAC" idx) =kont)))
+
+      [["lux;SymbolS" ident]]
+      (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
       [["lux;BoolS" ?value]]
       (|do [_ (&type/check value-type &type/Bool)
