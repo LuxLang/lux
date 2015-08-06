@@ -7,9 +7,9 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns lux.compiler.type
-  (:require [clojure.core.match :as M :refer [matchv]]
+  (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type])))
 
 ;; [Utils]
@@ -39,18 +39,18 @@
 ;; [Exports]
 (defn ->analysis [type]
   "(-> Type Analysis)"
-  (matchv ::M/objects [type]
-    [["lux;DataT" ?class]]
+  (|case type
+    ("lux;DataT" ?class)
     (variant$ "lux;DataT" (text$ ?class))
     
-    [["lux;TupleT" ?members]]
+    ("lux;TupleT" ?members)
     (variant$ "lux;TupleT"
               (&/fold (fn [tail head]
                         (Cons$ (->analysis head) tail))
                       $Nil
                       (&/|reverse ?members)))
 
-    [["lux;VariantT" ?cases]]
+    ("lux;VariantT" ?cases)
     (variant$ "lux;VariantT"
               (&/fold (fn [tail head]
                         (|let [[hlabel htype] head]
@@ -59,7 +59,7 @@
                       $Nil
                       (&/|reverse ?cases)))
 
-    [["lux;RecordT" ?slots]]
+    ("lux;RecordT" ?slots)
     (variant$ "lux;RecordT"
               (&/fold (fn [tail head]
                         (|let [[hlabel htype] head]
@@ -68,16 +68,16 @@
                       $Nil
                       (&/|reverse ?slots)))
 
-    [["lux;LambdaT" [?input ?output]]]
+    ("lux;LambdaT" ?input ?output)
     (variant$ "lux;LambdaT" (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
 
-    [["lux;AllT" [?env ?name ?arg ?body]]]
+    ("lux;AllT" ?env ?name ?arg ?body)
     (variant$ "lux;AllT"
-              (tuple$ (&/|list (matchv ::M/objects [?env]
-                                 [["lux;None" _]]
+              (tuple$ (&/|list (|case ?env
+                                 ("lux;None")
                                  (variant$ "lux;None" (tuple$ (&/|list)))
 
-                                 [["lux;Some" ??env]]
+                                 ("lux;Some" ??env)
                                  (variant$ "lux;Some"
                                            (&/fold (fn [tail head]
                                                      (|let [[hlabel htype] head]
@@ -89,9 +89,9 @@
                                (text$ ?arg)
                                (->analysis ?body))))
 
-    [["lux;BoundT" ?name]]
+    ("lux;BoundT" ?name)
     (variant$ "lux;BoundT" (text$ ?name))
 
-    [["lux;AppT" [?fun ?arg]]]
+    ("lux;AppT" ?fun ?arg)
     (variant$ "lux;AppT" (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
     ))

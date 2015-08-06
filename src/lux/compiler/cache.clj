@@ -10,9 +10,9 @@
   (:refer-clojure :exclude [load])
   (:require [clojure.string :as string]
             [clojure.java.io :as io]
-            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail*]]
+            (lux [base :as & :refer [|do return* return fail fail* |case]]
                  [type :as &type]
                  [host :as &host])
             (lux.analyser [base :as &a]
@@ -126,8 +126,8 @@
                                                             "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)
                                                                       def-meta (get-field "_meta" def-class)]
-                                                                  (matchv ::M/objects [def-meta]
-                                                                    [["lux;ValueD" [def-type _]]]
+                                                                  (|case def-meta
+                                                                    ("lux;ValueD" def-type _)
                                                                     (&a-module/define module _name def-meta def-type)))
                                                             ;; else
                                                             (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]

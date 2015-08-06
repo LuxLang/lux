@@ -8,40 +8,40 @@
 
 (ns lux.reader
   (:require [clojure.string :as string]
-            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [|do return* return fail fail* |let]]))
+            [lux.base :as & :refer [|do return* return fail fail* |let |case]]))
 
 ;; [Utils]
 (defn ^:private with-line [body]
   (fn [state]
-    (matchv ::M/objects [(&/get$ &/$SOURCE state)]
-      [["lux;Nil" _]]
+    (|case (&/get$ &/$SOURCE state)
+      ("lux;Nil")
       (fail* "[Reader Error] EOF")
 
-      [["lux;Cons" [[[file-name line-num column-num] line]
-                    more]]]
-      (matchv ::M/objects [(body file-name line-num column-num line)]
-        [["No" msg]]
+      ("lux;Cons" [[file-name line-num column-num] line]
+       more)
+      (|case (body file-name line-num column-num line)
+        ("No" msg)
         (fail* msg)
 
-        [["Done" output]]
+        ("Done" output)
         (return* (&/set$ &/$SOURCE more state)
                  output)
 
-        [["Yes" [output line*]]]
+        ("Yes" output line*)
         (return* (&/set$ &/$SOURCE (&/|cons line* more) state)
                  output))
       )))
 
 (defn ^:private with-lines [body]
   (fn [state]
-    (matchv ::M/objects [(body (&/get$ &/$SOURCE state))]
-      [["lux;Right" [reader* match]]]
+    (|case (body (&/get$ &/$SOURCE state))
+      ("lux;Right" reader* match)
       (return* (&/set$ &/$SOURCE reader* state)
                match)
 
-      [["lux;Left" msg]]
+      ("lux;Left" msg)
       (fail* msg)
       )))
 
@@ -102,12 +102,12 @@
     (fn [reader]
       (loop [prefix ""
              reader* reader]
-        (matchv ::M/objects [reader*]
-          [["lux;Nil" _]]
+        (|case reader*
+          ("lux;Nil")
           (&/V "lux;Left" "[Reader Error] EOF")
 
-          [["lux;Cons" [[[file-name line-num column-num] ^String line]
-                        reader**]]]
+          ("lux;Cons" [[file-name line-num column-num] ^String line]
+           reader**)
           (if-let [^String match (do ;; (prn 'read-regex+ regex line)
                                      (re-find1! regex column-num line))]
             (let [match-length (.length match)

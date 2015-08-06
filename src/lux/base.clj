@@ -12,6 +12,7 @@
             clojure.core.match.array))
 
 ;; [Tags]
+(def $Nil "lux;Nil")
 (def $Cons "lux;Cons")
 
 ;; [Fields]
@@ -73,10 +74,33 @@
 (defn return* [state value]
   (V "lux;Right" (T state value)))
 
+(defn transform-pattern [pattern]
+  (cond (vector? pattern) (mapv transform-pattern pattern)
+        (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
+                         (vec (cons (eval (first pattern))
+                                    (list (case (count parts)
+                                            0 '_
+                                            1 (first parts)
+                                            ;; else
+                                            `[~@parts])))))
+        :else pattern
+        ))
+
+(defmacro |case [value & branches]
+  (assert (= 0 (mod (count branches) 2)))
+  (let [value* (if (vector? value)
+                 [`(T ~@value)]
+                 [value])]
+    `(matchv ::M/objects ~value*
+       ~@(mapcat (fn [[pattern body]]
+                   (list [(transform-pattern pattern)]
+                         body))
+                 (partition 2 branches)))))
+
 (defmacro |let [bindings body]
   (reduce (fn [inner [left right]]
-            `(matchv ::M/objects [~right]
-               [~left]
+            `(|case ~right
+               ~left
                ~inner))
           body
           (reverse (partition 2 bindings))))
@@ -94,59 +118,62 @@
           (reverse (partition 2 elems))))
 
 (defn |get [slot table]
-  (matchv ::M/objects [table]
-    [["lux;Nil" _]]
+  (|case table
+    ($Nil)
     nil
     
-    [["lux;Cons" [[k v] table*]]]
+    ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       v
       (|get slot table*))))
 
 (defn |put [slot value table]
-  (matchv ::M/objects [table]
-    [["lux;Nil" _]]
+  (|case table
+    ($Nil)
     (V "lux;Cons" (T (T slot value) (V "lux;Nil" nil)))
     
-    [["lux;Cons" [[k v] table*]]]
+    ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       (V "lux;Cons" (T (T slot value) table*))
-      (V "lux;Cons" (T (T k v) (|put slot value table*))))))
+      (V "lux;Cons" (T (T k v) (|put slot value table*))))
+
+    _
+    (assert false (prn-str '|put (aget table 0)))))
 
 (defn |remove [slot table]
-  (matchv ::M/objects [table]
-    [["lux;Nil" _]]
+  (|case table
+    ($Nil)
     table
     
-    [["lux;Cons" [[k v] table*]]]
+    ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       table*
       (V "lux;Cons" (T (T k v) (|remove slot table*))))))
 
 (defn |update [k f table]
-  (matchv ::M/objects [table]
-    [["lux;Nil" _]]
+  (|case table
+    ($Nil)
     table
 
-    [["lux;Cons" [[k* v] table*]]]
+    ($Cons [k* v] table*)
     (if (.equals ^Object k k*)
       (V "lux;Cons" (T (T k* (f v)) table*))
       (V "lux;Cons" (T (T k* v) (|update k f table*))))))
 
 (defn |head [xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     (assert false)
 
-    [["lux;Cons" [x _]]]
+    ($Cons x _)
     x))
 
 (defn |tail [xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     (assert false)
 
-    [["lux;Cons" [_ xs*]]]
+    ($Cons _ xs*)
     xs*))
 
 ;; [Resources/Monads]
@@ -161,11 +188,11 @@
 (defn bind [m-value step]
   (fn [state]
     (let [inputs (m-value state)]
-      (matchv ::M/objects [inputs]
-        [["lux;Right" [?state ?datum]]]
+      (|case inputs
+        ("lux;Right" ?state ?datum)
         ((step ?datum) ?state)
         
-        [["lux;Left" _]]
+        ("lux;Left" _)
         inputs
         ))))
 
@@ -177,8 +204,8 @@
               ;; else
               `(bind ~computation
                      (fn [val#]
-                       (matchv ::M/objects [val#]
-                         [~label]
+                       (|case val#
+                         ~label
                          ~inner)))))
           return
           (reverse (partition 2 steps))))
@@ -188,90 +215,90 @@
   (V "lux;Cons" (T head tail)))
 
 (defn |++ [xs ys]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     ys
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (V "lux;Cons" (T x (|++ xs* ys)))))
 
 (defn |map [f xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     xs
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (V "lux;Cons" (T (f x) (|map f xs*)))))
 
 (defn |empty? [xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     true
 
-    [["lux;Cons" [_ _]]]
+    ($Cons _ _)
     false))
 
 (defn |filter [p xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     xs
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (if (p x)
       (V "lux;Cons" (T x (|filter p xs*)))
       (|filter p xs*))))
 
 (defn flat-map [f xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     xs
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (|++ (f x) (flat-map f xs*))))
 
 (defn |split-with [p xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     (T xs xs)
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
         (T (|cons x pre) post))
       (T (V "lux;Nil" nil) xs))))
 
 (defn |contains? [k table]
-  (matchv ::M/objects [table]
-    [["lux;Nil" _]]
+  (|case table
+    ($Nil)
     false
 
-    [["lux;Cons" [[k* _] table*]]]
+    ($Cons [k* _] table*)
     (or (.equals ^Object k k*)
         (|contains? k table*))))
 
 (defn fold [f init xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     init
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (fold f (f init x) xs*)))
 
 (defn fold% [f init xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     (return init)
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (|do [init* (f init x)]
       (fold% f init* xs*))))
 
 (defn folds [f init xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     (|list init)
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (|cons init (folds f (f init x) xs*))))
 
 (defn |length [xs]
@@ -293,47 +320,47 @@
     _2))
 
 (defn zip2 [xs ys]
-  (matchv ::M/objects [xs ys]
-    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+  (|case [xs ys]
+    [($Cons x xs*) ($Cons y ys*)]
     (V "lux;Cons" (T (T x y) (zip2 xs* ys*)))
 
     [_ _]
     (V "lux;Nil" nil)))
 
 (defn |keys [plist]
-  (matchv ::M/objects [plist]
-    [["lux;Nil" _]]
+  (|case plist
+    ($Nil)
     (|list)
     
-    [["lux;Cons" [[k v] plist*]]]
+    ($Cons [k v] plist*)
     (|cons k (|keys plist*))))
 
 (defn |vals [plist]
-  (matchv ::M/objects [plist]
-    [["lux;Nil" _]]
+  (|case plist
+    ($Nil)
     (|list)
     
-    [["lux;Cons" [[k v] plist*]]]
+    ($Cons [k v] plist*)
     (|cons v (|vals plist*))))
 
 (defn |interpose [sep xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     xs
 
-    [["lux;Cons" [_ ["lux;Nil" _]]]]
+    ($Cons _ ($Nil))
     xs
     
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (V "lux;Cons" (T x (V "lux;Cons" (T sep (|interpose sep xs*)))))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
-    (matchv ::M/objects [xs]
-      [["lux;Nil" _]]
+    (|case xs
+      ($Nil)
       (return xs)
 
-      [["lux;Cons" [x xs*]]]
+      ($Cons x xs*)
       (|do [y (f x)
             ys (<name> f xs*)]
         (return (<joiner> y ys)))))
@@ -345,11 +372,11 @@
   (fold |++ (V "lux;Nil" nil) xss))
 
 (defn |as-pairs [xs]
-  (matchv ::M/objects [xs]
-    [["lux;Cons" [x ["lux;Cons" [y xs*]]]]]
+  (|case xs
+    ($Cons x ($Cons y xs*))
     (V "lux;Cons" (T (T x y) (|as-pairs xs*)))
 
-    [_]
+    _
     (V "lux;Nil" nil)))
 
 (defn |reverse [xs]
@@ -368,18 +395,18 @@
     (return* state state)))
 
 (defn try-all% [monads]
-  (matchv ::M/objects [monads]
-    [["lux;Nil" _]]
+  (|case monads
+    ($Nil)
     (fail "There are no alternatives to try!")
 
-    [["lux;Cons" [m monads*]]]
+    ($Cons m monads*)
     (fn [state]
       (let [output (m state)]
-        (matchv ::M/objects [output monads*]
-          [["lux;Right" _] _]
+        (|case [output monads*]
+          [("lux;Right" _) _]
           output
 
-          [_ ["lux;Nil" _]]
+          [_ ($Nil)]
           output
           
           [_ _]
@@ -395,11 +422,11 @@
 
 (defn exhaust% [step]
   (fn [state]
-    (matchv ::M/objects [(step state)]
-      [["lux;Right" [state* _]]]
+    (|case (step state)
+      ("lux;Right" state* _)
       ((exhaust% step) state*)
 
-      [["lux;Left" msg]]
+      ("lux;Left" msg)
       (if (.equals "[Reader Error] EOF" msg)
         (return* state nil)
         (fail* msg)))))
@@ -510,23 +537,23 @@
 
 (defn save-module [body]
   (fn [state]
-    (matchv ::M/objects [(body state)]
-      [["lux;Right" [state* output]]]
+    (|case (body state)
+      ("lux;Right" state* output)
       (return* (->> state*
                     (set$ $ENVS (get$ $ENVS state))
                     (set$ $SOURCE (get$ $SOURCE state)))
                output)
 
-      [["lux;Left" msg]]
+      ("lux;Left" msg)
       (fail* msg))))
 
 (defn with-eval [body]
   (fn [state]
-    (matchv ::M/objects [(body (set$ $EVAL? true state))]
-      [["lux;Right" [state* output]]]
+    (|case (body (set$ $EVAL? true state))
+      ("lux;Right" state* output)
       (return* (set$ $EVAL? (get$ $EVAL? state) state*) output)
 
-      [["lux;Left" msg]]
+      ("lux;Left" msg)
       (fail* msg))))
 
 (def get-eval
@@ -536,11 +563,11 @@
 (def get-writer
   (fn [state]
     (let [writer* (->> state (get$ $HOST) (get$ $WRITER))]
-      (matchv ::M/objects [writer*]
-        [["lux;Some" datum]]
+      (|case writer*
+        ("lux;Some" datum)
         (return* state datum)
 
-        [_]
+        _
         (fail* "Writer hasn't been set.")))))
 
 (def get-top-local-env
@@ -556,11 +583,11 @@
       (return* (set$ $SEED (inc seed) state) seed))))
 
 (defn ->seq [xs]
-  (matchv ::M/objects [xs]
-    [["lux;Nil" _]]
+  (|case xs
+    ($Nil)
     (list)
 
-    [["lux;Cons" [x xs*]]]
+    ($Cons x xs*)
     (cons x (->seq xs*))))
 
 (defn ->list [seq]
@@ -575,21 +602,21 @@
 
 (def get-module-name
   (fn [state]
-    (matchv ::M/objects [(|reverse (get$ $ENVS state))]
-      [["lux;Nil"]]
+    (|case (|reverse (get$ $ENVS state))
+      ($Nil)
       (fail* "[Analyser Error] Can't get the module-name without a module.")
 
-      [["lux;Cons" [?global _]]]
+      ($Cons ?global _)
       (return* state (get$ $NAME ?global)))))
 
 (defn with-scope [name body]
   (fn [state]
     (let [output (body (update$ $ENVS #(|cons (env name) %) state))]
-      (matchv ::M/objects [output]
-        [["lux;Right" [state* datum]]]
+      (|case output
+        ("lux;Right" state* datum)
         (return* (update$ $ENVS |tail state*) datum)
         
-        [_]
+        _
         output))))
 
 (defn run-state [monad state]
@@ -611,24 +638,24 @@
 (defn with-writer [writer body]
   (fn [state]
     (let [output (body (update$ $HOST #(set$ $WRITER (V "lux;Some" writer) %) state))]
-      (matchv ::M/objects [output]
-        [["lux;Right" [?state ?value]]]
+      (|case output
+        ("lux;Right" ?state ?value)
         (return* (update$ $HOST #(set$ $WRITER (->> state (get$ $HOST) (get$ $WRITER)) %) ?state)
                  ?value)
 
-        [_]
+        _
         output))))
 
 (defn with-expected-type [type body]
   "(All [a] (-> Type (Lux a)))"
   (fn [state]
     (let [output (body (set$ $EXPECTED type state))]
-      (matchv ::M/objects [output]
-        [["lux;Right" [?state ?value]]]
+      (|case output
+        ("lux;Right" ?state ?value)
         (return* (set$ $EXPECTED (get$ $EXPECTED state) ?state)
                  ?value)
 
-        [_]
+        _
         output))))
 
 (defn with-cursor [cursor body]
@@ -637,50 +664,50 @@
     body
     (fn [state]
       (let [output (body (set$ $cursor cursor state))]
-        (matchv ::M/objects [output]
-          [["lux;Right" [?state ?value]]]
+        (|case output
+          ("lux;Right" ?state ?value)
           (return* (set$ $cursor (get$ $cursor state) ?state)
                    ?value)
 
-          [_]
+          _
           output)))))
 
 (defn show-ast [ast]
-  (matchv ::M/objects [ast]
-    [["lux;Meta" [_ ["lux;BoolS" ?value]]]]
+  (|case ast
+    ("lux;Meta" _ ["lux;BoolS" ?value])
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;IntS" ?value]]]]
+    ("lux;Meta" _ ["lux;IntS" ?value])
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;RealS" ?value]]]]
+    ("lux;Meta" _ ["lux;RealS" ?value])
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;CharS" ?value]]]]
+    ("lux;Meta" _ ["lux;CharS" ?value])
     (pr-str ?value)
 
-    [["lux;Meta" [_ ["lux;TextS" ?value]]]]
+    ("lux;Meta" _ ["lux;TextS" ?value])
     (str "\"" ?value "\"")
 
-    [["lux;Meta" [_ ["lux;TagS" [?module ?tag]]]]]
+    ("lux;Meta" _ ["lux;TagS" ?module ?tag])
     (str "#" ?module ";" ?tag)
 
-    [["lux;Meta" [_ ["lux;SymbolS" [?module ?ident]]]]]
+    ("lux;Meta" _ ["lux;SymbolS" ?module ?ident])
     (if (.equals "" ?module)
       ?ident
       (str ?module ";" ?ident))
 
-    [["lux;Meta" [_ ["lux;TupleS" ?elems]]]]
+    ("lux;Meta" _ ["lux;TupleS" ?elems])
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    [["lux;Meta" [_ ["lux;RecordS" ?elems]]]]
+    ("lux;Meta" _ ["lux;RecordS" ?elems])
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
                             (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
-    [["lux;Meta" [_ ["lux;FormS" ?elems]]]]
+    ("lux;Meta" _ ["lux;FormS" ?elems])
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
     ))
 
@@ -689,57 +716,57 @@
     (str ?module ";" ?name)))
 
 (defn fold2% [f init xs ys]
-  (matchv ::M/objects [xs ys]
-    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+  (|case [xs ys]
+    [($Cons x xs*) ($Cons y ys*)]
     (|do [init* (f init x y)]
       (fold2% f init* xs* ys*))
 
-    [["lux;Nil" _] ["lux;Nil" _]]
+    [($Nil) ($Nil)]
     (return init)
 
     [_ _]
     (fail "Lists don't match in size.")))
 
 (defn map2% [f xs ys]
-  (matchv ::M/objects [xs ys]
-    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+  (|case [xs ys]
+    [($Cons x xs*) ($Cons y ys*)]
     (|do [z (f x y)
           zs (map2% f xs* ys*)]
       (return (|cons z zs)))
 
-    [["lux;Nil" _] ["lux;Nil" _]]
+    [($Nil) ($Nil)]
     (return (V "lux;Nil" nil))
 
     [_ _]
     (fail "Lists don't match in size.")))
 
 (defn map2 [f xs ys]
-  (matchv ::M/objects [xs ys]
-    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+  (|case [xs ys]
+    [($Cons x xs*) ($Cons y ys*)]
     (|cons (f x y) (map2 f xs* ys*))
 
     [_ _]
     (V "lux;Nil" nil)))
 
 (defn fold2 [f init xs ys]
-  (matchv ::M/objects [xs ys]
-    [["lux;Cons" [x xs*]] ["lux;Cons" [y ys*]]]
+  (|case [xs ys]
+    [($Cons x xs*) ($Cons y ys*)]
     (and init
          (fold2 f (f init x y) xs* ys*))
 
-    [["lux;Nil" _] ["lux;Nil" _]]
+    [($Nil) ($Nil)]
     init
 
     [_ _]
     false))
 
 (defn ^:private enumerate* [idx xs]
-  (matchv ::M/objects [xs]
-    [["lux;Cons" [x xs*]]]
+  (|case xs
+    ($Cons x xs*)
     (V "lux;Cons" (T (T idx x)
                      (enumerate* (inc idx) xs*)))
 
-    [["lux;Nil" _]]
+    ($Nil)
     xs
     ))
 

@@ -10,9 +10,9 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail*]]
+            (lux [base :as & :refer [|do return* return fail fail* |case]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -46,8 +46,8 @@
           (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
         (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-             (matchv ::M/objects [?name+?captured]
-               [[?name [["captured" [_ ?captured-id ?source]] _]]])
+             (|case ?name+?captured
+               [?name [("captured" _ ?captured-id ?source) _]])
              (doseq [?name+?captured (&/->seq env)])))
     (.visitInsn Opcodes/RETURN)
     (.visitMaxs 0 0)
@@ -83,8 +83,8 @@
                   (.visitTypeInsn Opcodes/NEW lambda-class)
                   (.visitInsn Opcodes/DUP))]
         _ (&/map% (fn [?name+?captured]
-                    (matchv ::M/objects [?name+?captured]
-                      [[?name [["captured" [_ _ ?source]] _]]]
+                    (|case ?name+?captured
+                      [?name [("captured" _ _ ?source) _]]
                       (compile ?source)))
                   closed-over)
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
@@ -101,8 +101,8 @@
                        (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
                              (.visitEnd))
                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-                                (matchv ::M/objects [?name+?captured]
-                                  [[?name [["captured" [_ ?captured-id ?source]] _]]])
+                                (|case ?name+?captured
+                                  [?name [("captured" _ ?captured-id ?source) _]])
                                 (doseq [?name+?captured (&/->seq ?env)])))
                        (add-lambda-apply class-name ?env)
                        (add-lambda-<init> class-name ?env)

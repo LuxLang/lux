@@ -11,9 +11,9 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail fail*]]
+            (lux [base :as & :refer [|let |do return* return fail fail* |case]]
                  [type :as &type]
                  [reader :as &reader]
                  [lexer :as &lexer]
@@ -38,327 +38,338 @@
 
 ;; [Utils/Compilers]
 (defn ^:private compile-expression [syntax]
-  (matchv ::M/objects [syntax]
-    [[?form ?type]]
-    (matchv ::M/objects [?form]
-      [["bool" ?value]]
+  (|let [[?form ?type] syntax]
+    (|case ?form
+      ("bool" ?value)
       (&&lux/compile-bool compile-expression ?type ?value)
 
-      [["int" ?value]]
+      ("int" ?value)
       (&&lux/compile-int compile-expression ?type ?value)
 
-      [["real" ?value]]
+      ("real" ?value)
       (&&lux/compile-real compile-expression ?type ?value)
 
-      [["char" ?value]]
+      ("char" ?value)
       (&&lux/compile-char compile-expression ?type ?value)
 
-      [["text" ?value]]
+      ("text" ?value)
       (&&lux/compile-text compile-expression ?type ?value)
 
-      [["tuple" ?elems]]
+      ("tuple" ?elems)
       (&&lux/compile-tuple compile-expression ?type ?elems)
 
-      [["record" ?elems]]
+      ("record" ?elems)
       (&&lux/compile-record compile-expression ?type ?elems)
 
-      [["lux;Local" ?idx]]
+      ("lux;Local" ?idx)
       (&&lux/compile-local compile-expression ?type ?idx)
 
-      [["captured" [?scope ?captured-id ?source]]]
+      ("captured" ?scope ?captured-id ?source)
       (&&lux/compile-captured compile-expression ?type ?scope ?captured-id ?source)
 
-      [["lux;Global" [?owner-class ?name]]]
+      ("lux;Global" ?owner-class ?name)
       (&&lux/compile-global compile-expression ?type ?owner-class ?name)
 
-      [["apply" [?fn ?args]]]
+      ("apply" ?fn ?args)
       (&&lux/compile-apply compile-expression ?type ?fn ?args)
 
-      [["variant" [?tag ?members]]]
+      ("variant" ?tag ?members)
       (&&lux/compile-variant compile-expression ?type ?tag ?members)
 
-      [["case" [?value ?match]]]
+      ("case" ?value ?match)
       (&&case/compile-case compile-expression ?type ?value ?match)
 
-      [["lambda" [?scope ?env ?body]]]
+      ("lambda" ?scope ?env ?body)
       (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
 
-      [["ann" [?value-ex ?type-ex]]]
+      ("ann" ?value-ex ?type-ex)
       (&&lux/compile-ann compile-expression ?type ?value-ex ?type-ex)
 
       ;; Characters
-      [["jvm-ceq" [?x ?y]]]
+      ("jvm-ceq" ?x ?y)
       (&&host/compile-jvm-ceq compile-expression ?type ?x ?y)
 
-      [["jvm-clt" [?x ?y]]]
+      ("jvm-clt" ?x ?y)
       (&&host/compile-jvm-clt compile-expression ?type ?x ?y)
 
-      [["jvm-cgt" [?x ?y]]]
+      ("jvm-cgt" ?x ?y)
       (&&host/compile-jvm-cgt compile-expression ?type ?x ?y)
       
       ;; Integer arithmetic
-      [["jvm-iadd" [?x ?y]]]
+      ("jvm-iadd" ?x ?y)
       (&&host/compile-jvm-iadd compile-expression ?type ?x ?y)
 
-      [["jvm-isub" [?x ?y]]]
+      ("jvm-isub" ?x ?y)
       (&&host/compile-jvm-isub compile-expression ?type ?x ?y)
       
-      [["jvm-imul" [?x ?y]]]
+      ("jvm-imul" ?x ?y)
       (&&host/compile-jvm-imul compile-expression ?type ?x ?y)
       
-      [["jvm-idiv" [?x ?y]]]
+      ("jvm-idiv" ?x ?y)
       (&&host/compile-jvm-idiv compile-expression ?type ?x ?y)
       
-      [["jvm-irem" [?x ?y]]]
+      ("jvm-irem" ?x ?y)
       (&&host/compile-jvm-irem compile-expression ?type ?x ?y)
 
-      [["jvm-ieq" [?x ?y]]]
+      ("jvm-ieq" ?x ?y)
       (&&host/compile-jvm-ieq compile-expression ?type ?x ?y)
 
-      [["jvm-ilt" [?x ?y]]]
+      ("jvm-ilt" ?x ?y)
       (&&host/compile-jvm-ilt compile-expression ?type ?x ?y)
 
-      [["jvm-igt" [?x ?y]]]
+      ("jvm-igt" ?x ?y)
       (&&host/compile-jvm-igt compile-expression ?type ?x ?y)
 
       ;; Long arithmetic
-      [["jvm-ladd" [?x ?y]]]
+      ("jvm-ladd" ?x ?y)
       (&&host/compile-jvm-ladd compile-expression ?type ?x ?y)
       
-      [["jvm-lsub" [?x ?y]]]
+      ("jvm-lsub" ?x ?y)
       (&&host/compile-jvm-lsub compile-expression ?type ?x ?y)
       
-      [["jvm-lmul" [?x ?y]]]
+      ("jvm-lmul" ?x ?y)
       (&&host/compile-jvm-lmul compile-expression ?type ?x ?y)
       
-      [["jvm-ldiv" [?x ?y]]]
+      ("jvm-ldiv" ?x ?y)
       (&&host/compile-jvm-ldiv compile-expression ?type ?x ?y)
       
-      [["jvm-lrem" [?x ?y]]]
+      ("jvm-lrem" ?x ?y)
       (&&host/compile-jvm-lrem compile-expression ?type ?x ?y)
 
-      [["jvm-leq" [?x ?y]]]
+      ("jvm-leq" ?x ?y)
       (&&host/compile-jvm-leq compile-expression ?type ?x ?y)
 
-      [["jvm-llt" [?x ?y]]]
+      ("jvm-llt" ?x ?y)
       (&&host/compile-jvm-llt compile-expression ?type ?x ?y)
 
-      [["jvm-lgt" [?x ?y]]]
+      ("jvm-lgt" ?x ?y)
       (&&host/compile-jvm-lgt compile-expression ?type ?x ?y)
 
       ;; Float arithmetic
-      [["jvm-fadd" [?x ?y]]]
+      ("jvm-fadd" ?x ?y)
       (&&host/compile-jvm-fadd compile-expression ?type ?x ?y)
       
-      [["jvm-fsub" [?x ?y]]]
+      ("jvm-fsub" ?x ?y)
       (&&host/compile-jvm-fsub compile-expression ?type ?x ?y)
       
-      [["jvm-fmul" [?x ?y]]]
+      ("jvm-fmul" ?x ?y)
       (&&host/compile-jvm-fmul compile-expression ?type ?x ?y)
       
-      [["jvm-fdiv" [?x ?y]]]
+      ("jvm-fdiv" ?x ?y)
       (&&host/compile-jvm-fdiv compile-expression ?type ?x ?y)
       
-      [["jvm-frem" [?x ?y]]]
+      ("jvm-frem" ?x ?y)
       (&&host/compile-jvm-frem compile-expression ?type ?x ?y)
 
-      [["jvm-feq" [?x ?y]]]
+      ("jvm-feq" ?x ?y)
       (&&host/compile-jvm-feq compile-expression ?type ?x ?y)
 
-      [["jvm-flt" [?x ?y]]]
+      ("jvm-flt" ?x ?y)
       (&&host/compile-jvm-flt compile-expression ?type ?x ?y)
 
-      [["jvm-fgt" [?x ?y]]]
+      ("jvm-fgt" ?x ?y)
       (&&host/compile-jvm-fgt compile-expression ?type ?x ?y)
 
       ;; Double arithmetic
-      [["jvm-dadd" [?x ?y]]]
+      ("jvm-dadd" ?x ?y)
       (&&host/compile-jvm-dadd compile-expression ?type ?x ?y)
       
-      [["jvm-dsub" [?x ?y]]]
+      ("jvm-dsub" ?x ?y)
       (&&host/compile-jvm-dsub compile-expression ?type ?x ?y)
       
-      [["jvm-dmul" [?x ?y]]]
+      ("jvm-dmul" ?x ?y)
       (&&host/compile-jvm-dmul compile-expression ?type ?x ?y)
       
-      [["jvm-ddiv" [?x ?y]]]
+      ("jvm-ddiv" ?x ?y)
       (&&host/compile-jvm-ddiv compile-expression ?type ?x ?y)
       
-      [["jvm-drem" [?x ?y]]]
+      ("jvm-drem" ?x ?y)
       (&&host/compile-jvm-drem compile-expression ?type ?x ?y)
 
-      [["jvm-deq" [?x ?y]]]
+      ("jvm-deq" ?x ?y)
       (&&host/compile-jvm-deq compile-expression ?type ?x ?y)
 
-      [["jvm-dlt" [?x ?y]]]
+      ("jvm-dlt" ?x ?y)
       (&&host/compile-jvm-dlt compile-expression ?type ?x ?y)
 
-      [["jvm-dgt" [?x ?y]]]
+      ("jvm-dgt" ?x ?y)
       (&&host/compile-jvm-dgt compile-expression ?type ?x ?y)
       
-      [["jvm-null" _]]
+      ("jvm-null" _)
       (&&host/compile-jvm-null compile-expression ?type)
 
-      [["jvm-null?" ?object]]
+      ("jvm-null?" ?object)
       (&&host/compile-jvm-null? compile-expression ?type ?object)
       
-      [["jvm-new" [?class ?classes ?args]]]
+      ("jvm-new" ?class ?classes ?args)
       (&&host/compile-jvm-new compile-expression ?type ?class ?classes ?args)
 
-      [["jvm-getstatic" [?class ?field]]]
+      ("jvm-getstatic" ?class ?field)
       (&&host/compile-jvm-getstatic compile-expression ?type ?class ?field)
 
-      [["jvm-getfield" [?class ?field ?object]]]
+      ("jvm-getfield" ?class ?field ?object)
       (&&host/compile-jvm-getfield compile-expression ?type ?class ?field ?object)
 
-      [["jvm-putstatic" [?class ?field ?value]]]
+      ("jvm-putstatic" ?class ?field ?value)
       (&&host/compile-jvm-putstatic compile-expression ?type ?class ?field ?value)
 
-      [["jvm-putfield" [?class ?field ?object ?value]]]
+      ("jvm-putfield" ?class ?field ?object ?value)
       (&&host/compile-jvm-putfield compile-expression ?type ?class ?field ?object ?value)
 
-      [["jvm-invokestatic" [?class ?method ?classes ?args]]]
+      ("jvm-invokestatic" ?class ?method ?classes ?args)
       (&&host/compile-jvm-invokestatic compile-expression ?type ?class ?method ?classes ?args)
 
-      [["jvm-invokevirtual" [?class ?method ?classes ?object ?args]]]
+      ("jvm-invokevirtual" ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokevirtual compile-expression ?type ?class ?method ?classes ?object ?args)
 
-      [["jvm-invokeinterface" [?class ?method ?classes ?object ?args]]]
+      ("jvm-invokeinterface" ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokeinterface compile-expression ?type ?class ?method ?classes ?object ?args)
 
-      [["jvm-invokespecial" [?class ?method ?classes ?object ?args]]]
+      ("jvm-invokespecial" ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokespecial compile-expression ?type ?class ?method ?classes ?object ?args)
       
-      [["jvm-new-array" [?class ?length]]]
+      ("jvm-new-array" ?class ?length)
       (&&host/compile-jvm-new-array compile-expression ?type ?class ?length)
 
-      [["jvm-aastore" [?array ?idx ?elem]]]
+      ("jvm-aastore" ?array ?idx ?elem)
       (&&host/compile-jvm-aastore compile-expression ?type ?array ?idx ?elem)
 
-      [["jvm-aaload" [?array ?idx]]]
+      ("jvm-aaload" ?array ?idx)
       (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx)
 
-      [["jvm-try" [?body ?catches ?finally]]]
+      ("jvm-try" ?body ?catches ?finally)
       (&&host/compile-jvm-try compile-expression ?type ?body ?catches ?finally)
 
-      [["jvm-throw" ?ex]]
+      ("jvm-throw" ?ex)
       (&&host/compile-jvm-throw compile-expression ?type ?ex)
 
-      [["jvm-monitorenter" ?monitor]]
+      ("jvm-monitorenter" ?monitor)
       (&&host/compile-jvm-monitorenter compile-expression ?type ?monitor)
 
-      [["jvm-monitorexit" ?monitor]]
+      ("jvm-monitorexit" ?monitor)
       (&&host/compile-jvm-monitorexit compile-expression ?type ?monitor)
 
-      [["jvm-d2f" ?value]]
+      ("jvm-d2f" ?value)
       (&&host/compile-jvm-d2f compile-expression ?type ?value)
 
-      [["jvm-d2i" ?value]]
+      ("jvm-d2i" ?value)
       (&&host/compile-jvm-d2i compile-expression ?type ?value)
 
-      [["jvm-d2l" ?value]]
+      ("jvm-d2l" ?value)
       (&&host/compile-jvm-d2l compile-expression ?type ?value)
       
-      [["jvm-f2d" ?value]]
+      ("jvm-f2d" ?value)
       (&&host/compile-jvm-f2d compile-expression ?type ?value)
 
-      [["jvm-f2i" ?value]]
+      ("jvm-f2i" ?value)
       (&&host/compile-jvm-f2i compile-expression ?type ?value)
 
-      [["jvm-f2l" ?value]]
+      ("jvm-f2l" ?value)
       (&&host/compile-jvm-f2l compile-expression ?type ?value)
       
-      [["jvm-i2b" ?value]]
+      ("jvm-i2b" ?value)
       (&&host/compile-jvm-i2b compile-expression ?type ?value)
 
-      [["jvm-i2c" ?value]]
+      ("jvm-i2c" ?value)
       (&&host/compile-jvm-i2c compile-expression ?type ?value)
 
-      [["jvm-i2d" ?value]]
+      ("jvm-i2d" ?value)
       (&&host/compile-jvm-i2d compile-expression ?type ?value)
 
-      [["jvm-i2f" ?value]]
+      ("jvm-i2f" ?value)
       (&&host/compile-jvm-i2f compile-expression ?type ?value)
 
-      [["jvm-i2l" ?value]]
+      ("jvm-i2l" ?value)
       (&&host/compile-jvm-i2l compile-expression ?type ?value)
 
-      [["jvm-i2s" ?value]]
+      ("jvm-i2s" ?value)
       (&&host/compile-jvm-i2s compile-expression ?type ?value)
 
-      [["jvm-l2d" ?value]]
+      ("jvm-l2d" ?value)
       (&&host/compile-jvm-l2d compile-expression ?type ?value)
 
-      [["jvm-l2f" ?value]]
+      ("jvm-l2f" ?value)
       (&&host/compile-jvm-l2f compile-expression ?type ?value)
 
-      [["jvm-l2i" ?value]]
+      ("jvm-l2i" ?value)
       (&&host/compile-jvm-l2i compile-expression ?type ?value)
 
-      [["jvm-iand" [?x ?y]]]
+      ("jvm-iand" ?x ?y)
       (&&host/compile-jvm-iand compile-expression ?type ?x ?y)
 
-      [["jvm-ior" [?x ?y]]]
+      ("jvm-ior" ?x ?y)
       (&&host/compile-jvm-ior compile-expression ?type ?x ?y)
 
-      [["jvm-land" [?x ?y]]]
+      ("jvm-ixor" ?x ?y)
+      (&&host/compile-jvm-ixor compile-expression ?type ?x ?y)
+
+      ("jvm-ishl" ?x ?y)
+      (&&host/compile-jvm-ishl compile-expression ?type ?x ?y)
+
+      ("jvm-ishr" ?x ?y)
+      (&&host/compile-jvm-ishr compile-expression ?type ?x ?y)
+
+      ("jvm-iushr" ?x ?y)
+      (&&host/compile-jvm-iushr compile-expression ?type ?x ?y)
+
+      ("jvm-land" ?x ?y)
       (&&host/compile-jvm-land compile-expression ?type ?x ?y)
 
-      [["jvm-lor" [?x ?y]]]
+      ("jvm-lor" ?x ?y)
       (&&host/compile-jvm-lor compile-expression ?type ?x ?y)
 
-      [["jvm-lxor" [?x ?y]]]
+      ("jvm-lxor" ?x ?y)
       (&&host/compile-jvm-lxor compile-expression ?type ?x ?y)
 
-      [["jvm-lshl" [?x ?y]]]
+      ("jvm-lshl" ?x ?y)
       (&&host/compile-jvm-lshl compile-expression ?type ?x ?y)
 
-      [["jvm-lshr" [?x ?y]]]
+      ("jvm-lshr" ?x ?y)
       (&&host/compile-jvm-lshr compile-expression ?type ?x ?y)
 
-      [["jvm-lushr" [?x ?y]]]
+      ("jvm-lushr" ?x ?y)
       (&&host/compile-jvm-lushr compile-expression ?type ?x ?y)
 
-      [["jvm-instanceof" [?class ?object]]]
+      ("jvm-instanceof" ?class ?object)
       (&&host/compile-jvm-instanceof compile-expression ?type ?class ?object)
       )
     ))
 
 (defn ^:private compile-statement [syntax]
-  (matchv ::M/objects [syntax]
-    [["def" [?name ?body]]]
+  (|case syntax
+    ("def" ?name ?body)
     (&&lux/compile-def compile-expression ?name ?body)
 
-    [["declare-macro" [?module ?name]]]
+    ("declare-macro" ?module ?name)
     (&&lux/compile-declare-macro compile-expression ?module ?name)
 
-    [["jvm-program" ?body]]
+    ("jvm-program" ?body)
     (&&host/compile-jvm-program compile-expression ?body)
     
-    [["jvm-interface" [?name ?supers ?methods]]]
+    ("jvm-interface" ?name ?supers ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
 
-    [["jvm-class" [?name ?super-class ?interfaces ?fields ?methods]]]
+    ("jvm-class" ?name ?super-class ?interfaces ?fields ?methods)
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)))
 
 (defn ^:private compile-token [syntax]
-  (matchv ::M/objects [syntax]
-    [["def" [?name ?body]]]
+  (|case syntax
+    ("def" ?name ?body)
     (&&lux/compile-def compile-expression ?name ?body)
 
-    [["declare-macro" [?module ?name]]]
+    ("declare-macro" ?module ?name)
     (&&lux/compile-declare-macro compile-expression ?module ?name)
 
-    [["jvm-program" ?body]]
+    ("jvm-program" ?body)
     (&&host/compile-jvm-program compile-expression ?body)
     
-    [["jvm-interface" [?name ?supers ?methods]]]
+    ("jvm-interface" ?name ?supers ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
 
-    [["jvm-class" [?name ?super-class ?interfaces ?fields ?methods]]]
+    ("jvm-class" ?name ?super-class ?interfaces ?fields ?methods)
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)
 
-    [_]
+    _
     (compile-expression syntax)))
 
 (defn ^:private eval! [expr]
@@ -413,10 +424,10 @@
                           ;; _ (prn 'compile-module name =class)
                           ]]
                 (fn [state]
-                  (matchv ::M/objects [((&/with-writer =class
-                                          (&/exhaust% compiler-step))
-                                        (&/set$ &/$SOURCE (&reader/from file-name file-content) state))]
-                    [["lux;Right" [?state _]]]
+                  (|case ((&/with-writer =class
+                            (&/exhaust% compiler-step))
+                          (&/set$ &/$SOURCE (&reader/from file-name file-content) state))
+                    ("lux;Right" ?state _)
                     (&/run-state (|do [defs &a-module/defs
                                        imports &a-module/imports
                                        :let [_ (doto =class
@@ -437,7 +448,7 @@
                                    (&&/save-class! "_" (.toByteArray =class)))
                                  ?state)
                     
-                    [["lux;Left" ?message]]
+                    ("lux;Left" ?message)
                     (fail* ?message)))))))
         ))
     ))
@@ -448,11 +459,11 @@
 ;; [Resources]
 (defn compile-program [program-module]
   (init!)
-  (matchv ::M/objects [((&/map% compile-module (&/|list "lux" program-module)) (&/init-state nil))]
-    [["lux;Right" [?state _]]]
+  (|case ((&/map% compile-module (&/|list "lux" program-module)) (&/init-state nil))
+    ("lux;Right" ?state _)
     (do (println "Compilation complete!")
       (&&cache/clean ?state)
       (&&package/package program-module))
 
-    [["lux;Left" ?message]]
+    ("lux;Left" ?message)
     (assert false ?message)))

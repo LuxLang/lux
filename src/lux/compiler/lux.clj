@@ -10,9 +10,9 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -138,8 +138,8 @@
 
 (defn ^:private compile-def-type [compile current-class ?body def-type]
   (|do [^MethodVisitor **writer** &/get-writer]
-    (matchv ::M/objects [def-type]
-      ["type"]
+    (|case def-type
+      "type"
       (|do [:let [;; ?type* (&&type/->analysis ?type)
                   _ (doto **writer**
                       ;; Tail: Begin
@@ -160,13 +160,13 @@
             ]
         (return nil))
 
-      ["value"]
+      "value"
       (|let [;; _ (prn '?body (aget ?body 0) (aget ?body 1 0))
-             ?def-type (matchv ::M/objects [?body]
-                         [[["ann" [?def-value ?type-expr]] ?def-type]]
+             ?def-type (|case ?body
+                         [("ann" ?def-value ?type-expr) ?def-type]
                          ?type-expr
 
-                         [[?def-value ?def-type]]
+                         [?def-value ?def-type]
                          (&&type/->analysis ?def-type))]
         (|do [:let [_ (doto **writer**
                         (.visitLdcInsn (int 2)) ;; S

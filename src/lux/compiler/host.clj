@@ -10,9 +10,9 @@
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -51,35 +51,35 @@
       double-class "java.lang.Double"
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
-    (matchv ::M/objects [*type*]
-      [["lux;TupleT" ["lux;Nil" _]]]
+    (|case *type*
+      ("lux;TupleT" ("lux;Nil"))
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      [["lux;DataT" "boolean"]]
+      ("lux;DataT" "boolean")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
       
-      [["lux;DataT" "byte"]]
+      ("lux;DataT" "byte")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class byte-class) "valueOf" (str "(B)" (&host/->type-signature byte-class)))
 
-      [["lux;DataT" "short"]]
+      ("lux;DataT" "short")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class short-class) "valueOf" (str "(S)" (&host/->type-signature short-class)))
 
-      [["lux;DataT" "int"]]
+      ("lux;DataT" "int")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class int-class) "valueOf" (str "(I)" (&host/->type-signature int-class)))
 
-      [["lux;DataT" "long"]]
+      ("lux;DataT" "long")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      [["lux;DataT" "float"]]
+      ("lux;DataT" "float")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class float-class) "valueOf" (str "(F)" (&host/->type-signature float-class)))
 
-      [["lux;DataT" "double"]]
+      ("lux;DataT" "double")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class double-class) "valueOf" (str "(D)" (&host/->type-signature double-class)))
 
-      [["lux;DataT" "char"]]
+      ("lux;DataT" "char")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
       
-      [["lux;DataT" _]]
+      ("lux;DataT" _)
       nil)
     *writer*))
 
@@ -413,16 +413,16 @@
               $to (new Label)
               $end (new Label)
               $catch-finally (new Label)
-              compile-finally (matchv ::M/objects [?finally]
-                                [["lux;Some" ?finally*]] (|do [_ (return nil)
-                                                               _ (compile ?finally*)
-                                                               :let [_ (doto *writer*
-                                                                         (.visitInsn Opcodes/POP)
-                                                                         (.visitJumpInsn Opcodes/GOTO $end))]]
-                                                           (return nil))
-                                [["lux;None" _]] (|do [_ (return nil)
-                                                       :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
-                                                   (return nil)))
+              compile-finally (|case ?finally
+                                ("lux;Some" ?finally*) (|do [_ (return nil)
+                                                             _ (compile ?finally*)
+                                                             :let [_ (doto *writer*
+                                                                       (.visitInsn Opcodes/POP)
+                                                                       (.visitJumpInsn Opcodes/GOTO $end))]]
+                                                         (return nil))
+                                ("lux;None") (|do [_ (return nil)
+                                                   :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
+                                               (return nil)))
               catch-boundaries (&/|map (fn [[?ex-class ?ex-idx ?catch-body]] [?ex-class (new Label) (new Label)])
                                        ?catches)
               _ (doseq [[?ex-class $handler-start $handler-end] (&/->seq catch-boundaries)
@@ -447,14 +447,14 @@
                           catch-boundaries)
         ;; :let [_ (prn 'handlers (&/->seq handlers))]
         :let [_ (.visitLabel *writer* $catch-finally)]
-        _ (matchv ::M/objects [?finally]
-            [["lux;Some" ?finally*]] (|do [_ (compile ?finally*)
-                                           :let [_ (.visitInsn *writer* Opcodes/POP)]
-                                           :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
-                                       (return nil))
-            [["lux;None" _]] (|do [_ (return nil)
-                                   :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
-                               (return nil)))
+        _ (|case ?finally
+            ("lux;Some" ?finally*) (|do [_ (compile ?finally*)
+                                         :let [_ (.visitInsn *writer* Opcodes/POP)]
+                                         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
+                                     (return nil))
+            ("lux;None") (|do [_ (return nil)
+                               :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
+                           (return nil)))
         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
@@ -533,11 +533,14 @@
 
   compile-jvm-iand  Opcodes/IAND  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
   compile-jvm-ior   Opcodes/IOR   "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  compile-jvm-ixor  Opcodes/IXOR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  compile-jvm-ishl  Opcodes/ISHL  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  compile-jvm-ishr  Opcodes/ISHR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  compile-jvm-iushr Opcodes/IUSHR "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
   
   compile-jvm-land  Opcodes/LAND  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
   compile-jvm-lor   Opcodes/LOR   "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
   compile-jvm-lxor  Opcodes/LXOR  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-
   compile-jvm-lshl  Opcodes/LSHL  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
   compile-jvm-lshr  Opcodes/LSHR  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
   compile-jvm-lushr Opcodes/LUSHR "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"

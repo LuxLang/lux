@@ -7,9 +7,9 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns lux.analyser.lambda
-  (:require [clojure.core.match :as M :refer [matchv]]
+  (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail]]
+            (lux [base :as & :refer [|let |do return fail |case]]
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [env :as &env])))
@@ -25,13 +25,12 @@
             (return (&/T scope-name =captured =return))))))))
 
 (defn close-over [scope name register frame]
-  (matchv ::M/objects [register]
-    [[_ register-type]]
-    (|let [register* (&/T (&/V "captured" (&/T scope
-                                               (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER))
-                                               register))
-                          register-type)]
-      (&/T register* (&/update$ &/$CLOSURE #(->> %
-                                                 (&/update$ &/$COUNTER inc)
-                                                 (&/update$ &/$MAPPINGS (fn [mps] (&/|put name register* mps))))
-                                frame)))))
+  (|let [[_ register-type] register
+         register* (&/T (&/V "captured" (&/T scope
+                                             (->> frame (&/get$ &/$CLOSURE) (&/get$ &/$COUNTER))
+                                             register))
+                        register-type)]
+    (&/T register* (&/update$ &/$CLOSURE #(->> %
+                                               (&/update$ &/$COUNTER inc)
+                                               (&/update$ &/$MAPPINGS (fn [mps] (&/|put name register* mps))))
+                              frame))))

@@ -9,9 +9,9 @@
 (ns lux.analyser.module
   (:refer-clojure :exclude [alias])
   (:require [clojure.string :as string]
-            [clojure.core.match :as M :refer [matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return return* fail fail*]]
+            (lux [base :as & :refer [|let |do return return* fail fail* |case]]
                  [type :as &type]
                  [host :as &host])
             [lux.analyser.base :as &&]))
@@ -44,8 +44,8 @@
 
 (defn define [module name def-data type]
   (fn [state]
-    (matchv ::M/objects [(&/get$ &/$ENVS state)]
-      [["lux;Cons" [?env ["lux;Nil" _]]]]
+    (|case (&/get$ &/$ENVS state)
+      ("lux;Cons" ?env ("lux;Nil"))
       (return* (->> state
                     (&/update$ &/$MODULES
                                (fn [ms]
@@ -57,7 +57,7 @@
                                             ms))))
                nil)
       
-      [_]
+      _
       (fail* (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name)))))
 
 (defn def-type [module name]
@@ -65,17 +65,17 @@
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
-        (matchv ::M/objects [$def]
-          [[_ ["lux;TypeD" _]]]
+        (|case $def
+          [_ ("lux;TypeD" _)]
           (return* state &type/Type)
 
-          [[_ ["lux;MacroD" _]]]
+          [_ ("lux;MacroD" _)]
           (return* state &type/Macro)
 
-          [[_ ["lux;ValueD" [_type _]]]]
+          [_ ("lux;ValueD" _type _)]
           (return* state _type)
 
-          [[_ ["lux;AliasD" [?r-module ?r-name]]]]
+          [_ ("lux;AliasD" ?r-module ?r-name)]
           (&/run-state (def-type ?r-module ?r-name)
                        state))
         (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
@@ -84,8 +84,8 @@
 (defn def-alias [a-module a-name r-module r-name type]
   ;; (prn 'def-alias [a-module a-name] [r-module r-name] (&type/show-type type))
   (fn [state]
-    (matchv ::M/objects [(&/get$ &/$ENVS state)]
-      [["lux;Cons" [?env ["lux;Nil" _]]]]
+    (|case (&/get$ &/$ENVS state)
+      ("lux;Cons" ?env ("lux;Nil"))
       (return* (->> state
                     (&/update$ &/$MODULES
                                (fn [ms]
@@ -97,7 +97,7 @@
                                             ms))))
                nil)
       
-      [_]
+      _
       (fail* "[Analyser Error] Can't alias a global definition outside of a global environment."))))
 
 (defn exists? [name]
@@ -133,17 +133,16 @@
       (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
         (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
             (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
-              (matchv ::M/objects [$def]
-                [[exported? $$def]]
+              (|let [[exported? $$def] $def]
                 (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
                     (if (or exported? (.equals ^Object current-module module))
-                      (matchv ::M/objects [$$def]
-                        [["lux;AliasD" [?r-module ?r-name]]]
+                      (|case $$def
+                        ("lux;AliasD" ?r-module ?r-name)
                         (do ;; (prn 'find-def/_2 [module name] [?r-module ?r-name])
                             ((find-def ?r-module ?r-name)
                              state))
 
-                        [_]
+                        _
                         (return* state (&/T (&/T module name) $$def)))
                       (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
               (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))))
@@ -158,8 +157,8 @@
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
       (if-let [$def (&/|get name $module)]
-        (matchv ::M/objects [$def]
-          [[exported? ["lux;ValueD" [?type _]]]]
+        (|case $def
+          [exported? ("lux;ValueD" ?type _)]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
                  :let [macro (-> (.loadClass loader (str (&host/->module-class module) "." (&/normalize-name name)))
@@ -178,24 +177,24 @@
                         nil)))
            state)
           
-          [[_ ["lux;MacroD" _]]]
+          [_ ("lux;MacroD" _)]
           (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))
 
-          [[_ _]]
+          [_ _]
           (fail* (str "[Analyser Error] Definition does not have macro type: " (str module &/+name-separator+ name))))
         (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
       (fail* (str "[Analyser Error] Module does not exist: " module)))))
 
 (defn export [module name]
   (fn [state]
-    (matchv ::M/objects [(&/get$ &/$ENVS state)]
-      [["lux;Cons" [?env ["lux;Nil" _]]]]
+    (|case (&/get$ &/$ENVS state)
+      ("lux;Cons" ?env ("lux;Nil"))
       (if-let [$def (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS) (&/|get name))]
-        (matchv ::M/objects [$def]
-          [[true _]]
+        (|case $def
+          [true _]
           (fail* (str "[Analyser Error] Definition has already been exported: " module ";" name))
 
-          [[false ?data]]
+          [false ?data]
           (return* (->> state
                         (&/update$ &/$MODULES (fn [ms]
                                                 (&/|update module (fn [m]
@@ -206,7 +205,7 @@
                    nil))
         (fail* (str "[Analyser Error] Can't export an inexistent definition: " (str module &/+name-separator+ name))))
       
-      [_]
+      _
       (fail* "[Analyser Error] Can't export a global definition outside of a global environment."))))
 
 (def defs
@@ -214,22 +213,20 @@
     (fn [state]
       (return* state
                (&/|map (fn [kv]
-                         (|let [[k v] kv]
-                           (matchv ::M/objects [v]
-                             [[?exported? ?def]]
-                             (do ;; (prn 'defs k ?exported?)
-                                 (matchv ::M/objects [?def]
-                                   [["lux;AliasD" [?r-module ?r-name]]]
-                                   (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
-                                   
-                                   [["lux;MacroD" _]]
-                                   (&/T ?exported? k "M")
+                         (|let [[k [?exported? ?def]] kv]
+                           (do ;; (prn 'defs k ?exported?)
+                               (|case ?def
+                                 ("lux;AliasD" ?r-module ?r-name)
+                                 (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
+                                 
+                                 ("lux;MacroD" _)
+                                 (&/T ?exported? k "M")
 
-                                   [["lux;TypeD" _]]
-                                   (&/T ?exported? k "T")
+                                 ("lux;TypeD" _)
+                                 (&/T ?exported? k "T")
 
-                                   [_]
-                                   (&/T ?exported? k "V"))))))
+                                 _
+                                 (&/T ?exported? k "V")))))
                        (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS)))))))
 
 (def imports

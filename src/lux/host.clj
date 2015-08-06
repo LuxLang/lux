@@ -9,9 +9,9 @@
 (ns lux.host
   (:require (clojure [string :as string]
                      [template :refer [do-template]])
-            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]))
   (:import (java.lang.reflect Field Method Modifier)))
 
@@ -68,14 +68,14 @@
     ))
 
 (defn ->java-sig [^objects type]
-  (matchv ::M/objects [type]
-    [["lux;DataT" ?name]]
+  (|case type
+    ("lux;DataT" ?name)
     (->type-signature ?name)
 
-    [["lux;LambdaT" [_ _]]]
+    ("lux;LambdaT" _ _)
     (->type-signature function-class)
 
-    [["lux;TupleT" ["lux;Nil" _]]]
+    ("lux;TupleT" ("lux;Nil"))
     "V"
     ))
 

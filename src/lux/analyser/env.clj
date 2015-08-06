@@ -7,9 +7,9 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns lux.analyser.env
-  (:require [clojure.core.match :as M :refer [matchv]]
+  (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return return* fail]])
+            (lux [base :as & :refer [|do return return* fail |case]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
@@ -31,8 +31,8 @@
                                                            (&/|head stack))
                                                 (&/|tail stack))))
                                    state))]
-      (matchv ::M/objects [=return]
-        [["lux;Right" [?state ?value]]]
+      (|case =return
+        ("lux;Right" ?state ?value)
         (return* (&/update$ &/$ENVS (fn [stack*]
                                       (&/|cons (&/update$ &/$LOCALS #(->> %
                                                                           (&/update$ &/$COUNTER dec)
@@ -42,7 +42,7 @@
                             ?state)
                  ?value)
         
-        [_]
+        _
         =return))))
 
 (def captured-vars

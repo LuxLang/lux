@@ -7,24 +7,23 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns lux.analyser.base
-  (:require [clojure.core.match :as M :refer [match matchv]]
+  (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail]]
+            (lux [base :as & :refer [|let |do return fail |case]]
                  [type :as &type])))
 
 ;; [Exports]
 (defn expr-type [syntax+]
-  (matchv ::M/objects [syntax+]
-    [[_ type]]
+  (|let [[_ type] syntax+]
     (return type)))
 
 (defn analyse-1 [analyse exo-type elem]
   (|do [output (analyse exo-type elem)]
-    (matchv ::M/objects [output]
-      [["lux;Cons" [x ["lux;Nil" _]]]]
+    (|case output
+      ("lux;Cons" x ("lux;Nil"))
       (return x)
 
-      [_]
+      _
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn resolved-ident [ident]
