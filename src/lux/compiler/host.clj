@@ -88,11 +88,11 @@
   (defn <name> [compile *type* ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
-          _ (compile ?y)
+          _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?x)
+          _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
@@ -130,11 +130,11 @@
   (defn <name> [compile *type* ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
+          _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?y)
+          _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
@@ -162,11 +162,11 @@
   (defn <name> [compile *type* ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
+          _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?y)
+          _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))

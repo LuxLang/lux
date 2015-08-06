@@ -286,53 +286,53 @@
 (defn ^:private aba4 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Float arithmetic
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fadd")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fadd")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-fadd analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fsub")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fsub")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-fsub analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fmul")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fmul")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-fmul analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fdiv")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fdiv")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-fdiv analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_frem")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_frem")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-frem analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_feq")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_feq")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-feq analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_flt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_flt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-flt analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fgt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_fgt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-fgt analyse exo-type ?x ?y)
 
     ;; Double arithmetic
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dadd")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dadd")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-dadd analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dsub")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dsub")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-dsub analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dmul")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dmul")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-dmul analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ddiv")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ddiv")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-ddiv analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_drem")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_drem")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-drem analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_deq")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_deq")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-deq analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dlt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dlt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-dlt analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dgt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_dgt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-dgt analyse exo-type ?x ?y)
     
     _
@@ -342,63 +342,63 @@
   (|case token
     ;; Host special forms
     ;; Characters
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ceq")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ceq")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-ceq analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_clt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_clt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-clt analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_cgt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_cgt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-cgt analyse exo-type ?x ?y)
     
     ;; Integer arithmetic
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_iadd")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_iadd")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-iadd analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_isub")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_isub")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-isub analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_imul")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_imul")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-imul analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_idiv")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_idiv")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-idiv analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_irem")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_irem")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-irem analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ieq")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ieq")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-ieq analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ilt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ilt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-ilt analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_igt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_igt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-igt analyse exo-type ?x ?y)
 
     ;; Long arithmetic
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ladd")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ladd")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-ladd analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lsub")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lsub")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-lsub analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lmul")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lmul")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-lmul analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ldiv")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_ldiv")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-ldiv analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lrem")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lrem")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-lrem analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_leq")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_leq")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-leq analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_llt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_llt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-llt analyse exo-type ?x ?y)
 
-    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lgt")) ("lux;Cons" ?y ("lux;Cons" ?x ("lux;Nil")))))
+    ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" _ "_jvm_lgt")) ("lux;Cons" ?x ("lux;Cons" ?y ("lux;Nil")))))
     (&&host/analyse-jvm-lgt analyse exo-type ?x ?y)
 
     _
