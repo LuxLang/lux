@@ -12,17 +12,22 @@
             clojure.core.match.array))
 
 ;; [Tags]
+;; List
 (def $Nil "lux;Nil")
 (def $Cons "lux;Cons")
 
+;; Maybe
 (def $None "lux;None")
 (def $Some "lux;Some")
 
+;; Meta
 (def $Meta "lux;Meta")
 
+;; Either
 (def $Left "lux;Left")
 (def $Right "lux;Right")
 
+;; AST
 (def $BoolS "lux;BoolS")
 (def $IntS "lux;IntS")
 (def $RealS "lux;RealS")
@@ -33,6 +38,18 @@
 (def $FormS "lux;FormS")
 (def $TupleS "lux;TupleS")
 (def $RecordS "lux;RecordS")
+
+;; Type
+(def $DataT "lux;DataT")
+(def $TupleT "lux;TupleT")
+(def $VariantT "lux;VariantT")
+(def $RecordT "lux;RecordT")
+(def $LambdaT "lux;LambdaT")
+(def $VarT "lux;VarT")
+(def $ExT "lux;ExT")
+(def $BoundT "lux;BoundT")
+(def $AppT "lux;AppT")
+(def $AllT "lux;AllT")
 
 ;; [Fields]
 ;; Binding
@@ -156,8 +173,9 @@
       (V $Cons (T (T slot value) table*))
       (V $Cons (T (T k v) (|put slot value table*))))
 
-    _
-    (assert false (prn-str '|put (aget table 0)))))
+    ;; _
+    ;; (assert false (prn-str '|put (aget table 0)))
+    ))
 
 (defn |remove [slot table]
   (|case table
@@ -541,7 +559,7 @@
    ;; "lux;eval?"
    false
    ;; "lux;expected"
-   (V "lux;VariantT" (|list))
+   (V $VariantT (|list))
    ;; "lux;host"
    (host nil)
    ;; "lux;modules"
@@ -677,7 +695,7 @@
         _
         output))))
 
-(defn with-cursor [cursor body]
+(defn with-cursor [^objects cursor body]
   "(All [a] (-> Cursor (Lux a)))"
   (if (= "" (aget cursor 0))
     body

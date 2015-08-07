@@ -50,7 +50,7 @@
     (write-file (str module-dir "/" name ".class") data)))
 
 ;; [Exports]
-(defn load-class! [^ClassLoader loader name]
+(defn ^Class load-class! [^ClassLoader loader name]
   ;; (prn 'load-class! name)
   (.loadClass loader name))
 

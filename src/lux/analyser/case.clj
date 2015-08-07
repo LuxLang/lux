@@ -21,12 +21,12 @@
 
 (defn ^:private resolve-type [type]
   (|case type
-    ("lux;VarT" ?id)
+    (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
                                      (fail "##9##")))]
       (resolve-type type*))
 
-    ("lux;AllT" _aenv _aname _aarg _abody)
+    (&/$AllT _aenv _aname _aarg _abody)
     ;; (&type/actual-type _abody)
     (|do [$var &type/existential
           =type (&type/apply-type type $var)]
@@ -42,64 +42,64 @@
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (Env Text Type)) Text Text Type)) Type (Lux Type))"
   (|case type
-    ("lux;AllT" _aenv _aname _aarg _abody)
+    (&/$AllT _aenv _aname _aarg _abody)
     (&type/with-var
       (fn [$var]
         (|do [=type (&type/apply-type type $var)]
           (adjust-type* (&/|cons (&/T _aenv _aname _aarg $var) up) =type))))
 
-    ("lux;TupleT" ?members)
-    (|do [("lux;TupleT" ?members*) (&/fold% (fn [_abody ena]
-                                              (|let [[_aenv _aname _aarg ["lux;VarT" _avar]] ena]
-                                                (|do [_ (&type/set-var _avar (&/V "lux;BoundT" _aarg))]
-                                                  (&type/clean* _avar _abody))))
-                                            type
-                                            up)]
-      (return (&/V "lux;TupleT" (&/|map (fn [v]
-                                          (&/fold (fn [_abody ena]
-                                                    (|let [[_aenv _aname _aarg _avar] ena]
-                                                      (&/V "lux;AllT" (&/T _aenv _aname _aarg _abody))))
-                                                  v
-                                                  up))
-                                        ?members*))))
+    (&/$TupleT ?members)
+    (|do [(&/$TupleT ?members*) (&/fold% (fn [_abody ena]
+                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
+                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                               (&type/clean* _avar _abody))))
+                                         type
+                                         up)]
+      (return (&/V &/$TupleT (&/|map (fn [v]
+                                       (&/fold (fn [_abody ena]
+                                                 (|let [[_aenv _aname _aarg _avar] ena]
+                                                   (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                               v
+                                               up))
+                                     ?members*))))
 
-    ("lux;RecordT" ?fields)
-    (|do [("lux;RecordT" ?fields*) (&/fold% (fn [_abody ena]
-                                              (|let [[_aenv _aname _aarg ["lux;VarT" _avar]] ena]
-                                                (|do [_ (&type/set-var _avar (&/V "lux;BoundT" _aarg))]
-                                                  (&type/clean* _avar _abody))))
-                                            type
-                                            up)]
-      (return (&/V "lux;RecordT" (&/|map (fn [kv]
-                                           (|let [[k v] kv]
-                                             (&/T k (&/fold (fn [_abody ena]
-                                                              (|let [[_aenv _aname _aarg _avar] ena]
-                                                                (&/V "lux;AllT" (&/T _aenv _aname _aarg _abody))))
-                                                            v
-                                                            up))))
-                                         ?fields*))))
+    (&/$RecordT ?fields)
+    (|do [(&/$RecordT ?fields*) (&/fold% (fn [_abody ena]
+                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
+                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                               (&type/clean* _avar _abody))))
+                                         type
+                                         up)]
+      (return (&/V &/$RecordT (&/|map (fn [kv]
+                                        (|let [[k v] kv]
+                                          (&/T k (&/fold (fn [_abody ena]
+                                                           (|let [[_aenv _aname _aarg _avar] ena]
+                                                             (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                                         v
+                                                         up))))
+                                      ?fields*))))
 
-    ("lux;VariantT" ?cases)
-    (|do [("lux;VariantT" ?cases*) (&/fold% (fn [_abody ena]
-                                              (|let [[_aenv _aname _aarg ["lux;VarT" _avar]] ena]
-                                                (|do [_ (&type/set-var _avar (&/V "lux;BoundT" _aarg))]
-                                                  (&type/clean* _avar _abody))))
-                                            type
-                                            up)]
-      (return (&/V "lux;VariantT" (&/|map (fn [kv]
-                                            (|let [[k v] kv]
-                                              (&/T k (&/fold (fn [_abody ena]
-                                                               (|let [[_aenv _aname _aarg _avar] ena]
-                                                                 (&/V "lux;AllT" (&/T _aenv _aname _aarg _abody))))
-                                                             v
-                                                             up))))
-                                          ?cases*))))
+    (&/$VariantT ?cases)
+    (|do [(&/$VariantT ?cases*) (&/fold% (fn [_abody ena]
+                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
+                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                               (&type/clean* _avar _abody))))
+                                         type
+                                         up)]
+      (return (&/V &/$VariantT (&/|map (fn [kv]
+                                         (|let [[k v] kv]
+                                           (&/T k (&/fold (fn [_abody ena]
+                                                            (|let [[_aenv _aname _aarg _avar] ena]
+                                                              (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                                          v
+                                                          up))))
+                                       ?cases*))))
 
-    ("lux;AppT" ?tfun ?targ)
+    (&/$AppT ?tfun ?targ)
     (|do [=type (&type/apply-type ?tfun ?targ)]
       (adjust-type* up =type))
 
-    ("lux;VarT" ?id)
+    (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
                                      (fail "##9##")))]
       (adjust-type* up type*))
@@ -153,7 +153,7 @@
       (|do [value-type* (adjust-type value-type)]
         (do ;; (prn 'PM/TUPLE-1 (&type/show-type value-type*))
             (|case value-type*
-              ("lux;TupleT" ?member-types)
+              (&/$TupleT ?member-types)
               (do ;; (prn 'PM/TUPLE-2 (&/|length ?member-types) (&/|length ?members))
                   (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
                     (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
@@ -176,7 +176,7 @@
             ;; value-type* (resolve-type value-type)
             ]
         (|case value-type*
-          ("lux;RecordT" ?slot-types)
+          (&/$RecordT ?slot-types)
           (if (not (.equals ^Object (&/|length ?slot-types) (&/|length ?slots)))
             (fail (str "[Analyser Error] Pattern-matching mismatch. Require record[" (&/|length ?slot-types) "]. Given record[" (&/|length ?slots) "]"))
             (|do [[=tests =kont] (&/fold (fn [kont* slot]
@@ -207,7 +207,7 @@
         (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
 
       (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
-                    ?values))
+                         ?values))
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
             case-type (&type/variant-case =tag value-type*)
@@ -341,7 +341,7 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          ("lux;TupleT" ?members)
+          (&/$TupleT ?members)
           (|do [totals (&/map2% (fn [sub-struct ?member]
                                   (check-totality ?member sub-struct))
                                 ?structs ?members)]
@@ -355,7 +355,7 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          ("lux;RecordT" ?fields)
+          (&/$RecordT ?fields)
           (|do [totals (&/map% (fn [field]
                                  (|let [[?tk ?tv] field]
                                    (if-let [sub-struct (&/|get ?tk ?structs)]
@@ -372,7 +372,7 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          ("lux;VariantT" ?cases)
+          (&/$VariantT ?cases)
           (|do [totals (&/map% (fn [case]
                                  (|let [[?tk ?tv] case]
                                    (if-let [sub-struct (&/|get ?tk ?structs)]

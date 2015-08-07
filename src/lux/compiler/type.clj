@@ -40,18 +40,18 @@
 (defn ->analysis [type]
   "(-> Type Analysis)"
   (|case type
-    ("lux;DataT" ?class)
-    (variant$ "lux;DataT" (text$ ?class))
+    (&/$DataT ?class)
+    (variant$ &/$DataT (text$ ?class))
     
-    ("lux;TupleT" ?members)
-    (variant$ "lux;TupleT"
+    (&/$TupleT ?members)
+    (variant$ &/$TupleT
               (&/fold (fn [tail head]
                         (Cons$ (->analysis head) tail))
                       $Nil
                       (&/|reverse ?members)))
 
-    ("lux;VariantT" ?cases)
-    (variant$ "lux;VariantT"
+    (&/$VariantT ?cases)
+    (variant$ &/$VariantT
               (&/fold (fn [tail head]
                         (|let [[hlabel htype] head]
                           (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
@@ -59,8 +59,8 @@
                       $Nil
                       (&/|reverse ?cases)))
 
-    ("lux;RecordT" ?slots)
-    (variant$ "lux;RecordT"
+    (&/$RecordT ?slots)
+    (variant$ &/$RecordT
               (&/fold (fn [tail head]
                         (|let [[hlabel htype] head]
                           (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
@@ -68,11 +68,11 @@
                       $Nil
                       (&/|reverse ?slots)))
 
-    ("lux;LambdaT" ?input ?output)
-    (variant$ "lux;LambdaT" (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
+    (&/$LambdaT ?input ?output)
+    (variant$ &/$LambdaT (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
 
-    ("lux;AllT" ?env ?name ?arg ?body)
-    (variant$ "lux;AllT"
+    (&/$AllT ?env ?name ?arg ?body)
+    (variant$ &/$AllT
               (tuple$ (&/|list (|case ?env
                                  (&/$None)
                                  (variant$ &/$None (tuple$ (&/|list)))
@@ -89,9 +89,9 @@
                                (text$ ?arg)
                                (->analysis ?body))))
 
-    ("lux;BoundT" ?name)
-    (variant$ "lux;BoundT" (text$ ?name))
+    (&/$BoundT ?name)
+    (variant$ &/$BoundT (text$ ?name))
 
-    ("lux;AppT" ?fun ?arg)
-    (variant$ "lux;AppT" (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
+    (&/$AppT ?fun ?arg)
+    (variant$ &/$AppT (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
     ))

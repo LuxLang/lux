@@ -29,7 +29,7 @@
                                             (.getSimpleName class)))]
     (if (.equals "void" base)
       (return &type/Unit)
-      (return (&/V "lux;DataT" (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
+      (return (&/V &/$DataT (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
                                     base)))
       )))
 
@@ -69,13 +69,13 @@
 
 (defn ->java-sig [^objects type]
   (|case type
-    ("lux;DataT" ?name)
+    (&/$DataT ?name)
     (->type-signature ?name)
 
-    ("lux;LambdaT" _ _)
+    (&/$LambdaT _ _)
     (->type-signature function-class)
 
-    ("lux;TupleT" (&/$Nil))
+    (&/$TupleT (&/$Nil))
     "V"
     ))
 

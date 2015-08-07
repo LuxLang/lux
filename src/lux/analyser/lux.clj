@@ -37,14 +37,14 @@
 (defn analyse-tuple [analyse exo-type ?elems]
   (|do [exo-type* (&type/actual-type exo-type)]
     (|case exo-type*
-      ("lux;TupleT" ?members)
+      (&/$TupleT ?members)
       (|do [=elems (&/map2% (fn [elem-t elem]
                               (&&/analyse-1 analyse elem-t elem))
                             ?members ?elems)]
         (return (&/|list (&/T (&/V "tuple" =elems)
                               exo-type))))
 
-      ("lux;AllT" _)
+      (&/$AllT _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
@@ -73,7 +73,7 @@
 
 (defn analyse-variant [analyse exo-type ident ?values]
   (|do [exo-type* (|case exo-type
-                    ("lux;VarT" ?id)
+                    (&/$VarT ?id)
                     (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
                                            (&type/actual-type exo-type*))
                                          (|do [_ (&type/set-var ?id &type/Type)]
@@ -82,7 +82,7 @@
                     _
                     (&type/actual-type exo-type))]
     (|case exo-type*
-      ("lux;VariantT" ?cases)
+      (&/$VariantT ?cases)
       (|do [?tag (&&/resolved-ident ident)]
         (if-let [vtype (&/|get ?tag ?cases)]
           (|do [=value (analyse-variant-body analyse vtype ?values)]
@@ -90,7 +90,7 @@
                                   exo-type))))
           (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
 
-      ("lux;AllT" _)
+      (&/$AllT _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
@@ -101,11 +101,11 @@
 
 (defn analyse-record [analyse exo-type ?elems]
   (|do [exo-type* (|case exo-type
-                    ("lux;VarT" ?id)
+                    (&/$VarT ?id)
                     (|do [exo-type* (&type/deref ?id)]
                       (&type/actual-type exo-type*))
 
-                    ("lux;AllT" _)
+                    (&/$AllT _)
                     (|do [$var &type/existential
                           =type (&type/apply-type exo-type $var)]
                       (&type/actual-type =type))
@@ -117,7 +117,7 @@
                     _
                     (&type/actual-type exo-type))
         types (|case exo-type*
-                ("lux;RecordT" ?table)
+                (&/$RecordT ?table)
                 (return ?table)
 
                 _
@@ -139,7 +139,7 @@
                            _
                            (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
                        ?elems)]
-    (return (&/|list (&/T (&/V "record" =slots) (&/V "lux;RecordT" exo-type))))))
+    (return (&/|list (&/T (&/V "record" =slots) (&/V &/$RecordT exo-type))))))
 
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] $def] (&&module/find-def module name)
@@ -238,7 +238,7 @@
     (&/$Cons ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
       (|case ?fun-type*
-        ("lux;AllT" _aenv _aname _aarg _abody)
+        (&/$AllT _aenv _aname _aarg _abody)
         ;; (|do [$var &type/existential
         ;;       type* (&type/apply-type ?fun-type* $var)]
         ;;   (analyse-apply* analyse exo-type type* ?args))
@@ -247,21 +247,21 @@
             (|do [type* (&type/apply-type ?fun-type* $var)
                   [=output-t =args] (analyse-apply* analyse exo-type type* ?args)]
               (|case $var
-                ("lux;VarT" ?id)
+                (&/$VarT ?id)
                 (|do [? (&type/bound? ?id)
                       type** (if ?
                                (&type/clean $var =output-t)
-                               (|do [_ (&type/set-var ?id (&/V "lux;BoundT" _aarg))]
+                               (|do [_ (&type/set-var ?id (&/V &/$BoundT _aarg))]
                                  (&type/clean $var =output-t)))]
                   (return (&/T type** =args)))
                 ))))
 
-        ("lux;LambdaT" ?input-t ?output-t)
+        (&/$LambdaT ?input-t ?output-t)
         (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
               =arg (&&/analyse-1 analyse ?input-t ?arg)]
           (return (&/T =output-t (&/|cons =arg =args))))
 
-        ;; [["lux;VarT" ?id-t]]
+        ;; [[&/$VarT ?id-t]]
         ;; (|do [ (&type/deref ?id-t)])
         
         _
@@ -314,7 +314,7 @@
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   (|do [exo-type* (&type/actual-type exo-type)]
     (|case exo-type
-      ("lux;AllT" _)
+      (&/$AllT _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
@@ -323,7 +323,7 @@
       ;;       exo-type** (&type/apply-type exo-type* $var)]
       ;;   (analyse-lambda* analyse exo-type** ?self ?arg ?body))
       
-      ("lux;LambdaT" ?arg-t ?return-t)
+      (&/$LambdaT ?arg-t ?return-t)
       (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
                                        ?arg ?arg-t
                                        (&&/analyse-1 analyse ?return-t ?body))]
@@ -335,26 +335,26 @@
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
   (|case exo-type
-    ("lux;AllT" _env _self _arg _body)
+    (&/$AllT _env _self _arg _body)
     (&type/with-var
       (fn [$var]
         (|do [exo-type* (&type/apply-type exo-type $var)
               [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
           (|case $var
-            ("lux;VarT" ?id)
+            (&/$VarT ?id)
             (|do [? (&type/bound? ?id)]
               (if ?
                 (|do [dtype (&type/deref ?id)
                       ;; dtype* (&type/actual-type dtype)
                       ]
                   (|case dtype
-                    ("lux;BoundT" ?vname)
+                    (&/$BoundT ?vname)
                     (return (&/T _expr exo-type))
                     
-                    ("lux;ExT" _)
+                    (&/$ExT _)
                     (return (&/T _expr exo-type))
 
-                    ("lux;VarT" ?_id)
+                    (&/$VarT ?_id)
                     (|do [?? (&type/bound? ?_id)]
                       ;; (return (&/T _expr exo-type))
                       (if ??

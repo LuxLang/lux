@@ -52,34 +52,34 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
     (|case *type*
-      ("lux;TupleT" (&/$Nil))
+      (&/$TupleT (&/$Nil))
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      ("lux;DataT" "boolean")
+      (&/$DataT "boolean")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
       
-      ("lux;DataT" "byte")
+      (&/$DataT "byte")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class byte-class) "valueOf" (str "(B)" (&host/->type-signature byte-class)))
 
-      ("lux;DataT" "short")
+      (&/$DataT "short")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class short-class) "valueOf" (str "(S)" (&host/->type-signature short-class)))
 
-      ("lux;DataT" "int")
+      (&/$DataT "int")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class int-class) "valueOf" (str "(I)" (&host/->type-signature int-class)))
 
-      ("lux;DataT" "long")
+      (&/$DataT "long")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      ("lux;DataT" "float")
+      (&/$DataT "float")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class float-class) "valueOf" (str "(F)" (&host/->type-signature float-class)))
 
-      ("lux;DataT" "double")
+      (&/$DataT "double")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class double-class) "valueOf" (str "(D)" (&host/->type-signature double-class)))
 
-      ("lux;DataT" "char")
+      (&/$DataT "char")
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
       
-      ("lux;DataT" _)
+      (&/$DataT _)
       nil)
     *writer*))
 

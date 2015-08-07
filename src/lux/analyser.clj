@@ -529,7 +529,7 @@
     (fn [?var]
       (|do [[?output-term ?output-type] (&&/analyse-1 analyser ?var syntax)]
         (|case [?var ?output-type]
-          [("lux;VarT" ?e-id) ("lux;VarT" ?a-id)]
+          [(&/$VarT ?e-id) (&/$VarT ?a-id)]
           (if (= ?e-id ?a-id)
             (|do [?output-type* (&type/deref ?e-id)]
               (return (&/T ?output-term ?output-type*)))
