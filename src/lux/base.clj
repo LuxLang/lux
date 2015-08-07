@@ -15,6 +15,25 @@
 (def $Nil "lux;Nil")
 (def $Cons "lux;Cons")
 
+(def $None "lux;None")
+(def $Some "lux;Some")
+
+(def $Meta "lux;Meta")
+
+(def $Left "lux;Left")
+(def $Right "lux;Right")
+
+(def $BoolS "lux;BoolS")
+(def $IntS "lux;IntS")
+(def $RealS "lux;RealS")
+(def $CharS "lux;CharS")
+(def $TextS "lux;TextS")
+(def $SymbolS "lux;SymbolS")
+(def $TagS "lux;TagS")
+(def $FormS "lux;FormS")
+(def $TupleS "lux;TupleS")
+(def $RecordS "lux;RecordS")
+
 ;; [Fields]
 ;; Binding
 (def $COUNTER 0)
@@ -69,10 +88,10 @@
            record#)))
 
 (defn fail* [message]
-  (V "lux;Left" message))
+  (V $Left message))
 
 (defn return* [state value]
-  (V "lux;Right" (T state value)))
+  (V $Right (T state value)))
 
 (defn transform-pattern [pattern]
   (cond (vector? pattern) (mapv transform-pattern pattern)
@@ -107,8 +126,8 @@
 
 (defmacro |list [& elems]
   (reduce (fn [tail head]
-            `(V "lux;Cons" (T ~head ~tail)))
-          `(V "lux;Nil" nil)
+            `(V $Cons (T ~head ~tail)))
+          `(V $Nil nil)
           (reverse elems)))
 
 (defmacro |table [& elems]
@@ -130,12 +149,12 @@
 (defn |put [slot value table]
   (|case table
     ($Nil)
-    (V "lux;Cons" (T (T slot value) (V "lux;Nil" nil)))
+    (V $Cons (T (T slot value) (V $Nil nil)))
     
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
-      (V "lux;Cons" (T (T slot value) table*))
-      (V "lux;Cons" (T (T k v) (|put slot value table*))))
+      (V $Cons (T (T slot value) table*))
+      (V $Cons (T (T k v) (|put slot value table*))))
 
     _
     (assert false (prn-str '|put (aget table 0)))))
@@ -148,7 +167,7 @@
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       table*
-      (V "lux;Cons" (T (T k v) (|remove slot table*))))))
+      (V $Cons (T (T k v) (|remove slot table*))))))
 
 (defn |update [k f table]
   (|case table
@@ -157,8 +176,8 @@
 
     ($Cons [k* v] table*)
     (if (.equals ^Object k k*)
-      (V "lux;Cons" (T (T k* (f v)) table*))
-      (V "lux;Cons" (T (T k* v) (|update k f table*))))))
+      (V $Cons (T (T k* (f v)) table*))
+      (V $Cons (T (T k* v) (|update k f table*))))))
 
 (defn |head [xs]
   (|case xs
@@ -179,20 +198,20 @@
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
-    (V "lux;Left" message)))
+    (V $Left message)))
 
 (defn return [value]
   (fn [state]
-    (V "lux;Right" (T state value))))
+    (V $Right (T state value))))
 
 (defn bind [m-value step]
   (fn [state]
     (let [inputs (m-value state)]
       (|case inputs
-        ("lux;Right" ?state ?datum)
+        ($Right ?state ?datum)
         ((step ?datum) ?state)
         
-        ("lux;Left" _)
+        ($Left _)
         inputs
         ))))
 
@@ -212,7 +231,7 @@
 
 ;; [Resources/Combinators]
 (defn |cons [head tail]
-  (V "lux;Cons" (T head tail)))
+  (V $Cons (T head tail)))
 
 (defn |++ [xs ys]
   (|case xs
@@ -220,7 +239,7 @@
     ys
 
     ($Cons x xs*)
-    (V "lux;Cons" (T x (|++ xs* ys)))))
+    (V $Cons (T x (|++ xs* ys)))))
 
 (defn |map [f xs]
   (|case xs
@@ -228,7 +247,7 @@
     xs
 
     ($Cons x xs*)
-    (V "lux;Cons" (T (f x) (|map f xs*)))))
+    (V $Cons (T (f x) (|map f xs*)))))
 
 (defn |empty? [xs]
   (|case xs
@@ -245,7 +264,7 @@
 
     ($Cons x xs*)
     (if (p x)
-      (V "lux;Cons" (T x (|filter p xs*)))
+      (V $Cons (T x (|filter p xs*)))
       (|filter p xs*))))
 
 (defn flat-map [f xs]
@@ -265,7 +284,7 @@
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
         (T (|cons x pre) post))
-      (T (V "lux;Nil" nil) xs))))
+      (T (V $Nil nil) xs))))
 
 (defn |contains? [k table]
   (|case table
@@ -306,8 +325,8 @@
 
 (let [|range* (fn |range* [from to]
                 (if (< from to)
-                  (V "lux;Cons" (T from (|range* (inc from) to)))
-                  (V "lux;Nil" nil)))]
+                  (V $Cons (T from (|range* (inc from) to)))
+                  (V $Nil nil)))]
   (defn |range [n]
     (|range* 0 n)))
 
@@ -322,10 +341,10 @@
 (defn zip2 [xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (V "lux;Cons" (T (T x y) (zip2 xs* ys*)))
+    (V $Cons (T (T x y) (zip2 xs* ys*)))
 
     [_ _]
-    (V "lux;Nil" nil)))
+    (V $Nil nil)))
 
 (defn |keys [plist]
   (|case plist
@@ -352,7 +371,7 @@
     xs
     
     ($Cons x xs*)
-    (V "lux;Cons" (T x (V "lux;Cons" (T sep (|interpose sep xs*)))))))
+    (V $Cons (T x (V $Cons (T sep (|interpose sep xs*)))))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
@@ -369,15 +388,15 @@
   flat-map% |++)
 
 (defn list-join [xss]
-  (fold |++ (V "lux;Nil" nil) xss))
+  (fold |++ (V $Nil nil) xss))
 
 (defn |as-pairs [xs]
   (|case xs
     ($Cons x ($Cons y xs*))
-    (V "lux;Cons" (T (T x y) (|as-pairs xs*)))
+    (V $Cons (T (T x y) (|as-pairs xs*)))
 
     _
-    (V "lux;Nil" nil)))
+    (V $Nil nil)))
 
 (defn |reverse [xs]
   (fold (fn [tail head]
@@ -403,7 +422,7 @@
     (fn [state]
       (let [output (m state)]
         (|case [output monads*]
-          [("lux;Right" _) _]
+          [($Right _) _]
           output
 
           [_ ($Nil)]
@@ -423,10 +442,10 @@
 (defn exhaust% [step]
   (fn [state]
     (|case (step state)
-      ("lux;Right" state* _)
+      ($Right state* _)
       ((exhaust% step) state*)
 
-      ("lux;Left" msg)
+      ($Left msg)
       (if (.equals "[Reader Error] EOF" msg)
         (return* state nil)
         (fail* msg)))))
@@ -512,7 +531,7 @@
      ;; "lux;loader"
      (memory-class-loader store)
      ;; "lux;writer"
-     (V "lux;None" nil))))
+     (V $None nil))))
 
 (defn init-state [_]
   (R ;; "lux;cursor"
@@ -530,7 +549,7 @@
    ;; "lux;seed"
    0
    ;; "lux;source"
-   (V "lux;None" nil)
+   (V $None nil)
    ;; "lux;types"
    +init-bindings+
    ))
@@ -538,22 +557,22 @@
 (defn save-module [body]
   (fn [state]
     (|case (body state)
-      ("lux;Right" state* output)
+      ($Right state* output)
       (return* (->> state*
                     (set$ $ENVS (get$ $ENVS state))
                     (set$ $SOURCE (get$ $SOURCE state)))
                output)
 
-      ("lux;Left" msg)
+      ($Left msg)
       (fail* msg))))
 
 (defn with-eval [body]
   (fn [state]
     (|case (body (set$ $EVAL? true state))
-      ("lux;Right" state* output)
+      ($Right state* output)
       (return* (set$ $EVAL? (get$ $EVAL? state) state*) output)
 
-      ("lux;Left" msg)
+      ($Left msg)
       (fail* msg))))
 
 (def get-eval
@@ -564,7 +583,7 @@
   (fn [state]
     (let [writer* (->> state (get$ $HOST) (get$ $WRITER))]
       (|case writer*
-        ("lux;Some" datum)
+        ($Some datum)
         (return* state datum)
 
         _
@@ -613,7 +632,7 @@
   (fn [state]
     (let [output (body (update$ $ENVS #(|cons (env name) %) state))]
       (|case output
-        ("lux;Right" state* datum)
+        ($Right state* datum)
         (return* (update$ $ENVS |tail state*) datum)
         
         _
@@ -637,9 +656,9 @@
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (update$ $HOST #(set$ $WRITER (V "lux;Some" writer) %) state))]
+    (let [output (body (update$ $HOST #(set$ $WRITER (V $Some writer) %) state))]
       (|case output
-        ("lux;Right" ?state ?value)
+        ($Right ?state ?value)
         (return* (update$ $HOST #(set$ $WRITER (->> state (get$ $HOST) (get$ $WRITER)) %) ?state)
                  ?value)
 
@@ -651,7 +670,7 @@
   (fn [state]
     (let [output (body (set$ $EXPECTED type state))]
       (|case output
-        ("lux;Right" ?state ?value)
+        ($Right ?state ?value)
         (return* (set$ $EXPECTED (get$ $EXPECTED state) ?state)
                  ?value)
 
@@ -665,7 +684,7 @@
     (fn [state]
       (let [output (body (set$ $cursor cursor state))]
         (|case output
-          ("lux;Right" ?state ?value)
+          ($Right ?state ?value)
           (return* (set$ $cursor (get$ $cursor state) ?state)
                    ?value)
 
@@ -674,40 +693,40 @@
 
 (defn show-ast [ast]
   (|case ast
-    ("lux;Meta" _ ["lux;BoolS" ?value])
+    ($Meta _ ($BoolS ?value))
     (pr-str ?value)
 
-    ("lux;Meta" _ ["lux;IntS" ?value])
+    ($Meta _ ($IntS ?value))
     (pr-str ?value)
 
-    ("lux;Meta" _ ["lux;RealS" ?value])
+    ($Meta _ ($RealS ?value))
     (pr-str ?value)
 
-    ("lux;Meta" _ ["lux;CharS" ?value])
+    ($Meta _ ($CharS ?value))
     (pr-str ?value)
 
-    ("lux;Meta" _ ["lux;TextS" ?value])
+    ($Meta _ ($TextS ?value))
     (str "\"" ?value "\"")
 
-    ("lux;Meta" _ ["lux;TagS" ?module ?tag])
+    ($Meta _ ($TagS ?module ?tag))
     (str "#" ?module ";" ?tag)
 
-    ("lux;Meta" _ ["lux;SymbolS" ?module ?ident])
+    ($Meta _ ($SymbolS ?module ?ident))
     (if (.equals "" ?module)
       ?ident
       (str ?module ";" ?ident))
 
-    ("lux;Meta" _ ["lux;TupleS" ?elems])
+    ($Meta _ ($TupleS ?elems))
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    ("lux;Meta" _ ["lux;RecordS" ?elems])
+    ($Meta _ ($RecordS ?elems))
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
                             (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
-    ("lux;Meta" _ ["lux;FormS" ?elems])
+    ($Meta _ ($FormS ?elems))
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
     ))
 
@@ -735,7 +754,7 @@
       (return (|cons z zs)))
 
     [($Nil) ($Nil)]
-    (return (V "lux;Nil" nil))
+    (return (V $Nil nil))
 
     [_ _]
     (fail "Lists don't match in size.")))
@@ -746,7 +765,7 @@
     (|cons (f x y) (map2 f xs* ys*))
 
     [_ _]
-    (V "lux;Nil" nil)))
+    (V $Nil nil)))
 
 (defn fold2 [f init xs ys]
   (|case [xs ys]
@@ -763,8 +782,8 @@
 (defn ^:private enumerate* [idx xs]
   (|case xs
     ($Cons x xs*)
-    (V "lux;Cons" (T (T idx x)
-                     (enumerate* (inc idx) xs*)))
+    (V $Cons (T (T idx x)
+                (enumerate* (inc idx) xs*)))
 
     ($Nil)
     xs

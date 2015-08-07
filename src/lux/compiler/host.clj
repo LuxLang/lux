@@ -52,7 +52,7 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
     (|case *type*
-      ("lux;TupleT" ("lux;Nil"))
+      ("lux;TupleT" (&/$Nil))
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
       ("lux;DataT" "boolean")
@@ -414,13 +414,13 @@
               $end (new Label)
               $catch-finally (new Label)
               compile-finally (|case ?finally
-                                ("lux;Some" ?finally*) (|do [_ (return nil)
+                                (&/$Some ?finally*) (|do [_ (return nil)
                                                              _ (compile ?finally*)
                                                              :let [_ (doto *writer*
                                                                        (.visitInsn Opcodes/POP)
                                                                        (.visitJumpInsn Opcodes/GOTO $end))]]
                                                          (return nil))
-                                ("lux;None") (|do [_ (return nil)
+                                (&/$None) (|do [_ (return nil)
                                                    :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
                                                (return nil)))
               catch-boundaries (&/|map (fn [[?ex-class ?ex-idx ?catch-body]] [?ex-class (new Label) (new Label)])
@@ -448,11 +448,11 @@
         ;; :let [_ (prn 'handlers (&/->seq handlers))]
         :let [_ (.visitLabel *writer* $catch-finally)]
         _ (|case ?finally
-            ("lux;Some" ?finally*) (|do [_ (compile ?finally*)
+            (&/$Some ?finally*) (|do [_ (compile ?finally*)
                                          :let [_ (.visitInsn *writer* Opcodes/POP)]
                                          :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
                                      (return nil))
-            ("lux;None") (|do [_ (return nil)
+            (&/$None) (|do [_ (return nil)
                                :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
                            (return nil)))
         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
@@ -564,7 +564,7 @@
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 0)) ;; VVI
-                      (.visitLdcInsn "lux;Nil") ;; VVIT
+                      (.visitLdcInsn &/$Nil) ;; VVIT
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
@@ -609,7 +609,7 @@
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; I2V
                       (.visitInsn Opcodes/DUP) ;; I2VV
                       (.visitLdcInsn (int 0)) ;; I2VVI
-                      (.visitLdcInsn "lux;Cons") ;; I2VVIT
+                      (.visitLdcInsn &/$Cons) ;; I2VVIT
                       (.visitInsn Opcodes/AASTORE) ;; I2V
                       (.visitInsn Opcodes/DUP_X1) ;; IV2V
                       (.visitInsn Opcodes/SWAP) ;; IVV2

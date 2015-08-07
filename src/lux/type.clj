@@ -24,26 +24,26 @@
 (def $Void (&/V "lux;VariantT" (&/|list)))
 
 (def IO
-  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "IO" "a"
+  (&/V "lux;AllT" (&/T (&/V &/$Some (&/V &/$Nil nil)) "IO" "a"
                        (&/V "lux;LambdaT" (&/T Unit (&/V "lux;BoundT" "a"))))))
 
 (def List
-  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;List" "a"
-                       (&/V "lux;VariantT" (&/|list (&/T "lux;Nil" Unit)
-                                                    (&/T "lux;Cons" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "a")
+  (&/V "lux;AllT" (&/T (&/V &/$Some (&/V &/$Nil nil)) "lux;List" "a"
+                       (&/V "lux;VariantT" (&/|list (&/T &/$Nil Unit)
+                                                    (&/T &/$Cons (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "a")
                                                                                                (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;List")
                                                                                                                     (&/V "lux;BoundT" "a")))))))))))
 
 (def Maybe
-  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;Maybe" "a"
-                       (&/V "lux;VariantT" (&/|list (&/T "lux;None" Unit)
-                                                    (&/T "lux;Some" (&/V "lux;BoundT" "a")))))))
+  (&/V "lux;AllT" (&/T (&/V &/$Some (&/V &/$Nil nil)) "lux;Maybe" "a"
+                       (&/V "lux;VariantT" (&/|list (&/T &/$None Unit)
+                                                    (&/T &/$Some (&/V "lux;BoundT" "a")))))))
 
 (def Type
   (let [Type (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Type") (&/V "lux;BoundT" "_")))
         TypeEnv (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Type))))
         TypePair (&/V "lux;TupleT" (&/|list Type Type))]
-    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "Type" "_"
+    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V &/$Some (&/V &/$Nil nil)) "Type" "_"
                                               (&/V "lux;VariantT" (&/|list (&/T "lux;DataT" Text)
                                                                            (&/T "lux;TupleT" (&/V "lux;AppT" (&/T List Type)))
                                                                            (&/T "lux;VariantT" TypeEnv)
@@ -58,7 +58,7 @@
                          $Void))))
 
 (defn fAll [name arg body]
-  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) name arg body)))
+  (&/V "lux;AllT" (&/T (&/V &/$None nil) name arg body)))
 
 (def Bindings
   (fAll "lux;Bindings" "k"
@@ -84,9 +84,9 @@
   (&/V "lux;TupleT" (&/|list Text Int Int)))
 
 (def Meta
-  (fAll "lux;Meta" "m"
+  (fAll &/$Meta "m"
         (fAll "" "v"
-              (&/V "lux;VariantT" (&/|list (&/T "lux;Meta" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
+              (&/V "lux;VariantT" (&/|list (&/T &/$Meta (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
                                                                                       (&/V "lux;BoundT" "v")))))))))
 
 (def Ident (&/V "lux;TupleT" (&/|list Text Text)))
@@ -97,16 +97,16 @@
                                                           (&/V "lux;BoundT" "w")))))
         AST*List (&/V "lux;AppT" (&/T List AST*))]
     (fAll "lux;AST'" "w"
-          (&/V "lux;VariantT" (&/|list (&/T "lux;BoolS" Bool)
-                                       (&/T "lux;IntS" Int)
-                                       (&/T "lux;RealS" Real)
-                                       (&/T "lux;CharS" Char)
-                                       (&/T "lux;TextS" Text)
-                                       (&/T "lux;SymbolS" Ident)
-                                       (&/T "lux;TagS" Ident)
-                                       (&/T "lux;FormS" AST*List)
-                                       (&/T "lux;TupleS" AST*List)
-                                       (&/T "lux;RecordS" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list AST* AST*))))))
+          (&/V "lux;VariantT" (&/|list (&/T &/$BoolS Bool)
+                                       (&/T &/$IntS Int)
+                                       (&/T &/$RealS Real)
+                                       (&/T &/$CharS Char)
+                                       (&/T &/$TextS Text)
+                                       (&/T &/$SymbolS Ident)
+                                       (&/T &/$TagS Ident)
+                                       (&/T &/$FormS AST*List)
+                                       (&/T &/$TupleS AST*List)
+                                       (&/T &/$RecordS (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list AST* AST*))))))
                ))))
 
 (def AST
@@ -118,8 +118,8 @@
 (def Either
   (fAll "lux;Either" "l"
         (fAll "" "r"
-              (&/V "lux;VariantT" (&/|list (&/T "lux;Left" (&/V "lux;BoundT" "l"))
-                                           (&/T "lux;Right" (&/V "lux;BoundT" "r")))))))
+              (&/V "lux;VariantT" (&/|list (&/T &/$Left (&/V "lux;BoundT" "l"))
+                                           (&/T &/$Right (&/V "lux;BoundT" "r")))))))
 
 (def StateE
   (fAll "lux;StateE" "s"
@@ -192,10 +192,10 @@
   (fn [state]
     (if-let [type (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
       (|case type
-        ("lux;Some" type*)
+        (&/$Some type*)
         (return* state true)
         
-        ("lux;None")
+        (&/$None)
         (return* state false))
       (fail* (str "[Type Error] <bound?> Unknown type-var: " id)))))
 
@@ -203,10 +203,10 @@
   (fn [state]
     (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
       (|case type*
-        ("lux;Some" type)
+        (&/$Some type)
         (return* state type)
         
-        ("lux;None")
+        (&/$None)
         (fail* (str "[Type Error] Unbound type-var: " id)))
       (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))
 
@@ -214,11 +214,11 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
       (|case tvar
-        ("lux;Some" bound)
+        (&/$Some bound)
         (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
         
-        ("lux;None")
-        (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V "lux;Some" type) %)
+        (&/$None)
+        (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V &/$Some type) %)
                                                         ts))
                             state)
                  nil))
@@ -231,7 +231,7 @@
     (let [id (->> state (&/get$ &/$TYPES) (&/get$ &/$COUNTER))]
       (return* (&/update$ &/$TYPES #(->> %
                                          (&/update$ &/$COUNTER inc)
-                                         (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
+                                         (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V &/$None nil) ms))))
                           state)
                id))))
 
@@ -252,19 +252,19 @@
                                    (if (.equals ^Object id ?id)
                                      (return binding)
                                      (|case ?type
-                                       ("lux;None")
+                                       (&/$None)
                                        (return binding)
 
-                                       ("lux;Some" ?type*)
+                                       (&/$Some ?type*)
                                        (|case ?type*
                                          ("lux;VarT" ?id*)
                                          (if (.equals ^Object id ?id*)
-                                           (return (&/T ?id (&/V "lux;None" nil)))
+                                           (return (&/T ?id (&/V &/$None nil)))
                                            (return binding))
 
                                          _
                                          (|do [?type** (clean* id ?type*)]
-                                           (return (&/T ?id (&/V "lux;Some" ?type**)))))
+                                           (return (&/T ?id (&/V &/$Some ?type**)))))
                                        ))))
                                (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
          (fn [state]
@@ -324,15 +324,15 @@
 
     ("lux;AllT" ?env ?name ?arg ?body)
     (|do [=env (|case ?env
-                 ("lux;None")
+                 (&/$None)
                  (return ?env)
 
-                 ("lux;Some" ?env*)
+                 (&/$Some ?env*)
                  (|do [clean-env (&/map% (fn [[k v]]
                                            (|do [=v (clean* ?tid v)]
                                              (return (&/T k =v))))
                                          ?env*)]
-                   (return (&/V "lux;Some" clean-env))))
+                   (return (&/V &/$Some clean-env))))
           body* (clean* ?tid ?body)]
       (return (&/V "lux;AllT" (&/T =env ?name ?arg body*))))
 
@@ -382,7 +382,7 @@
       (str "(| " (->> cases
                       (&/|map (fn [kv]
                                 (|case kv
-                                  [k ("lux;TupleT" ("lux;Nil"))]
+                                  [k ("lux;TupleT" (&/$Nil))]
                                   (str "#" k)
 
                                   [k v]
@@ -479,10 +479,10 @@
                      (and (.equals ^Object xname yname)
                           (.equals ^Object xarg yarg)
                           ;; (matchv ::M/objects [xenv yenv]
-                          ;;   [["lux;None" _] ["lux;None" _]]
+                          ;;   [[&/$None _] [&/$None _]]
                           ;;   true
 
-                          ;;   [["lux;Some" xenv*] ["lux;Some" yenv*]]
+                          ;;   [[&/$Some xenv*] [&/$Some yenv*]]
                           ;;   (&/fold (fn [old bname]
                           ;;             (and old
                           ;;                  (type= (&/|get bname xenv*) (&/|get bname yenv*))))
@@ -502,13 +502,13 @@
 (defn ^:private fp-get [k fixpoints]
   (|let [[e a] k]
     (|case fixpoints
-      ("lux;Nil")
-      (&/V "lux;None" nil)
+      (&/$Nil)
+      (&/V &/$None nil)
 
-      ("lux;Cons" [[e* a*] v*] fixpoints*)
+      (&/$Cons [[e* a*] v*] fixpoints*)
       (if (and (type= e e*)
                (type= a a*))
-        (&/V "lux;Some" v*)
+        (&/V &/$Some v*)
         (fp-get k fixpoints*))
       )))
 
@@ -542,10 +542,10 @@
 
     ("lux;AllT" ?local-env ?local-name ?local-arg ?local-def)
     (|case ?local-env
-      ("lux;None")
-      (&/V "lux;AllT" (&/T (&/V "lux;Some" env) ?local-name ?local-arg ?local-def))
+      (&/$None)
+      (&/V "lux;AllT" (&/T (&/V &/$Some env) ?local-name ?local-arg ?local-def))
 
-      ("lux;Some" _)
+      (&/$Some _)
       type)
 
     ("lux;LambdaT" ?input ?output)
@@ -564,10 +564,10 @@
   (|case type-fn
     ("lux;AllT" local-env local-name local-arg local-def)
     (let [local-env* (|case local-env
-                       ("lux;None")
+                       (&/$None)
                        (&/|table)
 
-                       ("lux;Some" local-env*)
+                       (&/$Some local-env*)
                        local-env*)]
       (return (beta-reduce (->> local-env*
                                 (&/|put local-name type-fn)
@@ -607,39 +607,39 @@
         (return (&/T fixpoints nil))
         (|do [ebound (fn [state]
                        (|case ((deref ?eid) state)
-                         ("lux;Right" state* ebound)
-                         (return* state* (&/V "lux;Some" ebound))
+                         (&/$Right state* ebound)
+                         (return* state* (&/V &/$Some ebound))
 
-                         ("lux;Left" _)
-                         (return* state (&/V "lux;None" nil))))
+                         (&/$Left _)
+                         (return* state (&/V &/$None nil))))
               abound (fn [state]
                        (|case ((deref ?aid) state)
-                         ("lux;Right" state* abound)
-                         (return* state* (&/V "lux;Some" abound))
+                         (&/$Right state* abound)
+                         (return* state* (&/V &/$Some abound))
 
-                         ("lux;Left" _)
-                         (return* state (&/V "lux;None" nil))))]
+                         (&/$Left _)
+                         (return* state (&/V &/$None nil))))]
           (|case [ebound abound]
-            [("lux;None" _) ("lux;None" _)]
+            [(&/$None _) (&/$None _)]
             (|do [_ (set-var ?eid actual)]
               (return (&/T fixpoints nil)))
             
-            [("lux;Some" etype) ("lux;None" _)]
+            [(&/$Some etype) (&/$None _)]
             (check* class-loader fixpoints etype actual)
 
-            [("lux;None" _) ("lux;Some" atype)]
+            [(&/$None _) (&/$Some atype)]
             (check* class-loader fixpoints expected atype)
 
-            [("lux;Some" etype) ("lux;Some" atype)]
+            [(&/$Some etype) (&/$Some atype)]
             (check* class-loader fixpoints etype atype))))
       
       [("lux;VarT" ?id) _]
       (fn [state]
         (|case ((set-var ?id actual) state)
-          ("lux;Right" state* _)
+          (&/$Right state* _)
           (return* state* (&/T fixpoints nil))
 
-          ("lux;Left" _)
+          (&/$Left _)
           ((|do [bound (deref ?id)]
              (check* class-loader fixpoints bound actual))
            state)))
@@ -647,10 +647,10 @@
       [_ ("lux;VarT" ?id)]
       (fn [state]
         (|case ((set-var ?id expected) state)
-          ("lux;Right" state* _)
+          (&/$Right state* _)
           (return* state* (&/T fixpoints nil))
 
-          ("lux;Left" _)
+          (&/$Left _)
           ((|do [bound (deref ?id)]
              (check* class-loader fixpoints expected bound))
            state)))
@@ -662,24 +662,24 @@
                     (|case [((|do [F2 (deref ?aid)]
                                (check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
                              state)]
-                      ("lux;Right" state* output)
+                      (&/$Right state* output)
                       (return* state* output)
 
-                      ("lux;Left" _)
+                      (&/$Left _)
                       ((check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual)
                        state))))
                 state)
-          ("lux;Right" state* output)
+          (&/$Right state* output)
           (return* state* output)
 
-          ("lux;Left" _)
+          (&/$Left _)
           (|case ((|do [F2 (deref ?aid)]
                     (check* class-loader fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
                   state)
-            ("lux;Right" state* output)
+            (&/$Right state* output)
             (return* state* output)
 
-            ("lux;Left" _)
+            (&/$Left _)
             ((|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
                    [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
                (return (&/T fixpoints** nil)))
@@ -693,10 +693,10 @@
         (|case ((|do [F1 (deref ?id)]
                   (check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
                 state)
-          ("lux;Right" state* output)
+          (&/$Right state* output)
           (return* state* output)
 
-          ("lux;Left" _)
+          (&/$Left _)
           ((|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?id) F2)
                  e* (apply-type F2 A1)
                  a* (apply-type F2 A2)
@@ -715,10 +715,10 @@
         (|case ((|do [F2 (deref ?id)]
                   (check* class-loader fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
                 state)
-          ("lux;Right" state* output)
+          (&/$Right state* output)
           (return* state* output)
 
-          ("lux;Left" _)
+          (&/$Left _)
           ((|do [[fixpoints* _] (check* class-loader fixpoints F1 (&/V "lux;VarT" ?id))
                  e* (apply-type F1 A1)
                  a* (apply-type F1 A2)
@@ -744,12 +744,12 @@
                                          (&/fold str "")))
                 (assert false))]
         (|case (fp-get fp-pair fixpoints)
-          ("lux;Some" ?)
+          (&/$Some ?)
           (if ?
             (return (&/T fixpoints nil))
             (fail (check-error expected actual)))
 
-          ("lux;None")
+          (&/$None)
           (|do [expected* (apply-type F A)]
             (check* class-loader (fp-put fp-pair true fixpoints) expected* actual))))
 

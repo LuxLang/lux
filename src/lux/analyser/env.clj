@@ -32,7 +32,7 @@
                                                 (&/|tail stack))))
                                    state))]
       (|case =return
-        ("lux;Right" ?state ?value)
+        (&/$Right ?state ?value)
         (return* (&/update$ &/$ENVS (fn [stack*]
                                       (&/|cons (&/update$ &/$LOCALS #(->> %
                                                                           (&/update$ &/$COUNTER dec)

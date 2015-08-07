@@ -30,11 +30,11 @@
 
 (def ^:private $Nil
   "Analysis"
-  (variant$ "lux;Nil" (tuple$ (&/|list))))
+  (variant$ &/$Nil (tuple$ (&/|list))))
 
 (defn ^:private Cons$ [head tail]
   "(-> Analysis Analysis Analysis)"
-  (variant$ "lux;Cons" (tuple$ (&/|list head tail))))
+  (variant$ &/$Cons (tuple$ (&/|list head tail))))
 
 ;; [Exports]
 (defn ->analysis [type]
@@ -74,11 +74,11 @@
     ("lux;AllT" ?env ?name ?arg ?body)
     (variant$ "lux;AllT"
               (tuple$ (&/|list (|case ?env
-                                 ("lux;None")
-                                 (variant$ "lux;None" (tuple$ (&/|list)))
+                                 (&/$None)
+                                 (variant$ &/$None (tuple$ (&/|list)))
 
-                                 ("lux;Some" ??env)
-                                 (variant$ "lux;Some"
+                                 (&/$Some ??env)
+                                 (variant$ &/$Some
                                            (&/fold (fn [tail head]
                                                      (|let [[hlabel htype] head]
                                                        (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))

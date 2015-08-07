@@ -16,10 +16,10 @@
 (defn ^:private with-line [body]
   (fn [state]
     (|case (&/get$ &/$SOURCE state)
-      ("lux;Nil")
+      (&/$Nil)
       (fail* "[Reader Error] EOF")
 
-      ("lux;Cons" [[file-name line-num column-num] line]
+      (&/$Cons [[file-name line-num column-num] line]
        more)
       (|case (body file-name line-num column-num line)
         ("No" msg)
@@ -37,11 +37,11 @@
 (defn ^:private with-lines [body]
   (fn [state]
     (|case (body (&/get$ &/$SOURCE state))
-      ("lux;Right" reader* match)
+      (&/$Right reader* match)
       (return* (&/set$ &/$SOURCE reader* state)
                match)
 
-      ("lux;Left" msg)
+      (&/$Left msg)
       (fail* msg)
       )))
 
@@ -103,10 +103,10 @@
       (loop [prefix ""
              reader* reader]
         (|case reader*
-          ("lux;Nil")
-          (&/V "lux;Left" "[Reader Error] EOF")
+          (&/$Nil)
+          (&/V &/$Left "[Reader Error] EOF")
 
-          ("lux;Cons" [[file-name line-num column-num] ^String line]
+          (&/$Cons [[file-name line-num column-num] ^String line]
            reader**)
           (if-let [^String match (do ;; (prn 'read-regex+ regex line)
                                      (re-find1! regex column-num line))]
@@ -114,10 +114,10 @@
                   column-num* (+ column-num match-length)]
               (if (= column-num* (.length line))
                 (recur (str prefix match "\n") reader**)
-                (&/V "lux;Right" (&/T (&/|cons (&/T (&/T file-name line-num column-num*) line)
+                (&/V &/$Right (&/T (&/|cons (&/T (&/T file-name line-num column-num*) line)
                                                reader**)
                                       (&/T (&/T file-name line-num column-num) (str prefix match))))))
-            (&/V "lux;Left" (str "[Reader Error] Pattern failed: " regex))))))))
+            (&/V &/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]
   (with-line

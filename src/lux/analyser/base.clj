@@ -20,7 +20,7 @@
 (defn analyse-1 [analyse exo-type elem]
   (|do [output (analyse exo-type elem)]
     (|case output
-      ("lux;Cons" x ("lux;Nil"))
+      (&/$Cons x (&/$Nil))
       (return x)
 
       _

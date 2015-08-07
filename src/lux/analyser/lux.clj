@@ -30,8 +30,8 @@
 
 (defn ^:private with-cursor [cursor form]
   (|case form
-    ("lux;Meta" _ syntax)
-    (&/V "lux;Meta" (&/T cursor syntax))))
+    (&/$Meta _ syntax)
+    (&/V &/$Meta (&/T cursor syntax))))
 
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
@@ -55,17 +55,17 @@
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
   (|do [output (|case ?values
-                 ("lux;Nil")
+                 (&/$Nil)
                  (analyse-tuple analyse exo-type (&/|list))
 
-                 ("lux;Cons" ?value ("lux;Nil"))
+                 (&/$Cons ?value (&/$Nil))
                  (analyse exo-type ?value)
 
                  _
                  (analyse-tuple analyse exo-type ?values)
                  )]
     (|case output
-      ("lux;Cons" x ("lux;Nil"))
+      (&/$Cons x (&/$Nil))
       (return x)
 
       _
@@ -128,7 +128,7 @@
                      (str "[Analyser Error] Record length mismatch. Expected: " (&/|length types) "; actual: " (&/|length ?elems)))
         =slots (&/map% (fn [kv]
                          (|case kv
-                           [("lux;Meta" _ ["lux;TagS" ?ident]) ?value]
+                           [(&/$Meta _ (&/$TagS ?ident)) ?value]
                            (|do [?tag (&&/resolved-ident ?ident)
                                  slot-type (if-let [slot-type (&/|get ?tag types)]
                                              (return slot-type)
@@ -167,12 +167,12 @@
                              (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? name) not))
            [inner outer] (&/|split-with no-binding? stack)]
       (|case outer
-        ("lux;Nil")
+        (&/$Nil)
         (&/run-state (|do [module-name &/get-module-name]
                        (analyse-global analyse exo-type module-name name))
                      state)
 
-        ("lux;Cons" ?genv ("lux;Nil"))
+        (&/$Cons ?genv (&/$Nil))
         (do ;; (prn 'analyse-symbol/_2 ?module name name (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) &/|keys &/->seq))
             (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get name))]
               (do ;; (prn 'analyse-symbol/_2.1 ?module name name (aget global 0))
@@ -202,7 +202,7 @@
                         (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))))
               (fail* "_{_ analyse-symbol _}_")))
         
-        ("lux;Cons" top-outer _)
+        (&/$Cons top-outer _)
         (do ;; (prn 'analyse-symbol/_3 ?module name)
             (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
                                             (&/|map #(&/get$ &/$NAME %) outer)
@@ -231,11 +231,11 @@
 (defn ^:private analyse-apply* [analyse exo-type fun-type ?args]
   ;; (prn 'analyse-apply* (aget fun-type 0))
   (|case ?args
-    ("lux;Nil")
+    (&/$Nil)
     (|do [_ (&type/check exo-type fun-type)]
       (return (&/T fun-type (&/|list))))
     
-    ("lux;Cons" ?arg ?args*)
+    (&/$Cons ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
       (|case ?fun-type*
         ("lux;AllT" _aenv _aname _aarg _abody)

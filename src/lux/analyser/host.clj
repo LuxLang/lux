@@ -20,7 +20,7 @@
 ;; [Utils]
 (defn ^:private extract-text [text]
   (|case text
-    ("lux;Meta" _ ("lux;TextS" ?text))
+    (&/$Meta _ (&/$TextS ?text))
     (return ?text)
 
     _
@@ -208,7 +208,7 @@
 
 (defn analyse-jvm-new-array [analyse ?class ?length]
   (return (&/|list (&/T (&/V "jvm-new-array" (&/T ?class ?length)) (&/V "array" (&/T (&/V "lux;DataT" ?class)
-                                                                                     (&/V "lux;Nil" nil)))))))
+                                                                                     (&/V &/$Nil nil)))))))
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
   (|do [=array (analyse-1+ analyse ?array)
@@ -224,28 +224,28 @@
 (defn ^:private analyse-modifiers [modifiers]
   (&/fold% (fn [so-far modif]
              (|case modif
-               ("lux;Meta" _ ("lux;TextS" "public"))
+               (&/$Meta _ (&/$TextS "public"))
                (return (assoc so-far :visibility "public"))
 
-               ("lux;Meta" _ ("lux;TextS" "private"))
+               (&/$Meta _ (&/$TextS "private"))
                (return (assoc so-far :visibility "private"))
 
-               ("lux;Meta" _ ("lux;TextS" "protected"))
+               (&/$Meta _ (&/$TextS "protected"))
                (return (assoc so-far :visibility "protected"))
 
-               ("lux;Meta" _ ("lux;TextS" "static"))
+               (&/$Meta _ (&/$TextS "static"))
                (return (assoc so-far :static? true))
 
-               ("lux;Meta" _ ("lux;TextS" "final"))
+               (&/$Meta _ (&/$TextS "final"))
                (return (assoc so-far :final? true))
 
-               ("lux;Meta" _ ("lux;TextS" "abstract"))
+               (&/$Meta _ (&/$TextS "abstract"))
                (return (assoc so-far :abstract? true))
 
-               ("lux;Meta" _ ("lux;TextS" "synchronized"))
+               (&/$Meta _ (&/$TextS "synchronized"))
                (return (assoc so-far :concurrency "synchronized"))
 
-               ("lux;Meta" _ ("lux;TextS" "volatile"))
+               (&/$Meta _ (&/$TextS "volatile"))
                (return (assoc so-far :concurrency "volatile"))
 
                _
@@ -275,10 +275,10 @@
   (|do [=interfaces (&/map% extract-text ?interfaces)
         =fields (&/map% (fn [?field]
                           (|case ?field
-                            ("lux;Meta" _ ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?field-name))
-                                                        ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?field-type))
-                                                         ("lux;Cons" ("lux;Meta" _ ("lux;TupleS" ?field-modifiers))
-                                                          ("lux;Nil"))))))
+                            (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$TextS ?field-name))
+                                                        (&/$Cons (&/$Meta _ (&/$TextS ?field-type))
+                                                         (&/$Cons (&/$Meta _ (&/$TupleS ?field-modifiers))
+                                                          (&/$Nil))))))
                             (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
                               (return {:name ?field-name
                                        :modifiers =field-modifiers
@@ -289,17 +289,17 @@
                         ?fields)
         =methods (&/map% (fn [?method]
                            (|case ?method
-                             [?idx ("lux;Meta" _ ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?method-name))
-                                                               ("lux;Cons" ("lux;Meta" _ ("lux;TupleS" ?method-inputs))
-                                                                ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?method-output))
-                                                                 ("lux;Cons" ("lux;Meta" _ ("lux;TupleS" ?method-modifiers))
-                                                                  ("lux;Cons" ?method-body
-                                                                   ("lux;Nil"))))))))]
+                             [?idx (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$TextS ?method-name))
+                                                               (&/$Cons (&/$Meta _ (&/$TupleS ?method-inputs))
+                                                                (&/$Cons (&/$Meta _ (&/$TextS ?method-output))
+                                                                 (&/$Cons (&/$Meta _ (&/$TupleS ?method-modifiers))
+                                                                  (&/$Cons ?method-body
+                                                                   (&/$Nil))))))))]
                              (|do [=method-inputs (&/map% (fn [minput]
                                                             (|case minput
-                                                              ("lux;Meta" _ ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;SymbolS" "" ?input-name))
-                                                                                          ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?input-type))
-                                                                                           ("lux;Nil")))))
+                                                              (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$SymbolS "" ?input-name))
+                                                                                          (&/$Cons (&/$Meta _ (&/$TextS ?input-type))
+                                                                                           (&/$Nil)))))
                                                               (return (&/T ?input-name ?input-type))
 
                                                               _
@@ -334,11 +334,11 @@
   (|do [=supers (&/map% extract-text ?supers)
         =methods (&/map% (fn [method]
                            (|case method
-                             ("lux;Meta" _ ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?method-name))
-                                                         ("lux;Cons" ("lux;Meta" _ ("lux;TupleS" ?inputs))
-                                                          ("lux;Cons" ("lux;Meta" _ ("lux;TextS" ?output))
-                                                           ("lux;Cons" ("lux;Meta" _ ("lux;TupleS" ?modifiers))
-                                                            ("lux;Nil")))))))
+                             (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$TextS ?method-name))
+                                                         (&/$Cons (&/$Meta _ (&/$TupleS ?inputs))
+                                                          (&/$Cons (&/$Meta _ (&/$TextS ?output))
+                                                           (&/$Cons (&/$Meta _ (&/$TupleS ?modifiers))
+                                                            (&/$Nil)))))))
                              (|do [=inputs (&/map% extract-text ?inputs)
                                    =modifiers (analyse-modifiers ?modifiers)]
                                (return {:name ?method-name
@@ -362,9 +362,9 @@
                              (return (&/T ?ex-class idx =catch-body))))
                          ?catches)
         =finally (|case [?finally]
-                   ("lux;None")           (return (&/V "lux;None" nil))
-                   ("lux;Some" ?finally*) (|do [=finally (analyse-1+ analyse ?finally*)]
-                                            (return (&/V "lux;Some" =finally))))]
+                   (&/$None)           (return (&/V &/$None nil))
+                   (&/$Some ?finally*) (|do [=finally (analyse-1+ analyse ?finally*)]
+                                            (return (&/V &/$Some =finally))))]
     (return (&/|list (&/T (&/V "jvm-try" (&/T =body =catches =finally)) exo-type)))))
 
 (defn analyse-jvm-throw [analyse exo-type ?ex]

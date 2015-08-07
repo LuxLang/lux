@@ -17,7 +17,7 @@
 
 ;; [Utils]
 (def ^:private unit
-  (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;TupleS" (&/|list)))))
+  (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS (&/|list)))))
 
 (defn ^:private resolve-type [type]
   (|case type
@@ -113,43 +113,43 @@
   (adjust-type* (&/|list) type))
 
 (defn ^:private analyse-pattern [value-type pattern kont]
-  (|let [("lux;Meta" _ pattern*) pattern]
+  (|let [(&/$Meta _ pattern*) pattern]
     (|case pattern*
-      ("lux;SymbolS" "" name)
+      (&/$SymbolS "" name)
       (|do [=kont (&env/with-local name value-type
                     kont)
             idx &env/next-local-idx]
         (return (&/T (&/V "StoreTestAC" idx) =kont)))
 
-      ("lux;SymbolS" ident)
+      (&/$SymbolS ident)
       (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
-      ("lux;BoolS" ?value)
+      (&/$BoolS ?value)
       (|do [_ (&type/check value-type &type/Bool)
             =kont kont]
         (return (&/T (&/V "BoolTestAC" ?value) =kont)))
 
-      ("lux;IntS" ?value)
+      (&/$IntS ?value)
       (|do [_ (&type/check value-type &type/Int)
             =kont kont]
         (return (&/T (&/V "IntTestAC" ?value) =kont)))
 
-      ("lux;RealS" ?value)
+      (&/$RealS ?value)
       (|do [_ (&type/check value-type &type/Real)
             =kont kont]
         (return (&/T (&/V "RealTestAC" ?value) =kont)))
 
-      ("lux;CharS" ?value)
+      (&/$CharS ?value)
       (|do [_ (&type/check value-type &type/Char)
             =kont kont]
         (return (&/T (&/V "CharTestAC" ?value) =kont)))
 
-      ("lux;TextS" ?value)
+      (&/$TextS ?value)
       (|do [_ (&type/check value-type &type/Text)
             =kont kont]
         (return (&/T (&/V "TextTestAC" ?value) =kont)))
 
-      ("lux;TupleS" ?members)
+      (&/$TupleS ?members)
       (|do [value-type* (adjust-type value-type)]
         (do ;; (prn 'PM/TUPLE-1 (&type/show-type value-type*))
             (|case value-type*
@@ -169,7 +169,7 @@
               _
               (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
       
-      ("lux;RecordS" ?slots)
+      (&/$RecordS ?slots)
       (|do [;; :let [_ (prn 'PRE (&type/show-type value-type))]
             value-type* (adjust-type value-type)
             ;; :let [_ (prn 'POST (&type/show-type value-type*))]
@@ -182,7 +182,7 @@
             (|do [[=tests =kont] (&/fold (fn [kont* slot]
                                            (|let [[sn sv] slot]
                                              (|case sn
-                                               ("lux;Meta" _ ("lux;TagS" ?ident))
+                                               (&/$Meta _ (&/$TagS ?ident))
                                                (|do [=tag (&&/resolved-ident ?ident)]
                                                  (if-let [=slot-type (&/|get =tag ?slot-types)]
                                                    (|do [[=test [=tests =kont]] (analyse-pattern =slot-type sv kont*)]
@@ -199,14 +199,14 @@
           _
           (fail "[Pattern-matching Error] Record requires record-type.")))
 
-      ("lux;TagS" ?ident)
+      (&/$TagS ?ident)
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
             case-type (&type/variant-case =tag value-type*)
             [=test =kont] (analyse-pattern case-type unit kont)]
         (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
 
-      ("lux;FormS" ("lux;Cons" ("lux;Meta" _ ("lux;TagS" ?ident))
+      (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
                     ?values))
       (|do [=tag (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
@@ -215,7 +215,7 @@
                             0 (analyse-pattern case-type unit kont)
                             1 (analyse-pattern case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern case-type (&/V "lux;Meta" (&/T (&/T "" -1 -1) (&/V "lux;TupleS" ?values))) kont))]
+                            (analyse-pattern case-type (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values))) kont))]
         (return (&/T (&/V "VariantTestAC" (&/T =tag =test)) =kont)))
       )))
 

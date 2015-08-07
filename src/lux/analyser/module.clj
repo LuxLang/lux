@@ -45,7 +45,7 @@
 (defn define [module name def-data type]
   (fn [state]
     (|case (&/get$ &/$ENVS state)
-      ("lux;Cons" ?env ("lux;Nil"))
+      (&/$Cons ?env (&/$Nil))
       (return* (->> state
                     (&/update$ &/$MODULES
                                (fn [ms]
@@ -85,7 +85,7 @@
   ;; (prn 'def-alias [a-module a-name] [r-module r-name] (&type/show-type type))
   (fn [state]
     (|case (&/get$ &/$ENVS state)
-      ("lux;Cons" ?env ("lux;Nil"))
+      (&/$Cons ?env (&/$Nil))
       (return* (->> state
                     (&/update$ &/$MODULES
                                (fn [ms]
@@ -188,7 +188,7 @@
 (defn export [module name]
   (fn [state]
     (|case (&/get$ &/$ENVS state)
-      ("lux;Cons" ?env ("lux;Nil"))
+      (&/$Cons ?env (&/$Nil))
       (if-let [$def (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS) (&/|get name))]
         (|case $def
           [true _]

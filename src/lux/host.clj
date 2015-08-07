@@ -75,7 +75,7 @@
     ("lux;LambdaT" _ _)
     (->type-signature function-class)
 
-    ("lux;TupleT" ("lux;Nil"))
+    ("lux;TupleT" (&/$Nil))
     "V"
     ))
 

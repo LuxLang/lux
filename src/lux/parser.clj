@@ -19,14 +19,14 @@
     (|do [elems (&/repeat% parse)
           token &lexer/lex]
       (|case token
-        ("lux;Meta" meta [<close-token> _])
+        (&/$Meta meta [<close-token> _])
         (return (&/V <tag> (&/fold &/|++ (&/|list) elems)))
         
         _
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  "Close_Paren"   "parantheses" "lux;FormS"
-  ^:private parse-tuple "Close_Bracket" "brackets"    "lux;TupleS"
+  ^:private parse-form  "Close_Paren"   "parantheses" &/$FormS
+  ^:private parse-tuple "Close_Bracket" "brackets"    &/$TupleS
   )
 
 (defn ^:private parse-record [parse]
@@ -34,9 +34,9 @@
         token &lexer/lex
         :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (|case token
-      ("lux;Meta" meta ("Close_Brace" _))
+      (&/$Meta meta ("Close_Brace" _))
       (if (even? (&/|length elems))
-        (return (&/V "lux;RecordS" (&/|as-pairs elems)))
+        (return (&/V &/$RecordS (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
       
       _
@@ -45,7 +45,7 @@
 ;; [Interface]
 (def parse
   (|do [token &lexer/lex
-        :let [("lux;Meta" meta token*) token]]
+        :let [(&/$Meta meta token*) token]]
     (|case token*
       ("White_Space" _)
       (return (&/|list))
@@ -54,37 +54,37 @@
       (return (&/|list))
       
       ("Bool" ?value)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;BoolS" (Boolean/parseBoolean ?value))))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value))))))
 
       ("Int" ?value)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;IntS" (Integer/parseInt ?value))))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$IntS (Integer/parseInt ?value))))))
 
       ("Real" ?value)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;RealS" (Float/parseFloat ?value))))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$RealS (Float/parseFloat ?value))))))
 
       ("Char" ^String ?value)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;CharS" (.charAt ?value 0))))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$CharS (.charAt ?value 0))))))
 
       ("Text" ?value)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;TextS" ?value)))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$TextS ?value)))))
 
       ("Symbol" ?ident)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;SymbolS" ?ident)))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$SymbolS ?ident)))))
 
       ("Tag" ?ident)
-      (return (&/|list (&/V "lux;Meta" (&/T meta (&/V "lux;TagS" ?ident)))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$TagS ?ident)))))
 
       ("Open_Paren" _)
       (|do [syntax (parse-form parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
       
       ("Open_Bracket" _)
       (|do [syntax (parse-tuple parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
 
       ("Open_Brace" _)
       (|do [syntax (parse-record parse)]
-        (return (&/|list (&/V "lux;Meta" (&/T meta syntax)))))
+        (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
 
       _
       (fail "[Parser Error] Unknown lexer token.")

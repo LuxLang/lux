@@ -427,7 +427,7 @@
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
                           (&/set$ &/$SOURCE (&reader/from file-name file-content) state))
-                    ("lux;Right" ?state _)
+                    (&/$Right ?state _)
                     (&/run-state (|do [defs &a-module/defs
                                        imports &a-module/imports
                                        :let [_ (doto =class
@@ -448,7 +448,7 @@
                                    (&&/save-class! "_" (.toByteArray =class)))
                                  ?state)
                     
-                    ("lux;Left" ?message)
+                    (&/$Left ?message)
                     (fail* ?message)))))))
         ))
     ))
@@ -460,10 +460,10 @@
 (defn compile-program [program-module]
   (init!)
   (|case ((&/map% compile-module (&/|list "lux" program-module)) (&/init-state nil))
-    ("lux;Right" ?state _)
+    (&/$Right ?state _)
     (do (println "Compilation complete!")
       (&&cache/clean ?state)
       (&&package/package program-module))
 
-    ("lux;Left" ?message)
+    (&/$Left ?message)
     (assert false ?message)))
