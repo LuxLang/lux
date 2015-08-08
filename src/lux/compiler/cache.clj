@@ -118,16 +118,16 @@
                                                   (|do [_ (case _ann
                                                             "T" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       def-value (get-field "_datum" def-class)]
-                                                                  (&a-module/define module _name (&/V "lux;TypeD" def-value) &type/Type))
+                                                                  (&a-module/define module _name (&/V &/$TypeD def-value) &type/Type))
                                                             "M" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       def-value (get-field "_datum" def-class)]
-                                                                  (|do [_ (&a-module/define module _name (&/V "lux;ValueD" (&/T &type/Macro def-value)) &type/Macro)]
+                                                                  (|do [_ (&a-module/define module _name (&/V &/$ValueD (&/T &type/Macro def-value)) &type/Macro)]
                                                                     (&a-module/declare-macro module _name)))
                                                             "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)
                                                                       def-meta (get-field "_meta" def-class)]
                                                                   (|case def-meta
-                                                                    ("lux;ValueD" def-type _)
+                                                                    (&/$ValueD def-type _)
                                                                     (&a-module/define module _name def-meta def-type)))
                                                             ;; else
                                                             (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]

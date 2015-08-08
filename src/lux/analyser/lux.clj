@@ -144,14 +144,15 @@
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] $def] (&&module/find-def module name)
         ;; :let [_ (prn 'analyse-symbol/_1.1 r-module r-name)]
+        ;; :let [_ (prn 'analyse-global/$def (aget $def 0))]
         endo-type (|case $def
-                    ("lux;ValueD" ?type _)
+                    (&/$ValueD ?type _)
                     (return ?type)
 
-                    ("lux;MacroD" _)
+                    (&/$MacroD _)
                     (return &type/Macro)
 
-                    ("lux;TypeD" _)
+                    (&/$TypeD _)
                     (return &type/Type))
         _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
                    (clojure.lang.Util/identical &type/Type exo-type))
@@ -181,13 +182,13 @@
                     ((|do [[[r-module r-name] $def] (&&module/find-def ?module* name*)
                            ;; :let [_ (prn 'analyse-symbol/_2.1.1 r-module r-name)]
                            endo-type (|case $def
-                                       ("lux;ValueD" ?type _)
+                                       (&/$ValueD ?type _)
                                        (return ?type)
 
-                                       ("lux;MacroD" _)
+                                       (&/$MacroD _)
                                        (return &type/Macro)
 
-                                       ("lux;TypeD" _)
+                                       (&/$TypeD _)
                                        (return &type/Type))
                            _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
                                       (clojure.lang.Util/identical &type/Type exo-type))
@@ -275,7 +276,7 @@
         (&/$Global ?module ?name)
         (|do [[[r-module r-name] $def] (&&module/find-def ?module ?name)]
           (|case $def
-            ("lux;MacroD" macro)
+            (&/$MacroD macro)
             (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (str r-module ";" r-name))]
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (str r-module ";" r-name))]

@@ -66,16 +66,16 @@
     (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
         (|case $def
-          [_ ("lux;TypeD" _)]
+          [_ (&/$TypeD _)]
           (return* state &type/Type)
 
-          [_ ("lux;MacroD" _)]
+          [_ (&/$MacroD _)]
           (return* state &type/Macro)
 
-          [_ ("lux;ValueD" _type _)]
+          [_ (&/$ValueD _type _)]
           (return* state _type)
 
-          [_ ("lux;AliasD" ?r-module ?r-name)]
+          [_ (&/$AliasD ?r-module ?r-name)]
           (&/run-state (def-type ?r-module ?r-name)
                        state))
         (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
@@ -92,7 +92,7 @@
                                  (&/|update a-module
                                             (fn [m]
                                               (&/update$ $DEFS
-                                                         #(&/|put a-name (&/T false (&/V "lux;AliasD" (&/T r-module r-name))) %)
+                                                         #(&/|put a-name (&/T false (&/V &/$AliasD (&/T r-module r-name))) %)
                                                          m))
                                             ms))))
                nil)
@@ -137,7 +137,7 @@
                 (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
                     (if (or exported? (.equals ^Object current-module module))
                       (|case $$def
-                        ("lux;AliasD" ?r-module ?r-name)
+                        (&/$AliasD ?r-module ?r-name)
                         (do ;; (prn 'find-def/_2 [module name] [?r-module ?r-name])
                             ((find-def ?r-module ?r-name)
                              state))
@@ -158,7 +158,7 @@
     (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
       (if-let [$def (&/|get name $module)]
         (|case $def
-          [exported? ("lux;ValueD" ?type _)]
+          [exported? (&/$ValueD ?type _)]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
                  :let [macro (-> (.loadClass loader (str (&host/->module-class module) "." (&/normalize-name name)))
@@ -170,14 +170,14 @@
                                      (&/|update module
                                                 (fn [m]
                                                   (&/update$ $DEFS
-                                                             #(&/|put name (&/T exported? (&/V "lux;MacroD" macro)) %)
+                                                             #(&/|put name (&/T exported? (&/V &/$MacroD macro)) %)
                                                              m))
                                                 $modules))
                                    state*)
                         nil)))
            state)
           
-          [_ ("lux;MacroD" _)]
+          [_ (&/$MacroD _)]
           (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))
 
           [_ _]
@@ -216,13 +216,13 @@
                          (|let [[k [?exported? ?def]] kv]
                            (do ;; (prn 'defs k ?exported?)
                                (|case ?def
-                                 ("lux;AliasD" ?r-module ?r-name)
+                                 (&/$AliasD ?r-module ?r-name)
                                  (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
                                  
-                                 ("lux;MacroD" _)
+                                 (&/$MacroD _)
                                  (&/T ?exported? k "M")
 
-                                 ("lux;TypeD" _)
+                                 (&/$TypeD _)
                                  (&/T ?exported? k "T")
 
                                  _

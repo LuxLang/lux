@@ -14,7 +14,7 @@
 ;; [Tags]
 (defmacro deftags [prefix & names]
   `(do ~@(for [name names]
-           `(def ~(symbol (str "$" name)) ~name))))
+           `(def ~(symbol (str "$" name)) ~(str prefix name)))))
 
 ;; List
 (def $Nil "lux;Nil")
@@ -86,6 +86,13 @@
 (deftags "lux;"
   "Local"
   "Global")
+
+;; Definitions
+(deftags "lux;"
+  "ValueD"
+  "TypeD"
+  "MacroD"
+  "AliasD")
 
 ;; [Exports]
 (def +name-separator+ ";")
