@@ -12,6 +12,10 @@
             clojure.core.match.array))
 
 ;; [Tags]
+(defmacro deftags [prefix & names]
+  `(do ~@(for [name names]
+           `(def ~(symbol (str "$" name)) ~name))))
+
 ;; List
 (def $Nil "lux;Nil")
 (def $Cons "lux;Cons")

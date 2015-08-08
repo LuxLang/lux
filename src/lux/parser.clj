@@ -10,8 +10,27 @@
   (:require [clojure.template :refer [do-template]]
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return fail |case]]
+            (lux [base :as & :refer [deftags |do return fail |case]]
                  [lexer :as &lexer])))
+
+;; [Tags]
+(deftags ""
+  "White_Space"
+  "Comment"
+  "Bool"
+  "Int"
+  "Real"
+  "Char"
+  "Text"
+  "Symbol"
+  "Tag"
+  "Open_Paren"
+  "Close_Paren"
+  "Open_Bracket"
+  "Close_Bracket"
+  "Open_Brace"
+  "Close_Brace"
+  )
 
 ;; [Utils]
 (do-template [<name> <close-tag> <description> <tag>]
@@ -25,8 +44,8 @@
         _
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  "Close_Paren"   "parantheses" &/$FormS
-  ^:private parse-tuple "Close_Bracket" "brackets"    &/$TupleS
+  ^:private parse-form  $Close_Paren   "parantheses" &/$FormS
+  ^:private parse-tuple $Close_Bracket "brackets"    &/$TupleS
   )
 
 (defn ^:private parse-record [parse]
@@ -34,7 +53,7 @@
         token &lexer/lex
         :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (|case token
-      (&/$Meta meta ("Close_Brace" _))
+      (&/$Meta meta ($Close_Brace _))
       (if (even? (&/|length elems))
         (return (&/V &/$RecordS (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
@@ -47,42 +66,42 @@
   (|do [token &lexer/lex
         :let [(&/$Meta meta token*) token]]
     (|case token*
-      ("White_Space" _)
+      ($White_Space _)
       (return (&/|list))
 
-      ("Comment" _)
+      ($Comment _)
       (return (&/|list))
       
-      ("Bool" ?value)
+      ($Bool ?value)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value))))))
 
-      ("Int" ?value)
+      ($Int ?value)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$IntS (Integer/parseInt ?value))))))
 
-      ("Real" ?value)
+      ($Real ?value)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$RealS (Float/parseFloat ?value))))))
 
-      ("Char" ^String ?value)
+      ($Char ^String ?value)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$CharS (.charAt ?value 0))))))
 
-      ("Text" ?value)
+      ($Text ?value)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$TextS ?value)))))
 
-      ("Symbol" ?ident)
+      ($Symbol ?ident)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$SymbolS ?ident)))))
 
-      ("Tag" ?ident)
+      ($Tag ?ident)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$TagS ?ident)))))
 
-      ("Open_Paren" _)
+      ($Open_Paren _)
       (|do [syntax (parse-form parse)]
         (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
       
-      ("Open_Bracket" _)
+      ($Open_Bracket _)
       (|do [syntax (parse-tuple parse)]
         (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
 
-      ("Open_Brace" _)
+      ($Open_Brace _)
       (|do [syntax (parse-record parse)]
         (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
 
