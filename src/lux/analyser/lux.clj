@@ -157,7 +157,7 @@
                    (clojure.lang.Util/identical &type/Type exo-type))
             (return nil)
             (&type/check exo-type endo-type))]
-    (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
+    (return (&/|list (&/T (&/V &/$Global (&/T r-module r-name))
                           endo-type)))))
 
 (defn ^:private analyse-local [analyse exo-type name]
@@ -177,7 +177,7 @@
             (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get name))]
               (do ;; (prn 'analyse-symbol/_2.1 ?module name name (aget global 0))
                   (|case global
-                    [("lux;Global" ?module* name*) _]
+                    [(&/$Global ?module* name*) _]
                     ((|do [[[r-module r-name] $def] (&&module/find-def ?module* name*)
                            ;; :let [_ (prn 'analyse-symbol/_2.1.1 r-module r-name)]
                            endo-type (|case $def
@@ -193,7 +193,7 @@
                                       (clojure.lang.Util/identical &type/Type exo-type))
                                (return nil)
                                (&type/check exo-type endo-type))]
-                       (return (&/|list (&/T (&/V "lux;Global" (&/T r-module r-name))
+                       (return (&/|list (&/T (&/V &/$Global (&/T r-module r-name))
                                              endo-type))))
                      state)
 
@@ -272,7 +272,7 @@
   (|do [loader &/loader]
     (|let [[=fn-form =fn-type] =fn]
       (|case =fn-form
-        ("lux;Global" ?module ?name)
+        (&/$Global ?module ?name)
         (|do [[[r-module r-name] $def] (&&module/find-def ?module ?name)]
           (|case $def
             ("lux;MacroD" macro)
@@ -387,7 +387,7 @@
                      (analyse-1+ analyse ?value))
             =value-type (&&/expr-type =value)]
         (|case =value
-          [("lux;Global" ?r-module ?r-name) _]
+          [(&/$Global ?r-module ?r-name) _]
           (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name =value-type)
                 ;; :let [_ (println 'analyse-def/ALIAS (str module-name ";" ?name) '=> (str ?r-module ";" ?r-name))
                 ;;       _ (println)]

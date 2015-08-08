@@ -82,6 +82,11 @@
 (def $SOURCE 7)
 (def $TYPES 8)
 
+;; Vars
+(deftags "lux;"
+  "Local"
+  "Global")
+
 ;; [Exports]
 (def +name-separator+ ";")
 

@@ -17,6 +17,7 @@
                  [parser :as &parser]
                  [analyser :as &analyser]
                  [host :as &host])
+            [lux.analyser.case :as &a-case]
             [lux.compiler.base :as &&])
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -27,12 +28,12 @@
 (let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
     (|case ?match
-      ("StoreTestAC" ?idx)
+      (&a-case/$StoreTestAC ?idx)
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?idx)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("BoolTestAC" ?value)
+      (&a-case/$BoolTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
         (.visitInsn Opcodes/DUP)
@@ -42,7 +43,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("IntTestAC" ?value)
+      (&a-case/$IntTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
         (.visitInsn Opcodes/DUP)
@@ -53,7 +54,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("RealTestAC" ?value)
+      (&a-case/$RealTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
         (.visitInsn Opcodes/DUP)
@@ -64,7 +65,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("CharTestAC" ?value)
+      (&a-case/$CharTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
         (.visitInsn Opcodes/DUP)
@@ -74,7 +75,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("TextTestAC" ?value)
+      (&a-case/$TextTestAC ?value)
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn ?value)
@@ -83,7 +84,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("TupleTestAC" ?members)
+      (&a-case/$TupleTestAC ?members)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (-> (doto (.visitInsn Opcodes/DUP)
@@ -101,7 +102,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      ("RecordTestAC" ?slots)
+      (&a-case/$RecordTestAC ?slots)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (-> (doto (.visitInsn Opcodes/DUP)
@@ -124,7 +125,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
       
-      ("VariantTestAC" ?tag ?test)
+      (&a-case/$VariantTestAC ?tag ?test)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)

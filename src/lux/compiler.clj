@@ -61,13 +61,13 @@
       ("record" ?elems)
       (&&lux/compile-record compile-expression ?type ?elems)
 
-      ("lux;Local" ?idx)
+      (&/$Local ?idx)
       (&&lux/compile-local compile-expression ?type ?idx)
 
       ("captured" ?scope ?captured-id ?source)
       (&&lux/compile-captured compile-expression ?type ?scope ?captured-id ?source)
 
-      ("lux;Global" ?owner-class ?name)
+      (&/$Global ?owner-class ?name)
       (&&lux/compile-global compile-expression ?type ?owner-class ?name)
 
       ("apply" ?fn ?args)
