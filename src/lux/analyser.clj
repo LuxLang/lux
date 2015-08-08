@@ -467,23 +467,23 @@
     ;; Standard special forms
     (&/$BoolS ?value)
     (|do [_ (&type/check exo-type &type/Bool)]
-      (return (&/|list (&/T (&/V "bool" ?value) exo-type))))
+      (return (&/|list (&/T (&/V &&/$bool ?value) exo-type))))
 
     (&/$IntS ?value)
     (|do [_ (&type/check exo-type &type/Int)]
-      (return (&/|list (&/T (&/V "int" ?value) exo-type))))
+      (return (&/|list (&/T (&/V &&/$int ?value) exo-type))))
 
     (&/$RealS ?value)
     (|do [_ (&type/check exo-type &type/Real)]
-      (return (&/|list (&/T (&/V "real" ?value) exo-type))))
+      (return (&/|list (&/T (&/V &&/$real ?value) exo-type))))
 
     (&/$CharS ?value)
     (|do [_ (&type/check exo-type &type/Char)]
-      (return (&/|list (&/T (&/V "char" ?value) exo-type))))
+      (return (&/|list (&/T (&/V &&/$char ?value) exo-type))))
 
     (&/$TextS ?value)
     (|do [_ (&type/check exo-type &type/Text)]
-      (return (&/|list (&/T (&/V "text" ?value) exo-type))))
+      (return (&/|list (&/T (&/V &&/$text ?value) exo-type))))
 
     (&/$TupleS ?elems)
     (&&lux/analyse-tuple analyse exo-type ?elems)

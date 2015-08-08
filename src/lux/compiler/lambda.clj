@@ -47,7 +47,7 @@
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
         (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
              (|case ?name+?captured
-               [?name [("captured" _ ?captured-id ?source) _]])
+               [?name [(&a/$captured _ ?captured-id ?source) _]])
              (doseq [?name+?captured (&/->seq env)])))
     (.visitInsn Opcodes/RETURN)
     (.visitMaxs 0 0)
@@ -84,7 +84,7 @@
                   (.visitInsn Opcodes/DUP))]
         _ (&/map% (fn [?name+?captured]
                     (|case ?name+?captured
-                      [?name [("captured" _ _ ?source) _]]
+                      [?name [(&a/$captured _ _ ?source) _]]
                       (compile ?source)))
                   closed-over)
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
@@ -102,7 +102,7 @@
                              (.visitEnd))
                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                 (|case ?name+?captured
-                                  [?name [("captured" _ ?captured-id ?source) _]])
+                                  [?name [(&a/$captured _ ?captured-id ?source) _]])
                                 (doseq [?name+?captured (&/->seq ?env)])))
                        (add-lambda-apply class-name ?env)
                        (add-lambda-<init> class-name ?env)

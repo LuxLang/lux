@@ -163,7 +163,7 @@
       "value"
       (|let [;; _ (prn '?body (aget ?body 0) (aget ?body 1 0))
              ?def-type (|case ?body
-                         [("ann" ?def-value ?type-expr) ?def-type]
+                         [(&a/$ann ?def-value ?type-expr) ?def-type]
                          ?type-expr
 
                          [?def-value ?def-type]

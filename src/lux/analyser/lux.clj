@@ -41,7 +41,7 @@
       (|do [=elems (&/map2% (fn [elem-t elem]
                               (&&/analyse-1 analyse elem-t elem))
                             ?members ?elems)]
-        (return (&/|list (&/T (&/V "tuple" =elems)
+        (return (&/|list (&/T (&/V &&/$tuple =elems)
                               exo-type))))
 
       (&/$AllT _)
@@ -86,7 +86,7 @@
       (|do [?tag (&&/resolved-ident ident)]
         (if-let [vtype (&/|get ?tag ?cases)]
           (|do [=value (analyse-variant-body analyse vtype ?values)]
-            (return (&/|list (&/T (&/V "variant" (&/T ?tag =value))
+            (return (&/|list (&/T (&/V &&/$variant (&/T ?tag =value))
                                   exo-type))))
           (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
 
@@ -139,7 +139,7 @@
                            _
                            (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
                        ?elems)]
-    (return (&/|list (&/T (&/V "record" =slots) (&/V &/$RecordT exo-type))))))
+    (return (&/|list (&/T (&/V &&/$record =slots) (&/V &/$RecordT exo-type))))))
 
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] $def] (&&module/find-def module name)
@@ -282,7 +282,7 @@
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (str r-module ";" r-name))]
                   :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
                   ;; :let [_ (when (or (= "<>" r-name)
-                  ;;                   ;; (= "struct" r-name)
+                  ;;                   ;; (= &&/$struct r-name)
                   ;;                   )
                   ;;           (->> (&/|map &/show-ast macro-expansion*)
                   ;;                (&/|interpose "\n")
@@ -293,12 +293,12 @@
 
             _
             (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-              (return (&/|list (&/T (&/V "apply" (&/T =fn =args))
+              (return (&/|list (&/T (&/V &&/$apply (&/T =fn =args))
                                     =output-t))))))
         
         _
         (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-          (return (&/|list (&/T (&/V "apply" (&/T =fn =args))
+          (return (&/|list (&/T (&/V &&/$apply (&/T =fn =args))
                                 =output-t)))))
       )))
 
@@ -309,7 +309,7 @@
         =value (analyse-1+ analyse ?value)
         =value-type (&&/expr-type =value)
         =match (&&case/analyse-branches analyse exo-type =value-type (&/|as-pairs ?branches))]
-    (return (&/|list (&/T (&/V "case" (&/T =value =match))
+    (return (&/|list (&/T (&/V &&/$case (&/T =value =match))
                           exo-type)))))
 
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
@@ -328,7 +328,7 @@
       (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
                                        ?arg ?arg-t
                                        (&&/analyse-1 analyse ?return-t ?body))]
-        (return (&/T (&/V "lambda" (&/T =scope =captured =body)) exo-type*)))
+        (return (&/T (&/V &&/$lambda (&/T =scope =captured =body)) exo-type*)))
       
       _
       (fail (str "[Analyser Error] Functions require function types: "
@@ -397,13 +397,13 @@
 
           _
           (do (println 'DEF (str module-name ";" ?name))
-            (|do [_ (compile-token (&/V "def" (&/T ?name =value)))]
+            (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))]
               (return (&/|list)))))
         ))))
 
 (defn analyse-declare-macro [analyse compile-token ?name]
   (|do [module-name &/get-module-name]
-    (|do [_ (compile-token (&/V "declare-macro" (&/T module-name ?name)))]
+    (|do [_ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))]
       (return (&/|list)))))
 
 (defn analyse-import [analyse compile-module compile-token ?path]
@@ -433,7 +433,7 @@
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)]
-    (return (&/|list (&/T (&/V "ann" (&/T =value =type))
+    (return (&/|list (&/T (&/V &&/$ann (&/T =value =type))
                           ==type)))))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
@@ -441,5 +441,5 @@
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)]
-    (return (&/|list (&/T (&/V "ann" (&/T =value =type))
+    (return (&/|list (&/T (&/V &&/$ann (&/T =value =type))
                           ==type)))))

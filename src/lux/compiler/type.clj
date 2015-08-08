@@ -10,22 +10,23 @@
   (:require clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
-                 [type :as &type])))
+                 [type :as &type])
+            [lux.analyser.base :as &a]))
 
 ;; [Utils]
 (defn ^:private variant$ [tag body]
   "(-> Text Analysis Analysis)"
-  (&/T (&/V "variant" (&/T tag body))
+  (&/T (&/V &a/$variant (&/T tag body))
        &type/$Void))
 
 (defn ^:private tuple$ [members]
   "(-> (List Analysis) Analysis)"
-  (&/T (&/V "tuple" members)
+  (&/T (&/V &a/$tuple members)
        &type/$Void))
 
 (defn ^:private text$ [text]
   "(-> Text Analysis)"
-  (&/T (&/V "text" text)
+  (&/T (&/V &a/$text text)
        &type/$Void))
 
 (def ^:private $Nil

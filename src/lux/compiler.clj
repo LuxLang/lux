@@ -40,333 +40,333 @@
 (defn ^:private compile-expression [syntax]
   (|let [[?form ?type] syntax]
     (|case ?form
-      ("bool" ?value)
+      (&a/$bool ?value)
       (&&lux/compile-bool compile-expression ?type ?value)
 
-      ("int" ?value)
+      (&a/$int ?value)
       (&&lux/compile-int compile-expression ?type ?value)
 
-      ("real" ?value)
+      (&a/$real ?value)
       (&&lux/compile-real compile-expression ?type ?value)
 
-      ("char" ?value)
+      (&a/$char ?value)
       (&&lux/compile-char compile-expression ?type ?value)
 
-      ("text" ?value)
+      (&a/$text ?value)
       (&&lux/compile-text compile-expression ?type ?value)
 
-      ("tuple" ?elems)
+      (&a/$tuple ?elems)
       (&&lux/compile-tuple compile-expression ?type ?elems)
 
-      ("record" ?elems)
+      (&a/$record ?elems)
       (&&lux/compile-record compile-expression ?type ?elems)
 
       (&/$Local ?idx)
       (&&lux/compile-local compile-expression ?type ?idx)
 
-      ("captured" ?scope ?captured-id ?source)
+      (&a/$captured ?scope ?captured-id ?source)
       (&&lux/compile-captured compile-expression ?type ?scope ?captured-id ?source)
 
       (&/$Global ?owner-class ?name)
       (&&lux/compile-global compile-expression ?type ?owner-class ?name)
 
-      ("apply" ?fn ?args)
+      (&a/$apply ?fn ?args)
       (&&lux/compile-apply compile-expression ?type ?fn ?args)
 
-      ("variant" ?tag ?members)
+      (&a/$variant ?tag ?members)
       (&&lux/compile-variant compile-expression ?type ?tag ?members)
 
-      ("case" ?value ?match)
+      (&a/$case ?value ?match)
       (&&case/compile-case compile-expression ?type ?value ?match)
 
-      ("lambda" ?scope ?env ?body)
+      (&a/$lambda ?scope ?env ?body)
       (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
 
-      ("ann" ?value-ex ?type-ex)
+      (&a/$ann ?value-ex ?type-ex)
       (&&lux/compile-ann compile-expression ?type ?value-ex ?type-ex)
 
       ;; Characters
-      ("jvm-ceq" ?x ?y)
+      (&a/$jvm-ceq ?x ?y)
       (&&host/compile-jvm-ceq compile-expression ?type ?x ?y)
 
-      ("jvm-clt" ?x ?y)
+      (&a/$jvm-clt ?x ?y)
       (&&host/compile-jvm-clt compile-expression ?type ?x ?y)
 
-      ("jvm-cgt" ?x ?y)
+      (&a/$jvm-cgt ?x ?y)
       (&&host/compile-jvm-cgt compile-expression ?type ?x ?y)
       
       ;; Integer arithmetic
-      ("jvm-iadd" ?x ?y)
+      (&a/$jvm-iadd ?x ?y)
       (&&host/compile-jvm-iadd compile-expression ?type ?x ?y)
 
-      ("jvm-isub" ?x ?y)
+      (&a/$jvm-isub ?x ?y)
       (&&host/compile-jvm-isub compile-expression ?type ?x ?y)
       
-      ("jvm-imul" ?x ?y)
+      (&a/$jvm-imul ?x ?y)
       (&&host/compile-jvm-imul compile-expression ?type ?x ?y)
       
-      ("jvm-idiv" ?x ?y)
+      (&a/$jvm-idiv ?x ?y)
       (&&host/compile-jvm-idiv compile-expression ?type ?x ?y)
       
-      ("jvm-irem" ?x ?y)
+      (&a/$jvm-irem ?x ?y)
       (&&host/compile-jvm-irem compile-expression ?type ?x ?y)
 
-      ("jvm-ieq" ?x ?y)
+      (&a/$jvm-ieq ?x ?y)
       (&&host/compile-jvm-ieq compile-expression ?type ?x ?y)
 
-      ("jvm-ilt" ?x ?y)
+      (&a/$jvm-ilt ?x ?y)
       (&&host/compile-jvm-ilt compile-expression ?type ?x ?y)
 
-      ("jvm-igt" ?x ?y)
+      (&a/$jvm-igt ?x ?y)
       (&&host/compile-jvm-igt compile-expression ?type ?x ?y)
 
       ;; Long arithmetic
-      ("jvm-ladd" ?x ?y)
+      (&a/$jvm-ladd ?x ?y)
       (&&host/compile-jvm-ladd compile-expression ?type ?x ?y)
       
-      ("jvm-lsub" ?x ?y)
+      (&a/$jvm-lsub ?x ?y)
       (&&host/compile-jvm-lsub compile-expression ?type ?x ?y)
       
-      ("jvm-lmul" ?x ?y)
+      (&a/$jvm-lmul ?x ?y)
       (&&host/compile-jvm-lmul compile-expression ?type ?x ?y)
       
-      ("jvm-ldiv" ?x ?y)
+      (&a/$jvm-ldiv ?x ?y)
       (&&host/compile-jvm-ldiv compile-expression ?type ?x ?y)
       
-      ("jvm-lrem" ?x ?y)
+      (&a/$jvm-lrem ?x ?y)
       (&&host/compile-jvm-lrem compile-expression ?type ?x ?y)
 
-      ("jvm-leq" ?x ?y)
+      (&a/$jvm-leq ?x ?y)
       (&&host/compile-jvm-leq compile-expression ?type ?x ?y)
 
-      ("jvm-llt" ?x ?y)
+      (&a/$jvm-llt ?x ?y)
       (&&host/compile-jvm-llt compile-expression ?type ?x ?y)
 
-      ("jvm-lgt" ?x ?y)
+      (&a/$jvm-lgt ?x ?y)
       (&&host/compile-jvm-lgt compile-expression ?type ?x ?y)
 
       ;; Float arithmetic
-      ("jvm-fadd" ?x ?y)
+      (&a/$jvm-fadd ?x ?y)
       (&&host/compile-jvm-fadd compile-expression ?type ?x ?y)
       
-      ("jvm-fsub" ?x ?y)
+      (&a/$jvm-fsub ?x ?y)
       (&&host/compile-jvm-fsub compile-expression ?type ?x ?y)
       
-      ("jvm-fmul" ?x ?y)
+      (&a/$jvm-fmul ?x ?y)
       (&&host/compile-jvm-fmul compile-expression ?type ?x ?y)
       
-      ("jvm-fdiv" ?x ?y)
+      (&a/$jvm-fdiv ?x ?y)
       (&&host/compile-jvm-fdiv compile-expression ?type ?x ?y)
       
-      ("jvm-frem" ?x ?y)
+      (&a/$jvm-frem ?x ?y)
       (&&host/compile-jvm-frem compile-expression ?type ?x ?y)
 
-      ("jvm-feq" ?x ?y)
+      (&a/$jvm-feq ?x ?y)
       (&&host/compile-jvm-feq compile-expression ?type ?x ?y)
 
-      ("jvm-flt" ?x ?y)
+      (&a/$jvm-flt ?x ?y)
       (&&host/compile-jvm-flt compile-expression ?type ?x ?y)
 
-      ("jvm-fgt" ?x ?y)
+      (&a/$jvm-fgt ?x ?y)
       (&&host/compile-jvm-fgt compile-expression ?type ?x ?y)
 
       ;; Double arithmetic
-      ("jvm-dadd" ?x ?y)
+      (&a/$jvm-dadd ?x ?y)
       (&&host/compile-jvm-dadd compile-expression ?type ?x ?y)
       
-      ("jvm-dsub" ?x ?y)
+      (&a/$jvm-dsub ?x ?y)
       (&&host/compile-jvm-dsub compile-expression ?type ?x ?y)
       
-      ("jvm-dmul" ?x ?y)
+      (&a/$jvm-dmul ?x ?y)
       (&&host/compile-jvm-dmul compile-expression ?type ?x ?y)
       
-      ("jvm-ddiv" ?x ?y)
+      (&a/$jvm-ddiv ?x ?y)
       (&&host/compile-jvm-ddiv compile-expression ?type ?x ?y)
       
-      ("jvm-drem" ?x ?y)
+      (&a/$jvm-drem ?x ?y)
       (&&host/compile-jvm-drem compile-expression ?type ?x ?y)
 
-      ("jvm-deq" ?x ?y)
+      (&a/$jvm-deq ?x ?y)
       (&&host/compile-jvm-deq compile-expression ?type ?x ?y)
 
-      ("jvm-dlt" ?x ?y)
+      (&a/$jvm-dlt ?x ?y)
       (&&host/compile-jvm-dlt compile-expression ?type ?x ?y)
 
-      ("jvm-dgt" ?x ?y)
+      (&a/$jvm-dgt ?x ?y)
       (&&host/compile-jvm-dgt compile-expression ?type ?x ?y)
       
-      ("jvm-null" _)
+      (&a/$jvm-null _)
       (&&host/compile-jvm-null compile-expression ?type)
 
-      ("jvm-null?" ?object)
+      (&a/$jvm-null? ?object)
       (&&host/compile-jvm-null? compile-expression ?type ?object)
       
-      ("jvm-new" ?class ?classes ?args)
+      (&a/$jvm-new ?class ?classes ?args)
       (&&host/compile-jvm-new compile-expression ?type ?class ?classes ?args)
 
-      ("jvm-getstatic" ?class ?field)
+      (&a/$jvm-getstatic ?class ?field)
       (&&host/compile-jvm-getstatic compile-expression ?type ?class ?field)
 
-      ("jvm-getfield" ?class ?field ?object)
+      (&a/$jvm-getfield ?class ?field ?object)
       (&&host/compile-jvm-getfield compile-expression ?type ?class ?field ?object)
 
-      ("jvm-putstatic" ?class ?field ?value)
+      (&a/$jvm-putstatic ?class ?field ?value)
       (&&host/compile-jvm-putstatic compile-expression ?type ?class ?field ?value)
 
-      ("jvm-putfield" ?class ?field ?object ?value)
+      (&a/$jvm-putfield ?class ?field ?object ?value)
       (&&host/compile-jvm-putfield compile-expression ?type ?class ?field ?object ?value)
 
-      ("jvm-invokestatic" ?class ?method ?classes ?args)
+      (&a/$jvm-invokestatic ?class ?method ?classes ?args)
       (&&host/compile-jvm-invokestatic compile-expression ?type ?class ?method ?classes ?args)
 
-      ("jvm-invokevirtual" ?class ?method ?classes ?object ?args)
+      (&a/$jvm-invokevirtual ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokevirtual compile-expression ?type ?class ?method ?classes ?object ?args)
 
-      ("jvm-invokeinterface" ?class ?method ?classes ?object ?args)
+      (&a/$jvm-invokeinterface ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokeinterface compile-expression ?type ?class ?method ?classes ?object ?args)
 
-      ("jvm-invokespecial" ?class ?method ?classes ?object ?args)
+      (&a/$jvm-invokespecial ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokespecial compile-expression ?type ?class ?method ?classes ?object ?args)
       
-      ("jvm-new-array" ?class ?length)
+      (&a/$jvm-new-array ?class ?length)
       (&&host/compile-jvm-new-array compile-expression ?type ?class ?length)
 
-      ("jvm-aastore" ?array ?idx ?elem)
+      (&a/$jvm-aastore ?array ?idx ?elem)
       (&&host/compile-jvm-aastore compile-expression ?type ?array ?idx ?elem)
 
-      ("jvm-aaload" ?array ?idx)
+      (&a/$jvm-aaload ?array ?idx)
       (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx)
 
-      ("jvm-try" ?body ?catches ?finally)
+      (&a/$jvm-try ?body ?catches ?finally)
       (&&host/compile-jvm-try compile-expression ?type ?body ?catches ?finally)
 
-      ("jvm-throw" ?ex)
+      (&a/$jvm-throw ?ex)
       (&&host/compile-jvm-throw compile-expression ?type ?ex)
 
-      ("jvm-monitorenter" ?monitor)
+      (&a/$jvm-monitorenter ?monitor)
       (&&host/compile-jvm-monitorenter compile-expression ?type ?monitor)
 
-      ("jvm-monitorexit" ?monitor)
+      (&a/$jvm-monitorexit ?monitor)
       (&&host/compile-jvm-monitorexit compile-expression ?type ?monitor)
 
-      ("jvm-d2f" ?value)
+      (&a/$jvm-d2f ?value)
       (&&host/compile-jvm-d2f compile-expression ?type ?value)
 
-      ("jvm-d2i" ?value)
+      (&a/$jvm-d2i ?value)
       (&&host/compile-jvm-d2i compile-expression ?type ?value)
 
-      ("jvm-d2l" ?value)
+      (&a/$jvm-d2l ?value)
       (&&host/compile-jvm-d2l compile-expression ?type ?value)
       
-      ("jvm-f2d" ?value)
+      (&a/$jvm-f2d ?value)
       (&&host/compile-jvm-f2d compile-expression ?type ?value)
 
-      ("jvm-f2i" ?value)
+      (&a/$jvm-f2i ?value)
       (&&host/compile-jvm-f2i compile-expression ?type ?value)
 
-      ("jvm-f2l" ?value)
+      (&a/$jvm-f2l ?value)
       (&&host/compile-jvm-f2l compile-expression ?type ?value)
       
-      ("jvm-i2b" ?value)
+      (&a/$jvm-i2b ?value)
       (&&host/compile-jvm-i2b compile-expression ?type ?value)
 
-      ("jvm-i2c" ?value)
+      (&a/$jvm-i2c ?value)
       (&&host/compile-jvm-i2c compile-expression ?type ?value)
 
-      ("jvm-i2d" ?value)
+      (&a/$jvm-i2d ?value)
       (&&host/compile-jvm-i2d compile-expression ?type ?value)
 
-      ("jvm-i2f" ?value)
+      (&a/$jvm-i2f ?value)
       (&&host/compile-jvm-i2f compile-expression ?type ?value)
 
-      ("jvm-i2l" ?value)
+      (&a/$jvm-i2l ?value)
       (&&host/compile-jvm-i2l compile-expression ?type ?value)
 
-      ("jvm-i2s" ?value)
+      (&a/$jvm-i2s ?value)
       (&&host/compile-jvm-i2s compile-expression ?type ?value)
 
-      ("jvm-l2d" ?value)
+      (&a/$jvm-l2d ?value)
       (&&host/compile-jvm-l2d compile-expression ?type ?value)
 
-      ("jvm-l2f" ?value)
+      (&a/$jvm-l2f ?value)
       (&&host/compile-jvm-l2f compile-expression ?type ?value)
 
-      ("jvm-l2i" ?value)
+      (&a/$jvm-l2i ?value)
       (&&host/compile-jvm-l2i compile-expression ?type ?value)
 
-      ("jvm-iand" ?x ?y)
+      (&a/$jvm-iand ?x ?y)
       (&&host/compile-jvm-iand compile-expression ?type ?x ?y)
 
-      ("jvm-ior" ?x ?y)
+      (&a/$jvm-ior ?x ?y)
       (&&host/compile-jvm-ior compile-expression ?type ?x ?y)
 
-      ("jvm-ixor" ?x ?y)
+      (&a/$jvm-ixor ?x ?y)
       (&&host/compile-jvm-ixor compile-expression ?type ?x ?y)
 
-      ("jvm-ishl" ?x ?y)
+      (&a/$jvm-ishl ?x ?y)
       (&&host/compile-jvm-ishl compile-expression ?type ?x ?y)
 
-      ("jvm-ishr" ?x ?y)
+      (&a/$jvm-ishr ?x ?y)
       (&&host/compile-jvm-ishr compile-expression ?type ?x ?y)
 
-      ("jvm-iushr" ?x ?y)
+      (&a/$jvm-iushr ?x ?y)
       (&&host/compile-jvm-iushr compile-expression ?type ?x ?y)
 
-      ("jvm-land" ?x ?y)
+      (&a/$jvm-land ?x ?y)
       (&&host/compile-jvm-land compile-expression ?type ?x ?y)
 
-      ("jvm-lor" ?x ?y)
+      (&a/$jvm-lor ?x ?y)
       (&&host/compile-jvm-lor compile-expression ?type ?x ?y)
 
-      ("jvm-lxor" ?x ?y)
+      (&a/$jvm-lxor ?x ?y)
       (&&host/compile-jvm-lxor compile-expression ?type ?x ?y)
 
-      ("jvm-lshl" ?x ?y)
+      (&a/$jvm-lshl ?x ?y)
       (&&host/compile-jvm-lshl compile-expression ?type ?x ?y)
 
-      ("jvm-lshr" ?x ?y)
+      (&a/$jvm-lshr ?x ?y)
       (&&host/compile-jvm-lshr compile-expression ?type ?x ?y)
 
-      ("jvm-lushr" ?x ?y)
+      (&a/$jvm-lushr ?x ?y)
       (&&host/compile-jvm-lushr compile-expression ?type ?x ?y)
 
-      ("jvm-instanceof" ?class ?object)
+      (&a/$jvm-instanceof ?class ?object)
       (&&host/compile-jvm-instanceof compile-expression ?type ?class ?object)
       )
     ))
 
 (defn ^:private compile-statement [syntax]
   (|case syntax
-    ("def" ?name ?body)
+    (&a/$def ?name ?body)
     (&&lux/compile-def compile-expression ?name ?body)
 
-    ("declare-macro" ?module ?name)
+    (&a/$declare-macro ?module ?name)
     (&&lux/compile-declare-macro compile-expression ?module ?name)
 
-    ("jvm-program" ?body)
+    (&a/$jvm-program ?body)
     (&&host/compile-jvm-program compile-expression ?body)
     
-    ("jvm-interface" ?name ?supers ?methods)
+    (&a/$jvm-interface ?name ?supers ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
 
-    ("jvm-class" ?name ?super-class ?interfaces ?fields ?methods)
+    (&a/$jvm-class ?name ?super-class ?interfaces ?fields ?methods)
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)))
 
 (defn ^:private compile-token [syntax]
   (|case syntax
-    ("def" ?name ?body)
+    (&a/$def ?name ?body)
     (&&lux/compile-def compile-expression ?name ?body)
 
-    ("declare-macro" ?module ?name)
+    (&a/$declare-macro ?module ?name)
     (&&lux/compile-declare-macro compile-expression ?module ?name)
 
-    ("jvm-program" ?body)
+    (&a/$jvm-program ?body)
     (&&host/compile-jvm-program compile-expression ?body)
     
-    ("jvm-interface" ?name ?supers ?methods)
+    (&a/$jvm-interface ?name ?supers ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
 
-    ("jvm-class" ?name ?super-class ?interfaces ?fields ?methods)
+    (&a/$jvm-class ?name ?super-class ?interfaces ?fields ?methods)
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)
 
     _
