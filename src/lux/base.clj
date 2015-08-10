@@ -13,47 +13,53 @@
 
 ;; [Tags]
 (defmacro deftags [prefix & names]
-  `(do ~@(for [name names]
-           `(def ~(symbol (str "$" name)) ~(str prefix name)))))
+  `(do ~@(for [[name idx] (map vector names (range (count names)))]
+           `(def ~(symbol (str "$" name)) ~idx))))
 
 ;; List
-(def $Nil "lux;Nil")
-(def $Cons "lux;Cons")
+(deftags ""
+  "Nil"
+  "Cons")
 
 ;; Maybe
-(def $None "lux;None")
-(def $Some "lux;Some")
+(deftags ""
+  "None"
+  "Some")
 
 ;; Meta
-(def $Meta "lux;Meta")
+(deftags ""
+  "Meta")
 
 ;; Either
-(def $Left "lux;Left")
-(def $Right "lux;Right")
+(deftags ""
+  "Left"
+  "Right")
 
 ;; AST
-(def $BoolS "lux;BoolS")
-(def $IntS "lux;IntS")
-(def $RealS "lux;RealS")
-(def $CharS "lux;CharS")
-(def $TextS "lux;TextS")
-(def $SymbolS "lux;SymbolS")
-(def $TagS "lux;TagS")
-(def $FormS "lux;FormS")
-(def $TupleS "lux;TupleS")
-(def $RecordS "lux;RecordS")
+(deftags ""
+  "BoolS"
+  "IntS"
+  "RealS"
+  "CharS"
+  "TextS"
+  "SymbolS"
+  "TagS"
+  "FormS"
+  "TupleS"
+  "RecordS")
 
 ;; Type
-(def $DataT "lux;DataT")
-(def $TupleT "lux;TupleT")
-(def $VariantT "lux;VariantT")
-(def $RecordT "lux;RecordT")
-(def $LambdaT "lux;LambdaT")
-(def $VarT "lux;VarT")
-(def $ExT "lux;ExT")
-(def $BoundT "lux;BoundT")
-(def $AppT "lux;AppT")
-(def $AllT "lux;AllT")
+(deftags ""
+  "DataT"
+  "TupleT"
+  "VariantT"
+  "RecordT"
+  "LambdaT"
+  "BoundT"
+  "VarT"
+  "ExT"
+  "AllT"
+  "AppT")
 
 ;; [Fields]
 ;; Binding
@@ -100,7 +106,7 @@
 (defn T [& elems]
   (to-array elems))
 
-(defn V [tag value]
+(defn V [^Long tag value]
   (to-array [tag value]))
 
 (defn R [& kvs]
@@ -726,6 +732,7 @@
           output)))))
 
 (defn show-ast [ast]
+  ;; (prn 'show-ast/GOOD (aget ast 0) (aget ast 1 1 0))
   (|case ast
     ($Meta _ ($BoolS ?value))
     (pr-str ?value)
@@ -762,6 +769,10 @@
 
     ($Meta _ ($FormS ?elems))
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
+
+    _
+    (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
+    ;; (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
     ))
 
 (defn ident->text [ident]
@@ -814,6 +825,7 @@
     false))
 
 (defn ^:private enumerate* [idx xs]
+  "(All [a] (-> Int (List a) (List (, Int a))))"
   (|case xs
     ($Cons x xs*)
     (V $Cons (T (T idx x)
@@ -824,6 +836,7 @@
     ))
 
 (defn enumerate [xs]
+  "(All [a] (-> (List a) (List (, Int a))))"
   (enumerate* 0 xs))
 
 (def modules
@@ -836,3 +849,28 @@
   (if test
     body
     (return nil)))
+
+(defn |at [idx xs]
+  "(All [a] (-> Int (List a) (Maybe a)))"
+  ;; (prn '|at idx (aget idx 0))
+  (|case xs
+    ($Cons x xs*)
+    (cond (< idx 0)
+          (V $None nil)
+
+          (= idx 0)
+          (V $Some x)
+
+          :else ;; > 1
+          (|at (dec idx) xs*))
+
+    ($Nil)
+    (V $None nil)
+    ))
+
+(defn normalize [ident]
+  "(-> Ident (Lux Ident))"
+  (|case ident
+    ["" name] (|do [module get-module-name]
+                (return (T module name)))
+    _ (return ident)))

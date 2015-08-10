@@ -18,14 +18,17 @@
 
 ;; [Utils]
 (def ^:private $DEFS 0)
-(def ^:private $ALIASES 1)
-(def ^:private $IMPORTS 2)
+(def ^:private $IMPORTS 1)
+(def ^:private $ALIASES 2)
+(def ^:private $tags 3)
 (def ^:private +init+
   (&/R ;; "lux;defs"
    (&/|table)
+   ;; "lux;imports"
+   (&/|list)
    ;; "lux;module-aliases"
    (&/|table)
-   ;; "lux;imports"
+   ;; "lux;tags"
    (&/|list)
    ))
 
@@ -235,12 +238,50 @@
       (return* state (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $IMPORTS))))))
 
 (defn create-module [name]
+  "(-> Text (Lux (,)))"
   (fn [state]
     (return* (&/update$ &/$MODULES #(&/|put name +init+ %) state) nil)))
 
 (defn enter-module [name]
+  "(-> Text (Lux (,)))"
   (fn [state]
     (return* (->> state
                   (&/update$ &/$MODULES #(&/|put name +init+ %))
                   (&/set$ &/$ENVS (&/|list (&/env name))))
              nil)))
+
+(defn tags-by-module [module]
+  "(-> Text (Lux (List (, Text (, Int (List Text))))))"
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$MODULES) (&/|get module))]
+      (return* state (&/get$ $tags =module))
+      (fail* (str "[Lux Error] Unknown module: " module)))
+    ))
+
+(defn declare-tags [module tag-names]
+  "(-> Text (List Text) (Lux (,)))"
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$MODULES) (&/|get module))]
+      (let [tags (&/|map (fn [tag-name] (&/T module tag-name)) tag-names)]
+        (return* (&/update$ &/$MODULES
+                            (fn [=modules]
+                              (&/|update module
+                                         #(&/set$ $tags (&/fold (fn [table idx+tag-name]
+                                                                  (|let [[idx tag-name] idx+tag-name]
+                                                                    (&/|put tag-name (&/T idx tags) table)))
+                                                                (&/get$ $tags %)
+                                                                (&/enumerate tag-names))
+                                                  %)
+                                         =modules))
+                            state)
+                 nil))
+      (fail* (str "[Lux Error] Unknown module: " module)))))
+
+(defn tag-index [module tag-name]
+  "(-> Text Text (Lux Int))"
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$MODULES) (&/|get module))]
+      (if-let [^objects idx+tags (&/|get tag-name (&/get$ $tags =module))]
+        (return* state (aget idx+tags 0))
+        (fail* (str "[Lux Error] Unknown tag: " (&/ident->text (&/T module tag-name)))))
+      (fail* (str "[Lux Error] Unknown module: " module)))))

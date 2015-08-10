@@ -28,6 +28,7 @@
   "ann"
   "def"
   "declare-macro"
+  "var"
   "captured"
 
   "jvm-getstatic"

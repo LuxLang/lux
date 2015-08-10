@@ -37,11 +37,13 @@
 (do-template [<name> <class> <sig> <caster>]
   (defn <name> [compile *type* value]
     (|do [^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW <class>)
-                    (.visitInsn Opcodes/DUP)
-                    (.visitLdcInsn (<caster> value))
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
+          :let [_ (try (doto *writer*
+                         (.visitTypeInsn Opcodes/NEW <class>)
+                         (.visitInsn Opcodes/DUP)
+                         (.visitLdcInsn (<caster> value))
+                         (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))
+                    (catch Exception e
+                      (assert false (prn-str '<name> (alength value) (aget value 0) (aget value 1)))))]]
       (return nil)))
 
   compile-int  "java/lang/Long"      "(J)V" long
@@ -99,6 +101,7 @@
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 0))
                   (.visitLdcInsn ?tag)
+                  (&&/wrap-long)
                   (.visitInsn Opcodes/AASTORE)
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 1)))]
@@ -148,6 +151,7 @@
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 0)) ;; VVI
                       (.visitLdcInsn &/$TypeD) ;; VVIT
+                      (&&/wrap-long)
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
@@ -174,6 +178,7 @@
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 0)) ;; VVI
                         (.visitLdcInsn &/$ValueD) ;; VVIT
+                        (&&/wrap-long)
                         (.visitInsn Opcodes/AASTORE) ;; V
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 1)) ;; VVI

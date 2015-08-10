@@ -17,7 +17,8 @@
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [lux :as &&lux]
-                          [host :as &&host])))
+                          [host :as &&host]
+                          [module :as &&module])))
 
 ;; [Utils]
 (defn ^:private parse-handler [[catch+ finally+] token]
@@ -36,6 +37,14 @@
 
     _
     (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token)))))
+
+(defn ^:private parse-tag [ast]
+  (|case ast
+    (&/$Meta _ (&/$TagS "" name))
+    (return name)
+    
+    _
+    (fail (str "[Analyser Error] Not a tag: " (&/show-ast ast)))))
 
 (defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
   (|case token
@@ -431,6 +440,12 @@
                                 (&/$Nil))))
     (&&lux/analyse-declare-macro analyse compile-token ?name)
 
+    (&/$FormS (&/$Cons (&/$Meta _ (&/$SymbolS _ "_lux_declare-tags"))
+                       (&/$Cons (&/$Meta _ (&/$TupleS tags))
+                                (&/$Nil))))
+    (|do [tags* (&/map% parse-tag tags)]
+      (&&lux/analyse-declare-tags tags*))
+    
     (&/$FormS (&/$Cons (&/$Meta _ (&/$SymbolS _ "_lux_import"))
                        (&/$Cons (&/$Meta _ (&/$TextS ?path))
                                 (&/$Nil))))
@@ -492,7 +507,9 @@
     (&&lux/analyse-record analyse exo-type ?elems)
 
     (&/$TagS ?ident)
-    (&&lux/analyse-variant analyse exo-type ?ident (&/|list))
+    (|do [[module tag-name] (&/normalize ?ident)
+          idx (&&module/tag-index module tag-name)]
+      (&&lux/analyse-variant analyse exo-type idx (&/|list)))
     
     (&/$SymbolS _ "_jvm_null")
     (&&host/analyse-jvm-null analyse exo-type)
@@ -512,7 +529,10 @@
   (|case token
     (&/$Meta meta ?token)
     (fn [state]
-      (|case ((aba1 analyse eval! compile-module compile-token exo-type ?token) state)
+      (|case (try ((aba1 analyse eval! compile-module compile-token exo-type ?token) state)
+               (catch Error e
+                 (prn e)
+                 (assert false (prn-str 'analyse-basic-ast (&/show-ast ?token)))))
         (&/$Right state* output)
         (return* state* output)
 
@@ -540,11 +560,21 @@
         ))))
 
 (defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]
+  ;; (prn 'analyse-ast (&/show-ast token))
   (&/with-cursor (aget token 1 0)
     (&/with-expected-type exo-type
       (|case token
+        (&/$Meta meta (&/$FormS (&/$Cons (&/$Meta _ (&/$IntS idx)) ?values)))
+        (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values)
+
         (&/$Meta meta (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident)) ?values)))
-        (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
+        (|do [;; :let [_ (println 'analyse-ast/_0 (&/ident->text ?ident))]
+              [module tag-name] (&/normalize ?ident)
+              ;; :let [_ (println 'analyse-ast/_1 (&/ident->text (&/T module tag-name)))]
+              idx (&&module/tag-index module tag-name)
+              ;; :let [_ (println 'analyse-ast/_2 idx)]
+              ]
+          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values))
         
         (&/$Meta meta (&/$FormS (&/$Cons ?fn ?args)))
         (fn [state]

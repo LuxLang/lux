@@ -71,7 +71,7 @@
       _
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
-(defn analyse-variant [analyse exo-type ident ?values]
+(defn analyse-variant [analyse exo-type idx ?values]
   (|do [exo-type* (|case exo-type
                     (&/$VarT ?id)
                     (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
@@ -83,21 +83,50 @@
                     (&type/actual-type exo-type))]
     (|case exo-type*
       (&/$VariantT ?cases)
-      (|do [?tag (&&/resolved-ident ident)]
-        (if-let [vtype (&/|get ?tag ?cases)]
-          (|do [=value (analyse-variant-body analyse vtype ?values)]
-            (return (&/|list (&/T (&/V &&/$variant (&/T ?tag =value))
-                                  exo-type))))
-          (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
+      (|case (&/|at idx ?cases)
+        (&/$Some vtype)
+        (|do [=value (analyse-variant-body analyse vtype ?values)]
+          (return (&/|list (&/T (&/V &&/$variant (&/T idx =value))
+                                exo-type))))
+
+        (&/$None)
+        (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
 
       (&/$AllT _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-variant analyse exo-type** ident ?values))))
+            (analyse-variant analyse exo-type** idx ?values))))
       
       _
       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
+;; (defn analyse-variant [analyse exo-type ident ?values]
+;;   (|do [exo-type* (|case exo-type
+;;                     (&/$VarT ?id)
+;;                     (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
+;;                                            (&type/actual-type exo-type*))
+;;                                          (|do [_ (&type/set-var ?id &type/Type)]
+;;                                            (&type/actual-type &type/Type))))
+
+;;                     _
+;;                     (&type/actual-type exo-type))]
+;;     (|case exo-type*
+;;       (&/$VariantT ?cases)
+;;       (|do [?tag (&&/resolved-ident ident)]
+;;         (if-let [vtype (&/|get ?tag ?cases)]
+;;           (|do [=value (analyse-variant-body analyse vtype ?values)]
+;;             (return (&/|list (&/T (&/V &&/$variant (&/T ?tag =value))
+;;                                   exo-type))))
+;;           (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
+
+;;       (&/$AllT _)
+;;       (&type/with-var
+;;         (fn [$var]
+;;           (|do [exo-type** (&type/apply-type exo-type* $var)]
+;;             (analyse-variant analyse exo-type** ident ?values))))
+      
+;;       _
+;;       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
 (defn analyse-record [analyse exo-type ?elems]
   (|do [exo-type* (|case exo-type
@@ -158,7 +187,7 @@
                    (clojure.lang.Util/identical &type/Type exo-type))
             (return nil)
             (&type/check exo-type endo-type))]
-    (return (&/|list (&/T (&/V &/$Global (&/T r-module r-name))
+    (return (&/|list (&/T (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
                           endo-type)))))
 
 (defn ^:private analyse-local [analyse exo-type name]
@@ -194,7 +223,7 @@
                                       (clojure.lang.Util/identical &type/Type exo-type))
                                (return nil)
                                (&type/check exo-type endo-type))]
-                       (return (&/|list (&/T (&/V &/$Global (&/T r-module r-name))
+                       (return (&/|list (&/T (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
                                              endo-type))))
                      state)
 
@@ -397,14 +426,39 @@
 
           _
           (do (println 'DEF (str module-name ";" ?name))
-            (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))]
+            (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
+                  :let [_ (println 'DEF/COMPILED (str module-name ";" ?name))]]
               (return (&/|list)))))
         ))))
 
 (defn analyse-declare-macro [analyse compile-token ?name]
-  (|do [module-name &/get-module-name]
-    (|do [_ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))]
-      (return (&/|list)))))
+  (|do [module-name &/get-module-name
+        _ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))]
+    (return (&/|list))))
+
+(defn ensure-undeclared-tags [module tags]
+  (|do [;; :let [_ (prn 'ensure-undeclared-tags/_0)]
+        tags-table (&&module/tags-by-module module)
+        ;; :let [_ (prn 'ensure-undeclared-tags/_1)]
+        _ (&/map% (fn [tag]
+                    (if (&/|get tag tags-table)
+                      (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T module tag))))
+                      (return nil)))
+                  tags)
+        ;; :let [_ (prn 'ensure-undeclared-tags/_2)]
+        ]
+    (return nil)))
+
+(defn analyse-declare-tags [tags]
+  (|do [;; :let [_ (prn 'analyse-declare-tags/_0)]
+        module-name &/get-module-name
+        ;; :let [_ (prn 'analyse-declare-tags/_1)]
+        _ (ensure-undeclared-tags module-name tags)
+        ;; :let [_ (prn 'analyse-declare-tags/_2)]
+        _ (&&module/declare-tags module-name tags)
+        ;; :let [_ (prn 'analyse-declare-tags/_3)]
+        ]
+    (return (&/|list))))
 
 (defn analyse-import [analyse compile-module compile-token ?path]
   (|do [module-name &/get-module-name
@@ -440,6 +494,6 @@
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
-        =value (&&/analyse-1 analyse ==type ?value)]
+        =value (analyse-1+ analyse ?value)]
     (return (&/|list (&/T (&/V &&/$ann (&/T =value =type))
                           ==type)))))
