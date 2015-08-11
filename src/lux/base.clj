@@ -281,13 +281,23 @@
     ($Cons x xs*)
     (V $Cons (T x (|++ xs* ys)))))
 
+(let [array-class (class (to-array []))]
+  (defn adt->text [adt]
+    (if (= array-class (class adt))
+      (str "[" (->> adt (map adt->text) (interpose " ") (reduce str "")) "]")
+      (pr-str adt))))
+
 (defn |map [f xs]
   (|case xs
     ($Nil)
     xs
 
     ($Cons x xs*)
-    (V $Cons (T (f x) (|map f xs*)))))
+    (V $Cons (T (f x) (|map f xs*)))
+
+    _
+    (assert false (prn-str '|map f (adt->text xs)))
+    ))
 
 (defn |empty? [xs]
   (|case xs
@@ -770,8 +780,8 @@
     ($Meta _ ($FormS ?elems))
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
 
-    _
-    (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
+    ;; _
+    ;; (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
     ;; (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
     ))
 

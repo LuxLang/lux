@@ -51,23 +51,19 @@
                       $Nil
                       (&/|reverse ?members)))
 
-    (&/$VariantT ?cases)
+    (&/$VariantT ?members)
     (variant$ &/$VariantT
               (&/fold (fn [tail head]
-                        (|let [[hlabel htype] head]
-                          (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                 tail)))
+                        (Cons$ (->analysis head) tail))
                       $Nil
-                      (&/|reverse ?cases)))
+                      (&/|reverse ?members)))
 
-    (&/$RecordT ?slots)
+    (&/$RecordT ?members)
     (variant$ &/$RecordT
               (&/fold (fn [tail head]
-                        (|let [[hlabel htype] head]
-                          (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                 tail)))
+                        (Cons$ (->analysis head) tail))
                       $Nil
-                      (&/|reverse ?slots)))
+                      (&/|reverse ?members)))
 
     (&/$LambdaT ?input ?output)
     (variant$ &/$LambdaT (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))

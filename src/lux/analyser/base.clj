@@ -148,4 +148,4 @@
     (|do [module* (if (.equals "" ?module)
                     &/get-module-name
                     (return ?module))]
-      (return (&/ident->text (&/T module* ?name))))))
+      (return (&/T module* ?name)))))

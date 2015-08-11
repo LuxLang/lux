@@ -158,7 +158,8 @@
         =slots (&/map% (fn [kv]
                          (|case kv
                            [(&/$Meta _ (&/$TagS ?ident)) ?value]
-                           (|do [?tag (&&/resolved-ident ?ident)
+                           (|do [=ident (&&/resolved-ident ?ident)
+                                 :let [?tag (&/ident->text =ident)]
                                  slot-type (if-let [slot-type (&/|get ?tag types)]
                                              (return slot-type)
                                              (fail (str "[Analyser Error] Record type does not have slot: " ?tag)))
@@ -302,14 +303,14 @@
   (|do [loader &/loader]
     (|let [[=fn-form =fn-type] =fn]
       (|case =fn-form
-        (&/$Global ?module ?name)
-        (|do [[[r-module r-name] $def] (&&module/find-def ?module ?name)]
+        (&&/$var (&/$Global ?module ?name))
+        (|do [[real-name $def] (&&module/find-def ?module ?name)]
           (|case $def
             (&/$MacroD macro)
-            (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (str r-module ";" r-name))]
+            (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (&/ident->text real-name))]
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
-                  ;; :let [_ (prn 'MACRO-EXPAND|POST (str r-module ";" r-name))]
-                  :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
+                  ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
+                  ;; :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
                   ;; :let [_ (when (or (= "<>" r-name)
                   ;;                   ;; (= &&/$struct r-name)
                   ;;                   )
@@ -318,7 +319,7 @@
                   ;;                (&/fold str "")
                   ;;                (prn (str r-module ";" r-name))))]
                   ]
-              (&/flat-map% (partial analyse exo-type) macro-expansion*))
+              (&/flat-map% (partial analyse exo-type) macro-expansion))
 
             _
             (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]

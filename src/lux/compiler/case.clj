@@ -132,6 +132,7 @@
         (.visitLdcInsn (int 0))
         (.visitInsn Opcodes/AALOAD)
         (.visitLdcInsn ?tag)
+        (&&/wrap-long)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
         (.visitJumpInsn Opcodes/IFEQ $else)
         (.visitInsn Opcodes/DUP)

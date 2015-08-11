@@ -13,7 +13,8 @@
                  [parser :as &parser]
                  [type :as &type])
             (lux.analyser [base :as &&]
-                          [env :as &env])))
+                          [env :as &env]
+                          [module :as &module])))
 
 ;; [Tags]
 (deftags ""
@@ -66,6 +67,7 @@
 
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (Env Text Type)) Text Text Type)) Type (Lux Type))"
+  ;; (prn 'adjust-type* (&type/show-type type))
   (|case type
     (&/$AllT _aenv _aname _aarg _abody)
     (&type/with-var
@@ -80,45 +82,43 @@
                                                (&type/clean* _avar _abody))))
                                          type
                                          up)]
-      (return (&/V &/$TupleT (&/|map (fn [v]
-                                       (&/fold (fn [_abody ena]
-                                                 (|let [[_aenv _aname _aarg _avar] ena]
-                                                   (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
-                                               v
-                                               up))
-                                     ?members*))))
+      (return (&type/Tuple$ (&/|map (fn [v]
+                                      (&/fold (fn [_abody ena]
+                                                (|let [[_aenv _aname _aarg _avar] ena]
+                                                  (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                              v
+                                              up))
+                                    ?members*))))
 
-    (&/$RecordT ?fields)
-    (|do [(&/$RecordT ?fields*) (&/fold% (fn [_abody ena]
-                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
-                                               (&type/clean* _avar _abody))))
-                                         type
-                                         up)]
-      (return (&/V &/$RecordT (&/|map (fn [kv]
-                                        (|let [[k v] kv]
-                                          (&/T k (&/fold (fn [_abody ena]
-                                                           (|let [[_aenv _aname _aarg _avar] ena]
-                                                             (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
-                                                         v
-                                                         up))))
-                                      ?fields*))))
+    (&/$RecordT ?members)
+    (|do [(&/$RecordT ?members*) (&/fold% (fn [_abody ena]
+                                            (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
+                                              (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                                (&type/clean* _avar _abody))))
+                                          type
+                                          up)]
+      (return (&/V &/$RecordT (&/|map (fn [v]
+                                        (&/fold (fn [_abody ena]
+                                                  (|let [[_aenv _aname _aarg _avar] ena]
+                                                    (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                                v
+                                                up))
+                                      ?members*))))
 
-    (&/$VariantT ?cases)
-    (|do [(&/$VariantT ?cases*) (&/fold% (fn [_abody ena]
-                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
-                                               (&type/clean* _avar _abody))))
-                                         type
-                                         up)]
-      (return (&/V &/$VariantT (&/|map (fn [kv]
-                                         (|let [[k v] kv]
-                                           (&/T k (&/fold (fn [_abody ena]
-                                                            (|let [[_aenv _aname _aarg _avar] ena]
-                                                              (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
-                                                          v
-                                                          up))))
-                                       ?cases*))))
+    (&/$VariantT ?members)
+    (|do [(&/$VariantT ?members*) (&/fold% (fn [_abody ena]
+                                             (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
+                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                                 (&type/clean* _avar _abody))))
+                                           type
+                                           up)]
+      (return (&/V &/$VariantT (&/|map (fn [v]
+                                         (&/fold (fn [_abody ena]
+                                                   (|let [[_aenv _aname _aarg _avar] ena]
+                                                     (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                                 v
+                                                 up))
+                                       ?members*))))
 
     (&/$AppT ?tfun ?targ)
     (|do [=type (&type/apply-type ?tfun ?targ)]
@@ -208,7 +208,8 @@
                                            (|let [[sn sv] slot]
                                              (|case sn
                                                (&/$Meta _ (&/$TagS ?ident))
-                                               (|do [=tag (&&/resolved-ident ?ident)]
+                                               (|do [=ident (&&/resolved-ident ?ident)
+                                                     :let [=tag (&/ident->text =ident)]]
                                                  (if-let [=slot-type (&/|get =tag ?slot-types)]
                                                    (|do [[=test [=tests =kont]] (analyse-pattern =slot-type sv kont*)]
                                                      (return (&/T (&/|put =tag =test =tests) =kont)))
@@ -225,23 +226,39 @@
           (fail "[Pattern-matching Error] Record requires record-type.")))
 
       (&/$TagS ?ident)
-      (|do [=tag (&&/resolved-ident ?ident)
+      (|do [;; :let [_ (println "#00")]
+            [=module =name] (&&/resolved-ident ?ident)
+            ;; :let [_ (println "#01")]
             value-type* (adjust-type value-type)
-            case-type (&type/variant-case =tag value-type*)
-            [=test =kont] (analyse-pattern case-type unit kont)]
-        (return (&/T (&/V $VariantTestAC (&/T =tag =test)) =kont)))
+            ;; :let [_ (println "#02")]
+            idx (&module/tag-index =module =name)
+            ;; :let [_ (println "#03")]
+            case-type (&type/variant-case idx value-type*)
+            ;; :let [_ (println "#04")]
+            [=test =kont] (analyse-pattern case-type unit kont)
+            ;; :let [_ (println "#05")]
+            ]
+        (return (&/T (&/V $VariantTestAC (&/T idx =test)) =kont)))
 
       (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
                          ?values))
-      (|do [=tag (&&/resolved-ident ?ident)
+      (|do [;; :let [_ (println "#10" ?ident)]
+            [=module =name] (&&/resolved-ident ?ident)
+            ;; :let [_ (println "#11")]
             value-type* (adjust-type value-type)
-            case-type (&type/variant-case =tag value-type*)
+            ;; :let [_ (println "#12" (&type/show-type value-type*))]
+            idx (&module/tag-index =module =name)
+            ;; :let [_ (println "#13")]
+            case-type (&type/variant-case idx value-type*)
+            ;; :let [_ (println "#14" (&type/show-type case-type))]
             [=test =kont] (case (&/|length ?values)
                             0 (analyse-pattern case-type unit kont)
                             1 (analyse-pattern case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern case-type (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values))) kont))]
-        (return (&/T (&/V $VariantTestAC (&/T =tag =test)) =kont)))
+                            (analyse-pattern case-type (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values))) kont))
+            ;; :let [_ (println "#15")]
+            ]
+        (return (&/T (&/V $VariantTestAC (&/T idx =test)) =kont)))
       )))
 
 (defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
@@ -380,13 +397,10 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          (&/$RecordT ?fields)
-          (|do [totals (&/map% (fn [field]
-                                 (|let [[?tk ?tv] field]
-                                   (if-let [sub-struct (&/|get ?tk ?structs)]
-                                     (check-totality ?tv sub-struct)
-                                     (return false))))
-                               ?fields)]
+          (&/$RecordT ?members)
+          (|do [totals (&/map2% (fn [sub-struct ?member]
+                                  (check-totality ?member sub-struct))
+                                ?structs ?members)]
             (return (&/fold #(and %1 %2) true totals)))
 
           _
@@ -397,13 +411,10 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          (&/$VariantT ?cases)
-          (|do [totals (&/map% (fn [case]
-                                 (|let [[?tk ?tv] case]
-                                   (if-let [sub-struct (&/|get ?tk ?structs)]
-                                     (check-totality ?tv sub-struct)
-                                     (return false))))
-                               ?cases)]
+          (&/$VariantT ?members)
+          (|do [totals (&/map2% (fn [sub-struct ?member]
+                                  (check-totality ?member sub-struct))
+                                ?structs ?members)]
             (return (&/fold #(and %1 %2) true totals)))
 
           _
