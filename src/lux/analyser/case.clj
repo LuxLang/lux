@@ -223,13 +223,14 @@
             value-type* (adjust-type value-type)
             ;; :let [_ (println "#02")]
             idx (&module/tag-index =module =name)
+            group (&module/tag-group =module =name)
             ;; :let [_ (println "#03")]
             case-type (&type/variant-case idx value-type*)
             ;; :let [_ (println "#04")]
             [=test =kont] (analyse-pattern case-type unit kont)
             ;; :let [_ (println "#05")]
             ]
-        (return (&/T (&/V $VariantTestAC (&/T idx =test)) =kont)))
+        (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
       (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
                          ?values))
@@ -239,6 +240,7 @@
             value-type* (adjust-type value-type)
             ;; :let [_ (println "#12" (&type/show-type value-type*))]
             idx (&module/tag-index =module =name)
+            group (&module/tag-group =module =name)
             ;; :let [_ (println "#13")]
             case-type (&type/variant-case idx value-type*)
             ;; :let [_ (println "#14" (&type/show-type case-type))]
@@ -249,7 +251,7 @@
                             (analyse-pattern case-type (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values))) kont))
             ;; :let [_ (println "#15")]
             ]
-        (return (&/T (&/V $VariantTestAC (&/T idx =test)) =kont)))
+        (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
       )))
 
 (defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
@@ -311,21 +313,40 @@
             (return (&/V $TupleTotal (&/T total? structs))))
           (fail "[Pattern-matching Error] Inconsistent tuple-size."))
 
-        [($DefaultTotal total?) ($VariantTestAC ?tag ?test)]
+        [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
         (|do [sub-struct (merge-total (&/V $DefaultTotal total?)
-                                      (&/T ?test ?body))]
-          (return (&/V $VariantTotal (&/T total? (&/|put ?tag sub-struct (&/|table))))))
+                                      (&/T ?test ?body))
+              structs (|case (&/|list-put ?tag sub-struct (&/|repeat ?count (&/V $DefaultTotal total?)))
+                        (&/$Some list)
+                        (return list)
 
-        [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?test)]
-        (|do [sub-struct (merge-total (or (&/|get ?tag ?branches)
-                                          (&/V $DefaultTotal total?))
-                                      (&/T ?test ?body))]
-          (return (&/V $VariantTotal (&/T total? (&/|put ?tag sub-struct ?branches)))))
+                        (&/$None)
+                        (fail "[Pattern-matching Error] YOLO"))]
+          (return (&/V $VariantTotal (&/T total? structs))))
+
+        [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
+        (|do [sub-struct (merge-total (|case (&/|at ?tag ?branches)
+                                        (&/$Some sub)
+                                        sub
+                                        
+                                        (&/$None)
+                                        (&/V $DefaultTotal total?))
+                                      (&/T ?test ?body))
+              structs (|case (&/|list-put ?tag sub-struct ?branches)
+                        (&/$Some list)
+                        (return list)
+
+                        (&/$None)
+                        (fail "[Pattern-matching Error] YOLO"))]
+          (return (&/V $VariantTotal (&/T total? structs))))
         ))))
 
 (defn ^:private check-totality [value-type struct]
   ;; (prn 'check-totality (&type/show-type value-type) (&/adt->text struct))
   (|case struct
+    ($DefaultTotal ?total)
+    (return ?total)
+
     ($BoolTotal ?total ?values)
     (return (or ?total
                 (= #{true false} (set (&/->seq ?values)))))
@@ -369,6 +390,9 @@
         (|case value-type*
           (&/$VariantT ?members)
           (|do [totals (&/map2% (fn [sub-struct ?member]
+                                  ;; (prn '$VariantTotal
+                                  ;;      (&/adt->text sub-struct)
+                                  ;;      (&type/show-type ?member))
                                   (check-totality ?member sub-struct))
                                 ?structs ?members)]
             (return (&/fold #(and %1 %2) true totals)))
@@ -376,9 +400,6 @@
           _
           (fail "[Pattern-maching Error] Variant is not total."))))
     
-    ($DefaultTotal ?total)
-    (return ?total)
-
     ;; _
     ;; (assert false (prn-str 'check-totality (&type/show-type value-type)
     ;;                        (&/adt->text struct)))

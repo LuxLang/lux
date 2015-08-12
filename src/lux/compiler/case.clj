@@ -102,7 +102,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      (&a-case/$VariantTestAC ?tag ?test)
+      (&a-case/$VariantTestAC ?tag ?count ?test)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)

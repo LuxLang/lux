@@ -116,6 +116,13 @@
 (defn R [& kvs]
   (to-array kvs))
 
+;; Constructors
+(def None$ (V $None nil))
+(defn Some$ [x] (V $Some x))
+
+(def Nil$ (V $Nil nil))
+(defn Cons$ [h t] (V $Cons (T h t)))
+
 (defn get$ [slot ^objects record]
   (aget record slot))
 
@@ -894,3 +901,29 @@
          [ymodule yname] y]
     (and (= xmodule ymodule)
          (= xname yname))))
+
+;; (defn |list-put [idx val xs]
+;;   (|case [idx xs]
+;;     [_ ($Nil)]
+;;     (V $None nil)
+    
+;;     [0 ($Cons x xs*)]
+;;     (V $Some (V $Cons (T val xs*)))
+    
+;;     [_ ($Cons x xs*)]
+;;     (|case (|list-put idx val xs*)
+;;       ($None)      (V $None nil)
+;;       ($Some xs**) (V $Some (V $Cons (T x xs**))))))
+
+(defn |list-put [idx val xs]
+  (|case xs
+    ($Nil)
+    (V $None nil)
+    
+    ($Cons x xs*)
+    (if (= idx 0)
+      (V $Some (V $Cons (T val xs*)))
+      (|case (|list-put (dec idx) val xs*)
+        ($None)      (V $None nil)
+        ($Some xs**) (V $Some (V $Cons (T x xs**))))
+      )))
