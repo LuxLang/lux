@@ -209,12 +209,12 @@
                              (Tuple$ (&/|list (Bound$ "s")
                                               (Bound$ "a"))))))))
 
-(def Reader
+(def Source
   (App$ List
         (App$ (App$ Meta Cursor)
               Text)))
 
-(def HostState
+(def Host
   (Record$
    (&/|list
     ;; "lux;writer"
@@ -274,7 +274,9 @@
               (Record$
                (&/|list
                 ;; "lux;source"
-                Reader
+                Source
+                ;; "lux;cursor"
+                Cursor
                 ;; "lux;modules"
                 (App$ List (Tuple$ (&/|list Text
                                             (App$ $Module (App$ (Bound$ "lux;Compiler") (Bound$ ""))))))
@@ -284,16 +286,14 @@
                             (Tuple$ (&/|list LuxVar Type))))
                 ;; "lux;types"
                 (App$ (App$ Bindings Int) Type)
-                ;; "lux;host"
-                HostState
+                ;; "lux;expected"
+                Type
                 ;; "lux;seed"
                 Int
                 ;; "lux;eval?"
                 Bool
-                ;; "lux;expected"
-                Type
-                ;; "lux;cursor"
-                Cursor
+                ;; "lux;host"
+                Host
                 )))
         $Void))
 
@@ -304,7 +304,7 @@
 
 (defn bound? [id]
   (fn [state]
-    (if-let [type (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+    (if-let [type (->> state (&/get$ &/$types) (&/get$ &/$mappings) (&/|get id))]
       (|case type
         (&/$Some type*)
         (return* state true)
@@ -315,7 +315,7 @@
 
 (defn deref [id]
   (fn [state]
-    (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+    (if-let [type* (->> state (&/get$ &/$types) (&/get$ &/$mappings) (&/|get id))]
       (|case type*
         (&/$Some type)
         (return* state type)
@@ -326,26 +326,26 @@
 
 (defn set-var [id type]
   (fn [state]
-    (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
+    (if-let [tvar (->> state (&/get$ &/$types) (&/get$ &/$mappings) (&/|get id))]
       (|case tvar
         (&/$Some bound)
         (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
         
         (&/$None)
-        (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V &/$Some type) %)
+        (return* (&/update$ &/$types (fn [ts] (&/update$ &/$mappings #(&/|put id (&/V &/$Some type) %)
                                                         ts))
                             state)
                  nil))
-      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) &/|length))))))
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$types) (&/get$ &/$mappings) &/|length))))))
 
 ;; [Exports]
 ;; Type vars
 (def ^:private create-var
   (fn [state]
-    (let [id (->> state (&/get$ &/$TYPES) (&/get$ &/$COUNTER))]
-      (return* (&/update$ &/$TYPES #(->> %
-                                         (&/update$ &/$COUNTER inc)
-                                         (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V &/$None nil) ms))))
+    (let [id (->> state (&/get$ &/$types) (&/get$ &/$counter))]
+      (return* (&/update$ &/$types #(->> %
+                                         (&/update$ &/$counter inc)
+                                         (&/update$ &/$mappings (fn [ms] (&/|put id (&/V &/$None nil) ms))))
                           state)
                id))))
 
@@ -380,11 +380,11 @@
                                          (|do [?type** (clean* id ?type*)]
                                            (return (&/T ?id (&/V &/$Some ?type**)))))
                                        ))))
-                               (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
+                               (->> state (&/get$ &/$types) (&/get$ &/$mappings)))]
          (fn [state]
-           (return* (&/update$ &/$TYPES #(->> %
-                                              (&/update$ &/$COUNTER dec)
-                                              (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
+           (return* (&/update$ &/$types #(->> %
+                                              (&/update$ &/$counter dec)
+                                              (&/set$ &/$mappings (&/|remove id mappings*)))
                                state)
                     nil)))
        state))))

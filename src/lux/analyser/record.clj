@@ -6,11 +6,12 @@
 ;;   the terms of this license.
 ;;   You must not remove this notice, or any other, from this software.
 
-(ns lux.analyser.base
+(ns lux.analyser.record
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |let |do return fail |case]]
-                 [type :as &type])))
+            (lux [base :as & :refer [deftags |let |do return fail |case]])
+            (lux.analyser [base :as &&]
+                          [module :as &&module])))
 
 ;; [Tags]
 (deftags ""
@@ -129,22 +130,29 @@
   )
 
 ;; [Exports]
-(defn expr-type [syntax+]
-  (|let [[_ type] syntax+]
-    (return type)))
+(defn order-record [pairs]
+  "(-> (List (, Syntax Syntax)) (Lux (List Syntax)))"
+  (|do [tag-group (|case pairs
+                    (&/$Nil)
+                    (return (&/|list))
+                    
+                    (&/$Cons [(&/$Meta _ (&/$TagS tag1)) _] _)
+                    (|do [[module name] (&&/resolved-ident tag1)]
+                      (&&module/tag-group module name))
 
-(defn analyse-1 [analyse exo-type elem]
-  (|do [output (analyse exo-type elem)]
-    (|case output
-      (&/$Cons x (&/$Nil))
-      (return x)
+                    _
+                    (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags."))
+        =pairs (&/map% (fn [kv]
+                         (|case kv
+                           [(&/$Meta _ (&/$TagS k)) v]
+                           (|do [=k (&&/resolved-ident k)]
+                             (return (&/T (&/ident->text =k) v)))
 
-      _
-      (fail "[Analyser Error] Can't expand to other than 1 element."))))
-
-(defn resolved-ident [ident]
-  (|let [[?module ?name] ident]
-    (|do [module* (if (.equals "" ?module)
-                    &/get-module-name
-                    (return ?module))]
-      (return (&/T module* ?name)))))
+                           _
+                           (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
+                       pairs)]
+    (&/map% (fn [tag]
+              (if-let [member (&/|get tag =pairs)]
+                (return member)
+                (fail (str "[Analyser Error] Unknown tag: " tag))))
+            (&/|map &/ident->text tag-group))))

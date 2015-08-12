@@ -14,7 +14,8 @@
                  [type :as &type])
             (lux.analyser [base :as &&]
                           [env :as &env]
-                          [module :as &module])))
+                          [module :as &module]
+                          [record :as &&record])))
 
 ;; [Tags]
 (deftags ""
@@ -25,7 +26,6 @@
   "CharTotal"
   "TextTotal"
   "TupleTotal"
-  "RecordTotal"
   "VariantTotal"
   )
 
@@ -37,7 +37,6 @@
   "CharTestAC"
   "TextTestAC"
   "TupleTestAC"
-  "RecordTestAC"
   "VariantTestAC"
   )
 
@@ -194,33 +193,25 @@
               _
               (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
       
-      (&/$RecordS ?slots)
-      (|do [;; :let [_ (prn 'PRE (&type/show-type value-type))]
+      (&/$RecordS pairs)
+      (|do [?members (&&record/order-record pairs)
+            ;; :let [_ (prn 'PRE (&type/show-type value-type))]
             value-type* (adjust-type value-type)
             ;; :let [_ (prn 'POST (&type/show-type value-type*))]
             ;; value-type* (resolve-type value-type)
             ]
         (|case value-type*
-          (&/$RecordT ?slot-types)
-          (if (not (.equals ^Object (&/|length ?slot-types) (&/|length ?slots)))
-            (fail (str "[Analyser Error] Pattern-matching mismatch. Require record[" (&/|length ?slot-types) "]. Given record[" (&/|length ?slots) "]"))
-            (|do [[=tests =kont] (&/fold (fn [kont* slot]
-                                           (|let [[sn sv] slot]
-                                             (|case sn
-                                               (&/$Meta _ (&/$TagS ?ident))
-                                               (|do [=ident (&&/resolved-ident ?ident)
-                                                     :let [=tag (&/ident->text =ident)]]
-                                                 (if-let [=slot-type (&/|get =tag ?slot-types)]
-                                                   (|do [[=test [=tests =kont]] (analyse-pattern =slot-type sv kont*)]
-                                                     (return (&/T (&/|put =tag =test =tests) =kont)))
-                                                   (fail (str "[Pattern-matching Error] Record-type lacks slot: " =tag))))
-
-                                               _
-                                               (fail (str "[Pattern-matching Error] Record must use tags as slot-names: " (&/show-ast sn))))))
+          (&/$RecordT ?member-types)
+          (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
+            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require record[" (&/|length ?member-types) "]. Given record[" (&/|length ?members) "]"))
+            (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                           (|let [[v m] vm]
+                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
+                                               (return (&/T (&/|cons =test =tests) =kont)))))
                                          (|do [=kont kont]
-                                           (return (&/T (&/|table) =kont)))
-                                         (&/|reverse ?slots))]
-              (return (&/T (&/V $RecordTestAC =tests) =kont))))
+                                           (return (&/T (&/|list) =kont)))
+                                         (&/|reverse (&/zip2 ?member-types ?members)))]
+              (return (&/T (&/V $TupleTestAC =tests) =kont))))
 
           _
           (fail "[Pattern-matching Error] Record requires record-type.")))
@@ -320,34 +311,6 @@
             (return (&/V $TupleTotal (&/T total? structs))))
           (fail "[Pattern-matching Error] Inconsistent tuple-size."))
 
-        [($DefaultTotal total?) ($RecordTestAC ?tests)]
-        (|do [structs (&/map% (fn [t]
-                                (|let [[slot value] t]
-                                  (|do [struct* (merge-total (&/V $DefaultTotal total?) (&/T value ?body))]
-                                    (return (&/T slot struct*)))))
-                              (->> ?tests
-                                   &/->seq
-                                   (sort compare-kv)
-                                   &/->list))]
-          (return (&/V $RecordTotal (&/T total? structs))))
-
-        [($RecordTotal total? ?values) ($RecordTestAC ?tests)]
-        (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
-          (|do [structs (&/map2% (fn [left right]
-                                   (|let [[lslot sub-struct] left
-                                          [rslot value]right]
-                                     (if (.equals ^Object lslot rslot)
-                                       (|do [sub-struct* (merge-total sub-struct (&/T value ?body))]
-                                         (return (&/T lslot sub-struct*)))
-                                       (fail "[Pattern-matching Error] Record slots mismatch."))))
-                                 ?values
-                                 (->> ?tests
-                                      &/->seq
-                                      (sort compare-kv)
-                                      &/->list))]
-            (return (&/V $RecordTotal (&/T total? structs))))
-          (fail "[Pattern-matching Error] Inconsistent record-size."))
-
         [($DefaultTotal total?) ($VariantTestAC ?tag ?test)]
         (|do [sub-struct (merge-total (&/V $DefaultTotal total?)
                                       (&/T ?test ?body))]
@@ -361,6 +324,7 @@
         ))))
 
 (defn ^:private check-totality [value-type struct]
+  ;; (prn 'check-totality (&type/show-type value-type) (&/adt->text struct))
   (|case struct
     ($BoolTotal ?total ?values)
     (return (or ?total
@@ -389,14 +353,6 @@
                                 ?structs ?members)]
             (return (&/fold #(and %1 %2) true totals)))
 
-          _
-          (fail "[Pattern-maching Error] Tuple is not total."))))
-
-    ($RecordTotal ?total ?structs)
-    (if ?total
-      (return true)
-      (|do [value-type* (resolve-type value-type)]
-        (|case value-type*
           (&/$RecordT ?members)
           (|do [totals (&/map2% (fn [sub-struct ?member]
                                   (check-totality ?member sub-struct))
@@ -404,7 +360,7 @@
             (return (&/fold #(and %1 %2) true totals)))
 
           _
-          (fail "[Pattern-maching Error] Record is not total."))))
+          (fail "[Pattern-maching Error] Tuple is not total."))))
 
     ($VariantTotal ?total ?structs)
     (if ?total
@@ -422,6 +378,10 @@
     
     ($DefaultTotal ?total)
     (return ?total)
+
+    ;; _
+    ;; (assert false (prn-str 'check-totality (&type/show-type value-type)
+    ;;                        (&/adt->text struct)))
     ))
 
 ;; [Exports]

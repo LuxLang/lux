@@ -15,28 +15,28 @@
 ;; [Exports]
 (def next-local-idx
   (fn [state]
-    (return* state (->> state (&/get$ &/$ENVS) &/|head (&/get$ &/$LOCALS) (&/get$ &/$COUNTER)))))
+    (return* state (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$counter)))))
 
 (defn with-local [name type body]
   ;; (prn 'with-local name)
   (fn [state]
     ;; (prn 'with-local name)
-    (let [old-mappings (->> state (&/get$ &/$ENVS) &/|head (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS))
-          =return (body (&/update$ &/$ENVS
+    (let [old-mappings (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
+          =return (body (&/update$ &/$envs
                                    (fn [stack]
-                                     (let [bound-unit (&/V &&/$var (&/V &/$Local (->> (&/|head stack) (&/get$ &/$LOCALS) (&/get$ &/$COUNTER))))]
-                                       (&/|cons (&/update$ &/$LOCALS #(->> %
-                                                                           (&/update$ &/$COUNTER inc)
-                                                                           (&/update$ &/$MAPPINGS (fn [m] (&/|put name (&/T bound-unit type) m))))
+                                     (let [bound-unit (&/V &&/$var (&/V &/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter))))]
+                                       (&/|cons (&/update$ &/$locals #(->> %
+                                                                           (&/update$ &/$counter inc)
+                                                                           (&/update$ &/$mappings (fn [m] (&/|put name (&/T bound-unit type) m))))
                                                            (&/|head stack))
                                                 (&/|tail stack))))
                                    state))]
       (|case =return
         (&/$Right ?state ?value)
-        (return* (&/update$ &/$ENVS (fn [stack*]
-                                      (&/|cons (&/update$ &/$LOCALS #(->> %
-                                                                          (&/update$ &/$COUNTER dec)
-                                                                          (&/set$ &/$MAPPINGS old-mappings))
+        (return* (&/update$ &/$envs (fn [stack*]
+                                      (&/|cons (&/update$ &/$locals #(->> %
+                                                                          (&/update$ &/$counter dec)
+                                                                          (&/set$ &/$mappings old-mappings))
                                                           (&/|head stack*))
                                                (&/|tail stack*)))
                             ?state)
@@ -47,4 +47,4 @@
 
 (def captured-vars
   (fn [state]
-    (return* state (->> state (&/get$ &/$ENVS) &/|head (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS)))))
+    (return* state (->> state (&/get$ &/$envs) &/|head (&/get$ &/$closure) (&/get$ &/$mappings)))))

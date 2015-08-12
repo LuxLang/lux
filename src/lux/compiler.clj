@@ -58,9 +58,6 @@
       (&a/$tuple ?elems)
       (&&lux/compile-tuple compile-expression ?type ?elems)
 
-      (&a/$record ?elems)
-      (&&lux/compile-record compile-expression ?type ?elems)
-
       (&a/$var (&/$Local ?idx))
       (&&lux/compile-local compile-expression ?type ?idx)
 
@@ -426,7 +423,7 @@
                 (fn [state]
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
-                          (&/set$ &/$SOURCE (&reader/from file-name file-content) state))
+                          (&/set$ &/$source (&reader/from file-name file-content) state))
                     (&/$Right ?state _)
                     (&/run-state (|do [defs &a-module/defs
                                        imports &a-module/imports

@@ -18,7 +18,8 @@
                           [lambda :as &&lambda]
                           [case :as &&case]
                           [env :as &&env]
-                          [module :as &&module])))
+                          [module :as &&module]
+                          [record :as &&record])))
 
 (defn ^:private analyse-1+ [analyse ?token]
   (&type/with-var
@@ -124,7 +125,7 @@
 ;;         (fn [$var]
 ;;           (|do [exo-type** (&type/apply-type exo-type* $var)]
 ;;             (analyse-variant analyse exo-type** ident ?values))))
-      
+
 ;;       _
 ;;       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
@@ -150,26 +151,14 @@
                 (return ?table)
 
                 _
-                (fail (str "[Analyser Error] The type of a record must be a record type:\n"
-                           (&type/show-type exo-type*)
-                           "\n")))
+                (fail (str "[Analyser Error] The type of a record must be a record-type:\n" (&type/show-type exo-type*))))
         _ (&/assert! (= (&/|length types) (&/|length ?elems))
                      (str "[Analyser Error] Record length mismatch. Expected: " (&/|length types) "; actual: " (&/|length ?elems)))
-        =slots (&/map% (fn [kv]
-                         (|case kv
-                           [(&/$Meta _ (&/$TagS ?ident)) ?value]
-                           (|do [=ident (&&/resolved-ident ?ident)
-                                 :let [?tag (&/ident->text =ident)]
-                                 slot-type (if-let [slot-type (&/|get ?tag types)]
-                                             (return slot-type)
-                                             (fail (str "[Analyser Error] Record type does not have slot: " ?tag)))
-                                 =value (&&/analyse-1 analyse slot-type ?value)]
-                             (return (&/T ?tag =value)))
-
-                           _
-                           (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
-                       ?elems)]
-    (return (&/|list (&/T (&/V &&/$record =slots) (&/V &/$RecordT exo-type))))))
+        members (&&record/order-record ?elems)
+        =members (&/map2% (fn [elem-t elem]
+                            (&&/analyse-1 analyse elem-t elem))
+                          types members)]
+    (return (&/|list (&/T (&/V &&/$tuple =members) exo-type)))))
 
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] $def] (&&module/find-def module name)
@@ -193,9 +182,9 @@
 
 (defn ^:private analyse-local [analyse exo-type name]
   (fn [state]
-    (|let [stack (&/get$ &/$ENVS state)
-           no-binding? #(and (->> % (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|contains? name) not)
-                             (->> % (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|contains? name) not))
+    (|let [stack (&/get$ &/$envs state)
+           no-binding? #(and (->> % (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|contains? name) not)
+                             (->> % (&/get$ &/$closure) (&/get$ &/$mappings) (&/|contains? name) not))
            [inner outer] (&/|split-with no-binding? stack)]
       (|case outer
         (&/$Nil)
@@ -204,8 +193,8 @@
                      state)
 
         (&/$Cons ?genv (&/$Nil))
-        (do ;; (prn 'analyse-symbol/_2 ?module name name (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) &/|keys &/->seq))
-            (if-let [global (->> ?genv (&/get$ &/$LOCALS) (&/get$ &/$MAPPINGS) (&/|get name))]
+        (do ;; (prn 'analyse-symbol/_2 ?module name name (->> ?genv (&/get$ &/$locals) (&/get$ &/$mappings) &/|keys &/->seq))
+            (if-let [global (->> ?genv (&/get$ &/$locals) (&/get$ &/$mappings) (&/|get name))]
               (do ;; (prn 'analyse-symbol/_2.1 ?module name name (aget global 0))
                   (|case global
                     [(&/$Global ?module* name*) _]
@@ -235,21 +224,21 @@
         
         (&/$Cons top-outer _)
         (do ;; (prn 'analyse-symbol/_3 ?module name)
-            (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$NAME %2) %1)
-                                            (&/|map #(&/get$ &/$NAME %) outer)
+            (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$name %2) %1)
+                                            (&/|map #(&/get$ &/$name %) outer)
                                             (&/|reverse inner)))
                    [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                               (|let [[register new-inner] register+new-inner
                                                      [register* frame*] (&&lambda/close-over (&/|reverse in-scope) name register frame)]
                                                 (&/T register* (&/|cons frame* new-inner))))
-                                            (&/T (or (->> top-outer (&/get$ &/$LOCALS)  (&/get$ &/$MAPPINGS) (&/|get name))
-                                                     (->> top-outer (&/get$ &/$CLOSURE) (&/get$ &/$MAPPINGS) (&/|get name)))
+                                            (&/T (or (->> top-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
+                                                     (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
                                                  (&/|list))
                                             (&/|reverse inner) scopes)]
               ((|do [btype (&&/expr-type =local)
                      _ (&type/check exo-type btype)]
                  (return (&/|list =local)))
-               (&/set$ &/$ENVS (&/|++ inner* outer) state))))
+               (&/set$ &/$envs (&/|++ inner* outer) state))))
         ))))
 
 (defn analyse-symbol [analyse exo-type ident]
@@ -311,13 +300,14 @@
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
                   ;; :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
-                  ;; :let [_ (when (or (= "<>" r-name)
+                  ;; :let [_ (when (or (= ":" (aget real-name 1))
+                  ;;                   (= "type" (aget real-name 1))
                   ;;                   ;; (= &&/$struct r-name)
                   ;;                   )
-                  ;;           (->> (&/|map &/show-ast macro-expansion*)
+                  ;;           (->> (&/|map &/show-ast macro-expansion)
                   ;;                (&/|interpose "\n")
                   ;;                (&/fold str "")
-                  ;;                (prn (str r-module ";" r-name))))]
+                  ;;                (prn (&/ident->text real-name))))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 

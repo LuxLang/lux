@@ -102,29 +102,6 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      (&a-case/$RecordTestAC ?slots)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (-> (doto (.visitInsn Opcodes/DUP)
-              (.visitLdcInsn (int idx))
-              (.visitInsn Opcodes/AALOAD)
-              (compile-match test $next $sub-else)
-              (.visitLabel $sub-else)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else)
-              (.visitLabel $next))
-            (->> (|let [[idx [_ test]] idx+member
-                        $next (new Label)
-                        $sub-else (new Label)])
-                 (doseq [idx+member (->> ?slots
-                                         &/->seq
-                                         (sort compare-kv)
-                                         &/->list
-                                         &/enumerate
-                                         &/->seq)])))
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
-      
       (&a-case/$VariantTestAC ?tag ?test)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")

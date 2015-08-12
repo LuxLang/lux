@@ -63,30 +63,34 @@
 
 ;; [Fields]
 ;; Binding
-(def $COUNTER 0)
-(def $MAPPINGS 1)
+(deftags ""
+  "counter"
+  "mappings")
 
 ;; Env
-(def $CLOSURE 0)
-(def $INNER-CLOSURES 1)
-(def $LOCALS 2)
-(def $NAME 3)
+(deftags ""
+  "name"
+  "inner-closures"
+  "locals"
+  "closure")
 
 ;; Host
-(def $CLASSES 0)
-(def $LOADER 1)
-(def $WRITER 2)
+(deftags ""
+  "writer"
+  "loader"
+  "classes")
 
 ;; Compiler
-(def $cursor 0)
-(def $ENVS 1)
-(def $EVAL? 2)
-(def $EXPECTED 3)
-(def $HOST 4)
-(def $MODULES 5)
-(def $SEED 6)
-(def $SOURCE 7)
-(def $TYPES 8)
+(deftags ""
+  "source"
+  "cursor"
+  "modules"
+  "envs"
+  "types"
+  "expected"
+  "seed"
+  "eval?"
+  "host")
 
 ;; Vars
 (deftags "lux;"
@@ -533,11 +537,11 @@
 
 (def loader
   (fn [state]
-    (return* state (->> state (get$ $HOST) (get$ $LOADER)))))
+    (return* state (->> state (get$ $host) (get$ $loader)))))
 
 (def classes
   (fn [state]
-    (return* state (->> state (get$ $HOST) (get$ $CLASSES)))))
+    (return* state (->> state (get$ $host) (get$ $classes)))))
 
 (def +init-bindings+
   (R ;; "lux;counter"
@@ -546,14 +550,14 @@
    (|table)))
 
 (defn env [name]
-  (R ;; "lux;closure"
-   +init-bindings+
+  (R ;; "lux;name"
+   name
    ;; "lux;inner-closures"
    0
    ;; "lux;locals"
    +init-bindings+
-   ;; "lux;name"
-   name
+   ;; "lux;closure"
+   +init-bindings+
    ))
 
 (let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
@@ -576,32 +580,32 @@
 
 (defn host [_]
   (let [store (atom {})]
-    (R ;; "lux;classes"
-     store
+    (R ;; "lux;writer"
+     (V $None nil)
      ;; "lux;loader"
      (memory-class-loader store)
-     ;; "lux;writer"
-     (V $None nil))))
+     ;; "lux;classes"
+     store)))
 
 (defn init-state [_]
-  (R ;; "lux;cursor"
+  (R ;; "lux;source"
+   (V $None nil)
+   ;; "lux;cursor"
    (T "" -1 -1)
-   ;; "lux;envs"
-   (|list)
-   ;; "lux;eval?"
-   false
-   ;; "lux;expected"
-   (V $VariantT (|list))
-   ;; "lux;host"
-   (host nil)
    ;; "lux;modules"
    (|table)
-   ;; "lux;seed"
-   0
-   ;; "lux;source"
-   (V $None nil)
+   ;; "lux;envs"
+   (|list)
    ;; "lux;types"
    +init-bindings+
+   ;; "lux;expected"
+   (V $VariantT (|list))
+   ;; "lux;seed"
+   0
+   ;; "lux;eval?"
+   false
+   ;; "lux;host"
+   (host nil)
    ))
 
 (defn save-module [body]
@@ -609,8 +613,8 @@
     (|case (body state)
       ($Right state* output)
       (return* (->> state*
-                    (set$ $ENVS (get$ $ENVS state))
-                    (set$ $SOURCE (get$ $SOURCE state)))
+                    (set$ $envs (get$ $envs state))
+                    (set$ $source (get$ $source state)))
                output)
 
       ($Left msg)
@@ -618,20 +622,20 @@
 
 (defn with-eval [body]
   (fn [state]
-    (|case (body (set$ $EVAL? true state))
+    (|case (body (set$ $eval? true state))
       ($Right state* output)
-      (return* (set$ $EVAL? (get$ $EVAL? state) state*) output)
+      (return* (set$ $eval? (get$ $eval? state) state*) output)
 
       ($Left msg)
       (fail* msg))))
 
 (def get-eval
   (fn [state]
-    (return* state (get$ $EVAL? state))))
+    (return* state (get$ $eval? state))))
 
 (def get-writer
   (fn [state]
-    (let [writer* (->> state (get$ $HOST) (get$ $WRITER))]
+    (let [writer* (->> state (get$ $host) (get$ $writer))]
       (|case writer*
         ($Some datum)
         (return* state datum)
@@ -641,15 +645,15 @@
 
 (def get-top-local-env
   (fn [state]
-    (try (let [top (|head (get$ $ENVS state))]
+    (try (let [top (|head (get$ $envs state))]
            (return* state top))
       (catch Throwable _
         (fail* "No local environment.")))))
 
 (def gen-id
   (fn [state]
-    (let [seed (get$ $SEED state)]
-      (return* (set$ $SEED (inc seed) state) seed))))
+    (let [seed (get$ $seed state)]
+      (return* (set$ $seed (inc seed) state) seed))))
 
 (defn ->seq [xs]
   (|case xs
@@ -671,19 +675,19 @@
 
 (def get-module-name
   (fn [state]
-    (|case (|reverse (get$ $ENVS state))
+    (|case (|reverse (get$ $envs state))
       ($Nil)
       (fail* "[Analyser Error] Can't get the module-name without a module.")
 
       ($Cons ?global _)
-      (return* state (get$ $NAME ?global)))))
+      (return* state (get$ $name ?global)))))
 
 (defn with-scope [name body]
   (fn [state]
-    (let [output (body (update$ $ENVS #(|cons (env name) %) state))]
+    (let [output (body (update$ $envs #(|cons (env name) %) state))]
       (|case output
         ($Right state* datum)
-        (return* (update$ $ENVS |tail state*) datum)
+        (return* (update$ $envs |tail state*) datum)
         
         _
         output))))
@@ -693,23 +697,23 @@
 
 (defn with-closure [body]
   (|do [closure-name (|do [top get-top-local-env]
-                       (return (->> top (get$ $INNER-CLOSURES) str)))]
+                       (return (->> top (get$ $inner-closures) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $ENVS #(|cons (update$ $INNER-CLOSURES inc (|head %))
+        (run-state body* (update$ $envs #(|cons (update$ $inner-closures inc (|head %))
                                                 (|tail %))
                                   state))))))
 
 (def get-scope-name
   (fn [state]
-    (return* state (->> state (get$ $ENVS) (|map #(get$ $NAME %)) |reverse))))
+    (return* state (->> state (get$ $envs) (|map #(get$ $name %)) |reverse))))
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (update$ $HOST #(set$ $WRITER (V $Some writer) %) state))]
+    (let [output (body (update$ $host #(set$ $writer (V $Some writer) %) state))]
       (|case output
         ($Right ?state ?value)
-        (return* (update$ $HOST #(set$ $WRITER (->> state (get$ $HOST) (get$ $WRITER)) %) ?state)
+        (return* (update$ $host #(set$ $writer (->> state (get$ $host) (get$ $writer)) %) ?state)
                  ?value)
 
         _
@@ -718,10 +722,10 @@
 (defn with-expected-type [type body]
   "(All [a] (-> Type (Lux a)))"
   (fn [state]
-    (let [output (body (set$ $EXPECTED type state))]
+    (let [output (body (set$ $expected type state))]
       (|case output
         ($Right ?state ?value)
-        (return* (set$ $EXPECTED (get$ $EXPECTED state) ?state)
+        (return* (set$ $expected (get$ $expected state) ?state)
                  ?value)
 
         _
@@ -852,7 +856,7 @@
 (def modules
   "(Lux (List Text))"
   (fn [state]
-    (return* state (|keys (get$ $MODULES state)))))
+    (return* state (|keys (get$ $modules state)))))
 
 (defn when% [test body]
   "(-> Bool (Lux (,)) (Lux (,)))"
@@ -884,3 +888,9 @@
     ["" name] (|do [module get-module-name]
                 (return (T module name)))
     _ (return ident)))
+
+(defn ident= [x y]
+  (|let [[xmodule xname] x
+         [ymodule yname] y]
+    (and (= xmodule ymodule)
+         (= xname yname))))

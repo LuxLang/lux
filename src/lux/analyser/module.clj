@@ -11,23 +11,23 @@
   (:require [clojure.string :as string]
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return return* fail fail* |case]]
+            (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]]
                  [type :as &type]
-                 [host :as &host])
-            [lux.analyser.base :as &&]))
+                 [host :as &host])))
 
 ;; [Utils]
-(def ^:private $DEFS 0)
-(def ^:private $IMPORTS 1)
-(def ^:private $ALIASES 2)
-(def ^:private $tags 3)
+(deftags ""
+  "module-aliases"
+  "defs"
+  "imports"
+  "tags")
 (def ^:private +init+
-  (&/R ;; "lux;defs"
+  (&/R ;; "lux;module-aliases"
+   (&/|table)
+   ;; "lux;defs"
    (&/|table)
    ;; "lux;imports"
    (&/|list)
-   ;; "lux;module-aliases"
-   (&/|table)
    ;; "lux;tags"
    (&/|list)
    ))
@@ -37,24 +37,24 @@
   "(-> Text (Lux (,)))"
   (|do [current-module &/get-module-name]
     (fn [state]
-      (return* (&/update$ &/$MODULES
+      (return* (&/update$ &/$modules
                           (fn [ms]
                             (&/|update current-module
-                                       (fn [m] (&/update$ $IMPORTS (partial &/|cons module) m))
+                                       (fn [m] (&/update$ $imports (partial &/|cons module) m))
                                        ms))
                           state)
                nil))))
 
 (defn define [module name def-data type]
   (fn [state]
-    (|case (&/get$ &/$ENVS state)
+    (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
-                    (&/update$ &/$MODULES
+                    (&/update$ &/$modules
                                (fn [ms]
                                  (&/|update module
                                             (fn [m]
-                                              (&/update$ $DEFS
+                                              (&/update$ $defs
                                                          #(&/|put name (&/T false def-data) %)
                                                          m))
                                             ms))))
@@ -66,8 +66,8 @@
 (defn def-type [module name]
   "(-> Text Text (Lux Type))"
   (fn [state]
-    (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
-      (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
+    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|case $def
           [_ (&/$TypeD _)]
           (return* state &type/Type)
@@ -87,14 +87,14 @@
 (defn def-alias [a-module a-name r-module r-name type]
   ;; (prn 'def-alias [a-module a-name] [r-module r-name] (&type/show-type type))
   (fn [state]
-    (|case (&/get$ &/$ENVS state)
+    (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
-                    (&/update$ &/$MODULES
+                    (&/update$ &/$modules
                                (fn [ms]
                                  (&/|update a-module
                                             (fn [m]
-                                              (&/update$ $DEFS
+                                              (&/update$ $defs
                                                          #(&/|put a-name (&/T false (&/V &/$AliasD (&/T r-module r-name))) %)
                                                          m))
                                             ms))))
@@ -107,15 +107,15 @@
   "(-> Text (Lux Bool))"
   (fn [state]
     (return* state
-             (->> state (&/get$ &/$MODULES) (&/|contains? name)))))
+             (->> state (&/get$ &/$modules) (&/|contains? name)))))
 
 (defn alias [module alias reference]
   (fn [state]
     (return* (->> state
-                  (&/update$ &/$MODULES
+                  (&/update$ &/$modules
                              (fn [ms]
                                (&/|update module
-                                          #(&/update$ $ALIASES
+                                          #(&/update$ $module-aliases
                                                       (fn [aliases]
                                                         (&/|put alias reference aliases))
                                                       %)
@@ -125,7 +125,7 @@
 (defn dealias [name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      (if-let [real-name (->> state (&/get$ &/$MODULES) (&/|get current-module) (&/get$ $ALIASES) (&/|get name))]
+      (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
         (return* state real-name)
         (fail* (str "Unknown alias: " name))))))
 
@@ -133,9 +133,9 @@
   (|do [current-module &/get-module-name]
     (fn [state]
       ;; (prn 'find-def/_0 module name 'current-module current-module)
-      (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module))]
+      (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
-            (if-let [$def (->> $module (&/get$ $DEFS) (&/|get name))]
+            (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
               (|let [[exported? $$def] $def]
                 (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
                     (if (or exported? (.equals ^Object current-module module))
@@ -158,7 +158,7 @@
 
 (defn declare-macro [module name]
   (fn [state]
-    (if-let [$module (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS))]
+    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs))]
       (if-let [$def (&/|get name $module)]
         (|case $def
           [exported? (&/$ValueD ?type _)]
@@ -168,11 +168,11 @@
                                  (.getField "_datum")
                                  (.get nil))]]
              (fn [state*]
-               (return* (&/update$ &/$MODULES
+               (return* (&/update$ &/$modules
                                    (fn [$modules]
                                      (&/|update module
                                                 (fn [m]
-                                                  (&/update$ $DEFS
+                                                  (&/update$ $defs
                                                              #(&/|put name (&/T exported? (&/V &/$MacroD macro)) %)
                                                              m))
                                                 $modules))
@@ -190,18 +190,18 @@
 
 (defn export [module name]
   (fn [state]
-    (|case (&/get$ &/$ENVS state)
+    (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
-      (if-let [$def (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS) (&/|get name))]
+      (if-let [$def (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs) (&/|get name))]
         (|case $def
           [true _]
           (fail* (str "[Analyser Error] Definition has already been exported: " module ";" name))
 
           [false ?data]
           (return* (->> state
-                        (&/update$ &/$MODULES (fn [ms]
+                        (&/update$ &/$modules (fn [ms]
                                                 (&/|update module (fn [m]
-                                                                    (&/update$ $DEFS
+                                                                    (&/update$ $defs
                                                                                #(&/|put name (&/T true ?data) %)
                                                                                m))
                                                            ms))))
@@ -230,30 +230,30 @@
 
                                  _
                                  (&/T ?exported? k "V")))))
-                       (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $DEFS)))))))
+                       (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)))))))
 
 (def imports
   (|do [module &/get-module-name]
     (fn [state]
-      (return* state (->> state (&/get$ &/$MODULES) (&/|get module) (&/get$ $IMPORTS))))))
+      (return* state (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $imports))))))
 
 (defn create-module [name]
   "(-> Text (Lux (,)))"
   (fn [state]
-    (return* (&/update$ &/$MODULES #(&/|put name +init+ %) state) nil)))
+    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) nil)))
 
 (defn enter-module [name]
   "(-> Text (Lux (,)))"
   (fn [state]
     (return* (->> state
-                  (&/update$ &/$MODULES #(&/|put name +init+ %))
-                  (&/set$ &/$ENVS (&/|list (&/env name))))
+                  (&/update$ &/$modules #(&/|put name +init+ %))
+                  (&/set$ &/$envs (&/|list (&/env name))))
              nil)))
 
 (defn tags-by-module [module]
   "(-> Text (Lux (List (, Text (, Int (List Text))))))"
   (fn [state]
-    (if-let [=module (->> state (&/get$ &/$MODULES) (&/|get module))]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
       (return* state (&/get$ $tags =module))
       (fail* (str "[Lux Error] Unknown module: " module)))
     ))
@@ -261,9 +261,9 @@
 (defn declare-tags [module tag-names]
   "(-> Text (List Text) (Lux (,)))"
   (fn [state]
-    (if-let [=module (->> state (&/get$ &/$MODULES) (&/|get module))]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
       (let [tags (&/|map (fn [tag-name] (&/T module tag-name)) tag-names)]
-        (return* (&/update$ &/$MODULES
+        (return* (&/update$ &/$modules
                             (fn [=modules]
                               (&/|update module
                                          #(&/set$ $tags (&/fold (fn [table idx+tag-name]
@@ -280,8 +280,17 @@
 (defn tag-index [module tag-name]
   "(-> Text Text (Lux Int))"
   (fn [state]
-    (if-let [=module (->> state (&/get$ &/$MODULES) (&/|get module))]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [^objects idx+tags (&/|get tag-name (&/get$ $tags =module))]
         (return* state (aget idx+tags 0))
-        (fail* (str "[Lux Error] Unknown tag: " (&/ident->text (&/T module tag-name)))))
-      (fail* (str "[Lux Error] Unknown module: " module)))))
+        (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T module tag-name)))))
+      (fail* (str "[Module Error] Unknown module: " module)))))
+
+(defn tag-group [module tag-name]
+  "(-> Text Text (Lux (List Ident)))"
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [^objects idx+tags (&/|get tag-name (&/get$ $tags =module))]
+        (return* state (aget idx+tags 1))
+        (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T module tag-name)))))
+      (fail* (str "[Module Error] Unknown module: " module)))))

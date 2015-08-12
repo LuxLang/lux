@@ -21,7 +21,7 @@
 ;; [Utils]
 (defn ^:private with-line [body]
   (fn [state]
-    (|case (&/get$ &/$SOURCE state)
+    (|case (&/get$ &/$source state)
       (&/$Nil)
       (fail* "[Reader Error] EOF")
 
@@ -32,19 +32,19 @@
         (fail* msg)
 
         ($Done output)
-        (return* (&/set$ &/$SOURCE more state)
+        (return* (&/set$ &/$source more state)
                  output)
 
         ($Yes output line*)
-        (return* (&/set$ &/$SOURCE (&/|cons line* more) state)
+        (return* (&/set$ &/$source (&/|cons line* more) state)
                  output))
       )))
 
 (defn ^:private with-lines [body]
   (fn [state]
-    (|case (body (&/get$ &/$SOURCE state))
+    (|case (body (&/get$ &/$source state))
       (&/$Right reader* match)
-      (return* (&/set$ &/$SOURCE reader* state)
+      (return* (&/set$ &/$source reader* state)
                match)
 
       (&/$Left msg)

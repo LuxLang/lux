@@ -72,27 +72,6 @@
                    (&/|range num-elems) ?elems)]
     (return nil)))
 
-(defn compile-record [compile *type* ?elems]
-  (|do [^MethodVisitor *writer* &/get-writer
-        :let [elems* (->> ?elems
-                          &/->seq
-                          (sort #(compare (&/|first %1) (&/|first %2)))
-                          &/->list)
-              num-elems (&/|length elems*)
-              _ (doto *writer*
-                  (.visitLdcInsn (int num-elems))
-                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
-        _ (&/map2% (fn [idx kv]
-                     (|let [[k v] kv]
-                       (|do [:let [_ (doto *writer*
-                                       (.visitInsn Opcodes/DUP)
-                                       (.visitLdcInsn (int idx)))]
-                             ret (compile v)
-                             :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                         (return ret))))
-                   (&/|range num-elems) elems*)]
-    (return nil)))
-
 (defn compile-variant [compile *type* ?tag ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
