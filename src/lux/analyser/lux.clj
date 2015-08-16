@@ -401,6 +401,7 @@
   ;; (when (= "PList/Dict" ?name)
   ;;   (prn 'DEF ?name (&/show-ast ?value)))
   (|do [module-name &/get-module-name
+        ;; :let [_ (println 'DEF/PRE (str module-name ";" ?name))]
         ? (&&module/defined? module-name ?name)]
     (if ?
       (fail (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
@@ -416,15 +417,20 @@
             (return (&/|list)))
 
           _
-          (do (println 'DEF (str module-name ";" ?name))
+          (do ;; (println 'DEF (str module-name ";" ?name))
             (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
-                  :let [_ (println 'DEF/COMPILED (str module-name ";" ?name))]]
+                  :let [;; _ (println 'DEF/COMPILED (str module-name ";" ?name))
+                        _ (println 'DEF (str module-name ";" ?name))]]
               (return (&/|list)))))
         ))))
 
 (defn analyse-declare-macro [analyse compile-token ?name]
-  (|do [module-name &/get-module-name
-        _ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))]
+  (|do [;; :let [_ (prn 'analyse-declare-macro ?name "0")]
+        module-name &/get-module-name
+        ;; :let [_ (prn 'analyse-declare-macro ?name "1")]
+        _ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))
+        ;; :let [_ (prn 'analyse-declare-macro ?name "2")]
+        ]
     (return (&/|list))))
 
 (defn ensure-undeclared-tags [module tags]

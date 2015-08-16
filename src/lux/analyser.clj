@@ -532,7 +532,7 @@
       (|case (try ((aba1 analyse eval! compile-module compile-token exo-type ?token) state)
                (catch Error e
                  (prn e)
-                 (assert false (prn-str 'analyse-basic-ast (&/show-ast ?token)))))
+                 (assert false (prn-str 'analyse-basic-ast (&/show-ast token)))))
         (&/$Right state* output)
         (return* state* output)
 

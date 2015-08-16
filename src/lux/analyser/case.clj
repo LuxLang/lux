@@ -113,6 +113,9 @@
                                      (fail "##9##")))]
       (adjust-type* up type*))
 
+    (&/$NamedT ?name ?type)
+    (adjust-type* up ?type)
+
     _
     (assert false (prn 'adjust-type* (&type/show-type type)))
     ))
@@ -202,7 +205,7 @@
           (fail "[Pattern-matching Error] Record requires record-type.")))
 
       (&/$TagS ?ident)
-      (|do [;; :let [_ (println "#00")]
+      (|do [;; :let [_ (println "#00" (&/ident->text ?ident))]
             [=module =name] (&&/resolved-ident ?ident)
             ;; :let [_ (println "#01")]
             value-type* (adjust-type value-type)
@@ -219,7 +222,7 @@
 
       (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
                          ?values))
-      (|do [;; :let [_ (println "#10" ?ident)]
+      (|do [;; :let [_ (println "#10" (&/ident->text ?ident))]
             [=module =name] (&&/resolved-ident ?ident)
             ;; :let [_ (println "#11")]
             value-type* (adjust-type value-type)

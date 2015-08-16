@@ -58,7 +58,8 @@
   "VarT"
   "ExT"
   "AllT"
-  "AppT")
+  "AppT"
+  "NamedT")
 
 ;; [Fields]
 ;; Binding
@@ -229,7 +230,7 @@
 (defn |head [xs]
   (|case xs
     ($Nil)
-    (assert false)
+    (assert false (prn-str '|head))
 
     ($Cons x _)
     x))
@@ -237,7 +238,7 @@
 (defn |tail [xs]
   (|case xs
     ($Nil)
-    (assert false)
+    (assert false (prn-str '|tail))
 
     ($Cons _ xs*)
     xs*))
@@ -787,9 +788,8 @@
     ($Meta _ ($FormS ?elems))
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
 
-    ;; _
-    ;; (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
-    ;; (assert false (prn-str 'show-ast (aget ast 0) (aget ast 1 1 0)))
+    _
+    (assert false (prn-str 'show-ast (adt->text ast)))
     ))
 
 (defn ident->text [ident]
@@ -897,19 +897,6 @@
          [ymodule yname] y]
     (and (= xmodule ymodule)
          (= xname yname))))
-
-;; (defn |list-put [idx val xs]
-;;   (|case [idx xs]
-;;     [_ ($Nil)]
-;;     (V $None nil)
-    
-;;     [0 ($Cons x xs*)]
-;;     (V $Some (V $Cons (T val xs*)))
-    
-;;     [_ ($Cons x xs*)]
-;;     (|case (|list-put idx val xs*)
-;;       ($None)      (V $None nil)
-;;       ($Some xs**) (V $Some (V $Cons (T x xs**))))))
 
 (defn |list-put [idx val xs]
   (|case xs
