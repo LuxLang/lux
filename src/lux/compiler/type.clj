@@ -58,13 +58,6 @@
                       $Nil
                       (&/|reverse ?members)))
 
-    (&/$RecordT ?members)
-    (variant$ &/$RecordT
-              (&/fold (fn [tail head]
-                        (Cons$ (->analysis head) tail))
-                      $Nil
-                      (&/|reverse ?members)))
-
     (&/$LambdaT ?input ?output)
     (variant$ &/$LambdaT (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
 

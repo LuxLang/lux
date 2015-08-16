@@ -55,10 +55,6 @@
   ;; (assert (|list? members))
   (&/V &/$VariantT members))
 
-(defn Record$ [members]
-  ;; (assert (|list? members))
-  (&/V &/$RecordT members))
-
 (defn All$ [env name arg body]
   (&/V &/$AllT (&/T env name arg body)))
 
@@ -95,11 +91,9 @@
                 (Variant$ (&/|list
                            ;; DataT
                            Text
-                           ;; TupleT
-                           (App$ List Type)
                            ;; VariantT
                            TypeList
-                           ;; RecordT
+                           ;; TupleT
                            TypeList
                            ;; LambdaT
                            TypePair
@@ -119,20 +113,20 @@
 (def Bindings
   (All$ empty-env "lux;Bindings" "k"
         (All$ no-env "" "v"
-              (Record$ (&/|list
-                        ;; "lux;counter"
-                        Int
-                        ;; "lux;mappings"
-                        (App$ List
-                              (Tuple$ (&/|list (Bound$ "k")
-                                               (Bound$ "v")))))))))
+              (Tuple$ (&/|list
+                       ;; "lux;counter"
+                       Int
+                       ;; "lux;mappings"
+                       (App$ List
+                             (Tuple$ (&/|list (Bound$ "k")
+                                              (Bound$ "v")))))))))
 
 (def Env
   (let [bindings (App$ (App$ Bindings (Bound$ "k"))
                        (Bound$ "v"))]
     (All$ empty-env "lux;Env" "k"
           (All$ no-env "" "v"
-                (Record$
+                (Tuple$
                  (&/|list
                   ;; "lux;name"
                   Text
@@ -215,7 +209,7 @@
               Text)))
 
 (def Host
-  (Record$
+  (Tuple$
    (&/|list
     ;; "lux;writer"
     (Data$ "org.objectweb.asm.ClassWriter")
@@ -246,7 +240,7 @@
 
 (def $Module
   (All$ empty-env "lux;$Module" "Compiler"
-        (Record$
+        (Tuple$
          (&/|list
           ;; "lux;module-aliases"
           (App$ List (Tuple$ (&/|list Text Text)))
@@ -271,7 +265,7 @@
 
 (def $Compiler
   (App$ (All$ empty-env "lux;Compiler" ""
-              (Record$
+              (Tuple$
                (&/|list
                 ;; "lux;source"
                 Source
@@ -426,10 +420,6 @@
     (|do [=members (&/map% (partial clean* ?tid) ?members)]
       (return (Variant$ =members)))
 
-    (&/$RecordT ?members)
-    (|do [=members (&/map% (partial clean* ?tid) ?members)]
-      (return (Record$ =members)))
-
     (&/$AllT ?env ?name ?arg ?body)
     (|do [=env (|case ?env
                  (&/$None)
@@ -492,13 +482,6 @@
                       (&/|interpose " ")
                       (&/fold str "")) ")"))
     
-
-    (&/$RecordT fields)
-    (str "(& " (->> fields
-                    (&/|map show-type)
-                    (&/|interpose " ")
-                    (&/fold str "")) ")")
-
     (&/$LambdaT input output)
     (|let [[?out ?ins] (unravel-fun type)]
       (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
@@ -547,11 +530,6 @@
                      (&/fold2 (fn [old x y] (and old (type= x y)))
                               true
                               xcases ycases)
-
-                     [(&/$RecordT xslots) (&/$RecordT yslots)]
-                     (&/fold2 (fn [old x y] (and old (type= x y)))
-                              true
-                              xslots yslots)
 
                      [(&/$LambdaT xinput xoutput) (&/$LambdaT yinput youtput)]
                      (and (type= xinput yinput)
@@ -618,9 +596,6 @@
   (|case type
     (&/$VariantT ?members)
     (Variant$ (&/|map (partial beta-reduce env) ?members))
-
-    (&/$RecordT ?members)
-    (Record$ (&/|map (partial beta-reduce env) ?members))
 
     (&/$TupleT ?members)
     (Tuple$ (&/|map (partial beta-reduce env) ?members))
@@ -888,14 +863,6 @@
                                      (return fp*)))
                                  fixpoints
                                  e!cases a!cases)]
-        (return (&/T fixpoints* nil)))
-
-      [(&/$RecordT e!slots) (&/$RecordT a!slots)]
-      (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                   (|do [[fp* _] (check* class-loader fp e a)]
-                                     (return fp*)))
-                                 fixpoints
-                                 e!slots a!slots)]
         (return (&/T fixpoints* nil)))
 
       [(&/$ExT e!id) (&/$ExT a!id)]

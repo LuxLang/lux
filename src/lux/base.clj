@@ -51,9 +51,8 @@
 ;; Type
 (deftags ""
   "DataT"
-  "TupleT"
   "VariantT"
-  "RecordT"
+  "TupleT"
   "LambdaT"
   "BoundT"
   "VarT"
@@ -112,9 +111,6 @@
 
 (defn V [^Long tag value]
   (to-array [tag value]))
-
-(defn R [& kvs]
-  (to-array kvs))
 
 ;; Constructors
 (def None$ (V $None nil))
@@ -551,13 +547,13 @@
     (return* state (->> state (get$ $host) (get$ $classes)))))
 
 (def +init-bindings+
-  (R ;; "lux;counter"
+  (T ;; "lux;counter"
    0
    ;; "lux;mappings"
    (|table)))
 
 (defn env [name]
-  (R ;; "lux;name"
+  (T ;; "lux;name"
    name
    ;; "lux;inner-closures"
    0
@@ -587,7 +583,7 @@
 
 (defn host [_]
   (let [store (atom {})]
-    (R ;; "lux;writer"
+    (T ;; "lux;writer"
      (V $None nil)
      ;; "lux;loader"
      (memory-class-loader store)
@@ -595,7 +591,7 @@
      store)))
 
 (defn init-state [_]
-  (R ;; "lux;source"
+  (T ;; "lux;source"
    (V $None nil)
    ;; "lux;cursor"
    (T "" -1 -1)

@@ -147,7 +147,7 @@
                     _
                     (&type/actual-type exo-type))
         types (|case exo-type*
-                (&/$RecordT ?table)
+                (&/$TupleT ?table)
                 (return ?table)
 
                 _

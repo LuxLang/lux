@@ -22,7 +22,7 @@
   "imports"
   "tags")
 (def ^:private +init+
-  (&/R ;; "lux;module-aliases"
+  (&/T ;; "lux;module-aliases"
    (&/|table)
    ;; "lux;defs"
    (&/|table)

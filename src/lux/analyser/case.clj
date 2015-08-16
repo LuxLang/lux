@@ -89,21 +89,6 @@
                                               up))
                                     ?members*))))
 
-    (&/$RecordT ?members)
-    (|do [(&/$RecordT ?members*) (&/fold% (fn [_abody ena]
-                                            (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                              (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
-                                                (&type/clean* _avar _abody))))
-                                          type
-                                          up)]
-      (return (&/V &/$RecordT (&/|map (fn [v]
-                                        (&/fold (fn [_abody ena]
-                                                  (|let [[_aenv _aname _aarg _avar] ena]
-                                                    (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
-                                                v
-                                                up))
-                                      ?members*))))
-
     (&/$VariantT ?members)
     (|do [(&/$VariantT ?members*) (&/fold% (fn [_abody ena]
                                              (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
@@ -128,8 +113,8 @@
                                      (fail "##9##")))]
       (adjust-type* up type*))
 
-    ;; [_]
-    ;; (assert false (aget type 0))
+    _
+    (assert false (prn 'adjust-type* (&type/show-type type)))
     ))
 
 (defn adjust-type [type]
@@ -201,7 +186,7 @@
             ;; value-type* (resolve-type value-type)
             ]
         (|case value-type*
-          (&/$RecordT ?member-types)
+          (&/$TupleT ?member-types)
           (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
             (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require record[" (&/|length ?member-types) "]. Given record[" (&/|length ?members) "]"))
             (|do [[=tests =kont] (&/fold (fn [kont* vm]
@@ -369,12 +354,6 @@
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
           (&/$TupleT ?members)
-          (|do [totals (&/map2% (fn [sub-struct ?member]
-                                  (check-totality ?member sub-struct))
-                                ?structs ?members)]
-            (return (&/fold #(and %1 %2) true totals)))
-
-          (&/$RecordT ?members)
           (|do [totals (&/map2% (fn [sub-struct ?member]
                                   (check-totality ?member sub-struct))
                                 ?structs ?members)]
