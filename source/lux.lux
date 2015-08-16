@@ -1462,50 +1462,6 @@
     _
     (return ident)))
 
-(defmacro #export (| tokens)
-  (do Lux/Monad
-    [pairs (map% Lux/Monad
-                 (_lux_: (-> AST ($' Lux AST))
-                         (lambda' [token]
-                                  (_lux_case token
-                                    (#Meta [_ (#TagS ident)])
-                                    (do Lux/Monad
-                                      [ident (normalize ident)]
-                                      (wrap (`' [(~ (text$ (ident->text ident))) (;,)])))
-
-                                    (#Meta [_ (#FormS (#Cons [(#Meta [_ (#TagS ident)]) values]))])
-                                    (do Lux/Monad
-                                      [ident (normalize ident)
-                                       #let [case-body (_lux_: AST
-                                                               (_lux_case values
-                                                                 #Nil (`' Unit)
-                                                                 (#Cons value #Nil) value
-                                                                 _ (`' (, (~@ values)))))]]
-                                      (wrap (`' [(~ (text$ (ident->text ident))) (~ case-body)])))
-
-                                    _
-                                    (fail "Wrong syntax for |"))))
-                 tokens)]
-    (wrap (list (`' (#;VariantT (~ (untemplate-list pairs))))))))
-
-(defmacro #export (& tokens)
-  (if (not (multiple? 2 (length tokens)))
-    (fail "& expects an even number of arguments.")
-    (do Lux/Monad
-      [pairs (map% Lux/Monad
-                   (_lux_: (-> (, AST AST) ($' Lux AST))
-                           (lambda' [pair]
-                                    (_lux_case pair
-                                      [(#Meta [_ (#TagS ident)]) value]
-                                      (do Lux/Monad
-                                        [ident (normalize ident)]
-                                        (wrap (`' [(~ (text$ (ident->text ident))) (~ value)])))
-                                      
-                                      _
-                                      (fail "Wrong syntax for &"))))
-                   (as-pairs tokens))]
-      (wrap (list (`' (#;RecordT (~ (untemplate-list pairs)))))))))
-
 (def''' (interpose sep xs)
   (All [a]
     (-> a ($' List a) ($' List a)))
@@ -1626,6 +1582,59 @@
     #Nil true
     _    false))
 
+(do-template [<name> <type> <value>]
+  [(def''' (<name> xy)
+     (All [a b] (-> (, a b) <type>))
+     (let' [[x y] xy] <value>))]
+
+  [first  a x]
+  [second b y])
+
+(def''' (unfold-type-def type)
+  (-> AST ($' Lux (, AST ($' Maybe ($' List AST)))))
+  (_lux_case type
+    (#Meta _ (#FormS (#Cons (#Meta _ (#SymbolS "" "|")) cases)))
+    (do Lux/Monad
+      [members (map% Lux/Monad
+                     (: (-> AST ($' Lux (, Text AST)))
+                        (lambda' [case]
+                                 (_lux_case case
+                                   (#Meta _ (#TagS "" member-name))
+                                   (return [member-name (`' Unit)])
+                                   
+                                   (#Meta _ (#FormS (#Cons (#Meta _ (#TagS "" member-name)) (#Cons member-type #Nil))))
+                                   (return [member-name member-type])
+
+                                   _
+                                   (fail "Wrong syntax for variant case."))))
+                     cases)]
+      (return [(`' (#VariantT (~ (untemplate-list (map second members)))))
+               (#Some (|> members
+                          (map first)
+                          (map (: (-> Text AST)
+                                  (lambda' [name] (tag$ ["" name]))))))]))
+
+    (#Meta _ (#FormS (#Cons (#Meta _ (#SymbolS "" "&")) pairs)))
+    (do Lux/Monad
+      [members (map% Lux/Monad
+                     (: (-> (, AST AST) ($' Lux (, Text AST)))
+                        (lambda' [pair]
+                                 (_lux_case pair
+                                   [(#Meta _ (#TagS "" member-name)) member-type]
+                                   (return [member-name member-type])
+
+                                   _
+                                   (fail "Wrong syntax for variant case."))))
+                     (as-pairs pairs))]
+      (return [(`' (#RecordT (~ (untemplate-list (map second members)))))
+               (#Some (|> members
+                          (map first)
+                          (map (: (-> Text AST)
+                                  (lambda' [name] (tag$ ["" name]))))))]))
+    
+    _
+    (return [type #None])))
+
 (defmacro #export (deftype tokens)
   (let' [[export? tokens'] (: (, Bool (List AST))
                               (_lux_case tokens
@@ -1653,73 +1662,46 @@
                     #None))]
         (_lux_case parts
           (#Some name args type)
-          (let' [with-export (: (List AST)
-                                (if export?
-                                  (list (`' (_lux_export (~ (symbol$ ["" name])))))
-                                  #Nil))
-                 type' (: (Maybe AST)
-                          (if rec?
-                            (if (empty? args)
-                              (let' [g!param (symbol$ ["" ""])
-                                     prime-name (symbol$ ["" (text:++ name "'")])
-                                     type+ (replace-syntax (list [name (`' ((~ prime-name) (~ g!param)))]) type)]
-                                    (#Some (`' ((;All (~ prime-name) [(~ g!param)] (~ type+))
-                                                ;Void))))
-                              #None)
-                            (_lux_case args
-                              #Nil
-                              (#Some type)
+          (do Lux/Monad
+            [type+tags?? (unfold-type-def type)]
+            (let' [[type tags??] type+tags??
+                   with-export (: (List AST)
+                                  (if export?
+                                    (list (`' (_lux_export (~ (symbol$ ["" name])))))
+                                    #Nil))
+                   with-tags (: (List AST)
+                                (_lux_case tags??
+                                  (#Some tags)
+                                  (list (`' (_lux_declare-tags [(~@ tags)])))
 
-                              _
-                              (#Some (`' (;All (~ (symbol$ ["" name])) [(~@ args)] (~ type)))))))]
-                (_lux_case type'
-                  (#Some type'')
-                  (return (list& (`' (_lux_def (~ (symbol$ ["" name])) (;type (~ type''))))
-                                 with-export))
+                                  _
+                                  (list)))
+                   type' (: (Maybe AST)
+                            (if rec?
+                              (if (empty? args)
+                                (let' [g!param (symbol$ ["" ""])
+                                       prime-name (symbol$ ["" (text:++ name "'")])
+                                       type+ (replace-syntax (list [name (`' ((~ prime-name) (~ g!param)))]) type)]
+                                      (#Some (`' ((;All (~ prime-name) [(~ g!param)] (~ type+))
+                                                  ;Void))))
+                                #None)
+                              (_lux_case args
+                                #Nil
+                                (#Some type)
 
-                  #None
-                  (fail "Wrong syntax for deftype")))
+                                _
+                                (#Some (`' (;All (~ (symbol$ ["" name])) [(~@ args)] (~ type)))))))]
+                  (_lux_case type'
+                    (#Some type'')
+                    (return (list& (`' (_lux_def (~ (symbol$ ["" name])) (;type (~ type''))))
+                                   (list:++ with-export with-tags)))
+
+                    #None
+                    (fail "Wrong syntax for deftype"))))
 
           #None
           (fail "Wrong syntax for deftype"))
         ))
-## (defmacro #export (deftype tokens)
-##   (let' [[export? tokens'] (: (, Bool (List AST))
-##                              (_lux_case (:! (List AST) tokens)
-##                                (#Cons [(#Meta [_ (#TagS ["" "export"])]) tokens'])
-##                                [true (:! (List AST) tokens')]
-
-##                                _
-##                                [false (:! (List AST) tokens)]))
-##         parts (: (Maybe (, AST (List AST) AST))
-##                  (_lux_case tokens'
-##                    (#Cons [(#Meta [_ (#SymbolS name)]) (#Cons [type #Nil])])
-##                    (#Some [(symbol$ name) #Nil type])
-
-##                    (#Cons [(#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS name)]) args]))]) (#Cons [type #Nil])])
-##                    (#Some (symbol$ name) args type)
-
-##                    _
-##                    #None))]
-##     (_lux_case parts
-##       (#Some name args type])
-##       (let' [with-export (: (List AST)
-##                            (if export?
-##                              (list (`' (_lux_export (~ name))))
-##                              #Nil))
-##             type' (: AST
-##                      (_lux_case args
-##                        #Nil
-##                        type
-
-##                        _
-##                        (`' (;All (~ name) [(~@ args)] (~ type)))))]
-##         (return (list& (`' (_lux_def (~ name) (;type (~ type'))))
-##                        with-export)))
-
-##       #None
-##       (fail "Wrong syntax for deftype"))
-##     ))
 
 (defmacro #export (exec tokens)
   (_lux_case (reverse tokens)
@@ -1920,8 +1902,8 @@
              (\ (list (#Meta _ (#TupleS (#Cons head tail))) body))
              (#Some ["" ""] head tail body)
 
-             (\ (list (#Meta _ (#SymbolS ident)) (#Meta _ (#TupleS (#Cons head tail))) body))
-             (#Some ident head tail body)
+             (\ (list (#Meta _ (#SymbolS [_ name])) (#Meta _ (#TupleS (#Cons head tail))) body))
+             (#Some ["" name] head tail body)
              
              _
              #None))
@@ -2260,35 +2242,19 @@
 
 (defmacro #export (struct tokens)
   (do Lux/Monad
-    [tokens' (map% Lux/Monad macro-expand tokens)
-     struct-type expected-type]
-    (case (resolve-struct-type struct-type)
-      (#Some (#RecordT slots))
-      (do Lux/Monad
-        [#let [translations (map (: (-> (, Text Type) (, Text Ident))
-                                    (lambda [[sname _]]
-                                      (let [[module name] (split-slot sname)]
-                                        [name [module name]])))
-                                 slots)]
-         members (map% Lux/Monad
-                       (: (-> AST (Lux (, AST AST)))
-                          (lambda [token]
-                            (case token
-                              (\ (#Meta _ (#FormS (list (#Meta _ (#SymbolS _ "_lux_def")) (#Meta _ (#SymbolS ["" name])) value))))
-                              (case (get name translations)
-                                (#Some tag-name)
-                                (wrap (: (, AST AST) [(tag$ tag-name) value]))
-                                
-                                _
-                                (fail "Structures require defined members"))
+    [tokens' (map% Lux/Monad macro-expand tokens)]
+    (do Lux/Monad
+      [members (map% Lux/Monad
+                     (: (-> AST (Lux (, AST AST)))
+                        (lambda [token]
+                          (case token
+                            (\ (#Meta _ (#FormS (list (#Meta _ (#SymbolS _ "_lux_def")) (#Meta _ (#SymbolS tag-name)) value))))
+                            (wrap (: (, AST AST) [(tag$ tag-name) value]))
 
-                              _
-                              (fail "Structures members must be unqualified."))))
-                       (list:join tokens'))]
-        (wrap (list (record$ members))))
-      
-      _
-      (fail "struct can only use records."))))
+                            _
+                            (fail "Structures members must be unqualified."))))
+                     (list:join tokens'))]
+      (wrap (list (record$ members))))))
 
 (defmacro #export (defstruct tokens)
   (let [[export? tokens'] (: (, Bool (List AST))
@@ -2721,24 +2687,6 @@
           (#ValueD [type _])            (#Some type)
           (#MacroD m)                   (#Some Macro)
           (#AliasD name') (find-in-defs name' state))))))
-## (def (find-in-defs name state)
-##   (-> Ident Compiler (Maybe Type))
-##   (exec (_jvm_invokevirtual java.io.PrintStream print [java.lang.Object]
-##                             (_jvm_getstatic java.lang.System out) [($ text:++ "find-in-defs #1: " (ident->text name) "\n")])
-##     (let [[v-prefix v-name] name
-##           {#source source #modules modules
-##            #envs   envs   #types   types   #host           host
-##            #seed   seed   #eval? eval? #expected expected} state]
-##       (do Maybe/Monad
-##         [module (get v-prefix modules)
-##          #let [{#defs defs #module-aliases _ #imports _ #tags tags} module]
-##          def (get v-name defs)
-##          #let [[_ def-data] def]]
-##         (case def-data
-##           #TypeD                        (wrap Type)
-##           (#ValueD type)                (wrap type)
-##           (#MacroD m)                   (wrap Macro)
-##           (#AliasD name') (find-in-defs name' state))))))
 
 (def (find-var-type ident)
   (-> Ident (Lux Type))
@@ -3065,14 +3013,6 @@
     _
     (fail "Wrong syntax for \\template")))
 
-(do-template [<name> <type> <value>]
-  [(def (<name> [x y])
-     (All [a b] (-> (, a b) <type>))
-     <value>)]
-
-  [first  a x]
-  [second b y])
-
 (def (interleave xs ys)
   (All [a] (-> (List a) (List a) (List a)))
   (case xs
@@ -3105,16 +3045,10 @@
     (` (#TupleT (~ (untemplate-list (map type->syntax parts)))))
     
     (#VariantT cases)
-    (` (#VariantT (~ (untemplate-list (map (: (-> (, Text Type) AST)
-                                              (lambda [[label type]]
-                                                (tuple$ (list (text$ label) (type->syntax type)))))
-                                           cases)))))
+    (` (#VariantT (~ (untemplate-list (map type->syntax cases)))))
     
     (#RecordT fields)
-    (` (#RecordT (~ (untemplate-list (map (: (-> (, Text Type) AST)
-                                             (lambda [[label type]]
-                                               (tuple$ (list (text$ label) (type->syntax type)))))
-                                          fields)))))
+    (` (#RecordT (~ (untemplate-list (map type->syntax fields)))))
     
     (#LambdaT in out)
     (` (#LambdaT (~ (type->syntax in)) (~ (type->syntax out))))
