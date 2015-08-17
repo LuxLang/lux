@@ -86,7 +86,7 @@
   "cursor"
   "modules"
   "envs"
-  "types"
+  "type-vars"
   "expected"
   "seed"
   "eval?"

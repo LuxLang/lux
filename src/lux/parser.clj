@@ -76,10 +76,10 @@
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value))))))
 
       ($Int ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$IntS (Integer/parseInt ?value))))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$IntS (Long/parseLong ?value))))))
 
       ($Real ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$RealS (Float/parseFloat ?value))))))
+      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$RealS (Double/parseDouble ?value))))))
 
       ($Char ^String ?value)
       (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$CharS (.charAt ?value 0))))))

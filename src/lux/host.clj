@@ -68,6 +68,7 @@
     ))
 
 (defn ->java-sig [^objects type]
+  "(-> Type Text)"
   (|case type
     (&/$DataT ?name)
     (->type-signature ?name)
@@ -77,6 +78,12 @@
 
     (&/$TupleT (&/$Nil))
     "V"
+
+    (&/$NamedT ?name ?type)
+    (->java-sig ?type)
+
+    _
+    (assert false (str '->java-sig " " (&type/show-type type)))
     ))
 
 (do-template [<name> <static?>]

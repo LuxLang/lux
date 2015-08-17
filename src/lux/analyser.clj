@@ -442,9 +442,10 @@
 
     (&/$FormS (&/$Cons (&/$Meta _ (&/$SymbolS _ "_lux_declare-tags"))
                        (&/$Cons (&/$Meta _ (&/$TupleS tags))
-                                (&/$Nil))))
+                                (&/$Cons (&/$Meta _ (&/$SymbolS "" type-name))
+                                         (&/$Nil)))))
     (|do [tags* (&/map% parse-tag tags)]
-      (&&lux/analyse-declare-tags tags*))
+      (&&lux/analyse-declare-tags tags* type-name))
     
     (&/$FormS (&/$Cons (&/$Meta _ (&/$SymbolS _ "_lux_import"))
                        (&/$Cons (&/$Meta _ (&/$TextS ?path))

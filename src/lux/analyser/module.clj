@@ -8,7 +8,8 @@
 
 (ns lux.analyser.module
   (:refer-clojure :exclude [alias])
-  (:require [clojure.string :as string]
+  (:require (clojure [string :as string]
+                     [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]]
@@ -20,7 +21,8 @@
   "module-aliases"
   "defs"
   "imports"
-  "tags")
+  "tags"
+  "types")
 (def ^:private +init+
   (&/T ;; "lux;module-aliases"
    (&/|table)
@@ -29,7 +31,9 @@
    ;; "lux;imports"
    (&/|list)
    ;; "lux;tags"
-   (&/|list)
+   (&/|table)
+   ;; "lux;types"
+   (&/|table)
    ))
 
 ;; [Exports]
@@ -46,6 +50,7 @@
                nil))))
 
 (defn define [module name def-data type]
+  ;; (prn 'define module name (aget def-data 0) (&type/show-type type))
   (fn [state]
     (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
@@ -151,6 +156,15 @@
               (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))))
         (fail* (str "[Analyser Error] Module doesn't exist: " module))))))
 
+(defn ensure-type-def [def-data]
+  "(-> DefData (Lux Type))"
+  (|case def-data
+    (&/$TypeD type)
+    (return type)
+
+    _
+    (fail (str "[Analyser Error] Not a type definition: " (&/adt->text def-data)))))
+
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def module name)]
                          (return true))
@@ -250,32 +264,59 @@
                   (&/set$ &/$envs (&/|list (&/env name))))
              nil)))
 
-(defn tags-by-module [module]
-  "(-> Text (Lux (List (, Text (, Int (List Text))))))"
-  (fn [state]
-    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-      (return* state (&/get$ $tags =module))
-      (fail* (str "[Lux Error] Unknown module: " module)))
-    ))
+(do-template [<name> <tag> <type>]
+  (defn <name> [module]
+    <type>
+    (fn [state]
+      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+        (return* state (&/get$ <tag> =module))
+        (fail* (str "[Lux Error] Unknown module: " module)))
+      ))
 
-(defn declare-tags [module tag-names]
-  "(-> Text (List Text) (Lux (,)))"
-  (fn [state]
-    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-      (let [tags (&/|map (fn [tag-name] (&/T module tag-name)) tag-names)]
-        (return* (&/update$ &/$modules
-                            (fn [=modules]
-                              (&/|update module
-                                         #(&/set$ $tags (&/fold (fn [table idx+tag-name]
-                                                                  (|let [[idx tag-name] idx+tag-name]
-                                                                    (&/|put tag-name (&/T idx tags) table)))
-                                                                (&/get$ $tags %)
-                                                                (&/enumerate tag-names))
-                                                  %)
-                                         =modules))
-                            state)
-                 nil))
-      (fail* (str "[Lux Error] Unknown module: " module)))))
+  tags-by-module  $tags  "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
+  types-by-module $types "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
+  )
+
+(defn ensure-undeclared-tags [module tags]
+  (|do [tags-table (tags-by-module module)
+        _ (&/map% (fn [tag]
+                    (if (&/|get tag tags-table)
+                      (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T module tag))))
+                      (return nil)))
+                  tags)]
+    (return nil)))
+
+(defn ensure-undeclared-type [module name]
+  (|do [types-table (types-by-module module)
+        _ (&/assert! (nil? (&/|get name types-table)) (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T module name))))]
+    (return nil)))
+
+(defn declare-tags [module tag-names type]
+  "(-> Text (List Text) Type (Lux (,)))"
+  (|do [;; :let [_ (prn 'declare-tags (&/->seq tag-names) (&/adt->text type))]
+        _ (ensure-undeclared-tags module tag-names)
+        type-name (&type/type-name type)
+        :let [[_module _name] type-name]
+        _ (&/assert! (= module _module)
+                     (str "[Module Error] Can't define tags for a type belonging to a foreign module: " (&/ident->text type-name)))
+        _ (ensure-undeclared-type _module _name)]
+    (fn [state]
+      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+        (let [tags (&/|map (fn [tag-name] (&/T module tag-name)) tag-names)]
+          (return* (&/update$ &/$modules
+                              (fn [=modules]
+                                (&/|update module
+                                           #(->> %
+                                                 (&/set$ $tags (&/fold (fn [table idx+tag-name]
+                                                                         (|let [[idx tag-name] idx+tag-name]
+                                                                           (&/|put tag-name (&/T idx tags type) table)))
+                                                                       (&/get$ $tags %)
+                                                                       (&/enumerate tag-names)))
+                                                 (&/update$ $types (partial &/|put _name (&/T tags type))))
+                                           =modules))
+                              state)
+                   nil))
+        (fail* (str "[Lux Error] Unknown module: " module))))))
 
 (defn tag-index [module tag-name]
   "(-> Text Text (Lux Int))"

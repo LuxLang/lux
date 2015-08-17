@@ -26,7 +26,7 @@
       (fail* "[Reader Error] EOF")
 
       (&/$Cons [[file-name line-num column-num] line]
-       more)
+               more)
       (|case (body file-name line-num column-num line)
         ($No msg)
         (fail* msg)
@@ -87,7 +87,7 @@
           (if (= column-num* (.length line))
             (&/V $Done (&/T (&/T file-name line-num column-num) match))
             (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) match)
-                            (&/T (&/T file-name line-num column-num*) line)))))
+                           (&/T (&/T file-name line-num column-num*) line)))))
         (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex2 [regex]
@@ -100,7 +100,7 @@
           (if (= column-num* (.length line))
             (&/V $Done (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
             (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) (&/T tok1 tok2))
-                            (&/T (&/T file-name line-num column-num*) line)))))
+                           (&/T (&/T file-name line-num column-num*) line)))))
         (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex+ [regex]
@@ -113,7 +113,7 @@
           (&/V &/$Left "[Reader Error] EOF")
 
           (&/$Cons [[file-name line-num column-num] ^String line]
-           reader**)
+                   reader**)
           (if-let [^String match (do ;; (prn 'read-regex+ regex line)
                                      (re-find1! regex column-num line))]
             (let [match-length (.length match)
@@ -121,8 +121,8 @@
               (if (= column-num* (.length line))
                 (recur (str prefix match "\n") reader**)
                 (&/V &/$Right (&/T (&/|cons (&/T (&/T file-name line-num column-num*) line)
-                                               reader**)
-                                      (&/T (&/T file-name line-num column-num) (str prefix match))))))
+                                            reader**)
+                                   (&/T (&/T file-name line-num column-num) (str prefix match))))))
             (&/V &/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]
@@ -135,7 +135,7 @@
           (if (= column-num* (.length line))
             (&/V $Done (&/T (&/T file-name line-num column-num) text))
             (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) text)
-                            (&/T (&/T file-name line-num column-num*) line)))))
+                           (&/T (&/T file-name line-num column-num*) line)))))
         (&/V $No (str "[Reader Error] Text failed: " text))))))
 
 (def ^:private ^String +source-dir+ "input/")

@@ -300,8 +300,8 @@
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
                   ;; :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
-                  ;; :let [_ (when (or (= ":" (aget real-name 1))
-                  ;;                   (= "type" (aget real-name 1))
+                  ;; :let [_ (when (or (= "defsig" (aget real-name 1))
+                  ;;                   ;; (= "type" (aget real-name 1))
                   ;;                   ;; (= &&/$struct r-name)
                   ;;                   )
                   ;;           (->> (&/|map &/show-ast macro-expansion)
@@ -409,7 +409,7 @@
                      (analyse-1+ analyse ?value))
             =value-type (&&/expr-type =value)]
         (|case =value
-          [(&/$Global ?r-module ?r-name) _]
+          [(&&/$var (&/$Global ?r-module ?r-name)) _]
           (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name =value-type)
                 ;; :let [_ (println 'analyse-def/ALIAS (str module-name ";" ?name) '=> (str ?r-module ";" ?r-name))
                 ;;       _ (println)]
@@ -418,10 +418,10 @@
 
           _
           (do ;; (println 'DEF (str module-name ";" ?name))
-            (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
-                  :let [;; _ (println 'DEF/COMPILED (str module-name ";" ?name))
-                        _ (println 'DEF (str module-name ";" ?name))]]
-              (return (&/|list)))))
+              (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
+                    :let [;; _ (println 'DEF/COMPILED (str module-name ";" ?name))
+                          _ (println 'DEF (str module-name ";" ?name))]]
+                (return (&/|list)))))
         ))))
 
 (defn analyse-declare-macro [analyse compile-token ?name]
@@ -433,28 +433,13 @@
         ]
     (return (&/|list))))
 
-(defn ensure-undeclared-tags [module tags]
-  (|do [;; :let [_ (prn 'ensure-undeclared-tags/_0)]
-        tags-table (&&module/tags-by-module module)
-        ;; :let [_ (prn 'ensure-undeclared-tags/_1)]
-        _ (&/map% (fn [tag]
-                    (if (&/|get tag tags-table)
-                      (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T module tag))))
-                      (return nil)))
-                  tags)
-        ;; :let [_ (prn 'ensure-undeclared-tags/_2)]
-        ]
-    (return nil)))
-
-(defn analyse-declare-tags [tags]
-  (|do [;; :let [_ (prn 'analyse-declare-tags/_0)]
-        module-name &/get-module-name
-        ;; :let [_ (prn 'analyse-declare-tags/_1)]
-        _ (ensure-undeclared-tags module-name tags)
-        ;; :let [_ (prn 'analyse-declare-tags/_2)]
-        _ (&&module/declare-tags module-name tags)
-        ;; :let [_ (prn 'analyse-declare-tags/_3)]
-        ]
+(defn analyse-declare-tags [tags type-name]
+  (|do [module-name &/get-module-name
+        ;; :let [_ (prn 'analyse-declare-tags (&/ident->text (&/T module-name type-name)) (&/->seq tags))]
+        [_ def-data] (&&module/find-def module-name type-name)
+        ;; :let [_ (prn 'analyse-declare-tags (&/ident->text (&/T module-name type-name)) (&/->seq tags) (&/adt->text def-data))]
+        def-type (&&module/ensure-type-def def-data)
+        _ (&&module/declare-tags module-name tags def-type)]
     (return (&/|list))))
 
 (defn analyse-import [analyse compile-module compile-token ?path]

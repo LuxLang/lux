@@ -84,4 +84,8 @@
 
     (&/$AppT ?fun ?arg)
     (variant$ &/$AppT (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
+
+    (&/$NamedT [?module ?name] ?type)
+    (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ ?module) (text$ ?name)))
+                                         (->analysis ?type))))
     ))

@@ -80,7 +80,13 @@
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
       
       (&/$DataT _)
-      nil)
+      nil
+
+      (&/$NamedT ?name ?type)
+      (prepare-return! *writer* ?type)
+
+      _
+      (assert false (str 'prepare-return! " " (&type/show-type *type*))))
     *writer*))
 
 ;; [Resources]
