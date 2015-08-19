@@ -73,6 +73,7 @@
     (return nil)))
 
 (defn compile-variant [compile *type* ?tag ?value]
+  ;; (prn 'compile-variant ?tag (class ?tag))
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitLdcInsn (int 2))
@@ -105,7 +106,7 @@
 
 (defn compile-global [compile *type* ?owner-class ?name]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str (&host/->module-class ?owner-class) "/" (&/normalize-name ?name)) "_datum" "Ljava/lang/Object;")]]
+        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str (&host/->module-class ?owner-class) "/" (&/normalize-name ?name)) &/datum-field "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-apply [compile *type* ?fn ?args]
@@ -134,7 +135,7 @@
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
-                      (.visitFieldInsn Opcodes/GETSTATIC current-class "_datum" "Ljava/lang/Object;")
+                      (.visitFieldInsn Opcodes/GETSTATIC current-class &/datum-field "Ljava/lang/Object;")
                       ;; (.visitInsn Opcodes/ACONST_NULL) ;; VVIN
                       (.visitInsn Opcodes/AASTORE) ;; V
                       )]
@@ -173,7 +174,7 @@
               :let [_ (doto **writer**
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 1)) ;; VVI
-                        (.visitFieldInsn Opcodes/GETSTATIC current-class "_datum" "Ljava/lang/Object;")
+                        (.visitFieldInsn Opcodes/GETSTATIC current-class &/datum-field "Ljava/lang/Object;")
                         (.visitInsn Opcodes/AASTORE))]
               :let [_ (.visitInsn **writer** Opcodes/AASTORE)]]
           (return nil)))
@@ -194,19 +195,19 @@
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                                current-class nil "java/lang/Object" (into-array [&&/function-class]))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_name" "Ljava/lang/String;" nil ?name)
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/name-field "Ljava/lang/String;" nil ?name)
                            (doto (.visitEnd)))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_datum" datum-sig nil nil)
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/datum-field datum-sig nil nil)
                            (doto (.visitEnd)))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_meta" datum-sig nil nil)
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/meta-field datum-sig nil nil)
                            (doto (.visitEnd))))]
         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
             (|do [^MethodVisitor **writer** &/get-writer
                   :let [_ (.visitCode **writer**)]
                   _ (compile ?body)
-                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class "_datum" datum-sig)]
+                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/datum-field datum-sig)]
                   _ (compile-def-type compile current-class ?body def-type)
-                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class "_meta" datum-sig)]
+                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/meta-field datum-sig)]
                   :let [_ (doto **writer**
                             (.visitInsn Opcodes/RETURN)
                             (.visitMaxs 0 0)
@@ -216,7 +217,7 @@
         _ (&&/save-class! def-name (.toByteArray =class))
         class-loader &/loader
         :let [def-class (&&/load-class! class-loader (&host/->class-name current-class))]
-        _ (&a-module/define module-name ?name (-> def-class (.getField "_meta") (.get nil)) =value-type)]
+        _ (&a-module/define module-name ?name (-> def-class (.getField &/meta-field) (.get nil)) =value-type)]
     (return nil)))
 
 (defn compile-ann [compile *type* ?value-ex ?type-ex]

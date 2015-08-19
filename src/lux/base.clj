@@ -61,7 +61,18 @@
   "AppT"
   "NamedT")
 
-;; [Fields]
+;; Vars
+(deftags "lux;"
+  "Local"
+  "Global")
+
+;; Definitions
+(deftags "lux;"
+  "ValueD"
+  "TypeD"
+  "MacroD"
+  "AliasD")
+
 ;; Binding
 (deftags ""
   "counter"
@@ -92,19 +103,18 @@
   "eval?"
   "host")
 
-;; Vars
-(deftags "lux;"
-  "Local"
-  "Global")
-
-;; Definitions
-(deftags "lux;"
-  "ValueD"
-  "TypeD"
-  "MacroD"
-  "AliasD")
-
 ;; [Exports]
+(def datum-field "_datum")
+(def meta-field "_meta")
+(def name-field "_name")
+(def hash-field "_hash")
+(def compiler-field "_compiler")
+(def imports-field "_imports")
+(def defs-field "_defs")
+(def eval-field "_eval")
+(def tags-field "_tags")
+(def module-class-name "_")
+
 (def +name-separator+ ";")
 
 (defn T [& elems]
@@ -685,6 +695,18 @@
 
       ($Cons ?global _)
       (return* state (get$ $name ?global)))))
+
+(defn find-module [name]
+  "(-> Text (Lux (Module Compiler)))"
+  (fn [state]
+    (if-let [module (|get name (get$ $modules state))]
+      (return* state module)
+      (fail* (str "Unknown module: " name)))))
+
+(def get-current-module
+  "(Lux (Module Compiler))"
+  (|do [module-name get-module-name]
+    (find-module module-name)))
 
 (defn with-scope [name body]
   (fn [state]

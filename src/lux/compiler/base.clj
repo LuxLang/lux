@@ -33,10 +33,20 @@
 (def ^String output-package (str output-dir "/program.jar"))
 (def ^String function-class "lux/Function")
 
+;; Formats
 (def ^String local-prefix "l")
 (def ^String partial-prefix "p")
 (def ^String closure-prefix "c")
 (def ^String apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;")
+
+(def exported-true "1")
+(def exported-false "0")
+(def exported-separator " ")
+(def def-separator "\t")
+(def import-separator "\t")
+(def tag-separator " ")
+(def type-separator "\t")
+(def tag-group-separator "\n")
 
 ;; [Utils]
 (defn ^:private write-file [^String file ^bytes data]

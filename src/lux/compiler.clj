@@ -30,6 +30,7 @@
                           [case :as &&case]
                           [lambda :as &&lambda]
                           [package :as &&package]
+                          [module :as &&module]
                           [io :as &&io]))
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -378,14 +379,14 @@
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                  class-name nil "java/lang/Object" nil)
-                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_eval" "Ljava/lang/Object;" nil nil)
+                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/eval-field "Ljava/lang/Object;" nil nil)
                              (doto (.visitEnd))))]
           _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
               (|do [^MethodVisitor *writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
                     _ (compile-expression expr)
                     :let [_ (doto *writer*
-                              (.visitFieldInsn Opcodes/PUTSTATIC class-name "_eval" "Ljava/lang/Object;")
+                              (.visitFieldInsn Opcodes/PUTSTATIC class-name &/eval-field "Ljava/lang/Object;")
                               (.visitInsn Opcodes/RETURN)
                               (.visitMaxs 0 0)
                               (.visitEnd))]]
@@ -395,7 +396,7 @@
           _ (&&/save-class! (str id) bytecode)
           loader &/loader]
       (-> (.loadClass ^ClassLoader loader (str (&host/->module-class module) "." id))
-          (.getField "_eval")
+          (.getField &/eval-field)
           (.get nil)
           return))))
 
@@ -414,9 +415,9 @@
                     :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                    (.visit Opcodes/V1_6 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                            (str (&host/->module-class name) "/_") nil "java/lang/Object" nil)
-                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_hash" "I" nil file-hash)
+                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/hash-field "I" nil file-hash)
                                        .visitEnd)
-                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_compiler" "Ljava/lang/String;" nil &&/version)
+                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &&/version)
                                        .visitEnd))
                           ;; _ (prn 'compile-module name =class)
                           ]]
@@ -427,22 +428,36 @@
                     (&/$Right ?state _)
                     (&/run-state (|do [defs &a-module/defs
                                        imports &a-module/imports
+                                       tag-groups &&module/tag-groups
                                        :let [_ (doto =class
-                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_defs" "Ljava/lang/String;" nil
+                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/defs-field "Ljava/lang/String;" nil
                                                                   (->> defs
                                                                        (&/|map (fn [_def]
                                                                                  (|let [[?exported ?name ?ann] _def]
-                                                                                   (str (if ?exported "1" "0") " " ?name " " ?ann))))
-                                                                       (&/|interpose "\t")
+                                                                                   (str (if ?exported &&/exported-true &&/exported-false)
+                                                                                        &&/exported-separator
+                                                                                        ?name
+                                                                                        &&/exported-separator
+                                                                                        ?ann))))
+                                                                       (&/|interpose &&/def-separator)
                                                                        (&/fold str "")))
                                                      .visitEnd)
-                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) "_imports" "Ljava/lang/String;" nil
-                                                                  (->> imports (&/|interpose "\t") (&/fold str "")))
+                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
+                                                                  (->> imports (&/|interpose &&/import-separator) (&/fold str "")))
+                                                     .visitEnd)
+                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/tags-field "Ljava/lang/String;" nil
+                                                                  (->> tag-groups
+                                                                       (&/|map (fn [group]
+                                                                                 (|let [[type tags] group]
+                                                                                   (->> tags (&/|interpose &&/tag-separator) (&/fold str "")
+                                                                                        (str type &&/type-separator)))))
+                                                                       (&/|interpose &&/tag-group-separator)
+                                                                       (&/fold str "")))
                                                      .visitEnd)
                                                  (.visitEnd))
                                              ;; _ (prn 'CLOSED name =class)
                                              ]]
-                                   (&&/save-class! "_" (.toByteArray =class)))
+                                   (&&/save-class! &/module-class-name (.toByteArray =class)))
                                  ?state)
                     
                     (&/$Left ?message)

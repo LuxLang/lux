@@ -571,6 +571,7 @@
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 0)) ;; VVI
                       (.visitLdcInsn &/$Nil) ;; VVIT
+                      (&&/wrap-long)
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
@@ -616,6 +617,7 @@
                       (.visitInsn Opcodes/DUP) ;; I2VV
                       (.visitLdcInsn (int 0)) ;; I2VVI
                       (.visitLdcInsn &/$Cons) ;; I2VVIT
+                      (&&/wrap-long)
                       (.visitInsn Opcodes/AASTORE) ;; I2V
                       (.visitInsn Opcodes/DUP_X1) ;; IV2V
                       (.visitInsn Opcodes/SWAP) ;; IVV2

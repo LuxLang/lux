@@ -49,6 +49,18 @@
                           state)
                nil))))
 
+(defn set-imports [imports]
+  "(-> (List Text) (Lux (,)))"
+  (|do [current-module &/get-module-name]
+    (fn [state]
+      (return* (&/update$ &/$modules
+                          (fn [ms]
+                            (&/|update current-module
+                                       (fn [m] (&/set$ $imports imports m))
+                                       ms))
+                          state)
+               nil))))
+
 (defn define [module name def-data type]
   ;; (prn 'define module name (aget def-data 0) (&type/show-type type))
   (fn [state]
@@ -87,6 +99,20 @@
           (&/run-state (def-type ?r-module ?r-name)
                        state))
         (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
+      (fail* (str "[Analyser Error] Unknown module: " module)))))
+
+(defn type-def [module name]
+  "(-> Text Text (Lux Type))"
+  (fn [state]
+    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+        (|case $def
+          [_ (&/$TypeD _type)]
+          (return* state _type)
+
+          _
+          (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/T module name)))))
+        (fail* (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T module name)))))
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
 (defn def-alias [a-module a-name r-module r-name type]
@@ -179,7 +205,7 @@
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
                  :let [macro (-> (.loadClass loader (str (&host/->module-class module) "." (&/normalize-name name)))
-                                 (.getField "_datum")
+                                 (.getField &/datum-field)
                                  (.get nil))]]
              (fn [state*]
                (return* (&/update$ &/$modules
@@ -293,7 +319,7 @@
 
 (defn declare-tags [module tag-names type]
   "(-> Text (List Text) Type (Lux (,)))"
-  (|do [;; :let [_ (prn 'declare-tags (&/->seq tag-names) (&/adt->text type))]
+  (|do [;; :let [_ (prn 'declare-tags module (&/->seq tag-names) (&type/show-type type))]
         _ (ensure-undeclared-tags module tag-names)
         type-name (&type/type-name type)
         :let [[_module _name] type-name]
