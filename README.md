@@ -1,5 +1,7 @@
 ## What is Lux?
 
+[![Join the chat at https://gitter.im/LuxLang/lux](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/LuxLang/lux?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Lux is a new programming language in the making.
 It's meant to be a functional, statically-typed Lisp that will run on several platforms, such as the Java Virtual Machine and JavaScript interpreters.
 
