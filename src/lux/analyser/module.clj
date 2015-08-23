@@ -349,20 +349,17 @@
                    nil))
         (fail* (str "[Lux Error] Unknown module: " module))))))
 
-(defn tag-index [module tag-name]
-  "(-> Text Text (Lux Int))"
-  (fn [state]
-    (if-let [=module (->> state (&/$get-modules) (&/|get module))]
-      (if-let [^objects idx+tags (&/|get tag-name ($get-tags =module))]
-        (return* state (aget idx+tags 0))
-        (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/P module tag-name)))))
-      (fail* (str "[Module Error] Unknown module: " module)))))
+(do-template [<name> <member> <type>]
+  (defn <name> [module tag-name]
+    <type>
+    (fn [state]
+      (if-let [=module (->> state (&/$get-modules) (&/|get module))]
+        (if-let [^objects idx+tags (&/|get tag-name ($get-tags =module))]
+          (|let [[idx tags type] idx+tags]
+            (return* state <member>))
+          (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/P module tag-name)))))
+        (fail* (str "[Module Error] Unknown module: " module)))))
 
-(defn tag-group [module tag-name]
-  "(-> Text Text (Lux (List Ident)))"
-  (fn [state]
-    (if-let [=module (->> state (&/$get-modules) (&/|get module))]
-      (if-let [^objects idx+tags (&/|get tag-name ($get-tags =module))]
-        (return* state (aget idx+tags 1))
-        (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/P module tag-name)))))
-      (fail* (str "[Module Error] Unknown module: " module)))))
+  tag-index idx  "(-> Text Text (Lux Int))"
+  tag-group tags "(-> Text Text (Lux (List Ident)))"
+  )

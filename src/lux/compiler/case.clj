@@ -84,27 +84,36 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
+      (&a-case/$UnitTestAC)
+      (doto writer
+        (.visitInsn Opcodes/POP)
+        (.visitJumpInsn Opcodes/GOTO $target))
+
       (&a-case/$ProdTestAC left right)
       (let [$post-left (new Label)
-            $post-right (new Label)]
+            $post-right (new Label)
+            $pre-else (new Label)]
         (doto writer
           (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
           (.visitInsn Opcodes/DUP)
           (.visitLdcInsn (int 0))
           (.visitInsn Opcodes/AALOAD)
-          (compile-match left $post-left $else)
+          (compile-match left $post-left $pre-else)
           (.visitLabel $post-left)
           (.visitInsn Opcodes/DUP)
           (.visitLdcInsn (int 1))
           (.visitInsn Opcodes/AALOAD)
-          (compile-match right $post-right $else)
+          (compile-match right $post-right $pre-else)
           (.visitLabel $post-right)
           (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO $target)))
+          (.visitJumpInsn Opcodes/GOTO $target)
+          (.visitLabel $pre-else)
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $else)))
 
       (&a-case/$SumTestAC ?tag ?count ?test)
       (let [$value-then (new Label)
-            $sum-else (new Label)]
+            $pre-else (new Label)]
         (doto writer
           (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
           (.visitInsn Opcodes/DUP)
@@ -112,15 +121,15 @@
           (.visitInsn Opcodes/AALOAD)
           (&&/unwrap-int)
           (.visitLdcInsn (int ?tag))
-          (.visitJumpInsn Opcodes/IF_ICMPNE $sum-else)
+          (.visitJumpInsn Opcodes/IF_ICMPNE $else)
           (.visitInsn Opcodes/DUP)
           (.visitLdcInsn (int 1))
           (.visitInsn Opcodes/AALOAD)
-          (compile-match ?test $value-then $sum-else)
+          (compile-match ?test $value-then $pre-else)
           (.visitLabel $value-then)
           (.visitInsn Opcodes/POP)
           (.visitJumpInsn Opcodes/GOTO $target)
-          (.visitLabel $sum-else)
+          (.visitLabel $pre-else)
           (.visitInsn Opcodes/POP)
           (.visitJumpInsn Opcodes/GOTO $else)))
       )))

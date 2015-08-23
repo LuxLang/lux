@@ -548,6 +548,12 @@
 (defn type= [x y]
   (or (clojure.lang.Util/identical x y)
       (let [output (|case [x y]
+                     [(&/$UnitT) (&/$UnitT)]
+                     true
+
+                     [(&/$VoidT) (&/$VoidT)]
+                     true
+
                      [(&/$DataT xname) (&/$DataT yname)]
                      (.equals ^Object xname yname)
 
@@ -704,6 +710,9 @@
   (if (clojure.lang.Util/identical expected actual)
     (return (&/P fixpoints nil))
     (|case [expected actual]
+      [(&/$UnitT) (&/$UnitT)]
+      (return (&/P fixpoints nil))
+
       [(&/$VarT ?eid) (&/$VarT ?aid)]
       (if (.equals ^Object ?eid ?aid)
         (return (&/P fixpoints nil))
@@ -840,7 +849,7 @@
                 (println 'FIXPOINTS (->> (&/|keys fixpoints)
                                          (&/|map (fn [pair]
                                                    (|let [[e a] pair]
-                                                     (str (show-type e) ":+:"
+                                                     (str (show-type e) " :+: "
                                                           (show-type a)))))
                                          (&/|interpose "\n\n")
                                          (&/fold str "")))
@@ -908,6 +917,9 @@
 
       [_ (&/$NamedT ?aname ?atype)]
       (check* class-loader fixpoints expected ?atype)
+
+      [_ (&/$VoidT)]
+      (return (&/P fixpoints nil))
 
       [_ _]
       (fail (check-error expected actual))

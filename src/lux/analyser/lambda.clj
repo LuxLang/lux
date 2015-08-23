@@ -30,10 +30,10 @@
                                               (->> frame (&/$get-closure) (&/$get-counter))
                                               register))
                         register-type)]
-    (do (prn 'close-over 'updating-closure
-             [(->> frame (&/$get-closure) (&/$get-counter)) (->> frame (&/$get-closure) (&/$get-counter) inc)]
-             [(->> frame (&/$get-closure) (&/$get-mappings) &/ident->text)
-              (->> frame (&/$get-closure) (&/$get-mappings) (&/|put name register*) &/ident->text)])
+    (do ;; (prn 'close-over 'updating-closure
+        ;;      [(->> frame (&/$get-closure) (&/$get-counter)) (->> frame (&/$get-closure) (&/$get-counter) inc)]
+        ;;      [(->> frame (&/$get-closure) (&/$get-mappings) &/ident->text)
+        ;;       (->> frame (&/$get-closure) (&/$get-mappings) (&/|put name register*) &/ident->text)])
       ($$ &/P register* (&/$update-closure #(->> %
                                                  (&/$update-counter inc)
                                                  (&/$update-mappings (fn [mps] (&/|put name register* mps))))

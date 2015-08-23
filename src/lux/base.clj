@@ -21,7 +21,7 @@
 (defmacro deftags [names]
   (assert (vector? names))
   `(do ~@(for [[name idx] (map vector names (range (count names)))]
-           `(def ~(symbol (str "$" name)) ~idx))))
+           `(def ~(symbol (str "$" name)) (int ~idx)))))
 
 (defn ^:private unfold-accesses
   ([elems]
@@ -793,7 +793,7 @@
 
 (defn with-writer [writer body]
   (fn [state]
-    (prn 'with-writer writer body)
+    ;; (prn 'with-writer writer body)
     (let [output (body ($update-host #($set-writer (Some$ writer) %) state))]
       (|case output
         ($Right ?state ?value)

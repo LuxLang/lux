@@ -25,6 +25,7 @@
    "RealTotal"
    "CharTotal"
    "TextTotal"
+   "UnitTotal"
    "ProdTotal"
    "SumTotal"]
   )
@@ -36,6 +37,7 @@
    "RealTestAC"
    "CharTestAC"
    "TextTestAC"
+   "UnitTestAC"
    "ProdTestAC"
    "SumTestAC"]
   )
@@ -113,11 +115,14 @@
         type* (adjust-type type)
         idx (&module/tag-index =module =name)
         group (&module/tag-group =module =name)
+        ;; :let [_ (prn 'resolve-tag =module =name (&/adt->text group))]
         case-type (&type/variant-case idx type*)]
     (return ($$ &/P idx (&/|length group) case-type))))
 
 (defn ^:private analyse-pattern [value-type pattern kont]
-  (|let [[_ pattern*] pattern]
+  (|let [[_ pattern*] pattern
+         ;; :let [_ (prn 'analyse-pattern (&/adt->text pattern*) (&type/show-type value-type))]
+         ]
     (|case pattern*
       (&/$SymbolS "" name)
       (|do [=kont (&env/with-local name value-type
@@ -153,6 +158,11 @@
             =kont kont]
         (return (&/P (&/S $TextTestAC ?value) =kont)))
 
+      (&/$TupleS (&/$Nil))
+      (|do [_ (&type/check value-type &type/Unit)
+            =kont kont]
+        (return (&/P (&/S $UnitTestAC nil) =kont)))
+      
       (&/$TupleS (&/$Cons ?_left ?tail))
       (|do [value-type* (adjust-type value-type)]
         (|case value-type*
@@ -168,7 +178,7 @@
                                                                                _
                                                                                (analyse-pattern ?right (&/S &/$TupleS ?tail) kont))]
                                                           (return (&/P =right =kont))))]
-            (return (&/P (&/S $ProdTestAC =left =right) =kont)))
+            (return (&/P (&/S $ProdTestAC (&/P =left =right)) =kont)))
 
           _
           (fail (str "[Pattern-matching Error] Tuples require product-types: " (&type/show-type value-type*)))))
@@ -182,8 +192,7 @@
             [=test =kont] (analyse-pattern case-type unit kont)]
         (return (&/P (&/S $SumTestAC ($$ &/P idx group-count =test)) =kont)))
 
-      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
-                         ?values))
+      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))
       (|do [[idx group-count case-type] (resolve-tag ?ident value-type)
             [=test =kont] (case (&/|length ?values)
                             0 (analyse-pattern case-type unit kont)
@@ -239,6 +248,12 @@
 
         [($TextTotal total? ?values) ($TextTestAC ?value)]
         (return (&/S $TextTotal (&/P total? (&/Cons$ ?value ?values))))
+
+        [($DefaultTotal total?) ($UnitTestAC)]
+        (return (&/S $UnitTotal nil))
+
+        [($UnitTotal) ($UnitTestAC)]
+        (return (&/S $UnitTotal nil))
 
         [($DefaultTotal total?) ($ProdTestAC ?left ?right)]
         (|do [:let [_default (&/S $DefaultTotal total?)]
@@ -301,6 +316,9 @@
     ($TextTotal ?total _)
     (return ?total)
 
+    ($UnitTotal)
+    (return true)
+
     ($ProdTotal ?total ?_left ?_right)
     (if ?total
       (return true)
@@ -329,7 +347,7 @@
                          (fail "[Pattern-matching Error] Pattern-matching mismatch. Variant has wrong size.")
 
                          _
-                         (check-totality ?right ($SumTotal ?total ?tail)))]
+                         (check-totality ?right (&/S $SumTotal (&/P ?total ?tail))))]
             (return (and =left =right)))
 
           _

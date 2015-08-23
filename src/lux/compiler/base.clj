@@ -94,6 +94,7 @@
 (do-template [<name> <class> <sig> <method>]
   (defn <name> [^MethodVisitor writer]
     (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST <class>)
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL <class> <method> (str "()" <sig>))))
 
   unwrap-boolean "java/lang/Boolean"   "Z" "booleanValue"

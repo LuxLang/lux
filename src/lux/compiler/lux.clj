@@ -138,7 +138,7 @@
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 0)) ;; VVI
                       (.visitLdcInsn &/$TypeD) ;; VVIT
-                      (&&/wrap-long)
+                      (&&/wrap-int)
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
@@ -165,7 +165,7 @@
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 0)) ;; VVI
                         (.visitLdcInsn &/$ValueD) ;; VVIT
-                        (&&/wrap-long)
+                        (&&/wrap-int)
                         (.visitInsn Opcodes/AASTORE) ;; V
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 1)) ;; VVI
