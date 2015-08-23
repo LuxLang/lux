@@ -52,7 +52,7 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
     (|case *type*
-      (&/$TupleT (&/$Nil))
+      (&/$UnitT)
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
       (&/$DataT "boolean")
@@ -421,14 +421,14 @@
               $catch-finally (new Label)
               compile-finally (|case ?finally
                                 (&/$Some ?finally*) (|do [_ (return nil)
-                                                             _ (compile ?finally*)
-                                                             :let [_ (doto *writer*
-                                                                       (.visitInsn Opcodes/POP)
-                                                                       (.visitJumpInsn Opcodes/GOTO $end))]]
-                                                         (return nil))
+                                                          _ (compile ?finally*)
+                                                          :let [_ (doto *writer*
+                                                                    (.visitInsn Opcodes/POP)
+                                                                    (.visitJumpInsn Opcodes/GOTO $end))]]
+                                                      (return nil))
                                 (&/$None) (|do [_ (return nil)
-                                                   :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
-                                               (return nil)))
+                                                :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
+                                            (return nil)))
               catch-boundaries (&/|map (fn [[?ex-class ?ex-idx ?catch-body]] [?ex-class (new Label) (new Label)])
                                        ?catches)
               _ (doseq [[?ex-class $handler-start $handler-end] (&/->seq catch-boundaries)
@@ -455,12 +455,12 @@
         :let [_ (.visitLabel *writer* $catch-finally)]
         _ (|case ?finally
             (&/$Some ?finally*) (|do [_ (compile ?finally*)
-                                         :let [_ (.visitInsn *writer* Opcodes/POP)]
-                                         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
-                                     (return nil))
+                                      :let [_ (.visitInsn *writer* Opcodes/POP)]
+                                      :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
+                                  (return nil))
             (&/$None) (|do [_ (return nil)
-                               :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
-                           (return nil)))
+                            :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
+                        (return nil)))
         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))

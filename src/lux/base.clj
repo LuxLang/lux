@@ -11,99 +11,157 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
-;; [Tags]
-(defmacro deftags [prefix & names]
+;; [ADTs]
+(let [array-class (class (to-array []))]
+  (defn adt->text [adt]
+    (if (= array-class (class adt))
+      (str "[" (->> adt (map adt->text) (interpose " ") (reduce str "")) "]")
+      (pr-str adt))))
+
+(defmacro deftags [names]
+  (assert (vector? names))
   `(do ~@(for [[name idx] (map vector names (range (count names)))]
            `(def ~(symbol (str "$" name)) ~idx))))
 
+(defn ^:private unfold-accesses
+  ([elems]
+     (unfold-accesses 1 (count elems) elems))
+  ([begin end elems]
+     (if (= begin end)
+       (list elems)
+       (cons (take begin elems)
+             (unfold-accesses (inc begin) end elems)))))
+
+(defmacro defrtags [tags]
+  (let [num-tags (count tags)
+        normals (butlast tags)
+        special (last tags)
+        tags+locs (cons [special (repeat (dec num-tags) 1)]
+                        (map #(vector %1 (concat (repeat %2 1) [0]))
+                             normals
+                             (range num-tags)))]
+    `(do ~@(for [[tag loc] tags+locs
+                 :let [getter (symbol (str "$get-" tag))
+                       setter (symbol (str "$set-" tag))
+                       updater (symbol (str "$update-" tag))
+                       record (gensym "record")
+                       value (gensym "value")]]
+             `(do (defn ~getter [~record]
+                    ;; (if (= '~'$get-source '~getter)
+                    ;;   (prn '~getter '~loc ~record (aget ~record ~@loc))
+                    ;;   (prn '~getter '~loc ~record (adt->text (aget ~record ~@loc))))
+                    (aget ~record ~@loc))
+                (defn ~setter [~value ~record]
+                  ;; (if (= '~'$set-source '~setter)
+                  ;;   (prn '~setter '_1 '~loc ~record)
+                  ;;   (prn '~setter '_2 '~loc ~record (adt->text ~value)))
+                  ;; (doto record#
+                  ;;   (aset ~@loc value#))
+                  ;; (doto record#
+                  ;;   (aset 1 (doto (aget record# 1)
+                  ;;             (aset 1 ...))))
+                  ~(reduce (fn [inner indices]
+                             `(doto (aclone ~(if (= 1 (count indices))
+                                               record
+                                               `(aget ~record ~@(butlast indices))))
+                                (aset ~(last indices) ~inner)))
+                           value
+                           (reverse (unfold-accesses loc)))
+                  )
+                (defn ~updater [f# ~record]
+                  ;; (prn '~updater '~loc ~record)
+                  ;; (doto record#
+                  ;;   (aset ~@loc (f# (aget record# ~@loc))))
+                  (~setter (f# (~getter ~record)) ~record)))))
+    ))
+
 ;; List
-(deftags ""
-  "Nil"
-  "Cons")
+(deftags
+  ["Nil"
+   "Cons"])
 
 ;; Maybe
-(deftags ""
-  "None"
-  "Some")
-
-;; Meta
-(deftags ""
-  "Meta")
+(deftags
+  ["None"
+   "Some"])
 
 ;; Either
-(deftags ""
-  "Left"
-  "Right")
+(deftags
+  ["Left"
+   "Right"])
 
 ;; AST
-(deftags ""
-  "BoolS"
-  "IntS"
-  "RealS"
-  "CharS"
-  "TextS"
-  "SymbolS"
-  "TagS"
-  "FormS"
-  "TupleS"
-  "RecordS")
+(deftags
+  ["BoolS"
+   "IntS"
+   "RealS"
+   "CharS"
+   "TextS"
+   "SymbolS"
+   "TagS"
+   "FormS"
+   "TupleS"
+   "RecordS"])
 
 ;; Type
-(deftags ""
-  "DataT"
-  "VariantT"
-  "TupleT"
-  "LambdaT"
-  "BoundT"
-  "VarT"
-  "ExT"
-  "AllT"
-  "AppT"
-  "NamedT")
+(deftags
+  ["VoidT"
+   "UnitT"
+   "SumT"
+   "ProdT"
+   "DataT"
+   "LambdaT"
+   "BoundT"
+   "VarT"
+   "ExT"
+   "AllT"
+   "AppT"
+   "NamedT"])
 
 ;; Vars
-(deftags "lux;"
-  "Local"
-  "Global")
+(deftags
+  ["Local"
+   "Global"])
 
 ;; Definitions
-(deftags "lux;"
-  "ValueD"
-  "TypeD"
-  "MacroD"
-  "AliasD")
+(deftags
+  ["ValueD"
+   "TypeD"
+   "MacroD"
+   "AliasD"])
 
 ;; Binding
-(deftags ""
-  "counter"
-  "mappings")
+(defrtags
+  ["counter"
+   "mappings"])
 
 ;; Env
-(deftags ""
-  "name"
-  "inner-closures"
-  "locals"
-  "closure")
+(defrtags
+  ["name"
+   "inner-closures"
+   "locals"
+   "closure"])
 
 ;; Host
-(deftags ""
-  "writer"
-  "loader"
-  "classes")
+(defrtags
+  ["writer"
+   "loader"
+   "classes"])
 
 ;; Compiler
-(deftags ""
-  "source"
-  "cursor"
-  "modules"
-  "envs"
-  "type-vars"
-  "expected"
-  "seed"
-  "eval?"
-  "host")
+(defrtags
+  ["source"
+   "cursor"
+   "modules"
+   "envs"
+   "type-vars"
+   "expected"
+   "seed"
+   "eval?"
+   "host"])
 
 ;; [Exports]
+;; Class fields
 (def datum-field "_datum")
 (def meta-field "_meta")
 (def name-field "_name")
@@ -117,55 +175,59 @@
 
 (def +name-separator+ ";")
 
-(defn T [& elems]
-  (to-array elems))
+(def prelude-name "lux")
 
-(defn V [^Long tag value]
+(defmacro $$ [op & args]
+  (assert (> (count args) 1)
+          (prn-str '$$ op args))
+  (let [[last & others] (reverse args)]
+    (reduce (fn [right left] `(~op ~left ~right))
+            last
+            others)))
+
+(defn S [^Long tag value]
   (to-array [tag value]))
 
+(defn P [left right]
+  (to-array [left right]))
+
 ;; Constructors
-(def None$ (V $None nil))
-(defn Some$ [x] (V $Some x))
+(def None$ (S $None nil))
+(defn Some$ [x] (S $Some x))
 
-(def Nil$ (V $Nil nil))
-(defn Cons$ [h t] (V $Cons (T h t)))
-
-(defn get$ [slot ^objects record]
-  (aget record slot))
-
-(defn set$ [slot value ^objects record]
-  (let [record* (aclone record)
-        size (alength record)]
-    (aset record* slot value)
-    record*))
-
-(defmacro update$ [slot f record]
-  `(let [record# ~record]
-     (set$ ~slot (~f (get$ ~slot record#))
-           record#)))
+(def Nil$ (S $Nil nil))
+(defn Cons$ [h t] (S $Cons (P h t)))
 
 (defn fail* [message]
-  (V $Left message))
+  (S $Left message))
 
 (defn return* [state value]
-  (V $Right (T state value)))
+  (S $Right (P state value)))
+
+(defn ^:private transform-tuple-pattern [pattern]
+  (case (count pattern)
+    0 '_
+    1 (assert false "Can't have singleton tuples.")
+    2 pattern
+    ;; else
+    (let [[last & others] (reverse pattern)]
+      (reduce (fn [r l] [l r]) last others))))
 
 (defn transform-pattern [pattern]
-  (cond (vector? pattern) (mapv transform-pattern pattern)
+  (cond (vector? pattern) (transform-tuple-pattern (mapv transform-pattern pattern))
         (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
                          (vec (cons (eval (first pattern))
                                     (list (case (count parts)
-                                            0 '_
                                             1 (first parts)
                                             ;; else
-                                            `[~@parts])))))
+                                            (transform-tuple-pattern parts))))))
         :else pattern
         ))
 
 (defmacro |case [value & branches]
   (assert (= 0 (mod (count branches) 2)))
   (let [value* (if (vector? value)
-                 [`(T ~@value)]
+                 [`($$ P ~@value)]
                  [value])]
     `(matchv ::M/objects ~value*
        ~@(mapcat (fn [[pattern body]]
@@ -183,8 +245,8 @@
 
 (defmacro |list [& elems]
   (reduce (fn [tail head]
-            `(V $Cons (T ~head ~tail)))
-          `(V $Nil nil)
+            `(Cons$ ~head ~tail))
+          `Nil$
           (reverse elems)))
 
 (defmacro |table [& elems]
@@ -204,17 +266,18 @@
       (|get slot table*))))
 
 (defn |put [slot value table]
+  ;; (prn '|put slot (adt->text value) (adt->text table))
   (|case table
     ($Nil)
-    (V $Cons (T (T slot value) (V $Nil nil)))
+    (Cons$ (P slot value) Nil$)
     
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
-      (V $Cons (T (T slot value) table*))
-      (V $Cons (T (T k v) (|put slot value table*))))
+      (Cons$ (P slot value) table*)
+      (Cons$ (P k v) (|put slot value table*)))
 
     ;; _
-    ;; (assert false (prn-str '|put (aget table 0)))
+    ;; (assert false (prn-str '|put slot (adt->text value) (adt->text table)))
     ))
 
 (defn |remove [slot table]
@@ -225,7 +288,7 @@
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       table*
-      (V $Cons (T (T k v) (|remove slot table*))))))
+      (Cons$ (P k v) (|remove slot table*)))))
 
 (defn |update [k f table]
   (|case table
@@ -234,8 +297,8 @@
 
     ($Cons [k* v] table*)
     (if (.equals ^Object k k*)
-      (V $Cons (T (T k* (f v)) table*))
-      (V $Cons (T (T k* v) (|update k f table*))))))
+      (Cons$ (P k* (f v)) table*)
+      (Cons$ (P k* v) (|update k f table*)))))
 
 (defn |head [xs]
   (|case xs
@@ -256,11 +319,11 @@
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
-    (V $Left message)))
+    (S $Left message)))
 
 (defn return [value]
   (fn [state]
-    (V $Right (T state value))))
+    (S $Right (P state value))))
 
 (defn bind [m-value step]
   (fn [state]
@@ -288,22 +351,13 @@
           (reverse (partition 2 steps))))
 
 ;; [Resources/Combinators]
-(defn |cons [head tail]
-  (V $Cons (T head tail)))
-
 (defn |++ [xs ys]
   (|case xs
     ($Nil)
     ys
 
     ($Cons x xs*)
-    (V $Cons (T x (|++ xs* ys)))))
-
-(let [array-class (class (to-array []))]
-  (defn adt->text [adt]
-    (if (= array-class (class adt))
-      (str "[" (->> adt (map adt->text) (interpose " ") (reduce str "")) "]")
-      (pr-str adt))))
+    (Cons$ x (|++ xs* ys))))
 
 (defn |map [f xs]
   (|case xs
@@ -311,7 +365,7 @@
     xs
 
     ($Cons x xs*)
-    (V $Cons (T (f x) (|map f xs*)))
+    (Cons$ (f x) (|map f xs*))
 
     _
     (assert false (prn-str '|map f (adt->text xs)))
@@ -332,7 +386,7 @@
 
     ($Cons x xs*)
     (if (p x)
-      (V $Cons (T x (|filter p xs*)))
+      (Cons$ x (|filter p xs*))
       (|filter p xs*))))
 
 (defn flat-map [f xs]
@@ -346,13 +400,13 @@
 (defn |split-with [p xs]
   (|case xs
     ($Nil)
-    (T xs xs)
+    (P xs xs)
 
     ($Cons x xs*)
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
-        (T (|cons x pre) post))
-      (T (V $Nil nil) xs))))
+        (P (Cons$ x pre) post))
+      (P Nil$ xs))))
 
 (defn |contains? [k table]
   (|case table
@@ -361,7 +415,10 @@
 
     ($Cons [k* _] table*)
     (or (.equals ^Object k k*)
-        (|contains? k table*))))
+        (|contains? k table*))
+
+    _
+    (assert false (prn-str '|contains? k (adt->text table)))))
 
 (defn fold [f init xs]
   (|case xs
@@ -386,15 +443,15 @@
     (|list init)
 
     ($Cons x xs*)
-    (|cons init (folds f (f init x) xs*))))
+    (Cons$ init (folds f (f init x) xs*))))
 
 (defn |length [xs]
   (fold (fn [acc _] (inc acc)) 0 xs))
 
 (let [|range* (fn |range* [from to]
                 (if (< from to)
-                  (V $Cons (T from (|range* (inc from) to)))
-                  (V $Nil nil)))]
+                  (Cons$ from (|range* (inc from) to))
+                  Nil$))]
   (defn |range [n]
     (|range* 0 n)))
 
@@ -409,10 +466,10 @@
 (defn zip2 [xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (V $Cons (T (T x y) (zip2 xs* ys*)))
+    (Cons$ (P x y) (zip2 xs* ys*))
 
     [_ _]
-    (V $Nil nil)))
+    Nil$))
 
 (defn |keys [plist]
   (|case plist
@@ -420,7 +477,7 @@
     (|list)
     
     ($Cons [k v] plist*)
-    (|cons k (|keys plist*))))
+    (Cons$ k (|keys plist*))))
 
 (defn |vals [plist]
   (|case plist
@@ -428,7 +485,7 @@
     (|list)
     
     ($Cons [k v] plist*)
-    (|cons v (|vals plist*))))
+    (Cons$ v (|vals plist*))))
 
 (defn |interpose [sep xs]
   (|case xs
@@ -439,7 +496,7 @@
     xs
     
     ($Cons x xs*)
-    (V $Cons (T x (V $Cons (T sep (|interpose sep xs*)))))))
+    (Cons$ x (Cons$ sep (|interpose sep xs*)))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
@@ -452,23 +509,23 @@
             ys (<name> f xs*)]
         (return (<joiner> y ys)))))
 
-  map%      |cons
+  map%      Cons$
   flat-map% |++)
 
 (defn list-join [xss]
-  (fold |++ (V $Nil nil) xss))
+  (fold |++ Nil$ xss))
 
 (defn |as-pairs [xs]
   (|case xs
     ($Cons x ($Cons y xs*))
-    (V $Cons (T (T x y) (|as-pairs xs*)))
+    (Cons$ (P x y) (|as-pairs xs*))
 
     _
-    (V $Nil nil)))
+    Nil$))
 
 (defn |reverse [xs]
   (fold (fn [tail head]
-          (|cons head tail))
+          (Cons$ head tail))
         (|list)
         xs))
 
@@ -504,7 +561,7 @@
 (defn repeat% [monad]
   (try-all% (|list (|do [head monad
                          tail (repeat% monad)]
-                     (return (|cons head tail)))
+                     (return (Cons$ head tail)))
                    (return (|list)))))
 
 (defn exhaust% [step]
@@ -551,28 +608,28 @@
 
 (def loader
   (fn [state]
-    (return* state (->> state (get$ $host) (get$ $loader)))))
+    (return* state (->> state $get-host ($get-loader)))))
 
 (def classes
   (fn [state]
-    (return* state (->> state (get$ $host) (get$ $classes)))))
+    (return* state (->> state $get-host ($get-classes)))))
 
 (def +init-bindings+
-  (T ;; "lux;counter"
+  (P ;; "lux;counter"
    0
    ;; "lux;mappings"
    (|table)))
 
 (defn env [name]
-  (T ;; "lux;name"
-   name
-   ;; "lux;inner-closures"
-   0
-   ;; "lux;locals"
-   +init-bindings+
-   ;; "lux;closure"
-   +init-bindings+
-   ))
+  ($$ P ;; "lux;name"
+      name
+      ;; "lux;inner-closures"
+      0
+      ;; "lux;locals"
+      +init-bindings+
+      ;; "lux;closure"
+      +init-bindings+
+      ))
 
 (let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
                                                                                               (class (byte-array []))
@@ -594,41 +651,41 @@
 
 (defn host [_]
   (let [store (atom {})]
-    (T ;; "lux;writer"
-     (V $None nil)
-     ;; "lux;loader"
-     (memory-class-loader store)
-     ;; "lux;classes"
-     store)))
+    ($$ P ;; "lux;writer"
+        None$
+        ;; "lux;loader"
+        (memory-class-loader store)
+        ;; "lux;classes"
+        store)))
 
 (defn init-state [_]
-  (T ;; "lux;source"
-   (V $None nil)
-   ;; "lux;cursor"
-   (T "" -1 -1)
-   ;; "lux;modules"
-   (|table)
-   ;; "lux;envs"
-   (|list)
-   ;; "lux;types"
-   +init-bindings+
-   ;; "lux;expected"
-   (V $VariantT (|list))
-   ;; "lux;seed"
-   0
-   ;; "lux;eval?"
-   false
-   ;; "lux;host"
-   (host nil)
-   ))
+  ($$ P ;; "lux;source"
+      None$
+      ;; "lux;cursor"
+      ($$ P "" -1 -1)
+      ;; "lux;modules"
+      (|table)
+      ;; "lux;envs"
+      (|list)
+      ;; "lux;types"
+      +init-bindings+
+      ;; "lux;expected"
+      (S $VoidT nil)
+      ;; "lux;seed"
+      0
+      ;; "lux;eval?"
+      false
+      ;; "lux;host"
+      (host nil)
+      ))
 
 (defn save-module [body]
   (fn [state]
     (|case (body state)
       ($Right state* output)
       (return* (->> state*
-                    (set$ $envs (get$ $envs state))
-                    (set$ $source (get$ $source state)))
+                    ($set-envs ($get-envs state))
+                    ($set-source ($get-source state)))
                output)
 
       ($Left msg)
@@ -636,20 +693,20 @@
 
 (defn with-eval [body]
   (fn [state]
-    (|case (body (set$ $eval? true state))
+    (|case (body ($set-eval? true state))
       ($Right state* output)
-      (return* (set$ $eval? (get$ $eval? state) state*) output)
+      (return* ($set-eval? ($get-eval? state) state*) output)
 
       ($Left msg)
       (fail* msg))))
 
 (def get-eval
   (fn [state]
-    (return* state (get$ $eval? state))))
+    (return* state ($get-eval? state))))
 
 (def get-writer
   (fn [state]
-    (let [writer* (->> state (get$ $host) (get$ $writer))]
+    (let [writer* (->> state ($get-host) ($get-writer))]
       (|case writer*
         ($Some datum)
         (return* state datum)
@@ -659,15 +716,15 @@
 
 (def get-top-local-env
   (fn [state]
-    (try (let [top (|head (get$ $envs state))]
+    (try (let [top (|head ($get-envs state))]
            (return* state top))
       (catch Throwable _
         (fail* "No local environment.")))))
 
 (def gen-id
   (fn [state]
-    (let [seed (get$ $seed state)]
-      (return* (set$ $seed (inc seed) state) seed))))
+    (let [seed ($get-seed state)]
+      (return* ($set-seed (inc seed) state) seed))))
 
 (defn ->seq [xs]
   (|case xs
@@ -680,26 +737,26 @@
 (defn ->list [seq]
   (if (empty? seq)
     (|list)
-    (|cons (first seq) (->list (rest seq)))))
+    (Cons$ (first seq) (->list (rest seq)))))
 
 (defn |repeat [n x]
   (if (> n 0)
-    (|cons x (|repeat (dec n) x))
+    (Cons$ x (|repeat (dec n) x))
     (|list)))
 
 (def get-module-name
   (fn [state]
-    (|case (|reverse (get$ $envs state))
+    (|case (|reverse ($get-envs state))
       ($Nil)
       (fail* "[Analyser Error] Can't get the module-name without a module.")
 
       ($Cons ?global _)
-      (return* state (get$ $name ?global)))))
+      (return* state ($get-name ?global)))))
 
 (defn find-module [name]
   "(-> Text (Lux (Module Compiler)))"
   (fn [state]
-    (if-let [module (|get name (get$ $modules state))]
+    (if-let [module (|get name ($get-modules state))]
       (return* state module)
       (fail* (str "Unknown module: " name)))))
 
@@ -710,10 +767,10 @@
 
 (defn with-scope [name body]
   (fn [state]
-    (let [output (body (update$ $envs #(|cons (env name) %) state))]
+    (let [output (body ($update-envs #(Cons$ (env name) %) state))]
       (|case output
         ($Right state* datum)
-        (return* (update$ $envs |tail state*) datum)
+        (return* ($update-envs |tail state*) datum)
         
         _
         output))))
@@ -723,23 +780,24 @@
 
 (defn with-closure [body]
   (|do [closure-name (|do [top get-top-local-env]
-                       (return (->> top (get$ $inner-closures) str)))]
+                       (return (->> top ($get-inner-closures) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $envs #(|cons (update$ $inner-closures inc (|head %))
-                                                (|tail %))
-                                  state))))))
+        (run-state body* ($update-envs #(Cons$ ($update-inner-closures inc (|head %))
+                                               (|tail %))
+                                       state))))))
 
 (def get-scope-name
   (fn [state]
-    (return* state (->> state (get$ $envs) (|map #(get$ $name %)) |reverse))))
+    (return* state (->> state ($get-envs) (|map #($get-name %)) |reverse))))
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (update$ $host #(set$ $writer (V $Some writer) %) state))]
+    (prn 'with-writer writer body)
+    (let [output (body ($update-host #($set-writer (Some$ writer) %) state))]
       (|case output
         ($Right ?state ?value)
-        (return* (update$ $host #(set$ $writer (->> state (get$ $host) (get$ $writer)) %) ?state)
+        (return* ($update-host #($set-writer (->> state ($get-host) ($get-writer)) %) ?state)
                  ?value)
 
         _
@@ -748,10 +806,11 @@
 (defn with-expected-type [type body]
   "(All [a] (-> Type (Lux a)))"
   (fn [state]
-    (let [output (body (set$ $expected type state))]
+    ;; (prn 'with-expected-type type state)
+    (let [output (body ($set-expected type state))]
       (|case output
         ($Right ?state ?value)
-        (return* (set$ $expected (get$ $expected state) ?state)
+        (return* ($set-expected ($get-expected state) ?state)
                  ?value)
 
         _
@@ -759,14 +818,20 @@
 
 (defn with-cursor [^objects cursor body]
   "(All [a] (-> Cursor (Lux a)))"
+  ;; (prn 'with-cursor/_0 (adt->text cursor))
   (if (= "" (aget cursor 0))
     body
     (fn [state]
-      (let [output (body (set$ $cursor cursor state))]
+      (let [;; _ (prn 'with-cursor/_1 cursor)
+            state* ($set-cursor cursor state)
+            ;; _ (prn 'with-cursor/_2 state*)
+            output (body state*)]
         (|case output
           ($Right ?state ?value)
-          (return* (set$ $cursor (get$ $cursor state) ?state)
-                   ?value)
+          (let [?state* ($set-cursor ($get-cursor state) ?state)]
+            ;; (prn 'with-cursor/_3 ?state*)
+            (return* ?state*
+                     ?value))
 
           _
           output)))))
@@ -774,40 +839,40 @@
 (defn show-ast [ast]
   ;; (prn 'show-ast/GOOD (aget ast 0) (aget ast 1 1 0))
   (|case ast
-    ($Meta _ ($BoolS ?value))
+    [_ ($BoolS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($IntS ?value))
+    [_ ($IntS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($RealS ?value))
+    [_ ($RealS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($CharS ?value))
+    [_ ($CharS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($TextS ?value))
+    [_ ($TextS ?value)]
     (str "\"" ?value "\"")
 
-    ($Meta _ ($TagS ?module ?tag))
+    [_ ($TagS ?module ?tag)]
     (str "#" ?module ";" ?tag)
 
-    ($Meta _ ($SymbolS ?module ?ident))
+    [_ ($SymbolS ?module ?ident)]
     (if (.equals "" ?module)
       ?ident
       (str ?module ";" ?ident))
 
-    ($Meta _ ($TupleS ?elems))
+    [_ ($TupleS ?elems)]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    ($Meta _ ($RecordS ?elems))
+    [_ ($RecordS ?elems)]
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
                             (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
-    ($Meta _ ($FormS ?elems))
+    [_ ($FormS ?elems)]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
 
     _
@@ -835,10 +900,10 @@
     [($Cons x xs*) ($Cons y ys*)]
     (|do [z (f x y)
           zs (map2% f xs* ys*)]
-      (return (|cons z zs)))
+      (return (Cons$ z zs)))
 
     [($Nil) ($Nil)]
-    (return (V $Nil nil))
+    (return Nil$)
 
     [_ _]
     (fail "Lists don't match in size.")))
@@ -846,10 +911,10 @@
 (defn map2 [f xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (|cons (f x y) (map2 f xs* ys*))
+    (Cons$ (f x y) (map2 f xs* ys*))
 
     [_ _]
-    (V $Nil nil)))
+    Nil$))
 
 (defn fold2 [f init xs ys]
   (|case [xs ys]
@@ -867,8 +932,8 @@
   "(All [a] (-> Int (List a) (List (, Int a))))"
   (|case xs
     ($Cons x xs*)
-    (V $Cons (T (T idx x)
-                (enumerate* (inc idx) xs*)))
+    (Cons$ (P idx x)
+           (enumerate* (inc idx) xs*))
 
     ($Nil)
     xs
@@ -881,7 +946,7 @@
 (def modules
   "(Lux (List Text))"
   (fn [state]
-    (return* state (|keys (get$ $modules state)))))
+    (return* state (|keys ($get-modules state)))))
 
 (defn when% [test body]
   "(-> Bool (Lux (,)) (Lux (,)))"
@@ -895,23 +960,23 @@
   (|case xs
     ($Cons x xs*)
     (cond (< idx 0)
-          (V $None nil)
+          None$
 
           (= idx 0)
-          (V $Some x)
+          (Some$ x)
 
           :else ;; > 1
           (|at (dec idx) xs*))
 
     ($Nil)
-    (V $None nil)
+    None$
     ))
 
 (defn normalize [ident]
   "(-> Ident (Lux Ident))"
   (|case ident
     ["" name] (|do [module get-module-name]
-                (return (T module name)))
+                (return (P module name)))
     _ (return ident)))
 
 (defn ident= [x y]
@@ -923,12 +988,24 @@
 (defn |list-put [idx val xs]
   (|case xs
     ($Nil)
-    (V $None nil)
+    None$
     
     ($Cons x xs*)
     (if (= idx 0)
-      (V $Some (V $Cons (T val xs*)))
+      (Some$ (Cons$ val xs*))
       (|case (|list-put (dec idx) val xs*)
-        ($None)      (V $None nil)
-        ($Some xs**) (V $Some (V $Cons (T x xs**))))
+        ($None)      None$
+        ($Some xs**) (Some$ (Cons$ x xs**)))
       )))
+
+(defn ensure-1 [m-value]
+  (|do [output m-value]
+    (|case output
+      ($Cons x ($Nil))
+      (return x)
+
+      _
+      (fail "[Error] Can't expand to other than 1 element."))))
+
+(defn cursor$ [file-name line-num column-num]
+  ($$ P file-name line-num column-num))

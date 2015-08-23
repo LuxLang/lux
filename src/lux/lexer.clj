@@ -13,22 +13,22 @@
             [lux.analyser.module :as &module]))
 
 ;; [Tags]
-(deftags ""
-  "White_Space"
-  "Comment"
-  "Bool"
-  "Int"
-  "Real"
-  "Char"
-  "Text"
-  "Symbol"
-  "Tag"
-  "Open_Paren"
-  "Close_Paren"
-  "Open_Bracket"
-  "Close_Bracket"
-  "Open_Brace"
-  "Close_Brace"
+(deftags
+  ["White_Space"
+   "Comment"
+   "Bool"
+   "Int"
+   "Real"
+   "Char"
+   "Text"
+   "Symbol"
+   "Tag"
+   "Open_Paren"
+   "Close_Paren"
+   "Open_Bracket"
+   "Close_Bracket"
+   "Open_Brace"
+   "Close_Brace"]
   )
 
 ;; [Utils]
@@ -58,19 +58,19 @@
 ;; [Lexers]
 (def ^:private lex-white-space
   (|do [[meta white-space] (&reader/read-regex #"^(\s+)")]
-    (return (&/V &/$Meta (&/T meta (&/V $White_Space white-space))))))
+    (return (&/P meta (&/S $White_Space white-space)))))
 
 (def ^:private lex-single-line-comment
   (|do [_ (&reader/read-text "##")
         [meta comment] (&reader/read-regex #"^(.*)$")]
-    (return (&/V &/$Meta (&/T meta (&/V $Comment comment))))))
+    (return (&/P meta (&/S $Comment comment)))))
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
         [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex #"(?is)^(?!#\()(.*?(?=\)#))")
                                                   ;; :let [_ (prn 'immediate comment)]
                                                   _ (&reader/read-text ")#")]
-                                              (return (&/T meta comment)))
+                                              (return (&/P meta comment)))
                                             (|do [;; :let [_ (prn 'pre/_0)]
                                                   [meta pre] (&reader/read-regex+ #"(?is)^(.*?)(#\(|$)")
                                                   ;; :let [_ (prn 'pre pre)]
@@ -79,10 +79,10 @@
                                                   [_ post] (&reader/read-regex #"(?is)^(.+?(?=\)#))")
                                                   ;; :let [_ (prn 'post post (str pre "#(" inner ")#" post))]
                                                   ]
-                                              (return (&/T meta (str pre "#(" inner ")#" post))))))
+                                              (return (&/P meta (str pre "#(" inner ")#" post))))))
         ;; :let [_ (prn 'lex-multi-line-comment (str comment ")#"))]
         _ (&reader/read-text ")#")]
-    (return (&/V &/$Meta (&/T meta (&/V $Comment comment))))))
+    (return (&/P meta (&/S $Comment comment)))))
 
 (def ^:private lex-comment
   (&/try-all% (&/|list lex-single-line-comment
@@ -91,7 +91,7 @@
 (do-template [<name> <tag> <regex>]
   (def <name>
     (|do [[meta token] (&reader/read-regex <regex>)]
-      (return (&/V &/$Meta (&/T meta (&/V <tag> token))))))
+      (return (&/P meta (&/S <tag> token)))))
 
   ^:private lex-bool  $Bool  #"^(true|false)"
   ^:private lex-int   $Int   #"^(-?0|-?[1-9][0-9]*)"
@@ -105,13 +105,13 @@
                                    (|do [[_ char] (&reader/read-regex #"^(.)")]
                                      (return char))))
         _ (&reader/read-text "\"")]
-    (return (&/V &/$Meta (&/T meta (&/V $Char token))))))
+    (return (&/P meta (&/S $Char token)))))
 
 (def ^:private lex-text
   (|do [[meta _] (&reader/read-text "\"")
         token (lex-text-body nil)
         _ (&reader/read-text "\"")]
-    (return (&/V &/$Meta (&/T meta (&/V $Text token))))))
+    (return (&/P meta (&/S $Text token)))))
 
 (def ^:private lex-ident
   (&/try-all% (&/|list (|do [[meta token] (&reader/read-regex +ident-re+)]
@@ -119,35 +119,35 @@
                                                     [_ local-token] (&reader/read-regex +ident-re+)
                                                     ? (&module/exists? token)]
                                                 (if ?
-                                                  (return (&/T meta (&/T token local-token)))
+                                                  (return (&/P meta (&/P token local-token)))
                                                   (|do [unaliased (do ;; (prn "Unaliasing: " token ";" local-token)
-                                                                    (&module/dealias token))]
+                                                                      (&module/dealias token))]
                                                     (do ;; (prn "Unaliased: " unaliased ";" local-token)
-                                                      (return (&/T meta (&/T unaliased local-token)))))))
-                                              (return (&/T meta (&/T "" token)))
+                                                        (return (&/P meta (&/P unaliased local-token)))))))
+                                              (return (&/P meta (&/P "" token)))
                                               )))
                        (|do [[meta _] (&reader/read-text ";;")
                              [_ token] (&reader/read-regex +ident-re+)
                              module-name &/get-module-name]
-                         (return (&/T meta (&/T module-name token))))
+                         (return (&/P meta (&/P module-name token))))
                        (|do [[meta _] (&reader/read-text ";")
                              [_ token] (&reader/read-regex +ident-re+)]
-                         (return (&/T meta (&/T "lux" token))))
+                         (return (&/P meta (&/P &/prelude-name token))))
                        )))
 
 (def ^:private lex-symbol
   (|do [[meta ident] lex-ident]
-    (return (&/V &/$Meta (&/T meta (&/V $Symbol ident))))))
+    (return (&/P meta (&/S $Symbol ident)))))
 
 (def ^:private lex-tag
   (|do [[meta _] (&reader/read-text "#")
         [_ ident] lex-ident]
-    (return (&/V &/$Meta (&/T meta (&/V $Tag ident))))))
+    (return (&/P meta (&/S $Tag ident)))))
 
 (do-template [<name> <text> <tag>]
   (def <name>
     (|do [[meta _] (&reader/read-text <text>)]
-      (return (&/V &/$Meta (&/T meta (&/V <tag> nil))))))
+      (return (&/P meta (&/S <tag> nil)))))
 
   ^:private lex-open-paren    "(" $Open_Paren
   ^:private lex-close-paren   ")" $Close_Paren

@@ -11,7 +11,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case $$]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -84,63 +84,62 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      (&a-case/$TupleTestAC ?members)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (-> (doto (.visitInsn Opcodes/DUP)
-              (.visitLdcInsn (int idx))
-              (.visitInsn Opcodes/AALOAD)
-              (compile-match test $next $sub-else)
-              (.visitLabel $sub-else)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else)
-              (.visitLabel $next))
-            (->> (|let [[idx test] idx+member
-                        $next (new Label)
-                        $sub-else (new Label)])
-                 (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
+      (&a-case/$ProdTestAC left right)
+      (let [$post-left (new Label)
+            $post-right (new Label)]
+        (doto writer
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn (int 0))
+          (.visitInsn Opcodes/AALOAD)
+          (compile-match left $post-left $else)
+          (.visitLabel $post-left)
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn (int 1))
+          (.visitInsn Opcodes/AALOAD)
+          (compile-match right $post-right $else)
+          (.visitLabel $post-right)
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $target)))
 
-      (&a-case/$VariantTestAC ?tag ?count ?test)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (.visitInsn Opcodes/DUP)
-        (.visitLdcInsn (int 0))
-        (.visitInsn Opcodes/AALOAD)
-        (.visitLdcInsn ?tag)
-        (&&/wrap-long)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
-        (.visitJumpInsn Opcodes/IFEQ $else)
-        (.visitInsn Opcodes/DUP)
-        (.visitLdcInsn (int 1))
-        (.visitInsn Opcodes/AALOAD)
-        (-> (doto (compile-match ?test $value-then $value-else)
-              (.visitLabel $value-then)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $target)
-              (.visitLabel $value-else)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else))
-            (->> (let [$value-then (new Label)
-                       $value-else (new Label)]))))
+      (&a-case/$SumTestAC ?tag ?count ?test)
+      (let [$value-then (new Label)
+            $sum-else (new Label)]
+        (doto writer
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn (int 0))
+          (.visitInsn Opcodes/AALOAD)
+          (&&/unwrap-int)
+          (.visitLdcInsn (int ?tag))
+          (.visitJumpInsn Opcodes/IF_ICMPNE $sum-else)
+          (.visitInsn Opcodes/DUP)
+          (.visitLdcInsn (int 1))
+          (.visitInsn Opcodes/AALOAD)
+          (compile-match ?test $value-then $sum-else)
+          (.visitLabel $value-then)
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $target)
+          (.visitLabel $sum-else)
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $else)))
       )))
 
 (defn ^:private separate-bodies [patterns]
   (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
                                           (|let [[$id mappings =matches] $id+mappings+=matches
                                                  [pattern body] pattern+body]
-                                            (&/T (inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches))))
-                                        (&/T 0 (&/|table) (&/|table))
+                                            ($$ &/P (inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches))))
+                                        ($$ &/P 0 (&/|table) (&/|table))
                                         patterns)]
-    (&/T mappings (&/|reverse patterns*))))
+    (&/P mappings (&/|reverse patterns*))))
 
 (defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
   (let [entries (&/|map (fn [?branch+?body]
                           (|let [[?branch ?body] ?branch+?body
                                  label (new Label)]
-                            (&/T (&/T ?branch label)
-                                 (&/T label ?body))))
+                            (&/P (&/P ?branch label)
+                                 (&/P label ?body))))
                         mappings)
         mappings* (&/|map &/|first entries)]
     (doto writer

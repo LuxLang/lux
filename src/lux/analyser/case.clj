@@ -9,7 +9,7 @@
 (ns lux.analyser.case
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |do return fail |let |case]]
+            (lux [base :as & :refer [deftags |do return fail |let |case $$]]
                  [parser :as &parser]
                  [type :as &type])
             (lux.analyser [base :as &&]
@@ -18,31 +18,31 @@
                           [record :as &&record])))
 
 ;; [Tags]
-(deftags ""
-  "DefaultTotal"
-  "BoolTotal"
-  "IntTotal"
-  "RealTotal"
-  "CharTotal"
-  "TextTotal"
-  "TupleTotal"
-  "VariantTotal"
+(deftags
+  ["DefaultTotal"
+   "BoolTotal"
+   "IntTotal"
+   "RealTotal"
+   "CharTotal"
+   "TextTotal"
+   "ProdTotal"
+   "SumTotal"]
   )
 
-(deftags ""
-  "StoreTestAC"
-  "BoolTestAC"
-  "IntTestAC"
-  "RealTestAC"
-  "CharTestAC"
-  "TextTestAC"
-  "TupleTestAC"
-  "VariantTestAC"
+(deftags
+  ["StoreTestAC"
+   "BoolTestAC"
+   "IntTestAC"
+   "RealTestAC"
+   "CharTestAC"
+   "TextTestAC"
+   "ProdTestAC"
+   "SumTestAC"]
   )
 
 ;; [Utils]
 (def ^:private unit
-  (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS (&/|list)))))
+  (&/P (&/cursor$ "" -1 -1) (&/S &/$TupleS (&/|list))))
 
 (defn ^:private resolve-type [type]
   (|case type
@@ -64,74 +64,66 @@
     _
     (&type/actual-type type)))
 
-(defn adjust-type* [up type]
-  "(-> (List (, (Maybe (Env Text Type)) Text Text Type)) Type (Lux Type))"
-  ;; (prn 'adjust-type* (&type/show-type type))
-  (|case type
-    (&/$AllT _aenv _aname _aarg _abody)
-    (&type/with-var
-      (fn [$var]
-        (|do [=type (&type/apply-type type $var)]
-          (adjust-type* (&/|cons (&/T _aenv _aname _aarg $var) up) =type))))
+(let [cleaner (fn [_abody ena]
+                (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
+                  (|do [_ (&type/set-var _avar (&/S &/$BoundT _aarg))]
+                    (&type/clean* _avar _abody))))]
+  (defn adjust-type* [up type]
+    "(-> (List (, (Maybe (Env Text Type)) Text Text Type)) Type (Lux Type))"
+    ;; (prn 'adjust-type* (&type/show-type type))
+    (|case type
+      (&/$AllT _aenv _aname _aarg _abody)
+      (&type/with-var
+        (fn [$var]
+          (|do [=type (&type/apply-type type $var)]
+            (adjust-type* (&/Cons$ ($$ &/P _aenv _aname _aarg $var) up) =type))))
 
-    (&/$TupleT ?members)
-    (|do [(&/$TupleT ?members*) (&/fold% (fn [_abody ena]
-                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
-                                               (&type/clean* _avar _abody))))
-                                         type
-                                         up)]
-      (return (&type/Tuple$ (&/|map (fn [v]
-                                      (&/fold (fn [_abody ena]
-                                                (|let [[_aenv _aname _aarg _avar] ena]
-                                                  (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
-                                              v
-                                              up))
-                                    ?members*))))
+      (&/$SumT ?left ?right)
+      (|do [=left (&/fold% cleaner ?left up)
+            =right (&/fold% cleaner ?right up)]
+        (return (&type/Sum$ =left =right)))
 
-    (&/$VariantT ?members)
-    (|do [(&/$VariantT ?members*) (&/fold% (fn [_abody ena]
-                                             (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
-                                                 (&type/clean* _avar _abody))))
-                                           type
-                                           up)]
-      (return (&/V &/$VariantT (&/|map (fn [v]
-                                         (&/fold (fn [_abody ena]
-                                                   (|let [[_aenv _aname _aarg _avar] ena]
-                                                     (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
-                                                 v
-                                                 up))
-                                       ?members*))))
+      (&/$ProdT ?left ?right)
+      (|do [=left (&/fold% cleaner ?left up)
+            =right (&/fold% cleaner ?right up)]
+        (return (&type/Prod$ =left =right)))
 
-    (&/$AppT ?tfun ?targ)
-    (|do [=type (&type/apply-type ?tfun ?targ)]
-      (adjust-type* up =type))
+      (&/$AppT ?tfun ?targ)
+      (|do [=type (&type/apply-type ?tfun ?targ)]
+        (adjust-type* up =type))
 
-    (&/$VarT ?id)
-    (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail "##9##")))]
-      (adjust-type* up type*))
+      (&/$VarT ?id)
+      (|do [type* (&/try-all% (&/|list (&type/deref ?id)
+                                       (fail "##9##")))]
+        (adjust-type* up type*))
 
-    (&/$NamedT ?name ?type)
-    (adjust-type* up ?type)
+      (&/$NamedT ?name ?type)
+      (adjust-type* up ?type)
 
-    _
-    (assert false (prn 'adjust-type* (&type/show-type type)))
-    ))
+      _
+      (assert false (prn 'adjust-type* (&type/show-type type)))
+      )))
 
 (defn adjust-type [type]
   "(-> Type (Lux Type))"
   (adjust-type* (&/|list) type))
 
+(defn ^:private resolve-tag [tag type]
+  (|do [[=module =name] (&&/resolved-ident tag)
+        type* (adjust-type type)
+        idx (&module/tag-index =module =name)
+        group (&module/tag-group =module =name)
+        case-type (&type/variant-case idx type*)]
+    (return ($$ &/P idx (&/|length group) case-type))))
+
 (defn ^:private analyse-pattern [value-type pattern kont]
-  (|let [(&/$Meta _ pattern*) pattern]
+  (|let [[_ pattern*] pattern]
     (|case pattern*
       (&/$SymbolS "" name)
       (|do [=kont (&env/with-local name value-type
                     kont)
             idx &env/next-local-idx]
-        (return (&/T (&/V $StoreTestAC idx) =kont)))
+        (return (&/P (&/S $StoreTestAC idx) =kont)))
 
       (&/$SymbolS ident)
       (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
@@ -139,194 +131,152 @@
       (&/$BoolS ?value)
       (|do [_ (&type/check value-type &type/Bool)
             =kont kont]
-        (return (&/T (&/V $BoolTestAC ?value) =kont)))
+        (return (&/P (&/S $BoolTestAC ?value) =kont)))
 
       (&/$IntS ?value)
       (|do [_ (&type/check value-type &type/Int)
             =kont kont]
-        (return (&/T (&/V $IntTestAC ?value) =kont)))
+        (return (&/P (&/S $IntTestAC ?value) =kont)))
 
       (&/$RealS ?value)
       (|do [_ (&type/check value-type &type/Real)
             =kont kont]
-        (return (&/T (&/V $RealTestAC ?value) =kont)))
+        (return (&/P (&/S $RealTestAC ?value) =kont)))
 
       (&/$CharS ?value)
       (|do [_ (&type/check value-type &type/Char)
             =kont kont]
-        (return (&/T (&/V $CharTestAC ?value) =kont)))
+        (return (&/P (&/S $CharTestAC ?value) =kont)))
 
       (&/$TextS ?value)
       (|do [_ (&type/check value-type &type/Text)
             =kont kont]
-        (return (&/T (&/V $TextTestAC ?value) =kont)))
+        (return (&/P (&/S $TextTestAC ?value) =kont)))
 
-      (&/$TupleS ?members)
+      (&/$TupleS (&/$Cons ?_left ?tail))
       (|do [value-type* (adjust-type value-type)]
-        (do ;; (prn 'PM/TUPLE-1 (&type/show-type value-type*))
-            (|case value-type*
-              (&/$TupleT ?member-types)
-              (do ;; (prn 'PM/TUPLE-2 (&/|length ?member-types) (&/|length ?members))
-                  (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-                    (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
-                    (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                                   (|let [[v m] vm]
-                                                     (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                                       (return (&/T (&/|cons =test =tests) =kont)))))
-                                                 (|do [=kont kont]
-                                                   (return (&/T (&/|list) =kont)))
-                                                 (&/|reverse (&/zip2 ?member-types ?members)))]
-                      (return (&/T (&/V $TupleTestAC =tests) =kont)))))
-
-              _
-              (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
-      
-      (&/$RecordS pairs)
-      (|do [?members (&&record/order-record pairs)
-            ;; :let [_ (prn 'PRE (&type/show-type value-type))]
-            value-type* (adjust-type value-type)
-            ;; :let [_ (prn 'POST (&type/show-type value-type*))]
-            ;; value-type* (resolve-type value-type)
-            ]
         (|case value-type*
-          (&/$TupleT ?member-types)
-          (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require record[" (&/|length ?member-types) "]. Given record[" (&/|length ?members) "]"))
-            (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                           (|let [[v m] vm]
-                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                               (return (&/T (&/|cons =test =tests) =kont)))))
-                                         (|do [=kont kont]
-                                           (return (&/T (&/|list) =kont)))
-                                         (&/|reverse (&/zip2 ?member-types ?members)))]
-              (return (&/T (&/V $TupleTestAC =tests) =kont))))
+          (&/$ProdT ?left ?right)
+          (|do [[=left [=right =kont]] (analyse-pattern ?left ?_left
+                                                        (|do [[=right =kont] (|case ?tail
+                                                                               (&/$Cons ?_right (&/$Nil))
+                                                                               (analyse-pattern ?right ?_right kont)
+
+                                                                               (&/$Nil)
+                                                                               (fail "[Pattern-matching Error] Pattern-matching mismatch. Tuple has wrong size.")
+
+                                                                               _
+                                                                               (analyse-pattern ?right (&/S &/$TupleS ?tail) kont))]
+                                                          (return (&/P =right =kont))))]
+            (return (&/P (&/S $ProdTestAC =left =right) =kont)))
 
           _
-          (fail "[Pattern-matching Error] Record requires record-type.")))
+          (fail (str "[Pattern-matching Error] Tuples require product-types: " (&type/show-type value-type*)))))
+      
+      (&/$RecordS pairs)
+      (|do [?members (&&record/order-record pairs)]
+        (analyse-pattern value-type (&/S &/$TupleS ?members) kont))
 
       (&/$TagS ?ident)
-      (|do [;; :let [_ (println "#00" (&/ident->text ?ident))]
-            [=module =name] (&&/resolved-ident ?ident)
-            ;; :let [_ (println "#01")]
-            value-type* (adjust-type value-type)
-            ;; :let [_ (println "#02")]
-            idx (&module/tag-index =module =name)
-            group (&module/tag-group =module =name)
-            ;; :let [_ (println "#03")]
-            case-type (&type/variant-case idx value-type*)
-            ;; :let [_ (println "#04")]
-            [=test =kont] (analyse-pattern case-type unit kont)
-            ;; :let [_ (println "#05")]
-            ]
-        (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
+      (|do [[idx group-count case-type] (resolve-tag ?ident value-type)
+            [=test =kont] (analyse-pattern case-type unit kont)]
+        (return (&/P (&/S $SumTestAC ($$ &/P idx group-count =test)) =kont)))
 
-      (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
+      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
                          ?values))
-      (|do [;; :let [_ (println "#10" (&/ident->text ?ident))]
-            [=module =name] (&&/resolved-ident ?ident)
-            ;; :let [_ (println "#11")]
-            value-type* (adjust-type value-type)
-            ;; :let [_ (println "#12" (&type/show-type value-type*))]
-            idx (&module/tag-index =module =name)
-            group (&module/tag-group =module =name)
-            ;; :let [_ (println "#13")]
-            case-type (&type/variant-case idx value-type*)
-            ;; :let [_ (println "#14" (&type/show-type case-type))]
+      (|do [[idx group-count case-type] (resolve-tag ?ident value-type)
             [=test =kont] (case (&/|length ?values)
                             0 (analyse-pattern case-type unit kont)
                             1 (analyse-pattern case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern case-type (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values))) kont))
+                            (analyse-pattern case-type (&/P (&/cursor$ "" -1 -1) (&/S &/$TupleS ?values)) kont))
             ;; :let [_ (println "#15")]
             ]
-        (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
+        (return (&/P (&/S $SumTestAC ($$ &/P idx group-count =test)) =kont)))
       )))
 
 (defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
   (|do [pattern+body (analyse-pattern value-type pattern
                                       (&&/analyse-1 analyse exo-type body))]
-    (return (&/|cons pattern+body patterns))))
+    (return (&/Cons$ pattern+body patterns))))
 
 (let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private merge-total [struct test+body]
     (|let [[test ?body] test+body]
       (|case [struct test]
         [($DefaultTotal total?) ($StoreTestAC ?idx)]
-        (return (&/V $DefaultTotal true))
+        (return (&/S $DefaultTotal true))
 
         [[?tag [total? ?values]] ($StoreTestAC ?idx)]
-        (return (&/V ?tag (&/T true ?values)))
+        (return (&/S ?tag (&/P true ?values)))
         
         [($DefaultTotal total?) ($BoolTestAC ?value)]
-        (return (&/V $BoolTotal (&/T total? (&/|list ?value))))
+        (return (&/S $BoolTotal (&/P total? (&/|list ?value))))
 
         [($BoolTotal total? ?values) ($BoolTestAC ?value)]
-        (return (&/V $BoolTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/S $BoolTotal (&/P total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($IntTestAC ?value)]
-        (return (&/V $IntTotal (&/T total? (&/|list ?value))))
+        (return (&/S $IntTotal (&/P total? (&/|list ?value))))
 
         [($IntTotal total? ?values) ($IntTestAC ?value)]
-        (return (&/V $IntTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/S $IntTotal (&/P total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($RealTestAC ?value)]
-        (return (&/V $RealTotal (&/T total? (&/|list ?value))))
+        (return (&/S $RealTotal (&/P total? (&/|list ?value))))
 
         [($RealTotal total? ?values) ($RealTestAC ?value)]
-        (return (&/V $RealTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/S $RealTotal (&/P total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($CharTestAC ?value)]
-        (return (&/V $CharTotal (&/T total? (&/|list ?value))))
+        (return (&/S $CharTotal (&/P total? (&/|list ?value))))
 
         [($CharTotal total? ?values) ($CharTestAC ?value)]
-        (return (&/V $CharTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/S $CharTotal (&/P total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($TextTestAC ?value)]
-        (return (&/V $TextTotal (&/T total? (&/|list ?value))))
+        (return (&/S $TextTotal (&/P total? (&/|list ?value))))
 
         [($TextTotal total? ?values) ($TextTestAC ?value)]
-        (return (&/V $TextTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/S $TextTotal (&/P total? (&/Cons$ ?value ?values))))
 
-        [($DefaultTotal total?) ($TupleTestAC ?tests)]
-        (|do [structs (&/map% (fn [t]
-                                (merge-total (&/V $DefaultTotal total?) (&/T t ?body)))
-                              ?tests)]
-          (return (&/V $TupleTotal (&/T total? structs))))
+        [($DefaultTotal total?) ($ProdTestAC ?left ?right)]
+        (|do [:let [_default (&/S $DefaultTotal total?)]
+              =left (merge-total _default (&/P ?left ?body))
+              =right (merge-total _default (&/P ?right ?body))]
+          (return (&/S $ProdTotal ($$ &/P total? =left =right))))
 
-        [($TupleTotal total? ?values) ($TupleTestAC ?tests)]
-        (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
-          (|do [structs (&/map2% (fn [v t]
-                                   (merge-total v (&/T t ?body)))
-                                 ?values ?tests)]
-            (return (&/V $TupleTotal (&/T total? structs))))
-          (fail "[Pattern-matching Error] Inconsistent tuple-size."))
+        [($ProdTotal total? ?_left ?_right) ($ProdTestAC ?left ?right)]
+        (|do [=left (merge-total ?_left (&/P ?left ?body))
+              =right (merge-total ?_right (&/P ?right ?body))]
+          (return (&/S $ProdTotal ($$ &/P total? =left =right))))
 
-        [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
-        (|do [sub-struct (merge-total (&/V $DefaultTotal total?)
-                                      (&/T ?test ?body))
-              structs (|case (&/|list-put ?tag sub-struct (&/|repeat ?count (&/V $DefaultTotal total?)))
+        [($DefaultTotal total?) ($SumTestAC ?tag ?count ?test)]
+        (|do [sub-struct (merge-total (&/S $DefaultTotal total?)
+                                      (&/P ?test ?body))
+              structs (|case (&/|list-put ?tag sub-struct (&/|repeat ?count (&/S $DefaultTotal total?)))
                         (&/$Some list)
                         (return list)
 
                         (&/$None)
                         (fail "[Pattern-matching Error] YOLO"))]
-          (return (&/V $VariantTotal (&/T total? structs))))
+          (return (&/S $SumTotal (&/P total? structs))))
 
-        [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
+        [($SumTotal total? ?branches) ($SumTestAC ?tag ?count ?test)]
         (|do [sub-struct (merge-total (|case (&/|at ?tag ?branches)
                                         (&/$Some sub)
                                         sub
                                         
                                         (&/$None)
-                                        (&/V $DefaultTotal total?))
-                                      (&/T ?test ?body))
+                                        (&/S $DefaultTotal total?))
+                                      (&/P ?test ?body))
               structs (|case (&/|list-put ?tag sub-struct ?branches)
                         (&/$Some list)
                         (return list)
 
                         (&/$None)
                         (fail "[Pattern-matching Error] YOLO"))]
-          (return (&/V $VariantTotal (&/T total? structs))))
+          (return (&/S $SumTotal (&/P total? structs))))
         ))))
 
 (defn ^:private check-totality [value-type struct]
@@ -351,33 +301,36 @@
     ($TextTotal ?total _)
     (return ?total)
 
-    ($TupleTotal ?total ?structs)
+    ($ProdTotal ?total ?_left ?_right)
     (if ?total
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          (&/$TupleT ?members)
-          (|do [totals (&/map2% (fn [sub-struct ?member]
-                                  (check-totality ?member sub-struct))
-                                ?structs ?members)]
-            (return (&/fold #(and %1 %2) true totals)))
+          (&/$ProdT ?left ?right)
+          (|do [=left (check-totality ?left ?_left)
+                =right (check-totality ?right ?_right)]
+            (return (and =left =right)))
 
           _
           (fail "[Pattern-maching Error] Tuple is not total."))))
 
-    ($VariantTotal ?total ?structs)
+    ($SumTotal ?total ?structs)
     (if ?total
       (return true)
       (|do [value-type* (resolve-type value-type)]
-        (|case value-type*
-          (&/$VariantT ?members)
-          (|do [totals (&/map2% (fn [sub-struct ?member]
-                                  ;; (prn '$VariantTotal
-                                  ;;      (&/adt->text sub-struct)
-                                  ;;      (&type/show-type ?member))
-                                  (check-totality ?member sub-struct))
-                                ?structs ?members)]
-            (return (&/fold #(and %1 %2) true totals)))
+        (|case [value-type* ?structs]
+          [(&/$SumT ?left ?right) (&/$Cons ?_left ?tail)]
+          (|do [=left (check-totality ?left ?_left)
+                =right (|case ?tail
+                         (&/$Cons ?_right (&/$Nil))
+                         (check-totality ?right ?_right)
+
+                         (&/$Nil)
+                         (fail "[Pattern-matching Error] Pattern-matching mismatch. Variant has wrong size.")
+
+                         _
+                         (check-totality ?right ($SumTotal ?total ?tail)))]
+            (return (and =left =right)))
 
           _
           (fail "[Pattern-maching Error] Variant is not total."))))
@@ -394,7 +347,7 @@
                               (analyse-branch analyse exo-type value-type pattern body patterns)))
                           (&/|list)
                           branches)
-        struct (&/fold% merge-total (&/V $DefaultTotal false) patterns)
+        struct (&/fold% merge-total (&/S $DefaultTotal false) patterns)
         ? (check-totality value-type struct)]
     (if ?
       (return patterns)

@@ -76,26 +76,32 @@
               _ (load-class! loader real-name)]]
     (return nil)))
 
-(do-template [<name> <class> <sig> <dup>]
+(do-template [<name> <class> <sig>]
   (defn <name> [^MethodVisitor writer]
     (doto writer
-      (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str <sig> (&host/->type-signature <class>))))
-    ;; (doto writer
-    ;;   ;; X
-    ;;   (.visitTypeInsn Opcodes/NEW <class>) ;; XW
-    ;;   (.visitInsn <dup>) ;; WXW
-    ;;   (.visitInsn <dup>) ;; WWXW
-    ;;   (.visitInsn Opcodes/POP) ;; WWX
-    ;;   (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>) ;; W
-    ;;   )
-    )
+      (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str <sig> (&host/->type-signature <class>)))))
 
-  wrap-boolean "java/lang/Boolean"   "(Z)" Opcodes/DUP_X1
-  wrap-byte    "java/lang/Byte"      "(B)" Opcodes/DUP_X1
-  wrap-short   "java/lang/Short"     "(S)" Opcodes/DUP_X1
-  wrap-int     "java/lang/Integer"   "(I)" Opcodes/DUP_X1
-  wrap-long    "java/lang/Long"      "(J)" Opcodes/DUP_X2
-  wrap-float   "java/lang/Float"     "(F)" Opcodes/DUP_X1
-  wrap-double  "java/lang/Double"    "(D)" Opcodes/DUP_X2
-  wrap-char    "java/lang/Character" "(C)" Opcodes/DUP_X1
+  wrap-boolean "java/lang/Boolean"   "(Z)"
+  wrap-byte    "java/lang/Byte"      "(B)"
+  wrap-short   "java/lang/Short"     "(S)"
+  wrap-int     "java/lang/Integer"   "(I)"
+  wrap-long    "java/lang/Long"      "(J)"
+  wrap-float   "java/lang/Float"     "(F)"
+  wrap-double  "java/lang/Double"    "(D)"
+  wrap-char    "java/lang/Character" "(C)"
+  )
+
+(do-template [<name> <class> <sig> <method>]
+  (defn <name> [^MethodVisitor writer]
+    (doto writer
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL <class> <method> (str "()" <sig>))))
+
+  unwrap-boolean "java/lang/Boolean"   "Z" "booleanValue"
+  unwrap-byte    "java/lang/Byte"      "B" "byteValue"
+  unwrap-short   "java/lang/Short"     "S" "shortValue"
+  unwrap-int     "java/lang/Integer"   "I" "intValue"
+  unwrap-long    "java/lang/Long"      "J" "longValue"
+  unwrap-float   "java/lang/Float"     "F" "floatValue"
+  unwrap-double  "java/lang/Double"    "D" "doubleValue"
+  unwrap-char    "java/lang/Character" "C" "charValue"
   )
