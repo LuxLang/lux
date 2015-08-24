@@ -120,8 +120,8 @@
     (return ($$ &/P idx (&/|length group) case-type))))
 
 (defn ^:private analyse-pattern [value-type pattern kont]
-  (|let [[_ pattern*] pattern
-         ;; :let [_ (prn 'analyse-pattern (&/adt->text pattern*) (&type/show-type value-type))]
+  (|let [[meta pattern*] pattern
+         ;; _ (prn 'analyse-pattern (&/show-ast pattern) (&type/show-type value-type))
          ]
     (|case pattern*
       (&/$SymbolS "" name)
@@ -129,9 +129,6 @@
                     kont)
             idx &env/next-local-idx]
         (return (&/P (&/S $StoreTestAC idx) =kont)))
-
-      (&/$SymbolS ident)
-      (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
       (&/$BoolS ?value)
       (|do [_ (&type/check value-type &type/Bool)
@@ -176,7 +173,7 @@
                                                                                (fail "[Pattern-matching Error] Pattern-matching mismatch. Tuple has wrong size.")
 
                                                                                _
-                                                                               (analyse-pattern ?right (&/S &/$TupleS ?tail) kont))]
+                                                                               (analyse-pattern ?right (&/P meta (&/S &/$TupleS ?tail)) kont))]
                                                           (return (&/P =right =kont))))]
             (return (&/P (&/S $ProdTestAC (&/P =left =right)) =kont)))
 
@@ -185,7 +182,7 @@
       
       (&/$RecordS pairs)
       (|do [?members (&&record/order-record pairs)]
-        (analyse-pattern value-type (&/S &/$TupleS ?members) kont))
+        (analyse-pattern value-type (&/P meta (&/S &/$TupleS ?members)) kont))
 
       (&/$TagS ?ident)
       (|do [[idx group-count case-type] (resolve-tag ?ident value-type)

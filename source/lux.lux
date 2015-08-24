@@ -1100,7 +1100,7 @@
                          prevs)))
     
     _
-    (fail "Wrong syntax for ,"))
+    (fail ", must have at least 2 members."))
   )
 
 (defmacro (do tokens)
@@ -1334,7 +1334,7 @@
 (def''' (replace-syntax reps syntax)
   (-> RepEnv AST AST)
   (_lux_case syntax
-    (#Meta [_ (#SymbolS ["" name])])
+    [_ (#SymbolS ["" name])]
     (_lux_case (get-rep name reps)
       (#Some replacement)
       replacement
@@ -1342,18 +1342,18 @@
       #None
       syntax)
 
-    (#Meta [_ (#FormS parts)])
-    (#Meta [_ (#FormS (map (replace-syntax reps) parts))])
+    [_ (#FormS parts)]
+    [_ (#FormS (map (replace-syntax reps) parts))]
 
-    (#Meta [_ (#TupleS members)])
-    (#Meta [_ (#TupleS (map (replace-syntax reps) members))])
+    [_ (#TupleS members)]
+    [_ (#TupleS (map (replace-syntax reps) members))]
 
-    (#Meta [_ (#RecordS slots)])
-    (#Meta [_ (#RecordS (map (_lux_: (-> (, AST AST) (, AST AST))
-                                     (lambda' [slot]
-                                              (let' [[k v] slot]
-                                                    [(replace-syntax reps k) (replace-syntax reps v)])))
-                             slots))])
+    [_ (#RecordS slots)]
+    [_ (#RecordS (map (_lux_: (-> (, AST AST) (, AST AST))
+                              (lambda' [slot]
+                                       (let' [[k v] slot]
+                                             [(replace-syntax reps k) (replace-syntax reps v)])))
+                      slots))]
     
     _
     syntax)
@@ -1362,13 +1362,13 @@
 (defmacro #export (All tokens)
   (let' [[self-ident tokens'] (_lux_: (, Text ASTList)
                                       (_lux_case tokens
-                                        (#Cons [(#Meta [_ (#SymbolS ["" self-ident])]) tokens'])
+                                        (#Cons [[_ (#SymbolS ["" self-ident])] tokens'])
                                         [self-ident tokens']
 
                                         _
                                         ["" tokens]))]
         (_lux_case tokens'
-          (#Cons [(#Meta [_ (#TupleS args)]) (#Cons [body #Nil])])
+          (#Cons [[_ (#TupleS args)] (#Cons [body #Nil])])
           (_lux_case (map% Maybe/Monad get-name args)
             (#Some idents)
             (_lux_case idents
@@ -1379,8 +1379,9 @@
               (let' [replacements (map (_lux_: (-> Text (, Text AST))
                                                (lambda' [ident] [ident (`' (#;BoundT (~ (text$ ident))))]))
                                        (list& self-ident idents))
-                     body' (foldL (lambda' [body' arg']
-                                           (`' (#;AllT [#;None "" (~ (text$ arg')) (~ body')])))
+                     body' (foldL (_lux_: (-> AST Text AST)
+                                          (lambda' [body' arg']
+                                                   (`' (#;AllT [#;None "" (~ (text$ arg')) (~ body')]))))
                                   (replace-syntax replacements body)
                                   (reverse targs))]
                     ## (#;Some #;Nil)
@@ -1502,7 +1503,7 @@
 (def''' (macro-expand token)
   (-> AST ($' Lux ($' List AST)))
   (_lux_case token
-    (#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS macro-name)]) args]))])
+    [_ (#FormS (#Cons [[_ (#SymbolS macro-name)] args]))]
     (do Lux/Monad
       [macro-name' (normalize macro-name)
        ?macro (find-macro macro-name')]
@@ -1522,7 +1523,7 @@
 (def''' (macro-expand-all syntax)
   (-> AST ($' Lux ($' List AST)))
   (_lux_case syntax
-    (#Meta [_ (#FormS (#Cons [(#Meta [_ (#SymbolS macro-name)]) args]))])
+    [_ (#FormS (#Cons [[_ (#SymbolS macro-name)] args]))]
     (do Lux/Monad
       [macro-name' (normalize macro-name)
        ?macro (find-macro macro-name')]
@@ -1538,13 +1539,13 @@
           [parts' (map% Lux/Monad macro-expand-all (list& (symbol$ macro-name) args))]
           (wrap (list (form$ (list:join parts')))))))
 
-    (#Meta [_ (#FormS (#Cons [harg targs]))])
+    [_ (#FormS (#Cons [harg targs]))]
     (do Lux/Monad
       [harg+ (macro-expand-all harg)
        targs+ (map% Lux/Monad macro-expand-all targs)]
       (wrap (list (form$ (list:++ harg+ (list:join targs+))))))
 
-    (#Meta [_ (#TupleS members)])
+    [_ (#TupleS members)]
     (do Lux/Monad
       [members' (map% Lux/Monad macro-expand-all members)]
       (wrap (list (tuple$ (list:join members')))))
@@ -1555,14 +1556,15 @@
 (def''' (walk-type type)
   (-> AST AST)
   (_lux_case type
-    (#Meta [_ (#FormS (#Cons [(#Meta [_ (#TagS tag)]) parts]))])
-    (form$ (#Cons [(tag$ tag) (map walk-type parts)]))
+    [_ (#FormS (#Cons [[_ (#TagS tag)] parts]))]
+    (form$ (#Cons (tag$ tag) (map walk-type parts)))
 
-    (#Meta [_ (#TupleS members)])
+    [_ (#TupleS members)]
     (tuple$ (map walk-type members))
 
-    (#Meta [_ (#FormS (#Cons [type-fn args]))])
-    (foldL (lambda' [type-fn arg] (`' (#;AppT [(~ type-fn) (~ arg)])))
+    [_ (#FormS (#Cons [type-fn args]))]
+    (foldL (_lux_: (-> AST AST AST)
+                   (lambda' [type-fn arg] (`' (#;AppT (~ type-fn) (~ arg)))))
            (walk-type type-fn)
            (map walk-type args))
     
@@ -1617,40 +1619,50 @@
 (def''' (unfold-type-def type)
   (-> AST ($' Lux (, AST ($' Maybe ($' List AST)))))
   (_lux_case type
-    (#Meta _ (#FormS (#Cons (#Meta _ (#SymbolS "" "|")) cases)))
+    [_ (#FormS (#Cons [_ (#SymbolS "" "|")] cases))]
     (do Lux/Monad
       [members (map% Lux/Monad
                      (: (-> AST ($' Lux (, Text AST)))
                         (lambda' [case]
                                  (_lux_case case
-                                   (#Meta _ (#TagS "" member-name))
+                                   [_ (#TagS "" member-name)]
                                    (return [member-name (`' Unit)])
                                    
-                                   (#Meta _ (#FormS (#Cons (#Meta _ (#TagS "" member-name)) (#Cons member-type #Nil))))
+                                   [_ (#FormS (#Cons [_ (#TagS "" member-name)] (#Cons member-type #Nil)))]
                                    (return [member-name member-type])
 
                                    _
                                    (fail "Wrong syntax for variant case."))))
-                     cases)]
-      (return [(`' (#;VariantT (~ (untemplate-list (map second members)))))
+                     cases)
+       variant-type (: (Lux AST)
+                       (_lux_case (reverse members)
+                         (#Cons last prevs)
+                         (return (foldL (_lux_: (->' AST AST AST)
+                                                (lambda' [r l] (`' (#;SumT (~ l) (~ r)))))
+                                        (second last)
+                                        (map second prevs)))
+                         
+                         _
+                         (fail "| must have at least 2 members.")))]
+      (return [variant-type
                (#Some (|> members
                           (map first)
                           (map (: (-> Text AST)
                                   (lambda' [name] (tag$ ["" name]))))))]))
 
-    (#Meta _ (#FormS (#Cons (#Meta _ (#SymbolS "" "&")) pairs)))
+    [_ (#FormS (#Cons [_ (#SymbolS "" "&")] pairs))]
     (do Lux/Monad
       [members (map% Lux/Monad
                      (: (-> (, AST AST) ($' Lux (, Text AST)))
                         (lambda' [pair]
                                  (_lux_case pair
-                                   [(#Meta _ (#TagS "" member-name)) member-type]
+                                   [[_ (#TagS "" member-name)] member-type]
                                    (return [member-name member-type])
 
                                    _
                                    (fail "Wrong syntax for variant case."))))
                      (as-pairs pairs))]
-      (return [(`' (#TupleT (~ (untemplate-list (map second members)))))
+      (return [(`' (, (~@ (map second members))))
                (#Some (|> members
                           (map first)
                           (map (: (-> Text AST)
@@ -1662,24 +1674,24 @@
 (defmacro #export (deftype tokens)
   (let' [[export? tokens'] (: (, Bool (List AST))
                               (_lux_case tokens
-                                (#Cons (#Meta _ (#TagS "" "export")) tokens')
+                                (#Cons [_ (#TagS "" "export")] tokens')
                                 [true tokens']
 
                                 _
                                 [false tokens]))
          [rec? tokens'] (: (, Bool (List AST))
                            (_lux_case tokens'
-                             (#Cons (#Meta _ (#TagS "" "rec")) tokens')
+                             (#Cons [_ (#TagS "" "rec")] tokens')
                              [true tokens']
 
                              _
                              [false tokens']))
          parts (: (Maybe (, Text (List AST) AST))
                   (_lux_case tokens'
-                    (#Cons (#Meta _ (#SymbolS "" name)) (#Cons type #Nil))
+                    (#Cons [_ (#SymbolS "" name)] (#Cons type #Nil))
                     (#Some name #Nil type)
 
-                    (#Cons (#Meta _ (#FormS (#Cons (#Meta _ (#SymbolS "" name)) args))) (#Cons type #Nil))
+                    (#Cons [_ (#FormS (#Cons [_ (#SymbolS "" name)] args))] (#Cons type #Nil))
                     (#Some name args type)
 
                     _
@@ -1735,7 +1747,8 @@
   (_lux_case (reverse tokens)
     (#Cons value actions)
     (let' [dummy (symbol$ ["" ""])]
-          (return (list (foldL (lambda' [post pre] (`' (_lux_case (~ pre) (~ dummy) (~ post))))
+          (return (list (foldL (: (-> AST AST AST)
+                                  (lambda' [post pre] (`' (_lux_case (~ pre) (~ dummy) (~ post)))))
                                value
                                actions))))
 
@@ -1745,20 +1758,20 @@
 (defmacro (def' tokens)
   (let' [[export? tokens'] (: (, Bool (List AST))
                               (_lux_case tokens
-                                (#Cons (#Meta _ (#TagS "" "export")) tokens')
+                                (#Cons [_ (#TagS "" "export")] tokens')
                                 [true tokens']
 
                                 _
                                 [false tokens]))
          parts (: (Maybe (, AST (List AST) (Maybe AST) AST))
                   (_lux_case tokens'
-                    (#Cons (#Meta _ (#FormS (#Cons name args))) (#Cons type (#Cons body #Nil)))
+                    (#Cons [_ (#FormS (#Cons name args))] (#Cons type (#Cons body #Nil)))
                     (#Some name args (#Some type) body)
                     
                     (#Cons name (#Cons type (#Cons body #Nil)))
                     (#Some name #Nil (#Some type) body)
                     
-                    (#Cons (#Meta _ (#FormS (#Cons name args))) (#Cons body #Nil))
+                    (#Cons [_ (#FormS (#Cons name args))] (#Cons body #Nil))
                     (#Some name args #None body)
                     
                     (#Cons name (#Cons body #Nil))
@@ -1804,7 +1817,7 @@
                            (lambda' expander [branch]
                                     (let' [[pattern body] branch]
                                           (_lux_case pattern
-                                            (#Meta _ (#FormS (#Cons (#Meta _ (#SymbolS macro-name)) macro-args)))
+                                            [_ (#FormS (#Cons [_ (#SymbolS macro-name)] macro-args))]
                                             (do Lux/Monad
                                               [expansion (macro-expand (form$ (list& (symbol$ macro-name) body macro-args)))
                                                expansions (map% Lux/Monad expander (as-pairs expansion))]
@@ -1863,7 +1876,7 @@
 (def' (symbol? ast)
   (-> AST Bool)
   (case ast
-    (#Meta _ (#SymbolS _))
+    [_ (#SymbolS _)]
     true
 
     _
@@ -1871,7 +1884,7 @@
 
 (defmacro #export (let tokens)
   (case tokens
-    (\ (list (#Meta _ (#TupleS bindings)) body))
+    (\ (list [_ (#TupleS bindings)] body))
     (if (multiple? 2 (length bindings))
       (|> bindings as-pairs reverse
           (foldL (: (-> AST (, AST AST) AST)
@@ -1891,7 +1904,7 @@
 (def' (ast:show ast)
   (-> AST Text)
   (case ast
-    (#Meta _ ast)
+    [_ ast]
     (case ast
       (\or (#BoolS val) (#IntS val) (#RealS val))
       (->text val)
@@ -1927,10 +1940,10 @@
 (defmacro #export (lambda tokens)
   (case (: (Maybe (, Ident AST (List AST) AST))
            (case tokens
-             (\ (list (#Meta _ (#TupleS (#Cons head tail))) body))
+             (\ (list [_ (#TupleS (#Cons head tail))] body))
              (#Some ["" ""] head tail body)
 
-             (\ (list (#Meta _ (#SymbolS [_ name])) (#Meta _ (#TupleS (#Cons head tail))) body))
+             (\ (list [_ (#SymbolS [_ name])] [_ (#TupleS (#Cons head tail))] body))
              (#Some ["" name] head tail body)
              
              _
@@ -1956,20 +1969,20 @@
 (defmacro #export (def tokens)
   (let [[export? tokens'] (: (, Bool (List AST))
                              (case tokens
-                               (#Cons (#Meta _ (#TagS "" "export")) tokens')
+                               (#Cons [_ (#TagS "" "export")] tokens')
                                [true tokens']
 
                                _
                                [false tokens]))
         parts (: (Maybe (, AST (List AST) (Maybe AST) AST))
                  (case tokens'
-                   (\ (list (#Meta _ (#FormS (#Cons name args))) type body))
+                   (\ (list [_ (#FormS (#Cons name args))] type body))
                    (#Some name args (#Some type) body)
                    
                    (\ (list name type body))
                    (#Some name #Nil (#Some type) body)
                    
-                   (\ (list (#Meta _ (#FormS (#Cons name args))) body))
+                   (\ (list [_ (#FormS (#Cons name args))] body))
                    (#Some name args #None body)
                    
                    (\ (list name body))
@@ -2017,17 +2030,17 @@
 (defmacro #export (defsig tokens)
   (let [[export? tokens'] (: (, Bool (List AST))
                              (case tokens
-                               (\ (list& (#Meta _ (#TagS "" "export")) tokens'))
+                               (\ (list& [_ (#TagS "" "export")] tokens'))
                                [true tokens']
 
                                _
                                [false tokens]))
         ?parts (: (Maybe (, Ident (List AST) (List AST)))
                   (case tokens'
-                    (\ (list& (#Meta _ (#FormS (list& (#Meta _ (#SymbolS name)) args))) sigs))
+                    (\ (list& [_ (#FormS (list& [_ (#SymbolS name)] args))] sigs))
                     (#Some name args sigs)
 
-                    (\ (list& (#Meta _ (#SymbolS name)) sigs))
+                    (\ (list& [_ (#SymbolS name)] sigs))
                     (#Some name #Nil sigs)
 
                     _
@@ -2041,7 +2054,7 @@
                        (: (-> AST (Lux (, Text AST)))
                           (lambda [token]
                             (case token
-                              (\ (#Meta _ (#FormS (list (#Meta _ (#SymbolS _ "_lux_:")) type (#Meta _ (#SymbolS ["" name]))))))
+                              (\ [_ (#FormS (list [_ (#SymbolS _ "_lux_:")] type [_ (#SymbolS ["" name])]))])
                               (wrap (: (, Text AST) [name type]))
 
                               _
@@ -2050,8 +2063,7 @@
          #let [[_module _name] name+
                def-name (symbol$ name)
                tags (: (List AST) (map (. (: (-> Text AST) (lambda [n] (tag$ ["" n]))) first) members))
-               types (map second members)
-               sig-type (: AST (` (#;TupleT (~ (untemplate-list types)))))
+               sig-type (: AST (` (, (~@ (map second members)))))
                sig-decl (: AST (` (_lux_declare-tags [(~@ tags)] (~ def-name))))
                sig+ (: AST
                        (case args
@@ -2129,24 +2141,20 @@
 (def (type:show type)
   (-> Type Text)
   (case type
+    #VoidT
+    "(|)"
+
+    #UnitT
+    "(,)"
+    
+    (#SumT left right)
+    ($ text:++ "(| " (type:show left) " " (type:show right) ")")
+
+    (#ProdT left right)
+    ($ text:++ "(, " (type:show left) " " (type:show right) ")")
+
     (#DataT name)
     ($ text:++ "(^ " name ")")
-
-    (#TupleT members)
-    (case members
-      #;Nil
-      "(,)"
-
-      _
-      ($ text:++ "(, " (|> members (map type:show) (interpose " ") (foldL text:++ "")) ")"))
-
-    (#VariantT members)
-    (case members
-      #;Nil
-      "(|)"
-
-      _
-      ($ text:++ "(| " (|> members (map type:show) (interpose " ") (foldL text:++ "")) ")"))
 
     (#LambdaT input output)
     ($ text:++ "(-> " (type:show input) " " (type:show output) ")")
@@ -2173,11 +2181,11 @@
 (def (beta-reduce env type)
   (-> (List (, Text Type)) Type Type)
   (case type
-    (#VariantT ?cases)
-    (#VariantT (map (beta-reduce env) ?cases))
+    (#SumT left right)
+    (#SumT (beta-reduce env left) (beta-reduce env right))
 
-    (#TupleT ?members)
-    (#TupleT (map (beta-reduce env) ?members))
+    (#ProdT left right)
+    (#ProdT (beta-reduce env left) (beta-reduce env right))
 
     (#AppT ?type-fn ?type-arg)
     (#AppT (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
@@ -2233,9 +2241,16 @@
 (def (resolve-struct-type type)
   (-> Type (Maybe (List Type)))
   (case type
-    (#TupleT slots)
-    (#Some slots)
-
+    (#ProdT left right)
+    (case right
+      (#ProdT _)
+      (do Maybe/Monad
+        [rights (resolve-struct-type right)]
+        (wrap (list& left rights)))
+      
+      _
+      (#Some (list left right)))
+    
     (#AppT fun arg)
     (do Maybe/Monad
       [output (apply-type fun arg)]
@@ -2327,7 +2342,7 @@
                      (: (-> AST (Lux (, AST AST)))
                         (lambda [token]
                           (case token
-                            (\ (#Meta _ (#FormS (list (#Meta _ (#SymbolS _ "_lux_def")) (#Meta _ (#SymbolS tag-name)) value))))
+                            (\ [_ (#FormS (list [_ (#SymbolS _ "_lux_def")] [_ (#SymbolS tag-name)] value))])
                             (wrap (: (, AST AST) [(tag$ tag-name) value]))
 
                             _
@@ -2338,14 +2353,14 @@
 (defmacro #export (defstruct tokens)
   (let [[export? tokens'] (: (, Bool (List AST))
                              (case tokens
-                               (\ (list& (#Meta _ (#TagS "" "export")) tokens'))
+                               (\ (list& [_ (#TagS "" "export")] tokens'))
                                [true tokens']
 
                                _
                                [false tokens]))
         ?parts (: (Maybe (, AST (List AST) AST (List AST)))
                   (case tokens'
-                    (\ (list& (#Meta _ (#FormS (list& name args))) type defs))
+                    (\ (list& [_ (#FormS (list& name args))] type defs))
                     (#Some name args type defs)
 
                     (\ (list& name type defs))
@@ -2378,7 +2393,8 @@
   [(defmacro #export (<name> tokens)
      (case (reverse tokens)
        (\ (list& last init))
-       (return (list (foldL (lambda [post pre] (` <form>))
+       (return (list (foldL (: (-> AST AST AST)
+                               (lambda [post pre] (` <form>)))
                             last
                             init)))
        
@@ -2406,7 +2422,7 @@
         (: (-> AST (Lux Text))
            (lambda [def]
              (case def
-               (#Meta _ (#SymbolS "" name))
+               [_ (#SymbolS "" name)]
                (return name)
 
                _
@@ -2416,7 +2432,7 @@
 (def (parse-alias tokens)
   (-> (List AST) (Lux (, (Maybe Text) (List AST))))
   (case tokens
-    (\ (list& (#Meta _ (#TagS "" "as")) (#Meta _ (#SymbolS "" alias)) tokens'))
+    (\ (list& [_ (#TagS "" "as")] [_ (#SymbolS "" alias)] tokens'))
     (return (: (, (Maybe Text) (List AST)) [(#Some alias) tokens']))
     
     _
@@ -2425,17 +2441,17 @@
 (def (parse-referrals tokens)
   (-> (List AST) (Lux (, Referrals (List AST))))
   (case tokens
-    (\ (list& (#Meta _ (#TagS "" "refer")) referral tokens'))
+    (\ (list& [_ (#TagS "" "refer")] referral tokens'))
     (case referral
-      (#Meta _ (#TagS "" "all"))
+      [_ (#TagS "" "all")]
       (return (: (, Referrals (List AST)) [#All tokens']))
 
-      (\ (#Meta _ (#FormS (list& (#Meta _ (#TagS "" "only")) defs))))
+      (\ [_ (#FormS (list& [_ (#TagS "" "only")] defs))])
       (do Lux/Monad
         [defs' (extract-defs defs)]
         (return (: (, Referrals (List AST)) [(#Only defs') tokens'])))
 
-      (\ (#Meta _ (#FormS (list& (#Meta _ (#TagS "" "exclude")) defs))))
+      (\ [_ (#FormS (list& [_ (#TagS "" "exclude")] defs))])
       (do Lux/Monad
         [defs' (extract-defs defs)]
         (return (: (, Referrals (List AST)) [(#Exclude defs') tokens'])))
@@ -2449,7 +2465,7 @@
 (def (extract-symbol syntax)
   (-> AST (Lux Ident))
   (case syntax
-    (#Meta _ (#SymbolS ident))
+    [_ (#SymbolS ident)]
     (return ident)
 
     _
@@ -2458,7 +2474,7 @@
 (def (parse-openings tokens)
   (-> (List AST) (Lux (, (Maybe Openings) (List AST))))
   (case tokens
-    (\ (list& (#Meta _ (#TagS "" "open")) (#Meta _ (#FormS (list& (#Meta _ (#TextS prefix)) structs))) tokens'))
+    (\ (list& [_ (#TagS "" "open")] [_ (#FormS (list& [_ (#TextS prefix)] structs))] tokens'))
     (do Lux/Monad
       [structs' (map% Lux/Monad extract-symbol structs)]
       (return (: (, (Maybe Openings) (List AST)) [(#Some prefix structs') tokens'])))
@@ -2684,10 +2700,10 @@
                                                                  (` (open (~ (symbol$ [m-name name])) (~ (text$ prefix)))))))
                                                           structs)))]]
                                 (wrap ($ list:++
-                                        (list (` (_lux_import (~ (text$ m-name)))))
-                                        (case m-alias
-                                          #None         (list)
-                                          (#Some alias) (list (` (_lux_alias (~ (text$ alias)) (~ (text$ m-name))))))
+                                        (: (List AST) (list (` (_lux_import (~ (text$ m-name))))))
+                                        (: (List AST) (case m-alias
+                                                        #None         (list)
+                                                        (#Some alias) (list (` (_lux_alias (~ (text$ alias)) (~ (text$ m-name)))))))
                                         (map (: (-> Text AST)
                                                 (lambda [def]
                                                   (` (_lux_def (~ (symbol$ ["" def])) (~ (symbol$ [m-name def]))))))
@@ -2698,9 +2714,10 @@
 
       _
       (wrap (: (List AST)
-               (list:++ (map (lambda [m-name] (` (_lux_import (~ (text$ m-name)))))
+               (list:++ (map (: (-> Text AST)
+                                (lambda [m-name] (` (_lux_import (~ (text$ m-name))))))
                              unknowns)
-                        (list (` (import (~@ tokens))))))))))
+                        (: (List AST) (list (` (import (~@ tokens)))))))))))
 
 (def (try-both f x1 x2)
   (All [a b]
@@ -2863,12 +2880,6 @@
     _
     (fail "Wrong syntax for using")))
 
-(def (flip f)
-  (All [a b c]
-    (-> (-> a b c) (-> b a c)))
-  (lambda [y x]
-    (f x y)))
-
 (defmacro #export (cond tokens)
   (if (i= 0 (i% (length tokens) 2))
     (fail "cond requires an even number of arguments.")
@@ -2989,11 +3000,11 @@
                          (lambda [so-far part]
                            (case part
                              [_ (#SymbolS slot)]
-                             (return (` (get@ (~ (tag$ slot)) (~ so-far))))
+                             (return (: AST (` (get@ (~ (tag$ slot)) (~ so-far)))))
 
                              (\ [_ (#FormS (list& [_ (#SymbolS slot)] args))])
-                             (return (` ((get@ (~ (tag$ slot)) (~ so-far))
-                                         (~@ args))))
+                             (return (: AST (` ((get@ (~ (tag$ slot)) (~ so-far))
+                                                (~@ args)))))
 
                              _
                              (fail "Wrong syntax for ::"))))
@@ -3121,26 +3132,29 @@
 (def (type->syntax type)
   (-> Type AST)
   (case type
+    (\template [<tag>]
+     [<tag>
+      (` <tag>)])
+    [[#VoidT] [#UnitT]]
+
+    (\template [<tag>]
+     [(<tag> left right)
+      (` (<tag> (~ (type->syntax left)) (~ (type->syntax right))))])
+    [[#SumT] [#ProdT]]
+
     (#DataT name)
     (` (#;DataT (~ (text$ name))))
-    
-    (#;VariantT cases)
-    (` (#;VariantT (~ (untemplate-list (map type->syntax cases)))))
 
-    (#TupleT parts)
-    (` (#;TupleT (~ (untemplate-list (map type->syntax parts)))))
-    
     (#LambdaT in out)
     (` (#;LambdaT (~ (type->syntax in)) (~ (type->syntax out))))
     
     (#BoundT name)
     (` (#;BoundT (~ (text$ name))))
-    
-    (#VarT id)
-    (` (#;VarT (~ (int$ id))))
 
-    (#ExT id)
-    (` (#;ExT (~ (int$ id))))
+    (\template [<tag>]
+     [(<tag> id)
+      (` (<tag> (~ (int$ id))))])
+    [[#VarT] [#ExT]]
     
     (#AllT env name arg type)
     (let [env' (: AST
@@ -3190,4 +3204,6 @@
     (fail "Wrong syntax for loop")))
 
 (defmacro #export (export tokens)
-  (return (map (lambda [token] (` (_lux_export (~ token)))) tokens)))
+  (return (map (: (-> AST AST)
+                  (lambda [token] (` (_lux_export (~ token)))))
+               tokens)))

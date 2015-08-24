@@ -209,7 +209,11 @@
                                                  (&/|list))
                                             (&/|reverse inner) scopes)]
               ((|do [btype (&&/expr-type =local)
-                     _ (&type/check exo-type btype)]
+                     ;; :let [_ (prn 'analyse-local/_0 name)
+                     ;;       _ (prn 'analyse-local/_1 name (&type/show-type exo-type) (&type/show-type btype))]
+                     _ (&type/check exo-type btype)
+                     ;; :let [_ (prn 'analyse-local/_2 name 'CHECKED)]
+                     ]
                  (return (&/|list =local)))
                (&/$set-envs (&/|++ inner* outer) state))))
         ))))
@@ -273,14 +277,14 @@
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
                   ;; :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
-                  ;; :let [_ (when (or (= "defsig" (aget real-name 1))
-                  ;;                   ;; (= "type" (aget real-name 1))
-                  ;;                   ;; (= &&/$struct r-name)
-                  ;;                   )
-                  ;;           (->> (&/|map &/show-ast macro-expansion)
-                  ;;                (&/|interpose "\n")
-                  ;;                (&/fold str "")
-                  ;;                (prn (&/ident->text real-name))))]
+                  :let [_ (when (or (= "using" (aget real-name 1))
+                                    ;; (= "type" (aget real-name 1))
+                                    ;; (= &&/$struct r-name)
+                                    )
+                            (->> (&/|map &/show-ast macro-expansion)
+                                 (&/|interpose "\n")
+                                 (&/fold str "")
+                                 (prn (&/ident->text real-name))))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 

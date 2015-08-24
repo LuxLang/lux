@@ -685,7 +685,7 @@
     (apply-type ?type param)
     
     _
-    (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
+    (fail (str "[Type Error] Not a type function:\n" (show-type type-fn) "\n"))))
 
 (defn as-obj [class]
   (case class
@@ -947,7 +947,7 @@
     (apply-lambda ?type param)
 
     _
-    (fail (str "[Type System] Not a function type:\n" (show-type func) "\n"))
+    (fail (str "[Type Error] Not a function type:\n" (show-type func) "\n"))
     ))
 
 (defn actual-type [type]
