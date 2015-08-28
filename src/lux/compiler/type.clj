@@ -9,86 +9,83 @@
 (ns lux.compiler.type
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case $$]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type])
             [lux.analyser.base :as &a]))
 
 ;; [Utils]
-(def ^:private unit$
-  "Analysis"
-  (&/P (&/S &a/$unit nil)
+(defn ^:private variant$ [tag body]
+  "(-> Text Analysis Analysis)"
+  (&/T (&/V &a/$variant (&/T tag body))
        &type/$Void))
 
-(defn ^:private sum$ [tag body]
-  "(-> Int Analysis Analysis)"
-  (&/P (&/S &a/$sum (&/P tag body))
-       &type/$Void))
-
-(defn ^:private prod$ [left right]
-  "(-> Analysis Analysis Analysis)"
-  (&/P (&/S &a/$prod (&/P left right))
+(defn ^:private tuple$ [members]
+  "(-> (List Analysis) Analysis)"
+  (&/T (&/V &a/$tuple members)
        &type/$Void))
 
 (defn ^:private text$ [text]
   "(-> Text Analysis)"
-  (&/P (&/S &a/$text text)
+  (&/T (&/V &a/$text text)
        &type/$Void))
 
 (def ^:private $Nil
   "Analysis"
-  (sum$ &/$Nil unit$))
+  (variant$ &/$Nil (tuple$ (&/|list))))
 
 (defn ^:private Cons$ [head tail]
   "(-> Analysis Analysis Analysis)"
-  (sum$ &/$Cons (prod$ head tail)))
+  (variant$ &/$Cons (tuple$ (&/|list head tail))))
 
 ;; [Exports]
 (defn ->analysis [type]
   "(-> Type Analysis)"
   (|case type
     (&/$DataT ?class)
-    (sum$ &/$DataT (text$ ?class))
+    (variant$ &/$DataT (text$ ?class))
     
-    (&/$ProdT left right)
-    (sum$ &/$ProdT
-          (prod$ (->analysis left)
-                 (->analysis right)))
+    (&/$TupleT ?members)
+    (variant$ &/$TupleT
+              (&/fold (fn [tail head]
+                        (Cons$ (->analysis head) tail))
+                      $Nil
+                      (&/|reverse ?members)))
 
-    (&/$SumT left right)
-    (sum$ &/$SumT
-          (prod$ (->analysis left)
-                 (->analysis right)))
+    (&/$VariantT ?members)
+    (variant$ &/$VariantT
+              (&/fold (fn [tail head]
+                        (Cons$ (->analysis head) tail))
+                      $Nil
+                      (&/|reverse ?members)))
 
     (&/$LambdaT ?input ?output)
-    (sum$ &/$LambdaT (prod$ (->analysis ?input) (->analysis ?output)))
+    (variant$ &/$LambdaT (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
 
     (&/$AllT ?env ?name ?arg ?body)
-    (sum$ &/$AllT
-          ($$ prod$
-              (|case ?env
-                (&/$None)
-                (sum$ &/$None unit$)
+    (variant$ &/$AllT
+              (tuple$ (&/|list (|case ?env
+                                 (&/$None)
+                                 (variant$ &/$None (tuple$ (&/|list)))
 
-                (&/$Some ??env)
-                (sum$ &/$Some
-                      (&/fold (fn [tail head]
-                                (|let [[hlabel htype] head]
-                                  (Cons$ (prod$ (text$ hlabel)
-                                                (->analysis htype))
-                                         tail)))
-                              $Nil
-                              (&/|reverse ??env))))
-              (text$ ?name)
-              (text$ ?arg)
-              (->analysis ?body)))
+                                 (&/$Some ??env)
+                                 (variant$ &/$Some
+                                           (&/fold (fn [tail head]
+                                                     (|let [[hlabel htype] head]
+                                                       (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
+                                                              tail)))
+                                                   $Nil
+                                                   (&/|reverse ??env))))
+                               (text$ ?name)
+                               (text$ ?arg)
+                               (->analysis ?body))))
 
     (&/$BoundT ?name)
-    (sum$ &/$BoundT (text$ ?name))
+    (variant$ &/$BoundT (text$ ?name))
 
     (&/$AppT ?fun ?arg)
-    (sum$ &/$AppT (prod$ (->analysis ?fun) (->analysis ?arg)))
+    (variant$ &/$AppT (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
 
     (&/$NamedT [?module ?name] ?type)
-    (sum$ &/$NamedT (prod$ (prod$ (text$ ?module) (text$ ?name))
-                           (->analysis ?type)))
+    (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ ?module) (text$ ?name)))
+                                         (->analysis ?type))))
     ))

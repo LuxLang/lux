@@ -58,7 +58,7 @@
 
 (defn clean [state]
   "(-> Compiler (,))"
-  (let [needed-modules (->> state (&/$get-modules) &/|keys &/->seq set)
+  (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
         outdated? #(-> ^File % .getName (string/replace &host/module-separator "/") (->> (contains? needed-modules)) not)
         outdate-files (->> &&/output-dir (new File) .listFiles seq (filter outdated?))
         program-file (new File &&/output-package)]
@@ -120,7 +120,7 @@
                                                                  ;; (prn '_group _group)
                                                                  (let [[_type _tags] (string/split _group (re-pattern (java.util.regex.Pattern/quote &&/type-separator)))]
                                                                    ;; (prn '[_type _tags] [_type _tags])
-                                                                   (&/P _type (&/->list (string/split _tags (re-pattern (java.util.regex.Pattern/quote &&/tag-separator)))))))))
+                                                                   (&/T _type (&/->list (string/split _tags (re-pattern (java.util.regex.Pattern/quote &&/tag-separator)))))))))
                                                      &/->list)))]
                               ;; (prn 'load module defs)
                               (|do [_ (&a-module/enter-module module)
@@ -132,10 +132,10 @@
                                                   (|do [_ (case _ann
                                                             "T" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       def-value (get-field &/datum-field def-class)]
-                                                                  (&a-module/define module _name (&/S &/$TypeD def-value) &type/Type))
+                                                                  (&a-module/define module _name (&/V &/$TypeD def-value) &type/Type))
                                                             "M" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       def-value (get-field &/datum-field def-class)]
-                                                                  (|do [_ (&a-module/define module _name (&/S &/$ValueD (&/P &type/Macro def-value)) &type/Macro)]
+                                                                  (|do [_ (&a-module/define module _name (&/V &/$ValueD (&/T &type/Macro def-value)) &type/Macro)]
                                                                     (&a-module/declare-macro module _name)))
                                                             "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
                                                                       ;; _ (println "Fetching _meta" module _name (str module* "." (&/normalize-name _name)) def-class)

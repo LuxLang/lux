@@ -29,8 +29,8 @@
                                             (.getSimpleName class)))]
     (if (.equals "void" base)
       (return &type/Unit)
-      (return (&/S &/$DataT (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
-                                 base)))
+      (return (&/V &/$DataT (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
+                                    base)))
       )))
 
 (defn ^:private method->type [^Method method]
@@ -76,7 +76,7 @@
     (&/$LambdaT _ _)
     (->type-signature function-class)
 
-    (&/$VoidT)
+    (&/$TupleT (&/$Nil))
     "V"
 
     (&/$NamedT ?name ?type)

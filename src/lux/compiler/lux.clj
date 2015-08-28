@@ -28,43 +28,27 @@
                               ClassWriter
                               MethodVisitor)))
 
-;; [Utils]
-(defn ^:private array-of [^MethodVisitor *writer* type-name size]
-  (do (doto *writer*
-        (.visitLdcInsn (int size))
-        (.visitTypeInsn Opcodes/ANEWARRAY type-name))
-    (return nil)))
-
-(defn ^:private store-at [^MethodVisitor *writer* compile idx value]
-  (|do [:let [_ (doto *writer*
-                  (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int idx)))]
-        _ (compile value)
-        :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-    (return nil)))
-
 ;; [Exports]
-(defn compile-unit [compile *type*]
-  (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
-    (return nil)))
-
 (defn compile-bool [compile *type* ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC "java/lang/Boolean" (if ?value "TRUE" "FALSE") "Ljava/lang/Boolean;")]]
     (return nil)))
 
-(do-template [<name> <wrapper>]
+(do-template [<name> <class> <sig> <caster>]
   (defn <name> [compile *type* value]
     (|do [^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitLdcInsn value)
-                    (<wrapper>))]]
+          :let [_ (try (doto *writer*
+                         (.visitTypeInsn Opcodes/NEW <class>)
+                         (.visitInsn Opcodes/DUP)
+                         (.visitLdcInsn (<caster> value))
+                         (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))
+                    (catch Exception e
+                      (assert false (prn-str '<name> (alength value) (aget value 0) (aget value 1)))))]]
       (return nil)))
 
-  compile-int  &&/wrap-long
-  compile-real &&/wrap-double
-  compile-char &&/wrap-char
+  compile-int  "java/lang/Long"      "(J)V" long
+  compile-real "java/lang/Double"    "(D)V" double
+  compile-char "java/lang/Character" "(C)V" char
   )
 
 (defn compile-text [compile *type* ?value]
@@ -72,28 +56,37 @@
         :let [_ (.visitLdcInsn *writer* ?value)]]
     (return nil)))
 
-(defn compile-prod [compile *type* left right]
-  ;; (prn 'compile-prod (&type/show-type *type*)
-  ;;      (&/adt->text left)
-  ;;      (&/adt->text right))
+(defn compile-tuple [compile *type* ?elems]
   (|do [^MethodVisitor *writer* &/get-writer
-        _ (array-of *writer* "java/lang/Object" 2)
-        _ (store-at *writer* compile 0 left)
-        ;; :let [_ (prn 'compile-prod (&type/show-type *type*) left right)]
-        _ (store-at *writer* compile 1 right)]
+        :let [num-elems (&/|length ?elems)
+              _ (doto *writer*
+                  (.visitLdcInsn (int num-elems))
+                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
+        _ (&/map2% (fn [idx elem]
+                     (|do [:let [_ (doto *writer*
+                                     (.visitInsn Opcodes/DUP)
+                                     (.visitLdcInsn (int idx)))]
+                           ret (compile elem)
+                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                       (return ret)))
+                   (&/|range num-elems) ?elems)]
     (return nil)))
 
-(defn compile-sum [compile *type* ?tag ?value]
+(defn compile-variant [compile *type* ?tag ?value]
   ;; (prn 'compile-variant ?tag (class ?tag))
   (|do [^MethodVisitor *writer* &/get-writer
-        _ (array-of *writer* "java/lang/Object" 2)
         :let [_ (doto *writer*
+                  (.visitLdcInsn (int 2))
+                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 0))
-                  (.visitLdcInsn (int ?tag))
-                  (&&/wrap-int)
-                  (.visitInsn Opcodes/AASTORE))]
-        _ (store-at *writer* compile 1 ?value)]
+                  (.visitLdcInsn ?tag)
+                  (&&/wrap-long)
+                  (.visitInsn Opcodes/AASTORE)
+                  (.visitInsn Opcodes/DUP)
+                  (.visitLdcInsn (int 1)))]
+        _ (compile ?value)
+        :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))
 
 (defn compile-local [compile *type* ?idx]
@@ -138,7 +131,7 @@
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 0)) ;; VVI
                       (.visitLdcInsn &/$TypeD) ;; VVIT
-                      (&&/wrap-int)
+                      (&&/wrap-long)
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
@@ -165,7 +158,7 @@
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 0)) ;; VVI
                         (.visitLdcInsn &/$ValueD) ;; VVIT
-                        (&&/wrap-int)
+                        (&&/wrap-long)
                         (.visitInsn Opcodes/AASTORE) ;; V
                         (.visitInsn Opcodes/DUP) ;; VV
                         (.visitLdcInsn (int 1)) ;; VVI

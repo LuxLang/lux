@@ -12,70 +12,69 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [defrtags |let |do return return* fail fail* |case $$]]
+            (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]]
                  [type :as &type]
                  [host :as &host])))
 
 ;; [Utils]
-(defrtags
-  ["module-aliases"
-   "defs"
-   "imports"
-   "tags"
-   "types"])
+(deftags ""
+  "module-aliases"
+  "defs"
+  "imports"
+  "tags"
+  "types")
 (def ^:private +init+
-  ($$ &/P
-      ;; "lux;module-aliases"
-      (&/|table)
-      ;; "lux;defs"
-      (&/|table)
-      ;; "lux;imports"
-      (&/|list)
-      ;; "lux;tags"
-      (&/|table)
-      ;; "lux;types"
-      (&/|table)
-      ))
+  (&/T ;; "lux;module-aliases"
+   (&/|table)
+   ;; "lux;defs"
+   (&/|table)
+   ;; "lux;imports"
+   (&/|list)
+   ;; "lux;tags"
+   (&/|table)
+   ;; "lux;types"
+   (&/|table)
+   ))
 
 ;; [Exports]
 (defn add-import [module]
   "(-> Text (Lux (,)))"
   (|do [current-module &/get-module-name]
     (fn [state]
-      (return* (&/$update-modules
-                (fn [ms]
-                  (&/|update current-module
-                             (fn [m] ($update-imports (partial &/Cons$ module) m))
-                             ms))
-                state)
+      (return* (&/update$ &/$modules
+                          (fn [ms]
+                            (&/|update current-module
+                                       (fn [m] (&/update$ $imports (partial &/|cons module) m))
+                                       ms))
+                          state)
                nil))))
 
 (defn set-imports [imports]
   "(-> (List Text) (Lux (,)))"
   (|do [current-module &/get-module-name]
     (fn [state]
-      (return* (&/$update-modules
-                (fn [ms]
-                  (&/|update current-module
-                             (fn [m] ($set-imports imports m))
-                             ms))
-                state)
+      (return* (&/update$ &/$modules
+                          (fn [ms]
+                            (&/|update current-module
+                                       (fn [m] (&/set$ $imports imports m))
+                                       ms))
+                          state)
                nil))))
 
 (defn define [module name def-data type]
   ;; (prn 'define module name (aget def-data 0) (&type/show-type type))
   (fn [state]
-    (|case (&/$get-envs state)
+    (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
-                    (&/$update-modules
-                     (fn [ms]
-                       (&/|update module
-                                  (fn [m]
-                                    ($update-defs
-                                     #(&/|put name (&/P false def-data) %)
-                                     m))
-                                  ms))))
+                    (&/update$ &/$modules
+                               (fn [ms]
+                                 (&/|update module
+                                            (fn [m]
+                                              (&/update$ $defs
+                                                         #(&/|put name (&/T false def-data) %)
+                                                         m))
+                                            ms))))
                nil)
       
       _
@@ -84,8 +83,8 @@
 (defn def-type [module name]
   "(-> Text Text (Lux Type))"
   (fn [state]
-    (if-let [$module (->> state (&/$get-modules) (&/|get module))]
-      (if-let [$def (->> $module ($get-defs) (&/|get name))]
+    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|case $def
           [_ (&/$TypeD _)]
           (return* state &type/Type)
@@ -105,31 +104,31 @@
 (defn type-def [module name]
   "(-> Text Text (Lux Type))"
   (fn [state]
-    (if-let [$module (->> state (&/$get-modules) (&/|get module))]
-      (if-let [$def (->> $module ($get-defs) (&/|get name))]
+    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|case $def
           [_ (&/$TypeD _type)]
           (return* state _type)
 
           _
-          (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/P module name)))))
-        (fail* (str "[Analyser Error] Unknown definition: " (&/ident->text (&/P module name)))))
+          (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/T module name)))))
+        (fail* (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T module name)))))
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
 (defn def-alias [a-module a-name r-module r-name type]
   ;; (prn 'def-alias [a-module a-name] [r-module r-name] (&type/show-type type))
   (fn [state]
-    (|case (&/$get-envs state)
+    (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
-                    (&/$update-modules
-                     (fn [ms]
-                       (&/|update a-module
-                                  (fn [m]
-                                    ($update-defs
-                                     #(&/|put a-name (&/P false (&/S &/$AliasD (&/P r-module r-name))) %)
-                                     m))
-                                  ms))))
+                    (&/update$ &/$modules
+                               (fn [ms]
+                                 (&/|update a-module
+                                            (fn [m]
+                                              (&/update$ $defs
+                                                         #(&/|put a-name (&/T false (&/V &/$AliasD (&/T r-module r-name))) %)
+                                                         m))
+                                            ms))))
                nil)
       
       _
@@ -138,30 +137,26 @@
 (defn exists? [name]
   "(-> Text (Lux Bool))"
   (fn [state]
-    ;; (prn 'exists?/_0 &/$modules name)
-    ;; (prn 'exists?/_2 (&/adt->text state))
-    ;; (prn 'exists?/_3 (&/adt->text (->> state (&/$get-modules))))
-    ;; (prn 'exists?/_4 (&/adt->text (->> state (&/$get-modules) (&/|contains? name))))
     (return* state
-             (->> state (&/$get-modules) (&/|contains? name)))))
+             (->> state (&/get$ &/$modules) (&/|contains? name)))))
 
 (defn alias [module alias reference]
   (fn [state]
     (return* (->> state
-                  (&/$update-modules
-                   (fn [ms]
-                     (&/|update module
-                                #($update-module-aliases
-                                  (fn [aliases]
-                                    (&/|put alias reference aliases))
-                                  %)
-                                ms))))
+                  (&/update$ &/$modules
+                             (fn [ms]
+                               (&/|update module
+                                          #(&/update$ $module-aliases
+                                                      (fn [aliases]
+                                                        (&/|put alias reference aliases))
+                                                      %)
+                                          ms))))
              nil)))
 
 (defn dealias [name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      (if-let [real-name (->> state (&/$get-modules) (&/|get current-module) ($get-module-aliases) (&/|get name))]
+      (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
         (return* state real-name)
         (fail* (str "Unknown alias: " name))))))
 
@@ -169,9 +164,9 @@
   (|do [current-module &/get-module-name]
     (fn [state]
       ;; (prn 'find-def/_0 module name 'current-module current-module)
-      (if-let [$module (->> state (&/$get-modules) (&/|get module))]
+      (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
-            (if-let [$def (->> $module ($get-defs) (&/|get name))]
+            (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
               (|let [[exported? $$def] $def]
                 (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
                     (if (or exported? (.equals ^Object current-module module))
@@ -182,7 +177,7 @@
                              state))
 
                         _
-                        (return* state (&/P (&/P module name) $$def)))
+                        (return* state (&/T (&/T module name) $$def)))
                       (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
               (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))))
         (fail* (str "[Analyser Error] Module doesn't exist: " module))))))
@@ -203,7 +198,7 @@
 
 (defn declare-macro [module name]
   (fn [state]
-    (if-let [$module (->> state (&/$get-modules) (&/|get module) ($get-defs))]
+    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs))]
       (if-let [$def (&/|get name $module)]
         (|case $def
           [exported? (&/$ValueD ?type _)]
@@ -213,15 +208,15 @@
                                  (.getField &/datum-field)
                                  (.get nil))]]
              (fn [state*]
-               (return* (&/$update-modules
-                         (fn [$modules]
-                           (&/|update module
-                                      (fn [m]
-                                        ($update-defs
-                                         #(&/|put name (&/P exported? (&/S &/$MacroD macro)) %)
-                                         m))
-                                      $modules))
-                         state*)
+               (return* (&/update$ &/$modules
+                                   (fn [$modules]
+                                     (&/|update module
+                                                (fn [m]
+                                                  (&/update$ $defs
+                                                             #(&/|put name (&/T exported? (&/V &/$MacroD macro)) %)
+                                                             m))
+                                                $modules))
+                                   state*)
                         nil)))
            state)
           
@@ -235,21 +230,21 @@
 
 (defn export [module name]
   (fn [state]
-    (|case (&/$get-envs state)
+    (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
-      (if-let [$def (->> state (&/$get-modules) (&/|get module) ($get-defs) (&/|get name))]
+      (if-let [$def (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs) (&/|get name))]
         (|case $def
           [true _]
           (fail* (str "[Analyser Error] Definition has already been exported: " module ";" name))
 
           [false ?data]
           (return* (->> state
-                        (&/$update-modules (fn [ms]
-                                             (&/|update module (fn [m]
-                                                                 ($update-defs
-                                                                  #(&/|put name (&/P true ?data) %)
-                                                                  m))
-                                                        ms))))
+                        (&/update$ &/$modules (fn [ms]
+                                                (&/|update module (fn [m]
+                                                                    (&/update$ $defs
+                                                                               #(&/|put name (&/T true ?data) %)
+                                                                               m))
+                                                           ms))))
                    nil))
         (fail* (str "[Analyser Error] Can't export an inexistent definition: " (str module &/+name-separator+ name))))
       
@@ -265,61 +260,61 @@
                            (do ;; (prn 'defs k ?exported?)
                                (|case ?def
                                  (&/$AliasD ?r-module ?r-name)
-                                 ($$ &/P ?exported? k (str "A" ?r-module ";" ?r-name))
+                                 (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
                                  
                                  (&/$MacroD _)
-                                 ($$ &/P ?exported? k "M")
+                                 (&/T ?exported? k "M")
 
                                  (&/$TypeD _)
-                                 ($$ &/P ?exported? k "T")
+                                 (&/T ?exported? k "T")
 
                                  _
-                                 ($$ &/P ?exported? k "V")))))
-                       (->> state (&/$get-modules) (&/|get module) ($get-defs)))))))
+                                 (&/T ?exported? k "V")))))
+                       (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)))))))
 
 (def imports
   (|do [module &/get-module-name]
     (fn [state]
-      (return* state (->> state (&/$get-modules) (&/|get module) ($get-imports))))))
+      (return* state (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $imports))))))
 
 (defn create-module [name]
   "(-> Text (Lux (,)))"
   (fn [state]
-    (return* (&/$update-modules #(&/|put name +init+ %) state) nil)))
+    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) nil)))
 
 (defn enter-module [name]
   "(-> Text (Lux (,)))"
   (fn [state]
     (return* (->> state
-                  (&/$update-modules #(&/|put name +init+ %))
-                  (&/$set-envs (&/|list (&/env name))))
+                  (&/update$ &/$modules #(&/|put name +init+ %))
+                  (&/set$ &/$envs (&/|list (&/env name))))
              nil)))
 
-(do-template [<name> <getter> <type>]
+(do-template [<name> <tag> <type>]
   (defn <name> [module]
     <type>
     (fn [state]
-      (if-let [=module (->> state (&/$get-modules) (&/|get module))]
-        (return* state (<getter> =module))
+      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+        (return* state (&/get$ <tag> =module))
         (fail* (str "[Lux Error] Unknown module: " module)))
       ))
 
-  tags-by-module  $get-tags  "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
-  types-by-module $get-types "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
+  tags-by-module  $tags  "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
+  types-by-module $types "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
   )
 
 (defn ensure-undeclared-tags [module tags]
   (|do [tags-table (tags-by-module module)
         _ (&/map% (fn [tag]
                     (if (&/|get tag tags-table)
-                      (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/P module tag))))
+                      (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T module tag))))
                       (return nil)))
                   tags)]
     (return nil)))
 
 (defn ensure-undeclared-type [module name]
   (|do [types-table (types-by-module module)
-        _ (&/assert! (nil? (&/|get name types-table)) (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/P module name))))]
+        _ (&/assert! (nil? (&/|get name types-table)) (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T module name))))]
     (return nil)))
 
 (defn declare-tags [module tag-names type]
@@ -332,34 +327,37 @@
                      (str "[Module Error] Can't define tags for a type belonging to a foreign module: " (&/ident->text type-name)))
         _ (ensure-undeclared-type _module _name)]
     (fn [state]
-      (if-let [=module (->> state (&/$get-modules) (&/|get module))]
-        (let [tags (&/|map (fn [tag-name] (&/P module tag-name)) tag-names)]
-          (return* (&/$update-modules
-                    (fn [=modules]
-                      (&/|update module
-                                 #(->> %
-                                       ($set-tags (&/fold (fn [table idx+tag-name]
-                                                            (|let [[idx tag-name] idx+tag-name]
-                                                              (&/|put tag-name ($$ &/P idx tags type) table)))
-                                                          ($get-tags %)
-                                                          (&/enumerate tag-names)))
-                                       ($update-types (partial &/|put _name (&/P tags type))))
-                                 =modules))
-                    state)
+      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+        (let [tags (&/|map (fn [tag-name] (&/T module tag-name)) tag-names)]
+          (return* (&/update$ &/$modules
+                              (fn [=modules]
+                                (&/|update module
+                                           #(->> %
+                                                 (&/set$ $tags (&/fold (fn [table idx+tag-name]
+                                                                         (|let [[idx tag-name] idx+tag-name]
+                                                                           (&/|put tag-name (&/T idx tags type) table)))
+                                                                       (&/get$ $tags %)
+                                                                       (&/enumerate tag-names)))
+                                                 (&/update$ $types (partial &/|put _name (&/T tags type))))
+                                           =modules))
+                              state)
                    nil))
         (fail* (str "[Lux Error] Unknown module: " module))))))
 
-(do-template [<name> <member> <type>]
-  (defn <name> [module tag-name]
-    <type>
-    (fn [state]
-      (if-let [=module (->> state (&/$get-modules) (&/|get module))]
-        (if-let [^objects idx+tags (&/|get tag-name ($get-tags =module))]
-          (|let [[idx tags type] idx+tags]
-            (return* state <member>))
-          (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/P module tag-name)))))
-        (fail* (str "[Module Error] Unknown module: " module)))))
+(defn tag-index [module tag-name]
+  "(-> Text Text (Lux Int))"
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [^objects idx+tags (&/|get tag-name (&/get$ $tags =module))]
+        (return* state (aget idx+tags 0))
+        (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T module tag-name)))))
+      (fail* (str "[Module Error] Unknown module: " module)))))
 
-  tag-index idx  "(-> Text Text (Lux Int))"
-  tag-group tags "(-> Text Text (Lux (List Ident)))"
-  )
+(defn tag-group [module tag-name]
+  "(-> Text Text (Lux (List Ident)))"
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+      (if-let [^objects idx+tags (&/|get tag-name (&/get$ $tags =module))]
+        (return* state (aget idx+tags 1))
+        (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T module tag-name)))))
+      (fail* (str "[Module Error] Unknown module: " module)))))

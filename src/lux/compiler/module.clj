@@ -23,6 +23,6 @@
     (return (&/|map (fn [pair]
                       (|case pair
                         [name [tags _]]
-                        (&/P name (&/|map (fn [^objects tag] (aget tag 1)) tags))))
-                    (&module/$get-types module)))
+                        (&/T name (&/|map (fn [^objects tag] (aget tag 1)) tags))))
+                    (&/get$ &module/$types module)))
     ))

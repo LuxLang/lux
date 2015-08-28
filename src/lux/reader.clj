@@ -10,18 +10,18 @@
   (:require [clojure.string :as string]
             clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [deftags |do return* return fail fail* |let |case $$]]))
+            [lux.base :as & :refer [deftags |do return* return fail fail* |let |case]]))
 
 ;; [Tags]
-(deftags
-  ["No"
-   "Done"
-   "Yes"])
+(deftags ""
+  "No"
+  "Done"
+  "Yes")
 
 ;; [Utils]
 (defn ^:private with-line [body]
   (fn [state]
-    (|case (&/$get-source state)
+    (|case (&/get$ &/$source state)
       (&/$Nil)
       (fail* "[Reader Error] EOF")
 
@@ -32,19 +32,19 @@
         (fail* msg)
 
         ($Done output)
-        (return* (&/$set-source more state)
+        (return* (&/set$ &/$source more state)
                  output)
 
         ($Yes output line*)
-        (return* (&/$set-source (&/Cons$ line* more) state)
+        (return* (&/set$ &/$source (&/|cons line* more) state)
                  output))
       )))
 
 (defn ^:private with-lines [body]
   (fn [state]
-    (|case (body (&/$get-source state))
+    (|case (body (&/get$ &/$source state))
       (&/$Right reader* match)
-      (return* (&/$set-source reader* state)
+      (return* (&/set$ &/$source reader* state)
                match)
 
       (&/$Left msg)
@@ -85,10 +85,10 @@
               match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/S $Done (&/P (&/cursor$ file-name line-num column-num) match))
-            (&/S $Yes (&/P (&/P (&/cursor$ file-name line-num column-num) match)
-                           (&/P (&/cursor$ file-name line-num column-num*) line)))))
-        (&/S $No (str "[Reader Error] Pattern failed: " regex))))))
+            (&/V $Done (&/T (&/T file-name line-num column-num) match))
+            (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) match)
+                           (&/T (&/T file-name line-num column-num*) line)))))
+        (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex2 [regex]
   (with-line
@@ -98,10 +98,10 @@
         (let [match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/S $Done (&/P (&/cursor$ file-name line-num column-num) (&/P tok1 tok2)))
-            (&/S $Yes (&/P (&/P (&/cursor$ file-name line-num column-num) (&/P tok1 tok2))
-                           (&/P (&/cursor$ file-name line-num column-num*) line)))))
-        (&/S $No (str "[Reader Error] Pattern failed: " regex))))))
+            (&/V $Done (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
+            (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) (&/T tok1 tok2))
+                           (&/T (&/T file-name line-num column-num*) line)))))
+        (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex+ [regex]
   (with-lines
@@ -110,7 +110,7 @@
              reader* reader]
         (|case reader*
           (&/$Nil)
-          (&/S &/$Left "[Reader Error] EOF")
+          (&/V &/$Left "[Reader Error] EOF")
 
           (&/$Cons [[file-name line-num column-num] ^String line]
                    reader**)
@@ -120,10 +120,10 @@
                   column-num* (+ column-num match-length)]
               (if (= column-num* (.length line))
                 (recur (str prefix match "\n") reader**)
-                (&/S &/$Right (&/P (&/Cons$ (&/P (&/cursor$ file-name line-num column-num*) line)
+                (&/V &/$Right (&/T (&/|cons (&/T (&/T file-name line-num column-num*) line)
                                             reader**)
-                                   (&/P (&/cursor$ file-name line-num column-num) (str prefix match))))))
-            (&/S &/$Left (str "[Reader Error] Pattern failed: " regex))))))))
+                                   (&/T (&/T file-name line-num column-num) (str prefix match))))))
+            (&/V &/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]
   (with-line
@@ -133,10 +133,10 @@
         (let [match-length (.length text)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/S $Done (&/P (&/cursor$ file-name line-num column-num) text))
-            (&/S $Yes (&/P (&/P (&/cursor$ file-name line-num column-num) text)
-                           (&/P (&/cursor$ file-name line-num column-num*) line)))))
-        (&/S $No (str "[Reader Error] Text failed: " text))))))
+            (&/V $Done (&/T (&/T file-name line-num column-num) text))
+            (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) text)
+                           (&/T (&/T file-name line-num column-num*) line)))))
+        (&/V $No (str "[Reader Error] Text failed: " text))))))
 
 (def ^:private ^String +source-dir+ "input/")
 (defn from [^String file-name ^String file-content]
@@ -144,7 +144,7 @@
         file-name (.substring file-name (.length +source-dir+))]
     (&/|map (fn [line+line-num]
               (|let [[line-num line] line+line-num]
-                (&/P (&/cursor$ file-name (inc line-num) 0)
+                (&/T (&/T file-name (inc line-num) 0)
                      line)))
             (&/|filter (fn [line+line-num]
                          (|let [[line-num line] line+line-num]

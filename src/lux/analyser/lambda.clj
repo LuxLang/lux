@@ -9,7 +9,7 @@
 (ns lux.analyser.lambda
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail |case $$]]
+            (lux [base :as & :refer [|let |do return fail |case]]
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [env :as &env])))
@@ -22,19 +22,15 @@
         (&env/with-local arg arg-type
           (|do [=return body
                 =captured &env/captured-vars]
-            (return ($$ &/P scope-name =captured =return))))))))
+            (return (&/T scope-name =captured =return))))))))
 
 (defn close-over [scope name register frame]
   (|let [[_ register-type] register
-         register* (&/P (&/S &&/$captured ($$ &/P scope
-                                              (->> frame (&/$get-closure) (&/$get-counter))
-                                              register))
+         register* (&/T (&/V &&/$captured (&/T scope
+                                               (->> frame (&/get$ &/$closure) (&/get$ &/$counter))
+                                               register))
                         register-type)]
-    (do ;; (prn 'close-over 'updating-closure
-        ;;      [(->> frame (&/$get-closure) (&/$get-counter)) (->> frame (&/$get-closure) (&/$get-counter) inc)]
-        ;;      [(->> frame (&/$get-closure) (&/$get-mappings) &/ident->text)
-        ;;       (->> frame (&/$get-closure) (&/$get-mappings) (&/|put name register*) &/ident->text)])
-      ($$ &/P register* (&/$update-closure #(->> %
-                                                 (&/$update-counter inc)
-                                                 (&/$update-mappings (fn [mps] (&/|put name register* mps))))
-                                           frame)))))
+    (&/T register* (&/update$ &/$closure #(->> %
+                                               (&/update$ &/$counter inc)
+                                               (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))
+                              frame))))

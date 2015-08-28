@@ -10,7 +10,7 @@
   (:refer-clojure :exclude [deref apply merge bound?])
   (:require clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [|do return* return fail fail* assert! |let |case $$]]))
+            [lux.base :as & :refer [|do return* return fail fail* assert! |let |case]]))
 
 (declare show-type)
 
@@ -26,300 +26,302 @@
     _
     false))
 
-(def ^:private empty-env (&/Some$ &/Nil$))
-(def ^:private no-env &/None$)
-(def Ident$ &/P)
+(def ^:private empty-env (&/V &/$Some (&/V &/$Nil nil)))
+(def ^:private no-env (&/V &/$None nil))
 (defn Data$ [name]
-  (&/S &/$DataT name))
+  (&/V &/$DataT name))
 (defn Bound$ [name]
-  (&/S &/$BoundT name))
+  (&/V &/$BoundT name))
 (defn Var$ [id]
-  (&/S &/$VarT id))
+  (&/V &/$VarT id))
 (defn Lambda$ [in out]
-  (&/S &/$LambdaT (&/P in out)))
+  (&/V &/$LambdaT (&/T in out)))
 (defn App$ [fun arg]
-  (&/S &/$AppT (&/P fun arg)))
-(defn Prod$ [left right]
+  (&/V &/$AppT (&/T fun arg)))
+(defn Tuple$ [members]
   ;; (assert (|list? members))
-  (&/S &/$ProdT (&/P left right)))
-(defn Sum$ [left right]
+  (&/V &/$TupleT members))
+(defn Variant$ [members]
   ;; (assert (|list? members))
-  (&/S &/$SumT (&/P left right)))
+  (&/V &/$VariantT members))
 (defn All$ [env name arg body]
-  (&/S &/$AllT ($$ &/P env name arg body)))
+  (&/V &/$AllT (&/T env name arg body)))
 (defn Named$ [name type]
-  (&/S &/$NamedT (&/P name type)))
+  (&/V &/$NamedT (&/T name type)))
 
-(def Bool (Named$ (Ident$ &/prelude-name "Bool") (Data$ "java.lang.Boolean")))
-(def Int (Named$ (Ident$ &/prelude-name "Int") (Data$ "java.lang.Long")))
-(def Real (Named$ (Ident$ &/prelude-name "Real") (Data$ "java.lang.Double")))
-(def Char (Named$ (Ident$ &/prelude-name "Char") (Data$ "java.lang.Character")))
-(def Text (Named$ (Ident$ &/prelude-name "Text") (Data$ "java.lang.String")))
-(def Unit (Named$ (Ident$ &/prelude-name "Unit") (&/S &/$UnitT nil)))
-(def $Void (Named$ (Ident$ &/prelude-name "Void") (&/S &/$VoidT nil)))
-(def Ident (Named$ (Ident$ &/prelude-name "Ident") (Prod$ Text Text)))
+
+(def Bool (Named$ (&/T "lux" "Bool") (&/V &/$DataT "java.lang.Boolean")))
+(def Int (Named$ (&/T "lux" "Int") (&/V &/$DataT "java.lang.Long")))
+(def Real (Named$ (&/T "lux" "Real") (&/V &/$DataT "java.lang.Double")))
+(def Char (Named$ (&/T "lux" "Char") (&/V &/$DataT "java.lang.Character")))
+(def Text (Named$ (&/T "lux" "Text") (&/V &/$DataT "java.lang.String")))
+(def Unit (Named$ (&/T "lux" "Unit") (&/V &/$TupleT (&/|list))))
+(def $Void (Named$ (&/T "lux" "Void") (&/V &/$VariantT (&/|list))))
+(def Ident (Named$ (&/T "lux" "Ident") (Tuple$ (&/|list Text Text))))
 
 (def IO
-  (Named$ (Ident$ "lux/data" "IO")
+  (Named$ (&/T "lux/data" "IO")
           (All$ empty-env "IO" "a"
                 (Lambda$ Unit (Bound$ "a")))))
 
 (def List
-  (Named$ (Ident$ &/prelude-name "List")
+  (Named$ (&/T "lux" "List")
           (All$ empty-env "lux;List" "a"
-                (Sum$
-                 ;; lux;Nil
-                 Unit
-                 ;; lux;Cons
-                 (Prod$ (Bound$ "a")
-                        (App$ (Bound$ "lux;List")
-                              (Bound$ "a")))
-                 ))))
+                (Variant$ (&/|list
+                           ;; lux;Nil
+                           Unit
+                           ;; lux;Cons
+                           (Tuple$ (&/|list (Bound$ "a")
+                                            (App$ (Bound$ "lux;List")
+                                                  (Bound$ "a"))))
+                           )))))
 
 (def Maybe
-  (Named$ (Ident$ &/prelude-name "Maybe")
+  (Named$ (&/T "lux" "Maybe")
           (All$ empty-env "lux;Maybe" "a"
-                (Sum$
-                 ;; lux;None
-                 Unit
-                 ;; lux;Some
-                 (Bound$ "a")
-                 ))))
+                (Variant$ (&/|list
+                           ;; lux;None
+                           Unit
+                           ;; lux;Some
+                           (Bound$ "a")
+                           )))))
 
 (def Type
-  (Named$ (Ident$ &/prelude-name "Type")
+  (Named$ (&/T "lux" "Type")
           (let [Type (App$ (Bound$ "Type") (Bound$ "_"))
                 TypeList (App$ List Type)
-                TypeEnv (App$ List (Prod$ Text Type))
-                TypePair (Prod$ Type Type)]
+                TypeEnv (App$ List (Tuple$ (&/|list Text Type)))
+                TypePair (Tuple$ (&/|list Type Type))]
             (App$ (All$ empty-env "Type" "_"
-                        ($$ Sum$
-                            ;; VoidT
-                            Unit
-                            ;; UnitT
-                            Unit
-                            ;; SumT
-                            TypePair
-                            ;; ProdT
-                            TypePair
-                            ;; DataT
-                            Text
-                            ;; LambdaT
-                            TypePair
-                            ;; BoundT
-                            Text
-                            ;; VarT
-                            Int
-                            ;; ExT
-                            Int
-                            ;; AllT
-                            ($$ Prod$ (App$ Maybe TypeEnv) Text Text Type)
-                            ;; AppT
-                            TypePair
-                            ;; NamedT
-                            (Prod$ Ident Type)
-                            ))
+                        (Variant$ (&/|list
+                                   ;; DataT
+                                   Text
+                                   ;; VariantT
+                                   TypeList
+                                   ;; TupleT
+                                   TypeList
+                                   ;; LambdaT
+                                   TypePair
+                                   ;; BoundT
+                                   Text
+                                   ;; VarT
+                                   Int
+                                   ;; ExT
+                                   Int
+                                   ;; AllT
+                                   (Tuple$ (&/|list (App$ Maybe TypeEnv) Text Text Type))
+                                   ;; AppT
+                                   TypePair
+                                   ;; NamedT
+                                   (Tuple$ (&/|list Ident Type))
+                                   )))
                   $Void))))
 
 (def Bindings
-  (Named$ (Ident$ &/prelude-name "Bindings")
+  (Named$ (&/T "lux" "Bindings")
           (All$ empty-env "lux;Bindings" "k"
                 (All$ no-env "" "v"
-                      (Prod$
-                       ;; "lux;counter"
-                       Int
-                       ;; "lux;mappings"
-                       (App$ List
-                             (Prod$ (Bound$ "k")
-                                    (Bound$ "v"))))))))
+                      (Tuple$ (&/|list
+                               ;; "lux;counter"
+                               Int
+                               ;; "lux;mappings"
+                               (App$ List
+                                     (Tuple$ (&/|list (Bound$ "k")
+                                                      (Bound$ "v"))))))))))
 
 (def Env
-  (Named$ (Ident$ &/prelude-name "Env")
+  (Named$ (&/T "lux" "Env")
           (let [bindings (App$ (App$ Bindings (Bound$ "k"))
                                (Bound$ "v"))]
             (All$ empty-env "lux;Env" "k"
                   (All$ no-env "" "v"
-                        ($$ Prod$
-                            ;; "lux;name"
-                            Text
-                            ;; "lux;inner-closures"
-                            Int
-                            ;; "lux;locals"
-                            bindings
-                            ;; "lux;closure"
-                            bindings
-                            ))))))
+                        (Tuple$
+                         (&/|list
+                          ;; "lux;name"
+                          Text
+                          ;; "lux;inner-closures"
+                          Int
+                          ;; "lux;locals"
+                          bindings
+                          ;; "lux;closure"
+                          bindings
+                          )))))))
 
 (def Cursor
-  (Named$ (Ident$ &/prelude-name "Cursor")
-          ($$ Prod$ Text Int Int)))
+  (Named$ (&/T "lux" "Cursor")
+          (Tuple$ (&/|list Text Int Int))))
 
 (def Meta
-  (Named$ (Ident$ &/prelude-name "Meta")
+  (Named$ (&/T "lux" "Meta")
           (All$ empty-env "lux;Meta" "m"
                 (All$ no-env "" "v"
-                      (Prod$ (Bound$ "m")
-                             (Bound$ "v"))))))
+                      (Variant$ (&/|list
+                                 ;; &/$Meta
+                                 (Tuple$ (&/|list (Bound$ "m")
+                                                  (Bound$ "v")))))))))
 
 (def AST*
-  (Named$ (Ident$ &/prelude-name "AST'")
+  (Named$ (&/T "lux" "AST'")
           (let [AST* (App$ (Bound$ "w")
                            (App$ (Bound$ "lux;AST'")
                                  (Bound$ "w")))
                 AST*List (App$ List AST*)]
             (All$ empty-env "lux;AST'" "w"
-                  ($$ Sum$
-                      ;; &/$BoolS
-                      Bool
-                      ;; &/$IntS
-                      Int
-                      ;; &/$RealS
-                      Real
-                      ;; &/$CharS
-                      Char
-                      ;; &/$TextS
-                      Text
-                      ;; &/$SymbolS
-                      Ident
-                      ;; &/$TagS
-                      Ident
-                      ;; &/$FormS
-                      AST*List
-                      ;; &/$TupleS
-                      AST*List
-                      ;; &/$RecordS
-                      (App$ List (Prod$ AST* AST*))
-                      )))))
+                  (Variant$ (&/|list
+                             ;; &/$BoolS
+                             Bool
+                             ;; &/$IntS
+                             Int
+                             ;; &/$RealS
+                             Real
+                             ;; &/$CharS
+                             Char
+                             ;; &/$TextS
+                             Text
+                             ;; &/$SymbolS
+                             Ident
+                             ;; &/$TagS
+                             Ident
+                             ;; &/$FormS
+                             AST*List
+                             ;; &/$TupleS
+                             AST*List
+                             ;; &/$RecordS
+                             (App$ List (Tuple$ (&/|list AST* AST*))))
+                            )))))
 
 (def AST
-  (Named$ (Ident$ &/prelude-name "AST")
+  (Named$ (&/T "lux" "AST")
           (let [w (App$ Meta Cursor)]
             (App$ w (App$ AST* w)))))
 
 (def ^:private ASTList (App$ List AST))
 
 (def Either
-  (Named$ (Ident$ &/prelude-name "Either")
+  (Named$ (&/T "lux" "Either")
           (All$ empty-env "lux;Either" "l"
                 (All$ no-env "" "r"
-                      (Sum$
-                       ;; &/$Left
-                       (Bound$ "l")
-                       ;; &/$Right
-                       (Bound$ "r"))))))
+                      (Variant$ (&/|list
+                                 ;; &/$Left
+                                 (Bound$ "l")
+                                 ;; &/$Right
+                                 (Bound$ "r")))))))
 
 (def StateE
   (All$ empty-env "lux;StateE" "s"
         (All$ no-env "" "a"
               (Lambda$ (Bound$ "s")
                        (App$ (App$ Either Text)
-                             (Prod$ (Bound$ "s")
-                                    (Bound$ "a")))))))
+                             (Tuple$ (&/|list (Bound$ "s")
+                                              (Bound$ "a"))))))))
 
 (def Source
-  (Named$ (Ident$ &/prelude-name "Source")
+  (Named$ (&/T "lux" "Source")
           (App$ List
                 (App$ (App$ Meta Cursor)
                       Text))))
 
 (def Host
-  (Named$ (Ident$ &/prelude-name "Host")
-          ($$ Prod$
-              ;; "lux;writer"
-              (Data$ "org.objectweb.asm.ClassWriter")
-              ;; "lux;loader"
-              (Data$ "java.lang.ClassLoader")
-              ;; "lux;classes"
-              (Data$ "clojure.lang.Atom"))))
+  (Named$ (&/T "lux" "Host")
+          (Tuple$
+           (&/|list
+            ;; "lux;writer"
+            (Data$ "org.objectweb.asm.ClassWriter")
+            ;; "lux;loader"
+            (Data$ "java.lang.ClassLoader")
+            ;; "lux;classes"
+            (Data$ "clojure.lang.Atom")))))
 
 (def DefData*
   (All$ empty-env "lux;DefData'" ""
-        ($$ Sum$
-            ;; "lux;ValueD"
-            (Prod$ Type Unit)
-            ;; "lux;TypeD"
-            Type
-            ;; "lux;MacroD"
-            (Bound$ "")
-            ;; "lux;AliasD"
-            Ident
-            )))
+        (Variant$ (&/|list
+                   ;; "lux;ValueD"
+                   (Tuple$ (&/|list Type Unit))
+                   ;; "lux;TypeD"
+                   Type
+                   ;; "lux;MacroD"
+                   (Bound$ "")
+                   ;; "lux;AliasD"
+                   Ident
+                   ))))
 
 (def LuxVar
-  (Named$ (Ident$ &/prelude-name "LuxVar")
-          (Sum$
-           ;; "lux;Local"
-           Int
-           ;; "lux;Global"
-           Ident)))
+  (Named$ (&/T "lux" "LuxVar")
+          (Variant$ (&/|list
+                     ;; "lux;Local"
+                     Int
+                     ;; "lux;Global"
+                     Ident))))
 
 (def $Module
   (All$ empty-env "lux;$Module" "Compiler"
-        ($$ Prod$
-            ;; "lux;module-aliases"
-            (App$ List (Prod$ Text Text))
-            ;; "lux;defs"
-            (App$ List
-                  (Prod$ Text
-                         (Prod$ Bool
-                                (App$ DefData*
-                                      (Lambda$ ASTList
-                                               (App$ (App$ StateE (Bound$ "Compiler"))
-                                                     ASTList))))))
-            ;; "lux;imports"
-            (App$ List Text)
-            ;; "lux;tags"
-            ;; (List (, Text (, Int (List Ident) Type)))
-            (App$ List
-                  (Prod$ Text
-                         ($$ Prod$ Int
-                             (App$ List Ident)
-                             Type)))
-            ;; "lux;types"
-            ;; (List (, Text (, (List Ident) Type)))
-            (App$ List
-                  (Prod$ Text
-                         (Prod$ (App$ List Ident)
-                                Type)))
-            )))
+        (Tuple$
+         (&/|list
+          ;; "lux;module-aliases"
+          (App$ List (Tuple$ (&/|list Text Text)))
+          ;; "lux;defs"
+          (App$ List
+                (Tuple$ (&/|list Text
+                                 (Tuple$ (&/|list Bool
+                                                  (App$ DefData*
+                                                        (Lambda$ ASTList
+                                                                 (App$ (App$ StateE (Bound$ "Compiler"))
+                                                                       ASTList))))))))
+          ;; "lux;imports"
+          (App$ List Text)
+          ;; "lux;tags"
+          ;; (List (, Text (, Int (List Ident) Type)))
+          (App$ List
+                (Tuple$ (&/|list Text
+                                 (Tuple$ (&/|list Int
+                                                  (App$ List Ident)
+                                                  Type)))))
+          ;; "lux;types"
+          ;; (List (, Text (, (List Ident) Type)))
+          (App$ List
+                (Tuple$ (&/|list Text
+                                 (Tuple$ (&/|list (App$ List Ident)
+                                                  Type)))))
+          ))))
 
 (def $Compiler
-  (Named$ (Ident$ &/prelude-name "Compiler")
+  (Named$ (&/T "lux" "Compiler")
           (App$ (All$ empty-env "lux;Compiler" ""
-                      ($$ Prod$
-                          ;; "lux;source"
-                          Source
-                          ;; "lux;cursor"
-                          Cursor
-                          ;; "lux;modules"
-                          (App$ List (Prod$ Text
-                                            (App$ $Module (App$ (Bound$ "lux;Compiler") (Bound$ "")))))
-                          ;; "lux;envs"
-                          (App$ List
-                                (App$ (App$ Env Text)
-                                      (Prod$ LuxVar Type)))
-                          ;; "lux;types"
-                          (App$ (App$ Bindings Int) Type)
-                          ;; "lux;expected"
-                          Type
-                          ;; "lux;seed"
-                          Int
-                          ;; "lux;eval?"
-                          Bool
-                          ;; "lux;host"
-                          Host
-                          ))
+                      (Tuple$
+                       (&/|list
+                        ;; "lux;source"
+                        Source
+                        ;; "lux;cursor"
+                        Cursor
+                        ;; "lux;modules"
+                        (App$ List (Tuple$ (&/|list Text
+                                                    (App$ $Module (App$ (Bound$ "lux;Compiler") (Bound$ ""))))))
+                        ;; "lux;envs"
+                        (App$ List
+                              (App$ (App$ Env Text)
+                                    (Tuple$ (&/|list LuxVar Type))))
+                        ;; "lux;types"
+                        (App$ (App$ Bindings Int) Type)
+                        ;; "lux;expected"
+                        Type
+                        ;; "lux;seed"
+                        Int
+                        ;; "lux;eval?"
+                        Bool
+                        ;; "lux;host"
+                        Host
+                        )))
                 $Void)))
 
 (def Macro
-  (Named$ (Ident$ &/prelude-name "Macro")
+  (Named$ (&/T "lux" "Macro")
           (Lambda$ ASTList
                    (App$ (App$ StateE $Compiler)
                          ASTList))))
 
 (defn bound? [id]
   (fn [state]
-    (if-let [type (->> state (&/$get-type-vars) (&/$get-mappings) (&/|get id))]
+    (if-let [type (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (|case type
         (&/$Some type*)
         (return* state true)
@@ -330,7 +332,7 @@
 
 (defn deref [id]
   (fn [state]
-    (if-let [type* (->> state (&/$get-type-vars) (&/$get-mappings) (&/|get id))]
+    (if-let [type* (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (|case type*
         (&/$Some type)
         (return* state type)
@@ -341,37 +343,32 @@
 
 (defn set-var [id type]
   (fn [state]
-    (if-let [tvar (->> state (&/$get-type-vars) (&/$get-mappings) (&/|get id))]
+    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (|case tvar
         (&/$Some bound)
         (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
         
         (&/$None)
-        (return* (&/$update-type-vars (fn [ts] (&/$update-mappings #(&/|put id (&/Some$ type) %)
-                                                                  ts))
-                                      state)
+        (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/V &/$Some type) %)
+                                                            ts))
+                            state)
                  nil))
-      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/$get-type-vars) (&/$get-mappings) &/|length))))))
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
 
 ;; [Exports]
 ;; Type vars
 (def ^:private create-var
   (fn [state]
-    (let [id (->> state &/$get-type-vars &/$get-counter)]
-      (return* (&/$update-type-vars #(do ;; (prn 'create-var/_0 (&/adt->text %))
-                                       ;; (prn 'create-var/_1 (&/adt->text (->> % (&/$update-counter inc))))
-                                       ;; (prn 'create-var/_2 (&/adt->text (->> %
-                                       ;;                                       (&/$update-counter inc)
-                                       ;;                                       (&/$update-mappings (fn [ms] (&/|put id &/None$ ms))))))
-                                       (->> %
-                                            (&/$update-counter inc)
-                                            (&/$update-mappings (fn [ms] (&/|put id &/None$ ms)))))
-                                    state)
+    (let [id (->> state (&/get$ &/$type-vars) (&/get$ &/$counter))]
+      (return* (&/update$ &/$type-vars #(->> %
+                                             (&/update$ &/$counter inc)
+                                             (&/update$ &/$mappings (fn [ms] (&/|put id (&/V &/$None nil) ms))))
+                          state)
                id))))
 
 (def existential
   (|do [seed &/gen-id]
-    (return (&/S &/$ExT seed))))
+    (return (&/V &/$ExT seed))))
 
 (declare clean*)
 (defn ^:private delete-var [id]
@@ -393,19 +390,19 @@
                                        (|case ?type*
                                          (&/$VarT ?id*)
                                          (if (.equals ^Object id ?id*)
-                                           (return (&/P ?id &/None$))
+                                           (return (&/T ?id (&/V &/$None nil)))
                                            (return binding))
 
                                          _
                                          (|do [?type** (clean* id ?type*)]
-                                           (return (&/P ?id (&/Some$ ?type**)))))
+                                           (return (&/T ?id (&/V &/$Some ?type**)))))
                                        ))))
-                               (->> state (&/$get-type-vars) (&/$get-mappings)))]
+                               (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings)))]
          (fn [state]
-           (return* (&/$update-type-vars #(->> %
-                                               (&/$update-counter dec)
-                                               (&/$set-mappings (&/|remove id mappings*)))
-                                         state)
+           (return* (&/update$ &/$type-vars #(->> %
+                                                  (&/update$ &/$counter dec)
+                                                  (&/set$ &/$mappings (&/|remove id mappings*)))
+                               state)
                     nil)))
        state))))
 
@@ -438,15 +435,13 @@
           =param (clean* ?tid ?param)]
       (return (App$ =lambda =param)))
 
-    (&/$SumT ?left ?right)
-    (|do [=left (clean* ?tid ?left)
-          =right (clean* ?tid ?right)]
-      (return (Sum$ =left =right)))
-
-    (&/$ProdT ?left ?right)
-    (|do [=left (clean* ?tid ?left)
-          =right (clean* ?tid ?right)]
-      (return (Prod$ =left =right)))
+    (&/$TupleT ?members)
+    (|do [=members (&/map% (partial clean* ?tid) ?members)]
+      (return (Tuple$ =members)))
+    
+    (&/$VariantT ?members)
+    (|do [=members (&/map% (partial clean* ?tid) ?members)]
+      (return (Variant$ =members)))
 
     (&/$AllT ?env ?name ?arg ?body)
     (|do [=env (|case ?env
@@ -456,9 +451,9 @@
                  (&/$Some ?env*)
                  (|do [clean-env (&/map% (fn [[k v]]
                                            (|do [=v (clean* ?tid v)]
-                                             (return (&/P k =v))))
+                                             (return (&/T k =v))))
                                          ?env*)]
-                   (return (&/Some$ clean-env))))
+                   (return (&/V &/$Some clean-env))))
           body* (clean* ?tid ?body)]
       (return (All$ =env ?name ?arg body*)))
 
@@ -478,36 +473,37 @@
   (|case type
     (&/$LambdaT ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
-      (&/P ??out (&/Cons$ ?in ?args)))
+      (&/T ??out (&/|cons ?in ?args)))
 
     _
-    (&/P type (&/|list))))
+    (&/T type (&/|list))))
 
 (defn ^:private unravel-app [fun-type]
   (|case fun-type
     (&/$AppT ?left ?right)
     (|let [[?fun-type ?args] (unravel-app ?left)]
-      (&/P ?fun-type (&/|++ ?args (&/|list ?right))))
+      (&/T ?fun-type (&/|++ ?args (&/|list ?right))))
 
     _
-    (&/P fun-type (&/|list))))
+    (&/T fun-type (&/|list))))
 
 (defn show-type [^objects type]
   (|case type
-    (&/$VoidT)
-    "(|)"
-
-    (&/$UnitT)
-    "(,)"
-    
     (&/$DataT name)
     (str "(^ " name ")")
     
-    (&/$ProdT left right)
-    (str "(, " (show-type left) " " (show-type right) ")")
+    (&/$TupleT elems)
+    (if (&/|empty? elems)
+      "(,)"
+      (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
-    (&/$SumT left right)
-    (str "(| " (show-type left) " " (show-type right) ")")
+    (&/$VariantT cases)
+    (if (&/|empty? cases)
+      "(|)"
+      (str "(| " (->> cases
+                      (&/|map show-type)
+                      (&/|interpose " ")
+                      (&/fold str "")) ")"))
     
     (&/$LambdaT input output)
     (|let [[?out ?ins] (unravel-fun type)]
@@ -548,22 +544,18 @@
 (defn type= [x y]
   (or (clojure.lang.Util/identical x y)
       (let [output (|case [x y]
-                     [(&/$UnitT) (&/$UnitT)]
-                     true
-
-                     [(&/$VoidT) (&/$VoidT)]
-                     true
-
                      [(&/$DataT xname) (&/$DataT yname)]
                      (.equals ^Object xname yname)
 
-                     [(&/$ProdT xleft xright) (&/$ProdT yleft yright)]
-                     (and (type= xleft yleft)
-                          (type= xright yright))
+                     [(&/$TupleT xelems) (&/$TupleT yelems)]
+                     (&/fold2 (fn [old x y] (and old (type= x y)))
+                              true
+                              xelems yelems)
 
-                     [(&/$SumT xleft xright) (&/$SumT yleft yright)]
-                     (and (type= xleft yleft)
-                          (type= xright yright))
+                     [(&/$VariantT xcases) (&/$VariantT ycases)]
+                     (&/fold2 (fn [old x y] (and old (type= x y)))
+                              true
+                              xcases ycases)
 
                      [(&/$LambdaT xinput xoutput) (&/$LambdaT yinput youtput)]
                      (and (type= xinput yinput)
@@ -615,17 +607,17 @@
   (|let [[e a] k]
     (|case fixpoints
       (&/$Nil)
-      &/None$
+      (&/V &/$None nil)
 
       (&/$Cons [[e* a*] v*] fixpoints*)
       (if (and (type= e e*)
                (type= a a*))
-        (&/Some$ v*)
+        (&/V &/$Some v*)
         (fp-get k fixpoints*))
       )))
 
 (defn ^:private fp-put [k v fixpoints]
-  (&/Cons$ (&/P k v) fixpoints))
+  (&/|cons (&/T k v) fixpoints))
 
 (defn ^:private check-error [expected actual]
   (str "[Type Checker]\nExpected: " (show-type expected)
@@ -634,11 +626,11 @@
 
 (defn beta-reduce [env type]
   (|case type
-    (&/$SumT ?left ?right)
-    (Sum$ (beta-reduce env ?left) (beta-reduce env ?right))
+    (&/$VariantT ?members)
+    (Variant$ (&/|map (partial beta-reduce env) ?members))
 
-    (&/$ProdT ?left ?right)
-    (Prod$ (beta-reduce env ?left) (beta-reduce env ?right))
+    (&/$TupleT ?members)
+    (Tuple$ (&/|map (partial beta-reduce env) ?members))
 
     (&/$AppT ?type-fn ?type-arg)
     (App$ (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
@@ -646,7 +638,7 @@
     (&/$AllT ?local-env ?local-name ?local-arg ?local-def)
     (|case ?local-env
       (&/$None)
-      (All$ (&/Some$ env) ?local-name ?local-arg ?local-def)
+      (All$ (&/V &/$Some env) ?local-name ?local-arg ?local-def)
 
       (&/$Some _)
       type)
@@ -685,7 +677,7 @@
     (apply-type ?type param)
     
     _
-    (fail (str "[Type Error] Not a type function:\n" (show-type type-fn) "\n"))))
+    (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
 
 (defn as-obj [class]
   (case class
@@ -705,35 +697,30 @@
 (def ^:private init-fixpoints (&/|list))
 
 (defn ^:private check* [class-loader fixpoints expected actual]
-  ;; (prn 'check*/_0 (&/adt->text expected) (&/adt->text actual))
-  ;; (prn 'check*/_1 (show-type expected) (show-type actual))
   (if (clojure.lang.Util/identical expected actual)
-    (return (&/P fixpoints nil))
+    (return (&/T fixpoints nil))
     (|case [expected actual]
-      [(&/$UnitT) (&/$UnitT)]
-      (return (&/P fixpoints nil))
-
       [(&/$VarT ?eid) (&/$VarT ?aid)]
       (if (.equals ^Object ?eid ?aid)
-        (return (&/P fixpoints nil))
+        (return (&/T fixpoints nil))
         (|do [ebound (fn [state]
                        (|case ((deref ?eid) state)
                          (&/$Right state* ebound)
-                         (return* state* (&/Some$ ebound))
+                         (return* state* (&/V &/$Some ebound))
 
                          (&/$Left _)
-                         (return* state &/None$)))
+                         (return* state (&/V &/$None nil))))
               abound (fn [state]
                        (|case ((deref ?aid) state)
                          (&/$Right state* abound)
-                         (return* state* (&/Some$ abound))
+                         (return* state* (&/V &/$Some abound))
 
                          (&/$Left _)
-                         (return* state &/None$)))]
+                         (return* state (&/V &/$None nil))))]
           (|case [ebound abound]
             [(&/$None _) (&/$None _)]
             (|do [_ (set-var ?eid actual)]
-              (return (&/P fixpoints nil)))
+              (return (&/T fixpoints nil)))
             
             [(&/$Some etype) (&/$None _)]
             (check* class-loader fixpoints etype actual)
@@ -748,7 +735,7 @@
       (fn [state]
         (|case ((set-var ?id actual) state)
           (&/$Right state* _)
-          (return* state* (&/P fixpoints nil))
+          (return* state* (&/T fixpoints nil))
 
           (&/$Left _)
           ((|do [bound (deref ?id)]
@@ -759,7 +746,7 @@
       (fn [state]
         (|case ((set-var ?id expected) state)
           (&/$Right state* _)
-          (return* state* (&/P fixpoints nil))
+          (return* state* (&/T fixpoints nil))
 
           (&/$Left _)
           ((|do [bound (deref ?id)]
@@ -770,9 +757,9 @@
       (fn [state]
         (|case ((|do [F1 (deref ?eid)]
                   (fn [state]
-                    (|case ((|do [F2 (deref ?aid)]
-                              (check* class-loader fixpoints (App$ F1 A1) (App$ F2 A2)))
-                            state)
+                    (|case [((|do [F2 (deref ?aid)]
+                               (check* class-loader fixpoints (App$ F1 A1) (App$ F2 A2)))
+                             state)]
                       (&/$Right state* output)
                       (return* state* output)
 
@@ -793,11 +780,11 @@
             (&/$Left _)
             ((|do [[fixpoints* _] (check* class-loader fixpoints (Var$ ?eid) (Var$ ?aid))
                    [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
-               (return (&/P fixpoints** nil)))
+               (return (&/T fixpoints** nil)))
              state))))
       ;; (|do [_ (check* class-loader fixpoints (Var$ ?eid) (Var$ ?aid))
       ;;       _ (check* class-loader fixpoints A1 A2)]
-      ;;   (return (&/P fixpoints nil)))
+      ;;   (return (&/T fixpoints nil)))
       
       [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
       (fn [state]
@@ -812,14 +799,14 @@
                  e* (apply-type F2 A1)
                  a* (apply-type F2 A2)
                  [fixpoints** _] (check* class-loader fixpoints* e* a*)]
-             (return (&/P fixpoints** nil)))
+             (return (&/T fixpoints** nil)))
            state)))
       ;; [[&/$AppT [[&/$VarT ?id] A1]] [&/$AppT [F2 A2]]]
       ;; (|do [[fixpoints* _] (check* class-loader fixpoints (Var$ ?id) F2)
       ;;       e* (apply-type F2 A1)
       ;;       a* (apply-type F2 A2)
       ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
-      ;;   (return (&/P fixpoints** nil)))
+      ;;   (return (&/T fixpoints** nil)))
       
       [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
       (fn [state]
@@ -834,22 +821,22 @@
                  e* (apply-type F1 A1)
                  a* (apply-type F1 A2)
                  [fixpoints** _] (check* class-loader fixpoints* e* a*)]
-             (return (&/P fixpoints** nil)))
+             (return (&/T fixpoints** nil)))
            state)))
       ;; [[&/$AppT [F1 A1]] [&/$AppT [[&/$VarT ?id] A2]]]
       ;; (|do [[fixpoints* _] (check* class-loader fixpoints F1 (Var$ ?id))
       ;;       e* (apply-type F1 A1)
       ;;       a* (apply-type F1 A2)
       ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
-      ;;   (return (&/P fixpoints** nil)))
+      ;;   (return (&/T fixpoints** nil)))
 
       [(&/$AppT F A) _]
-      (let [fp-pair (&/P expected actual)
+      (let [fp-pair (&/T expected actual)
             _ (when (> (&/|length fixpoints) 40)
                 (println 'FIXPOINTS (->> (&/|keys fixpoints)
                                          (&/|map (fn [pair]
                                                    (|let [[e a] pair]
-                                                     (str (show-type e) " :+: "
+                                                     (str (show-type e) ":+:"
                                                           (show-type a)))))
                                          (&/|interpose "\n\n")
                                          (&/fold str "")))
@@ -857,7 +844,7 @@
         (|case (fp-get fp-pair fixpoints)
           (&/$Some ?)
           (if ?
-            (return (&/P fixpoints nil))
+            (return (&/T fixpoints nil))
             (fail (check-error expected actual)))
 
           (&/$None)
@@ -883,33 +870,39 @@
       [(&/$DataT e!name) (&/$DataT "null")]
       (if (contains? primitive-types e!name)
         (fail (str "[Type Error] Can't use \"null\" with primitive types."))
-        (return (&/P fixpoints nil)))
+        (return (&/T fixpoints nil)))
 
       [(&/$DataT e!name) (&/$DataT a!name)]
       (let [e!name (as-obj e!name)
             a!name (as-obj a!name)]
         (if (or (.equals ^Object e!name a!name)
                 (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader)))
-          (return (&/P fixpoints nil))
+          (return (&/T fixpoints nil))
           (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name))))
 
       [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
       (|do [[fixpoints* _] (check* class-loader fixpoints aI eI)]
         (check* class-loader fixpoints* eO aO))
 
-      [(&/$ProdT e!left e!right) (&/$ProdT a!left a!right)]
-      (|do [[fixpoints* _] (check* class-loader fixpoints e!left a!left)
-            [fixpoints** _] (check* class-loader fixpoints* e!right a!right)]
-        (return (&/P fixpoints** nil)))
+      [(&/$TupleT e!members) (&/$TupleT a!members)]
+      (|do [fixpoints* (&/fold2% (fn [fp e a]
+                                   (|do [[fp* _] (check* class-loader fp e a)]
+                                     (return fp*)))
+                                 fixpoints
+                                 e!members a!members)]
+        (return (&/T fixpoints* nil)))
       
-      [(&/$SumT e!left e!right) (&/$SumT a!left a!right)]
-      (|do [[fixpoints* _] (check* class-loader fixpoints e!left a!left)
-            [fixpoints** _] (check* class-loader fixpoints* e!right a!right)]
-        (return (&/P fixpoints** nil)))
+      [(&/$VariantT e!cases) (&/$VariantT a!cases)]
+      (|do [fixpoints* (&/fold2% (fn [fp e a]
+                                   (|do [[fp* _] (check* class-loader fp e a)]
+                                     (return fp*)))
+                                 fixpoints
+                                 e!cases a!cases)]
+        (return (&/T fixpoints* nil)))
 
       [(&/$ExT e!id) (&/$ExT a!id)]
       (if (.equals ^Object e!id a!id)
-        (return (&/P fixpoints nil))
+        (return (&/T fixpoints nil))
         (fail (check-error expected actual)))
 
       [(&/$NamedT ?ename ?etype) _]
@@ -917,9 +910,6 @@
 
       [_ (&/$NamedT ?aname ?atype)]
       (check* class-loader fixpoints expected ?atype)
-
-      [_ (&/$VoidT)]
-      (return (&/P fixpoints nil))
 
       [_ _]
       (fail (check-error expected actual))
@@ -947,7 +937,7 @@
     (apply-lambda ?type param)
 
     _
-    (fail (str "[Type Error] Not a function type:\n" (show-type func) "\n"))
+    (fail (str "[Type System] Not a function type:\n" (show-type func) "\n"))
     ))
 
 (defn actual-type [type]
@@ -968,31 +958,20 @@
     ))
 
 (defn variant-case [tag type]
-  ;; (prn 'variant-case tag (show-type type))
   (|case type
     (&/$NamedT ?name ?type)
     (variant-case tag ?type)
     
-    (&/$SumT ?left ?right)
-    (case tag
-      0
-      (return ?left)
+    (&/$VariantT ?cases)
+    (|case (&/|at tag ?cases)
+      (&/$Some case-type)
+      (return case-type)
 
-      1
-      (|case ?right
-        (&/$SumT ?left* _)
-        (return ?left*)
-
-        _
-        (return ?right))
-
-      ;; else
-      (variant-case (dec tag) ?right))
+      (&/$None)
+      (fail (str "[Type Error] Variant lacks case: " tag " | " (show-type type))))
 
     _
-    (fail (str "[Type Error] Type is not a variant: " (show-type type)))
-    ;; (assert false (str "[Type Error] Type is not a variant: " (show-type type)))
-    ))
+    (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
 
 (defn type-name [type]
   "(-> Type (Lux Ident))"

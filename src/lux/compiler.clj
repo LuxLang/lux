@@ -39,12 +39,8 @@
 
 ;; [Utils/Compilers]
 (defn ^:private compile-expression [syntax]
-  ;; (prn 'compile-expression (&/adt->text syntax))
   (|let [[?form ?type] syntax]
     (|case ?form
-      (&a/$unit)
-      (&&lux/compile-unit compile-expression ?type)
-      
       (&a/$bool ?value)
       (&&lux/compile-bool compile-expression ?type ?value)
 
@@ -60,11 +56,8 @@
       (&a/$text ?value)
       (&&lux/compile-text compile-expression ?type ?value)
 
-      (&a/$prod left right)
-      (&&lux/compile-prod compile-expression ?type left right)
-
-      (&a/$sum tag value)
-      (&&lux/compile-sum compile-expression ?type tag value)
+      (&a/$tuple ?elems)
+      (&&lux/compile-tuple compile-expression ?type ?elems)
 
       (&a/$var (&/$Local ?idx))
       (&&lux/compile-local compile-expression ?type ?idx)
@@ -77,6 +70,9 @@
 
       (&a/$apply ?fn ?args)
       (&&lux/compile-apply compile-expression ?type ?fn ?args)
+
+      (&a/$variant ?tag ?members)
+      (&&lux/compile-variant compile-expression ?type ?tag ?members)
 
       (&a/$case ?value ?match)
       (&&case/compile-case compile-expression ?type ?value ?match)
@@ -428,7 +424,7 @@
                 (fn [state]
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
-                          (&/$set-source (&reader/from file-name file-content) state))
+                          (&/set$ &/$source (&reader/from file-name file-content) state))
                     (&/$Right ?state _)
                     (&/run-state (|do [defs &a-module/defs
                                        imports &a-module/imports
@@ -475,7 +471,7 @@
 ;; [Resources]
 (defn compile-program [program-module]
   (init!)
-  (|case ((&/map% compile-module (&/|list &/prelude-name program-module)) (&/init-state nil))
+  (|case ((&/map% compile-module (&/|list "lux" program-module)) (&/init-state nil))
     (&/$Right ?state _)
     (do (println "Compilation complete!")
       (&&cache/clean ?state)
