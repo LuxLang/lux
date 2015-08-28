@@ -60,18 +60,12 @@
 
     (&/$AllT ?env ?name ?arg ?body)
     (variant$ &/$AllT
-              (tuple$ (&/|list (|case ?env
-                                 (&/$None)
-                                 (variant$ &/$None (tuple$ (&/|list)))
-
-                                 (&/$Some ??env)
-                                 (variant$ &/$Some
-                                           (&/fold (fn [tail head]
-                                                     (|let [[hlabel htype] head]
-                                                       (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                                              tail)))
-                                                   $Nil
-                                                   (&/|reverse ??env))))
+              (tuple$ (&/|list (&/fold (fn [tail head]
+                                         (|let [[hlabel htype] head]
+                                           (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
+                                                  tail)))
+                                       $Nil
+                                       (&/|reverse ?env))
                                (text$ ?name)
                                (text$ ?arg)
                                (->analysis ?body))))

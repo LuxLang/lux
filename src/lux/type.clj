@@ -23,8 +23,7 @@
     _
     false))
 
-(def ^:private empty-env (&/V &/$Some (&/V &/$Nil nil)))
-(def ^:private no-env (&/V &/$None nil))
+(def ^:private empty-env (&/V &/$Nil nil))
 (defn Data$ [name]
   (&/V &/$DataT name))
 (defn Bound$ [name]
@@ -106,7 +105,7 @@
                                    ;; ExT
                                    Int
                                    ;; AllT
-                                   (Tuple$ (&/|list (App$ Maybe TypeEnv) Text Text Type))
+                                   (Tuple$ (&/|list TypeEnv Text Text Type))
                                    ;; AppT
                                    TypePair
                                    ;; NamedT
@@ -117,7 +116,7 @@
 (def Bindings
   (Named$ (&/T "lux" "Bindings")
           (All$ empty-env "lux;Bindings" "k"
-                (All$ no-env "" "v"
+                (All$ empty-env "" "v"
                       (Tuple$ (&/|list
                                ;; "lux;counter"
                                Int
@@ -131,7 +130,7 @@
           (let [bindings (App$ (App$ Bindings (Bound$ "k"))
                                (Bound$ "v"))]
             (All$ empty-env "lux;Env" "k"
-                  (All$ no-env "" "v"
+                  (All$ empty-env "" "v"
                         (Tuple$
                          (&/|list
                           ;; "lux;name"
@@ -151,7 +150,7 @@
 (def Meta
   (Named$ (&/T "lux" "Meta")
           (All$ empty-env "lux;Meta" "m"
-                (All$ no-env "" "v"
+                (All$ empty-env "" "v"
                       (Variant$ (&/|list
                                  ;; &/$Meta
                                  (Tuple$ (&/|list (Bound$ "m")
@@ -197,7 +196,7 @@
 (def Either
   (Named$ (&/T "lux" "Either")
           (All$ empty-env "lux;Either" "l"
-                (All$ no-env "" "r"
+                (All$ empty-env "" "r"
                       (Variant$ (&/|list
                                  ;; &/$Left
                                  (Bound$ "l")
@@ -206,7 +205,7 @@
 
 (def StateE
   (All$ empty-env "lux;StateE" "s"
-        (All$ no-env "" "a"
+        (All$ empty-env "" "a"
               (Lambda$ (Bound$ "s")
                        (App$ (App$ Either Text)
                              (Tuple$ (&/|list (Bound$ "s")
@@ -441,16 +440,10 @@
       (return (Variant$ =members)))
 
     (&/$AllT ?env ?name ?arg ?body)
-    (|do [=env (|case ?env
-                 (&/$None)
-                 (return ?env)
-
-                 (&/$Some ?env*)
-                 (|do [clean-env (&/map% (fn [[k v]]
-                                           (|do [=v (clean* ?tid v)]
-                                             (return (&/T k =v))))
-                                         ?env*)]
-                   (return (&/V &/$Some clean-env))))
+    (|do [=env (&/map% (fn [[k v]]
+                         (|do [=v (clean* ?tid v)]
+                           (return (&/T k =v))))
+                       ?env)
           body* (clean* ?tid ?body)]
       (return (All$ =env ?name ?arg body*)))
 
@@ -634,10 +627,10 @@
 
     (&/$AllT ?local-env ?local-name ?local-arg ?local-def)
     (|case ?local-env
-      (&/$None)
-      (All$ (&/V &/$Some env) ?local-name ?local-arg ?local-def)
+      (&/$Nil)
+      (All$ env ?local-name ?local-arg ?local-def)
 
-      (&/$Some _)
+      _
       type)
 
     (&/$LambdaT ?input ?output)
@@ -655,16 +648,10 @@
 (defn apply-type [type-fn param]
   (|case type-fn
     (&/$AllT local-env local-name local-arg local-def)
-    (let [local-env* (|case local-env
-                       (&/$None)
-                       (&/|table)
-
-                       (&/$Some local-env*)
-                       local-env*)]
-      (return (beta-reduce (->> local-env*
-                                (&/|put local-name type-fn)
-                                (&/|put local-arg param))
-                           local-def)))
+    (return (beta-reduce (->> local-env
+                              (&/|put local-name type-fn)
+                              (&/|put local-arg param))
+                         local-def))
 
     (&/$AppT F A)
     (|do [type-fn* (apply-type F A)]
