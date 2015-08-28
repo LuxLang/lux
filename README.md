@@ -36,7 +36,7 @@ Then, you can run the program like this:
 
 ### What's the license?
 
-Eclipse Public License v1.0
+Mozilla Public License v2.0
 
 ## What's interesting about the language?
 
