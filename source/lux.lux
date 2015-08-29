@@ -160,6 +160,7 @@
   (#NamedT ["lux" "Cursor"]
            (#TupleT (#Cons Text (#Cons Int (#Cons Int #Nil))))))
 (_lux_export Cursor)
+(_lux_declare-tags [#module #line #column] Cursor)
 
 ## (deftype (Meta m v)
 ##   (| (#Meta m v)))
@@ -785,8 +786,8 @@
     (#Meta _ (#RecordS pairs))
     (record$ (map (_lux_: (->' (#TupleT (#Cons AST (#Cons AST #Nil))) (#TupleT (#Cons AST (#Cons AST #Nil))))
                           (lambda'' [pair]
-                               (let'' [name val] pair
-                                      [name (update-bounds val)])))
+                                    (let'' [name val] pair
+                                           [name (update-bounds val)])))
                   pairs))
 
     (#Meta _ (#FormS (#Cons (#Meta _ (#TagS "lux" "BoundT")) (#Cons (#Meta _ (#IntS idx)) #Nil))))
@@ -931,8 +932,8 @@
 (def''' (as-pairs xs)
   (All' [a] (->' ($' List a) ($' List (#TupleT (list a a)))))
   (_lux_case xs
-    (#Cons [x (#Cons [y xs'])])
-    (#Cons [[x y] (as-pairs xs')])
+    (#Cons x (#Cons y xs'))
+    (#Cons [x y] (as-pairs xs'))
 
     _
     #Nil))
@@ -3224,3 +3225,39 @@
 
 (defmacro #export (export tokens)
   (return (map (lambda [token] (` (_lux_export (~ token)))) tokens)))
+
+(defmacro #export (\slots tokens)
+  (case tokens
+    (\ (list body (#Meta _ (#TupleS (list& hslot' tslots')))))
+    (do Lux/Monad
+      [slots (: (Lux (, Ident (List Ident)))
+                (case (: (Maybe (, Ident (List Ident)))
+                         (do Maybe/Monad
+                           [hslot (get-ident hslot')
+                            tslots (map% Maybe/Monad get-ident tslots')]
+                           (wrap [hslot tslots])))
+                  (#Some slots)
+                  (return slots)
+                  
+                  #None
+                  (fail "Wrong syntax for \\slots")))
+       #let [[hslot tslots] slots]
+       hslot (normalize hslot)
+       tslots (map% Lux/Monad normalize tslots)
+       output (resolve-tag hslot)
+       g!_ (gensym "_")
+       #let [[idx tags type] output
+             slot-pairings (map (: (-> Ident (, Text AST))
+                                   (lambda [[module name]] [name (symbol$ ["" name])]))
+                                (list& hslot tslots))
+             pattern (record$ (map (: (-> Ident (, AST AST))
+                                      (lambda [[module name]]
+                                        (let [tag (tag$ [module name])]
+                                          (case (get name slot-pairings)
+                                            (#Some binding) [tag binding]
+                                            #None           [tag g!_]))))
+                                   tags))]]
+      (return (list pattern body)))
+    
+    _
+    (fail "Wrong syntax for \\slots")))

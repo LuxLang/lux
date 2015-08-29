@@ -12,4 +12,4 @@
   (let [file (new java.io.File path)]
     (if (.exists file)
       (return (slurp file))
-      (fail (str "[I/O] File doesn't exist: " path)))))
+      (fail (str "[I/O Error] File doesn't exist: " path)))))
