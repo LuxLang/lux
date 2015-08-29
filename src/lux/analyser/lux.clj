@@ -26,11 +26,6 @@
             =type (&type/clean $var ?type)]
         (return (&/T ?item =type))))))
 
-(defn ^:private with-cursor [cursor form]
-  (|case form
-    (&/$Meta _ syntax)
-    (&/V &/$Meta (&/T cursor syntax))))
-
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
   (|do [exo-type* (&type/actual-type exo-type)]
@@ -275,7 +270,6 @@
             (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (&/ident->text real-name))]
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
-                  ;; :let [macro-expansion* (&/|map (partial with-cursor form-cursor) macro-expansion)]
                   ;; :let [_ (when (or (= "defsig" (aget real-name 1))
                   ;;                   ;; (= "type" (aget real-name 1))
                   ;;                   ;; (= &&/$struct r-name)

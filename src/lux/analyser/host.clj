@@ -17,7 +17,7 @@
 ;; [Utils]
 (defn ^:private extract-text [text]
   (|case text
-    (&/$Meta _ (&/$TextS ?text))
+    [_ (&/$TextS ?text)]
     (return ?text)
 
     _
@@ -221,28 +221,28 @@
 (defn ^:private analyse-modifiers [modifiers]
   (&/fold% (fn [so-far modif]
              (|case modif
-               (&/$Meta _ (&/$TextS "public"))
+               [_ (&/$TextS "public")]
                (return (assoc so-far :visibility "public"))
 
-               (&/$Meta _ (&/$TextS "private"))
+               [_ (&/$TextS "private")]
                (return (assoc so-far :visibility "private"))
 
-               (&/$Meta _ (&/$TextS "protected"))
+               [_ (&/$TextS "protected")]
                (return (assoc so-far :visibility "protected"))
 
-               (&/$Meta _ (&/$TextS "static"))
+               [_ (&/$TextS "static")]
                (return (assoc so-far :static? true))
 
-               (&/$Meta _ (&/$TextS "final"))
+               [_ (&/$TextS "final")]
                (return (assoc so-far :final? true))
 
-               (&/$Meta _ (&/$TextS "abstract"))
+               [_ (&/$TextS "abstract")]
                (return (assoc so-far :abstract? true))
 
-               (&/$Meta _ (&/$TextS "synchronized"))
+               [_ (&/$TextS "synchronized")]
                (return (assoc so-far :concurrency "synchronized"))
 
-               (&/$Meta _ (&/$TextS "volatile"))
+               [_ (&/$TextS "volatile")]
                (return (assoc so-far :concurrency "volatile"))
 
                _
@@ -272,10 +272,10 @@
   (|do [=interfaces (&/map% extract-text ?interfaces)
         =fields (&/map% (fn [?field]
                           (|case ?field
-                            (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$TextS ?field-name))
-                                                        (&/$Cons (&/$Meta _ (&/$TextS ?field-type))
-                                                         (&/$Cons (&/$Meta _ (&/$TupleS ?field-modifiers))
-                                                          (&/$Nil))))))
+                            [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
+                                                  (&/$Cons [_ (&/$TextS ?field-type)]
+                                                           (&/$Cons [_ (&/$TupleS ?field-modifiers)]
+                                                                    (&/$Nil)))))]
                             (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
                               (return {:name ?field-name
                                        :modifiers =field-modifiers
@@ -286,17 +286,17 @@
                         ?fields)
         =methods (&/map% (fn [?method]
                            (|case ?method
-                             [?idx (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$TextS ?method-name))
-                                                               (&/$Cons (&/$Meta _ (&/$TupleS ?method-inputs))
-                                                                (&/$Cons (&/$Meta _ (&/$TextS ?method-output))
-                                                                 (&/$Cons (&/$Meta _ (&/$TupleS ?method-modifiers))
-                                                                  (&/$Cons ?method-body
-                                                                   (&/$Nil))))))))]
+                             [?idx [_ (&/$FormS (&/$Cons [_ (&/$TextS ?method-name)]
+                                                         (&/$Cons [_ (&/$TupleS ?method-inputs)]
+                                                                  (&/$Cons [_ (&/$TextS ?method-output)]
+                                                                           (&/$Cons [_ (&/$TupleS ?method-modifiers)]
+                                                                                    (&/$Cons ?method-body
+                                                                                             (&/$Nil)))))))]]
                              (|do [=method-inputs (&/map% (fn [minput]
                                                             (|case minput
-                                                              (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$SymbolS "" ?input-name))
-                                                                                          (&/$Cons (&/$Meta _ (&/$TextS ?input-type))
-                                                                                           (&/$Nil)))))
+                                                              [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" ?input-name)]
+                                                                                    (&/$Cons [_ (&/$TextS ?input-type)]
+                                                                                             (&/$Nil))))]
                                                               (return (&/T ?input-name ?input-type))
 
                                                               _
@@ -331,11 +331,11 @@
   (|do [=supers (&/map% extract-text ?supers)
         =methods (&/map% (fn [method]
                            (|case method
-                             (&/$Meta _ (&/$FormS (&/$Cons (&/$Meta _ (&/$TextS ?method-name))
-                                                         (&/$Cons (&/$Meta _ (&/$TupleS ?inputs))
-                                                          (&/$Cons (&/$Meta _ (&/$TextS ?output))
-                                                           (&/$Cons (&/$Meta _ (&/$TupleS ?modifiers))
-                                                            (&/$Nil)))))))
+                             [_ (&/$FormS (&/$Cons [_ (&/$TextS ?method-name)]
+                                                   (&/$Cons [_ (&/$TupleS ?inputs)]
+                                                            (&/$Cons [_ (&/$TextS ?output)]
+                                                                     (&/$Cons [_ (&/$TupleS ?modifiers)]
+                                                                              (&/$Nil))))))]
                              (|do [=inputs (&/map% extract-text ?inputs)
                                    =modifiers (analyse-modifiers ?modifiers)]
                                (return {:name ?method-name
@@ -361,7 +361,7 @@
         =finally (|case [?finally]
                    (&/$None)           (return (&/V &/$None nil))
                    (&/$Some ?finally*) (|do [=finally (analyse-1+ analyse ?finally*)]
-                                            (return (&/V &/$Some =finally))))]
+                                         (return (&/V &/$Some =finally))))]
     (return (&/|list (&/T (&/V &&/$jvm-try (&/T =body =catches =finally)) exo-type)))))
 
 (defn analyse-jvm-throw [analyse exo-type ?ex]

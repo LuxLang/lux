@@ -23,10 +23,6 @@
   "None"
   "Some")
 
-;; Meta
-(deftags ""
-  "Meta")
-
 ;; Either
 (deftags ""
   "Left"
@@ -768,40 +764,40 @@
 (defn show-ast [ast]
   ;; (prn 'show-ast/GOOD (aget ast 0) (aget ast 1 1 0))
   (|case ast
-    ($Meta _ ($BoolS ?value))
+    [_ ($BoolS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($IntS ?value))
+    [_ ($IntS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($RealS ?value))
+    [_ ($RealS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($CharS ?value))
+    [_ ($CharS ?value)]
     (pr-str ?value)
 
-    ($Meta _ ($TextS ?value))
+    [_ ($TextS ?value)]
     (str "\"" ?value "\"")
 
-    ($Meta _ ($TagS ?module ?tag))
+    [_ ($TagS ?module ?tag)]
     (str "#" ?module ";" ?tag)
 
-    ($Meta _ ($SymbolS ?module ?name))
+    [_ ($SymbolS ?module ?name)]
     (if (.equals "" ?module)
       ?name
       (str ?module ";" ?name))
 
-    ($Meta _ ($TupleS ?elems))
+    [_ ($TupleS ?elems)]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    ($Meta _ ($RecordS ?elems))
+    [_ ($RecordS ?elems)]
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
                             (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
-    ($Meta _ ($FormS ?elems))
+    [_ ($FormS ?elems)]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
 
     _

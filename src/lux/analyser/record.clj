@@ -133,7 +133,7 @@
                     (&/$Nil)
                     (return (&/|list))
                     
-                    (&/$Cons [(&/$Meta _ (&/$TagS tag1)) _] _)
+                    (&/$Cons [[_ (&/$TagS tag1)] _] _)
                     (|do [[module name] (&&/resolved-ident tag1)]
                       (&&module/tag-group module name))
 
@@ -141,7 +141,7 @@
                     (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags."))
         =pairs (&/map% (fn [kv]
                          (|case kv
-                           [(&/$Meta _ (&/$TagS k)) v]
+                           [[_ (&/$TagS k)] v]
                            (|do [=k (&&/resolved-ident k)]
                              (return (&/T (&/ident->text =k) v)))
 

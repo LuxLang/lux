@@ -39,7 +39,7 @@
 
 ;; [Utils]
 (def ^:private unit
-  (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS (&/|list)))))
+  (&/T (&/T "" -1 -1) (&/V &/$TupleS (&/|list))))
 
 (defn ^:private resolve-type [type]
   (|case type
@@ -126,7 +126,7 @@
   (adjust-type* (&/|list) type))
 
 (defn ^:private analyse-pattern [value-type pattern kont]
-  (|let [(&/$Meta _ pattern*) pattern]
+  (|let [[_ pattern*] pattern]
     (|case pattern*
       (&/$SymbolS "" name)
       (|do [=kont (&env/with-local name value-type
@@ -221,7 +221,7 @@
             ]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
-      (&/$FormS (&/$Cons (&/$Meta _ (&/$TagS ?ident))
+      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
                          ?values))
       (|do [;; :let [_ (println "#10" (&/ident->text ?ident))]
             [=module =name] (&&/resolved-ident ?ident)
@@ -237,7 +237,7 @@
                             0 (analyse-pattern case-type unit kont)
                             1 (analyse-pattern case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern case-type (&/V &/$Meta (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values))) kont))
+                            (analyse-pattern case-type (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values)) kont))
             ;; :let [_ (println "#15")]
             ]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))

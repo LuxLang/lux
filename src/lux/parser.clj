@@ -35,7 +35,7 @@
     (|do [elems (&/repeat% parse)
           token &lexer/lex]
       (|case token
-        (&/$Meta meta [<close-token> _])
+        [meta [<close-token> _]]
         (return (&/V <tag> (&/fold &/|++ (&/|list) elems)))
         
         _
@@ -50,7 +50,7 @@
         token &lexer/lex
         :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (|case token
-      (&/$Meta meta ($Close_Brace _))
+      [meta ($Close_Brace _)]
       (if (even? (&/|length elems))
         (return (&/V &/$RecordS (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
@@ -61,7 +61,7 @@
 ;; [Interface]
 (def parse
   (|do [token &lexer/lex
-        :let [(&/$Meta meta token*) token]]
+        :let [[meta token*] token]]
     (|case token*
       ($White_Space _)
       (return (&/|list))
@@ -70,37 +70,37 @@
       (return (&/|list))
       
       ($Bool ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value))))))
+      (return (&/|list (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value)))))
 
       ($Int ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$IntS (Long/parseLong ?value))))))
+      (return (&/|list (&/T meta (&/V &/$IntS (Long/parseLong ?value)))))
 
       ($Real ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$RealS (Double/parseDouble ?value))))))
+      (return (&/|list (&/T meta (&/V &/$RealS (Double/parseDouble ?value)))))
 
       ($Char ^String ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$CharS (.charAt ?value 0))))))
+      (return (&/|list (&/T meta (&/V &/$CharS (.charAt ?value 0)))))
 
       ($Text ?value)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$TextS ?value)))))
+      (return (&/|list (&/T meta (&/V &/$TextS ?value))))
 
       ($Symbol ?ident)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$SymbolS ?ident)))))
+      (return (&/|list (&/T meta (&/V &/$SymbolS ?ident))))
 
       ($Tag ?ident)
-      (return (&/|list (&/V &/$Meta (&/T meta (&/V &/$TagS ?ident)))))
+      (return (&/|list (&/T meta (&/V &/$TagS ?ident))))
 
       ($Open_Paren _)
       (|do [syntax (parse-form parse)]
-        (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
+        (return (&/|list (&/T meta syntax))))
       
       ($Open_Bracket _)
       (|do [syntax (parse-tuple parse)]
-        (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
+        (return (&/|list (&/T meta syntax))))
 
       ($Open_Brace _)
       (|do [syntax (parse-record parse)]
-        (return (&/|list (&/V &/$Meta (&/T meta syntax)))))
+        (return (&/|list (&/T meta syntax))))
 
       _
       (fail "[Parser Error] Unknown lexer token.")

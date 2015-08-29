@@ -150,10 +150,8 @@
   (Named$ (&/T "lux" "Meta")
           (Univ$ empty-env
                  (Univ$ empty-env
-                        (Variant$ (&/|list
-                                   ;; &/$Meta
-                                   (Tuple$ (&/|list (Bound$ 3)
-                                                    (Bound$ 1)))))))))
+                        (Tuple$ (&/|list (Bound$ 3)
+                                         (Bound$ 1)))))))
 
 (def AST*
   (Named$ (&/T "lux" "AST'")
@@ -520,6 +518,10 @@
 (defn type= [x y]
   (or (clojure.lang.Util/identical x y)
       (let [output (|case [x y]
+                     [(&/$NamedT [?xmodule ?xname] ?xtype) (&/$NamedT [?ymodule ?yname] ?ytype)]
+                     (and (= ?xmodule ?ymodule)
+                          (= ?xname ?yname))
+
                      [(&/$DataT xname) (&/$DataT yname)]
                      (.equals ^Object xname yname)
 

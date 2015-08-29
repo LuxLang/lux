@@ -55,12 +55,12 @@
 ;; [Lexers]
 (def ^:private lex-white-space
   (|do [[meta white-space] (&reader/read-regex #"^(\s+)")]
-    (return (&/V &/$Meta (&/T meta (&/V $White_Space white-space))))))
+    (return (&/T meta (&/V $White_Space white-space)))))
 
 (def ^:private lex-single-line-comment
   (|do [_ (&reader/read-text "##")
         [meta comment] (&reader/read-regex #"^(.*)$")]
-    (return (&/V &/$Meta (&/T meta (&/V $Comment comment))))))
+    (return (&/T meta (&/V $Comment comment)))))
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
@@ -79,7 +79,7 @@
                                               (return (&/T meta (str pre "#(" inner ")#" post))))))
         ;; :let [_ (prn 'lex-multi-line-comment (str comment ")#"))]
         _ (&reader/read-text ")#")]
-    (return (&/V &/$Meta (&/T meta (&/V $Comment comment))))))
+    (return (&/T meta (&/V $Comment comment)))))
 
 (def ^:private lex-comment
   (&/try-all% (&/|list lex-single-line-comment
@@ -88,7 +88,7 @@
 (do-template [<name> <tag> <regex>]
   (def <name>
     (|do [[meta token] (&reader/read-regex <regex>)]
-      (return (&/V &/$Meta (&/T meta (&/V <tag> token))))))
+      (return (&/T meta (&/V <tag> token)))))
 
   ^:private lex-bool  $Bool  #"^(true|false)"
   ^:private lex-int   $Int   #"^(-?0|-?[1-9][0-9]*)"
@@ -102,13 +102,13 @@
                                    (|do [[_ char] (&reader/read-regex #"^(.)")]
                                      (return char))))
         _ (&reader/read-text "\"")]
-    (return (&/V &/$Meta (&/T meta (&/V $Char token))))))
+    (return (&/T meta (&/V $Char token)))))
 
 (def ^:private lex-text
   (|do [[meta _] (&reader/read-text "\"")
         token (lex-text-body nil)
         _ (&reader/read-text "\"")]
-    (return (&/V &/$Meta (&/T meta (&/V $Text token))))))
+    (return (&/T meta (&/V $Text token)))))
 
 (def ^:private lex-ident
   (&/try-all% (&/|list (|do [[meta token] (&reader/read-regex +ident-re+)]
@@ -134,17 +134,17 @@
 
 (def ^:private lex-symbol
   (|do [[meta ident] lex-ident]
-    (return (&/V &/$Meta (&/T meta (&/V $Symbol ident))))))
+    (return (&/T meta (&/V $Symbol ident)))))
 
 (def ^:private lex-tag
   (|do [[meta _] (&reader/read-text "#")
         [_ ident] lex-ident]
-    (return (&/V &/$Meta (&/T meta (&/V $Tag ident))))))
+    (return (&/T meta (&/V $Tag ident)))))
 
 (do-template [<name> <text> <tag>]
   (def <name>
     (|do [[meta _] (&reader/read-text <text>)]
-      (return (&/V &/$Meta (&/T meta (&/V <tag> nil))))))
+      (return (&/T meta (&/V <tag> nil)))))
 
   ^:private lex-open-paren    "(" $Open_Paren
   ^:private lex-close-paren   ")" $Close_Paren
