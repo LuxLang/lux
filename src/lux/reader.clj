@@ -33,7 +33,7 @@
                  output)
 
         ($Yes output line*)
-        (return* (&/set$ &/$source (&/|cons line* more) state)
+        (return* (&/set$ &/$source (&/Cons$ line* more) state)
                  output))
       )))
 
@@ -117,7 +117,7 @@
                   column-num* (+ column-num match-length)]
               (if (= column-num* (.length line))
                 (recur (str prefix match "\n") reader**)
-                (&/V &/$Right (&/T (&/|cons (&/T (&/T file-name line-num column-num*) line)
+                (&/V &/$Right (&/T (&/Cons$ (&/T (&/T file-name line-num column-num*) line)
                                             reader**)
                                    (&/T (&/T file-name line-num column-num) (str prefix match))))))
             (&/V &/$Left (str "[Reader Error] Pattern failed: " regex))))))))

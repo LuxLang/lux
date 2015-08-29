@@ -41,7 +41,7 @@
       (return* (&/update$ &/$modules
                           (fn [ms]
                             (&/|update current-module
-                                       (fn [m] (&/update$ $imports (partial &/|cons module) m))
+                                       (fn [m] (&/update$ $imports (partial &/Cons$ module) m))
                                        ms))
                           state)
                nil))))

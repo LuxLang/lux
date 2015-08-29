@@ -48,7 +48,7 @@
                                      (fail "##9##")))]
       (resolve-type type*))
 
-    (&/$AllT _aenv _aname _aarg _abody)
+    (&/$UnivQ _)
     ;; (&type/actual-type _abody)
     (|do [$var &type/existential
           =type (&type/apply-type type $var)]
@@ -61,42 +61,46 @@
     _
     (&type/actual-type type)))
 
+(defn update-up-frame [frame]
+  (|let [[_env _idx _var] frame]
+    (&/T _env (+ 2 _idx) _var)))
+
 (defn adjust-type* [up type]
-  "(-> (List (, (Maybe (Env Text Type)) Text Text Type)) Type (Lux Type))"
+  "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
   ;; (prn 'adjust-type* (&type/show-type type))
   (|case type
-    (&/$AllT _aenv _aname _aarg _abody)
+    (&/$UnivQ _aenv _abody)
     (&type/with-var
       (fn [$var]
         (|do [=type (&type/apply-type type $var)]
-          (adjust-type* (&/|cons (&/T _aenv _aname _aarg $var) up) =type))))
+          (adjust-type* (&/Cons$ (&/T _aenv 1 $var) (&/|map update-up-frame up)) =type))))
 
     (&/$TupleT ?members)
     (|do [(&/$TupleT ?members*) (&/fold% (fn [_abody ena]
-                                           (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                           (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
                                                (&type/clean* _avar _abody))))
                                          type
                                          up)]
       (return (&type/Tuple$ (&/|map (fn [v]
                                       (&/fold (fn [_abody ena]
-                                                (|let [[_aenv _aname _aarg _avar] ena]
-                                                  (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                                (|let [[_aenv _aidx _avar] ena]
+                                                  (&/V &/$UnivQ (&/T _aenv _abody))))
                                               v
                                               up))
                                     ?members*))))
 
     (&/$VariantT ?members)
     (|do [(&/$VariantT ?members*) (&/fold% (fn [_abody ena]
-                                             (|let [[_aenv _aname _aarg (&/$VarT _avar)] ena]
-                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aarg))]
+                                             (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
                                                  (&type/clean* _avar _abody))))
                                            type
                                            up)]
       (return (&/V &/$VariantT (&/|map (fn [v]
                                          (&/fold (fn [_abody ena]
-                                                   (|let [[_aenv _aname _aarg _avar] ena]
-                                                     (&/V &/$AllT (&/T _aenv _aname _aarg _abody))))
+                                                   (|let [[_aenv _aidx _avar] ena]
+                                                     (&/V &/$UnivQ (&/T _aenv _abody))))
                                                  v
                                                  up))
                                        ?members*))))
@@ -169,7 +173,7 @@
                     (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                                    (|let [[v m] vm]
                                                      (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                                       (return (&/T (&/|cons =test =tests) =kont)))))
+                                                       (return (&/T (&/Cons$ =test =tests) =kont)))))
                                                  (|do [=kont kont]
                                                    (return (&/T (&/|list) =kont)))
                                                  (&/|reverse (&/zip2 ?member-types ?members)))]
@@ -192,7 +196,7 @@
             (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                            (|let [[v m] vm]
                                              (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                               (return (&/T (&/|cons =test =tests) =kont)))))
+                                               (return (&/T (&/Cons$ =test =tests) =kont)))))
                                          (|do [=kont kont]
                                            (return (&/T (&/|list) =kont)))
                                          (&/|reverse (&/zip2 ?member-types ?members)))]
@@ -242,7 +246,7 @@
 (defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
   (|do [pattern+body (analyse-pattern value-type pattern
                                       (&&/analyse-1 analyse exo-type body))]
-    (return (&/|cons pattern+body patterns))))
+    (return (&/Cons$ pattern+body patterns))))
 
 (let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private merge-total [struct test+body]
@@ -258,31 +262,31 @@
         (return (&/V $BoolTotal (&/T total? (&/|list ?value))))
 
         [($BoolTotal total? ?values) ($BoolTestAC ?value)]
-        (return (&/V $BoolTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/V $BoolTotal (&/T total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($IntTestAC ?value)]
         (return (&/V $IntTotal (&/T total? (&/|list ?value))))
 
         [($IntTotal total? ?values) ($IntTestAC ?value)]
-        (return (&/V $IntTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/V $IntTotal (&/T total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($RealTestAC ?value)]
         (return (&/V $RealTotal (&/T total? (&/|list ?value))))
 
         [($RealTotal total? ?values) ($RealTestAC ?value)]
-        (return (&/V $RealTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/V $RealTotal (&/T total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($CharTestAC ?value)]
         (return (&/V $CharTotal (&/T total? (&/|list ?value))))
 
         [($CharTotal total? ?values) ($CharTestAC ?value)]
-        (return (&/V $CharTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/V $CharTotal (&/T total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($TextTestAC ?value)]
         (return (&/V $TextTotal (&/T total? (&/|list ?value))))
 
         [($TextTotal total? ?values) ($TextTestAC ?value)]
-        (return (&/V $TextTotal (&/T total? (&/|cons ?value ?values))))
+        (return (&/V $TextTotal (&/T total? (&/Cons$ ?value ?values))))
 
         [($DefaultTotal total?) ($TupleTestAC ?tests)]
         (|do [structs (&/map% (fn [t]

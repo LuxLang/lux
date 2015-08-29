@@ -54,7 +54,7 @@
   "BoundT"
   "VarT"
   "ExT"
-  "AllT"
+  "UnivQ"
   "AppT"
   "NamedT")
 
@@ -285,9 +285,6 @@
           (reverse (partition 2 steps))))
 
 ;; [Resources/Combinators]
-(defn |cons [head tail]
-  (V $Cons (T head tail)))
-
 (defn |++ [xs ys]
   (|case xs
     ($Nil)
@@ -348,7 +345,7 @@
     ($Cons x xs*)
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
-        (T (|cons x pre) post))
+        (T (Cons$ x pre) post))
       (T (V $Nil nil) xs))))
 
 (defn |contains? [k table]
@@ -383,7 +380,7 @@
     (|list init)
 
     ($Cons x xs*)
-    (|cons init (folds f (f init x) xs*))))
+    (Cons$ init (folds f (f init x) xs*))))
 
 (defn |length [xs]
   (fold (fn [acc _] (inc acc)) 0 xs))
@@ -417,7 +414,7 @@
     (|list)
     
     ($Cons [k v] plist*)
-    (|cons k (|keys plist*))))
+    (Cons$ k (|keys plist*))))
 
 (defn |vals [plist]
   (|case plist
@@ -425,7 +422,7 @@
     (|list)
     
     ($Cons [k v] plist*)
-    (|cons v (|vals plist*))))
+    (Cons$ v (|vals plist*))))
 
 (defn |interpose [sep xs]
   (|case xs
@@ -449,7 +446,7 @@
             ys (<name> f xs*)]
         (return (<joiner> y ys)))))
 
-  map%      |cons
+  map%      Cons$
   flat-map% |++)
 
 (defn list-join [xss]
@@ -465,7 +462,7 @@
 
 (defn |reverse [xs]
   (fold (fn [tail head]
-          (|cons head tail))
+          (Cons$ head tail))
         (|list)
         xs))
 
@@ -501,7 +498,7 @@
 (defn repeat% [monad]
   (try-all% (|list (|do [head monad
                          tail (repeat% monad)]
-                     (return (|cons head tail)))
+                     (return (Cons$ head tail)))
                    (return (|list)))))
 
 (defn exhaust% [step]
@@ -677,11 +674,11 @@
 (defn ->list [seq]
   (if (empty? seq)
     (|list)
-    (|cons (first seq) (->list (rest seq)))))
+    (Cons$ (first seq) (->list (rest seq)))))
 
 (defn |repeat [n x]
   (if (> n 0)
-    (|cons x (|repeat (dec n) x))
+    (Cons$ x (|repeat (dec n) x))
     (|list)))
 
 (def get-module-name
@@ -707,7 +704,7 @@
 
 (defn with-scope [name body]
   (fn [state]
-    (let [output (body (update$ $envs #(|cons (env name) %) state))]
+    (let [output (body (update$ $envs #(Cons$ (env name) %) state))]
       (|case output
         ($Right state* datum)
         (return* (update$ $envs |tail state*) datum)
@@ -723,7 +720,7 @@
                        (return (->> top (get$ $inner-closures) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $envs #(|cons (update$ $inner-closures inc (|head %))
+        (run-state body* (update$ $envs #(Cons$ (update$ $inner-closures inc (|head %))
                                                 (|tail %))
                                   state))))))
 
@@ -789,10 +786,10 @@
     ($Meta _ ($TagS ?module ?tag))
     (str "#" ?module ";" ?tag)
 
-    ($Meta _ ($SymbolS ?module ?ident))
+    ($Meta _ ($SymbolS ?module ?name))
     (if (.equals "" ?module)
-      ?ident
-      (str ?module ";" ?ident))
+      ?name
+      (str ?module ";" ?name))
 
     ($Meta _ ($TupleS ?elems))
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
@@ -832,7 +829,7 @@
     [($Cons x xs*) ($Cons y ys*)]
     (|do [z (f x y)
           zs (map2% f xs* ys*)]
-      (return (|cons z zs)))
+      (return (Cons$ z zs)))
 
     [($Nil) ($Nil)]
     (return (V $Nil nil))
@@ -843,7 +840,7 @@
 (defn map2 [f xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (|cons (f x y) (map2 f xs* ys*))
+    (Cons$ (f x y) (map2 f xs* ys*))
 
     [_ _]
     (V $Nil nil)))

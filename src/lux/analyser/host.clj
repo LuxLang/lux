@@ -313,7 +313,7 @@
                                                             (&&/analyse-1 analyse (&/V &/$DataT (as-otype ?method-output)) ?method-body))
                                                           (&/|reverse (if (:static? =method-modifiers)
                                                                         =method-inputs
-                                                                        (&/|cons (&/T ";this" ?super-class)
+                                                                        (&/Cons$ (&/T ";this" ?super-class)
                                                                                  =method-inputs)))))]
                                (return {:name ?method-name
                                         :modifiers =method-modifiers

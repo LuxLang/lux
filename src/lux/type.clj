@@ -40,8 +40,8 @@
 (defn Variant$ [members]
   ;; (assert (|list? members))
   (&/V &/$VariantT members))
-(defn All$ [env name arg body]
-  (&/V &/$AllT (&/T env name arg body)))
+(defn Univ$ [env body]
+  (&/V &/$UnivQ (&/T env body)))
 (defn Named$ [name type]
   (&/V &/$NamedT (&/T name type)))
 
@@ -57,91 +57,90 @@
 
 (def IO
   (Named$ (&/T "lux/data" "IO")
-          (All$ empty-env "IO" "a"
-                (Lambda$ Unit (Bound$ "a")))))
+          (Univ$ empty-env
+                 (Lambda$ Unit (Bound$ 1)))))
 
 (def List
   (Named$ (&/T "lux" "List")
-          (All$ empty-env "lux;List" "a"
-                (Variant$ (&/|list
-                           ;; lux;Nil
-                           Unit
-                           ;; lux;Cons
-                           (Tuple$ (&/|list (Bound$ "a")
-                                            (App$ (Bound$ "lux;List")
-                                                  (Bound$ "a"))))
-                           )))))
+          (Univ$ empty-env
+                 (Variant$ (&/|list
+                            ;; lux;Nil
+                            Unit
+                            ;; lux;Cons
+                            (Tuple$ (&/|list (Bound$ 1)
+                                             (App$ (Bound$ 0)
+                                                   (Bound$ 1))))
+                            )))))
 
 (def Maybe
   (Named$ (&/T "lux" "Maybe")
-          (All$ empty-env "lux;Maybe" "a"
-                (Variant$ (&/|list
-                           ;; lux;None
-                           Unit
-                           ;; lux;Some
-                           (Bound$ "a")
-                           )))))
+          (Univ$ empty-env
+                 (Variant$ (&/|list
+                            ;; lux;None
+                            Unit
+                            ;; lux;Some
+                            (Bound$ 1)
+                            )))))
 
 (def Type
   (Named$ (&/T "lux" "Type")
-          (let [Type (App$ (Bound$ "Type") (Bound$ "_"))
+          (let [Type (App$ (Bound$ 0) (Bound$ 1))
                 TypeList (App$ List Type)
-                TypeEnv (App$ List (Tuple$ (&/|list Text Type)))
                 TypePair (Tuple$ (&/|list Type Type))]
-            (App$ (All$ empty-env "Type" "_"
-                        (Variant$ (&/|list
-                                   ;; DataT
-                                   Text
-                                   ;; VariantT
-                                   TypeList
-                                   ;; TupleT
-                                   TypeList
-                                   ;; LambdaT
-                                   TypePair
-                                   ;; BoundT
-                                   Text
-                                   ;; VarT
-                                   Int
-                                   ;; ExT
-                                   Int
-                                   ;; AllT
-                                   (Tuple$ (&/|list TypeEnv Text Text Type))
-                                   ;; AppT
-                                   TypePair
-                                   ;; NamedT
-                                   (Tuple$ (&/|list Ident Type))
-                                   )))
+            (App$ (Univ$ empty-env
+                         (Variant$ (&/|list
+                                    ;; DataT
+                                    Text
+                                    ;; VariantT
+                                    TypeList
+                                    ;; TupleT
+                                    TypeList
+                                    ;; LambdaT
+                                    TypePair
+                                    ;; BoundT
+                                    Int
+                                    ;; VarT
+                                    Int
+                                    ;; ExT
+                                    Int
+                                    ;; UnivQ
+                                    (Tuple$ (&/|list TypeList Type))
+                                    ;; AppT
+                                    TypePair
+                                    ;; NamedT
+                                    (Tuple$ (&/|list Ident Type))
+                                    )))
                   $Void))))
 
 (def Bindings
   (Named$ (&/T "lux" "Bindings")
-          (All$ empty-env "lux;Bindings" "k"
-                (All$ empty-env "" "v"
-                      (Tuple$ (&/|list
-                               ;; "lux;counter"
-                               Int
-                               ;; "lux;mappings"
-                               (App$ List
-                                     (Tuple$ (&/|list (Bound$ "k")
-                                                      (Bound$ "v"))))))))))
+          (Univ$ empty-env
+                 (Univ$ empty-env
+                        (Tuple$ (&/|list
+                                 ;; "lux;counter"
+                                 Int
+                                 ;; "lux;mappings"
+                                 (App$ List
+                                       (Tuple$ (&/|list (Bound$ 3)
+                                                        (Bound$ 1))))))))))
 
 (def Env
   (Named$ (&/T "lux" "Env")
-          (let [bindings (App$ (App$ Bindings (Bound$ "k"))
-                               (Bound$ "v"))]
-            (All$ empty-env "lux;Env" "k"
-                  (All$ empty-env "" "v"
-                        (Tuple$
-                         (&/|list
-                          ;; "lux;name"
-                          Text
-                          ;; "lux;inner-closures"
-                          Int
-                          ;; "lux;locals"
-                          bindings
-                          ;; "lux;closure"
-                          bindings
-                          )))))))
+          (let [bindings (App$ (App$ Bindings (Bound$ 3))
+                               (Bound$ 1))]
+            (Univ$ empty-env
+                   (Univ$ empty-env
+                          (Tuple$
+                           (&/|list
+                            ;; "lux;name"
+                            Text
+                            ;; "lux;inner-closures"
+                            Int
+                            ;; "lux;locals"
+                            bindings
+                            ;; "lux;closure"
+                            bindings
+                            )))))))
 
 (def Cursor
   (Named$ (&/T "lux" "Cursor")
@@ -149,42 +148,42 @@
 
 (def Meta
   (Named$ (&/T "lux" "Meta")
-          (All$ empty-env "lux;Meta" "m"
-                (All$ empty-env "" "v"
-                      (Variant$ (&/|list
-                                 ;; &/$Meta
-                                 (Tuple$ (&/|list (Bound$ "m")
-                                                  (Bound$ "v")))))))))
+          (Univ$ empty-env
+                 (Univ$ empty-env
+                        (Variant$ (&/|list
+                                   ;; &/$Meta
+                                   (Tuple$ (&/|list (Bound$ 3)
+                                                    (Bound$ 1)))))))))
 
 (def AST*
   (Named$ (&/T "lux" "AST'")
-          (let [AST* (App$ (Bound$ "w")
-                           (App$ (Bound$ "lux;AST'")
-                                 (Bound$ "w")))
+          (let [AST* (App$ (Bound$ 1)
+                           (App$ (Bound$ 0)
+                                 (Bound$ 1)))
                 AST*List (App$ List AST*)]
-            (All$ empty-env "lux;AST'" "w"
-                  (Variant$ (&/|list
-                             ;; &/$BoolS
-                             Bool
-                             ;; &/$IntS
-                             Int
-                             ;; &/$RealS
-                             Real
-                             ;; &/$CharS
-                             Char
-                             ;; &/$TextS
-                             Text
-                             ;; &/$SymbolS
-                             Ident
-                             ;; &/$TagS
-                             Ident
-                             ;; &/$FormS
-                             AST*List
-                             ;; &/$TupleS
-                             AST*List
-                             ;; &/$RecordS
-                             (App$ List (Tuple$ (&/|list AST* AST*))))
-                            )))))
+            (Univ$ empty-env
+                   (Variant$ (&/|list
+                              ;; &/$BoolS
+                              Bool
+                              ;; &/$IntS
+                              Int
+                              ;; &/$RealS
+                              Real
+                              ;; &/$CharS
+                              Char
+                              ;; &/$TextS
+                              Text
+                              ;; &/$SymbolS
+                              Ident
+                              ;; &/$TagS
+                              Ident
+                              ;; &/$FormS
+                              AST*List
+                              ;; &/$TupleS
+                              AST*List
+                              ;; &/$RecordS
+                              (App$ List (Tuple$ (&/|list AST* AST*))))
+                             )))))
 
 (def AST
   (Named$ (&/T "lux" "AST")
@@ -195,21 +194,21 @@
 
 (def Either
   (Named$ (&/T "lux" "Either")
-          (All$ empty-env "lux;Either" "l"
-                (All$ empty-env "" "r"
-                      (Variant$ (&/|list
-                                 ;; &/$Left
-                                 (Bound$ "l")
-                                 ;; &/$Right
-                                 (Bound$ "r")))))))
+          (Univ$ empty-env
+                 (Univ$ empty-env
+                        (Variant$ (&/|list
+                                   ;; &/$Left
+                                   (Bound$ 3)
+                                   ;; &/$Right
+                                   (Bound$ 1)))))))
 
 (def StateE
-  (All$ empty-env "lux;StateE" "s"
-        (All$ empty-env "" "a"
-              (Lambda$ (Bound$ "s")
-                       (App$ (App$ Either Text)
-                             (Tuple$ (&/|list (Bound$ "s")
-                                              (Bound$ "a"))))))))
+  (Univ$ empty-env
+         (Univ$ empty-env
+                (Lambda$ (Bound$ 3)
+                         (App$ (App$ Either Text)
+                               (Tuple$ (&/|list (Bound$ 3)
+                                                (Bound$ 1))))))))
 
 (def Source
   (Named$ (&/T "lux" "Source")
@@ -229,17 +228,17 @@
             (Data$ "clojure.lang.Atom")))))
 
 (def DefData*
-  (All$ empty-env "lux;DefData'" ""
-        (Variant$ (&/|list
-                   ;; "lux;ValueD"
-                   (Tuple$ (&/|list Type Unit))
-                   ;; "lux;TypeD"
-                   Type
-                   ;; "lux;MacroD"
-                   (Bound$ "")
-                   ;; "lux;AliasD"
-                   Ident
-                   ))))
+  (Univ$ empty-env
+         (Variant$ (&/|list
+                    ;; "lux;ValueD"
+                    (Tuple$ (&/|list Type Unit))
+                    ;; "lux;TypeD"
+                    Type
+                    ;; "lux;MacroD"
+                    (Bound$ 1)
+                    ;; "lux;AliasD"
+                    Ident
+                    ))))
 
 (def LuxVar
   (Named$ (&/T "lux" "LuxVar")
@@ -250,63 +249,63 @@
                      Ident))))
 
 (def $Module
-  (All$ empty-env "lux;$Module" "Compiler"
-        (Tuple$
-         (&/|list
-          ;; "lux;module-aliases"
-          (App$ List (Tuple$ (&/|list Text Text)))
-          ;; "lux;defs"
-          (App$ List
-                (Tuple$ (&/|list Text
-                                 (Tuple$ (&/|list Bool
-                                                  (App$ DefData*
-                                                        (Lambda$ ASTList
-                                                                 (App$ (App$ StateE (Bound$ "Compiler"))
-                                                                       ASTList))))))))
-          ;; "lux;imports"
-          (App$ List Text)
-          ;; "lux;tags"
-          ;; (List (, Text (, Int (List Ident) Type)))
-          (App$ List
-                (Tuple$ (&/|list Text
-                                 (Tuple$ (&/|list Int
-                                                  (App$ List Ident)
-                                                  Type)))))
-          ;; "lux;types"
-          ;; (List (, Text (, (List Ident) Type)))
-          (App$ List
-                (Tuple$ (&/|list Text
-                                 (Tuple$ (&/|list (App$ List Ident)
-                                                  Type)))))
-          ))))
+  (Univ$ empty-env
+         (Tuple$
+          (&/|list
+           ;; "lux;module-aliases"
+           (App$ List (Tuple$ (&/|list Text Text)))
+           ;; "lux;defs"
+           (App$ List
+                 (Tuple$ (&/|list Text
+                                  (Tuple$ (&/|list Bool
+                                                   (App$ DefData*
+                                                         (Lambda$ ASTList
+                                                                  (App$ (App$ StateE (Bound$ 1))
+                                                                        ASTList))))))))
+           ;; "lux;imports"
+           (App$ List Text)
+           ;; "lux;tags"
+           ;; (List (, Text (, Int (List Ident) Type)))
+           (App$ List
+                 (Tuple$ (&/|list Text
+                                  (Tuple$ (&/|list Int
+                                                   (App$ List Ident)
+                                                   Type)))))
+           ;; "lux;types"
+           ;; (List (, Text (, (List Ident) Type)))
+           (App$ List
+                 (Tuple$ (&/|list Text
+                                  (Tuple$ (&/|list (App$ List Ident)
+                                                   Type)))))
+           ))))
 
 (def $Compiler
   (Named$ (&/T "lux" "Compiler")
-          (App$ (All$ empty-env "lux;Compiler" ""
-                      (Tuple$
-                       (&/|list
-                        ;; "lux;source"
-                        Source
-                        ;; "lux;cursor"
-                        Cursor
-                        ;; "lux;modules"
-                        (App$ List (Tuple$ (&/|list Text
-                                                    (App$ $Module (App$ (Bound$ "lux;Compiler") (Bound$ ""))))))
-                        ;; "lux;envs"
-                        (App$ List
-                              (App$ (App$ Env Text)
-                                    (Tuple$ (&/|list LuxVar Type))))
-                        ;; "lux;types"
-                        (App$ (App$ Bindings Int) Type)
-                        ;; "lux;expected"
-                        Type
-                        ;; "lux;seed"
-                        Int
-                        ;; "lux;eval?"
-                        Bool
-                        ;; "lux;host"
-                        Host
-                        )))
+          (App$ (Univ$ empty-env
+                       (Tuple$
+                        (&/|list
+                         ;; "lux;source"
+                         Source
+                         ;; "lux;cursor"
+                         Cursor
+                         ;; "lux;modules"
+                         (App$ List (Tuple$ (&/|list Text
+                                                     (App$ $Module (App$ (Bound$ 0) (Bound$ 1))))))
+                         ;; "lux;envs"
+                         (App$ List
+                               (App$ (App$ Env Text)
+                                     (Tuple$ (&/|list LuxVar Type))))
+                         ;; "lux;types"
+                         (App$ (App$ Bindings Int) Type)
+                         ;; "lux;expected"
+                         Type
+                         ;; "lux;seed"
+                         Int
+                         ;; "lux;eval?"
+                         Bool
+                         ;; "lux;host"
+                         Host
+                         )))
                 $Void)))
 
 (def Macro
@@ -439,13 +438,10 @@
     (|do [=members (&/map% (partial clean* ?tid) ?members)]
       (return (Variant$ =members)))
 
-    (&/$AllT ?env ?name ?arg ?body)
-    (|do [=env (&/map% (fn [[k v]]
-                         (|do [=v (clean* ?tid v)]
-                           (return (&/T k =v))))
-                       ?env)
+    (&/$UnivQ ?env ?body)
+    (|do [=env (&/map% (partial clean* ?tid) ?env)
           body* (clean* ?tid ?body)]
-      (return (All$ =env ?name ?arg body*)))
+      (return (Univ$ =env body*)))
 
     _
     (return type)
@@ -463,7 +459,7 @@
   (|case type
     (&/$LambdaT ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
-      (&/T ??out (&/|cons ?in ?args)))
+      (&/T ??out (&/Cons$ ?in ?args)))
 
     _
     (&/T type (&/|list))))
@@ -505,26 +501,16 @@
     (&/$ExT ?id)
     (str "⟨" ?id "⟩")
 
-    (&/$BoundT name)
-    name
+    (&/$BoundT idx)
+    (str idx)
 
     (&/$AppT _ _)
     (|let [[?call-fun ?call-args] (unravel-app type)]
       (str "(" (show-type ?call-fun) " " (->> ?call-args (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
-    (&/$AllT ?env ?name ?arg ?body)
-    (if (= "" ?name)
-      (let [[args body] (loop [args (list ?arg)
-                               body* ?body]
-                          (|case body*
-                            (&/$AllT ?env* ?name* ?arg* ?body*)
-                            (recur (cons ?arg* args) ?body*)
-
-                            _
-                            [args body*]))]
-        (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
-      ?name)
-
+    (&/$UnivQ ?env ?body)
+    (str "(All " (show-type ?body) ")")
+    
     (&/$NamedT ?name ?type)
     (&/ident->text ?name)
 
@@ -554,8 +540,8 @@
                      [(&/$VarT xid) (&/$VarT yid)]
                      (.equals ^Object xid yid)
 
-                     [(&/$BoundT xname) (&/$BoundT yname)]
-                     (.equals ^Object xname yname)
+                     [(&/$BoundT xidx) (&/$BoundT yidx)]
+                     (= xidx yidx)
 
                      [(&/$ExT xid) (&/$ExT yid)]
                      (.equals ^Object xid yid)
@@ -563,24 +549,8 @@
                      [(&/$AppT xlambda xparam) (&/$AppT ylambda yparam)]
                      (and (type= xlambda ylambda) (type= xparam yparam))
                      
-                     [(&/$AllT xenv xname xarg xbody) (&/$AllT yenv yname yarg ybody)]
-                     (and (.equals ^Object xname yname)
-                          (.equals ^Object xarg yarg)
-                          ;; (matchv ::M/objects [xenv yenv]
-                          ;;   [[&/$None _] [&/$None _]]
-                          ;;   true
-
-                          ;;   [[&/$Some xenv*] [&/$Some yenv*]]
-                          ;;   (&/fold (fn [old bname]
-                          ;;             (and old
-                          ;;                  (type= (&/|get bname xenv*) (&/|get bname yenv*))))
-                          ;;           (= (&/|length xenv*) (&/|length yenv*))
-                          ;;           (&/|keys xenv*))
-
-                          ;;   [_ _]
-                          ;;   false)
-                          (type= xbody ybody)
-                          )
+                     [(&/$UnivQ xenv xbody) (&/$UnivQ yenv ybody)]
+                     (type= xbody ybody)
 
                      [(&/$NamedT ?xname ?xtype) _]
                      (type= ?xtype y)
@@ -607,14 +577,18 @@
       )))
 
 (defn ^:private fp-put [k v fixpoints]
-  (&/|cons (&/T k v) fixpoints))
+  (&/Cons$ (&/T k v) fixpoints))
 
 (defn ^:private check-error [expected actual]
   (str "[Type Checker]\nExpected: " (show-type expected)
        "\n\nActual: " (show-type actual)
        "\n"))
 
+;; (def !flag (atom false))
+
 (defn beta-reduce [env type]
+  ;; (when @!flag
+  ;;   (prn 'beta-reduce (show-type type)))
   (|case type
     (&/$VariantT ?members)
     (Variant$ (&/|map (partial beta-reduce env) ?members))
@@ -625,10 +599,10 @@
     (&/$AppT ?type-fn ?type-arg)
     (App$ (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
 
-    (&/$AllT ?local-env ?local-name ?local-arg ?local-def)
+    (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
       (&/$Nil)
-      (All$ env ?local-name ?local-arg ?local-def)
+      (Univ$ env ?local-def)
 
       _
       type)
@@ -636,21 +610,26 @@
     (&/$LambdaT ?input ?output)
     (Lambda$ (beta-reduce env ?input) (beta-reduce env ?output))
 
-    (&/$BoundT ?name)
-    (if-let [bound (&/|get ?name env)]
+    (&/$BoundT ?idx)
+    (|case (&/|at ?idx env)
+      (&/$Some bound)
       (beta-reduce env bound)
-      type)
+
+      _
+      (assert false (str "[Type Error] Unknown var: " ?idx " | " (&/->seq (&/|map show-type env)))))
 
     _
     type
     ))
 
 (defn apply-type [type-fn param]
+  ;; (when @!flag
+  ;;   (prn 'apply-type (show-type type-fn) (show-type param)))
   (|case type-fn
-    (&/$AllT local-env local-name local-arg local-def)
+    (&/$UnivQ local-env local-def)
     (return (beta-reduce (->> local-env
-                              (&/|put local-name type-fn)
-                              (&/|put local-arg param))
+                              (&/Cons$ param)
+                              (&/Cons$ type-fn))
                          local-def))
 
     (&/$AppT F A)
@@ -839,13 +818,13 @@
       (|do [actual* (apply-type F A)]
         (check* class-loader fixpoints expected actual*))
 
-      [(&/$AllT _) _]
+      [(&/$UnivQ _) _]
       (with-var
         (fn [$arg]
           (|do [expected* (apply-type expected $arg)]
             (check* class-loader fixpoints expected* actual))))
 
-      [_ (&/$AllT _)]
+      [_ (&/$UnivQ _)]
       (with-var
         (fn [$arg]
           (|do [actual* (apply-type actual $arg)]
@@ -910,7 +889,7 @@
     (|do [_ (check* init-fixpoints input param)]
       (return output))
 
-    (&/$AllT _)
+    (&/$UnivQ _)
     (with-var
       (fn [$var]
         (|do [func* (apply-type func $var)

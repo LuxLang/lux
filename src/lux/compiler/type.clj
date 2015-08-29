@@ -21,6 +21,11 @@
   (&/T (&/V &a/$tuple members)
        &type/$Void))
 
+(defn ^:private int$ [value]
+  "(-> Int Analysis)"
+  (&/T (&/V &a/$int value)
+       &type/$Void))
+
 (defn ^:private text$ [text]
   "(-> Text Analysis)"
   (&/T (&/V &a/$text text)
@@ -58,20 +63,16 @@
     (&/$LambdaT ?input ?output)
     (variant$ &/$LambdaT (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
 
-    (&/$AllT ?env ?name ?arg ?body)
-    (variant$ &/$AllT
+    (&/$UnivQ ?env ?body)
+    (variant$ &/$UnivQ
               (tuple$ (&/|list (&/fold (fn [tail head]
-                                         (|let [[hlabel htype] head]
-                                           (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                                  tail)))
+                                         (Cons$ (->analysis head) tail))
                                        $Nil
                                        (&/|reverse ?env))
-                               (text$ ?name)
-                               (text$ ?arg)
                                (->analysis ?body))))
 
-    (&/$BoundT ?name)
-    (variant$ &/$BoundT (text$ ?name))
+    (&/$BoundT ?idx)
+    (variant$ &/$BoundT (int$ ?idx))
 
     (&/$AppT ?fun ?arg)
     (variant$ &/$AppT (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))

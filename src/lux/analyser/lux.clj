@@ -42,7 +42,7 @@
         (return (&/|list (&/T (&/V &&/$tuple =elems)
                               exo-type))))
 
-      (&/$AllT _)
+      (&/$UnivQ _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
@@ -90,7 +90,7 @@
         (&/$None)
         (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
 
-      (&/$AllT _)
+      (&/$UnivQ _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
@@ -98,41 +98,20 @@
       
       _
       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
-;; (defn analyse-variant [analyse exo-type ident ?values]
-;;   (|do [exo-type* (|case exo-type
-;;                     (&/$VarT ?id)
-;;                     (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
-;;                                            (&type/actual-type exo-type*))
-;;                                          (|do [_ (&type/set-var ?id &type/Type)]
-;;                                            (&type/actual-type &type/Type))))
-
-;;                     _
-;;                     (&type/actual-type exo-type))]
-;;     (|case exo-type*
-;;       (&/$VariantT ?cases)
-;;       (|do [?tag (&&/resolved-ident ident)]
-;;         (if-let [vtype (&/|get ?tag ?cases)]
-;;           (|do [=value (analyse-variant-body analyse vtype ?values)]
-;;             (return (&/|list (&/T (&/V &&/$variant (&/T ?tag =value))
-;;                                   exo-type))))
-;;           (fail (str "[Analyser Error] There is no case " ?tag " for variant type " (&type/show-type exo-type*)))))
-
-;;       (&/$AllT _)
-;;       (&type/with-var
-;;         (fn [$var]
-;;           (|do [exo-type** (&type/apply-type exo-type* $var)]
-;;             (analyse-variant analyse exo-type** ident ?values))))
-
-;;       _
-;;       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
 (defn analyse-record [analyse exo-type ?elems]
+  ;; (when @&type/!flag
+  ;;   (prn 'analyse-record (&type/show-type exo-type)
+  ;;        (&/->seq (&/|map (fn [pair]
+  ;;                           (|let [[k v] pair]
+  ;;                             (str (&/show-ast k) " " (&/show-ast v))))
+  ;;                         ?elems))))
   (|do [exo-type* (|case exo-type
                     (&/$VarT ?id)
                     (|do [exo-type* (&type/deref ?id)]
                       (&type/actual-type exo-type*))
 
-                    (&/$AllT _)
+                    (&/$UnivQ _)
                     (|do [$var &type/existential
                           =type (&type/apply-type exo-type $var)]
                       (&type/actual-type =type))
@@ -148,7 +127,7 @@
                 (return ?table)
 
                 _
-                (fail (str "[Analyser Error] The type of a record must be a record-type:\n" (&type/show-type exo-type*))))
+                (fail (str "[Analyser Error] The type of a record must be a record-type:\n" (&type/show-type exo-type*) "\n" (&type/show-type exo-type))))
         _ (&/assert! (= (&/|length types) (&/|length ?elems))
                      (str "[Analyser Error] Record length mismatch. Expected: " (&/|length types) "; actual: " (&/|length ?elems)))
         members (&&record/order-record ?elems)
@@ -221,13 +200,13 @@
         
         (&/$Cons top-outer _)
         (do ;; (prn 'analyse-symbol/_3 ?module name)
-            (|let [scopes (&/|tail (&/folds #(&/|cons (&/get$ &/$name %2) %1)
+            (|let [scopes (&/|tail (&/folds #(&/Cons$ (&/get$ &/$name %2) %1)
                                             (&/|map #(&/get$ &/$name %) outer)
                                             (&/|reverse inner)))
                    [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                               (|let [[register new-inner] register+new-inner
                                                      [register* frame*] (&&lambda/close-over (&/|reverse in-scope) name register frame)]
-                                                (&/T register* (&/|cons frame* new-inner))))
+                                                (&/T register* (&/Cons$ frame* new-inner))))
                                             (&/T (or (->> top-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
                                                      (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
                                                  (&/|list))
@@ -255,7 +234,7 @@
     (&/$Cons ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
       (|case ?fun-type*
-        (&/$AllT _aenv _aname _aarg _abody)
+        (&/$UnivQ _)
         ;; (|do [$var &type/existential
         ;;       type* (&type/apply-type ?fun-type* $var)]
         ;;   (analyse-apply* analyse exo-type type* ?args))
@@ -268,7 +247,7 @@
                 (|do [? (&type/bound? ?id)
                       type** (if ?
                                (&type/clean $var =output-t)
-                               (|do [_ (&type/set-var ?id (&/V &/$BoundT _aarg))]
+                               (|do [_ (&type/set-var ?id (&/V &/$BoundT 1))]
                                  (&type/clean $var =output-t)))]
                   (return (&/T type** =args)))
                 ))))
@@ -276,7 +255,7 @@
         (&/$LambdaT ?input-t ?output-t)
         (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
               =arg (&&/analyse-1 analyse ?input-t ?arg)]
-          (return (&/T =output-t (&/|cons =arg =args))))
+          (return (&/T =output-t (&/Cons$ =arg =args))))
 
         ;; [[&/$VarT ?id-t]]
         ;; (|do [ (&type/deref ?id-t)])
@@ -332,7 +311,7 @@
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   (|do [exo-type* (&type/actual-type exo-type)]
     (|case exo-type
-      (&/$AllT _)
+      (&/$UnivQ _)
       (&type/with-var
         (fn [$var]
           (|do [exo-type** (&type/apply-type exo-type* $var)]
@@ -353,7 +332,7 @@
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
   (|case exo-type
-    (&/$AllT _env _self _arg _body)
+    (&/$UnivQ _)
     (&type/with-var
       (fn [$var]
         (|do [exo-type* (&type/apply-type exo-type $var)
@@ -376,12 +355,12 @@
                     (|do [?? (&type/bound? ?_id)]
                       ;; (return (&/T _expr exo-type))
                       (if ??
-                        (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype)))
+                        (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))
                         (return (&/T _expr exo-type)))
                       )
 
                     _
-                    (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id ":" _arg " " (&type/show-type dtype)))))
+                    (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))))
                 (return (&/T _expr exo-type))))))))
     
     _
@@ -395,8 +374,8 @@
 
 (defn analyse-def [analyse compile-token ?name ?value]
   ;; (prn 'analyse-def/BEGIN ?name)
-  ;; (when (= "PList/Dict" ?name)
-  ;;   (prn 'DEF ?name (&/show-ast ?value)))
+  ;; (when (= "monoid$" ?name)
+  ;;   (reset! &type/!flag true))
   (|do [module-name &/get-module-name
         ;; :let [_ (println 'DEF/PRE (str module-name ";" ?name))]
         ? (&&module/defined? module-name ?name)]

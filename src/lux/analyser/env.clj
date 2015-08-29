@@ -22,7 +22,7 @@
           =return (body (&/update$ &/$envs
                                    (fn [stack]
                                      (let [bound-unit (&/V &&/$var (&/V &/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter))))]
-                                       (&/|cons (&/update$ &/$locals #(->> %
+                                       (&/Cons$ (&/update$ &/$locals #(->> %
                                                                            (&/update$ &/$counter inc)
                                                                            (&/update$ &/$mappings (fn [m] (&/|put name (&/T bound-unit type) m))))
                                                            (&/|head stack))
@@ -31,7 +31,7 @@
       (|case =return
         (&/$Right ?state ?value)
         (return* (&/update$ &/$envs (fn [stack*]
-                                      (&/|cons (&/update$ &/$locals #(->> %
+                                      (&/Cons$ (&/update$ &/$locals #(->> %
                                                                           (&/update$ &/$counter dec)
                                                                           (&/set$ &/$mappings old-mappings))
                                                           (&/|head stack*))
