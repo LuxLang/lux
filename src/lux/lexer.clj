@@ -64,20 +64,12 @@
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
-        [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex #"(?is)^(?!#\()(.*?(?=\)#))")
-                                                  ;; :let [_ (prn 'immediate comment)]
-                                                  _ (&reader/read-text ")#")]
+        [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex+ #"(?is)^(?!#\()((?!\)#).)*")]
                                               (return (&/T meta comment)))
-                                            (|do [;; :let [_ (prn 'pre/_0)]
-                                                  [meta pre] (&reader/read-regex+ #"(?is)^(.*?)(#\(|$)")
-                                                  ;; :let [_ (prn 'pre pre)]
-                                                  [_ inner] (lex-multi-line-comment nil)
-                                                  ;; :let [_ (prn 'inner inner)]
-                                                  [_ post] (&reader/read-regex #"(?is)^(.+?(?=\)#))")
-                                                  ;; :let [_ (prn 'post post (str pre "#(" inner ")#" post))]
-                                                  ]
+                                            (|do [[meta pre] (&reader/read-regex+ #"(?is)^((?!#\().)*")
+                                                  [_ ($Comment inner)] (lex-multi-line-comment nil)
+                                                  [_ post] (&reader/read-regex+ #"(?is)^((?!\)#).)*")]
                                               (return (&/T meta (str pre "#(" inner ")#" post))))))
-        ;; :let [_ (prn 'lex-multi-line-comment (str comment ")#"))]
         _ (&reader/read-text ")#")]
     (return (&/T meta (&/V $Comment comment)))))
 
@@ -91,8 +83,8 @@
       (return (&/T meta (&/V <tag> token)))))
 
   ^:private lex-bool  $Bool  #"^(true|false)"
-  ^:private lex-int   $Int   #"^(-?0|-?[1-9][0-9]*)"
-  ^:private lex-real  $Real  #"^-?(-?0\.[0-9]+|-?[1-9][0-9]*\.[0-9]+)"
+  ^:private lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
+  ^:private lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)"
   )
 
 (def ^:private lex-char

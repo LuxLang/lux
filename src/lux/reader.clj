@@ -55,13 +55,6 @@
     (when (.find matcher)
       (.group matcher 0))))
 
-(defn ^:private re-find1! [^java.util.regex.Pattern regex column ^String line]
-  (let [matcher (doto (.matcher regex line)
-                  (.region column (.length line))
-                  (.useAnchoringBounds true))]
-    (when (.find matcher)
-      (.group matcher 1))))
-
 (defn ^:private re-find3! [^java.util.regex.Pattern regex column ^String line]
   (let [matcher (doto (.matcher regex line)
                   (.region column (.length line))
@@ -75,11 +68,8 @@
 (defn read-regex [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      ;; (prn 'read-regex [file-name line-num column-num regex line])
-      (if-let [^String match (do ;; (prn '[regex line] [regex line])
-                                 (re-find! regex column-num line))]
-        (let [;; _ (prn 'match match)
-              match-length (.length match)
+      (if-let [^String match (re-find! regex column-num line)]
+        (let [match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
             (&/V $Done (&/T (&/T file-name line-num column-num) match))
@@ -90,7 +80,6 @@
 (defn read-regex2 [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      ;; (prn 'read-regex2 [file-name line-num column-num regex line])
       (if-let [[^String match tok1 tok2] (re-find3! regex column-num line)]
         (let [match-length (.length match)
               column-num* (+ column-num match-length)]
@@ -111,15 +100,17 @@
 
           (&/$Cons [[file-name line-num column-num] ^String line]
                    reader**)
-          (if-let [^String match (do ;; (prn 'read-regex+ regex line)
-                                     (re-find1! regex column-num line))]
+          (if-let [^String match (re-find! regex column-num line)]
             (let [match-length (.length match)
-                  column-num* (+ column-num match-length)]
+                  column-num* (+ column-num match-length)
+                  prefix* (if (= 0 column-num)
+                            (str prefix "\n" match)
+                            (str prefix match))]
               (if (= column-num* (.length line))
-                (recur (str prefix match "\n") reader**)
+                (recur prefix* reader**)
                 (&/V &/$Right (&/T (&/Cons$ (&/T (&/T file-name line-num column-num*) line)
                                             reader**)
-                                   (&/T (&/T file-name line-num column-num) (str prefix match))))))
+                                   (&/T (&/T file-name line-num column-num) prefix*)))))
             (&/V &/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]

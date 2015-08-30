@@ -1,11 +1,11 @@
-(ns text.lux.reader
+(ns test.lux.reader
   (:use clojure.test)
   (:require (lux [base :as & :refer [deftags |do return* return fail fail* |let |case]]
                  [reader :as &reader])
             :reload-all))
 
 ;; [Utils]
-(def source (&reader/from "yolo" "lol\nmeme\nnyan cat\n\nlolcat"))
+(def source (&reader/from "test" "lol\nmeme\nnyan cat\n\nlolcat"))
 (def init-state (&/set$ &/$source source (&/init-state nil)))
 
 ;; [Tests]
