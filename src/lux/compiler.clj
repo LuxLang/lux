@@ -421,7 +421,7 @@
                 (fn [state]
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
-                          (&/set$ &/$source (&reader/from file-name file-content) state))
+                          (&/set$ &/$source (&reader/from name file-content) state))
                     (&/$Right ?state _)
                     (&/run-state (|do [defs &a-module/defs
                                        imports &a-module/imports

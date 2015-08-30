@@ -48,7 +48,6 @@
       (fail* msg)
       )))
 
-;; [Exports]
 (defn ^:private re-find! [^java.util.regex.Pattern regex column ^String line]
   (let [matcher (doto (.matcher regex line)
                   (.region column (.length line))
@@ -72,6 +71,7 @@
             (.group matcher 1)
             (.group matcher 2)))))
 
+;; [Exports]
 (defn read-regex [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
@@ -125,7 +125,6 @@
 (defn read-text [^String text]
   (with-line
     (fn [file-name line-num column-num ^String line]
-      ;; (prn 'read-text [file-name line-num column-num text line])
       (if (.startsWith line text column-num)
         (let [match-length (.length text)
               column-num* (+ column-num match-length)]
@@ -135,15 +134,15 @@
                            (&/T (&/T file-name line-num column-num*) line)))))
         (&/V $No (str "[Reader Error] Text failed: " text))))))
 
-(def ^:private ^String +source-dir+ "input/")
-(defn from [^String file-name ^String file-content]
-  (let [lines (&/->list (string/split-lines file-content))
-        file-name (.substring file-name (.length +source-dir+))]
-    (&/|map (fn [line+line-num]
-              (|let [[line-num line] line+line-num]
-                (&/T (&/T file-name (inc line-num) 0)
-                     line)))
-            (&/|filter (fn [line+line-num]
-                         (|let [[line-num line] line+line-num]
-                           (not= "" line)))
-                       (&/enumerate lines)))))
+(defn from [^String name ^String source-code]
+  (->> source-code
+       (string/split-lines)
+       (&/->list)
+       (&/enumerate)
+       (&/|filter (fn [line+line-num]
+                    (|let [[line-num line] line+line-num]
+                      (not= "" line))))
+       (&/|map (fn [line+line-num]
+                 (|let [[line-num line] line+line-num]
+                   (&/T (&/T name (inc line-num) 0)
+                        line))))))
