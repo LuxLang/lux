@@ -408,7 +408,8 @@
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")
-              (|do [_ (&a-module/enter-module name)
+              (|do [_ (&&cache/delete name)
+                    _ (&a-module/enter-module name)
                     :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                    (.visit Opcodes/V1_6 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                            (str (&host/->module-class name) "/_") nil "java/lang/Object" nil)

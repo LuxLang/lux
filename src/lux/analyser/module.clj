@@ -137,25 +137,27 @@
     (return* state
              (->> state (&/get$ &/$modules) (&/|contains? name)))))
 
-(defn alias [module alias reference]
-  (fn [state]
-    (return* (->> state
-                  (&/update$ &/$modules
-                             (fn [ms]
-                               (&/|update module
-                                          #(&/update$ $module-aliases
-                                                      (fn [aliases]
-                                                        (&/|put alias reference aliases))
-                                                      %)
-                                          ms))))
-             nil)))
-
 (defn dealias [name]
   (|do [current-module &/get-module-name]
     (fn [state]
       (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
         (return* state real-name)
         (fail* (str "Unknown alias: " name))))))
+
+(defn alias [module alias reference]
+  (fn [state]
+    (if-let [real-name (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $module-aliases) (&/|get alias))]
+      (fail* (str "Can't re-use alias \"" alias "\" @ " module))
+      (return* (->> state
+                    (&/update$ &/$modules
+                               (fn [ms]
+                                 (&/|update module
+                                            #(&/update$ $module-aliases
+                                                        (fn [aliases]
+                                                          (&/|put alias reference aliases))
+                                                        %)
+                                            ms))))
+               nil))))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
