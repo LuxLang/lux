@@ -559,33 +559,34 @@
 
 (defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]
   ;; (prn 'analyse-ast (&/show-ast token))
-  (&/with-cursor (aget token 0)
-    (&/with-expected-type exo-type
-      (|case token
-        [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
-        (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values)
+  (|let [[cursor _] token]
+    (&/with-cursor cursor
+      (&/with-expected-type exo-type
+        (|case token
+          [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
+          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values)
 
-        [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
-        (|do [;; :let [_ (println 'analyse-ast/_0 (&/ident->text ?ident))]
-              [module tag-name] (&/normalize ?ident)
-              ;; :let [_ (println 'analyse-ast/_1 (&/ident->text (&/T module tag-name)))]
-              idx (&&module/tag-index module tag-name)
-              ;; :let [_ (println 'analyse-ast/_2 idx)]
-              ]
-          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values))
-        
-        [meta (&/$FormS (&/$Cons ?fn ?args))]
-        (fn [state]
-          (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
-            (&/$Right state* =fn)
-            (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
-                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*))
+          [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
+          (|do [;; :let [_ (println 'analyse-ast/_0 (&/ident->text ?ident))]
+                [module tag-name] (&/normalize ?ident)
+                ;; :let [_ (println 'analyse-ast/_1 (&/ident->text (&/T module tag-name)))]
+                idx (&&module/tag-index module tag-name)
+                ;; :let [_ (println 'analyse-ast/_2 idx)]
+                ]
+            (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values))
+          
+          [meta (&/$FormS (&/$Cons ?fn ?args))]
+          (fn [state]
+            (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
+              (&/$Right state* =fn)
+              (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
+                  ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*))
 
-            _
-            ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
-        
-        _
-        (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token)))))
+              _
+              ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
+          
+          _
+          (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token))))))
 
 ;; [Resources]
 (defn analyse [eval! compile-module compile-token]

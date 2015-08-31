@@ -233,7 +233,7 @@
             ;; :let [_ (println "#13")]
             case-type (&type/variant-case idx value-type*)
             ;; :let [_ (println "#14" (&type/show-type case-type))]
-            [=test =kont] (case (&/|length ?values)
+            [=test =kont] (case (int (&/|length ?values))
                             0 (analyse-pattern case-type unit kont)
                             1 (analyse-pattern case-type (&/|head ?values) kont)
                             ;; 1+
