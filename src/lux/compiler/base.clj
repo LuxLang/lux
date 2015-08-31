@@ -46,9 +46,12 @@
 (def tag-group-separator "\n")
 
 ;; [Utils]
-(defn ^:private write-file [^String file ^bytes data]
-  (with-open [stream (BufferedOutputStream. (FileOutputStream. file))]
-    (.write stream data)))
+(defn ^:private write-file [^String file-name ^bytes data]
+  (let [;; file-name (.toLowerCase file-name)
+        ]
+    (do (assert (not (.exists (File. file-name))) (str "Can't overwrite file: " file-name))
+      (with-open [stream (BufferedOutputStream. (FileOutputStream. file-name))]
+        (.write stream data)))))
 
 (defn ^:private write-output [module name data]
   (let [module* (&host/->module-class module)
