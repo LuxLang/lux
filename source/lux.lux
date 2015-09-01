@@ -1537,6 +1537,17 @@
       _
       #None)))
 
+(def''' (normalize ident)
+  (-> Ident ($' Lux Ident))
+  (_lux_case ident
+    ["" name]
+    (do Lux/Monad
+      [module-name get-module-name]
+      (wrap (_lux_: Ident [module-name name])))
+
+    _
+    (return ident)))
+
 (def''' (find-macro ident)
   (-> Ident ($' Lux ($' Maybe Macro)))
   (do Lux/Monad
@@ -1550,21 +1561,19 @@
                       #cursor cursor}
                      (#Right state (find-macro' modules current-module module name)))))))
 
+(def''' (macro? ident)
+  (-> Ident ($' Lux Bool))
+  (do Lux/Monad
+    [ident (normalize ident)
+     output (find-macro ident)]
+    (wrap (_lux_case output
+            (#Some _) true
+            #None     false))))
+
 (def''' (list:join xs)
   (All [a]
     (-> ($' List ($' List a)) ($' List a)))
   (foldL list:++ #Nil xs))
-
-(def''' (normalize ident)
-  (-> Ident ($' Lux Ident))
-  (_lux_case ident
-    ["" name]
-    (do Lux/Monad
-      [module-name get-module-name]
-      (wrap (_lux_: Ident [module-name name])))
-
-    _
-    (return ident)))
 
 (def''' (interpose sep xs)
   (All [a]
@@ -1582,7 +1591,7 @@
 (def''' (macro-expand token)
   (-> AST ($' Lux ($' List AST)))
   (_lux_case token
-    [_ (#FormS (#Cons [[_ (#SymbolS macro-name)] args]))]
+    [_ (#FormS (#Cons [_ (#SymbolS macro-name)] args))]
     (do Lux/Monad
       [macro-name' (normalize macro-name)
        ?macro (find-macro macro-name')]
@@ -1602,7 +1611,7 @@
 (def''' (macro-expand-all syntax)
   (-> AST ($' Lux ($' List AST)))
   (_lux_case syntax
-    [_ (#FormS (#Cons [[_ (#SymbolS macro-name)] args]))]
+    [_ (#FormS (#Cons [_ (#SymbolS macro-name)] args))]
     (do Lux/Monad
       [macro-name' (normalize macro-name)
        ?macro (find-macro macro-name')]
@@ -1615,14 +1624,13 @@
         
         #None
         (do Lux/Monad
-          [parts' (map% Lux/Monad macro-expand-all (@list& (symbol$ macro-name) args))]
-          (wrap (@list (form$ (list:join parts')))))))
+          [args' (map% Lux/Monad macro-expand-all args)]
+          (wrap (@list (form$ (#Cons (symbol$ macro-name) (list:join args'))))))))
 
-    [_ (#FormS (#Cons [harg targs]))]
+    [_ (#FormS members)]
     (do Lux/Monad
-      [harg+ (macro-expand-all harg)
-       targs+ (map% Lux/Monad macro-expand-all targs)]
-      (wrap (@list (form$ (list:++ harg+ (list:join targs+))))))
+      [members' (map% Lux/Monad macro-expand-all members)]
+      (wrap (@list (form$ (list:join members')))))
 
     [_ (#TupleS members)]
     (do Lux/Monad
@@ -1739,6 +1747,28 @@
     
     _
     (return [type #None])))
+
+(def''' (gensym prefix state)
+  (-> Text ($' Lux AST))
+  (_lux_case state
+    {#source source #modules modules
+     #envs   envs   #type-vars   types   #host           host
+     #seed   seed   #eval? eval? #expected expected
+     #cursor cursor}
+    (#Right {#source source #modules modules
+             #envs   envs   #type-vars   types   #host           host
+             #seed   (i+ 1 seed) #eval? eval? #expected expected
+             #cursor cursor}
+            (symbol$ ["" ($ text:++ "__gensym__" prefix (->text seed))]))))
+
+(defmacro #export (Rec tokens)
+  (_lux_case tokens
+    (#Cons [_ (#SymbolS "" name)] (#Cons body #Nil))
+    (let' [body' (replace-syntax (@list [name (` (#AppT (~ (make-bound 0)) (~ (make-bound 1))))]) body)]
+          (return (@list (` (#UnivQ #Nil (~ body'))))))
+    
+    _
+    (fail "Wrong syntax for Rec")))
 
 (defmacro #export (deftype tokens)
   (let' [[export? tokens'] (: (, Bool (List AST))
@@ -1872,6 +1902,48 @@
           #None
           (fail "Wrong syntax for def'"))))
 
+(def' (ast:show ast)
+  (-> AST Text)
+  (_lux_case ast
+    [_ ast]
+    (_lux_case ast
+      (#BoolS val)
+      (->text val)
+
+      (#IntS val)
+      (->text val)
+
+      (#RealS val)
+      (->text val)
+
+      (#CharS val)
+      ($ text:++ "#\"" (->text val) "\"")
+
+      (#TextS val)
+      ($ text:++ "\"" (->text val) "\"")
+
+      (#FormS parts)
+      ($ text:++ "(" (|> parts (map ast:show) (interpose " ") (foldL text:++ "")) ")")
+
+      (#TupleS parts)
+      ($ text:++ "[" (|> parts (map ast:show) (interpose " ") (foldL text:++ "")) "]")
+
+      (#SymbolS prefix name)
+      ($ text:++ prefix ";" name)
+
+      (#TagS prefix name)
+      ($ text:++ "#" prefix ";" name)
+
+      (#RecordS kvs)
+      ($ text:++ "{"
+         (|> kvs
+             (map (: (-> (, AST AST) Text)
+                     (lambda' [kv] (let' [[k v] kv] ($ text:++ (ast:show k) " " (ast:show v))))))
+             (interpose " ")
+             (foldL text:++ ""))
+         "}")
+      )))
+
 (def' (rejoin-pair pair)
   (-> (, AST AST) (List AST))
   (let' [[left right] pair]
@@ -1888,9 +1960,13 @@
                                           (_lux_case pattern
                                             [_ (#FormS (#Cons [_ (#SymbolS macro-name)] macro-args))]
                                             (do Lux/Monad
-                                              [expansion (macro-expand (form$ (@list& (symbol$ macro-name) body macro-args)))
-                                               expansions (map% Lux/Monad expander (as-pairs expansion))]
-                                              (wrap (list:join expansions)))
+                                              [??? (macro? macro-name)]
+                                              (if ???
+                                                (do Lux/Monad
+                                                  [expansion (macro-expand (form$ (@list& (symbol$ macro-name) body macro-args)))
+                                                   expansions (map% Lux/Monad expander (as-pairs expansion))]
+                                                  (wrap (list:join expansions)))
+                                                (wrap (@list branch))))
 
                                             _
                                             (wrap (@list branch))))))
@@ -1905,7 +1981,8 @@
   (case tokens
     (#Cons body (#Cons pattern #Nil))
     (do Lux/Monad
-      [pattern+ (macro-expand-all pattern)]
+      [module-name get-module-name
+       pattern+ (macro-expand-all pattern)]
       (case pattern+
         (#Cons pattern' #Nil)
         (wrap (@list pattern' body))
@@ -1959,42 +2036,6 @@
 
     _
     (fail "Wrong syntax for let")))
-
-(def' (ast:show ast)
-  (-> AST Text)
-  (case ast
-    [_ ast]
-    (case ast
-      (\or (#BoolS val) (#IntS val) (#RealS val))
-      (->text val)
-
-      (#CharS val)
-      ($ text:++ "#\"" (->text val) "\"")
-
-      (#TextS val)
-      ($ text:++ "\"" (->text val) "\"")
-
-      (#FormS parts)
-      ($ text:++ "(" (|> parts (map ast:show) (interpose " ") (foldL text:++ "")) ")")
-
-      (#TupleS parts)
-      ($ text:++ "[" (|> parts (map ast:show) (interpose " ") (foldL text:++ "")) "]")
-
-      (#SymbolS prefix name)
-      ($ text:++ prefix ";" name)
-
-      (#TagS prefix name)
-      ($ text:++ "#" prefix ";" name)
-
-      (#RecordS kvs)
-      ($ text:++ "{"
-         (|> kvs
-             (map (: (-> (, AST AST) Text)
-                     (lambda' [kv] (let [[k v] kv] ($ text:++ (ast:show k) " " (ast:show v))))))
-             (interpose " ")
-             (foldL text:++ ""))
-         "}")
-      )))
 
 (defmacro #export (lambda tokens)
   (case (: (Maybe (, Ident AST (List AST) AST))
@@ -2072,19 +2113,6 @@
       
       #None
       (fail "Wrong syntax for def"))))
-
-(def (gensym prefix state)
-  (-> Text (Lux AST))
-  (case state
-    {#source source #modules modules
-     #envs   envs   #type-vars   types   #host           host
-     #seed   seed   #eval? eval? #expected expected
-     #cursor cursor}
-    (#Right {#source source #modules modules
-             #envs   envs   #type-vars   types   #host           host
-             #seed   (i+ 1 seed) #eval? eval? #expected expected
-             #cursor cursor}
-            (symbol$ ["" ($ text:++ "__gensym__" prefix (->text seed))]))))
 
 (defmacro #export (defsig tokens)
   (let [[export? tokens'] (: (, Bool (List AST))
@@ -3238,7 +3266,7 @@
 
 (defmacro #export (loop tokens)
   (case tokens
-    (\ (list [_ (#TupleS bindings)] body))
+    (\ (@list [_ (#TupleS bindings)] body))
     (let [pairs (as-pairs bindings)
           vars (map first pairs)
           inits (map second pairs)]
@@ -3250,19 +3278,19 @@
                        #None          (fail "Wrong syntax for loop")))
            init-types (map% Lux/Monad find-var-type inits')
            expected expected-type]
-          (return (list (` ((: (-> (~@ (map type->syntax init-types))
-                                   (~ (type->syntax expected)))
-                               (lambda (~ (symbol$ ["" "recur"])) [(~@ vars)]
-                                       (~ body)))
-                            (~@ inits))))))
+          (return (@list (` ((: (-> (~@ (map type->syntax init-types))
+                                    (~ (type->syntax expected)))
+                                (lambda (~ (symbol$ ["" "recur"])) [(~@ vars)]
+                                   (~ body)))
+                             (~@ inits))))))
         (do Lux/Monad
           [aliases (map% Lux/Monad
                          (: (-> AST (Lux AST))
                             (lambda [_] (gensym "")))
                          inits)]
-          (return (list (` (let [(~@ (interleave aliases inits))]
-                             (;loop [(~@ (interleave vars aliases))]
-                                    (~ body)))))))))
+          (return (@list (` (let [(~@ (interleave aliases inits))]
+                              (;loop [(~@ (interleave vars aliases))]
+                                     (~ body)))))))))
 
     _
     (fail "Wrong syntax for loop")))
@@ -3272,7 +3300,7 @@
 
 (defmacro #export (\slots tokens)
   (case tokens
-    (\ (list body [_ (#TupleS (list& hslot' tslots'))]))
+    (\ (@list body [_ (#TupleS (@list& hslot' tslots'))]))
     (do Lux/Monad
       [slots (: (Lux (, Ident (List Ident)))
                 (case (: (Maybe (, Ident (List Ident)))
@@ -3293,7 +3321,7 @@
        #let [[idx tags type] output
              slot-pairings (map (: (-> Ident (, Text AST))
                                    (lambda [[module name]] [name (symbol$ ["" name])]))
-                                (list& hslot tslots))
+                                (@list& hslot tslots))
              pattern (record$ (map (: (-> Ident (, AST AST))
                                       (lambda [[module name]]
                                         (let [tag (tag$ [module name])]
@@ -3301,7 +3329,7 @@
                                             (#Some binding) [tag binding]
                                             #None           [tag g!_]))))
                                    tags))]]
-      (return (list pattern body)))
+      (return (@list pattern body)))
     
     _
     (fail "Wrong syntax for \\slots")))

@@ -241,6 +241,9 @@
             ;; :let [_ (println "#15")]
             ]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
+
+      _
+      (fail (str "[Pattern-matching Error] Unrecognized pattern syntax: " (&/show-ast pattern)))
       )))
 
 (defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
