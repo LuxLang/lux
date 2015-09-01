@@ -105,6 +105,8 @@
                                     Int
                                     ;; UnivQ
                                     (Tuple$ (&/|list TypeList Type))
+                                    ;; ExQ
+                                    (Tuple$ (&/|list TypeList Type))
                                     ;; AppT
                                     TypePair
                                     ;; NamedT

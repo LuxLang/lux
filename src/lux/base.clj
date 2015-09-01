@@ -51,6 +51,7 @@
   "VarT"
   "ExT"
   "UnivQ"
+  "ExQ"
   "AppT"
   "NamedT")
 
