@@ -358,7 +358,7 @@
                                  idx &&env/next-local-idx]
                              (return (&/T ?ex-class idx =catch-body))))
                          ?catches)
-        =finally (|case [?finally]
+        =finally (|case ?finally
                    (&/$None)           (return (&/V &/$None nil))
                    (&/$Some ?finally*) (|do [=finally (analyse-1+ analyse ?finally*)]
                                          (return (&/V &/$Some =finally))))]
