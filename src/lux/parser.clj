@@ -10,25 +10,6 @@
             (lux [base :as & :refer [deftags |do return fail |case]]
                  [lexer :as &lexer])))
 
-;; [Tags]
-(deftags ""
-  "White_Space"
-  "Comment"
-  "Bool"
-  "Int"
-  "Real"
-  "Char"
-  "Text"
-  "Symbol"
-  "Tag"
-  "Open_Paren"
-  "Close_Paren"
-  "Open_Bracket"
-  "Close_Bracket"
-  "Open_Brace"
-  "Close_Brace"
-  )
-
 ;; [Utils]
 (do-template [<name> <close-tag> <description> <tag>]
   (defn <name> [parse]
@@ -41,8 +22,8 @@
         _
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
 
-  ^:private parse-form  $Close_Paren   "parantheses" &/$FormS
-  ^:private parse-tuple $Close_Bracket "brackets"    &/$TupleS
+  ^:private parse-form  &lexer/$Close_Paren   "parantheses" &/$FormS
+  ^:private parse-tuple &lexer/$Close_Bracket "brackets"    &/$TupleS
   )
 
 (defn ^:private parse-record [parse]
@@ -50,7 +31,7 @@
         token &lexer/lex
         :let [elems (&/fold &/|++ (&/|list) elems*)]]
     (|case token
-      [meta ($Close_Brace _)]
+      [meta (&lexer/$Close_Brace _)]
       (if (even? (&/|length elems))
         (return (&/V &/$RecordS (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
@@ -63,42 +44,42 @@
   (|do [token &lexer/lex
         :let [[meta token*] token]]
     (|case token*
-      ($White_Space _)
+      (&lexer/$White_Space _)
       (return (&/|list))
 
-      ($Comment _)
+      (&lexer/$Comment _)
       (return (&/|list))
       
-      ($Bool ?value)
+      (&lexer/$Bool ?value)
       (return (&/|list (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value)))))
 
-      ($Int ?value)
+      (&lexer/$Int ?value)
       (return (&/|list (&/T meta (&/V &/$IntS (Long/parseLong ?value)))))
 
-      ($Real ?value)
+      (&lexer/$Real ?value)
       (return (&/|list (&/T meta (&/V &/$RealS (Double/parseDouble ?value)))))
 
-      ($Char ^String ?value)
+      (&lexer/$Char ^String ?value)
       (return (&/|list (&/T meta (&/V &/$CharS (.charAt ?value 0)))))
 
-      ($Text ?value)
+      (&lexer/$Text ?value)
       (return (&/|list (&/T meta (&/V &/$TextS ?value))))
 
-      ($Symbol ?ident)
+      (&lexer/$Symbol ?ident)
       (return (&/|list (&/T meta (&/V &/$SymbolS ?ident))))
 
-      ($Tag ?ident)
+      (&lexer/$Tag ?ident)
       (return (&/|list (&/T meta (&/V &/$TagS ?ident))))
 
-      ($Open_Paren _)
+      (&lexer/$Open_Paren _)
       (|do [syntax (parse-form parse)]
         (return (&/|list (&/T meta syntax))))
       
-      ($Open_Bracket _)
+      (&lexer/$Open_Bracket _)
       (|do [syntax (parse-tuple parse)]
         (return (&/|list (&/T meta syntax))))
 
-      ($Open_Brace _)
+      (&lexer/$Open_Brace _)
       (|do [syntax (parse-record parse)]
         (return (&/|list (&/T meta syntax))))
 

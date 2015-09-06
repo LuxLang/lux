@@ -724,9 +724,9 @@
       (fn [state]
         (|case ((|do [F1 (deref ?eid)]
                   (fn [state]
-                    (|case [((|do [F2 (deref ?aid)]
-                               (check* class-loader fixpoints (App$ F1 A1) (App$ F2 A2)))
-                             state)]
+                    (|case ((|do [F2 (deref ?aid)]
+                              (check* class-loader fixpoints (App$ F1 A1) (App$ F2 A2)))
+                            state)
                       (&/$Right state* output)
                       (return* state* output)
 
