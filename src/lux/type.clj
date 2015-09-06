@@ -395,7 +395,7 @@
                                (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings)))]
          (fn [state]
            (return* (&/update$ &/$type-vars #(->> %
-                                                  (&/update$ &/$counter dec)
+                                                  ;; (&/update$ &/$counter dec)
                                                   (&/set$ &/$mappings (&/|remove id mappings*)))
                                state)
                     nil)))
@@ -949,3 +949,13 @@
     _
     (fail (str "[Type Error] Type is not named: " (show-type type)))
     ))
+
+(defn unknown? [type]
+  "(-> Type (Lux Bool))"
+  (|case type
+    (&/$VarT id)
+    (|do [? (bound? id)]
+      (return (not ?)))
+
+    _
+    (return false)))

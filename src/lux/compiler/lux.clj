@@ -176,8 +176,8 @@
       )))
 
 (defn compile-def [compile ?name ?body]
-  (|do [=value-type (&a/expr-type ?body)
-        :let [def-type (cond (&type/type= &type/Type =value-type)
+  (|do [:let [=value-type (&a/expr-type* ?body)
+              def-type (cond (&type/type= &type/Type =value-type)
                              "type"
                              
                              :else

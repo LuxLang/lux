@@ -28,23 +28,31 @@
 
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
-  (|do [exo-type* (&type/actual-type exo-type)]
-    (|case exo-type*
-      (&/$TupleT ?members)
-      (|do [=elems (&/map2% (fn [elem-t elem]
-                              (&&/analyse-1 analyse elem-t elem))
-                            ?members ?elems)]
+  (|do [unknown? (&type/unknown? exo-type)]
+    (if unknown?
+      (|do [=elems (&/map% #(|do [=analysis (analyse-1+ analyse %)]
+                              (return =analysis))
+                           ?elems)
+            _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))]
         (return (&/|list (&/T (&/V &&/$tuple =elems)
                               exo-type))))
+      (|do [exo-type* (&type/actual-type exo-type)]
+        (|case exo-type*
+          (&/$TupleT ?members)
+          (|do [=elems (&/map2% (fn [elem-t elem]
+                                  (&&/analyse-1 analyse elem-t elem))
+                                ?members ?elems)]
+            (return (&/|list (&/T (&/V &&/$tuple =elems)
+                                  exo-type))))
 
-      (&/$UnivQ _)
-      (&type/with-var
-        (fn [$var]
-          (|do [exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-tuple analyse exo-type** ?elems))))
+          (&/$UnivQ _)
+          (&type/with-var
+            (fn [$var]
+              (|do [exo-type** (&type/apply-type exo-type* $var)]
+                (analyse-tuple analyse exo-type** ?elems))))
 
-      _
-      (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*))))))
+          _
+          (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*))))))))
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
   (|do [output (|case ?values
@@ -206,8 +214,7 @@
                                                      (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
                                                  (&/|list))
                                             (&/|reverse inner) scopes)]
-              ((|do [btype (&&/expr-type =local)
-                     _ (&type/check exo-type btype)]
+              ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
                  (return (&/|list =local)))
                (&/set$ &/$envs (&/|++ inner* outer) state))))
         ))))
@@ -271,8 +278,8 @@
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
                   ;; :let [_ (when (or (= "defsig" (aget real-name 1))
-                  ;;                   ;; (= "type" (aget real-name 1))
-                  ;;                   ;; (= &&/$struct r-name)
+                  ;;                   ;; (= "..?" (aget real-name 1))
+                  ;;                   ;; (= "try$" (aget real-name 1))
                   ;;                   )
                   ;;           (->> (&/|map &/show-ast macro-expansion)
                   ;;                (&/|interpose "\n")
@@ -297,8 +304,7 @@
         _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case'\" expression.")
         _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case'\" expression.")
         =value (analyse-1+ analyse ?value)
-        =value-type (&&/expr-type =value)
-        =match (&&case/analyse-branches analyse exo-type =value-type (&/|as-pairs ?branches))]
+        =match (&&case/analyse-branches analyse exo-type (&&/expr-type* =value) (&/|as-pairs ?branches))]
     (return (&/|list (&/T (&/V &&/$case (&/T =value =match))
                           exo-type)))))
 
@@ -376,11 +382,10 @@
     (if ?
       (fail (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
       (|do [=value (&/with-scope ?name
-                     (analyse-1+ analyse ?value))
-            =value-type (&&/expr-type =value)]
+                     (analyse-1+ analyse ?value))]
         (|case =value
           [(&&/$var (&/$Global ?r-module ?r-name)) _]
-          (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name =value-type)
+          (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name (&&/expr-type* =value))
                 ;; :let [_ (println 'analyse-def/ALIAS (str module-name ";" ?name) '=> (str ?r-module ";" ?r-name))
                 ;;       _ (println)]
                 ]
@@ -412,16 +417,17 @@
         _ (&&module/declare-tags module-name tags def-type)]
     (return (&/|list))))
 
-(defn analyse-import [analyse compile-module compile-token ?path]
+(defn analyse-import [analyse compile-module compile-token path]
+  ;; (prn 'analyse-import path)
   (|do [module-name &/get-module-name
-        _ (if (= module-name ?path)
-            (fail (str "[Analyser Error] Module can't import itself: " ?path))
+        _ (if (= module-name path)
+            (fail (str "[Analyser Error] Module can't import itself: " path))
             (return nil))]
     (&/save-module
-     (|do [already-compiled? (&&module/exists? ?path)
-           ;; :let [_ (prn 'analyse-import module-name ?path already-compiled?)]
-           _ (&&module/add-import ?path)
-           _ (&/when% (not already-compiled?) (compile-module ?path))]
+     (|do [already-compiled? (&&module/exists? path)
+           ;; :let [_ (prn 'analyse-import module-name path already-compiled?)]
+           _ (&&module/add-import path)
+           _ (&/when% (not already-compiled?) (compile-module path))]
        (return (&/|list))))))
 
 (defn analyse-export [analyse compile-token name]

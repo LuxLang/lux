@@ -126,9 +126,9 @@
   )
 
 ;; [Exports]
-(defn expr-type [syntax+]
+(defn expr-type* [syntax+]
   (|let [[_ type] syntax+]
-    (return type)))
+    type))
 
 (defn analyse-1 [analyse exo-type elem]
   (|do [output (analyse exo-type elem)]

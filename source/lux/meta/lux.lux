@@ -77,7 +77,7 @@
     (#;Some $module)
     (case (|> (: (Module Compiler) $module) (get@ #;defs) (get name))
       (#;Some gdef)
-      (case (: (, Bool (DefData' Macro)) gdef)
+      (case (: (, Bool DefData) gdef)
         [exported? (#;MacroD macro')]
         (if (or exported? (text:= module current-module))
           (#;Some macro')
@@ -210,7 +210,7 @@
   (case (get module (get@ #;modules state))
     (#;Some =module)
     (using List/Monad
-      (#;Right [state (join (map (: (-> (, Text (, Bool (DefData' Macro)))
+      (#;Right [state (join (map (: (-> (, Text (, Bool DefData))
                                         (List Text))
                                     (lambda [gdef]
                                       (let [[name [export? _]] gdef]
@@ -222,22 +222,6 @@
     #;None
     (#;Left ($ text:++ "Unknown module: " module))))
 
-(def (show-envs envs)
-  (-> (List (Env Text (, LuxVar Type))) Text)
-  (|> envs
-      (F;map (lambda [env]
-               (case env
-                 {#;name name #;inner-closures _ #;locals {#;counter _ #;mappings locals} #;closure _}
-                 ($ text:++ name ": " (|> locals
-                                          (F;map (: (All [a] (-> (, Text a) Text))
-                                                    (lambda [b] (let [[label _] b] label))))
-                                          (:: List/Functor)
-                                          (interpose " ")
-                                          (foldL text:++ text:unit))))))
-      (:: List/Functor)
-      (interpose "\n")
-      (foldL text:++ text:unit)))
-
 (def (try-both f x1 x2)
   (All [a b]
     (-> (-> a (Maybe b)) a a (Maybe b)))
@@ -245,7 +229,7 @@
     #;None     (f x2)
     (#;Some y) (#;Some y)))
 
-(def (find-in-env name state)
+(def #export (find-in-env name state)
   (-> Text Compiler (Maybe Type))
   (case state
     {#;source source #;modules modules
@@ -266,8 +250,8 @@
                            closure))))
           envs)))
 
-(def (find-in-defs name state)
-  (-> Ident Compiler (Maybe Type))
+(def (find-in-defs' name state)
+  (-> Ident Compiler (Maybe DefData))
   (let [[v-prefix v-name] name
         {#;source source #;modules modules
          #;envs   envs   #;type-vars   types   #;host           host
@@ -284,10 +268,23 @@
 
         (#;Some [_ def-data])
         (case def-data
-          (#;TypeD value)   (#;Some Type)
-          (#;ValueD type _) (#;Some type)
-          (#;MacroD m)      (#;Some Macro)
-          (#;AliasD name')  (find-in-defs name' state))))))
+          (#;AliasD name')  (find-in-defs' name' state)
+          _                 (#;Some def-data)
+          )))
+    ))
+
+(def #export (find-in-defs name state)
+  (-> Ident Compiler (Maybe Type))
+  (case (find-in-defs' name state)
+    (#;Some def-data)
+    (case def-data
+      (#;ValueD [type value]) (#;Some type)
+      (#;MacroD _)            (#;Some Macro)
+      (#;TypeD _)             (#;Some Type)
+      _                       #;None)
+    
+    #;None
+    #;None))
 
 (def #export (find-var-type name)
   (-> Ident (Lux Type))
@@ -306,9 +303,21 @@
              (#;Right [state struct-type])
 
              _
-             (let [{#;source source #;modules      modules
-                    #;envs   envs   #;type-vars        types        #;host  host
-                    #;seed   seed   #;eval? eval? #;expected expected
-                    #;cursor cursor} state]
-               (#;Left ($ text:++ "Unknown var: " (ident->text name) "\n\n" (show-envs envs))))))))
+             (#;Left ($ text:++ "Unknown var: " (ident->text name)))))))
+    ))
+
+(def #export (find-type name)
+  (-> Ident (Lux Type))
+  (do Lux/Monad
+    [name' (normalize name)]
+    (: (Lux Type)
+       (lambda [state]
+         (case (find-in-defs' name' state)
+           (#;Some def-data)
+           (case def-data
+             (#;TypeD type) (#;Right [state type])
+             _              (#;Left ($ text:++ "Definition is not a type: " (ident->text name))))
+
+           _
+           (#;Left ($ text:++ "Unknown var: " (ident->text name))))))
     ))

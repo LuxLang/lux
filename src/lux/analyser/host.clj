@@ -209,14 +209,12 @@
 
 (defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
   (|do [=array (analyse-1+ analyse ?array)
-        =elem (analyse-1+ analyse ?elem)
-        =array-type (&&/expr-type =array)]
-    (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T =array ?idx =elem)) =array-type)))))
+        =elem (analyse-1+ analyse ?elem)]
+    (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T =array ?idx =elem)) (&&/expr-type* =array))))))
 
 (defn analyse-jvm-aaload [analyse ?array ?idx]
-  (|do [=array (analyse-1+ analyse ?array)
-        =array-type (&&/expr-type =array)]
-    (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T =array ?idx)) =array-type)))))
+  (|do [=array (analyse-1+ analyse ?array)]
+    (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T =array ?idx)) (&&/expr-type* =array))))))
 
 (defn ^:private analyse-modifiers [modifiers]
   (&/fold% (fn [so-far modif]
