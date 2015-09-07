@@ -49,14 +49,9 @@
       (resolve-type type*))
 
     (&/$UnivQ _)
-    ;; (&type/actual-type _abody)
     (|do [$var &type/existential
           =type (&type/apply-type type $var)]
       (&type/actual-type =type))
-    ;; (&type/with-var
-    ;;   (fn [$var]
-    ;;     (|do [=type (&type/apply-type type $var)]
-    ;;       (&type/actual-type =type))))
 
     _
     (&type/actual-type type)))
@@ -126,7 +121,7 @@
   (adjust-type* (&/|list) type))
 
 (defn ^:private analyse-pattern [value-type pattern kont]
-  (|let [[_ pattern*] pattern]
+  (|let [[meta pattern*] pattern]
     (|case pattern*
       (&/$SymbolS "" name)
       (|do [=kont (&env/with-local name value-type
@@ -183,23 +178,8 @@
               (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
       
       (&/$RecordS pairs)
-      (|do [?members (&&record/order-record pairs)
-            value-type* (adjust-type value-type)]
-        (|case value-type*
-          (&/$TupleT ?member-types)
-          (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require record[" (&/|length ?member-types) "]. Given record[" (&/|length ?members) "]"))
-            (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                           (|let [[v m] vm]
-                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                               (return (&/T (&/Cons$ =test =tests) =kont)))))
-                                         (|do [=kont kont]
-                                           (return (&/T (&/|list) =kont)))
-                                         (&/|reverse (&/zip2 ?member-types ?members)))]
-              (return (&/T (&/V $TupleTestAC =tests) =kont))))
-
-          _
-          (fail "[Pattern-matching Error] Record requires record-type.")))
+      (|do [?members (&&record/order-record pairs)]
+        (analyse-pattern value-type (&/T meta (&/V &/$TupleS ?members)) kont))
 
       (&/$TagS ?ident)
       (|do [;; :let [_ (println "#00" (&/ident->text ?ident))]

@@ -532,6 +532,12 @@
                  (prn 'analyse-basic-ast/Error-1 e)
                  (prn 'analyse-basic-ast/Error-2 (&/show-ast token))
                  (prn 'analyse-basic-ast/Error-3 (&type/show-type exo-type))
+                 (|case ((&type/deref+ exo-type) state)
+                   (&/$Right [_state _exo-type])
+                   (prn 'analyse-basic-ast/Error-4 (&type/show-type _exo-type))
+
+                   _
+                   (prn 'analyse-basic-ast/Error-4 'YOLO))
                  (throw e))
                )
         (&/$Right state* output)

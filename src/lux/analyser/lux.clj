@@ -44,19 +44,39 @@
                 (analyse-tuple analyse exo-type** ?elems))))
 
           _
-          (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) (&type/show-type exo-type))))))))
+          (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
+          ;; (assert false (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
+          )))))
+
+(defn with-attempt [m-value on-error]
+  (fn [state]
+    (|case (m-value state)
+      (&/$Left msg)
+      ((on-error msg) state)
+      
+      output
+      output)))
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
-  (|do [output (|case ?values
-                 (&/$Nil)
-                 (analyse-tuple analyse exo-type (&/|list))
+  (|do [output (with-attempt
+                 (|case ?values
+                   (&/$Nil)
+                   (analyse-tuple analyse exo-type (&/|list))
 
-                 (&/$Cons ?value (&/$Nil))
-                 (analyse exo-type ?value)
+                   (&/$Cons ?value (&/$Nil))
+                   (analyse exo-type ?value)
 
-                 _
-                 (analyse-tuple analyse exo-type ?values)
-                 )]
+                   _
+                   (analyse-tuple analyse exo-type ?values))
+                 (fn [err]
+                   (fail (str err "\n"
+                              'analyse-variant-body " " (&type/show-type exo-type)
+                              " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+                   ;; (assert false
+                   ;;         (str err "\n"
+                   ;;              'analyse-variant-body " " (&type/show-type exo-type)
+                   ;;              " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
+                   ))]
     (|case output
       (&/$Cons x (&/$Nil))
       (return x)
@@ -78,7 +98,13 @@
       (&/$VariantT ?cases)
       (|case (&/|at idx ?cases)
         (&/$Some vtype)
-        (|do [=value (analyse-variant-body analyse vtype ?values)]
+        (|do [=value (with-attempt
+                       (analyse-variant-body analyse vtype ?values)
+                       (fn [err]
+                         (|do [_exo-type (&type/deref+ exo-type)]
+                           (fail (str err "\n"
+                                      'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
+                                      " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))]
           (return (&/|list (&/T (&/V &&/$variant (&/T idx =value))
                                 exo-type))))
 
@@ -95,41 +121,8 @@
       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
 (defn analyse-record [analyse exo-type ?elems]
-  ;; (when @&type/!flag
-  ;;   (prn 'analyse-record (&type/show-type exo-type)
-  ;;        (&/->seq (&/|map (fn [pair]
-  ;;                           (|let [[k v] pair]
-  ;;                             (str (&/show-ast k) " " (&/show-ast v))))
-  ;;                         ?elems))))
-  (|do [exo-type* (|case exo-type
-                    (&/$VarT ?id)
-                    (|do [exo-type* (&type/deref ?id)]
-                      (&type/actual-type exo-type*))
-
-                    (&/$UnivQ _)
-                    (|do [$var &type/existential
-                          =type (&type/apply-type exo-type $var)]
-                      (&type/actual-type =type))
-                    ;; (&type/with-var
-                    ;;   (fn [$var]
-                    ;;     (|do [=type (&type/apply-type exo-type $var)]
-                    ;;       (&type/actual-type =type))))
-
-                    _
-                    (&type/actual-type exo-type))
-        types (|case exo-type*
-                (&/$TupleT ?table)
-                (return ?table)
-
-                _
-                (fail (str "[Analyser Error] The type of a record must be a record-type:\n" (&type/show-type exo-type*) "\n" (&type/show-type exo-type))))
-        _ (&/assert! (= (&/|length types) (&/|length ?elems))
-                     (str "[Analyser Error] Record length mismatch. Expected: " (&/|length types) "; actual: " (&/|length ?elems)))
-        members (&&record/order-record ?elems)
-        =members (&/map2% (fn [elem-t elem]
-                            (&&/analyse-1 analyse elem-t elem))
-                          types members)]
-    (return (&/|list (&/T (&/V &&/$tuple =members) exo-type)))))
+  (|do [members (&&record/order-record ?elems)]
+    (analyse-tuple analyse exo-type members)))
 
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] $def] (&&module/find-def module name)
@@ -222,7 +215,10 @@
   ;; (prn 'analyse-apply* (aget fun-type 0))
   (|case ?args
     (&/$Nil)
-    (|do [_ (&type/check exo-type fun-type)]
+    (|do [;; :let [_ (prn 'analyse-apply*/_0 (&type/show-type exo-type) (&type/show-type fun-type))]
+          _ (&type/check exo-type fun-type)
+          ;; :let [_ (prn 'analyse-apply*/_1 'SUCCESS (str "(_ " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) ")"))]
+          ]
       (return (&/T fun-type (&/|list))))
     
     (&/$Cons ?arg ?args*)
@@ -248,7 +244,12 @@
 
         (&/$LambdaT ?input-t ?output-t)
         (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
-              =arg (&&/analyse-1 analyse ?input-t ?arg)]
+              =arg (with-attempt
+                     (&&/analyse-1 analyse ?input-t ?arg)
+                     (fn [err]
+                       (fail (str err "\n"
+                                  'analyse-apply* " " (&type/show-type exo-type) " " (&type/show-type ?fun-type*)
+                                  " " "(_ " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) ")"))))]
           (return (&/T =output-t (&/Cons$ =arg =args))))
 
         ;; [[&/$VarT ?id-t]]
@@ -325,35 +326,39 @@
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
   (|case exo-type
     (&/$UnivQ _)
-    (&type/with-var
-      (fn [$var]
-        (|do [exo-type* (&type/apply-type exo-type $var)
-              [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
-          (|case $var
-            (&/$VarT ?id)
-            (|do [? (&type/bound? ?id)]
-              (if ?
-                (|do [dtype (&type/deref ?id)
-                      ;; dtype* (&type/actual-type dtype)
-                      ]
-                  (|case dtype
-                    (&/$BoundT ?vname)
-                    (return (&/T _expr exo-type))
-                    
-                    (&/$ExT _)
-                    (return (&/T _expr exo-type))
+    (|do [$var &type/existential
+          exo-type* (&type/apply-type exo-type $var)
+          [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
+      (return (&/T _expr exo-type)))
+    ;; (&type/with-var
+    ;;   (fn [$var]
+    ;;     (|do [exo-type* (&type/apply-type exo-type $var)
+    ;;           [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
+    ;;       (|case $var
+    ;;         (&/$VarT ?id)
+    ;;         (|do [? (&type/bound? ?id)]
+    ;;           (if ?
+    ;;             (|do [dtype (&type/deref ?id)
+    ;;                   ;; dtype* (&type/actual-type dtype)
+    ;;                   ]
+    ;;               (|case dtype
+    ;;                 (&/$BoundT ?vname)
+    ;;                 (return (&/T _expr exo-type))
+    
+    ;;                 (&/$ExT _)
+    ;;                 (return (&/T _expr exo-type))
 
-                    (&/$VarT ?_id)
-                    (|do [?? (&type/bound? ?_id)]
-                      ;; (return (&/T _expr exo-type))
-                      (if ??
-                        (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))
-                        (return (&/T _expr exo-type)))
-                      )
+    ;;                 (&/$VarT ?_id)
+    ;;                 (|do [?? (&type/bound? ?_id)]
+    ;;                   ;; (return (&/T _expr exo-type))
+    ;;                   (if ??
+    ;;                     (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))
+    ;;                     (return (&/T _expr exo-type)))
+    ;;                   )
 
-                    _
-                    (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))))
-                (return (&/T _expr exo-type))))))))
+    ;;                 _
+    ;;                 (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))))
+    ;;             (return (&/T _expr exo-type))))))))
     
     _
     (|do [exo-type* (&type/actual-type exo-type)]

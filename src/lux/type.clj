@@ -342,7 +342,9 @@
     (deref id)
 
     _
-    (fail (str "[Type Error] Type is not a variable: " (show-type type)))))
+    ;; (assert false (str "[Type Error] Type is not a variable: " (show-type type)))
+    (fail (str "[Type Error] Type is not a variable: " (show-type type)))
+    ))
 
 (defn set-var [id type]
   (fn [state]
@@ -370,6 +372,7 @@
                id))))
 
 (def existential
+  ;; (Lux Type)
   (|do [seed &/gen-id]
     (return (&/V &/$ExT seed))))
 
@@ -650,6 +653,9 @@
 
     (&/$NamedT ?name ?type)
     (apply-type ?type param)
+
+    (&/$ExT id)
+    (return (App$ type-fn param))
     
     _
     (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
@@ -728,6 +734,11 @@
              (check* class-loader fixpoints expected bound))
            state)))
 
+      [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
+      (if (= eid aid)
+        (check* class-loader fixpoints eA aA)
+        (fail (check-error expected actual)))
+
       [(&/$AppT (&/$VarT ?eid) A1) (&/$AppT (&/$VarT ?aid) A2)]
       (fn [state]
         (|case ((|do [F1 (deref ?eid)]
@@ -757,6 +768,7 @@
                    [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
                (return (&/T fixpoints** nil)))
              state))))
+      
       ;; (|do [_ (check* class-loader fixpoints (Var$ ?eid) (Var$ ?aid))
       ;;       _ (check* class-loader fixpoints A1 A2)]
       ;;   (return (&/T fixpoints nil)))
