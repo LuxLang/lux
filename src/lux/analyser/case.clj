@@ -184,11 +184,7 @@
       
       (&/$RecordS pairs)
       (|do [?members (&&record/order-record pairs)
-            ;; :let [_ (prn 'PRE (&type/show-type value-type))]
-            value-type* (adjust-type value-type)
-            ;; :let [_ (prn 'POST (&type/show-type value-type*))]
-            ;; value-type* (resolve-type value-type)
-            ]
+            value-type* (adjust-type value-type)]
         (|case value-type*
           (&/$TupleT ?member-types)
           (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
@@ -333,6 +329,15 @@
           (return (&/V $VariantTotal (&/T total? structs))))
         ))))
 
+(defn check-totality+ [check-totality]
+  (fn [?token]
+    (&type/with-var
+      (fn [$var]
+        (|do [=output (check-totality $var ?token)
+              ?type (&type/deref+ $var)
+              =type (&type/clean $var ?type)]
+          (return (&/T =output =type)))))))
+
 (defn ^:private check-totality [value-type struct]
   ;; (prn 'check-totality (&type/show-type value-type) (&/adt->text struct))
   (|case struct
@@ -340,34 +345,45 @@
     (return ?total)
 
     ($BoolTotal ?total ?values)
-    (return (or ?total
-                (= #{true false} (set (&/->seq ?values)))))
+    (|do [_ (&type/check value-type &type/Bool)]
+      (return (or ?total
+                  (= #{true false} (set (&/->seq ?values))))))
 
     ($IntTotal ?total _)
-    (return ?total)
+    (|do [_ (&type/check value-type &type/Int)]
+      (return ?total))
 
     ($RealTotal ?total _)
-    (return ?total)
+    (|do [_ (&type/check value-type &type/Real)]
+      (return ?total))
 
     ($CharTotal ?total _)
-    (return ?total)
+    (|do [_ (&type/check value-type &type/Char)]
+      (return ?total))
 
     ($TextTotal ?total _)
-    (return ?total)
+    (|do [_ (&type/check value-type &type/Text)]
+      (return ?total))
 
     ($TupleTotal ?total ?structs)
-    (if ?total
-      (return true)
-      (|do [value-type* (resolve-type value-type)]
-        (|case value-type*
-          (&/$TupleT ?members)
-          (|do [totals (&/map2% (fn [sub-struct ?member]
-                                  (check-totality ?member sub-struct))
-                                ?structs ?members)]
-            (return (&/fold #(and %1 %2) true totals)))
+    (|do [unknown? (&type/unknown? value-type)]
+      (if unknown?
+        (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
+              _ (&type/check value-type (&/V &/$TupleT (&/|map &/|second =structs)))]
+          (return (or ?total
+                      (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
+        (if ?total
+          (return true)
+          (|do [value-type* (resolve-type value-type)]
+            (|case value-type*
+              (&/$TupleT ?members)
+              (|do [totals (&/map2% (fn [sub-struct ?member]
+                                      (check-totality ?member sub-struct))
+                                    ?structs ?members)]
+                (return (&/fold #(and %1 %2) true totals)))
 
-          _
-          (fail "[Pattern-maching Error] Tuple is not total."))))
+              _
+              (fail "[Pattern-maching Error] Tuple is not total."))))))
 
     ($VariantTotal ?total ?structs)
     (if ?total

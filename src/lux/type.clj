@@ -336,6 +336,14 @@
         (fail* (str "[Type Error] Unbound type-var: " id)))
       (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))
 
+(defn deref+ [type]
+  (|case type
+    (&/$VarT id)
+    (deref id)
+
+    _
+    (fail (str "[Type Error] Type is not a variable: " (show-type type)))))
+
 (defn set-var [id type]
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
@@ -914,8 +922,9 @@
     (|do [type* (apply-type ?all ?param)]
       (actual-type type*))
 
-    (&/$VarT ?id)
-    (deref ?id)
+    (&/$VarT id)
+    (|do [=type (deref id)]
+      (actual-type =type))
 
     (&/$NamedT ?name ?type)
     (actual-type ?type)

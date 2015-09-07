@@ -18,19 +18,11 @@
                           [module :as &&module]
                           [record :as &&record])))
 
-(defn ^:private analyse-1+ [analyse ?token]
-  (&type/with-var
-    (fn [$var]
-      (|do [=expr (&&/analyse-1 analyse $var ?token)
-            :let [[?item ?type] =expr]
-            =type (&type/clean $var ?type)]
-        (return (&/T ?item =type))))))
-
 ;; [Exports]
 (defn analyse-tuple [analyse exo-type ?elems]
   (|do [unknown? (&type/unknown? exo-type)]
     (if unknown?
-      (|do [=elems (&/map% #(|do [=analysis (analyse-1+ analyse %)]
+      (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
                               (return =analysis))
                            ?elems)
             _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))]
@@ -52,7 +44,7 @@
                 (analyse-tuple analyse exo-type** ?elems))))
 
           _
-          (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*))))))))
+          (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) (&type/show-type exo-type))))))))
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
   (|do [output (|case ?values
@@ -303,7 +295,7 @@
   (|do [:let [num-branches (&/|length ?branches)]
         _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case'\" expression.")
         _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case'\" expression.")
-        =value (analyse-1+ analyse ?value)
+        =value (&&/analyse-1+ analyse ?value)
         =match (&&case/analyse-branches analyse exo-type (&&/expr-type* =value) (&/|as-pairs ?branches))]
     (return (&/|list (&/T (&/V &&/$case (&/T =value =match))
                           exo-type)))))
@@ -382,7 +374,7 @@
     (if ?
       (fail (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
       (|do [=value (&/with-scope ?name
-                     (analyse-1+ analyse ?value))]
+                     (&&/analyse-1+ analyse ?value))]
         (|case =value
           [(&&/$var (&/$Global ?r-module ?r-name)) _]
           (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name (&&/expr-type* =value))
@@ -452,6 +444,6 @@
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
-        =value (analyse-1+ analyse ?value)]
+        =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (&/T (&/V &&/$ann (&/T =value =type))
                           ==type)))))

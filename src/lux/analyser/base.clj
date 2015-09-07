@@ -139,6 +139,14 @@
       _
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
+(defn analyse-1+ [analyse ?token]
+  (&type/with-var
+    (fn [$var]
+      (|do [=expr (analyse-1 analyse $var ?token)
+            :let [[?item ?type] =expr]
+            =type (&type/clean $var ?type)]
+        (return (&/T ?item =type))))))
+
 (defn resolved-ident [ident]
   (|let [[?module ?name] ident]
     (|do [module* (if (.equals "" ?module)
