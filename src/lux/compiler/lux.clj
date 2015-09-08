@@ -175,45 +175,47 @@
           (return nil)))
       )))
 
-(defn compile-def [compile ?name ?body]
-  (|do [:let [=value-type (&a/expr-type* ?body)
-              def-type (cond (&type/type= &type/Type =value-type)
-                             "type"
-                             
-                             :else
-                             "value")]
-        ^ClassWriter *writer* &/get-writer
-        module-name &/get-module-name
-        :let [datum-sig "Ljava/lang/Object;"
-              def-name (&/normalize-name ?name)
-              current-class (str (&host/->module-class module-name) "/" def-name)
-              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               current-class nil "java/lang/Object" (into-array [&&/function-class]))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/name-field "Ljava/lang/String;" nil ?name)
-                           (doto (.visitEnd)))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/datum-field datum-sig nil nil)
-                           (doto (.visitEnd)))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/meta-field datum-sig nil nil)
-                           (doto (.visitEnd))))]
-        _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-            (|do [^MethodVisitor **writer** &/get-writer
-                  :let [_ (.visitCode **writer**)]
-                  _ (compile ?body)
-                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/datum-field datum-sig)]
-                  _ (compile-def-type compile current-class ?body def-type)
-                  :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/meta-field datum-sig)]
-                  :let [_ (doto **writer**
-                            (.visitInsn Opcodes/RETURN)
-                            (.visitMaxs 0 0)
-                            (.visitEnd))]]
-              (return nil)))
-        :let [_ (.visitEnd *writer*)]
-        _ (&&/save-class! def-name (.toByteArray =class))
-        class-loader &/loader
-        :let [def-class (&&/load-class! class-loader (&host/->class-name current-class))]
-        _ (&a-module/define module-name ?name (-> def-class (.getField &/meta-field) (.get nil)) =value-type)]
-    (return nil)))
+(let [class-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+      field-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)]
+  (defn compile-def [compile ?name ?body]
+    (|do [:let [=value-type (&a/expr-type* ?body)
+                def-type (cond (&type/type= &type/Type =value-type)
+                               "type"
+                               
+                               :else
+                               "value")]
+          ^ClassWriter *writer* &/get-writer
+          module-name &/get-module-name
+          :let [datum-sig "Ljava/lang/Object;"
+                def-name (&/normalize-name ?name)
+                current-class (str (&host/->module-class module-name) "/" def-name)
+                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                         (.visit Opcodes/V1_5 class-flags
+                                 current-class nil "java/lang/Object" (into-array [&&/function-class]))
+                         (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
+                             (doto (.visitEnd)))
+                         (-> (.visitField field-flags &/datum-field datum-sig nil nil)
+                             (doto (.visitEnd)))
+                         (-> (.visitField field-flags &/meta-field datum-sig nil nil)
+                             (doto (.visitEnd))))]
+          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+              (|do [^MethodVisitor **writer** &/get-writer
+                    :let [_ (.visitCode **writer**)]
+                    _ (compile ?body)
+                    :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/datum-field datum-sig)]
+                    _ (compile-def-type compile current-class ?body def-type)
+                    :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/meta-field datum-sig)]
+                    :let [_ (doto **writer**
+                              (.visitInsn Opcodes/RETURN)
+                              (.visitMaxs 0 0)
+                              (.visitEnd))]]
+                (return nil)))
+          :let [_ (.visitEnd *writer*)]
+          _ (&&/save-class! def-name (.toByteArray =class))
+          class-loader &/loader
+          :let [def-class (&&/load-class! class-loader (&host/->class-name current-class))]
+          _ (&a-module/define module-name ?name (-> def-class (.getField &/meta-field) (.get nil)) =value-type)]
+      (return nil))))
 
 (defn compile-ann [compile *type* ?value-ex ?type-ex]
   (compile ?value-ex))

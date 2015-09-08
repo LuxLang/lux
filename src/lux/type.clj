@@ -739,35 +739,35 @@
         (check* class-loader fixpoints eA aA)
         (fail (check-error expected actual)))
 
-      [(&/$AppT (&/$VarT ?eid) A1) (&/$AppT (&/$VarT ?aid) A2)]
-      (fn [state]
-        (|case ((|do [F1 (deref ?eid)]
-                  (fn [state]
-                    (|case ((|do [F2 (deref ?aid)]
-                              (check* class-loader fixpoints (App$ F1 A1) (App$ F2 A2)))
-                            state)
-                      (&/$Right state* output)
-                      (return* state* output)
+      ;; [(&/$AppT (&/$VarT ?eid) A1) (&/$AppT (&/$VarT ?aid) A2)]
+      ;; (fn [state]
+      ;;   (|case ((|do [F1 (deref ?eid)]
+      ;;             (fn [state]
+      ;;               (|case ((|do [F2 (deref ?aid)]
+      ;;                         (check* class-loader fixpoints (App$ F1 A1) (App$ F2 A2)))
+      ;;                       state)
+      ;;                 (&/$Right state* output)
+      ;;                 (return* state* output)
 
-                      (&/$Left _)
-                      ((check* class-loader fixpoints (App$ F1 A1) actual)
-                       state))))
-                state)
-          (&/$Right state* output)
-          (return* state* output)
+      ;;                 (&/$Left _)
+      ;;                 ((check* class-loader fixpoints (App$ F1 A1) actual)
+      ;;                  state))))
+      ;;           state)
+      ;;     (&/$Right state* output)
+      ;;     (return* state* output)
 
-          (&/$Left _)
-          (|case ((|do [F2 (deref ?aid)]
-                    (check* class-loader fixpoints expected (App$ F2 A2)))
-                  state)
-            (&/$Right state* output)
-            (return* state* output)
+      ;;     (&/$Left _)
+      ;;     (|case ((|do [F2 (deref ?aid)]
+      ;;               (check* class-loader fixpoints expected (App$ F2 A2)))
+      ;;             state)
+      ;;       (&/$Right state* output)
+      ;;       (return* state* output)
 
-            (&/$Left _)
-            ((|do [[fixpoints* _] (check* class-loader fixpoints (Var$ ?eid) (Var$ ?aid))
-                   [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
-               (return (&/T fixpoints** nil)))
-             state))))
+      ;;       (&/$Left _)
+      ;;       ((|do [[fixpoints* _] (check* class-loader fixpoints (Var$ ?eid) (Var$ ?aid))
+      ;;              [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
+      ;;          (return (&/T fixpoints** nil)))
+      ;;        state))))
       
       ;; (|do [_ (check* class-loader fixpoints (Var$ ?eid) (Var$ ?aid))
       ;;       _ (check* class-loader fixpoints A1 A2)]
@@ -788,6 +788,7 @@
                  [fixpoints** _] (check* class-loader fixpoints* e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
+      
       ;; [[&/$AppT [[&/$VarT ?id] A1]] [&/$AppT [F2 A2]]]
       ;; (|do [[fixpoints* _] (check* class-loader fixpoints (Var$ ?id) F2)
       ;;       e* (apply-type F2 A1)
@@ -810,6 +811,7 @@
                  [fixpoints** _] (check* class-loader fixpoints* e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
+      
       ;; [[&/$AppT [F1 A1]] [&/$AppT [[&/$VarT ?id] A2]]]
       ;; (|do [[fixpoints* _] (check* class-loader fixpoints F1 (Var$ ?id))
       ;;       e* (apply-type F1 A1)
@@ -817,6 +819,10 @@
       ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
       ;;   (return (&/T fixpoints** nil)))
 
+      ;; [(&/$AppT eF eA) (&/$AppT aF aA)]
+      ;; (|do [_ (check* class-loader fixpoints eF aF)]
+      ;;   (check* class-loader fixpoints eA aA))
+      
       [(&/$AppT F A) _]
       (let [fp-pair (&/T expected actual)
             _ (when (> (&/|length fixpoints) 40)

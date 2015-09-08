@@ -60,19 +60,20 @@
     (.visitMaxs 0 0)
     (.visitEnd)))
 
-(defn ^:private add-lambda-impl [class compile impl-signature impl-body]
-  (&/with-writer (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "impl" impl-signature nil nil)
-                   (.visitCode))
-    (|do [^MethodVisitor *writer* &/get-writer
-          :let [$start (new Label)
-                $end (new Label)]
-          ret (compile impl-body)
-          :let [_ (doto *writer*
-                    (.visitLabel $end)
-                    (.visitInsn Opcodes/ARETURN)
-                    (.visitMaxs 0 0)
-                    (.visitEnd))]]
-      (return ret))))
+(let [impl-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL)]
+  (defn ^:private add-lambda-impl [class compile impl-signature impl-body]
+    (&/with-writer (doto (.visitMethod ^ClassWriter class impl-flags "impl" impl-signature nil nil)
+                     (.visitCode))
+      (|do [^MethodVisitor *writer* &/get-writer
+            :let [$start (new Label)
+                  $end (new Label)]
+            ret (compile impl-body)
+            :let [_ (doto *writer*
+                      (.visitLabel $end)
+                      (.visitInsn Opcodes/ARETURN)
+                      (.visitMaxs 0 0)
+                      (.visitEnd))]]
+        (return ret)))))
 
 (defn ^:private instance-closure [compile lambda-class closed-over init-signature]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -88,23 +89,25 @@
     (return nil)))
 
 ;; [Exports]
-(defn compile-lambda [compile ?scope ?env ?body]
-  ;; (prn 'compile-lambda (->> ?scope &/->seq))
-  (|do [:let [name (&host/location (&/|tail ?scope))
-              class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
-              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               class-name nil "java/lang/Object" (into-array [&&/function-class]))
-                       (-> (doto (.visitField (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) captured-name clo-field-sig nil nil)
-                             (.visitEnd))
-                           (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-                                (|case ?name+?captured
-                                  [?name [(&a/$captured _ ?captured-id ?source) _]])
-                                (doseq [?name+?captured (&/->seq ?env)])))
-                       (add-lambda-apply class-name ?env)
-                       (add-lambda-<init> class-name ?env)
-                       )]
-        _ (add-lambda-impl =class compile lambda-impl-signature ?body)
-        :let [_ (.visitEnd =class)]
-        _ (&&/save-class! name (.toByteArray =class))]
-    (instance-closure compile class-name ?env (lambda-<init>-signature ?env))))
+(let [lambda-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+      datum-flags (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL)]
+  (defn compile-lambda [compile ?scope ?env ?body]
+    ;; (prn 'compile-lambda (->> ?scope &/->seq))
+    (|do [:let [name (&host/location (&/|tail ?scope))
+                class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
+                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                         (.visit Opcodes/V1_5 lambda-flags
+                                 class-name nil "java/lang/Object" (into-array [&&/function-class]))
+                         (-> (doto (.visitField datum-flags captured-name clo-field-sig nil nil)
+                               (.visitEnd))
+                             (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
+                                  (|case ?name+?captured
+                                    [?name [(&a/$captured _ ?captured-id ?source) _]])
+                                  (doseq [?name+?captured (&/->seq ?env)])))
+                         (add-lambda-apply class-name ?env)
+                         (add-lambda-<init> class-name ?env)
+                         )]
+          _ (add-lambda-impl =class compile lambda-impl-signature ?body)
+          :let [_ (.visitEnd =class)]
+          _ (&&/save-class! name (.toByteArray =class))]
+      (instance-closure compile class-name ?env (lambda-<init>-signature ?env)))))
