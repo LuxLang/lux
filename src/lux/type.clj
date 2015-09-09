@@ -26,8 +26,8 @@
 (def ^:private empty-env (&/V &/$Nil nil))
 (defn Data$ [name]
   (&/V &/$DataT name))
-(defn Bound$ [name]
-  (&/V &/$BoundT name))
+(defn Bound$ [idx]
+  (&/V &/$BoundT idx))
 (defn Var$ [id]
   (&/V &/$VarT id))
 (defn Lambda$ [in out]
@@ -986,3 +986,15 @@
 
     _
     (return false)))
+
+(defn resolve-type [type]
+  "(-> Type (Lux Type))"
+  (|case type
+    (&/$VarT id)
+    (|do [? (bound? id)]
+      (if ?
+        (deref id)
+        (return type)))
+
+    _
+    (return type)))

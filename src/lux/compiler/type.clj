@@ -80,4 +80,7 @@
     (&/$NamedT [?module ?name] ?type)
     (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ ?module) (text$ ?name)))
                                          (->analysis ?type))))
+
+    _
+    (assert false (&type/show-type type))
     ))

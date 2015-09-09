@@ -49,6 +49,29 @@
     _
     type))
 
+(defn ^:private as-otype [tname]
+  (case tname
+    "boolean" "java.lang.Boolean"
+    "byte"    "java.lang.Byte"
+    "short"   "java.lang.Short"
+    "int"     "java.lang.Integer"
+    "long"    "java.lang.Long"
+    "float"   "java.lang.Float"
+    "double"  "java.lang.Double"
+    "char"    "java.lang.Character"
+    ;; else
+    tname
+    ))
+
+(defn ^:private as-otype+ [type]
+  "(-> Type Type)"
+  (|case type
+    (&/$DataT tname)
+    (&/V &/$DataT (as-otype tname))
+
+    _
+    type))
+
 ;; [Resources]
 (do-template [<name> <output-tag> <input-class> <output-class>]
   (let [input-type (&/V &/$DataT <input-class>)
@@ -144,7 +167,7 @@
                        =classes
                        ?args)
         :let [output-type =return]
-        _ (&type/check exo-type output-type)]
+        _ (&type/check exo-type (as-otype+ output-type))]
     (return (&/|list (&/T (&/V &&/$jvm-invokestatic (&/T ?class ?method =classes =args)) output-type)))))
 
 (defn analyse-jvm-instanceof [analyse exo-type ?class ?object]
@@ -163,7 +186,7 @@
           =args (&/map2% (fn [?c ?o] (&&/analyse-1 analyse (&/V &/$DataT ?c) ?o))
                          =classes ?args)
           :let [output-type =return]
-          _ (&type/check exo-type output-type)]
+          _ (&type/check exo-type (as-otype+ output-type))]
       (return (&/|list (&/T (&/V <tag> (&/T ?class ?method =classes =object =args)) output-type)))))
 
   analyse-jvm-invokevirtual   &&/$jvm-invokevirtual
@@ -181,7 +204,7 @@
                          (&&/analyse-1 analyse (&/V &/$DataT ?c) ?o))
                        =classes ?args)
         :let [output-type =return]
-        _ (&type/check exo-type output-type)]
+        _ (&type/check exo-type (as-otype+ output-type))]
     (return (&/|list (&/T (&/V &&/$jvm-invokespecial (&/T ?class ?method =classes =object =args)) output-type)))))
 
 (defn analyse-jvm-null? [analyse exo-type ?object]
@@ -251,20 +274,6 @@
             :abstract? false
             :concurrency nil}
            modifiers))
-
-(defn ^:private as-otype [tname]
-  (case tname
-    "boolean" "java.lang.Boolean"
-    "byte"    "java.lang.Byte"
-    "short"   "java.lang.Short"
-    "int"     "java.lang.Integer"
-    "long"    "java.lang.Long"
-    "float"   "java.lang.Float"
-    "double"  "java.lang.Double"
-    "char"    "java.lang.Character"
-    ;; else
-    tname
-    ))
 
 (defn analyse-jvm-class [analyse compile-token ?name ?super-class ?interfaces ?fields ?methods]
   (|do [=interfaces (&/map% extract-text ?interfaces)

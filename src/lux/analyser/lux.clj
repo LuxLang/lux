@@ -301,27 +301,80 @@
     (return (&/|list (&/T (&/V &&/$case (&/T =value =match))
                           exo-type)))))
 
+(defn ^:private count-univq [type]
+  "(-> Type Int)"
+  (|case type
+    (&/$UnivQ env type*)
+    (inc (count-univq type*))
+
+    _
+    0))
+
+(defn ^:private embed-inferred-input [input output]
+  "(-> Type Type Type)"
+  (|case output
+    (&/$UnivQ env output*)
+    (&type/Univ$ env (embed-inferred-input input output*))
+
+    _
+    (&type/Lambda$ input output)))
+
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
-  (|do [exo-type* (&type/actual-type exo-type)]
-    (|case exo-type
-      (&/$UnivQ _)
-      (&type/with-var
-        (fn [$var]
-          (|do [exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
-      ;; (|do [$var &type/existential
-      ;;       exo-type** (&type/apply-type exo-type* $var)]
-      ;;   (analyse-lambda* analyse exo-type** ?self ?arg ?body))
-      
-      (&/$LambdaT ?arg-t ?return-t)
-      (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
-                                       ?arg ?arg-t
-                                       (&&/analyse-1 analyse ?return-t ?body))]
-        (return (&/T (&/V &&/$lambda (&/T =scope =captured =body)) exo-type*)))
-      
-      _
-      (fail (str "[Analyser Error] Functions require function types: "
-                 (&type/show-type exo-type*))))))
+  (|case exo-type
+    (&/$VarT id)
+    (|do [? (&type/bound? id)]
+      (if ?
+        (|do [exo-type* (&type/deref id)]
+          (analyse-lambda* analyse exo-type* ?self ?arg ?body))
+        ;; Inference
+        (&type/with-var
+          (fn [$input]
+            (&type/with-var
+              (fn [$output]
+                (|do [[lambda-analysis lambda-type] (analyse-lambda* analyse (&type/Lambda$ $input $output) ?self ?arg ?body)
+                      =input (&type/resolve-type $input)
+                      =output (&type/resolve-type $output)
+                      inferred-type (|case =input
+                                      (&/$VarT iid)
+                                      (|do [:let [=input* (&type/Bound$ (->> (count-univq =output) (* 2) (+ 1)))]
+                                            _ (&type/set-var iid =input*)
+                                            =output* (&type/clean $input =output)
+                                            =output** (&type/clean $output =output*)]
+                                        (return (&type/Univ$ (&/|list) (embed-inferred-input =input* =output**))))
+
+                                      _
+                                      (|do [=output* (&type/clean $input =output)
+                                            =output** (&type/clean $output =output*)]
+                                        (return (embed-inferred-input =input =output**))))
+                      _ (&type/check exo-type inferred-type)
+                      ]
+                  (return (&/T lambda-analysis inferred-type)))
+                ))))))
+
+    _
+    (|do [exo-type* (&type/actual-type exo-type)]
+      (|case exo-type
+        (&/$UnivQ _)
+        (&type/with-var
+          (fn [$var]
+            (|do [exo-type** (&type/apply-type exo-type* $var)]
+              (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
+        ;; (|do [$var &type/existential
+        ;;       exo-type** (&type/apply-type exo-type* $var)]
+        ;;   (analyse-lambda* analyse exo-type** ?self ?arg ?body))
+        
+        (&/$LambdaT ?arg-t ?return-t)
+        (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
+                                         ?arg ?arg-t
+                                         (&&/analyse-1 analyse ?return-t ?body))]
+          (return (&/T (&/V &&/$lambda (&/T =scope =captured =body)) exo-type*)))
+
+        
+        
+        _
+        (fail (str "[Analyser Error] Functions require function types: "
+                   (&type/show-type exo-type*)))))
+    ))
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
   (|case exo-type
@@ -330,35 +383,14 @@
           exo-type* (&type/apply-type exo-type $var)
           [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
       (return (&/T _expr exo-type)))
-    ;; (&type/with-var
-    ;;   (fn [$var]
-    ;;     (|do [exo-type* (&type/apply-type exo-type $var)
-    ;;           [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
-    ;;       (|case $var
-    ;;         (&/$VarT ?id)
-    ;;         (|do [? (&type/bound? ?id)]
-    ;;           (if ?
-    ;;             (|do [dtype (&type/deref ?id)
-    ;;                   ;; dtype* (&type/actual-type dtype)
-    ;;                   ]
-    ;;               (|case dtype
-    ;;                 (&/$BoundT ?vname)
-    ;;                 (return (&/T _expr exo-type))
-    
-    ;;                 (&/$ExT _)
-    ;;                 (return (&/T _expr exo-type))
 
-    ;;                 (&/$VarT ?_id)
-    ;;                 (|do [?? (&type/bound? ?_id)]
-    ;;                   ;; (return (&/T _expr exo-type))
-    ;;                   (if ??
-    ;;                     (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))
-    ;;                     (return (&/T _expr exo-type)))
-    ;;                   )
-
-    ;;                 _
-    ;;                 (fail (str "[Analyser Error] Can't use type-var in any type-specific way inside polymorphic functions: " ?id " " (&type/show-type dtype)))))
-    ;;             (return (&/T _expr exo-type))))))))
+    (&/$VarT id)
+    (|do [? (&type/bound? id)]
+      (if ?
+        (|do [exo-type* (&type/actual-type exo-type)]
+          (analyse-lambda* analyse exo-type* ?self ?arg ?body))
+        ;; Inference
+        (analyse-lambda* analyse exo-type ?self ?arg ?body)))
     
     _
     (|do [exo-type* (&type/actual-type exo-type)]
