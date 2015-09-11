@@ -18,35 +18,84 @@
                           [module :as &&module]
                           [record :as &&record])))
 
+;; [Utils]
+(defn ^:private count-univq [type]
+  "(-> Type Int)"
+  (|case type
+    (&/$UnivQ env type*)
+    (inc (count-univq type*))
+
+    _
+    0))
+
+(defn ^:private next-bound-type [type]
+  "(-> Type Type)"
+  (&type/Bound$ (->> (count-univq type) (* 2) (+ 1))))
+
+(defn ^:private embed-inferred-input [input output]
+  "(-> Type Type Type)"
+  (|case output
+    (&/$UnivQ env output*)
+    (&type/Univ$ env (embed-inferred-input input output*))
+
+    _
+    (&type/Lambda$ input output)))
+
 ;; [Exports]
-(defn analyse-tuple [analyse exo-type ?elems]
-  (|do [unknown? (&type/unknown? exo-type)]
-    (if unknown?
-      (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
-                              (return =analysis))
-                           ?elems)
-            _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))]
-        (return (&/|list (&/T (&/V &&/$tuple =elems)
-                              exo-type))))
-      (|do [exo-type* (&type/actual-type exo-type)]
-        (|case exo-type*
-          (&/$TupleT ?members)
-          (|do [=elems (&/map2% (fn [elem-t elem]
-                                  (&&/analyse-1 analyse elem-t elem))
-                                ?members ?elems)]
-            (return (&/|list (&/T (&/V &&/$tuple =elems)
-                                  exo-type))))
+(defn analyse-tuple [analyse ?exo-type ?elems]
+  (|case ?exo-type
+    (&/$Left exo-type)
+    (|do [;; :let [_ (println 'analyse-tuple/$Left (&type/show-type exo-type))]
+          exo-type* (&type/actual-type exo-type)]
+      (|case exo-type*
+        (&/$UnivQ _)
+        (&type/with-var
+          (fn [$var]
+            (|do [exo-type** (&type/apply-type exo-type* $var)
+                  [tuple-analysis tuple-type] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left exo-type**) ?elems))
+                  =var (&type/resolve-type $var)
+                  inferred-type (|case =var
+                                  (&/$VarT iid)
+                                  (|do [:let [=var* (next-bound-type tuple-type)]
+                                        _ (&type/set-var iid =var*)
+                                        tuple-type* (&type/clean $var tuple-type)]
+                                    (return (&type/Univ$ (&/|list) tuple-type*)))
 
-          (&/$UnivQ _)
-          (&type/with-var
-            (fn [$var]
-              (|do [exo-type** (&type/apply-type exo-type* $var)]
-                (analyse-tuple analyse exo-type** ?elems))))
+                                  _
+                                  (&type/clean $var tuple-type))]
+              (return (&/|list (&/T tuple-analysis inferred-type))))))
 
-          _
-          (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
-          ;; (assert false (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
-          )))))
+        _
+        (analyse-tuple analyse (&/V &/$Right exo-type*) ?elems)))
+
+    (&/$Right exo-type)
+    (|do [unknown? (&type/unknown? exo-type)]
+      (if unknown?
+        (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
+                                (return =analysis))
+                             ?elems)
+              _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))]
+          (return (&/|list (&/T (&/V &&/$tuple =elems)
+                                exo-type))))
+        (|do [exo-type* (&type/actual-type exo-type)]
+          (|case exo-type*
+            (&/$TupleT ?members)
+            (|do [=elems (&/map2% (fn [elem-t elem]
+                                    (&&/analyse-1 analyse elem-t elem))
+                                  ?members ?elems)]
+              (return (&/|list (&/T (&/V &&/$tuple =elems)
+                                    exo-type))))
+
+            (&/$UnivQ _)
+            (|do [$var &type/existential
+                  exo-type** (&type/apply-type exo-type* $var)
+                  [tuple-analysis tuple-type] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
+              (return (&/|list (&/T tuple-analysis exo-type))))
+
+            _
+            (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
+            ;; (assert false (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
+            ))))))
 
 (defn with-attempt [m-value on-error]
   (fn [state]
@@ -61,13 +110,13 @@
   (|do [output (with-attempt
                  (|case ?values
                    (&/$Nil)
-                   (analyse-tuple analyse exo-type (&/|list))
+                   (analyse-tuple analyse (&/V &/$Right exo-type) (&/|list))
 
                    (&/$Cons ?value (&/$Nil))
                    (analyse exo-type ?value)
 
                    _
-                   (analyse-tuple analyse exo-type ?values))
+                   (analyse-tuple analyse (&/V &/$Right exo-type) ?values))
                  (fn [err]
                    (fail (str err "\n"
                               'analyse-variant-body " " (&type/show-type exo-type)
@@ -121,8 +170,19 @@
       (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
 
 (defn analyse-record [analyse exo-type ?elems]
-  (|do [members (&&record/order-record ?elems)]
-    (analyse-tuple analyse exo-type members)))
+  (|do [[rec-members rec-type] (&&record/order-record ?elems)]
+    (|case exo-type
+      (&/$VarT id)
+      (|do [? (&type/bound? id)]
+        (if ?
+          (analyse-tuple analyse (&/V &/$Right exo-type) rec-members)
+          (|do [[tuple-analysis tuple-type] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left rec-type) rec-members))
+                _ (&type/check exo-type tuple-type)]
+            (return (&/|list (&/T tuple-analysis exo-type))))))
+
+      _
+      (analyse-tuple analyse (&/V &/$Right exo-type) rec-members)
+      )))
 
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] $def] (&&module/find-def module name)
@@ -301,24 +361,6 @@
     (return (&/|list (&/T (&/V &&/$case (&/T =value =match))
                           exo-type)))))
 
-(defn ^:private count-univq [type]
-  "(-> Type Int)"
-  (|case type
-    (&/$UnivQ env type*)
-    (inc (count-univq type*))
-
-    _
-    0))
-
-(defn ^:private embed-inferred-input [input output]
-  "(-> Type Type Type)"
-  (|case output
-    (&/$UnivQ env output*)
-    (&type/Univ$ env (embed-inferred-input input output*))
-
-    _
-    (&type/Lambda$ input output)))
-
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   (|case exo-type
     (&/$VarT id)
@@ -336,7 +378,7 @@
                       =output (&type/resolve-type $output)
                       inferred-type (|case =input
                                       (&/$VarT iid)
-                                      (|do [:let [=input* (&type/Bound$ (->> (count-univq =output) (* 2) (+ 1)))]
+                                      (|do [:let [=input* (next-bound-type =output)]
                                             _ (&type/set-var iid =input*)
                                             =output* (&type/clean $input =output)
                                             =output** (&type/clean $output =output*)]
@@ -424,7 +466,9 @@
           (do ;; (println 'DEF (str module-name ";" ?name))
               (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
                     :let [;; _ (println 'DEF/COMPILED (str module-name ";" ?name))
-                          _ (println 'DEF (str module-name ";" ?name))]]
+                          [def-analysis def-type] =value
+                          _ (println 'DEF (str module-name ";" ?name) ;; (&type/show-type def-type)
+                                     )]]
                 (return (&/|list)))))
         ))))
 

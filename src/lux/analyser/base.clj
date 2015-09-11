@@ -130,14 +130,17 @@
   (|let [[_ type] syntax+]
     type))
 
-(defn analyse-1 [analyse exo-type elem]
-  (|do [output (analyse exo-type elem)]
-    (|case output
+(defn cap-1 [action]
+  (|do [result action]
+    (|case result
       (&/$Cons x (&/$Nil))
       (return x)
 
       _
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
+
+(defn analyse-1 [analyse exo-type elem]
+  (cap-1 (analyse exo-type elem)))
 
 (defn analyse-1+ [analyse ?token]
   (&type/with-var

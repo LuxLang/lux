@@ -178,8 +178,8 @@
               (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
       
       (&/$RecordS pairs)
-      (|do [?members (&&record/order-record pairs)]
-        (analyse-pattern value-type (&/T meta (&/V &/$TupleS ?members)) kont))
+      (|do [[rec-members rec-type] (&&record/order-record pairs)]
+        (analyse-pattern value-type (&/T meta (&/V &/$TupleS rec-members)) kont))
 
       (&/$TagS ?ident)
       (|do [;; :let [_ (println "#00" (&/ident->text ?ident))]

@@ -499,7 +499,7 @@
       (return (&/|list (&/T (&/V &&/$text ?value) exo-type))))
 
     (&/$TupleS ?elems)
-    (&&lux/analyse-tuple analyse exo-type ?elems)
+    (&&lux/analyse-tuple analyse (&/V &/$Right exo-type) ?elems)
 
     (&/$RecordS ?elems)
     (&&lux/analyse-record analyse exo-type ?elems)
