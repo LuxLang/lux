@@ -10,10 +10,10 @@
             [lux.base :as & :refer [deftags |do return* return fail fail* |let |case]]))
 
 ;; [Tags]
-(deftags ""
-  "No"
-  "Done"
-  "Yes")
+(deftags
+  ["No"
+   "Done"
+   "Yes"])
 
 ;; [Utils]
 (defn ^:private with-line [body]

@@ -4,7 +4,12 @@
 ##  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (;import lux
-         lux/data/io
+         (lux (data io
+                    (list #refer #all #open ("" List/Fold)))
+              (meta ast
+                    syntax
+                    lux)
+              control/monad)
          (.. jvm))
 
 ## [Functions]
@@ -16,7 +21,8 @@
 
   [write-char "print"   Char "char"]
   [write      "print"   Text "java.lang.String"]
-  [write-line "println" Text "java.lang.String"])
+  [write-line "println" Text "java.lang.String"]
+  )
 
 (do-template [<name> <type> <op>]
   [(def #export <name>
@@ -24,7 +30,7 @@
      (let [in (_jvm_getstatic "java.lang.System" "in")
            reader (_jvm_new "java.io.InputStreamReader" ["java.io.InputStream"] [in])
            buff-reader (_jvm_new "java.io.BufferedReader" ["java.io.Reader"] [reader])]
-       (@io (let [output (: (Either Text <type>) (try$ <op>))]
+       (@io (let [output (: (Either Text <type>) (try <op>))]
               (exec (_jvm_invokeinterface "java.io.Closeable" "close" [] buff-reader [])
                 (case output
                   (#;Left _)      #;None
@@ -33,3 +39,22 @@
   [read-char Char (_jvm_i2c (_jvm_invokevirtual "java.io.BufferedReader" "read" [] buff-reader []))]
   [read-line Text (_jvm_invokevirtual "java.io.BufferedReader" "readLine" [] buff-reader [])]
   )
+
+## [Syntax]
+(def simple-bindings^
+  (Parser (List (, Text AST)))
+  (tuple^ (*^ (&^ local-symbol^ id^))))
+
+(defsyntax #export (with-open [bindings simple-bindings^] body)
+  (do Lux/Monad
+    [g!output (gensym "output")
+     #let [code (foldL (: (-> AST (, Text AST) AST)
+                          (lambda [body [res-name res-value]]
+                            (let [g!res-name (symbol$ ["" res-name])]
+                              (` (let [(~ g!res-name) (~ res-value)
+                                       (~ g!output) (~ body)]
+                                   (exec (;_jvm_invokeinterface "java.io.Closeable" "close" [] (~ g!res-name) [])
+                                     (~ g!output)))))))
+                       body
+                       (reverse bindings))]]
+    (wrap (@list code))))

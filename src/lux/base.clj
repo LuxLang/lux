@@ -9,93 +9,94 @@
             clojure.core.match.array))
 
 ;; [Tags]
-(defmacro deftags [prefix & names]
+(defmacro deftags [names]
+  (assert (vector? names))
   `(do ~@(for [[name idx] (map vector names (range (count names)))]
            `(def ~(symbol (str "$" name)) ~idx))))
 
 ;; List
-(deftags ""
-  "Nil"
-  "Cons")
+(deftags
+  ["Nil"
+   "Cons"])
 
 ;; Maybe
-(deftags ""
-  "None"
-  "Some")
+(deftags
+  ["None"
+   "Some"])
 
 ;; Either
-(deftags ""
-  "Left"
-  "Right")
+(deftags
+  ["Left"
+   "Right"])
 
 ;; AST
-(deftags ""
-  "BoolS"
-  "IntS"
-  "RealS"
-  "CharS"
-  "TextS"
-  "SymbolS"
-  "TagS"
-  "FormS"
-  "TupleS"
-  "RecordS")
+(deftags
+  ["BoolS"
+   "IntS"
+   "RealS"
+   "CharS"
+   "TextS"
+   "SymbolS"
+   "TagS"
+   "FormS"
+   "TupleS"
+   "RecordS"])
 
 ;; Type
-(deftags ""
-  "DataT"
-  "VariantT"
-  "TupleT"
-  "LambdaT"
-  "BoundT"
-  "VarT"
-  "ExT"
-  "UnivQ"
-  "ExQ"
-  "AppT"
-  "NamedT")
+(deftags
+  ["DataT"
+   "VariantT"
+   "TupleT"
+   "LambdaT"
+   "BoundT"
+   "VarT"
+   "ExT"
+   "UnivQ"
+   "ExQ"
+   "AppT"
+   "NamedT"])
 
 ;; Vars
-(deftags "lux;"
-  "Local"
-  "Global")
+(deftags
+  ["Local"
+   "Global"])
 
 ;; Definitions
-(deftags "lux;"
-  "ValueD"
-  "TypeD"
-  "MacroD"
-  "AliasD")
+(deftags
+  ["ValueD"
+   "TypeD"
+   "MacroD"
+   "AliasD"])
 
 ;; Binding
-(deftags ""
-  "counter"
-  "mappings")
+(deftags
+  ["counter"
+   "mappings"])
 
 ;; Env
-(deftags ""
-  "name"
-  "inner-closures"
-  "locals"
-  "closure")
+(deftags
+  ["name"
+   "inner-closures"
+   "locals"
+   "closure"])
 
 ;; Host
-(deftags ""
-  "writer"
-  "loader"
-  "classes")
+(deftags
+  ["writer"
+   "loader"
+   "classes"])
 
 ;; Compiler
-(deftags ""
-  "source"
-  "cursor"
-  "modules"
-  "envs"
-  "type-vars"
-  "expected"
-  "seed"
-  "eval?"
-  "host")
+(deftags
+  ["source"
+   "cursor"
+   "modules"
+   "envs"
+   "type-vars"
+   "expected"
+   "seed"
+   "eval?"
+   "host"])
 
 ;; [Exports]
 (def datum-field "_datum")

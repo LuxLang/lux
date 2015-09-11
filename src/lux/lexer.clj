@@ -10,22 +10,22 @@
             [lux.analyser.module :as &module]))
 
 ;; [Tags]
-(deftags ""
-  "White_Space"
-  "Comment"
-  "Bool"
-  "Int"
-  "Real"
-  "Char"
-  "Text"
-  "Symbol"
-  "Tag"
-  "Open_Paren"
-  "Close_Paren"
-  "Open_Bracket"
-  "Close_Bracket"
-  "Open_Brace"
-  "Close_Brace"
+(deftags
+  ["White_Space"
+   "Comment"
+   "Bool"
+   "Int"
+   "Real"
+   "Char"
+   "Text"
+   "Symbol"
+   "Tag"
+   "Open_Paren"
+   "Close_Paren"
+   "Open_Bracket"
+   "Close_Bracket"
+   "Open_Brace"
+   "Close_Brace"]
   )
 
 ;; [Utils]

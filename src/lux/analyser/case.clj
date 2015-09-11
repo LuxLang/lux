@@ -15,26 +15,26 @@
                           [record :as &&record])))
 
 ;; [Tags]
-(deftags ""
-  "DefaultTotal"
-  "BoolTotal"
-  "IntTotal"
-  "RealTotal"
-  "CharTotal"
-  "TextTotal"
-  "TupleTotal"
-  "VariantTotal"
+(deftags
+  ["DefaultTotal"
+   "BoolTotal"
+   "IntTotal"
+   "RealTotal"
+   "CharTotal"
+   "TextTotal"
+   "TupleTotal"
+   "VariantTotal"]
   )
 
-(deftags ""
-  "StoreTestAC"
-  "BoolTestAC"
-  "IntTestAC"
-  "RealTestAC"
-  "CharTestAC"
-  "TextTestAC"
-  "TupleTestAC"
-  "VariantTestAC"
+(deftags
+  ["StoreTestAC"
+   "BoolTestAC"
+   "IntTestAC"
+   "RealTestAC"
+   "CharTestAC"
+   "TextTestAC"
+   "TupleTestAC"
+   "VariantTestAC"]
   )
 
 ;; [Utils]

@@ -14,12 +14,13 @@
                  [host :as &host])))
 
 ;; [Utils]
-(deftags ""
-  "module-aliases"
-  "defs"
-  "imports"
-  "tags"
-  "types")
+(deftags
+  ["module-aliases"
+   "defs"
+   "imports"
+   "tags"
+   "types"])
+
 (def ^:private +init+
   (&/T ;; "lux;module-aliases"
    (&/|table)
