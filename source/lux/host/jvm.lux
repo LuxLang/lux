@@ -9,29 +9,13 @@
                        (monad #as M #refer (#only do)))
               (data (list #as l #refer #all #open ("" List/Functor))
                     (text #as text)
-                    (number (int #open ("i" Int/Eq))))
+                    number/int)
               (meta lux
                     ast
                     syntax)))
 
 ## [Utils]
 ## Parsers
-(def finally^
-  (Parser AST)
-  (form^ (do Parser/Monad
-           [_ (symbol?^ ["" "finally"])
-            expr id^]
-           (wrap expr))))
-
-(def catch^
-  (Parser (, Text Ident AST))
-  (form^ (do Parser/Monad
-           [_ (symbol?^ ["" "catch"])
-            ex-class local-symbol^
-            ex symbol^
-            expr id^]
-           (wrap [ex-class ex expr]))))
-
 (def method-decl^
   (Parser (, (List Text) Text (List Text) Text))
   (form^ (do Parser/Monad
@@ -66,38 +50,7 @@
             body id^]
            (wrap [modifiers name inputs output body]))))
 
-(def method-call^
-  (Parser (, Text (List Text) (List AST)))
-  (form^ (do Parser/Monad
-           [method local-symbol^
-            arity-classes (tuple^ (*^ local-symbol^))
-            arity-args (tuple^ (*^ id^))
-            _ (: (Parser (,))
-                 (if (i= (size arity-classes)
-                         (size arity-args))
-                   (wrap [])
-                   (lambda [_] #;None)))]
-           (wrap [method arity-classes arity-args])
-           )))
-
 ## [Syntax]
-(defsyntax #export (throw ex)
-  (emit (@list (` (;_jvm_throw (~ ex))))))
-
-(defsyntax #export (try body [catches (*^ catch^)] [finally (?^ finally^)])
-  (emit (@list (` (;_jvm_try (~ body)
-                             (~@ (:: List/Monoid (m;++ (map (: (-> (, Text Ident AST) AST)
-                                                               (lambda [catch]
-                                                                 (let [[class ex body] catch]
-                                                                   (` (;_jvm_catch (~ (text$ class)) (~ (symbol$ ex)) (~ body))))))
-                                                            catches)
-                                                       (case finally
-                                                         #;None
-                                                         (@list)
-
-                                                         (#;Some finally)
-                                                         (: (List AST) (@list (` (;_jvm_finally (~ finally))))))))))))))
-
 (defsyntax #export (definterface [name local-symbol^] [supers (tuple^ (*^ local-symbol^))] [members (*^ method-decl^)])
   (let [members' (map (: (-> (, (List Text) Text (List Text) Text) AST)
                          (lambda [member]
@@ -138,113 +91,19 @@
                                  [(~@ fields')]
                                  [(~@ methods')]))))))
 
-(defsyntax #export (new [class local-symbol^] [arg-classes (tuple^ (*^ local-symbol^))] [args (tuple^ (*^ id^))])
-  (emit (@list (` (;_jvm_new (~ (text$ class))
-                             [(~@ (map text$ arg-classes))]
-                             [(~@ args)])))))
-
-(defsyntax #export (instance? [class local-symbol^] obj)
-  (emit (@list (` (;_jvm_instanceof (~ (text$ class)) (~ obj))))))
-
-(defsyntax #export (locking lock body)
-  (do Lux/Monad
-    [g!lock (gensym "")
-     g!body (gensym "")
-     g!_ (gensym "")]
-    (emit (@list (` (let [(~ g!lock) (~ lock)
-                          (~ g!_) (;_jvm_monitorenter (~ g!lock))
-                          (~ g!body) (~ body)
-                          (~ g!_) (;_jvm_monitorexit (~ g!lock))]
-                      (~ g!body)))))
-    ))
-
-(defsyntax #export (null? obj)
-  (emit (@list (` (;_jvm_null? (~ obj))))))
-
 (defsyntax #export (program [args symbol^] body)
   (emit (@list (` (;_jvm_program (~ (symbol$ args))
                                  (~ body))))))
-
-(defsyntax #export (.? [field local-symbol^] obj)
-  (case obj
-    [_ (#;SymbolS obj-name)]
-    (do Lux/Monad
-      [obj-type (find-var-type obj-name)]
-      (case obj-type
-        (#;DataT class)
-        (emit (@list (` (;_jvm_getfield (~ (text$ class)) (~ (text$ field))))))
-
-        _
-        (fail "Can only get field from object.")))
-
-    _
-    (do Lux/Monad
-      [g!obj (gensym "")]
-      (emit (@list (` (let [(~ g!obj) (~ obj)]
-                        (;;.? (~ (text$ field)) (~ g!obj)))))))))
-
-(defsyntax #export (.= [field local-symbol^] value obj)
-  (case obj
-    [_ (#;SymbolS obj-name)]
-    (do Lux/Monad
-      [obj-type (find-var-type obj-name)]
-      (case obj-type
-        (#;DataT class)
-        (emit (@list (` (;_jvm_putfield (~ (text$ class)) (~ (text$ field)) (~ value)))))
-
-        _
-        (fail "Can only set field of object.")))
-
-    _
-    (do Lux/Monad
-      [g!obj (gensym "")]
-      (emit (@list (` (let [(~ g!obj) (~ obj)]
-                        (;;.= (~ (text$ field)) (~ value) (~ g!obj)))))))))
-
-(defsyntax #export (.! [call method-call^] obj)
-  (let [[m-name ?m-classes m-args] call]
-    (case obj
-      [_ (#;SymbolS obj-name)]
-      (do Lux/Monad
-        [obj-type (find-var-type obj-name)]
-        (case obj-type
-          (#;DataT class)
-          (emit (@list (` (;_jvm_invokevirtual (~ (text$ class)) (~ (text$ m-name)) [(~@ (map text$ ?m-classes))]
-                                               (~ obj) [(~@ m-args)]))))
-
-          _
-          (fail "Can only call method on object.")))
-
-      _
-      (do Lux/Monad
-        [g!obj (gensym "")]
-        (emit (@list (` (let [(~ g!obj) (~ obj)]
-                          (;;.! ((~ (symbol$ ["" m-name]))
-                                 [(~@ (map (lambda [c] (symbol$ ["" c])) ?m-classes))]
-                                 [(~@ m-args)])
-                                (~ g!obj))))))))))
-
-(defsyntax #export (..? [field local-symbol^] [class local-symbol^])
-  (emit (@list (` (;_jvm_getstatic (~ (text$ class)) (~ (text$ field)))))))
-
-(defsyntax #export (..= [field local-symbol^] value [class local-symbol^])
-  (emit (@list (` (;_jvm_putstatic (~ (text$ class)) (~ (text$ field)) (~ value))))))
-
-(defsyntax #export (..! [call method-call^] [class local-symbol^])
-  (let [[m-name m-classes m-args] call]
-    (emit (@list (` (;_jvm_invokestatic (~ (text$ class)) (~ (text$ m-name))
-                                        [(~@ (map text$ m-classes))]
-                                        [(~@ m-args)]))))))
 
 (defsyntax #export (->maybe expr)
   (do Lux/Monad
     [g!val (gensym "")]
     (emit (@list (` (let [(~ g!val) (~ expr)]
-                      (if (null? (~ g!val))
+                      (if (;_jvm_null? (~ g!val))
                         #;None
                         (#;Some (~ g!val)))))))))
 
 (defsyntax #export (try$ expr)
-  (emit (@list (` (try (#;Right (~ expr))
-                    (~ (' (catch java.lang.Exception e
-                            (#;Left (_jvm_invokevirtual "java.lang.Throwable" "getMessage" [] e []))))))))))
+  (emit (@list (` (;_jvm_try (#;Right (~ expr))
+                             (~ (' (_jvm_catch "java.lang.Exception" e
+                                               (#;Left (_jvm_invokevirtual "java.lang.Throwable" "getMessage" [] e []))))))))))

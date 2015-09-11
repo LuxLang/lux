@@ -663,10 +663,10 @@
     (return tokens)
 
     (#Cons x (#Cons y xs))
-    (return (#Cons (_meta (#FormS (#Cons (symbol$ ["lux" "$'"])
-                                         (#Cons (_meta (#FormS (#Cons (tag$ ["lux" "AppT"])
-                                                                      (#Cons x (#Cons y #Nil)))))
-                                                xs))))
+    (return (#Cons (form$ (#Cons (symbol$ ["lux" "$'"])
+                                 (#Cons (form$ (#Cons (tag$ ["lux" "AppT"])
+                                                      (#Cons x (#Cons y #Nil))))
+                                        xs)))
                    #Nil))
 
     _
@@ -1056,11 +1056,20 @@
     (#Cons [token tokens'])
     (_meta (#FormS (@list (_meta (#TagS ["lux" "Cons"])) token (untemplate-list tokens'))))))
 
-(def''' #export (list:++ xs ys)
+(def''' (list:++ xs ys)
   (All [a] (-> ($' List a) ($' List a) ($' List a)))
   (_lux_case xs
     (#Cons x xs')
     (#Cons x (list:++ xs' ys))
+
+    #Nil
+    ys))
+
+(def''' #export (splice-helper xs ys)
+  (-> ($' List AST) ($' List AST) ($' List AST))
+  (_lux_case xs
+    (#Cons x xs')
+    (#Cons x (splice-helper xs' ys))
 
     #Nil
     ys))
@@ -1264,7 +1273,7 @@
                               elems))]
         (wrap (wrap-meta (form$ (@list tag
                                        (form$ (@list& (symbol$ ["lux" "$"])
-                                                      (symbol$ ["lux" "list:++"])
+                                                      (symbol$ ["lux" "splice-helper"])
                                                       elems')))))))
 
       false
@@ -1494,9 +1503,6 @@
   [i= _jvm_leq Int]
   [i> _jvm_lgt Int]
   [i< _jvm_llt Int]
-  [r= _jvm_deq Real]
-  [r> _jvm_dgt Real]
-  [r< _jvm_dlt Real]
   )
 
 (do-template [<name> <cmp> <eq> <type>]
@@ -1508,8 +1514,6 @@
 
   [i>= i> i= Int]
   [i<= i< i= Int]
-  [r>= r> r= Real]
-  [r<= r< r= Real]
   )
 
 (do-template [<name> <cmp> <type>]
@@ -1522,11 +1526,6 @@
   [i* _jvm_lmul Int]
   [i/ _jvm_ldiv Int]
   [i% _jvm_lrem Int]
-  [r+ _jvm_dadd Real]
-  [r- _jvm_dsub Real]
-  [r* _jvm_dmul Real]
-  [r/ _jvm_ddiv Real]
-  [r% _jvm_drem Real]
   )
 
 (def''' (multiple? div n)
@@ -1927,48 +1926,6 @@
           #None
           (fail "Wrong syntax for def'"))))
 
-(def' (ast:show ast)
-  (-> AST Text)
-  (_lux_case ast
-    [_ ast]
-    (_lux_case ast
-      (#BoolS val)
-      (->text val)
-
-      (#IntS val)
-      (->text val)
-
-      (#RealS val)
-      (->text val)
-
-      (#CharS val)
-      ($ text:++ "#\"" (->text val) "\"")
-
-      (#TextS val)
-      ($ text:++ "\"" (->text val) "\"")
-
-      (#FormS parts)
-      ($ text:++ "(" (|> parts (map ast:show) (interpose " ") (foldL text:++ "")) ")")
-
-      (#TupleS parts)
-      ($ text:++ "[" (|> parts (map ast:show) (interpose " ") (foldL text:++ "")) "]")
-
-      (#SymbolS prefix name)
-      ($ text:++ prefix ";" name)
-
-      (#TagS prefix name)
-      ($ text:++ "#" prefix ";" name)
-
-      (#RecordS kvs)
-      ($ text:++ "{"
-         (|> kvs
-             (map (: (-> (, AST AST) Text)
-                     (lambda' [kv] (let' [[k v] kv] ($ text:++ (ast:show k) " " (ast:show v))))))
-             (interpose " ")
-             (foldL text:++ ""))
-         "}")
-      )))
-
 (def' (rejoin-pair pair)
   (-> (, AST AST) (List AST))
   (let' [[left right] pair]
@@ -2274,60 +2231,6 @@
       (#Cons (substring2 0 idx module)
              (split-module (substring1 (i+ 1 idx) module))))))
 
-(def (split-slot slot)
-  (-> Text (, Text Text))
-  (let [idx (index-of ";" slot)
-        module (substring2 0 idx slot)
-        name (substring1 (i+ 1 idx) slot)]
-    [module name]))
-
-(def (type:show type)
-  (-> Type Text)
-  (case type
-    (#DataT name)
-    ($ text:++ "(^ " name ")")
-
-    (#TupleT members)
-    (case members
-      #;Nil
-      "(,)"
-
-      _
-      ($ text:++ "(, " (|> members (map type:show) (interpose " ") (foldL text:++ "")) ")"))
-
-    (#VariantT members)
-    (case members
-      #;Nil
-      "(|)"
-
-      _
-      ($ text:++ "(| " (|> members (map type:show) (interpose " ") (foldL text:++ "")) ")"))
-
-    (#LambdaT input output)
-    ($ text:++ "(-> " (type:show input) " " (type:show output) ")")
-
-    (#VarT id)
-    ($ text:++ "⌈" (->text id) "⌋")
-
-    (#BoundT idx)
-    (->text idx)
-
-    (#ExT ?id)
-    ($ text:++ "⟨" (->text ?id) "⟩")
-
-    (#AppT ?lambda ?param)
-    ($ text:++ "(" (type:show ?lambda) " " (type:show ?param) ")")
-
-    (#UnivQ ?env ?body)
-    ($ text:++ "(All " (type:show ?body) ")")
-
-    (#ExQ ?env ?body)
-    ($ text:++ "(Ex " (type:show ?body) ")")
-
-    (#NamedT name type)
-    (ident->text name)
-    ))
-
 (def (@ idx xs)
   (All [a]
     (-> Int (List a) (Maybe a)))
@@ -2527,7 +2430,7 @@
                             (fail (text:++ "Unknown structure member: " tag-name)))
 
                           _
-                          (fail (text:++ "Invalid structure member: " (ast:show token))))))
+                          (fail "Invalid structure member."))))
                    (list:join tokens'))]
     (wrap (@list (record$ members)))))
 
@@ -2833,20 +2736,6 @@
                            closure))))
           envs)))
 
-(def (show-envs envs)
-  (-> (List (Env Text (, LuxVar Type))) Text)
-  (|> envs
-      (map (lambda [env]
-             (case env
-               {#name name #inner-closures _ #locals {#counter _ #mappings locals} #closure _}
-               ($ text:++ name ": " (|> locals
-                                        (map (: (All [a] (-> (, Text a) Text))
-                                                (lambda [b] (let [[label _] b] label))))
-                                        (interpose " ")
-                                        (foldL text:++ ""))))))
-      (interpose "\n")
-      (foldL text:++ "")))
-
 (def (find-in-defs name state)
   (-> Ident Compiler (Maybe Type))
   (let [[v-prefix v-name] name
@@ -2891,7 +2780,7 @@
                    #envs   envs   #type-vars   types   #host           host
                    #seed   seed   #eval? eval? #expected expected
                    #cursor cursor} state]
-              (#Left ($ text:++ "Unknown var: " (ident->text ident) "\n\n" (show-envs envs))))))
+              (#Left ($ text:++ "Unknown var: " (ident->text ident))))))
         (case (find-in-defs ident state)
           (#Some struct-type)
           (#Right state struct-type)
@@ -2901,7 +2790,7 @@
                  #envs   envs   #type-vars   types   #host           host
                  #seed   seed   #eval? eval? #expected expected
                  #cursor cursor} state]
-            (#Left ($ text:++ "Unknown var: " (ident->text ident) "\n\n" (show-envs envs))))))
+            (#Left ($ text:++ "Unknown var: " (ident->text ident))))))
       )))
 
 (def (zip2 xs ys)
@@ -3300,20 +3189,20 @@
 
   [every? true  and])
 
-(def (type->syntax type)
+(def (type->ast type)
   (-> Type AST)
   (case type
     (#DataT name)
     (` (#DataT (~ (text$ name))))
     
     (#;VariantT cases)
-    (` (#VariantT (~ (untemplate-list (map type->syntax cases)))))
+    (` (#VariantT (~ (untemplate-list (map type->ast cases)))))
 
     (#TupleT parts)
-    (` (#TupleT (~ (untemplate-list (map type->syntax parts)))))
+    (` (#TupleT (~ (untemplate-list (map type->ast parts)))))
     
     (#LambdaT in out)
-    (` (#LambdaT (~ (type->syntax in)) (~ (type->syntax out))))
+    (` (#LambdaT (~ (type->ast in)) (~ (type->ast out))))
     
     (#BoundT idx)
     (` (#BoundT (~ (int$ idx))))
@@ -3325,18 +3214,18 @@
     (` (#ExT (~ (int$ id))))
     
     (#UnivQ env type)
-    (let [env' (untemplate-list (map type->syntax env))]
-      (` (#UnivQ (~ env') (~ (type->syntax type)))))
+    (let [env' (untemplate-list (map type->ast env))]
+      (` (#UnivQ (~ env') (~ (type->ast type)))))
 
     (#ExQ env type)
-    (let [env' (untemplate-list (map type->syntax env))]
-      (` (#ExQ (~ env') (~ (type->syntax type)))))
+    (let [env' (untemplate-list (map type->ast env))]
+      (` (#ExQ (~ env') (~ (type->ast type)))))
     
     (#AppT fun arg)
-    (` (#AppT (~ (type->syntax fun)) (~ (type->syntax arg))))
+    (` (#AppT (~ (type->ast fun)) (~ (type->ast arg))))
 
     (#NamedT [module name] type)
-    (` (#NamedT [(~ (text$ module)) (~ (text$ name))] (~ (type->syntax type))))))
+    (` (#NamedT [(~ (text$ module)) (~ (text$ name))] (~ (type->ast type))))))
 
 (defmacro #export (loop tokens)
   (case tokens
@@ -3352,8 +3241,8 @@
                        #None          (fail "Wrong syntax for loop")))
            init-types (map% Lux/Monad find-var-type inits')
            expected expected-type]
-          (return (@list (` ((: (-> (~@ (map type->syntax init-types))
-                                    (~ (type->syntax expected)))
+          (return (@list (` ((: (-> (~@ (map type->ast init-types))
+                                    (~ (type->ast expected)))
                                 (lambda (~ (symbol$ ["" "recur"])) [(~@ vars)]
                                    (~ body)))
                              (~@ inits))))))
