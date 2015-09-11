@@ -133,41 +133,75 @@
       _
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
-(defn analyse-variant [analyse exo-type idx ?values]
-  (|do [exo-type* (|case exo-type
-                    (&/$VarT ?id)
-                    (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
-                                           (&type/actual-type exo-type*))
-                                         (|do [_ (&type/set-var ?id &type/Type)]
-                                           (&type/actual-type &type/Type))))
+(defn analyse-variant [analyse ?exo-type idx ?values]
+  (|case ?exo-type
+    (&/$Left exo-type)
+    (|do [;; :let [_ (println 'analyse-variant/Left 0 (&type/show-type exo-type))]
+          exo-type* (&type/actual-type exo-type)
+          ;; :let [_ (println 'analyse-variant/Left 1 (&type/show-type exo-type*))]
+          ]
+      (|case exo-type*
+        (&/$UnivQ _)
+        (&type/with-var
+          (fn [$var]
+            (|do [exo-type** (&type/apply-type exo-type* $var)
+                  ;; :let [_ (println 'analyse-variant/Left 2 (&type/show-type exo-type**))]
+                  [variant-analysis variant-type] (&&/cap-1 (analyse-variant analyse (&/V &/$Left exo-type**) idx ?values))
+                  ;; :let [_ (println 'analyse-variant/Left 3 (&type/show-type variant-type))]
+                  =var (&type/resolve-type $var)
+                  ;; :let [_ (println 'analyse-variant/Left 4 (&type/show-type =var))]
+                  inferred-type (|case =var
+                                  (&/$VarT iid)
+                                  (|do [:let [=var* (next-bound-type variant-type)]
+                                        _ (&type/set-var iid =var*)
+                                        variant-type* (&type/clean $var variant-type)]
+                                    (return (&type/Univ$ (&/|list) variant-type*)))
 
-                    _
-                    (&type/actual-type exo-type))]
-    (|case exo-type*
-      (&/$VariantT ?cases)
-      (|case (&/|at idx ?cases)
-        (&/$Some vtype)
-        (|do [=value (with-attempt
-                       (analyse-variant-body analyse vtype ?values)
-                       (fn [err]
-                         (|do [_exo-type (&type/deref+ exo-type)]
-                           (fail (str err "\n"
-                                      'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
-                                      " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))]
-          (return (&/|list (&/T (&/V &&/$variant (&/T idx =value))
-                                exo-type))))
+                                  _
+                                  (&type/clean $var variant-type))
+                  ;; :let [_ (println 'analyse-variant/Left 5 (&type/show-type inferred-type))]
+                  ]
+              (return (&/|list (&/T variant-analysis inferred-type))))))
 
-        (&/$None)
-        (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
+        _
+        (analyse-variant analyse (&/V &/$Right exo-type*) idx ?values)))
 
-      (&/$UnivQ _)
-      (&type/with-var
-        (fn [$var]
-          (|do [exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-variant analyse exo-type** idx ?values))))
-      
-      _
-      (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*))))))
+    (&/$Right exo-type)
+    ;; [_ exo-type]
+    (|do [;; :let [_ (println 'analyse-variant/Right 0 (&type/show-type exo-type))]
+          exo-type* (|case exo-type
+                      (&/$VarT ?id)
+                      (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
+                                             (&type/actual-type exo-type*))
+                                           (|do [_ (&type/set-var ?id &type/Type)]
+                                             (&type/actual-type &type/Type))))
+
+                      _
+                      (&type/actual-type exo-type))]
+      (|case exo-type*
+        (&/$VariantT ?cases)
+        (|case (&/|at idx ?cases)
+          (&/$Some vtype)
+          (|do [=value (with-attempt
+                         (analyse-variant-body analyse vtype ?values)
+                         (fn [err]
+                           (|do [_exo-type (&type/deref+ exo-type)]
+                             (fail (str err "\n"
+                                        'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
+                                        " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))]
+            (return (&/|list (&/T (&/V &&/$variant (&/T idx =value))
+                                  exo-type))))
+
+          (&/$None)
+          (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
+
+        (&/$UnivQ _)
+        (|do [$var &type/existential
+              exo-type** (&type/apply-type exo-type* $var)]
+          (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))
+        
+        _
+        (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*)))))))
 
 (defn analyse-record [analyse exo-type ?elems]
   (|do [[rec-members rec-type] (&&record/order-record ?elems)]
@@ -465,6 +499,12 @@
           _
           (do ;; (println 'DEF (str module-name ";" ?name))
               (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
+                    ;; _ (if (and (= "lux" module-name)
+                    ;;            (= "Type" ?name))
+                    ;;     (|do [newly-defined-Type 
+                    ;;           :let [_ (&type/redefine-type! newly-defined-Type)]]
+                    ;;       (return nil))
+                    ;;     (return nil))
                     :let [;; _ (println 'DEF/COMPILED (str module-name ";" ?name))
                           [def-analysis def-type] =value
                           _ (println 'DEF (str module-name ";" ?name) ;; (&type/show-type def-type)

@@ -43,6 +43,23 @@
     _
     (fail (str "[Analyser Error] Not a tag: " (&/show-ast ast)))))
 
+(defn analyse-variant+ [analyser exo-type ident values]
+  (|do [[module tag-name] (&/normalize ident)
+        idx (&&module/tag-index module tag-name)]
+    (|case exo-type
+      (&/$VarT id)
+      (|do [? (&type/bound? id)]
+        (if (or ? (&&/type-tag? module tag-name))
+          (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
+          (|do [wanted-type (&&module/tag-type module tag-name)
+                [variant-analysis variant-type] (&&/cap-1 (&&lux/analyse-variant analyser (&/V &/$Left wanted-type) idx values))
+                _ (&type/check exo-type variant-type)]
+            (return (&/|list (&/T variant-analysis exo-type))))))
+
+      _
+      (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
+      )))
+
 (defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Arrays
@@ -505,9 +522,7 @@
     (&&lux/analyse-record analyse exo-type ?elems)
 
     (&/$TagS ?ident)
-    (|do [[module tag-name] (&/normalize ?ident)
-          idx (&&module/tag-index module tag-name)]
-      (&&lux/analyse-variant analyse exo-type idx (&/|list)))
+    (analyse-variant+ analyse exo-type ?ident (&/|list))
     
     (&/$SymbolS _ "_jvm_null")
     (&&host/analyse-jvm-null analyse exo-type)
@@ -573,16 +588,10 @@
       (&/with-expected-type exo-type
         (|case token
           [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
-          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values)
+          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) (&/V &/$Right exo-type) idx ?values)
 
           [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
-          (|do [;; :let [_ (println 'analyse-ast/_0 (&/ident->text ?ident))]
-                [module tag-name] (&/normalize ?ident)
-                ;; :let [_ (println 'analyse-ast/_1 (&/ident->text (&/T module tag-name)))]
-                idx (&&module/tag-index module tag-name)
-                ;; :let [_ (println 'analyse-ast/_2 idx)]
-                ]
-            (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) exo-type idx ?values))
+          (analyse-variant+ (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
           
           [meta (&/$FormS (&/$Cons ?fn ?args))]
           (fn [state]
