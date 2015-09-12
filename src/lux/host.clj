@@ -10,12 +10,15 @@
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]))
-  (:import (java.lang.reflect Field Method Modifier)))
+  (:import (java.lang.reflect Field Method Modifier)
+           java.util.regex.Pattern))
 
 ;; [Constants]
 (def prefix "lux.")
 (def function-class (str prefix "Function"))
-(def module-separator "_")
+(def module-separator "/")
+(def class-name-separator ".")
+(def class-separator "/")
 
 ;; [Utils]
 (defn ^:private class->type [^Class class]
@@ -35,13 +38,13 @@
 
 ;; [Resources]
 (defn ^String ->class [class]
-  (string/replace class #"\." "/"))
+  (string/replace class (-> class-name-separator Pattern/quote re-pattern) class-separator))
 
 (defn ^String ->class-name [module]
-  (string/replace module #"/" "."))
+  (string/replace module (-> module-separator Pattern/quote re-pattern) class-name-separator))
 
 (defn ^String ->module-class [module-name]
-  (string/replace module-name #"/" module-separator))
+  (string/replace module-name (-> module-separator Pattern/quote re-pattern) class-separator))
 
 (def ->package ->module-class)
 

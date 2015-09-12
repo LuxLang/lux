@@ -392,7 +392,7 @@
                                          .visitEnd))]
           _ (&&/save-class! (str id) bytecode)
           loader &/loader]
-      (-> (.loadClass ^ClassLoader loader (str (&host/->module-class module) "." id))
+      (-> (.loadClass ^ClassLoader loader (str (&host/->class-name module) "." id))
           (.getField &/eval-field)
           (.get nil)
           return))))

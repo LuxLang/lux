@@ -30,6 +30,7 @@
 
 (defn ^:private write-class! [^String path ^File file ^JarOutputStream out]
   "(-> Text File JarOutputStream Unit)"
+  ;; (prn 'write-class! path file)
   (with-open [in (new BufferedInputStream (new FileInputStream file))]
     (let [buffer (byte-array (* 10 kilobyte))]
       (doto out
@@ -42,11 +43,18 @@
         ))
     ))
 
-(defn ^:private write-module! [^File file ^JarOutputStream out]
-  "(-> File JarOutputStream Unit)"
-  (let [module-name (.getName file)]
-    (doseq [$class (.listFiles file)]
-      (write-class! module-name $class out))))
+(let [output-dir-size (.length &&/output-dir)]
+  (defn ^:private write-module! [^File file ^JarOutputStream out]
+    "(-> File JarOutputStream Unit)"
+    (let [module-name (.substring (.getPath file) output-dir-size) ;; (.getName file)
+          ;; _ (prn 'write-module! module-name file (.getPath file) (.substring (.getPath file) output-dir-size))
+          inner-files (.listFiles file)
+          inner-modules (filter #(.isDirectory %) inner-files)
+          inner-classes (filter #(not (.isDirectory %)) inner-files)]
+      (doseq [$class inner-classes]
+        (write-class! module-name $class out))
+      (doseq [$module inner-modules]
+        (write-module! $module out)))))
 
 ;; [Resources]
 (defn package [module]

@@ -26,8 +26,8 @@
 ;; [Constants]
 (def ^String version "0.3")
 (def ^String input-dir "source")
-(def ^String output-dir "target/jvm")
-(def ^String output-package (str output-dir "/program.jar"))
+(def ^String output-dir "target/jvm/")
+(def ^String output-package (str output-dir "program.jar"))
 (def ^String function-class "lux/Function")
 
 ;; Formats
@@ -55,7 +55,7 @@
 
 (defn ^:private write-output [module name data]
   (let [module* (&host/->module-class module)
-        module-dir (str output-dir "/" module*)]
+        module-dir (str output-dir module*)]
     (.mkdirs (File. module-dir))
     (write-file (str module-dir "/" name ".class") data)))
 
@@ -69,7 +69,7 @@
         module &/get-module-name
         loader &/loader
         !classes &/classes
-        :let [real-name (str (&host/->module-class module) "." name)
+        :let [real-name (str (&host/->class-name module) "." name)
               _ (swap! !classes assoc real-name bytecode)
               _ (when (not eval?)
                   (write-output module name bytecode))

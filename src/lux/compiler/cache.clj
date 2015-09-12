@@ -32,11 +32,9 @@
 
 (defn ^:private clean-file [^File file]
   "(-> File (,))"
-  (if (.isDirectory file)
-    (do (doseq [f (seq (.listFiles file))]
-          (clean-file f))
-      (.delete file))
-    (.delete file)))
+  (doseq [f (seq (.listFiles file))
+          :when (not (.isDirectory f))]
+    (.delete f)))
 
 (defn ^:private get-field [^String field-name ^Class class]
   "(-> Text Class Object)"
@@ -45,12 +43,12 @@
 ;; [Resources]
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str &&/output-dir "/" (&host/->module-class module) "/_.class"))))
+  (.exists (new File (str &&/output-dir (&host/->module-class module) "/" &/module-class-name ".class"))))
 
 (defn delete [module]
   "(-> Text (Lux (,)))"
   (fn [state]
-    (do (clean-file (new File (str &&/output-dir "/" (&host/->module-class module))))
+    (do (clean-file (new File (str &&/output-dir (&host/->module-class module))))
       (return* state nil))))
 
 (defn clean [state]
@@ -80,8 +78,8 @@
           (return true)
           (if (cached? module)
             (do ;; (prn 'load/HASH module module-hash)
-                (let [module* (&host/->module-class module)
-                      module-path (str &&/output-dir "/" module*)
+                (let [module* (&host/->class-name module)
+                      module-path (str &&/output-dir module)
                       class-name (str module* "._")
                       ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
                                            (&&/load-class! loader class-name))]
@@ -98,6 +96,7 @@
                                             (&/->list imports)))]
                         (if (->> loads &/->seq (every? true?))
                           (do (doseq [^File file (seq (.listFiles (File. module-path)))
+                                      :when (not (.isDirectory file))
                                       :let [file-name (.getName file)]
                                       :when (not= "_.class" file-name)]
                                 (let [real-name (second (re-find #"^(.*)\.class$" file-name))
