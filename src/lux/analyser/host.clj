@@ -226,18 +226,58 @@
         _ (&type/check exo-type output-type)]
     (return (&/|list (&/T (&/V &&/$jvm-new (&/T ?class =classes =args)) output-type)))))
 
-(defn analyse-jvm-new-array [analyse ?class ?length]
-  (return (&/|list (&/T (&/V &&/$jvm-new-array (&/T ?class ?length)) (&/V "array" (&/T (&type/Data$ ?class (&/|list))
-                                                                                       (&/V &/$Nil nil)))))))
+(do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
+  (let [elem-type (&type/Data$ <class> (&/|list))
+        array-type (&type/Data$ "Array" (&/|list elem-type))]
+    (defn <new-name> [analyse length]
+      (return (&/|list (&/T (&/V <new-tag> length) array-type))))
 
-(defn analyse-jvm-aastore [analyse ?array ?idx ?elem]
-  (|do [=array (analyse-1+ analyse ?array)
-        =elem (analyse-1+ analyse ?elem)]
-    (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T =array ?idx =elem)) (&&/expr-type* =array))))))
+    (defn <load-name> [analyse array idx]
+      (|do [=array (&&/analyse-1 analyse array-type array)]
+        (return (&/|list (&/T (&/V <load-tag> (&/T =array idx)) elem-type)))))
 
-(defn analyse-jvm-aaload [analyse ?array ?idx]
-  (|do [=array (analyse-1+ analyse ?array)]
-    (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T =array ?idx)) (&&/expr-type* =array))))))
+    (defn <store-name> [analyse array idx elem]
+      (|do [=array (&&/analyse-1 analyse array-type array)
+            =elem (&&/analyse-1 analyse elem-type elem)]
+        (return (&/|list (&/T (&/V <store-tag> (&/T =array idx =elem)) array-type)))))
+    )
+
+  "java.lang.Boolean"   analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
+  "java.lang.Byte"      analyse-jvm-bnewarray &&/$jvm-bnewarray analyse-jvm-baload &&/$jvm-baload analyse-jvm-bastore &&/$jvm-bastore
+  "java.lang.Short"     analyse-jvm-snewarray &&/$jvm-snewarray analyse-jvm-saload &&/$jvm-saload analyse-jvm-sastore &&/$jvm-sastore
+  "java.lang.Integer"   analyse-jvm-inewarray &&/$jvm-inewarray analyse-jvm-iaload &&/$jvm-iaload analyse-jvm-iastore &&/$jvm-iastore
+  "java.lang.Long"      analyse-jvm-lnewarray &&/$jvm-lnewarray analyse-jvm-laload &&/$jvm-laload analyse-jvm-lastore &&/$jvm-lastore
+  "java.lang.Float"     analyse-jvm-fnewarray &&/$jvm-fnewarray analyse-jvm-faload &&/$jvm-faload analyse-jvm-fastore &&/$jvm-fastore
+  "java.lang.Double"    analyse-jvm-dnewarray &&/$jvm-dnewarray analyse-jvm-daload &&/$jvm-daload analyse-jvm-dastore &&/$jvm-dastore
+  "java.lang.Character" analyse-jvm-cnewarray &&/$jvm-cnewarray analyse-jvm-caload &&/$jvm-caload analyse-jvm-castore &&/$jvm-castore
+  )
+
+(defn analyse-jvm-anewarray [analyse class length]
+  (let [elem-type (&type/Data$ class (&/|list))
+        array-type (&type/Data$ "Array" (&/|list elem-type))]
+    (return (&/|list (&/T (&/V &&/$jvm-anewarray (&/T class length)) array-type)))))
+
+(defn analyse-jvm-aaload [analyse class array idx]
+  (let [elem-type (&type/Data$ class (&/|list))
+        array-type (&type/Data$ "Array" (&/|list elem-type))]
+    (|do [=array (&&/analyse-1 analyse array-type array)]
+      (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T class =array idx)) elem-type))))))
+
+(defn analyse-jvm-aastore [analyse class array idx elem]
+  (let [elem-type (&type/Data$ class (&/|list))
+        array-type (&type/Data$ "Array" (&/|list elem-type))]
+    (|do [=array (&&/analyse-1 analyse array-type array)
+          =elem (&&/analyse-1 analyse elem-type elem)]
+      (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T class =array idx =elem)) array-type))))))
+
+(let [length-type (&type/Data$ "java.lang.Long" (&/|list))]
+  (defn analyse-jvm-arraylength [analyse array]
+    (&type/with-var
+      (fn [$var]
+        (let [elem-type $var
+              array-type (&type/Data$ "Array" (&/|list elem-type))]
+          (|do [=array (&&/analyse-1 analyse array-type array)]
+            (return (&/|list (&/T (&/V &&/$jvm-arraylength =array) length-type)))))))))
 
 (defn ^:private analyse-modifiers [modifiers]
   (&/fold% (fn [so-far modif]

@@ -223,14 +223,89 @@
       (&a/$jvm-invokespecial ?class ?method ?classes ?object ?args)
       (&&host/compile-jvm-invokespecial compile-expression ?type ?class ?method ?classes ?object ?args)
       
-      (&a/$jvm-new-array ?class ?length)
-      (&&host/compile-jvm-new-array compile-expression ?type ?class ?length)
+      (&a/$jvm-znewarray ?length)
+      (&&host/compile-jvm-znewarray compile-expression ?type ?length)
 
-      (&a/$jvm-aastore ?array ?idx ?elem)
-      (&&host/compile-jvm-aastore compile-expression ?type ?array ?idx ?elem)
+      (&a/$jvm-zastore ?array ?idx ?elem)
+      (&&host/compile-jvm-zastore compile-expression ?type ?array ?idx ?elem)
 
-      (&a/$jvm-aaload ?array ?idx)
-      (&&host/compile-jvm-aaload compile-expression ?type ?array ?idx)
+      (&a/$jvm-zaload ?array ?idx)
+      (&&host/compile-jvm-zaload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-bnewarray ?length)
+      (&&host/compile-jvm-bnewarray compile-expression ?type ?length)
+
+      (&a/$jvm-bastore ?array ?idx ?elem)
+      (&&host/compile-jvm-bastore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-baload ?array ?idx)
+      (&&host/compile-jvm-baload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-snewarray ?length)
+      (&&host/compile-jvm-snewarray compile-expression ?type ?length)
+
+      (&a/$jvm-sastore ?array ?idx ?elem)
+      (&&host/compile-jvm-sastore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-saload ?array ?idx)
+      (&&host/compile-jvm-saload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-inewarray ?length)
+      (&&host/compile-jvm-inewarray compile-expression ?type ?length)
+
+      (&a/$jvm-iastore ?array ?idx ?elem)
+      (&&host/compile-jvm-iastore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-iaload ?array ?idx)
+      (&&host/compile-jvm-iaload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-lnewarray ?length)
+      (&&host/compile-jvm-lnewarray compile-expression ?type ?length)
+
+      (&a/$jvm-lastore ?array ?idx ?elem)
+      (&&host/compile-jvm-lastore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-laload ?array ?idx)
+      (&&host/compile-jvm-laload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-fnewarray ?length)
+      (&&host/compile-jvm-fnewarray compile-expression ?type ?length)
+
+      (&a/$jvm-fastore ?array ?idx ?elem)
+      (&&host/compile-jvm-fastore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-faload ?array ?idx)
+      (&&host/compile-jvm-faload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-dnewarray ?length)
+      (&&host/compile-jvm-dnewarray compile-expression ?type ?length)
+
+      (&a/$jvm-dastore ?array ?idx ?elem)
+      (&&host/compile-jvm-dastore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-daload ?array ?idx)
+      (&&host/compile-jvm-daload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-cnewarray ?length)
+      (&&host/compile-jvm-cnewarray compile-expression ?type ?length)
+
+      (&a/$jvm-castore ?array ?idx ?elem)
+      (&&host/compile-jvm-castore compile-expression ?type ?array ?idx ?elem)
+
+      (&a/$jvm-caload ?array ?idx)
+      (&&host/compile-jvm-caload compile-expression ?type ?array ?idx)
+
+      (&a/$jvm-anewarray ?class ?length)
+      (&&host/compile-jvm-anewarray compile-expression ?type ?class ?length)
+
+      (&a/$jvm-aastore ?class ?array ?idx ?elem)
+      (&&host/compile-jvm-aastore compile-expression ?type ?class ?array ?idx ?elem)
+
+      (&a/$jvm-aaload ?class ?array ?idx)
+      (&&host/compile-jvm-aaload compile-expression ?type ?class ?array ?idx)
+
+      (&a/$jvm-arraylength ?array)
+      (&&host/compile-jvm-arraylength compile-expression ?type ?array)
 
       (&a/$jvm-try ?body ?catches ?finally)
       (&&host/compile-jvm-try compile-expression ?type ?body ?catches ?finally)
