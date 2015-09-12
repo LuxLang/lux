@@ -10,7 +10,7 @@
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]))
-  (:import (java.lang.reflect Field Method Modifier)
+  (:import (java.lang.reflect Field Method Constructor Modifier)
            java.util.regex.Pattern))
 
 ;; [Constants]
@@ -22,19 +22,21 @@
 
 ;; [Utils]
 (defn ^:private class->type [^Class class]
+  "(-> Class Type)"
   (if-let [[_ base arr-level] (re-find #"^([^\[]+)(\[\])*$"
                                        (str (if-let [pkg (.getPackage class)]
                                               (str (.getName pkg) ".")
                                               "")
                                             (.getSimpleName class)))]
     (if (.equals "void" base)
-      (return &type/Unit)
-      (return (&type/Data$ (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
-                                base)
-                           (&/|list)))
+      &type/Unit
+      (&type/Data$ (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
+                        base)
+                   (&/|list))
       )))
 
 (defn ^:private method->type [^Method method]
+  "(-> Method Type)"
   (class->type (.getReturnType method)))
 
 ;; [Resources]
@@ -93,9 +95,8 @@
                                 :when (and (.equals ^Object field (.getName =field))
                                            (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
                             (.getType =field)))]
-      (|do [=type (class->type type*)]
-        (return =type))
-      (fail (str "[Analyser Error] Field does not exist: " target "." field))))
+      (return (class->type type*))
+      (fail (str "[Host Error] Field does not exist: " target "." field))))
 
   lookup-static-field true
   lookup-field        false
@@ -107,17 +108,31 @@
     (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&type/as-obj target) true class-loader))
                                  :when (and (.equals ^Object method-name (.getName =method))
                                             (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
-                                            (&/fold2 #(and %1 (.equals ^Object %2 %3))
-                                                     true
-                                                     args
-                                                     (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))]
+                                            (let [param-types (&/->list (seq (.getParameterTypes =method)))]
+                                              (and (= (&/|length args) (&/|length param-types))
+                                                   (&/fold2 #(and %1 (.equals ^Object %2 %3))
+                                                            true
+                                                            args
+                                                            (&/|map #(.getName ^Class %) param-types)))))]
                              =method))]
-      (method->type method)
-      (fail (str "[Analyser Error] Method does not exist: " target "." method-name))))
+      (return (method->type method))
+      (fail (str "[Host Error] Method does not exist: " target "." method-name))))
 
   lookup-static-method  true
   lookup-virtual-method false
   )
+
+(defn lookup-constructor [class-loader target args]
+  (if-let [ctor (first (for [^Constructor =method (.getDeclaredConstructors (Class/forName (&type/as-obj target) true class-loader))
+                             :when (let [param-types (&/->list (seq (.getParameterTypes =method)))]
+                                     (and (= (&/|length args) (&/|length param-types))
+                                          (&/fold2 #(and %1 (.equals ^Object %2 %3))
+                                                   true
+                                                   args
+                                                   (&/|map #(.getName ^Class %) param-types))))]
+                         =method))]
+    (return &type/Unit)
+    (fail (str "[Host Error] Constructor does not exist: " target))))
 
 (defn location [scope]
   (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))

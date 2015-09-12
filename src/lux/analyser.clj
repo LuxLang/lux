@@ -43,6 +43,14 @@
     _
     (fail (str "[Analyser Error] Not a tag: " (&/show-ast ast)))))
 
+(defn ^:private extract-text [ast]
+  (|case ast
+    [_ (&/$TextS text)]
+    (return text)
+
+    _
+    (fail (str "[Analyser Error] Can't extract text: " (&/show-ast ast)))))
+
 (defn analyse-variant+ [analyser exo-type ident values]
   (|do [[module tag-name] (&/normalize ident)
         idx (&&module/tag-index module tag-name)]
@@ -155,13 +163,15 @@
                                                   (&/$Cons [_ (&/$TupleS ?fields)]
                                                            (&/$Cons [_ (&/$TupleS ?methods)]
                                                                     (&/$Nil))))))))
-    (&&host/analyse-jvm-class analyse compile-token ?name ?super-class ?interfaces ?fields ?methods)
+    (|do [=interfaces (&/map% extract-text ?interfaces)]
+      (&&host/analyse-jvm-class analyse compile-token ?name ?super-class =interfaces ?fields ?methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_interface")]
                        (&/$Cons [_ (&/$TextS ?name)]
                                 (&/$Cons [_ (&/$TupleS ?supers)]
                                          ?methods))))
-    (&&host/analyse-jvm-interface analyse compile-token ?name ?supers ?methods)
+    (|do [=supers (&/map% extract-text ?supers)]
+      (&&host/analyse-jvm-interface analyse compile-token ?name =supers ?methods))
 
     ;; Programs
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_program")]
@@ -280,7 +290,8 @@
                                 (&/$Cons [_ (&/$TupleS ?classes)]
                                          (&/$Cons [_ (&/$TupleS ?args)]
                                                   (&/$Nil))))))
-    (&&host/analyse-jvm-new analyse exo-type ?class ?classes ?args)
+    (|do [=classes (&/map% extract-text ?classes)]
+      (&&host/analyse-jvm-new analyse exo-type ?class =classes ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_getstatic")]
                        (&/$Cons [_ (&/$TextS ?class)]
@@ -316,7 +327,8 @@
                                          (&/$Cons [_ (&/$TupleS ?classes)]
                                                   (&/$Cons [_ (&/$TupleS ?args)]
                                                            (&/$Nil)))))))
-    (&&host/analyse-jvm-invokestatic analyse exo-type ?class ?method ?classes ?args)
+    (|do [=classes (&/map% extract-text ?classes)]
+      (&&host/analyse-jvm-invokestatic analyse exo-type ?class ?method =classes ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokevirtual")]
                        (&/$Cons [_ (&/$TextS ?class)]
@@ -325,7 +337,8 @@
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (&&host/analyse-jvm-invokevirtual analyse exo-type ?class ?method ?classes ?object ?args)
+    (|do [=classes (&/map% extract-text ?classes)]
+      (&&host/analyse-jvm-invokevirtual analyse exo-type ?class ?method =classes ?object ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokeinterface")]
                        (&/$Cons [_ (&/$TextS ?class)]
@@ -334,7 +347,8 @@
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (&&host/analyse-jvm-invokeinterface analyse exo-type ?class ?method ?classes ?object ?args)
+    (|do [=classes (&/map% extract-text ?classes)]
+      (&&host/analyse-jvm-invokeinterface analyse exo-type ?class ?method =classes ?object ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokespecial")]
                        (&/$Cons [_ (&/$TextS ?class)]
@@ -343,7 +357,8 @@
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (&&host/analyse-jvm-invokespecial analyse exo-type ?class ?method ?classes ?object ?args)
+    (|do [=classes (&/map% extract-text ?classes)]
+      (&&host/analyse-jvm-invokespecial analyse exo-type ?class ?method =classes ?object ?args))
 
     ;; Exceptions
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
