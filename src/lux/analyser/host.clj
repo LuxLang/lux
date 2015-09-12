@@ -315,7 +315,9 @@
            modifiers))
 
 (defn analyse-jvm-class [analyse compile-token ?name ?super-class ?interfaces ?fields ?methods]
-  (|do [=fields (&/map% (fn [?field]
+  (|do [class-loader &/loader
+        abstract-methods (&/flat-map% (partial &host/abstract-methods class-loader) (&/Cons$ ?super-class ?interfaces))
+        =fields (&/map% (fn [?field]
                           (|case ?field
                             [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
                                                   (&/$Cons [_ (&/$TextS ?field-type)]
@@ -369,8 +371,31 @@
                              _
                              (fail "[Analyser Error] Wrong syntax for method.")))
                          (&/enumerate ?methods))
+        ;; Test for method completion
+        :let [methods-map (&/fold (fn [mmap mentry]
+                                    (assoc mmap (:name mentry) mentry))
+                                  {}
+                                  =methods)
+              missing-method (&/fold (fn [missing abs-meth]
+                                       (|let [[am-name am-inputs] abs-meth]
+                                         (or missing
+                                             (if-let [meth-struct (get methods-map am-name)]
+                                               (let [meth-inputs (:inputs meth-struct)]
+                                                 (if (and (= (&/|length meth-inputs) (&/|length am-inputs))
+                                                          (&/fold2 (fn [prev mi ai] (and prev (= mi ai)))
+                                                                   true
+                                                                   meth-inputs am-inputs))
+                                                   nil
+                                                   am-name))
+                                               am-name))))
+                                     nil
+                                     abstract-methods)]
+        _ (if (nil? missing-method)
+            (return nil)
+            (fail (str "[Analyser Error] Missing method: " missing-method)))
         _ (compile-token (&/V &&/$jvm-class (&/T ?name ?super-class ?interfaces =fields =methods)))
-        :let [_ (prn 'analyse-jvm-class ?name ?super-class)]]
+        ;; :let [_ (prn 'analyse-jvm-class ?name ?super-class)]
+        ]
     (return (&/|list))))
 
 (defn analyse-jvm-interface [analyse compile-token name supers methods]

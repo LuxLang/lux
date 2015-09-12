@@ -134,5 +134,10 @@
     (return &type/Unit)
     (fail (str "[Host Error] Constructor does not exist: " target))))
 
+(defn abstract-methods [class-loader class]
+  (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&type/as-obj class) true class-loader))
+                          :when (.equals true (Modifier/isAbstract (.getModifiers =method)))]
+                      (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method)))))))))
+
 (defn location [scope]
   (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))
