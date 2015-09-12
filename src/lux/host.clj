@@ -29,8 +29,9 @@
                                             (.getSimpleName class)))]
     (if (.equals "void" base)
       (return &type/Unit)
-      (return (&/V &/$DataT (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
-                                    base)))
+      (return (&type/Data$ (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
+                                base)
+                           (&/|list)))
       )))
 
 (defn ^:private method->type [^Method method]
@@ -70,7 +71,7 @@
 (defn ->java-sig [^objects type]
   "(-> Type Text)"
   (|case type
-    (&/$DataT ?name)
+    (&/$DataT ?name params)
     (->type-signature ?name)
 
     (&/$LambdaT _ _)

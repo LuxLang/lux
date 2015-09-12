@@ -364,7 +364,7 @@
             (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (&/ident->text real-name))]
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
-                  ;; :let [_ (when (or (= "defsig" (aget real-name 1))
+                  ;; :let [_ (when (or (= "zip" (aget real-name 1))
                   ;;                   ;; (= "..?" (aget real-name 1))
                   ;;                   ;; (= "try$" (aget real-name 1))
                   ;;                   )
@@ -431,13 +431,9 @@
     (|do [exo-type* (&type/actual-type exo-type)]
       (|case exo-type
         (&/$UnivQ _)
-        (&type/with-var
-          (fn [$var]
-            (|do [exo-type** (&type/apply-type exo-type* $var)]
-              (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
-        ;; (|do [$var &type/existential
-        ;;       exo-type** (&type/apply-type exo-type* $var)]
-        ;;   (analyse-lambda* analyse exo-type** ?self ?arg ?body))
+        (|do [$var &type/existential
+              exo-type** (&type/apply-type exo-type* $var)]
+          (analyse-lambda* analyse exo-type** ?self ?arg ?body))
         
         (&/$LambdaT ?arg-t ?return-t)
         (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*

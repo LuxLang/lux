@@ -52,31 +52,31 @@
       (&/$TupleT (&/$Nil))
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
-      (&/$DataT "boolean")
+      (&/$DataT "boolean" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
       
-      (&/$DataT "byte")
+      (&/$DataT "byte" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class byte-class) "valueOf" (str "(B)" (&host/->type-signature byte-class)))
 
-      (&/$DataT "short")
+      (&/$DataT "short" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class short-class) "valueOf" (str "(S)" (&host/->type-signature short-class)))
 
-      (&/$DataT "int")
+      (&/$DataT "int" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class int-class) "valueOf" (str "(I)" (&host/->type-signature int-class)))
 
-      (&/$DataT "long")
+      (&/$DataT "long" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
 
-      (&/$DataT "float")
+      (&/$DataT "float" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class float-class) "valueOf" (str "(F)" (&host/->type-signature float-class)))
 
-      (&/$DataT "double")
+      (&/$DataT "double" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class double-class) "valueOf" (str "(D)" (&host/->type-signature double-class)))
 
-      (&/$DataT "char")
+      (&/$DataT "char" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
       
-      (&/$DataT _)
+      (&/$DataT _ (&/$Nil))
       nil
 
       (&/$NamedT ?name ?type)

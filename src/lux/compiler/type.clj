@@ -39,48 +39,44 @@
   "(-> Analysis Analysis Analysis)"
   (variant$ &/$Cons (tuple$ (&/|list head tail))))
 
+(defn ^:private List$ [elems]
+  (&/fold (fn [tail head]
+            (Cons$ head tail))
+          $Nil
+          (&/|reverse elems)))
+
 ;; [Exports]
 (defn ->analysis [type]
   "(-> Type Analysis)"
   (|case type
-    (&/$DataT ?class)
-    (variant$ &/$DataT (text$ ?class))
+    (&/$DataT class params)
+    (variant$ &/$DataT (tuple$ (&/|list (text$ class)
+                                        (List$ (&/|map ->analysis params)))))
     
-    (&/$TupleT ?members)
-    (variant$ &/$TupleT
-              (&/fold (fn [tail head]
-                        (Cons$ (->analysis head) tail))
-                      $Nil
-                      (&/|reverse ?members)))
+    (&/$TupleT members)
+    (variant$ &/$TupleT (List$ (&/|map ->analysis members)))
 
-    (&/$VariantT ?members)
-    (variant$ &/$VariantT
-              (&/fold (fn [tail head]
-                        (Cons$ (->analysis head) tail))
-                      $Nil
-                      (&/|reverse ?members)))
+    (&/$VariantT members)
+    (variant$ &/$VariantT (List$ (&/|map ->analysis members)))
 
-    (&/$LambdaT ?input ?output)
-    (variant$ &/$LambdaT (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
+    (&/$LambdaT input output)
+    (variant$ &/$LambdaT (tuple$ (&/|list (->analysis input) (->analysis output))))
 
-    (&/$UnivQ ?env ?body)
+    (&/$UnivQ env body)
     (variant$ &/$UnivQ
-              (tuple$ (&/|list (&/fold (fn [tail head]
-                                         (Cons$ (->analysis head) tail))
-                                       $Nil
-                                       (&/|reverse ?env))
-                               (->analysis ?body))))
+              (tuple$ (&/|list (List$ (&/|map ->analysis env))
+                               (->analysis body))))
 
-    (&/$BoundT ?idx)
-    (variant$ &/$BoundT (int$ ?idx))
+    (&/$BoundT idx)
+    (variant$ &/$BoundT (int$ idx))
 
-    (&/$AppT ?fun ?arg)
-    (variant$ &/$AppT (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
+    (&/$AppT fun arg)
+    (variant$ &/$AppT (tuple$ (&/|list (->analysis fun) (->analysis arg))))
 
-    (&/$NamedT [?module ?name] ?type)
-    (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ ?module) (text$ ?name)))
-                                         (->analysis ?type))))
+    (&/$NamedT [module name] type*)
+    (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ module) (text$ name)))
+                                         (->analysis type*))))
 
     _
-    (assert false (&type/show-type type))
+    (assert false (prn '->analysis (&type/show-type type) (&/adt->text type)))
     ))
