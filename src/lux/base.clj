@@ -80,12 +80,19 @@
    "locals"
    "closure"])
 
+;; ModuleState
+(deftags
+  ["Active"
+   "Compiled"
+   "Cached"])
+
 ;; Host
 (deftags
   ["writer"
    "loader"
    "classes"
-   "catching"])
+   "catching"
+   "module-states"])
 
 ;; Compiler
 (deftags
@@ -110,7 +117,6 @@
 (def eval-field "_eval")
 (def tags-field "_tags")
 (def module-class-name "_")
-
 (def +name-separator+ ";")
 
 (defn T [& elems]
@@ -604,6 +610,8 @@
      store
      ;; "lux;catching"
      Nil$
+     ;; "lux;module-states"
+     (|table)
      )))
 
 (defn init-state [_]
@@ -937,3 +945,29 @@
         ($None)      (V $None nil)
         ($Some xs**) (V $Some (V $Cons (T x xs**))))
       )))
+
+(do-template [<flagger> <asker> <tag>]
+  (do (defn <flagger> [module]
+        "(-> Text (Lux (,)))"
+        (fn [state]
+          (let [state* (update$ $host (fn [host]
+                                        (update$ $module-states
+                                                 (fn [module-states]
+                                                   (|put module (V <tag> nil) module-states))
+                                                 host))
+                                state)]
+            (V $Right (T state* nil)))))
+    (defn <asker> [module]
+      "(-> Text (Lux Bool))"
+      (fn [state]
+        (if-let [module-state (->> state (get$ $host) (get$ $module-states) (|get module))]
+          (V $Right (T state (|case module-state
+                               (<tag>) true
+                               _       false)))
+          (V $Right (T state false)))
+        )))
+
+  flag-active-module   active-module?   $Active
+  flag-compiled-module compiled-module? $Compiled
+  flag-cached-module   cached-module?   $Cached
+  )

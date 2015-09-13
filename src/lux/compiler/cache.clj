@@ -89,8 +89,9 @@
                           ;; _ (prn 'load/IMPORTS module imports)
                           ]
                       (|do [loads (&/map% (fn [_import]
-                                            (|do [content (&&io/read-file (str &&/input-dir "/" _import ".lux"))]
-                                              (load _import (hash content) compile-module)))
+                                            (|do [content (&&io/read-file (str &&/input-dir "/" _import ".lux"))
+                                                  _ (load _import (hash content) compile-module)]
+                                              (&/cached-module? _import)))
                                           (if (= [""] imports)
                                             &/Nil$
                                             (&/->list imports)))]
@@ -120,6 +121,7 @@
                                                      &/->list)))]
                               ;; (prn 'load module defs)
                               (|do [_ (&a-module/enter-module module)
+                                    _ (&/flag-cached-module module)
                                     _ (&a-module/set-imports imports)
                                     _ (&/map% (fn [_def]
                                                 (let [[_exported? _name _ann] (string/split _def #" ")

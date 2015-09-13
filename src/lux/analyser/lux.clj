@@ -364,7 +364,7 @@
             (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (&/ident->text real-name))]
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
-                  ;; :let [_ (when (or (= "zip" (aget real-name 1))
+                  ;; :let [_ (when (or (= "invoke-interface$" (aget real-name 1))
                   ;;                   ;; (= "..?" (aget real-name 1))
                   ;;                   ;; (= "try$" (aget real-name 1))
                   ;;                   )
@@ -534,7 +534,10 @@
             (return nil))]
     (&/save-module
      (|do [already-compiled? (&&module/exists? path)
-           ;; :let [_ (prn 'analyse-import module-name path already-compiled?)]
+           ;; :let [_ (prn 'analyse-import module-name path
+           ;; already-compiled?)]
+           active? (&/active-module? path)
+           _ (&/assert! (not active?) (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " module-name))
            _ (&&module/add-import path)
            _ (&/when% (not already-compiled?) (compile-module path))]
        (return &/Nil$)))))
