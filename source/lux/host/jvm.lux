@@ -6,13 +6,16 @@
 (;import lux
          (lux (control (monoid #as m)
                        (functor #as F)
-                       (monad #as M #refer (#only do)))
+                       (monad #as M #refer (#only do seq%)))
               (data (list #refer #all #open ("" List/Functor List/Fold))
                     (number/int #refer #all #open ("i:" Int/Ord))
-                    maybe)
+                    maybe
+                    tuple)
               (meta lux
                     ast
                     syntax)))
+
+(open List/Monad "list:")
 
 ## [Utils]
 ## Parsers
@@ -49,6 +52,11 @@
             output local-symbol^
             body id^]
            (wrap [modifiers name inputs output body]))))
+
+(def opt-arg^
+  (Parser (, Bool Text))
+  (&^ (tag?^ ["" "?"])
+      local-symbol^))
 
 ## [Syntax]
 (defsyntax #export (definterface [name local-symbol^] [supers (tuple^ (*^ local-symbol^))] [members (*^ method-decl^)])
@@ -115,3 +123,113 @@
                           type
                           (repeat dimensions []))))
       (fail "Array must have positive dimension."))))
+
+(defsyntax #export (instance? [class local-symbol^] obj)
+  (emit (@list (` (;_jvm_instanceof (~ (text$ class)) (~ obj))))))
+
+(defsyntax #export (locking lock body)
+  (do Lux/Monad
+    [g!lock (gensym "")
+     g!body (gensym "")
+     g!_ (gensym "")]
+    (emit (@list (` (let [(~ g!lock) (~ lock)
+                          (~ g!_) (;_jvm_monitorenter (~ g!lock))
+                          (~ g!body) (~ body)
+                          (~ g!_) (;_jvm_monitorexit (~ g!lock))]
+                      (~ g!body)))))
+    ))
+
+(defsyntax #export (null? obj)
+  (emit (@list (` (;_jvm_null? (~ obj))))))
+
+(def (prepare-args args)
+  (-> (List (, Bool Text)) (Lux (, (List AST) (List AST) (List AST) (List Text))))
+  (do Lux/Monad
+    [vars (seq% Lux/Monad (repeat (size args) (gensym "")))
+     #let [pairings (map (: (-> (, (, Bool Text) AST) (, AST (List AST)))
+                            (lambda [[[opt? arg-class] var]]
+                              (if opt?
+                                [(` (Maybe (^ (~ (symbol$ ["" arg-class])))))
+                                 (@list var (` (: (^ (~ (symbol$ ["" arg-class])))
+                                                  (case (~ var)
+                                                    (#;Some (~ var)) (~ var)
+                                                    #;None           ;_jvm_null))))]
+                                [(` (^ (~ (symbol$ ["" arg-class]))))
+                                 (@list)])))
+                         (zip2 args vars))
+           var-types (map first pairings)
+           var-rebinds (map second pairings)
+           arg-classes (map second args)]]
+    (wrap [vars var-types (list:join var-rebinds) arg-classes])))
+
+(defsyntax #export (new$ [class local-symbol^] [args (tuple^ (*^ opt-arg^))])
+  (do Lux/Monad
+    [[vars var-types var-rebinds arg-classes] (prepare-args args)]
+    (case vars
+      (\ (@list))
+      (do Lux/Monad
+        [g!_ (gensym "")]
+        (wrap (@list (` (: (-> (,) (^ (~ (symbol$ ["" class]))))
+                           (lambda [(~ g!_)]
+                             (;_jvm_new (~ (text$ class)) [] [])))))))
+
+      _
+      (wrap (@list (` (: (-> (, (~@ var-types)) (^ (~ (symbol$ ["" class]))))
+                         (lambda [[(~@ vars)]]
+                           (let [(~@ var-rebinds)]
+                             (;_jvm_new (~ (text$ class)) [(~@ (map text$ arg-classes))] [(~@ vars)])))))))
+      )))
+
+(do-template [<name> <op>]
+  [(defsyntax #export (<name> [class local-symbol^] [method local-symbol^] [args (tuple^ (*^ opt-arg^))]
+                              [ex? (tag?^ ["" "!"])] [opt? (tag?^ ["" "?"])] [return local-symbol^])
+     (do Lux/Monad
+       [[vars var-types var-rebinds arg-classes] (prepare-args args)
+        g!self (gensym "self")
+        g!temp (gensym "temp")
+        #let [return-type (` (^ (~ (symbol$ ["" return]))))
+              body (` (<op> (~ (text$ class)) (~ (text$ method)) [(~@ (map text$ arg-classes))] (~ g!self) [(~@ vars)]))
+              [body return-type] (if opt?
+                                   [(` (let [(~ g!temp) (~ body)]
+                                         (if (;_jvm_null? (~ g!temp))
+                                           #;None
+                                           (#;Some (~ g!temp)))))
+                                    (` (Maybe (~ return-type)))]
+                                   [body return-type])
+              [body return-type] (if ex?
+                                   [(` (try (~ body)))
+                                    (` (Either Text (~ return-type)))]
+                                   [body return-type])]]
+       (wrap (@list (` (: (-> (, (~@ var-types)) (^ (~ (symbol$ ["" class]))) (~ return-type))
+                          (lambda [[(~@ vars)] (~ g!self)]
+                            (let [(~@ var-rebinds)]
+                              (~ body)))))))
+       ))]
+
+  [invoke-virtual$   ;_jvm_invokevirtual]
+  [invoke-interface$ ;_jvm_invokeinterface]
+  )
+
+(defsyntax #export (invoke-static$ [class local-symbol^] [method local-symbol^] [args (tuple^ (*^ opt-arg^))]
+                                   [ex? (tag?^ ["" "!"])] [opt? (tag?^ ["" "?"])] [return local-symbol^])
+  (do Lux/Monad
+    [[vars var-types var-rebinds arg-classes] (prepare-args args)
+     g!temp (gensym "temp")
+     #let [return-type (` (^ (~ (symbol$ ["" return]))))
+           body (` (;_jvm_invokestatic (~ (text$ class)) (~ (text$ method)) [(~@ (map text$ arg-classes))] [(~@ vars)]))
+           [body return-type] (if opt?
+                                [(` (let [(~ g!temp) (~ body)]
+                                      (if (;_jvm_null? (~ g!temp))
+                                        #;None
+                                        (#;Some (~ g!temp)))))
+                                 (` (Maybe (~ return-type)))]
+                                [body return-type])
+           [body return-type] (if ex?
+                                [(` (try (~ body)))
+                                 (` (Either Text (~ return-type)))]
+                                [body return-type])]]
+    (wrap (@list (` (: (-> (, (~@ var-types)) (~ return-type))
+                       (lambda [[(~@ vars)]]
+                         (let [(~@ var-rebinds)]
+                           (~ body)))))))
+    ))
