@@ -39,7 +39,7 @@
 
 ;; [Utils]
 (def ^:private unit
-  (&/T (&/T "" -1 -1) (&/V &/$TupleS (&/|list))))
+  (&/T (&/T "" -1 -1) (&/V &/$TupleS &/Nil$)))
 
 (defn ^:private resolve-type [type]
   (|case type
@@ -118,7 +118,7 @@
 
 (defn adjust-type [type]
   "(-> Type (Lux Type))"
-  (adjust-type* (&/|list) type))
+  (adjust-type* &/Nil$ type))
 
 (defn ^:private analyse-pattern [value-type pattern kont]
   (|let [[meta pattern*] pattern]
@@ -170,7 +170,7 @@
                                                      (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
                                                        (return (&/T (&/Cons$ =test =tests) =kont)))))
                                                  (|do [=kont kont]
-                                                   (return (&/T (&/|list) =kont)))
+                                                   (return (&/T &/Nil$ =kont)))
                                                  (&/|reverse (&/zip2 ?member-types ?members)))]
                       (return (&/T (&/V $TupleTestAC =tests) =kont)))))
 
@@ -392,7 +392,7 @@
   (|do [patterns (&/fold% (fn [patterns branch]
                             (|let [[pattern body] branch]
                               (analyse-branch analyse exo-type value-type pattern body patterns)))
-                          (&/|list)
+                          &/Nil$
                           branches)
         struct (&/fold% merge-total (&/V $DefaultTotal false) patterns)
         ? (check-totality value-type struct)]

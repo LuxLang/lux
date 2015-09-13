@@ -23,7 +23,7 @@
     _
     false))
 
-(def ^:private empty-env (&/V &/$Nil nil))
+(def ^:private empty-env &/Nil$)
 (defn Data$ [name params]
   (&/V &/$DataT (&/T name params)))
 (defn Bound$ [idx]
@@ -46,13 +46,13 @@
   (&/V &/$NamedT (&/T name type)))
 
 
-(def Bool (Named$ (&/T "lux" "Bool") (Data$ "java.lang.Boolean" (&/|list))))
-(def Int (Named$ (&/T "lux" "Int") (Data$ "java.lang.Long" (&/|list))))
-(def Real (Named$ (&/T "lux" "Real") (Data$ "java.lang.Double" (&/|list))))
-(def Char (Named$ (&/T "lux" "Char") (Data$ "java.lang.Character" (&/|list))))
-(def Text (Named$ (&/T "lux" "Text") (Data$ "java.lang.String" (&/|list))))
-(def Unit (Named$ (&/T "lux" "Unit") (Tuple$ (&/|list))))
-(def $Void (Named$ (&/T "lux" "Void") (Variant$ (&/|list))))
+(def Bool (Named$ (&/T "lux" "Bool") (Data$ "java.lang.Boolean" &/Nil$)))
+(def Int (Named$ (&/T "lux" "Int") (Data$ "java.lang.Long" &/Nil$)))
+(def Real (Named$ (&/T "lux" "Real") (Data$ "java.lang.Double" &/Nil$)))
+(def Char (Named$ (&/T "lux" "Char") (Data$ "java.lang.Character" &/Nil$)))
+(def Text (Named$ (&/T "lux" "Text") (Data$ "java.lang.String" &/Nil$)))
+(def Unit (Named$ (&/T "lux" "Unit") (Tuple$ &/Nil$)))
+(def $Void (Named$ (&/T "lux" "Void") (Variant$ &/Nil$)))
 (def Ident (Named$ (&/T "lux" "Ident") (Tuple$ (&/|list Text Text))))
 
 (def IO
@@ -221,11 +221,14 @@
           (Tuple$
            (&/|list
             ;; "lux;writer"
-            (Data$ "org.objectweb.asm.ClassWriter" (&/|list))
+            (Data$ "org.objectweb.asm.ClassWriter" &/Nil$)
             ;; "lux;loader"
-            (Data$ "java.lang.ClassLoader" (&/|list))
+            (Data$ "java.lang.ClassLoader" &/Nil$)
             ;; "lux;classes"
-            (Data$ "clojure.lang.Atom" (&/|list))))))
+            (Data$ "clojure.lang.Atom" &/Nil$)
+            ;; "lux;catching"
+            (App$ List Text)
+            ))))
 
 (def DefData*
   (Univ$ empty-env
@@ -367,7 +370,7 @@
     (let [id (->> state (&/get$ &/$type-vars) (&/get$ &/$counter))]
       (return* (&/update$ &/$type-vars #(->> %
                                              (&/update$ &/$counter inc)
-                                             (&/update$ &/$mappings (fn [ms] (&/|put id (&/V &/$None nil) ms))))
+                                             (&/update$ &/$mappings (fn [ms] (&/|put id &/None$ ms))))
                           state)
                id))))
 
@@ -396,7 +399,7 @@
                                        (|case ?type*
                                          (&/$VarT ?id*)
                                          (if (.equals ^Object id ?id*)
-                                           (return (&/T ?id (&/V &/$None nil)))
+                                           (return (&/T ?id &/None$))
                                            (return binding))
 
                                          _
@@ -465,7 +468,7 @@
       (&/T ??out (&/Cons$ ?in ?args)))
 
     _
-    (&/T type (&/|list))))
+    (&/T type &/Nil$)))
 
 (defn ^:private unravel-app [fun-type]
   (|case fun-type
@@ -474,7 +477,7 @@
       (&/T ?fun-type (&/|++ ?args (&/|list ?right))))
 
     _
-    (&/T fun-type (&/|list))))
+    (&/T fun-type &/Nil$)))
 
 (defn show-type [^objects type]
   (|case type
@@ -581,7 +584,7 @@
   (|let [[e a] k]
     (|case fixpoints
       (&/$Nil)
-      (&/V &/$None nil)
+      &/None$
 
       (&/$Cons [[e* a*] v*] fixpoints*)
       (if (and (type= e e*)
@@ -674,7 +677,7 @@
 
 (def ^:private primitive-types #{"boolean" "byte" "short" "int" "long" "float" "double" "char"})
 
-(def ^:private init-fixpoints (&/|list))
+(def ^:private init-fixpoints &/Nil$)
 
 (defn ^:private check* [class-loader fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
@@ -689,14 +692,14 @@
                          (return* state* (&/V &/$Some ebound))
 
                          (&/$Left _)
-                         (return* state (&/V &/$None nil))))
+                         (return* state &/None$)))
               abound (fn [state]
                        (|case ((deref ?aid) state)
                          (&/$Right state* abound)
                          (return* state* (&/V &/$Some abound))
 
                          (&/$Left _)
-                         (return* state (&/V &/$None nil))))]
+                         (return* state &/None$)))]
           (|case [ebound abound]
             [(&/$None _) (&/$None _)]
             (|do [_ (set-var ?eid actual)]
@@ -873,6 +876,10 @@
                 (return (&/T fixpoints nil)))
 
               (and (not invariant??)
+                   ;; (do (println '[Data Data] [e!name a!name]
+                   ;;              [(str "(" (->> e!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
+                   ;;               (str "(" (->> a!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")])
+                   ;;   true)
                    (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader)))
               (return (&/T fixpoints nil))
 

@@ -17,7 +17,7 @@
           token &lexer/lex]
       (|case token
         [meta [<close-token> _]]
-        (return (&/V <tag> (&/fold &/|++ (&/|list) elems)))
+        (return (&/V <tag> (&/fold &/|++ &/Nil$ elems)))
         
         _
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
@@ -29,7 +29,7 @@
 (defn ^:private parse-record [parse]
   (|do [elems* (&/repeat% parse)
         token &lexer/lex
-        :let [elems (&/fold &/|++ (&/|list) elems*)]]
+        :let [elems (&/fold &/|++ &/Nil$ elems*)]]
     (|case token
       [meta (&lexer/$Close_Brace _)]
       (if (even? (&/|length elems))
@@ -45,10 +45,10 @@
         :let [[meta token*] token]]
     (|case token*
       (&lexer/$White_Space _)
-      (return (&/|list))
+      (return &/Nil$)
 
       (&lexer/$Comment _)
-      (return (&/|list))
+      (return &/Nil$)
       
       (&lexer/$Bool ?value)
       (return (&/|list (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value)))))

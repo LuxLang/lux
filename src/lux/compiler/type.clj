@@ -33,7 +33,7 @@
 
 (def ^:private $Nil
   "Analysis"
-  (variant$ &/$Nil (tuple$ (&/|list))))
+  (variant$ &/$Nil (tuple$ &/Nil$)))
 
 (defn ^:private Cons$ [head tail]
   "(-> Analysis Analysis Analysis)"

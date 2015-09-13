@@ -27,7 +27,7 @@
    ;; "lux;defs"
    (&/|table)
    ;; "lux;imports"
-   (&/|list)
+   &/Nil$
    ;; "lux;tags"
    (&/|table)
    ;; "lux;types"

@@ -364,7 +364,7 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
                        (&/$Cons ?body
                                 ?handlers)))
-    (|do [catches+finally (&/fold% parse-handler (&/T (&/|list) (&/V &/$None nil)) ?handlers)]
+    (|do [catches+finally (&/fold% parse-handler (&/T &/Nil$ &/None$) ?handlers)]
       (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_throw")]
@@ -602,7 +602,7 @@
     (&&lux/analyse-record analyse exo-type ?elems)
 
     (&/$TagS ?ident)
-    (analyse-variant+ analyse exo-type ?ident (&/|list))
+    (analyse-variant+ analyse exo-type ?ident &/Nil$)
     
     (&/$SymbolS _ "_jvm_null")
     (&&host/analyse-jvm-null analyse exo-type)

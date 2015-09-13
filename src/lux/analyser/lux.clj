@@ -59,7 +59,7 @@
                                   (|do [:let [=var* (next-bound-type tuple-type)]
                                         _ (&type/set-var iid =var*)
                                         tuple-type* (&type/clean $var tuple-type)]
-                                    (return (&type/Univ$ (&/|list) tuple-type*)))
+                                    (return (&type/Univ$ &/Nil$ tuple-type*)))
 
                                   _
                                   (&type/clean $var tuple-type))]
@@ -110,7 +110,7 @@
   (|do [output (with-attempt
                  (|case ?values
                    (&/$Nil)
-                   (analyse-tuple analyse (&/V &/$Right exo-type) (&/|list))
+                   (analyse-tuple analyse (&/V &/$Right exo-type) &/Nil$)
 
                    (&/$Cons ?value (&/$Nil))
                    (analyse exo-type ?value)
@@ -155,7 +155,7 @@
                                   (|do [:let [=var* (next-bound-type variant-type)]
                                         _ (&type/set-var iid =var*)
                                         variant-type* (&type/clean $var variant-type)]
-                                    (return (&type/Univ$ (&/|list) variant-type*)))
+                                    (return (&type/Univ$ &/Nil$ variant-type*)))
 
                                   _
                                   (&type/clean $var variant-type))
@@ -291,7 +291,7 @@
                                                 (&/T register* (&/Cons$ frame* new-inner))))
                                             (&/T (or (->> top-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
                                                      (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
-                                                 (&/|list))
+                                                 &/Nil$)
                                             (&/|reverse inner) scopes)]
               ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
                  (return (&/|list =local)))
@@ -313,7 +313,7 @@
           _ (&type/check exo-type fun-type)
           ;; :let [_ (prn 'analyse-apply*/_1 'SUCCESS (str "(_ " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) ")"))]
           ]
-      (return (&/T fun-type (&/|list))))
+      (return (&/T fun-type &/Nil$)))
     
     (&/$Cons ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
@@ -416,7 +416,7 @@
                                             _ (&type/set-var iid =input*)
                                             =output* (&type/clean $input =output)
                                             =output** (&type/clean $output =output*)]
-                                        (return (&type/Univ$ (&/|list) (embed-inferred-input =input* =output**))))
+                                        (return (&type/Univ$ &/Nil$ (embed-inferred-input =input* =output**))))
 
                                       _
                                       (|do [=output* (&type/clean $input =output)
@@ -490,7 +490,7 @@
                 ;; :let [_ (println 'analyse-def/ALIAS (str module-name ";" ?name) '=> (str ?r-module ";" ?r-name))
                 ;;       _ (println)]
                 ]
-            (return (&/|list)))
+            (return &/Nil$))
 
           _
           (do ;; (println 'DEF (str module-name ";" ?name))
@@ -505,7 +505,7 @@
                           [def-analysis def-type] =value
                           _ (println 'DEF (str module-name ";" ?name) ;; (&type/show-type def-type)
                                      )]]
-                (return (&/|list)))))
+                (return &/Nil$))))
         ))))
 
 (defn analyse-declare-macro [analyse compile-token ?name]
@@ -515,7 +515,7 @@
         _ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))
         ;; :let [_ (prn 'analyse-declare-macro ?name "2")]
         ]
-    (return (&/|list))))
+    (return &/Nil$)))
 
 (defn analyse-declare-tags [tags type-name]
   (|do [module-name &/get-module-name
@@ -524,7 +524,7 @@
         ;; :let [_ (prn 'analyse-declare-tags (&/ident->text (&/T module-name type-name)) (&/->seq tags) (&/adt->text def-data))]
         def-type (&&module/ensure-type-def def-data)
         _ (&&module/declare-tags module-name tags def-type)]
-    (return (&/|list))))
+    (return &/Nil$)))
 
 (defn analyse-import [analyse compile-module compile-token path]
   ;; (prn 'analyse-import path)
@@ -537,17 +537,17 @@
            ;; :let [_ (prn 'analyse-import module-name path already-compiled?)]
            _ (&&module/add-import path)
            _ (&/when% (not already-compiled?) (compile-module path))]
-       (return (&/|list))))))
+       (return &/Nil$)))))
 
 (defn analyse-export [analyse compile-token name]
   (|do [module-name &/get-module-name
         _ (&&module/export module-name name)]
-    (return (&/|list))))
+    (return &/Nil$)))
 
 (defn analyse-alias [analyse compile-token ex-alias ex-module]
   (|do [module-name &/get-module-name
         _ (&&module/alias module-name ex-alias ex-module)]
-    (return (&/|list))))
+    (return &/Nil$)))
 
 (defn analyse-check [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)

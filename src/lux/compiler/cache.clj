@@ -92,7 +92,7 @@
                                             (|do [content (&&io/read-file (str &&/input-dir "/" _import ".lux"))]
                                               (load _import (hash content) compile-module)))
                                           (if (= [""] imports)
-                                            (&/|list)
+                                            &/Nil$
                                             (&/->list imports)))]
                         (if (->> loads &/->seq (every? true?))
                           (do (doseq [^File file (seq (.listFiles (File. module-path)))
@@ -109,7 +109,7 @@
                                   ;;        (string/split (get-field &/tags-field module-meta) (re-pattern (java.util.regex.Pattern/quote &&/tag-group-separator))))
                                   tag-groups (let [all-tags (get-field &/tags-field module-meta)]
                                                (if (= "" all-tags)
-                                                 (&/|list)
+                                                 &/Nil$
                                                  (-> all-tags
                                                      (string/split (re-pattern (java.util.regex.Pattern/quote &&/tag-group-separator)))
                                                      (->> (map (fn [_group]
@@ -149,7 +149,7 @@
                                                       (return nil)))
                                                   ))
                                               (if (= [""] defs)
-                                                (&/|list)
+                                                &/Nil$
                                                 (&/->list defs)))
                                     _ (&/map% (fn [group]
                                                 (|let [[_type _tags] group]

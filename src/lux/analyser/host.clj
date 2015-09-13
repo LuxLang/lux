@@ -23,6 +23,48 @@
     _
     (fail "[Analyser/Host Error] Can't extract text.")))
 
+(defn ^:private ensure-catching [exceptions]
+  "(-> (List Text) (Lux (,)))"
+  (|do [class-loader &/loader]
+    (fn [state]
+      (let [exceptions (&/|map #(Class/forName % true class-loader) exceptions)
+            catching (->> state (&/get$ &/$host) (&/get$ &/$catching)
+                          (&/|map #(Class/forName % true class-loader)))]
+        (if-let [missing-ex (&/fold (fn [prev now]
+                                      (or prev
+                                          (if (&/fold (fn [found? ex-catch]
+                                                        (or found?
+                                                            (.isAssignableFrom ex-catch now)))
+                                                      false
+                                                      catching)
+                                            nil
+                                            now)))
+                                    nil
+                                    exceptions)]
+          (assert false (str "[Analyser Error] Unhandled exception: " missing-ex))
+          ;; (&/fail* (str "[Analyser Error] Unhandled exception: " missing-ex))
+          (&/return* state nil)))
+      )))
+
+(defn ^:private with-catches [catches body]
+  "(All [a] (-> (List Text) (Lux a) (Lux a)))"
+  (fn [state]
+    (let [;; _ (prn 'with-catches/_0 (&/->seq catches))
+          old-catches (->> state (&/get$ &/$host) (&/get$ &/$catching))
+          ;; _ (prn 'with-catches/_1 (&/->seq (->> state (&/get$ &/$host) (&/get$ &/$catching))))
+          state* (->> state (&/update$ &/$host #(&/update$ &/$catching (partial &/|++ catches) %)))
+          ;; _ (prn 'with-catches/_2 (&/->seq (->> state* (&/get$ &/$host) (&/get$ &/$catching))))
+          ]
+      (|case (&/run-state body state*)
+        (&/$Left msg)
+        (&/V &/$Left msg)
+
+        (&/$Right state** output)
+        (do ;; (prn 'with-catches/_3 (&/->seq (->> state** (&/get$ &/$host) (&/get$ &/$catching))))
+            (&/V &/$Right (&/T (->> state** (&/update$ &/$host #(&/set$ &/$catching old-catches %)))
+                               output)))))
+    ))
+
 (defn ^:private analyse-1+ [analyse token]
   (&type/with-var
     (fn [$var]
@@ -74,8 +116,8 @@
 
 ;; [Resources]
 (do-template [<name> <output-tag> <input-class> <output-class>]
-  (let [input-type (&type/Data$ <input-class> (&/|list))
-        output-type (&type/Data$ <output-class> (&/|list))]
+  (let [input-type (&type/Data$ <input-class> &/Nil$)
+        output-type (&type/Data$ <output-class> &/Nil$)]
     (defn <name> [analyse exo-type x y]
       (|do [=x (&&/analyse-1 analyse input-type x)
             =y (&&/analyse-1 analyse input-type y)
@@ -157,12 +199,15 @@
 
 (defn analyse-jvm-invokestatic [analyse exo-type class method classes args]
   (|do [class-loader &/loader
-        =return (&host/lookup-static-method class-loader class method classes)
+        =return+exceptions (&host/lookup-static-method class-loader class method classes)
+        :let [[=return exceptions] =return+exceptions]
+        ;; :let [_ (prn 'analyse-jvm-invokestatic (&/adt->text =return+exceptions))]
+        _ (ensure-catching exceptions)
         ;; :let [_ (matchv ::M/objects [=return]
-        ;;           [[&/$DataT _return-class (&/|list)]]
+        ;;           [[&/$DataT _return-class &/Nil$]]
         ;;           (prn 'analyse-jvm-invokestatic class method _return-class))]
         =args (&/map2% (fn [_class _arg]
-                         (&&/analyse-1 analyse (&type/Data$ _class (&/|list)) _arg))
+                         (&&/analyse-1 analyse (&type/Data$ _class &/Nil$) _arg))
                        classes
                        args)
         :let [output-type =return]
@@ -179,11 +224,16 @@
 (do-template [<name> <tag>]
   (defn <name> [analyse exo-type class method classes object args]
     (|do [class-loader &/loader
-          =return (&host/lookup-virtual-method class-loader class method classes)
-          =object (&&/analyse-1 analyse (&type/Data$ class (&/|list)) object)
-          =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c (&/|list)) o))
+          =return+exceptions (&host/lookup-virtual-method class-loader class method classes)
+          ;; :let [_ (prn '<name> [class method] (&/adt->text =return+exceptions))]
+          :let [[=return exceptions] =return+exceptions]
+          _ (ensure-catching exceptions)
+          =object (&&/analyse-1 analyse (&type/Data$ class &/Nil$) object)
+          =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
                          classes args)
           :let [output-type =return]
+          ;; :let [_ (prn '<name> [class method] '=return (&type/show-type =return))]
+          ;; :let [_ (prn '<name> '(as-otype+ output-type) (&type/show-type (as-otype+ output-type)))]
           _ (&type/check exo-type (as-otype+ output-type))]
       (return (&/|list (&/T (&/V <tag> (&/T class method classes =object =args)) output-type)))))
 
@@ -193,12 +243,15 @@
 
 (defn analyse-jvm-invokespecial [analyse exo-type class method classes object args]
   (|do [class-loader &/loader
-        =return (if (= "<init>" method)
-                  (return &type/Unit)
-                  (&host/lookup-virtual-method class-loader class method classes))
-        =object (&&/analyse-1 analyse (&type/Data$ class (&/|list)) object)
+        =return+exceptions (if (= "<init>" method)
+                             (return (&/T &type/Unit &/Nil$))
+                             (&host/lookup-virtual-method class-loader class method classes))
+        :let [[=return exceptions] =return+exceptions]
+        ;; :let [_ (prn 'analyse-jvm-invokespecial (&/adt->text =return+exceptions))]
+        _ (ensure-catching exceptions)
+        =object (&&/analyse-1 analyse (&type/Data$ class &/Nil$) object)
         =args (&/map2% (fn [c o]
-                         (&&/analyse-1 analyse (&type/Data$ c (&/|list)) o))
+                         (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
                        classes args)
         :let [output-type =return]
         _ (&type/check exo-type (as-otype+ output-type))]
@@ -212,21 +265,21 @@
     (return (&/|list (&/T (&/V &&/$jvm-null? =object) output-type)))))
 
 (defn analyse-jvm-null [analyse exo-type]
-  (|do [:let [output-type (&type/Data$ "null" (&/|list))]
+  (|do [:let [output-type (&type/Data$ "null" &/Nil$)]
         _ (&type/check exo-type output-type)]
     (return (&/|list (&/T (&/V &&/$jvm-null nil) output-type)))))
 
 (defn analyse-jvm-new [analyse exo-type class classes args]
   (|do [class-loader &/loader
         =return (&host/lookup-constructor class-loader class classes)
-        =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c (&/|list)) o))
+        =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
                        classes args)
-        :let [output-type (&type/Data$ class (&/|list))]
+        :let [output-type (&type/Data$ class &/Nil$)]
         _ (&type/check exo-type output-type)]
     (return (&/|list (&/T (&/V &&/$jvm-new (&/T class classes =args)) output-type)))))
 
 (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
-  (let [elem-type (&type/Data$ <class> (&/|list))
+  (let [elem-type (&type/Data$ <class> &/Nil$)
         array-type (&type/Data$ "Array" (&/|list elem-type))]
     (defn <new-name> [analyse length]
       (return (&/|list (&/T (&/V <new-tag> length) array-type))))
@@ -252,24 +305,24 @@
   )
 
 (defn analyse-jvm-anewarray [analyse class length]
-  (let [elem-type (&type/Data$ class (&/|list))
+  (let [elem-type (&type/Data$ class &/Nil$)
         array-type (&type/Data$ "Array" (&/|list elem-type))]
     (return (&/|list (&/T (&/V &&/$jvm-anewarray (&/T class length)) array-type)))))
 
 (defn analyse-jvm-aaload [analyse class array idx]
-  (let [elem-type (&type/Data$ class (&/|list))
+  (let [elem-type (&type/Data$ class &/Nil$)
         array-type (&type/Data$ "Array" (&/|list elem-type))]
     (|do [=array (&&/analyse-1 analyse array-type array)]
       (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T class =array idx)) elem-type))))))
 
 (defn analyse-jvm-aastore [analyse class array idx elem]
-  (let [elem-type (&type/Data$ class (&/|list))
+  (let [elem-type (&type/Data$ class &/Nil$)
         array-type (&type/Data$ "Array" (&/|list elem-type))]
     (|do [=array (&&/analyse-1 analyse array-type array)
           =elem (&&/analyse-1 analyse elem-type elem)]
       (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T class =array idx =elem)) array-type))))))
 
-(let [length-type (&type/Data$ "java.lang.Long" (&/|list))]
+(let [length-type (&type/Data$ "java.lang.Long" &/Nil$)]
   (defn analyse-jvm-arraylength [analyse array]
     (&type/with-var
       (fn [$var]
@@ -353,11 +406,11 @@
                                    =method-body (&/with-scope (str ?name "_" ?idx)
                                                   (&/fold (fn [body* input*]
                                                             (|let [[iname itype] input*]
-                                                              (&&env/with-local iname (&type/Data$ (as-otype itype) (&/|list))
+                                                              (&&env/with-local iname (&type/Data$ (as-otype itype) &/Nil$)
                                                                 body*)))
                                                           (if (= "void" ?method-output)
                                                             (analyse-1+ analyse ?method-body)
-                                                            (&&/analyse-1 analyse (&type/Data$ (as-otype ?method-output) (&/|list)) ?method-body))
+                                                            (&&/analyse-1 analyse (&type/Data$ (as-otype ?method-output) &/Nil$) ?method-body))
                                                           (&/|reverse (if (:static? =method-modifiers)
                                                                         =method-inputs
                                                                         (&/Cons$ (&/T "this" ?super-class)
@@ -396,7 +449,7 @@
         _ (compile-token (&/V &&/$jvm-class (&/T ?name ?super-class ?interfaces =fields =methods)))
         ;; :let [_ (prn 'analyse-jvm-class ?name ?super-class)]
         ]
-    (return (&/|list))))
+    (return &/Nil$)))
 
 (defn analyse-jvm-interface [analyse compile-token name supers methods]
   (|do [=methods (&/map% (fn [method]
@@ -417,19 +470,21 @@
                              (fail (str "[Analyser Error] Invalid method signature: " (&/show-ast method)))))
                          methods)
         _ (compile-token (&/V &&/$jvm-interface (&/T name supers =methods)))]
-    (return (&/|list))))
+    (return &/Nil$)))
 
 (defn analyse-jvm-try [analyse exo-type ?body ?catches+?finally]
   (|do [:let [[?catches ?finally] ?catches+?finally]
-        =body (&&/analyse-1 analyse exo-type ?body)
         =catches (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
-                           (|do [=catch-body (&&env/with-local ?ex-arg (&type/Data$ ?ex-class (&/|list))
+                           (|do [=catch-body (&&env/with-local ?ex-arg (&type/Data$ ?ex-class &/Nil$)
                                                (&&/analyse-1 analyse exo-type ?catch-body))
                                  idx &&env/next-local-idx]
                              (return (&/T ?ex-class idx =catch-body))))
                          ?catches)
+        :let [catched-exceptions (&/|map #(aget % 0) =catches)]
+        =body (with-catches catched-exceptions
+                (&&/analyse-1 analyse exo-type ?body))
         =finally (|case ?finally
-                   (&/$None)           (return (&/V &/$None nil))
+                   (&/$None)           (return &/None$)
                    (&/$Some ?finally*) (|do [=finally (analyse-1+ analyse ?finally*)]
                                          (return (&/V &/$Some =finally))))]
     (return (&/|list (&/T (&/V &&/$jvm-try (&/T =body =catches =finally)) exo-type)))))
@@ -437,7 +492,7 @@
 (defn analyse-jvm-throw [analyse exo-type ?ex]
   (|do [=ex (analyse-1+ analyse ?ex)
         :let [[_obj _type] =ex]
-        _ (&type/check (&type/Data$ "java.lang.Throwable" (&/|list)) _type)]
+        _ (&type/check (&type/Data$ "java.lang.Throwable" &/Nil$) _type)]
     (return (&/|list (&/T (&/V &&/$jvm-throw =ex) &type/$Void)))))
 
 (do-template [<name> <tag>]
@@ -453,9 +508,9 @@
   )
 
 (do-template [<name> <tag> <from-class> <to-class>]
-  (let [output-type (&type/Data$ <to-class> (&/|list))]
+  (let [output-type (&type/Data$ <to-class> &/Nil$)]
     (defn <name> [analyse exo-type ?value]
-      (|do [=value (&&/analyse-1 analyse (&type/Data$ <from-class> (&/|list)) ?value)
+      (|do [=value (&&/analyse-1 analyse (&type/Data$ <from-class> &/Nil$) ?value)
             _ (&type/check exo-type output-type)]
         (return (&/|list (&/T (&/V <tag> =value) output-type))))))
 
@@ -480,9 +535,9 @@
   )
 
 (do-template [<name> <tag> <from-class> <to-class>]
-  (let [output-type (&type/Data$ <to-class> (&/|list))]
+  (let [output-type (&type/Data$ <to-class> &/Nil$)]
     (defn <name> [analyse exo-type ?value]
-      (|do [=value (&&/analyse-1 analyse (&type/Data$ <from-class> (&/|list)) ?value)
+      (|do [=value (&&/analyse-1 analyse (&type/Data$ <from-class> &/Nil$) ?value)
             _ (&type/check exo-type output-type)]
         (return (&/|list (&/T (&/V <tag> =value) output-type))))))
 
@@ -501,9 +556,11 @@
   analyse-jvm-lushr &&/$jvm-lushr "java.lang.Long"    "java.lang.Integer"
   )
 
-(defn analyse-jvm-program [analyse compile-token ?args ?body]
-  (|do [=body (&/with-scope ""
-                (&&env/with-local ?args (&/V &/$AppT (&/T &type/List &type/Text))
-                  (&&/analyse-1 analyse (&/V &/$AppT (&/T &type/IO &type/Unit)) ?body)))
-        _ (compile-token (&/V &&/$jvm-program =body))]
-    (return (&/|list))))
+(let [input-type (&type/App$ &type/List &type/Text)
+      output-type (&type/App$ &type/IO &type/Unit)]
+  (defn analyse-jvm-program [analyse compile-token ?args ?body]
+    (|do [=body (&/with-scope ""
+                  (&&env/with-local ?args input-type
+                    (&&/analyse-1 analyse output-type ?body)))
+          _ (compile-token (&/V &&/$jvm-program =body))]
+      (return &/Nil$))))

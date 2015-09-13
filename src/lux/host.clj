@@ -32,7 +32,7 @@
       &type/Unit
       (&type/Data$ (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
                         base)
-                   (&/|list))
+                   &/Nil$)
       )))
 
 (defn ^:private method->type [^Method method]
@@ -115,7 +115,7 @@
                                                             args
                                                             (&/|map #(.getName ^Class %) param-types)))))]
                              =method))]
-      (return (method->type method))
+      (return (&/T (method->type method) (->> method .getExceptionTypes &/->list (&/|map #(.getName %)))))
       (fail (str "[Host Error] Method does not exist: " target "." method-name))))
 
   lookup-static-method  true

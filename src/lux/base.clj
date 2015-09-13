@@ -84,7 +84,8 @@
 (deftags
   ["writer"
    "loader"
-   "classes"])
+   "classes"
+   "catching"])
 
 ;; Compiler
 (deftags
@@ -179,13 +180,13 @@
 (defmacro |list [& elems]
   (reduce (fn [tail head]
             `(V $Cons (T ~head ~tail)))
-          `(V $Nil nil)
+          `Nil$
           (reverse elems)))
 
 (defmacro |table [& elems]
   (reduce (fn [table [k v]]
             `(|put ~k ~v ~table))
-          `(|list)
+          `Nil$
           (reverse (partition 2 elems))))
 
 (defn |get [slot table]
@@ -201,7 +202,7 @@
 (defn |put [slot value table]
   (|case table
     ($Nil)
-    (V $Cons (T (T slot value) (V $Nil nil)))
+    (V $Cons (T (T slot value) Nil$))
     
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
@@ -344,7 +345,7 @@
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
         (T (Cons$ x pre) post))
-      (T (V $Nil nil) xs))))
+      (T Nil$ xs))))
 
 (defn |contains? [k table]
   (|case table
@@ -354,6 +355,14 @@
     ($Cons [k* _] table*)
     (or (.equals ^Object k k*)
         (|contains? k table*))))
+
+(defn |member? [x xs]
+  (|case xs
+    ($Nil)
+    false
+
+    ($Cons x* xs*)
+    (or (= x x*) (|member? x xs*))))
 
 (defn fold [f init xs]
   (|case xs
@@ -386,7 +395,7 @@
 (let [|range* (fn |range* [from to]
                 (if (< from to)
                   (V $Cons (T from (|range* (inc from) to)))
-                  (V $Nil nil)))]
+                  Nil$))]
   (defn |range [n]
     (|range* 0 n)))
 
@@ -404,12 +413,12 @@
     (V $Cons (T (T x y) (zip2 xs* ys*)))
 
     [_ _]
-    (V $Nil nil)))
+    Nil$))
 
 (defn |keys [plist]
   (|case plist
     ($Nil)
-    (|list)
+    Nil$
     
     ($Cons [k v] plist*)
     (Cons$ k (|keys plist*))))
@@ -417,7 +426,7 @@
 (defn |vals [plist]
   (|case plist
     ($Nil)
-    (|list)
+    Nil$
     
     ($Cons [k v] plist*)
     (Cons$ v (|vals plist*))))
@@ -448,7 +457,7 @@
   flat-map% |++)
 
 (defn list-join [xss]
-  (fold |++ (V $Nil nil) xss))
+  (fold |++ Nil$ xss))
 
 (defn |as-pairs [xs]
   (|case xs
@@ -456,12 +465,12 @@
     (V $Cons (T (T x y) (|as-pairs xs*)))
 
     _
-    (V $Nil nil)))
+    Nil$))
 
 (defn |reverse [xs]
   (fold (fn [tail head]
           (Cons$ head tail))
-        (|list)
+        Nil$
         xs))
 
 (defn assert! [test message]
@@ -497,7 +506,7 @@
   (try-all% (|list (|do [head monad
                          tail (repeat% monad)]
                      (return (Cons$ head tail)))
-                   (return (|list)))))
+                   (return Nil$))))
 
 (defn exhaust% [step]
   (fn [state]
@@ -580,6 +589,7 @@
           (try (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
             (catch java.lang.reflect.InvocationTargetException e
               (prn 'InvocationTargetException (.getCause e))
+              (prn 'memory-class-loader/findClass class-name (get @store class-name))
               (throw e)))
           (do (prn 'memory-class-loader/store class-name (keys @store))
             (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name)))))))))
@@ -591,7 +601,10 @@
      ;; "lux;loader"
      (memory-class-loader store)
      ;; "lux;classes"
-     store)))
+     store
+     ;; "lux;catching"
+     Nil$
+     )))
 
 (defn init-state [_]
   (T ;; "lux;source"
@@ -601,11 +614,11 @@
    ;; "lux;modules"
    (|table)
    ;; "lux;envs"
-   (|list)
+   Nil$
    ;; "lux;types"
    +init-bindings+
    ;; "lux;expected"
-   (V $VariantT (|list))
+   (V $VariantT Nil$)
    ;; "lux;seed"
    0
    ;; "lux;eval?"
@@ -671,13 +684,13 @@
 
 (defn ->list [seq]
   (if (empty? seq)
-    (|list)
+    Nil$
     (Cons$ (first seq) (->list (rest seq)))))
 
 (defn |repeat [n x]
   (if (> n 0)
     (Cons$ x (|repeat (dec n) x))
-    (|list)))
+    Nil$))
 
 (def get-module-name
   (fn [state]
@@ -830,7 +843,7 @@
       (return (Cons$ z zs)))
 
     [($Nil) ($Nil)]
-    (return (V $Nil nil))
+    (return Nil$)
 
     [_ _]
     (fail "Lists don't match in size.")))
@@ -841,7 +854,7 @@
     (Cons$ (f x y) (map2 f xs* ys*))
 
     [_ _]
-    (V $Nil nil)))
+    Nil$))
 
 (defn fold2 [f init xs ys]
   (|case [xs ys]
