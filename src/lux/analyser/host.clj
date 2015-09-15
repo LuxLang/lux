@@ -12,7 +12,9 @@
                  [type :as &type]
                  [host :as &host])
             (lux.analyser [base :as &&]
-                          [env :as &&env])))
+                          [lambda :as &&lambda]
+                          [env :as &&env])
+            [lux.compiler.base :as &c!base]))
 
 ;; [Utils]
 (defn ^:private extract-text [ast]
@@ -64,14 +66,6 @@
             (&/V &/$Right (&/T (->> state** (&/update$ &/$host #(&/set$ &/$catching old-catches %)))
                                output)))))
     ))
-
-(defn ^:private analyse-1+ [analyse token]
-  (&type/with-var
-    (fn [$var]
-      (|do [=expr (&&/analyse-1 analyse $var token)
-            :let [[item type] =expr]
-            =type (&type/clean $var type)]
-        (return (&/T item =type))))))
 
 (defn ^:private ensure-object [token]
   "(-> Analysis (Lux (,)))"
@@ -215,7 +209,7 @@
     (return (&/|list (&/T (&/V &&/$jvm-invokestatic (&/T class method classes =args)) output-type)))))
 
 (defn analyse-jvm-instanceof [analyse exo-type class object]
-  (|do [=object (analyse-1+ analyse object)
+  (|do [=object (&&/analyse-1+ analyse object)
         _ (ensure-object =object)
         :let [output-type &type/Bool]
         _ (&type/check exo-type output-type)]
@@ -258,14 +252,14 @@
     (return (&/|list (&/T (&/V &&/$jvm-invokespecial (&/T class method classes =object =args)) output-type)))))
 
 (defn analyse-jvm-null? [analyse exo-type object]
-  (|do [=object (analyse-1+ analyse object)
+  (|do [=object (&&/analyse-1+ analyse object)
         _ (ensure-object =object)
         :let [output-type &type/Bool]
         _ (&type/check exo-type output-type)]
     (return (&/|list (&/T (&/V &&/$jvm-null? =object) output-type)))))
 
 (defn analyse-jvm-null [analyse exo-type]
-  (|do [:let [output-type (&type/Data$ "null" &/Nil$)]
+  (|do [:let [output-type (&type/Data$ &host/null-data-tag &/Nil$)]
         _ (&type/check exo-type output-type)]
     (return (&/|list (&/T (&/V &&/$jvm-null nil) output-type)))))
 
@@ -280,18 +274,23 @@
 
 (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
   (let [elem-type (&type/Data$ <class> &/Nil$)
-        array-type (&type/Data$ "Array" (&/|list elem-type))]
+        array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))
+        length-type &type/Int
+        idx-type &type/Int]
     (defn <new-name> [analyse length]
-      (return (&/|list (&/T (&/V <new-tag> length) array-type))))
+      (|do [=length (&&/analyse-1 analyse length-type length)]
+        (return (&/|list (&/T (&/V <new-tag> =length) array-type)))))
 
     (defn <load-name> [analyse array idx]
-      (|do [=array (&&/analyse-1 analyse array-type array)]
-        (return (&/|list (&/T (&/V <load-tag> (&/T =array idx)) elem-type)))))
+      (|do [=array (&&/analyse-1 analyse array-type array)
+            =idx (&&/analyse-1 analyse idx-type idx)]
+        (return (&/|list (&/T (&/V <load-tag> (&/T =array =idx)) elem-type)))))
 
     (defn <store-name> [analyse array idx elem]
       (|do [=array (&&/analyse-1 analyse array-type array)
+            =idx (&&/analyse-1 analyse idx-type idx)
             =elem (&&/analyse-1 analyse elem-type elem)]
-        (return (&/|list (&/T (&/V <store-tag> (&/T =array idx =elem)) array-type)))))
+        (return (&/|list (&/T (&/V <store-tag> (&/T =array =idx =elem)) array-type)))))
     )
 
   "java.lang.Boolean"   analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
@@ -304,30 +303,35 @@
   "java.lang.Character" analyse-jvm-cnewarray &&/$jvm-cnewarray analyse-jvm-caload &&/$jvm-caload analyse-jvm-castore &&/$jvm-castore
   )
 
-(defn analyse-jvm-anewarray [analyse class length]
-  (let [elem-type (&type/Data$ class &/Nil$)
-        array-type (&type/Data$ "Array" (&/|list elem-type))]
-    (return (&/|list (&/T (&/V &&/$jvm-anewarray (&/T class length)) array-type)))))
+(let [length-type &type/Int
+      idx-type &type/Int]
+  (defn analyse-jvm-anewarray [analyse class length]
+    (let [elem-type (&type/Data$ class &/Nil$)
+          array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+      (|do [=length (&&/analyse-1 analyse length-type length)]
+        (return (&/|list (&/T (&/V &&/$jvm-anewarray (&/T class =length)) array-type))))))
 
-(defn analyse-jvm-aaload [analyse class array idx]
-  (let [elem-type (&type/Data$ class &/Nil$)
-        array-type (&type/Data$ "Array" (&/|list elem-type))]
-    (|do [=array (&&/analyse-1 analyse array-type array)]
-      (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T class =array idx)) elem-type))))))
+  (defn analyse-jvm-aaload [analyse class array idx]
+    (let [elem-type (&type/Data$ class &/Nil$)
+          array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+      (|do [=array (&&/analyse-1 analyse array-type array)
+            =idx (&&/analyse-1 analyse idx-type idx)]
+        (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T class =array =idx)) elem-type))))))
 
-(defn analyse-jvm-aastore [analyse class array idx elem]
-  (let [elem-type (&type/Data$ class &/Nil$)
-        array-type (&type/Data$ "Array" (&/|list elem-type))]
-    (|do [=array (&&/analyse-1 analyse array-type array)
-          =elem (&&/analyse-1 analyse elem-type elem)]
-      (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T class =array idx =elem)) array-type))))))
+  (defn analyse-jvm-aastore [analyse class array idx elem]
+    (let [elem-type (&type/Data$ class &/Nil$)
+          array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+      (|do [=array (&&/analyse-1 analyse array-type array)
+            =idx (&&/analyse-1 analyse idx-type idx)
+            =elem (&&/analyse-1 analyse elem-type elem)]
+        (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T class =array =idx =elem)) array-type)))))))
 
 (let [length-type (&type/Data$ "java.lang.Long" &/Nil$)]
   (defn analyse-jvm-arraylength [analyse array]
     (&type/with-var
       (fn [$var]
         (let [elem-type $var
-              array-type (&type/Data$ "Array" (&/|list elem-type))]
+              array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
           (|do [=array (&&/analyse-1 analyse array-type array)]
             (return (&/|list (&/T (&/V &&/$jvm-arraylength =array) length-type)))))))))
 
@@ -367,68 +371,85 @@
             :concurrency nil}
            modifiers))
 
-(defn analyse-jvm-class [analyse compile-token ?name ?super-class ?interfaces ?fields ?methods]
-  (|do [class-loader &/loader
-        abstract-methods (&/flat-map% (partial &host/abstract-methods class-loader) (&/Cons$ ?super-class ?interfaces))
-        =fields (&/map% (fn [?field]
-                          (|case ?field
-                            [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
-                                                  (&/$Cons [_ (&/$TextS ?field-type)]
-                                                           (&/$Cons [_ (&/$TupleS ?field-modifiers)]
-                                                                    (&/$Nil)))))]
-                            (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
-                              (return {:name ?field-name
-                                       :modifiers =field-modifiers
-                                       :type ?field-type}))
-                            
-                            _
-                            (fail "[Analyser Error] Wrong syntax for field.")))
-                        ?fields)
-        =methods (&/map% (fn [?method]
-                           (|case ?method
-                             [?idx [_ (&/$FormS (&/$Cons [_ (&/$TextS ?method-name)]
-                                                         (&/$Cons [_ (&/$TupleS ?method-inputs)]
-                                                                  (&/$Cons [_ (&/$TextS ?method-output)]
-                                                                           (&/$Cons [_ (&/$TupleS ?method-modifiers)]
-                                                                                    (&/$Cons ?method-body
-                                                                                             (&/$Nil)))))))]]
-                             (|do [=method-inputs (&/map% (fn [minput]
-                                                            (|case minput
-                                                              [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" ?input-name)]
-                                                                                    (&/$Cons [_ (&/$TextS ?input-type)]
-                                                                                             (&/$Nil))))]
-                                                              (return (&/T ?input-name ?input-type))
+(defn ^:private analyse-field [field]
+  (|case field
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
+                          (&/$Cons [_ (&/$TextS ?field-type)]
+                                   (&/$Cons [_ (&/$TupleS ?field-modifiers)]
+                                            (&/$Nil)))))]
+    (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
+      (return {:name ?field-name
+               :modifiers =field-modifiers
+               :type ?field-type}))
+    
+    _
+    (fail "[Analyser Error] Wrong syntax for field.")))
 
-                                                              _
-                                                              (fail "[Analyser Error] Wrong syntax for method input.")))
-                                                          ?method-inputs)
-                                   =method-modifiers (analyse-modifiers ?method-modifiers)
-                                   =method-body (&/with-scope (str ?name "_" ?idx)
-                                                  (&/fold (fn [body* input*]
-                                                            (|let [[iname itype] input*]
-                                                              (&&env/with-local iname (&type/Data$ (as-otype itype) &/Nil$)
-                                                                body*)))
-                                                          (if (= "void" ?method-output)
-                                                            (analyse-1+ analyse ?method-body)
-                                                            (&&/analyse-1 analyse (&type/Data$ (as-otype ?method-output) &/Nil$) ?method-body))
-                                                          (&/|reverse (if (:static? =method-modifiers)
-                                                                        =method-inputs
-                                                                        (&/Cons$ (&/T "this" ?super-class)
-                                                                                 =method-inputs)))))]
-                               (return {:name ?method-name
-                                        :modifiers =method-modifiers
-                                        :inputs (&/|map &/|second =method-inputs)
-                                        :output ?method-output
-                                        :body =method-body}))
-                             
-                             _
-                             (fail "[Analyser Error] Wrong syntax for method.")))
-                         (&/enumerate ?methods))
-        ;; Test for method completion
+(defn ^:private analyse-method [analyse name owner-class method]
+  (|case method
+    [idx [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
+                               (&/$Cons [_ (&/$TupleS method-inputs)]
+                                        (&/$Cons [_ (&/$TextS method-output)]
+                                                 (&/$Cons [_ (&/$TupleS method-modifiers)]
+                                                          (&/$Cons method-body
+                                                                   (&/$Nil)))))))]]
+    (|do [=method-modifiers (analyse-modifiers method-modifiers)
+          =method-inputs (&/map% (fn [minput]
+                                   (|case minput
+                                     [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
+                                                           (&/$Cons [_ (&/$TextS input-type)]
+                                                                    (&/$Nil))))]
+                                     (return (&/T input-name input-type))
+
+                                     _
+                                     (fail "[Analyser Error] Wrong syntax for method input.")))
+                                 method-inputs)
+          =method-body (&/fold (fn [body* input*]
+                                 (|let [[iname itype] input*]
+                                   (&&env/with-local iname (&type/Data$ (as-otype itype) &/Nil$)
+                                     body*)))
+                               (if (= "void" method-output)
+                                 (&&/analyse-1+ analyse method-body)
+                                 (&&/analyse-1 analyse (&type/Data$ (as-otype method-output) &/Nil$) method-body))
+                               (&/|reverse (&/Cons$ (&/T "this" owner-class)
+                                                    =method-inputs)))]
+      (return {:name method-name
+               :modifiers =method-modifiers
+               :inputs (&/|map &/|second =method-inputs)
+               :output method-output
+               :body =method-body}))
+    
+    _
+    (fail "[Analyser Error] Wrong syntax for method.")))
+
+(defn ^:private analyse-method-decl [method]
+  (|case method
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
+                          (&/$Cons [_ (&/$TupleS inputs)]
+                                   (&/$Cons [_ (&/$TextS output)]
+                                            (&/$Cons [_ (&/$TupleS modifiers)]
+                                                     (&/$Nil))))))]
+    (|do [=inputs (&/map% extract-text inputs)
+          =modifiers (analyse-modifiers modifiers)]
+      (return {:name method-name
+               :modifiers =modifiers
+               :inputs =inputs
+               :output output}))
+    
+    _
+    (fail (str "[Analyser Error] Invalid method signature: " (&/show-ast method)))))
+
+(defn ^:private mandatory-methods [supers]
+  (|do [class-loader &/loader]
+    (&/flat-map% (partial &host/abstract-methods class-loader) supers)))
+
+(defn ^:private check-method-completion [supers methods]
+  "(-> (List ClassName) (List MethodDesc) (Lux (,)))"
+  (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
                                     (assoc mmap (:name mentry) mentry))
                                   {}
-                                  =methods)
+                                  methods)
               missing-method (&/fold (fn [missing abs-meth]
                                        (|let [[am-name am-inputs] abs-meth]
                                          (or missing
@@ -442,35 +463,73 @@
                                                    am-name))
                                                am-name))))
                                      nil
-                                     abstract-methods)]
-        _ (if (nil? missing-method)
-            (return nil)
-            (fail (str "[Analyser Error] Missing method: " missing-method)))
-        _ (compile-token (&/V &&/$jvm-class (&/T ?name ?super-class ?interfaces =fields =methods)))
-        ;; :let [_ (prn 'analyse-jvm-class ?name ?super-class)]
-        ]
-    (return &/Nil$)))
+                                     abstract-methods)]]
+    (if (nil? missing-method)
+      (return nil)
+      (fail (str "[Analyser Error] Missing method: " missing-method)))))
+
+(defn analyse-jvm-class [analyse compile-token name super-class interfaces fields methods]
+  (&/with-closure
+    (|do [module &/get-module-name
+          ;; :let [_ (prn 'analyse-jvm-class/_0)]
+          =fields (&/map% analyse-field fields)
+          ;; :let [_ (prn 'analyse-jvm-class/_1)]
+          =methods (&/map% (partial analyse-method analyse name super-class) (&/enumerate methods))
+          ;; :let [_ (prn 'analyse-jvm-class/_2)]
+          _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
+          ;; :let [_ (prn 'analyse-jvm-class/_3)]
+          _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =fields =methods nil)))
+          :let [_ (println 'DEF (str module "." name))]]
+      (return &/Nil$))))
 
 (defn analyse-jvm-interface [analyse compile-token name supers methods]
-  (|do [=methods (&/map% (fn [method]
-                           (|case method
-                             [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                                                   (&/$Cons [_ (&/$TupleS inputs)]
-                                                            (&/$Cons [_ (&/$TextS output)]
-                                                                     (&/$Cons [_ (&/$TupleS modifiers)]
-                                                                              (&/$Nil))))))]
-                             (|do [=inputs (&/map% extract-text inputs)
-                                   =modifiers (analyse-modifiers modifiers)]
-                               (return {:name method-name
-                                        :modifiers =modifiers
-                                        :inputs =inputs
-                                        :output output}))
-                             
-                             _
-                             (fail (str "[Analyser Error] Invalid method signature: " (&/show-ast method)))))
-                         methods)
-        _ (compile-token (&/V &&/$jvm-interface (&/T name supers =methods)))]
+  (|do [module &/get-module-name
+        =methods (&/map% analyse-method-decl methods)
+        _ (compile-token (&/V &&/$jvm-interface (&/T name supers =methods)))
+        :let [_ (println 'DEF (str module "." name))]]
     (return &/Nil$)))
+
+(defn ^:private captured-source [env-entry]
+  (|case env-entry
+    [name [(&&/$captured _ _ source) _]]
+    source))
+
+(let [captured-slot-modifier {:visibility "private"
+                              :static? false
+                              :final? false
+                              :abstract? false
+                              :concurrency nil}
+      captured-slot-type "java.lang.Object"]
+  (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces methods]
+    (&/with-closure
+      (|do [;; :let [_ (prn 'analyse-jvm-anon-class/_0 super-class)]
+            module &/get-module-name
+            scope &/get-scope-name
+            ;; :let [_ (prn 'analyse-jvm-anon-class/_1 super-class)]
+            :let [name (&host/location (&/|tail scope))
+                  anon-class (str module "." name)]
+            ;; :let [_ (prn 'analyse-jvm-anon-class/_2 name anon-class)]
+            =methods (&/map% (partial analyse-method analyse name super-class) (&/enumerate methods))
+            ;; :let [_ (prn 'analyse-jvm-anon-class/_3 name anon-class)]
+            _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
+            ;; :let [_ (prn 'analyse-jvm-anon-class/_4 name anon-class)]
+            =captured &&env/captured-vars
+            :let [=fields (&/|map (fn [idx+capt]
+                                    {:name (str &c!base/closure-prefix (aget idx+capt 0))
+                                     :modifiers captured-slot-modifier
+                                     :type captured-slot-type})
+                                  (&/enumerate =captured))
+                  ;; _ (prn '=methods (&/adt->text (&/|map :body =methods)))
+                  ;; =methods* (rename-captured-vars)
+                  ]
+            :let [sources (&/|map captured-source =captured)]
+            ;; :let [_ (prn 'analyse-jvm-anon-class/_5 name anon-class)]
+            ;; _ (compile-token (&/T (&/V &&/$jvm-anon-class (&/T name super-class interfaces =captured =methods)) exo-type))
+            _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =fields =methods =captured)))
+            :let [_ (println 'DEF anon-class)]]
+        (return (&/|list (&/T (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources)) (&type/Data$ anon-class (&/|list)))))
+        ;; (analyse-jvm-new analyse exo-type anon-class (&/|repeat (&/|length sources) captured-slot-type) sources)
+        ))))
 
 (defn analyse-jvm-try [analyse exo-type ?body ?catches+?finally]
   (|do [:let [[?catches ?finally] ?catches+?finally]
@@ -485,19 +544,17 @@
                 (&&/analyse-1 analyse exo-type ?body))
         =finally (|case ?finally
                    (&/$None)           (return &/None$)
-                   (&/$Some ?finally*) (|do [=finally (analyse-1+ analyse ?finally*)]
+                   (&/$Some ?finally*) (|do [=finally (&&/analyse-1+ analyse ?finally*)]
                                          (return (&/V &/$Some =finally))))]
     (return (&/|list (&/T (&/V &&/$jvm-try (&/T =body =catches =finally)) exo-type)))))
 
 (defn analyse-jvm-throw [analyse exo-type ?ex]
-  (|do [=ex (analyse-1+ analyse ?ex)
-        :let [[_obj _type] =ex]
-        _ (&type/check (&type/Data$ "java.lang.Throwable" &/Nil$) _type)]
-    (return (&/|list (&/T (&/V &&/$jvm-throw =ex) &type/$Void)))))
+  (|do [=ex (&&/analyse-1 analyse (&type/Data$ "java.lang.Throwable" &/Nil$) ?ex)]
+    (return (&/|list (&/T (&/V &&/$jvm-throw =ex) exo-type)))))
 
 (do-template [<name> <tag>]
   (defn <name> [analyse exo-type ?monitor]
-    (|do [=monitor (analyse-1+ analyse ?monitor)
+    (|do [=monitor (&&/analyse-1+ analyse ?monitor)
           _ (ensure-object =monitor)
           :let [output-type &type/Unit]
           _ (&type/check exo-type output-type)]

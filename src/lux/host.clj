@@ -19,21 +19,45 @@
 (def module-separator "/")
 (def class-name-separator ".")
 (def class-separator "/")
+(def array-data-tag "#Array")
+(def null-data-tag "#Null")
 
 ;; [Utils]
+(def class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+))")
+
+(comment
+  (let [class (class (to-array []))]
+    (str (if-let [pkg (.getPackage class)]
+           (str (.getName pkg) ".")
+           "")
+         (.getSimpleName class)))
+
+  (.getName String) "java.lang.String"
+
+  (.getName (class (to-array []))) "[Ljava.lang.Object;"
+
+  (re-find class-name-re "java.lang.String")
+  ["java.lang.String" "java.lang.String" nil nil "java.lang.String"]
+
+  (re-find class-name-re "[Ljava.lang.Object;")
+  ["[Ljava.lang.Object;" "[Ljava.lang.Object;" "[" "java.lang.Object" nil]
+  )
+
 (defn ^:private class->type [^Class class]
   "(-> Class Type)"
-  (if-let [[_ base arr-level] (re-find #"^([^\[]+)(\[\])*$"
-                                       (str (if-let [pkg (.getPackage class)]
-                                              (str (.getName pkg) ".")
-                                              "")
-                                            (.getSimpleName class)))]
-    (if (.equals "void" base)
-      &type/Unit
-      (&type/Data$ (str (reduce str "" (repeat (int (/ (count arr-level) 2)) "["))
-                        base)
-                   &/Nil$)
-      )))
+  (do ;; (prn 'class->type/_0 class (.getSimpleName class) (.getName class))
+    (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
+      (let [base (or arr-base simple-base)]
+        ;; (prn 'class->type/_1 class base arr-brackets)
+        (let [output-type (if (.equals "void" base)
+                            &type/Unit
+                            (reduce (fn [inner _] (&type/Data$ array-data-tag (&/|list inner)))
+                                    (&type/Data$ base &/Nil$)
+                                    (range (count (or arr-brackets ""))))
+                            )]
+          ;; (prn 'class->type/_2 class (&type/show-type output-type))
+          output-type)
+        ))))
 
 (defn ^:private method->type [^Method method]
   "(-> Method Type)"
@@ -70,11 +94,31 @@
         (str "L" class* ";")))
     ))
 
+(defn unfold-array [type]
+  "(-> Type (, Int Type))"
+  (|case type
+    (&/$DataT "#Array" (&/$Cons param (&/$Nil)))
+    (|let [[count inner] (unfold-array param)]
+      (&/T (inc count) inner))
+
+    _
+    (&/T 0 type)))
+
 (defn ->java-sig [^objects type]
   "(-> Type Text)"
   (|case type
     (&/$DataT ?name params)
-    (->type-signature ?name)
+    (cond (= array-data-tag ?name) (|let [[level base] (unfold-array type)
+                                          base-sig (|case base
+                                                     (&/$DataT base-class _)
+                                                     (->class base-class)
+
+                                                     _
+                                                     (->java-sig base))]
+                                     (str (->> (&/|repeat level "[") (&/fold str ""))
+                                          "L" base-sig ";"))
+          (= null-data-tag ?name)  (->type-signature "java.lang.Object")
+          :else                    (->type-signature ?name))
 
     (&/$LambdaT _ _)
     (->type-signature function-class)
@@ -123,6 +167,7 @@
   )
 
 (defn lookup-constructor [class-loader target args]
+  ;; (prn 'lookup-constructor class-loader target (&type/as-obj target))
   (if-let [ctor (first (for [^Constructor =method (.getDeclaredConstructors (Class/forName (&type/as-obj target) true class-loader))
                              :when (let [param-types (&/->list (seq (.getParameterTypes =method)))]
                                      (and (= (&/|length args) (&/|length param-types))

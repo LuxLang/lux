@@ -862,7 +862,7 @@
           (|do [actual* (apply-type actual $arg)]
             (check* class-loader fixpoints invariant?? expected actual*))))
 
-      [(&/$DataT e!name e!params) (&/$DataT "null" (&/$Nil))]
+      [(&/$DataT e!name e!params) (&/$DataT "#Null" (&/$Nil))]
       (if (contains? primitive-types e!name)
         (fail (str "[Type Error] Can't use \"null\" with primitive types."))
         (return (&/T fixpoints nil)))
@@ -880,7 +880,9 @@
                    ;;              [(str "(" (->> e!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
                    ;;               (str "(" (->> a!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")])
                    ;;   true)
-                   (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader)))
+                   (try (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader))
+                     (catch Exception e
+                       (prn 'FAILED_HERE e!name a!name))))
               (return (&/T fixpoints nil))
 
               :else

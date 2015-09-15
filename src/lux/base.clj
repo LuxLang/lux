@@ -749,10 +749,11 @@
 
 (defn with-writer [writer body]
   (fn [state]
-    (let [output (body (update$ $host #(set$ $writer (V $Some writer) %) state))]
+    (let [old-writer (->> state (get$ $host) (get$ $writer))
+          output (body (update$ $host #(set$ $writer (V $Some writer) %) state))]
       (|case output
         ($Right ?state ?value)
-        (return* (update$ $host #(set$ $writer (->> state (get$ $host) (get$ $writer)) %) ?state)
+        (return* (update$ $host #(set$ $writer old-writer %) ?state)
                  ?value)
 
         _

@@ -405,23 +405,6 @@
       )
     ))
 
-(defn ^:private compile-statement [syntax]
-  (|case syntax
-    (&a/$def ?name ?body)
-    (&&lux/compile-def compile-expression ?name ?body)
-
-    (&a/$declare-macro ?module ?name)
-    (&&lux/compile-declare-macro compile-expression ?module ?name)
-
-    (&a/$jvm-program ?body)
-    (&&host/compile-jvm-program compile-expression ?body)
-    
-    (&a/$jvm-interface ?name ?supers ?methods)
-    (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
-
-    (&a/$jvm-class ?name ?super-class ?interfaces ?fields ?methods)
-    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)))
-
 (defn ^:private compile-token [syntax]
   (|case syntax
     (&a/$def ?name ?body)
@@ -436,8 +419,8 @@
     (&a/$jvm-interface ?name ?supers ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
 
-    (&a/$jvm-class ?name ?super-class ?interfaces ?fields ?methods)
-    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods)
+    (&a/$jvm-class ?name ?super-class ?interfaces ?fields ?methods ??env)
+    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods ??env)
 
     _
     (compile-expression syntax)))
@@ -483,7 +466,8 @@
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")
-              (|do [_ (&a-module/enter-module name)
+              (|do [_ (&&cache/delete name)
+                    _ (&a-module/enter-module name)
                     _ (&/flag-active-module name)
                     :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                    (.visit Opcodes/V1_6 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
