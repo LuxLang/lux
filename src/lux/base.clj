@@ -600,6 +600,13 @@
           (do (prn 'memory-class-loader/store class-name (keys @store))
             (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name)))))))))
 
+
+;; (deftype Host
+;;   (& #writer         (^ org.objectweb.asm.ClassWriter)
+;;      #loader         (^ java.net.URLClassLoader)
+;;      #classes        (^ clojure.lang.Atom)
+;;      #catching       (List Text)
+;;      #module-states  (List (, Text ModuleState))))
 (defn host [_]
   (let [store (atom {})]
     (T ;; "lux;writer"

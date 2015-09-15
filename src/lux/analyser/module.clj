@@ -62,6 +62,8 @@
 (defn define [module name def-data type]
   ;; (prn 'define module name (aget def-data 0) (&type/show-type type))
   (fn [state]
+    (when (and (= "Macro" name) (= "lux" module))
+      (&type/set-macro-type! (aget def-data 1)))
     (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
