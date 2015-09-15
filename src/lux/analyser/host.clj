@@ -265,9 +265,10 @@
 
 (defn analyse-jvm-new [analyse exo-type class classes args]
   (|do [class-loader &/loader
-        =return (&host/lookup-constructor class-loader class classes)
+        [=return exceptions] (&host/lookup-constructor class-loader class classes)
         =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
                        classes args)
+        _ (ensure-catching exceptions)
         :let [output-type (&type/Data$ class &/Nil$)]
         _ (&type/check exo-type output-type)]
     (return (&/|list (&/T (&/V &&/$jvm-new (&/T class classes =args)) output-type)))))

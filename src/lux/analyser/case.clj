@@ -68,7 +68,7 @@
     (&type/with-var
       (fn [$var]
         (|do [=type (&type/apply-type type $var)]
-          (adjust-type* (&/Cons$ (&/T _aenv 1 $var) (&/|map update-up-frame up)) =type))))
+          (adjust-type* (&/Cons$ (&/T _aenv 0 $var) (&/|map update-up-frame up)) =type))))
 
     (&/$TupleT ?members)
     (|do [(&/$TupleT ?members*) (&/fold% (fn [_abody ena]

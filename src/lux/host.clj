@@ -176,7 +176,7 @@
                                                    args
                                                    (&/|map #(.getName ^Class %) param-types))))]
                          =method))]
-    (return &type/Unit)
+    (return (&/T &type/Unit (->> ctor .getExceptionTypes &/->list (&/|map #(.getName %)))))
     (fail (str "[Host Error] Constructor does not exist: " target))))
 
 (defn abstract-methods [class-loader class]

@@ -58,7 +58,7 @@
 (def IO
   (Named$ (&/T "lux/data" "IO")
           (Univ$ empty-env
-                 (Lambda$ Unit (Bound$ 1)))))
+                 (Lambda$ Unit (Bound$ 0)))))
 
 (def List
   (Named$ (&/T "lux" "List")
@@ -67,9 +67,9 @@
                             ;; lux;Nil
                             Unit
                             ;; lux;Cons
-                            (Tuple$ (&/|list (Bound$ 1)
-                                             (App$ (Bound$ 0)
-                                                   (Bound$ 1))))
+                            (Tuple$ (&/|list (Bound$ 0)
+                                             (App$ (Bound$ 1)
+                                                   (Bound$ 0))))
                             )))))
 
 (def Maybe
@@ -79,12 +79,12 @@
                             ;; lux;None
                             Unit
                             ;; lux;Some
-                            (Bound$ 1)
+                            (Bound$ 0)
                             )))))
 
 (def Type
   (Named$ (&/T "lux" "Type")
-          (let [Type (App$ (Bound$ 0) (Bound$ 1))
+          (let [Type (App$ (Bound$ 1) (Bound$ 0))
                 TypeList (App$ List Type)
                 TypePair (Tuple$ (&/|list Type Type))]
             (App$ (Univ$ empty-env
@@ -123,13 +123,13 @@
                                  Int
                                  ;; "lux;mappings"
                                  (App$ List
-                                       (Tuple$ (&/|list (Bound$ 3)
-                                                        (Bound$ 1))))))))))
+                                       (Tuple$ (&/|list (Bound$ 2)
+                                                        (Bound$ 0))))))))))
 
 (def Env
   (Named$ (&/T "lux" "Env")
-          (let [bindings (App$ (App$ Bindings (Bound$ 3))
-                               (Bound$ 1))]
+          (let [bindings (App$ (App$ Bindings (Bound$ 2))
+                               (Bound$ 0))]
             (Univ$ empty-env
                    (Univ$ empty-env
                           (Tuple$
@@ -152,14 +152,14 @@
   (Named$ (&/T "lux" "Meta")
           (Univ$ empty-env
                  (Univ$ empty-env
-                        (Tuple$ (&/|list (Bound$ 3)
-                                         (Bound$ 1)))))))
+                        (Tuple$ (&/|list (Bound$ 2)
+                                         (Bound$ 0)))))))
 
 (def AST*
   (Named$ (&/T "lux" "AST'")
-          (let [AST* (App$ (Bound$ 1)
-                           (App$ (Bound$ 0)
-                                 (Bound$ 1)))
+          (let [AST* (App$ (Bound$ 0)
+                           (App$ (Bound$ 1)
+                                 (Bound$ 0)))
                 AST*List (App$ List AST*)]
             (Univ$ empty-env
                    (Variant$ (&/|list
@@ -198,17 +198,17 @@
                  (Univ$ empty-env
                         (Variant$ (&/|list
                                    ;; &/$Left
-                                   (Bound$ 3)
+                                   (Bound$ 2)
                                    ;; &/$Right
-                                   (Bound$ 1)))))))
+                                   (Bound$ 0)))))))
 
 (def StateE
   (Univ$ empty-env
          (Univ$ empty-env
-                (Lambda$ (Bound$ 3)
+                (Lambda$ (Bound$ 2)
                          (App$ (App$ Either Text)
-                               (Tuple$ (&/|list (Bound$ 3)
-                                                (Bound$ 1))))))))
+                               (Tuple$ (&/|list (Bound$ 2)
+                                                (Bound$ 0))))))))
 
 (def Source
   (Named$ (&/T "lux" "Source")
@@ -238,7 +238,7 @@
                     ;; "lux;TypeD"
                     Type
                     ;; "lux;MacroD"
-                    (Bound$ 1)
+                    (Bound$ 0)
                     ;; "lux;AliasD"
                     Ident
                     ))))
@@ -263,7 +263,7 @@
                                   (Tuple$ (&/|list Bool
                                                    (App$ DefData*
                                                          (Lambda$ ASTList
-                                                                  (App$ (App$ StateE (Bound$ 1))
+                                                                  (App$ (App$ StateE (Bound$ 0))
                                                                         ASTList))))))))
            ;; "lux;imports"
            (App$ List Text)
@@ -293,7 +293,7 @@
                          Cursor
                          ;; "lux;modules"
                          (App$ List (Tuple$ (&/|list Text
-                                                     (App$ $Module (App$ (Bound$ 0) (Bound$ 1))))))
+                                                     (App$ $Module (App$ (Bound$ 1) (Bound$ 0))))))
                          ;; "lux;envs"
                          (App$ List
                                (App$ (App$ Env Text)
@@ -645,8 +645,8 @@
   (|case type-fn
     (&/$UnivQ local-env local-def)
     (return (beta-reduce (->> local-env
-                              (&/Cons$ param)
-                              (&/Cons$ type-fn))
+                              (&/Cons$ type-fn)
+                              (&/Cons$ param))
                          local-def))
 
     (&/$AppT F A)
