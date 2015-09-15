@@ -275,10 +275,9 @@
                                              endo-type))))
                      state)
 
-                    [_]
-                    (do ;; (prn 'analyse-symbol/_2.1.2 ?module name name)
-                        (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))))
-              (fail* "_{_ analyse-symbol _}_")))
+                    _
+                    (fail* "[Analyser Error] Can't have anything other than a global def in the global environment.")))
+              (fail* "")))
         
         (&/$Cons top-outer _)
         (do ;; (prn 'analyse-symbol/_3 ?module name)

@@ -411,7 +411,7 @@
                                (if (= "void" method-output)
                                  (&&/analyse-1+ analyse method-body)
                                  (&&/analyse-1 analyse (&type/Data$ (as-otype method-output) &/Nil$) method-body))
-                               (&/|reverse (&/Cons$ (&/T "this" owner-class)
+                               (&/|reverse (&/Cons$ (&/T &&/jvm-this owner-class)
                                                     =method-inputs)))]
       (return {:name method-name
                :modifiers =method-modifiers

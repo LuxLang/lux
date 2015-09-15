@@ -155,6 +155,8 @@
   (|let [[_ type] syntax+]
     type))
 
+(def jvm-this "_jvm_this")
+
 (defn cap-1 [action]
   (|do [result action]
     (|case result
