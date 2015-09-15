@@ -113,7 +113,7 @@
     (adjust-type* up ?type)
 
     _
-    (assert false (prn 'adjust-type* (&type/show-type type)))
+    (assert false (prn-str 'adjust-type* (&type/show-type type)))
     ))
 
 (defn adjust-type [type]
