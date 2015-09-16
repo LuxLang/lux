@@ -132,6 +132,8 @@
 (def Nil$ (V $Nil nil))
 (defn Cons$ [h t] (V $Cons (T h t)))
 
+(def empty-cursor (T "" -1 -1))
+
 (defn get$ [slot ^objects record]
   (aget record slot))
 
@@ -791,6 +793,11 @@
 
           _
           output)))))
+
+(def cursor
+  ;; (Lux Cursor)
+  (fn [state]
+    (return* state (get$ $cursor state))))
 
 (defn show-ast [ast]
   ;; (prn 'show-ast/GOOD (aget ast 0) (aget ast 1 1 0))

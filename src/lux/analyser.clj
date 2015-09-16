@@ -60,9 +60,9 @@
         (if (or ? (&&/type-tag? module tag-name))
           (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
           (|do [wanted-type (&&module/tag-type module tag-name)
-                [variant-analysis variant-type] (&&/cap-1 (&&lux/analyse-variant analyser (&/V &/$Left wanted-type) idx values))
+                [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyser (&/V &/$Left wanted-type) idx values))
                 _ (&type/check exo-type variant-type)]
-            (return (&/|list (&/T variant-analysis exo-type))))))
+            (return (&/|list (&&/|meta exo-type variant-cursor variant-analysis))))))
 
       _
       (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
@@ -324,10 +324,10 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_putfield")]
                        (&/$Cons [_ (&/$TextS ?class)]
                                 (&/$Cons [_ (&/$TextS ?field)]
-                                         (&/$Cons ?object
-                                                  (&/$Cons ?value
+                                         (&/$Cons ?value
+                                                  (&/$Cons ?object
                                                            (&/$Nil)))))))
-    (&&host/analyse-jvm-putfield analyse exo-type ?class ?field ?object ?value)
+    (&&host/analyse-jvm-putfield analyse exo-type ?class ?field ?value ?object)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokestatic")]
                        (&/$Cons [_ (&/$TextS ?class)]
@@ -584,24 +584,29 @@
   (|case token
     ;; Standard special forms
     (&/$BoolS ?value)
-    (|do [_ (&type/check exo-type &type/Bool)]
-      (return (&/|list (&/T (&/V &&/$bool ?value) exo-type))))
+    (|do [_ (&type/check exo-type &type/Bool)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$bool ?value)))))
 
     (&/$IntS ?value)
-    (|do [_ (&type/check exo-type &type/Int)]
-      (return (&/|list (&/T (&/V &&/$int ?value) exo-type))))
+    (|do [_ (&type/check exo-type &type/Int)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$int ?value)))))
 
     (&/$RealS ?value)
-    (|do [_ (&type/check exo-type &type/Real)]
-      (return (&/|list (&/T (&/V &&/$real ?value) exo-type))))
+    (|do [_ (&type/check exo-type &type/Real)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$real ?value)))))
 
     (&/$CharS ?value)
-    (|do [_ (&type/check exo-type &type/Char)]
-      (return (&/|list (&/T (&/V &&/$char ?value) exo-type))))
+    (|do [_ (&type/check exo-type &type/Char)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$char ?value)))))
 
     (&/$TextS ?value)
-    (|do [_ (&type/check exo-type &type/Text)]
-      (return (&/|list (&/T (&/V &&/$text ?value) exo-type))))
+    (|do [_ (&type/check exo-type &type/Text)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$text ?value)))))
 
     (&/$TupleS ?elems)
     (&&lux/analyse-tuple analyse (&/V &/$Right exo-type) ?elems)
@@ -657,16 +662,16 @@
 (defn ^:private just-analyse [analyser syntax]
   (&type/with-var
     (fn [?var]
-      (|do [[?output-term ?output-type] (&&/analyse-1 analyser ?var syntax)]
+      (|do [[[?output-type ?output-cursor] ?output-term] (&&/analyse-1 analyser ?var syntax)]
         (|case [?var ?output-type]
           [(&/$VarT ?e-id) (&/$VarT ?a-id)]
           (if (= ?e-id ?a-id)
             (|do [?output-type* (&type/deref ?e-id)]
-              (return (&/T ?output-term ?output-type*)))
-            (return (&/T ?output-term ?output-type)))
+              (return (&&/|meta ?output-type* ?output-cursor ?output-term)))
+            (return (&&/|meta ?output-type ?output-cursor ?output-term)))
 
           [_ _]
-          (return (&/T ?output-term ?output-type)))
+          (return (&&/|meta ?output-type ?output-cursor ?output-term)))
         ))))
 
 (defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]

@@ -115,8 +115,10 @@
     (defn <name> [analyse exo-type x y]
       (|do [=x (&&/analyse-1 analyse input-type x)
             =y (&&/analyse-1 analyse input-type y)
-            _ (&type/check exo-type output-type)]
-        (return (&/|list (&/T (&/V <output-tag> (&/T =x =y)) output-type))))))
+            _ (&type/check exo-type output-type)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta output-type _cursor
+                                   (&/V <output-tag> (&/T =x =y))))))))
 
   analyse-jvm-iadd &&/$jvm-iadd "java.lang.Integer" "java.lang.Integer"
   analyse-jvm-isub &&/$jvm-isub "java.lang.Integer" "java.lang.Integer"
@@ -163,33 +165,41 @@
   (|do [class-loader &/loader
         =type (&host/lookup-static-field class-loader class field)
         :let [output-type =type]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-getstatic (&/T class field)) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-getstatic (&/T class field output-type)))))))
 
 (defn analyse-jvm-getfield [analyse exo-type class field object]
   (|do [class-loader &/loader
         =type (&host/lookup-static-field class-loader class field)
         =object (&&/analyse-1 analyse object)
         :let [output-type =type]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-getfield (&/T class field =object)) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-getfield (&/T class field =object output-type)))))))
 
 (defn analyse-jvm-putstatic [analyse exo-type class field value]
   (|do [class-loader &/loader
         =type (&host/lookup-static-field class-loader class field)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-putstatic (&/T class field =value)) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-putstatic (&/T class field =value output-type)))))))
 
-(defn analyse-jvm-putfield [analyse exo-type class field object value]
+(defn analyse-jvm-putfield [analyse exo-type class field value object]
   (|do [class-loader &/loader
         =type (&host/lookup-static-field class-loader class field)
         =object (&&/analyse-1 analyse object)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-putfield (&/T class field =object =value)) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-putfield (&/T class field =value =object (&&/expr-type* =object))))))))
 
 (defn analyse-jvm-invokestatic [analyse exo-type class method classes args]
   (|do [class-loader &/loader
@@ -205,15 +215,19 @@
                        classes
                        args)
         :let [output-type =return]
-        _ (&type/check exo-type (as-otype+ output-type))]
-    (return (&/|list (&/T (&/V &&/$jvm-invokestatic (&/T class method classes =args)) output-type)))))
+        _ (&type/check exo-type (as-otype+ output-type))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-invokestatic (&/T class method classes =args output-type)))))))
 
 (defn analyse-jvm-instanceof [analyse exo-type class object]
   (|do [=object (&&/analyse-1+ analyse object)
         _ (ensure-object =object)
         :let [output-type &type/Bool]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-instanceof (&/T class =object)) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-instanceof (&/T class =object)))))))
 
 (do-template [<name> <tag>]
   (defn <name> [analyse exo-type class method classes object args]
@@ -228,8 +242,10 @@
           :let [output-type =return]
           ;; :let [_ (prn '<name> [class method] '=return (&type/show-type =return))]
           ;; :let [_ (prn '<name> '(as-otype+ output-type) (&type/show-type (as-otype+ output-type)))]
-          _ (&type/check exo-type (as-otype+ output-type))]
-      (return (&/|list (&/T (&/V <tag> (&/T class method classes =object =args)) output-type)))))
+          _ (&type/check exo-type (as-otype+ output-type))
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta output-type _cursor
+                                 (&/V <tag> (&/T class method classes =object =args output-type)))))))
 
   analyse-jvm-invokevirtual   &&/$jvm-invokevirtual
   analyse-jvm-invokeinterface &&/$jvm-invokeinterface
@@ -248,20 +264,26 @@
                          (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
                        classes args)
         :let [output-type =return]
-        _ (&type/check exo-type (as-otype+ output-type))]
-    (return (&/|list (&/T (&/V &&/$jvm-invokespecial (&/T class method classes =object =args)) output-type)))))
+        _ (&type/check exo-type (as-otype+ output-type))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-invokespecial (&/T class method classes =object =args output-type)))))))
 
 (defn analyse-jvm-null? [analyse exo-type object]
   (|do [=object (&&/analyse-1+ analyse object)
         _ (ensure-object =object)
         :let [output-type &type/Bool]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-null? =object) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-null? =object))))))
 
 (defn analyse-jvm-null [analyse exo-type]
   (|do [:let [output-type (&type/Data$ &host/null-data-tag &/Nil$)]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-null nil) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-null nil))))))
 
 (defn analyse-jvm-new [analyse exo-type class classes args]
   (|do [class-loader &/loader
@@ -270,8 +292,10 @@
                        classes args)
         _ (ensure-catching exceptions)
         :let [output-type (&type/Data$ class &/Nil$)]
-        _ (&type/check exo-type output-type)]
-    (return (&/|list (&/T (&/V &&/$jvm-new (&/T class classes =args)) output-type)))))
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-new (&/T class classes =args)))))))
 
 (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
   (let [elem-type (&type/Data$ <class> &/Nil$)
@@ -279,19 +303,25 @@
         length-type &type/Int
         idx-type &type/Int]
     (defn <new-name> [analyse length]
-      (|do [=length (&&/analyse-1 analyse length-type length)]
-        (return (&/|list (&/T (&/V <new-tag> =length) array-type)))))
+      (|do [=length (&&/analyse-1 analyse length-type length)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta array-type _cursor
+                                   (&/V <new-tag> =length))))))
 
     (defn <load-name> [analyse array idx]
       (|do [=array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse idx-type idx)]
-        (return (&/|list (&/T (&/V <load-tag> (&/T =array =idx)) elem-type)))))
+            =idx (&&/analyse-1 analyse idx-type idx)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta elem-type _cursor
+                                   (&/V <load-tag> (&/T =array =idx)))))))
 
     (defn <store-name> [analyse array idx elem]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
-            =elem (&&/analyse-1 analyse elem-type elem)]
-        (return (&/|list (&/T (&/V <store-tag> (&/T =array =idx =elem)) array-type)))))
+            =elem (&&/analyse-1 analyse elem-type elem)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta array-type _cursor
+                                   (&/V <store-tag> (&/T =array =idx =elem)))))))
     )
 
   "java.lang.Boolean"   analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
@@ -309,23 +339,29 @@
   (defn analyse-jvm-anewarray [analyse class length]
     (let [elem-type (&type/Data$ class &/Nil$)
           array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
-      (|do [=length (&&/analyse-1 analyse length-type length)]
-        (return (&/|list (&/T (&/V &&/$jvm-anewarray (&/T class =length)) array-type))))))
+      (|do [=length (&&/analyse-1 analyse length-type length)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta array-type _cursor
+                                   (&/V &&/$jvm-anewarray (&/T class =length))))))))
 
   (defn analyse-jvm-aaload [analyse class array idx]
     (let [elem-type (&type/Data$ class &/Nil$)
           array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
       (|do [=array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse idx-type idx)]
-        (return (&/|list (&/T (&/V &&/$jvm-aaload (&/T class =array =idx)) elem-type))))))
+            =idx (&&/analyse-1 analyse idx-type idx)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta elem-type _cursor
+                                   (&/V &&/$jvm-aaload (&/T class =array =idx))))))))
 
   (defn analyse-jvm-aastore [analyse class array idx elem]
     (let [elem-type (&type/Data$ class &/Nil$)
           array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
-            =elem (&&/analyse-1 analyse elem-type elem)]
-        (return (&/|list (&/T (&/V &&/$jvm-aastore (&/T class =array =idx =elem)) array-type)))))))
+            =elem (&&/analyse-1 analyse elem-type elem)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta array-type _cursor
+                                   (&/V &&/$jvm-aastore (&/T class =array =idx =elem)))))))))
 
 (let [length-type (&type/Data$ "java.lang.Long" &/Nil$)]
   (defn analyse-jvm-arraylength [analyse array]
@@ -333,8 +369,11 @@
       (fn [$var]
         (let [elem-type $var
               array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
-          (|do [=array (&&/analyse-1 analyse array-type array)]
-            (return (&/|list (&/T (&/V &&/$jvm-arraylength =array) length-type)))))))))
+          (|do [=array (&&/analyse-1 analyse array-type array)
+                _cursor &/cursor]
+            (return (&/|list (&&/|meta length-type _cursor
+                                       (&/V &&/$jvm-arraylength =array)
+                                       )))))))))
 
 (defn ^:private analyse-modifiers [modifiers]
   (&/fold% (fn [so-far modif]
@@ -492,7 +531,7 @@
 
 (defn ^:private captured-source [env-entry]
   (|case env-entry
-    [name [(&&/$captured _ _ source) _]]
+    [name [_ (&&/$captured _ _ source)]]
     source))
 
 (let [captured-slot-modifier {:visibility "private"
@@ -527,8 +566,11 @@
             ;; :let [_ (prn 'analyse-jvm-anon-class/_5 name anon-class)]
             ;; _ (compile-token (&/T (&/V &&/$jvm-anon-class (&/T name super-class interfaces =captured =methods)) exo-type))
             _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =fields =methods =captured)))
-            :let [_ (println 'DEF anon-class)]]
-        (return (&/|list (&/T (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources)) (&type/Data$ anon-class (&/|list)))))
+            :let [_ (println 'DEF anon-class)]
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta (&type/Data$ anon-class (&/|list)) _cursor
+                                   (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources))
+                                   )))
         ;; (analyse-jvm-new analyse exo-type anon-class (&/|repeat (&/|length sources) captured-slot-type) sources)
         ))))
 
@@ -546,20 +588,24 @@
         =finally (|case ?finally
                    (&/$None)           (return &/None$)
                    (&/$Some ?finally*) (|do [=finally (&&/analyse-1+ analyse ?finally*)]
-                                         (return (&/V &/$Some =finally))))]
-    (return (&/|list (&/T (&/V &&/$jvm-try (&/T =body =catches =finally)) exo-type)))))
+                                         (return (&/V &/$Some =finally))))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&/V &&/$jvm-try (&/T =body =catches =finally)))))))
 
 (defn analyse-jvm-throw [analyse exo-type ?ex]
-  (|do [=ex (&&/analyse-1 analyse (&type/Data$ "java.lang.Throwable" &/Nil$) ?ex)]
-    (return (&/|list (&/T (&/V &&/$jvm-throw =ex) exo-type)))))
+  (|do [=ex (&&/analyse-1 analyse (&type/Data$ "java.lang.Throwable" &/Nil$) ?ex)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$jvm-throw =ex))))))
 
 (do-template [<name> <tag>]
   (defn <name> [analyse exo-type ?monitor]
     (|do [=monitor (&&/analyse-1+ analyse ?monitor)
           _ (ensure-object =monitor)
           :let [output-type &type/Unit]
-          _ (&type/check exo-type output-type)]
-      (return (&/|list (&/T (&/V <tag> =monitor) output-type)))))
+          _ (&type/check exo-type output-type)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta output-type _cursor (&/V <tag> =monitor))))))
 
   analyse-jvm-monitorenter &&/$jvm-monitorenter
   analyse-jvm-monitorexit  &&/$jvm-monitorexit
@@ -569,8 +615,9 @@
   (let [output-type (&type/Data$ <to-class> &/Nil$)]
     (defn <name> [analyse exo-type ?value]
       (|do [=value (&&/analyse-1 analyse (&type/Data$ <from-class> &/Nil$) ?value)
-            _ (&type/check exo-type output-type)]
-        (return (&/|list (&/T (&/V <tag> =value) output-type))))))
+            _ (&type/check exo-type output-type)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta output-type _cursor (&/V <tag> =value)))))))
 
   analyse-jvm-d2f &&/$jvm-d2f "java.lang.Double"  "java.lang.Float"
   analyse-jvm-d2i &&/$jvm-d2i "java.lang.Double"  "java.lang.Integer"
@@ -596,8 +643,9 @@
   (let [output-type (&type/Data$ <to-class> &/Nil$)]
     (defn <name> [analyse exo-type ?value]
       (|do [=value (&&/analyse-1 analyse (&type/Data$ <from-class> &/Nil$) ?value)
-            _ (&type/check exo-type output-type)]
-        (return (&/|list (&/T (&/V <tag> =value) output-type))))))
+            _ (&type/check exo-type output-type)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta output-type _cursor (&/V <tag> =value)))))))
 
   analyse-jvm-iand  &&/$jvm-iand  "java.lang.Integer" "java.lang.Integer"
   analyse-jvm-ior   &&/$jvm-ior   "java.lang.Integer" "java.lang.Integer"

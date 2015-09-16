@@ -13,23 +13,27 @@
 ;; [Utils]
 (defn ^:private variant$ [tag body]
   "(-> Text Analysis Analysis)"
-  (&/T (&/V &a/$variant (&/T tag body))
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$variant (&/T tag body))
+            ))
 
 (defn ^:private tuple$ [members]
   "(-> (List Analysis) Analysis)"
-  (&/T (&/V &a/$tuple members)
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$tuple members)
+            ))
 
 (defn ^:private int$ [value]
   "(-> Int Analysis)"
-  (&/T (&/V &a/$int value)
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$int value)
+            ))
 
 (defn ^:private text$ [text]
   "(-> Text Analysis)"
-  (&/T (&/V &a/$text text)
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$text text)
+            ))
 
 (def ^:private $Nil
   "Analysis"

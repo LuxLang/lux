@@ -161,7 +161,7 @@
     ))
 
 ;; [Resources]
-(defn compile-case [compile *type* ?value ?matches]
+(defn compile-case [compile ?value ?matches]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)]
         _ (compile ?value)

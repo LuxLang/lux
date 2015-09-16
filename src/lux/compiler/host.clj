@@ -88,7 +88,7 @@
 
 ;; [Resources]
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
-  (defn <name> [compile *type* ?x ?y]
+  (defn <name> [compile ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
@@ -130,7 +130,7 @@
   )
 
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
-  (defn <name> [compile *type* ?x ?y]
+  (defn <name> [compile ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?y)
@@ -162,7 +162,7 @@
   )
 
 (do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
-  (defn <name> [compile *type* ?x ?y]
+  (defn <name> [compile ?x ?y]
     (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?y)
@@ -199,9 +199,9 @@
   compile-jvm-dgt Opcodes/FCMPG -1 "java.lang.Double" "doubleValue" "()D"
   )
 
-(defn compile-jvm-invokestatic [compile *type* ?class ?method ?classes ?args]
+(defn compile-jvm-invokestatic [compile ?class ?method ?classes ?args ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
+        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
         _ (&/map2% (fn [class-name arg]
                      (|do [ret (compile arg)
                            :let [_ (prepare-arg! *writer* class-name)]]
@@ -209,14 +209,14 @@
                    ?classes ?args)
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class (&type/as-obj ?class)) ?method method-sig)
-                  (prepare-return! *type*))]]
+                  (prepare-return! ?output-type))]]
     (return nil)))
 
 (do-template [<name> <op>]
-  (defn <name> [compile *type* ?class ?method ?classes ?object ?args]
+  (defn <name> [compile ?class ?method ?classes ?object ?args ?output-type]
     (|do [:let [?class* (&host/->class (&type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
-          :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
+          :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
           _ (compile ?object)
           :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*)]
           _ (&/map2% (fn [class-name arg]
@@ -226,7 +226,7 @@
                      ?classes ?args)
           :let [_ (doto *writer*
                     (.visitMethodInsn <op> ?class* ?method method-sig)
-                    (prepare-return! *type*))]]
+                    (prepare-return! ?output-type))]]
       (return nil)))
 
   compile-jvm-invokevirtual   Opcodes/INVOKEVIRTUAL
@@ -234,10 +234,10 @@
   ;; compile-jvm-invokespecial   Opcodes/INVOKESPECIAL
   )
 
-(defn compile-jvm-invokespecial [compile *type* ?class ?method ?classes ?object ?args]
+(defn compile-jvm-invokespecial [compile ?class ?method ?classes ?object ?args ?output-type]
   (|do [:let [?class* (&host/->class (&type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
-        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig *type*))]
+        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
         _ (compile ?object)
         ;; :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*)]
         :let [_ (when (not= "<init>" ?method)
@@ -249,15 +249,15 @@
                    ?classes ?args)
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESPECIAL ?class* ?method method-sig)
-                  (prepare-return! *type*))]]
+                  (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn compile-jvm-null [compile *type*]
+(defn compile-jvm-null [compile]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
-(defn compile-jvm-null? [compile *type* ?object]
+(defn compile-jvm-null? [compile ?object]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [$then (new Label)
@@ -271,7 +271,7 @@
                   (.visitLabel $end))]]
     (return nil)))
 
-(defn compile-jvm-new [compile *type* ?class ?classes ?args]
+(defn compile-jvm-new [compile ?class ?classes ?args]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [init-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")V")
               class* (&host/->class ?class)
@@ -288,14 +288,14 @@
     (return nil)))
 
 (do-template [<prim-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
-  (do (defn <new-name> [compile *type* ?length]
+  (do (defn <new-name> [compile ?length]
         (|do [^MethodVisitor *writer* &/get-writer
               _ (compile ?length)
               :let [_ (.visitInsn *writer* Opcodes/L2I)]
               :let [_ (.visitIntInsn *writer* Opcodes/NEWARRAY <prim-type>)]]
           (return nil)))
 
-    (defn <load-name> [compile *type* ?array ?idx]
+    (defn <load-name> [compile ?array ?idx]
       (|do [^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -306,7 +306,7 @@
                       <wrapper>)]]
         (return nil)))
 
-    (defn <store-name> [compile *type* ?array ?idx ?elem]
+    (defn <store-name> [compile ?array ?idx ?elem]
       (|do [^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -330,14 +330,14 @@
   Opcodes/T_CHAR    compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
   )
 
-(defn compile-jvm-anewarray [compile *type* ?class ?length]
+(defn compile-jvm-anewarray [compile ?class ?length]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?length)
         :let [_ (.visitInsn *writer* Opcodes/L2I)]
         :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host/->class ?class))]]
     (return nil)))
 
-(defn compile-jvm-aaload [compile *type* ?class ?array ?idx]
+(defn compile-jvm-aaload [compile ?class ?array ?idx]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -346,7 +346,7 @@
         :let [_ (.visitInsn *writer* Opcodes/AALOAD)]]
     (return nil)))
 
-(defn compile-jvm-aastore [compile *type* ?class ?array ?idx ?elem]
+(defn compile-jvm-aastore [compile ?class ?array ?idx ?elem]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -357,7 +357,7 @@
         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))
 
-(defn compile-jvm-arraylength [compile *type* ?array]
+(defn compile-jvm-arraylength [compile ?array]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -367,36 +367,38 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(defn compile-jvm-getstatic [compile *type* ?class ?field]
+(defn compile-jvm-getstatic [compile ?class ?field ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&type/as-obj ?class)) ?field (&host/->java-sig *type*))
-                  (prepare-return! *type*))]]
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&type/as-obj ?class)) ?field (&host/->java-sig ?output-type))
+                  (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn compile-jvm-getfield [compile *type* ?class ?field ?object]
+(defn compile-jvm-getfield [compile ?class ?field ?object ?output-type]
   (|do [:let [class* (&host/->class (&type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/CHECKCAST class*)
-                  (.visitFieldInsn Opcodes/GETFIELD class* ?field (&host/->java-sig *type*))
-                  (prepare-return! *type*))]]
+                  (.visitFieldInsn Opcodes/GETFIELD class* ?field (&host/->java-sig ?output-type))
+                  (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn compile-jvm-putstatic [compile *type* ?class ?field ?value]
+(defn compile-jvm-putstatic [compile ?class ?field ?value ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&type/as-obj ?class)) ?field (&host/->java-sig *type*))]]
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&type/as-obj ?class)) ?field (&host/->java-sig ?output-type))]
+        :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
-(defn compile-jvm-putfield [compile *type* ?class ?field ?object ?value]
+(defn compile-jvm-putfield [compile ?class ?field ?object ?value ?output-type]
   (|do [:let [class* (&host/->class (&type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
+        :let [_ (.visitInsn *writer* Opcodes/DUP)]
         _ (compile ?value)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST class*)]
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field (&host/->java-sig *type*))]]
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field (&host/->java-sig ?output-type))]]
     (return nil)))
 
 (defn ^:private modifiers->int [mods]
@@ -414,7 +416,7 @@
        ;; else
        0)))
 
-(defn compile-jvm-instanceof [compile *type* class object]
+(defn compile-jvm-instanceof [compile class object]
   (|do [:let [class* (&host/->class class)]
         ^MethodVisitor *writer* &/get-writer
         _ (compile object)
@@ -463,7 +465,7 @@
             (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
           (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                (|case ?name+?captured
-                 [?name [(&a/$captured _ ?captured-id ?source) _]])
+                 [?name [_ (&a/$captured _ ?captured-id ?source)]])
                (doseq [?name+?captured (&/->seq env)])))
       (.visitInsn Opcodes/RETURN)
       (.visitMaxs 0 0)
@@ -474,11 +476,13 @@
   (|do [;; :let [_ (prn 'compile-jvm-class/_0)]
         module &/get-module-name
         ;; :let [_ (prn 'compile-jvm-class/_1)]
+        [file-name _ _] &/cursor
         :let [full-name (str module "/" ?name)
               super-class* (&host/->class ?super-class)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                               full-name nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String))))
+                               full-name nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String)))
+                       (.visitSource file-name nil))
               _ (&/|map (fn [field]
                           (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
                                              (&host/->type-signature (:type field)) nil nil)
@@ -495,15 +499,17 @@
 
 (defn compile-jvm-interface [compile ?name ?supers ?methods]
   ;; (prn 'compile-jvm-interface (->> ?supers &/->seq pr-str))
-  (|do [module &/get-module-name]
+  (|do [module &/get-module-name
+        [file-name _ _] &/cursor]
     (let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE)
-                               (str module "/" ?name) nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String))))
+                               (str module "/" ?name) nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String)))
+                       (.visitSource file-name nil))
           _ (do (&/|map (partial compile-method-decl =interface) ?methods)
               (.visitEnd =interface))]
       (&&/save-class! ?name (.toByteArray =interface)))))
 
-(defn compile-jvm-try [compile *type* ?body ?catches ?finally]
+(defn compile-jvm-try [compile ?body ?catches ?finally]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$from (new Label)
               $to (new Label)
@@ -555,14 +561,14 @@
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
 
-(defn compile-jvm-throw [compile *type* ?ex]
+(defn compile-jvm-throw [compile ?ex]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?ex)
         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
     (return nil)))
 
 (do-template [<name> <op>]
-  (defn <name> [compile *type* ?monitor]
+  (defn <name> [compile ?monitor]
     (|do [^MethodVisitor *writer* &/get-writer
           _ (compile ?monitor)
           :let [_ (doto *writer*
@@ -575,7 +581,7 @@
   )
 
 (do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
-  (defn <name> [compile *type* ?value]
+  (defn <name> [compile ?value]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))
@@ -609,7 +615,7 @@
   )
 
 (do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
-  (defn <name> [compile *type* ?x ?y]
+  (defn <name> [compile ?x ?y]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))

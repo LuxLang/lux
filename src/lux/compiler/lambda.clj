@@ -44,7 +44,7 @@
           (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
         (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
              (|case ?name+?captured
-               [?name [(&a/$captured _ ?captured-id ?source) _]])
+               [?name [_ (&a/$captured _ ?captured-id ?source)]])
              (doseq [?name+?captured (&/->seq env)])))
     (.visitInsn Opcodes/RETURN)
     (.visitMaxs 0 0)
@@ -82,7 +82,7 @@
                   (.visitInsn Opcodes/DUP))]
         _ (&/map% (fn [?name+?captured]
                     (|case ?name+?captured
-                      [?name [(&a/$captured _ _ ?source) _]]
+                      [?name [_ (&a/$captured _ _ ?source)]]
                       (compile ?source)))
                   closed-over)
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
@@ -93,7 +93,8 @@
       datum-flags (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL)]
   (defn compile-lambda [compile ?scope ?env ?body]
     ;; (prn 'compile-lambda (->> ?scope &/->seq))
-    (|do [:let [name (&host/location (&/|tail ?scope))
+    (|do [[file-name _ _] &/cursor
+          :let [name (&host/location (&/|tail ?scope))
                 class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit Opcodes/V1_5 lambda-flags
@@ -102,8 +103,9 @@
                                (.visitEnd))
                              (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                   (|case ?name+?captured
-                                    [?name [(&a/$captured _ ?captured-id ?source) _]])
+                                    [?name [_ (&a/$captured _ ?captured-id ?source)]])
                                   (doseq [?name+?captured (&/->seq ?env)])))
+                         (.visitSource file-name nil)
                          (add-lambda-apply class-name ?env)
                          (add-lambda-<init> class-name ?env)
                          )]

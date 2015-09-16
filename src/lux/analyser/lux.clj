@@ -52,7 +52,7 @@
         (&type/with-var
           (fn [$var]
             (|do [exo-type** (&type/apply-type exo-type* $var)
-                  [tuple-analysis tuple-type] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left exo-type**) ?elems))
+                  [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left exo-type**) ?elems))
                   =var (&type/resolve-type $var)
                   inferred-type (|case =var
                                   (&/$VarT iid)
@@ -63,7 +63,8 @@
 
                                   _
                                   (&type/clean $var tuple-type))]
-              (return (&/|list (&/T tuple-analysis inferred-type))))))
+              (return (&/|list (&&/|meta inferred-type tuple-cursor
+                                         tuple-analysis))))))
 
         _
         (analyse-tuple analyse (&/V &/$Right exo-type*) ?elems)))
@@ -74,23 +75,28 @@
         (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
                                 (return =analysis))
                              ?elems)
-              _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))]
-          (return (&/|list (&/T (&/V &&/$tuple =elems)
-                                exo-type))))
+              _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))
+              _cursor &/cursor]
+          (return (&/|list (&&/|meta exo-type _cursor
+                                     (&/V &&/$tuple =elems)
+                                     ))))
         (|do [exo-type* (&type/actual-type exo-type)]
           (|case exo-type*
             (&/$TupleT ?members)
             (|do [=elems (&/map2% (fn [elem-t elem]
                                     (&&/analyse-1 analyse elem-t elem))
-                                  ?members ?elems)]
-              (return (&/|list (&/T (&/V &&/$tuple =elems)
-                                    exo-type))))
+                                  ?members ?elems)
+                  _cursor &/cursor]
+              (return (&/|list (&&/|meta exo-type _cursor
+                                         (&/V &&/$tuple =elems)
+                                         ))))
 
             (&/$UnivQ _)
             (|do [$var &type/existential
                   exo-type** (&type/apply-type exo-type* $var)
-                  [tuple-analysis tuple-type] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
-              (return (&/|list (&/T tuple-analysis exo-type))))
+                  [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
+              (return (&/|list (&&/|meta exo-type tuple-cursor
+                                         tuple-analysis))))
 
             _
             (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
@@ -146,7 +152,7 @@
           (fn [$var]
             (|do [exo-type** (&type/apply-type exo-type* $var)
                   ;; :let [_ (println 'analyse-variant/Left 2 (&type/show-type exo-type**))]
-                  [variant-analysis variant-type] (&&/cap-1 (analyse-variant analyse (&/V &/$Left exo-type**) idx ?values))
+                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/V &/$Left exo-type**) idx ?values))
                   ;; :let [_ (println 'analyse-variant/Left 3 (&type/show-type variant-type))]
                   =var (&type/resolve-type $var)
                   ;; :let [_ (println 'analyse-variant/Left 4 (&type/show-type =var))]
@@ -161,7 +167,8 @@
                                   (&type/clean $var variant-type))
                   ;; :let [_ (println 'analyse-variant/Left 5 (&type/show-type inferred-type))]
                   ]
-              (return (&/|list (&/T variant-analysis inferred-type))))))
+              (return (&/|list (&&/|meta inferred-type variant-cursor
+                                         variant-analysis))))))
 
         _
         (analyse-variant analyse (&/V &/$Right exo-type*) idx ?values)))
@@ -188,9 +195,11 @@
                            (|do [_exo-type (&type/deref+ exo-type)]
                              (fail (str err "\n"
                                         'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
-                                        " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))]
-            (return (&/|list (&/T (&/V &&/$variant (&/T idx =value))
-                                  exo-type))))
+                                        " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+                _cursor &/cursor]
+            (return (&/|list (&&/|meta exo-type _cursor
+                                       (&/V &&/$variant (&/T idx =value))
+                                       ))))
 
           (&/$None)
           (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
@@ -210,9 +219,10 @@
       (|do [? (&type/bound? id)]
         (if ?
           (analyse-tuple analyse (&/V &/$Right exo-type) rec-members)
-          (|do [[tuple-analysis tuple-type] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left rec-type) rec-members))
+          (|do [[[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left rec-type) rec-members))
                 _ (&type/check exo-type tuple-type)]
-            (return (&/|list (&/T tuple-analysis exo-type))))))
+            (return (&/|list (&&/|meta exo-type tuple-cursor
+                                       tuple-analysis))))))
 
       _
       (analyse-tuple analyse (&/V &/$Right exo-type) rec-members)
@@ -234,9 +244,11 @@
         _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
                    (clojure.lang.Util/identical &type/Type exo-type))
             (return nil)
-            (&type/check exo-type endo-type))]
-    (return (&/|list (&/T (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
-                          endo-type)))))
+            (&type/check exo-type endo-type))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta endo-type _cursor
+                               (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
+                               )))))
 
 (defn ^:private analyse-local [analyse exo-type name]
   (fn [state]
@@ -270,9 +282,11 @@
                            _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
                                       (clojure.lang.Util/identical &type/Type exo-type))
                                (return nil)
-                               (&type/check exo-type endo-type))]
-                       (return (&/|list (&/T (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
-                                             endo-type))))
+                               (&type/check exo-type endo-type))
+                           _cursor &/cursor]
+                       (return (&/|list (&&/|meta endo-type _cursor
+                                                  (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
+                                                  ))))
                      state)
 
                     _
@@ -354,7 +368,7 @@
 
 (defn analyse-apply [analyse exo-type form-cursor =fn ?args]
   (|do [loader &/loader]
-    (|let [[=fn-form =fn-type] =fn]
+    (|let [[[=fn-type =fn-cursor] =fn-form] =fn]
       (|case =fn-form
         (&&/$var (&/$Global ?module ?name))
         (|do [[real-name $def] (&&module/find-def ?module ?name)]
@@ -363,7 +377,7 @@
             (|do [;; :let [_ (prn 'MACRO-EXPAND|PRE (&/ident->text real-name))]
                   macro-expansion #(-> macro (.apply ?args) (.apply %))
                   ;; :let [_ (prn 'MACRO-EXPAND|POST (&/ident->text real-name))]
-                  ;; :let [_ (when (or (= "invoke-interface$" (aget real-name 1))
+                  ;; :let [_ (when (or (= "do" (aget real-name 1))
                   ;;                   ;; (= "..?" (aget real-name 1))
                   ;;                   ;; (= "try$" (aget real-name 1))
                   ;;                   )
@@ -376,13 +390,15 @@
 
             _
             (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-              (return (&/|list (&/T (&/V &&/$apply (&/T =fn =args))
-                                    =output-t))))))
+              (return (&/|list (&&/|meta =output-t =fn-cursor
+                                         (&/V &&/$apply (&/T =fn =args))
+                                         ))))))
         
         _
         (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-          (return (&/|list (&/T (&/V &&/$apply (&/T =fn =args))
-                                =output-t)))))
+          (return (&/|list (&&/|meta =output-t =fn-cursor
+                                     (&/V &&/$apply (&/T =fn =args))
+                                     )))))
       )))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
@@ -390,9 +406,11 @@
         _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case'\" expression.")
         _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case'\" expression.")
         =value (&&/analyse-1+ analyse ?value)
-        =match (&&case/analyse-branches analyse exo-type (&&/expr-type* =value) (&/|as-pairs ?branches))]
-    (return (&/|list (&/T (&/V &&/$case (&/T =value =match))
-                          exo-type)))))
+        =match (&&case/analyse-branches analyse exo-type (&&/expr-type* =value) (&/|as-pairs ?branches))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&/V &&/$case (&/T =value =match))
+                               )))))
 
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   (|case exo-type
@@ -406,7 +424,7 @@
           (fn [$input]
             (&type/with-var
               (fn [$output]
-                (|do [[lambda-analysis lambda-type] (analyse-lambda* analyse (&type/Lambda$ $input $output) ?self ?arg ?body)
+                (|do [[[lambda-type lambda-cursor] lambda-analysis] (analyse-lambda* analyse (&type/Lambda$ $input $output) ?self ?arg ?body)
                       =input (&type/resolve-type $input)
                       =output (&type/resolve-type $output)
                       inferred-type (|case =input
@@ -421,9 +439,9 @@
                                       (|do [=output* (&type/clean $input =output)
                                             =output** (&type/clean $output =output*)]
                                         (return (embed-inferred-input =input =output**))))
-                      _ (&type/check exo-type inferred-type)
-                      ]
-                  (return (&/T lambda-analysis inferred-type)))
+                      _ (&type/check exo-type inferred-type)]
+                  (return (&&/|meta inferred-type lambda-cursor
+                                    lambda-analysis)))
                 ))))))
 
     _
@@ -437,8 +455,10 @@
         (&/$LambdaT ?arg-t ?return-t)
         (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
                                          ?arg ?arg-t
-                                         (&&/analyse-1 analyse ?return-t ?body))]
-          (return (&/T (&/V &&/$lambda (&/T =scope =captured =body)) exo-type*)))
+                                         (&&/analyse-1 analyse ?return-t ?body))
+              _cursor &/cursor]
+          (return (&&/|meta exo-type* _cursor
+                            (&/V &&/$lambda (&/T =scope =captured =body)))))
 
         
         
@@ -452,9 +472,10 @@
     (&/$UnivQ _)
     (|do [$var &type/existential
           exo-type* (&type/apply-type exo-type $var)
-          [_expr _] (analyse-lambda** analyse exo-type* ?self ?arg ?body)]
-      (return (&/T _expr exo-type)))
-
+          [_ _expr] (analyse-lambda** analyse exo-type* ?self ?arg ?body)
+          _cursor &/cursor]
+      (return (&&/|meta exo-type _cursor _expr)))
+    
     (&/$VarT id)
     (|do [? (&type/bound? id)]
       (if ?
@@ -484,7 +505,7 @@
       (|do [=value (&/with-scope ?name
                      (&&/analyse-1+ analyse ?value))]
         (|case =value
-          [(&&/$var (&/$Global ?r-module ?r-name)) _]
+          [_ (&&/$var (&/$Global ?r-module ?r-name))]
           (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name (&&/expr-type* =value))
                 ;; :let [_ (println 'analyse-def/ALIAS (str module-name ";" ?name) '=> (str ?r-module ";" ?r-name))
                 ;;       _ (println)]
@@ -501,7 +522,7 @@
                     ;;       (return nil))
                     ;;     (return nil))
                     :let [;; _ (println 'DEF/COMPILED (str module-name ";" ?name))
-                          [def-analysis def-type] =value
+                          [[def-type def-cursor] def-analysis] =value
                           _ (println 'DEF (str module-name ";" ?name) ;; (&type/show-type def-type)
                                      )]]
                 (return &/Nil$))))
@@ -533,8 +554,7 @@
             (return nil))]
     (&/save-module
      (|do [already-compiled? (&&module/exists? path)
-           ;; :let [_ (prn 'analyse-import module-name path
-           ;; already-compiled?)]
+           ;; :let [_ (prn 'analyse-import module-name path already-compiled?)]
            active? (&/active-module? path)
            _ (&/assert! (not active?) (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " module-name))
            _ (&&module/add-import path)
@@ -554,15 +574,22 @@
 (defn analyse-check [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
+        ;; :let [_ (prn 'analyse-check/_0 (&type/show-type ==type))]
         _ (&type/check exo-type ==type)
-        =value (&&/analyse-1 analyse ==type ?value)]
-    (return (&/|list (&/T (&/V &&/$ann (&/T =value =type))
-                          ==type)))))
+        =value (&&/analyse-1 analyse ==type ?value)
+        ;; :let [_ (prn 'analyse-check/_1 (&/adt->text =value))]
+        _cursor &/cursor
+        ]
+    (return (&/|list (&&/|meta ==type _cursor
+                               (&/V &&/$ann (&/T =value =type))
+                               )))))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
-        =value (&&/analyse-1+ analyse ?value)]
-    (return (&/|list (&/T (&/V &&/$ann (&/T =value =type))
-                          ==type)))))
+        =value (&&/analyse-1+ analyse ?value)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta ==type _cursor
+                               (&/V &&/$ann (&/T =value =type))
+                               )))))

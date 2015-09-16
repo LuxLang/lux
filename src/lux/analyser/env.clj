@@ -24,7 +24,7 @@
                                      (let [bound-unit (&/V &&/$var (&/V &/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter))))]
                                        (&/Cons$ (&/update$ &/$locals #(->> %
                                                                            (&/update$ &/$counter inc)
-                                                                           (&/update$ &/$mappings (fn [m] (&/|put name (&/T bound-unit type) m))))
+                                                                           (&/update$ &/$mappings (fn [m] (&/|put name (&&/|meta type &/empty-cursor bound-unit) m))))
                                                            (&/|head stack))
                                                 (&/|tail stack))))
                                    state))]

@@ -35,374 +35,388 @@
                               MethodVisitor)))
 
 ;; [Utils/Compilers]
+(def ^:private !source->last-line (atom nil))
+
 (defn ^:private compile-expression [syntax]
-  (|let [[?form ?type] syntax]
-    (|case ?form
-      (&a/$bool ?value)
-      (&&lux/compile-bool compile-expression ?type ?value)
-
-      (&a/$int ?value)
-      (&&lux/compile-int compile-expression ?type ?value)
-
-      (&a/$real ?value)
-      (&&lux/compile-real compile-expression ?type ?value)
-
-      (&a/$char ?value)
-      (&&lux/compile-char compile-expression ?type ?value)
-
-      (&a/$text ?value)
-      (&&lux/compile-text compile-expression ?type ?value)
-
-      (&a/$tuple ?elems)
-      (&&lux/compile-tuple compile-expression ?type ?elems)
-
-      (&a/$var (&/$Local ?idx))
-      (&&lux/compile-local compile-expression ?type ?idx)
-
-      (&a/$captured ?scope ?captured-id ?source)
-      (&&lux/compile-captured compile-expression ?type ?scope ?captured-id ?source)
-
-      (&a/$var (&/$Global ?owner-class ?name))
-      (&&lux/compile-global compile-expression ?type ?owner-class ?name)
-
-      (&a/$apply ?fn ?args)
-      (&&lux/compile-apply compile-expression ?type ?fn ?args)
-
-      (&a/$variant ?tag ?members)
-      (&&lux/compile-variant compile-expression ?type ?tag ?members)
-
-      (&a/$case ?value ?match)
-      (&&case/compile-case compile-expression ?type ?value ?match)
-
-      (&a/$lambda ?scope ?env ?body)
-      (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
-
-      (&a/$ann ?value-ex ?type-ex)
-      (&&lux/compile-ann compile-expression ?type ?value-ex ?type-ex)
-
-      ;; Characters
-      (&a/$jvm-ceq ?x ?y)
-      (&&host/compile-jvm-ceq compile-expression ?type ?x ?y)
-
-      (&a/$jvm-clt ?x ?y)
-      (&&host/compile-jvm-clt compile-expression ?type ?x ?y)
-
-      (&a/$jvm-cgt ?x ?y)
-      (&&host/compile-jvm-cgt compile-expression ?type ?x ?y)
-      
-      ;; Integer arithmetic
-      (&a/$jvm-iadd ?x ?y)
-      (&&host/compile-jvm-iadd compile-expression ?type ?x ?y)
-
-      (&a/$jvm-isub ?x ?y)
-      (&&host/compile-jvm-isub compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-imul ?x ?y)
-      (&&host/compile-jvm-imul compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-idiv ?x ?y)
-      (&&host/compile-jvm-idiv compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-irem ?x ?y)
-      (&&host/compile-jvm-irem compile-expression ?type ?x ?y)
-
-      (&a/$jvm-ieq ?x ?y)
-      (&&host/compile-jvm-ieq compile-expression ?type ?x ?y)
-
-      (&a/$jvm-ilt ?x ?y)
-      (&&host/compile-jvm-ilt compile-expression ?type ?x ?y)
-
-      (&a/$jvm-igt ?x ?y)
-      (&&host/compile-jvm-igt compile-expression ?type ?x ?y)
-
-      ;; Long arithmetic
-      (&a/$jvm-ladd ?x ?y)
-      (&&host/compile-jvm-ladd compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-lsub ?x ?y)
-      (&&host/compile-jvm-lsub compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-lmul ?x ?y)
-      (&&host/compile-jvm-lmul compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-ldiv ?x ?y)
-      (&&host/compile-jvm-ldiv compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-lrem ?x ?y)
-      (&&host/compile-jvm-lrem compile-expression ?type ?x ?y)
-
-      (&a/$jvm-leq ?x ?y)
-      (&&host/compile-jvm-leq compile-expression ?type ?x ?y)
-
-      (&a/$jvm-llt ?x ?y)
-      (&&host/compile-jvm-llt compile-expression ?type ?x ?y)
-
-      (&a/$jvm-lgt ?x ?y)
-      (&&host/compile-jvm-lgt compile-expression ?type ?x ?y)
-
-      ;; Float arithmetic
-      (&a/$jvm-fadd ?x ?y)
-      (&&host/compile-jvm-fadd compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-fsub ?x ?y)
-      (&&host/compile-jvm-fsub compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-fmul ?x ?y)
-      (&&host/compile-jvm-fmul compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-fdiv ?x ?y)
-      (&&host/compile-jvm-fdiv compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-frem ?x ?y)
-      (&&host/compile-jvm-frem compile-expression ?type ?x ?y)
-
-      (&a/$jvm-feq ?x ?y)
-      (&&host/compile-jvm-feq compile-expression ?type ?x ?y)
-
-      (&a/$jvm-flt ?x ?y)
-      (&&host/compile-jvm-flt compile-expression ?type ?x ?y)
-
-      (&a/$jvm-fgt ?x ?y)
-      (&&host/compile-jvm-fgt compile-expression ?type ?x ?y)
-
-      ;; Double arithmetic
-      (&a/$jvm-dadd ?x ?y)
-      (&&host/compile-jvm-dadd compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-dsub ?x ?y)
-      (&&host/compile-jvm-dsub compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-dmul ?x ?y)
-      (&&host/compile-jvm-dmul compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-ddiv ?x ?y)
-      (&&host/compile-jvm-ddiv compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-drem ?x ?y)
-      (&&host/compile-jvm-drem compile-expression ?type ?x ?y)
+  ;; (prn 'compile-expression (&/adt->text syntax))
+  (|let [[[?type [_file-name _line _column]] ?form] syntax]
+    (|do [^MethodVisitor *writer* &/get-writer
+          :let [debug-label (new Label)
+                _ (when (not= _line (get @!source->last-line _file-name))
+                    (doto *writer*
+                      (.visitLabel debug-label)
+                      (.visitLineNumber (int _line) debug-label))
+                    (swap! !source->last-line assoc _file-name _line))]]
+      (|case ?form
+        (&a/$bool ?value)
+        (&&lux/compile-bool compile-expression ?value)
+
+        (&a/$int ?value)
+        (do ;; (prn 'compile-expression (&/adt->text syntax))
+            (&&lux/compile-int compile-expression ?value))
+
+        (&a/$real ?value)
+        (&&lux/compile-real compile-expression ?value)
+
+        (&a/$char ?value)
+        (&&lux/compile-char compile-expression ?value)
+
+        (&a/$text ?value)
+        (&&lux/compile-text compile-expression ?value)
+
+        (&a/$tuple ?elems)
+        (&&lux/compile-tuple compile-expression ?elems)
+
+        (&a/$var (&/$Local ?idx))
+        (&&lux/compile-local compile-expression ?idx)
+
+        (&a/$captured ?scope ?captured-id ?source)
+        (&&lux/compile-captured compile-expression ?scope ?captured-id ?source)
+
+        (&a/$var (&/$Global ?owner-class ?name))
+        (&&lux/compile-global compile-expression ?owner-class ?name)
+
+        (&a/$apply ?fn ?args)
+        (&&lux/compile-apply compile-expression ?fn ?args)
+
+        (&a/$variant ?tag ?members)
+        (&&lux/compile-variant compile-expression ?tag ?members)
+
+        (&a/$case ?value ?match)
+        (&&case/compile-case compile-expression ?value ?match)
+
+        (&a/$lambda ?scope ?env ?body)
+        (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
+
+        (&a/$ann ?value-ex ?type-ex)
+        (&&lux/compile-ann compile-expression ?value-ex ?type-ex)
+
+        ;; Characters
+        (&a/$jvm-ceq ?x ?y)
+        (&&host/compile-jvm-ceq compile-expression ?x ?y)
+
+        (&a/$jvm-clt ?x ?y)
+        (&&host/compile-jvm-clt compile-expression ?x ?y)
+
+        (&a/$jvm-cgt ?x ?y)
+        (&&host/compile-jvm-cgt compile-expression ?x ?y)
+        
+        ;; Integer arithmetic
+        (&a/$jvm-iadd ?x ?y)
+        (&&host/compile-jvm-iadd compile-expression ?x ?y)
+
+        (&a/$jvm-isub ?x ?y)
+        (&&host/compile-jvm-isub compile-expression ?x ?y)
+        
+        (&a/$jvm-imul ?x ?y)
+        (&&host/compile-jvm-imul compile-expression ?x ?y)
+        
+        (&a/$jvm-idiv ?x ?y)
+        (&&host/compile-jvm-idiv compile-expression ?x ?y)
+        
+        (&a/$jvm-irem ?x ?y)
+        (&&host/compile-jvm-irem compile-expression ?x ?y)
+
+        (&a/$jvm-ieq ?x ?y)
+        (&&host/compile-jvm-ieq compile-expression ?x ?y)
+
+        (&a/$jvm-ilt ?x ?y)
+        (&&host/compile-jvm-ilt compile-expression ?x ?y)
+
+        (&a/$jvm-igt ?x ?y)
+        (&&host/compile-jvm-igt compile-expression ?x ?y)
+
+        ;; Long arithmetic
+        (&a/$jvm-ladd ?x ?y)
+        (&&host/compile-jvm-ladd compile-expression ?x ?y)
+        
+        (&a/$jvm-lsub ?x ?y)
+        (&&host/compile-jvm-lsub compile-expression ?x ?y)
+        
+        (&a/$jvm-lmul ?x ?y)
+        (&&host/compile-jvm-lmul compile-expression ?x ?y)
+        
+        (&a/$jvm-ldiv ?x ?y)
+        (&&host/compile-jvm-ldiv compile-expression ?x ?y)
+        
+        (&a/$jvm-lrem ?x ?y)
+        (&&host/compile-jvm-lrem compile-expression ?x ?y)
+
+        (&a/$jvm-leq ?x ?y)
+        (&&host/compile-jvm-leq compile-expression ?x ?y)
+
+        (&a/$jvm-llt ?x ?y)
+        (&&host/compile-jvm-llt compile-expression ?x ?y)
+
+        (&a/$jvm-lgt ?x ?y)
+        (&&host/compile-jvm-lgt compile-expression ?x ?y)
+
+        ;; Float arithmetic
+        (&a/$jvm-fadd ?x ?y)
+        (&&host/compile-jvm-fadd compile-expression ?x ?y)
+        
+        (&a/$jvm-fsub ?x ?y)
+        (&&host/compile-jvm-fsub compile-expression ?x ?y)
+        
+        (&a/$jvm-fmul ?x ?y)
+        (&&host/compile-jvm-fmul compile-expression ?x ?y)
+        
+        (&a/$jvm-fdiv ?x ?y)
+        (&&host/compile-jvm-fdiv compile-expression ?x ?y)
+        
+        (&a/$jvm-frem ?x ?y)
+        (&&host/compile-jvm-frem compile-expression ?x ?y)
+
+        (&a/$jvm-feq ?x ?y)
+        (&&host/compile-jvm-feq compile-expression ?x ?y)
+
+        (&a/$jvm-flt ?x ?y)
+        (&&host/compile-jvm-flt compile-expression ?x ?y)
+
+        (&a/$jvm-fgt ?x ?y)
+        (&&host/compile-jvm-fgt compile-expression ?x ?y)
+
+        ;; Double arithmetic
+        (&a/$jvm-dadd ?x ?y)
+        (&&host/compile-jvm-dadd compile-expression ?x ?y)
+        
+        (&a/$jvm-dsub ?x ?y)
+        (&&host/compile-jvm-dsub compile-expression ?x ?y)
+        
+        (&a/$jvm-dmul ?x ?y)
+        (&&host/compile-jvm-dmul compile-expression ?x ?y)
+        
+        (&a/$jvm-ddiv ?x ?y)
+        (&&host/compile-jvm-ddiv compile-expression ?x ?y)
+        
+        (&a/$jvm-drem ?x ?y)
+        (&&host/compile-jvm-drem compile-expression ?x ?y)
 
-      (&a/$jvm-deq ?x ?y)
-      (&&host/compile-jvm-deq compile-expression ?type ?x ?y)
+        (&a/$jvm-deq ?x ?y)
+        (&&host/compile-jvm-deq compile-expression ?x ?y)
 
-      (&a/$jvm-dlt ?x ?y)
-      (&&host/compile-jvm-dlt compile-expression ?type ?x ?y)
+        (&a/$jvm-dlt ?x ?y)
+        (&&host/compile-jvm-dlt compile-expression ?x ?y)
 
-      (&a/$jvm-dgt ?x ?y)
-      (&&host/compile-jvm-dgt compile-expression ?type ?x ?y)
-      
-      (&a/$jvm-null _)
-      (&&host/compile-jvm-null compile-expression ?type)
+        (&a/$jvm-dgt ?x ?y)
+        (&&host/compile-jvm-dgt compile-expression ?x ?y)
+        
+        (&a/$jvm-null _)
+        (&&host/compile-jvm-null compile-expression)
 
-      (&a/$jvm-null? ?object)
-      (&&host/compile-jvm-null? compile-expression ?type ?object)
-      
-      (&a/$jvm-new ?class ?classes ?args)
-      (&&host/compile-jvm-new compile-expression ?type ?class ?classes ?args)
+        (&a/$jvm-null? ?object)
+        (&&host/compile-jvm-null? compile-expression ?object)
+        
+        (&a/$jvm-new ?class ?classes ?args)
+        (&&host/compile-jvm-new compile-expression ?class ?classes ?args)
 
-      (&a/$jvm-getstatic ?class ?field)
-      (&&host/compile-jvm-getstatic compile-expression ?type ?class ?field)
+        (&a/$jvm-getstatic ?class ?field ?output-type)
+        (&&host/compile-jvm-getstatic compile-expression ?class ?field ?output-type)
 
-      (&a/$jvm-getfield ?class ?field ?object)
-      (&&host/compile-jvm-getfield compile-expression ?type ?class ?field ?object)
+        (&a/$jvm-getfield ?class ?field ?object ?output-type)
+        (&&host/compile-jvm-getfield compile-expression ?class ?field ?object ?output-type)
 
-      (&a/$jvm-putstatic ?class ?field ?value)
-      (&&host/compile-jvm-putstatic compile-expression ?type ?class ?field ?value)
+        (&a/$jvm-putstatic ?class ?field ?value ?output-type)
+        (&&host/compile-jvm-putstatic compile-expression ?class ?field ?value)
 
-      (&a/$jvm-putfield ?class ?field ?object ?value)
-      (&&host/compile-jvm-putfield compile-expression ?type ?class ?field ?object ?value)
+        (&a/$jvm-putfield ?class ?field ?value ?object ?output-type)
+        (&&host/compile-jvm-putfield compile-expression ?class ?field ?object ?value)
 
-      (&a/$jvm-invokestatic ?class ?method ?classes ?args)
-      (&&host/compile-jvm-invokestatic compile-expression ?type ?class ?method ?classes ?args)
+        (&a/$jvm-invokestatic ?class ?method ?classes ?args ?output-type)
+        (&&host/compile-jvm-invokestatic compile-expression ?class ?method ?classes ?args ?output-type)
 
-      (&a/$jvm-invokevirtual ?class ?method ?classes ?object ?args)
-      (&&host/compile-jvm-invokevirtual compile-expression ?type ?class ?method ?classes ?object ?args)
+        (&a/$jvm-invokevirtual ?class ?method ?classes ?object ?args ?output-type)
+        (&&host/compile-jvm-invokevirtual compile-expression ?class ?method ?classes ?object ?args ?output-type)
 
-      (&a/$jvm-invokeinterface ?class ?method ?classes ?object ?args)
-      (&&host/compile-jvm-invokeinterface compile-expression ?type ?class ?method ?classes ?object ?args)
+        (&a/$jvm-invokeinterface ?class ?method ?classes ?object ?args ?output-type)
+        (&&host/compile-jvm-invokeinterface compile-expression ?class ?method ?classes ?object ?args ?output-type)
 
-      (&a/$jvm-invokespecial ?class ?method ?classes ?object ?args)
-      (&&host/compile-jvm-invokespecial compile-expression ?type ?class ?method ?classes ?object ?args)
-      
-      (&a/$jvm-znewarray ?length)
-      (&&host/compile-jvm-znewarray compile-expression ?type ?length)
+        (&a/$jvm-invokespecial ?class ?method ?classes ?object ?args ?output-type)
+        (&&host/compile-jvm-invokespecial compile-expression ?class ?method ?classes ?object ?args ?output-type)
+        
+        (&a/$jvm-znewarray ?length)
+        (&&host/compile-jvm-znewarray compile-expression ?length)
 
-      (&a/$jvm-zastore ?array ?idx ?elem)
-      (&&host/compile-jvm-zastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-zastore ?array ?idx ?elem)
+        (&&host/compile-jvm-zastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-zaload ?array ?idx)
-      (&&host/compile-jvm-zaload compile-expression ?type ?array ?idx)
+        (&a/$jvm-zaload ?array ?idx)
+        (&&host/compile-jvm-zaload compile-expression ?array ?idx)
 
-      (&a/$jvm-bnewarray ?length)
-      (&&host/compile-jvm-bnewarray compile-expression ?type ?length)
+        (&a/$jvm-bnewarray ?length)
+        (&&host/compile-jvm-bnewarray compile-expression ?length)
 
-      (&a/$jvm-bastore ?array ?idx ?elem)
-      (&&host/compile-jvm-bastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-bastore ?array ?idx ?elem)
+        (&&host/compile-jvm-bastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-baload ?array ?idx)
-      (&&host/compile-jvm-baload compile-expression ?type ?array ?idx)
+        (&a/$jvm-baload ?array ?idx)
+        (&&host/compile-jvm-baload compile-expression ?array ?idx)
 
-      (&a/$jvm-snewarray ?length)
-      (&&host/compile-jvm-snewarray compile-expression ?type ?length)
+        (&a/$jvm-snewarray ?length)
+        (&&host/compile-jvm-snewarray compile-expression ?length)
 
-      (&a/$jvm-sastore ?array ?idx ?elem)
-      (&&host/compile-jvm-sastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-sastore ?array ?idx ?elem)
+        (&&host/compile-jvm-sastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-saload ?array ?idx)
-      (&&host/compile-jvm-saload compile-expression ?type ?array ?idx)
+        (&a/$jvm-saload ?array ?idx)
+        (&&host/compile-jvm-saload compile-expression ?array ?idx)
 
-      (&a/$jvm-inewarray ?length)
-      (&&host/compile-jvm-inewarray compile-expression ?type ?length)
+        (&a/$jvm-inewarray ?length)
+        (&&host/compile-jvm-inewarray compile-expression ?length)
 
-      (&a/$jvm-iastore ?array ?idx ?elem)
-      (&&host/compile-jvm-iastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-iastore ?array ?idx ?elem)
+        (&&host/compile-jvm-iastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-iaload ?array ?idx)
-      (&&host/compile-jvm-iaload compile-expression ?type ?array ?idx)
+        (&a/$jvm-iaload ?array ?idx)
+        (&&host/compile-jvm-iaload compile-expression ?array ?idx)
 
-      (&a/$jvm-lnewarray ?length)
-      (&&host/compile-jvm-lnewarray compile-expression ?type ?length)
+        (&a/$jvm-lnewarray ?length)
+        (&&host/compile-jvm-lnewarray compile-expression ?length)
 
-      (&a/$jvm-lastore ?array ?idx ?elem)
-      (&&host/compile-jvm-lastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-lastore ?array ?idx ?elem)
+        (&&host/compile-jvm-lastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-laload ?array ?idx)
-      (&&host/compile-jvm-laload compile-expression ?type ?array ?idx)
+        (&a/$jvm-laload ?array ?idx)
+        (&&host/compile-jvm-laload compile-expression ?array ?idx)
 
-      (&a/$jvm-fnewarray ?length)
-      (&&host/compile-jvm-fnewarray compile-expression ?type ?length)
+        (&a/$jvm-fnewarray ?length)
+        (&&host/compile-jvm-fnewarray compile-expression ?length)
 
-      (&a/$jvm-fastore ?array ?idx ?elem)
-      (&&host/compile-jvm-fastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-fastore ?array ?idx ?elem)
+        (&&host/compile-jvm-fastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-faload ?array ?idx)
-      (&&host/compile-jvm-faload compile-expression ?type ?array ?idx)
+        (&a/$jvm-faload ?array ?idx)
+        (&&host/compile-jvm-faload compile-expression ?array ?idx)
 
-      (&a/$jvm-dnewarray ?length)
-      (&&host/compile-jvm-dnewarray compile-expression ?type ?length)
+        (&a/$jvm-dnewarray ?length)
+        (&&host/compile-jvm-dnewarray compile-expression ?length)
 
-      (&a/$jvm-dastore ?array ?idx ?elem)
-      (&&host/compile-jvm-dastore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-dastore ?array ?idx ?elem)
+        (&&host/compile-jvm-dastore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-daload ?array ?idx)
-      (&&host/compile-jvm-daload compile-expression ?type ?array ?idx)
+        (&a/$jvm-daload ?array ?idx)
+        (&&host/compile-jvm-daload compile-expression ?array ?idx)
 
-      (&a/$jvm-cnewarray ?length)
-      (&&host/compile-jvm-cnewarray compile-expression ?type ?length)
+        (&a/$jvm-cnewarray ?length)
+        (&&host/compile-jvm-cnewarray compile-expression ?length)
 
-      (&a/$jvm-castore ?array ?idx ?elem)
-      (&&host/compile-jvm-castore compile-expression ?type ?array ?idx ?elem)
+        (&a/$jvm-castore ?array ?idx ?elem)
+        (&&host/compile-jvm-castore compile-expression ?array ?idx ?elem)
 
-      (&a/$jvm-caload ?array ?idx)
-      (&&host/compile-jvm-caload compile-expression ?type ?array ?idx)
+        (&a/$jvm-caload ?array ?idx)
+        (&&host/compile-jvm-caload compile-expression ?array ?idx)
 
-      (&a/$jvm-anewarray ?class ?length)
-      (&&host/compile-jvm-anewarray compile-expression ?type ?class ?length)
+        (&a/$jvm-anewarray ?class ?length)
+        (&&host/compile-jvm-anewarray compile-expression ?class ?length)
 
-      (&a/$jvm-aastore ?class ?array ?idx ?elem)
-      (&&host/compile-jvm-aastore compile-expression ?type ?class ?array ?idx ?elem)
+        (&a/$jvm-aastore ?class ?array ?idx ?elem)
+        (&&host/compile-jvm-aastore compile-expression ?class ?array ?idx ?elem)
 
-      (&a/$jvm-aaload ?class ?array ?idx)
-      (&&host/compile-jvm-aaload compile-expression ?type ?class ?array ?idx)
+        (&a/$jvm-aaload ?class ?array ?idx)
+        (&&host/compile-jvm-aaload compile-expression ?class ?array ?idx)
 
-      (&a/$jvm-arraylength ?array)
-      (&&host/compile-jvm-arraylength compile-expression ?type ?array)
+        (&a/$jvm-arraylength ?array)
+        (&&host/compile-jvm-arraylength compile-expression ?array)
 
-      (&a/$jvm-try ?body ?catches ?finally)
-      (&&host/compile-jvm-try compile-expression ?type ?body ?catches ?finally)
+        (&a/$jvm-try ?body ?catches ?finally)
+        (&&host/compile-jvm-try compile-expression ?body ?catches ?finally)
 
-      (&a/$jvm-throw ?ex)
-      (&&host/compile-jvm-throw compile-expression ?type ?ex)
+        (&a/$jvm-throw ?ex)
+        (&&host/compile-jvm-throw compile-expression ?ex)
 
-      (&a/$jvm-monitorenter ?monitor)
-      (&&host/compile-jvm-monitorenter compile-expression ?type ?monitor)
+        (&a/$jvm-monitorenter ?monitor)
+        (&&host/compile-jvm-monitorenter compile-expression ?monitor)
 
-      (&a/$jvm-monitorexit ?monitor)
-      (&&host/compile-jvm-monitorexit compile-expression ?type ?monitor)
+        (&a/$jvm-monitorexit ?monitor)
+        (&&host/compile-jvm-monitorexit compile-expression ?monitor)
 
-      (&a/$jvm-d2f ?value)
-      (&&host/compile-jvm-d2f compile-expression ?type ?value)
+        (&a/$jvm-d2f ?value)
+        (&&host/compile-jvm-d2f compile-expression ?value)
 
-      (&a/$jvm-d2i ?value)
-      (&&host/compile-jvm-d2i compile-expression ?type ?value)
+        (&a/$jvm-d2i ?value)
+        (&&host/compile-jvm-d2i compile-expression ?value)
 
-      (&a/$jvm-d2l ?value)
-      (&&host/compile-jvm-d2l compile-expression ?type ?value)
-      
-      (&a/$jvm-f2d ?value)
-      (&&host/compile-jvm-f2d compile-expression ?type ?value)
+        (&a/$jvm-d2l ?value)
+        (&&host/compile-jvm-d2l compile-expression ?value)
+        
+        (&a/$jvm-f2d ?value)
+        (&&host/compile-jvm-f2d compile-expression ?value)
 
-      (&a/$jvm-f2i ?value)
-      (&&host/compile-jvm-f2i compile-expression ?type ?value)
+        (&a/$jvm-f2i ?value)
+        (&&host/compile-jvm-f2i compile-expression ?value)
 
-      (&a/$jvm-f2l ?value)
-      (&&host/compile-jvm-f2l compile-expression ?type ?value)
-      
-      (&a/$jvm-i2b ?value)
-      (&&host/compile-jvm-i2b compile-expression ?type ?value)
+        (&a/$jvm-f2l ?value)
+        (&&host/compile-jvm-f2l compile-expression ?value)
+        
+        (&a/$jvm-i2b ?value)
+        (&&host/compile-jvm-i2b compile-expression ?value)
 
-      (&a/$jvm-i2c ?value)
-      (&&host/compile-jvm-i2c compile-expression ?type ?value)
+        (&a/$jvm-i2c ?value)
+        (&&host/compile-jvm-i2c compile-expression ?value)
 
-      (&a/$jvm-i2d ?value)
-      (&&host/compile-jvm-i2d compile-expression ?type ?value)
+        (&a/$jvm-i2d ?value)
+        (&&host/compile-jvm-i2d compile-expression ?value)
 
-      (&a/$jvm-i2f ?value)
-      (&&host/compile-jvm-i2f compile-expression ?type ?value)
+        (&a/$jvm-i2f ?value)
+        (&&host/compile-jvm-i2f compile-expression ?value)
 
-      (&a/$jvm-i2l ?value)
-      (&&host/compile-jvm-i2l compile-expression ?type ?value)
+        (&a/$jvm-i2l ?value)
+        (&&host/compile-jvm-i2l compile-expression ?value)
 
-      (&a/$jvm-i2s ?value)
-      (&&host/compile-jvm-i2s compile-expression ?type ?value)
+        (&a/$jvm-i2s ?value)
+        (&&host/compile-jvm-i2s compile-expression ?value)
 
-      (&a/$jvm-l2d ?value)
-      (&&host/compile-jvm-l2d compile-expression ?type ?value)
+        (&a/$jvm-l2d ?value)
+        (&&host/compile-jvm-l2d compile-expression ?value)
 
-      (&a/$jvm-l2f ?value)
-      (&&host/compile-jvm-l2f compile-expression ?type ?value)
+        (&a/$jvm-l2f ?value)
+        (&&host/compile-jvm-l2f compile-expression ?value)
 
-      (&a/$jvm-l2i ?value)
-      (&&host/compile-jvm-l2i compile-expression ?type ?value)
+        (&a/$jvm-l2i ?value)
+        (&&host/compile-jvm-l2i compile-expression ?value)
 
-      (&a/$jvm-iand ?x ?y)
-      (&&host/compile-jvm-iand compile-expression ?type ?x ?y)
+        (&a/$jvm-iand ?x ?y)
+        (&&host/compile-jvm-iand compile-expression ?x ?y)
 
-      (&a/$jvm-ior ?x ?y)
-      (&&host/compile-jvm-ior compile-expression ?type ?x ?y)
+        (&a/$jvm-ior ?x ?y)
+        (&&host/compile-jvm-ior compile-expression ?x ?y)
 
-      (&a/$jvm-ixor ?x ?y)
-      (&&host/compile-jvm-ixor compile-expression ?type ?x ?y)
+        (&a/$jvm-ixor ?x ?y)
+        (&&host/compile-jvm-ixor compile-expression ?x ?y)
 
-      (&a/$jvm-ishl ?x ?y)
-      (&&host/compile-jvm-ishl compile-expression ?type ?x ?y)
+        (&a/$jvm-ishl ?x ?y)
+        (&&host/compile-jvm-ishl compile-expression ?x ?y)
 
-      (&a/$jvm-ishr ?x ?y)
-      (&&host/compile-jvm-ishr compile-expression ?type ?x ?y)
+        (&a/$jvm-ishr ?x ?y)
+        (&&host/compile-jvm-ishr compile-expression ?x ?y)
 
-      (&a/$jvm-iushr ?x ?y)
-      (&&host/compile-jvm-iushr compile-expression ?type ?x ?y)
+        (&a/$jvm-iushr ?x ?y)
+        (&&host/compile-jvm-iushr compile-expression ?x ?y)
 
-      (&a/$jvm-land ?x ?y)
-      (&&host/compile-jvm-land compile-expression ?type ?x ?y)
+        (&a/$jvm-land ?x ?y)
+        (&&host/compile-jvm-land compile-expression ?x ?y)
 
-      (&a/$jvm-lor ?x ?y)
-      (&&host/compile-jvm-lor compile-expression ?type ?x ?y)
+        (&a/$jvm-lor ?x ?y)
+        (&&host/compile-jvm-lor compile-expression ?x ?y)
 
-      (&a/$jvm-lxor ?x ?y)
-      (&&host/compile-jvm-lxor compile-expression ?type ?x ?y)
+        (&a/$jvm-lxor ?x ?y)
+        (&&host/compile-jvm-lxor compile-expression ?x ?y)
 
-      (&a/$jvm-lshl ?x ?y)
-      (&&host/compile-jvm-lshl compile-expression ?type ?x ?y)
+        (&a/$jvm-lshl ?x ?y)
+        (&&host/compile-jvm-lshl compile-expression ?x ?y)
 
-      (&a/$jvm-lshr ?x ?y)
-      (&&host/compile-jvm-lshr compile-expression ?type ?x ?y)
+        (&a/$jvm-lshr ?x ?y)
+        (&&host/compile-jvm-lshr compile-expression ?x ?y)
 
-      (&a/$jvm-lushr ?x ?y)
-      (&&host/compile-jvm-lushr compile-expression ?type ?x ?y)
+        (&a/$jvm-lushr ?x ?y)
+        (&&host/compile-jvm-lushr compile-expression ?x ?y)
 
-      (&a/$jvm-instanceof ?class ?object)
-      (&&host/compile-jvm-instanceof compile-expression ?type ?class ?object)
-      )
+        (&a/$jvm-instanceof ?class ?object)
+        (&&host/compile-jvm-instanceof compile-expression ?class ?object)
+
+        _
+        (assert false (prn-str 'compile-expression (&/adt->text syntax)))
+        ))
     ))
 
 (defn ^:private compile-token [syntax]
@@ -429,13 +443,15 @@
   (&/with-eval
     (|do [module &/get-module-name
           id &/gen-id
+          [file-name _ _] &/cursor
           :let [class-name (str (&host/->module-class module) "/" id)
                 ;; _ (prn 'eval! id class-name)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                  class-name nil "java/lang/Object" nil)
                          (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/eval-field "Ljava/lang/Object;" nil nil)
-                             (doto (.visitEnd))))]
+                             (doto (.visitEnd)))
+                         (.visitSource file-name nil))]
           _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
               (|do [^MethodVisitor *writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
@@ -475,7 +491,8 @@
                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/hash-field "I" nil file-hash)
                                        .visitEnd)
                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &&/version)
-                                       .visitEnd))
+                                       .visitEnd)
+                                   (.visitSource file-name nil))
                           ;; _ (prn 'compile-module name =class)
                           ]]
                 (fn [state]
@@ -524,6 +541,7 @@
     ))
 
 (defn ^:private init! []
+  (reset! !source->last-line {})
   (.mkdirs (java.io.File. &&/output-dir)))
 
 ;; [Resources]

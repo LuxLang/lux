@@ -152,7 +152,7 @@
 
 ;; [Exports]
 (defn expr-type* [syntax+]
-  (|let [[_ type] syntax+]
+  (|let [[[type _] _] syntax+]
     type))
 
 (def jvm-this "_jvm_this")
@@ -173,18 +173,21 @@
   (&type/with-var
     (fn [$var]
       (|do [=expr (analyse-1 analyse $var ?token)
-            :let [[?item ?type] =expr]
+            :let [[[?type ?cursor] ?item] =expr]
             =type (&type/clean $var ?type)]
-        (return (&/T ?item =type))))))
+        (return (&/T (&/T =type ?cursor) ?item))))))
 
 (defn resolved-ident [ident]
-  (|let [[?module ?name] ident]
-    (|do [module* (if (.equals "" ?module)
-                    &/get-module-name
-                    (return ?module))]
-      (return (&/T module* ?name)))))
+  (|do [:let [[?module ?name] ident]
+        module* (if (.equals "" ?module)
+                  &/get-module-name
+                  (return ?module))]
+    (return (&/T module* ?name))))
 
 (let [tag-names #{"DataT" "VariantT" "TupleT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
   (defn type-tag? [module name]
     (and (= "lux" module)
          (contains? tag-names name))))
+
+(defn |meta [type cursor analysis]
+  (&/T (&/T type cursor) analysis))
