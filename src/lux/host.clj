@@ -11,7 +11,11 @@
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]))
   (:import (java.lang.reflect Field Method Constructor Modifier)
-           java.util.regex.Pattern))
+           java.util.regex.Pattern
+           (org.objectweb.asm Opcodes
+                              Label
+                              ClassWriter
+                              MethodVisitor)))
 
 ;; [Constants]
 (def prefix "lux.")
@@ -46,18 +50,18 @@
 (defn ^:private class->type [^Class class]
   "(-> Class Type)"
   (do ;; (prn 'class->type/_0 class (.getSimpleName class) (.getName class))
-    (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
-      (let [base (or arr-base simple-base)]
-        ;; (prn 'class->type/_1 class base arr-brackets)
-        (let [output-type (if (.equals "void" base)
-                            &type/Unit
-                            (reduce (fn [inner _] (&type/Data$ array-data-tag (&/|list inner)))
-                                    (&type/Data$ base &/Nil$)
-                                    (range (count (or arr-brackets ""))))
-                            )]
-          ;; (prn 'class->type/_2 class (&type/show-type output-type))
-          output-type)
-        ))))
+      (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
+        (let [base (or arr-base simple-base)]
+          ;; (prn 'class->type/_1 class base arr-brackets)
+          (let [output-type (if (.equals "void" base)
+                              &type/Unit
+                              (reduce (fn [inner _] (&type/Data$ array-data-tag (&/|list inner)))
+                                      (&type/Data$ base &/Nil$)
+                                      (range (count (or arr-brackets ""))))
+                              )]
+            ;; (prn 'class->type/_2 class (&type/show-type output-type))
+            output-type)
+          ))))
 
 (defn ^:private method->type [^Method method]
   "(-> Method Type)"
@@ -186,3 +190,37 @@
 
 (defn location [scope]
   (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))
+
+(defn modifiers->int [mods]
+  (+ (case (:visibility mods)
+       "default" 0
+       "public" Opcodes/ACC_PUBLIC
+       "private" Opcodes/ACC_PRIVATE
+       "protected" Opcodes/ACC_PROTECTED)
+     (if (:static? mods) Opcodes/ACC_STATIC 0)
+     (if (:final? mods) Opcodes/ACC_FINAL 0)
+     (if (:abstract? mods) Opcodes/ACC_ABSTRACT 0)
+     (case (:concurrency mods)
+       "synchronized" Opcodes/ACC_SYNCHRONIZED
+       "volatile" Opcodes/ACC_VOLATILE
+       ;; else
+       0)))
+
+(defn use-dummy-class [name super-class interfaces fields]
+  (|do [module &/get-module-name
+        :let [full-name (str module "/" name)
+              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                               full-name nil (->class super-class) (->> interfaces (&/|map ->class) &/->seq (into-array String))))
+              _ (&/|map (fn [field]
+                          (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
+                                             (->type-signature (:type field)) nil nil)
+                            (.visitEnd)))
+                        fields)
+              bytecode (.toByteArray (doto =class .visitEnd))]
+        loader &/loader
+        !classes &/classes
+        :let [real-name (str (->class-name module) "." name)
+              _ (swap! !classes assoc real-name bytecode)
+              _ (.loadClass loader real-name)]]
+    (return nil)))

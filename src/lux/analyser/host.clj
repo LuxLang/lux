@@ -425,7 +425,7 @@
     _
     (fail "[Analyser Error] Wrong syntax for field.")))
 
-(defn ^:private analyse-method [analyse name owner-class method]
+(defn ^:private analyse-method [analyse owner-class method]
   (|case method
     [idx [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
                                (&/$Cons [_ (&/$TupleS method-inputs)]
@@ -511,10 +511,12 @@
 (defn analyse-jvm-class [analyse compile-token name super-class interfaces fields methods]
   (&/with-closure
     (|do [module &/get-module-name
+          :let [full-name (str module "." name)]
           ;; :let [_ (prn 'analyse-jvm-class/_0)]
           =fields (&/map% analyse-field fields)
           ;; :let [_ (prn 'analyse-jvm-class/_1)]
-          =methods (&/map% (partial analyse-method analyse name super-class) (&/enumerate methods))
+          _ (&host/use-dummy-class name super-class interfaces =fields)
+          =methods (&/map% (partial analyse-method analyse full-name) (&/enumerate methods))
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
           ;; :let [_ (prn 'analyse-jvm-class/_3)]
@@ -549,7 +551,8 @@
             :let [name (&host/location (&/|tail scope))
                   anon-class (str module "." name)]
             ;; :let [_ (prn 'analyse-jvm-anon-class/_2 name anon-class)]
-            =methods (&/map% (partial analyse-method analyse name super-class) (&/enumerate methods))
+            _ (&host/use-dummy-class name super-class interfaces (&/|list))
+            =methods (&/map% (partial analyse-method analyse anon-class) (&/enumerate methods))
             ;; :let [_ (prn 'analyse-jvm-anon-class/_3 name anon-class)]
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
             ;; :let [_ (prn 'analyse-jvm-anon-class/_4 name anon-class)]

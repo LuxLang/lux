@@ -401,21 +401,6 @@
         :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field (&host/->java-sig ?output-type))]]
     (return nil)))
 
-(defn ^:private modifiers->int [mods]
-  (+ (case (:visibility mods)
-       "default" 0
-       "public" Opcodes/ACC_PUBLIC
-       "private" Opcodes/ACC_PRIVATE
-       "protected" Opcodes/ACC_PROTECTED)
-     (if (:static? mods) Opcodes/ACC_STATIC 0)
-     (if (:final? mods) Opcodes/ACC_FINAL 0)
-     (if (:abstract? mods) Opcodes/ACC_ABSTRACT 0)
-     (case (:concurrency mods)
-       "synchronized" Opcodes/ACC_SYNCHRONIZED
-       "volatile" Opcodes/ACC_VOLATILE
-       ;; else
-       0)))
-
 (defn compile-jvm-instanceof [compile class object]
   (|do [:let [class* (&host/->class class)]
         ^MethodVisitor *writer* &/get-writer
@@ -432,7 +417,7 @@
   ;; (prn 'compile-method/_3 (&/adt->text (:body method)))
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
-    (&/with-writer (.visitMethod class-writer (modifiers->int (:modifiers method))
+    (&/with-writer (.visitMethod class-writer (&host/modifiers->int (:modifiers method))
                                  (:name method)
                                  signature nil nil)
       (|do [^MethodVisitor =method &/get-writer
@@ -447,7 +432,7 @@
 (defn ^:private compile-method-decl [class-writer method]
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
-    (.visitMethod class-writer (modifiers->int (:modifiers method)) (:name method) signature nil nil)))
+    (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil nil)))
 
 (let [clo-field-sig (&host/->type-signature "java.lang.Object")
       <init>-return "V"]
@@ -484,7 +469,7 @@
                                full-name nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String)))
                        (.visitSource file-name nil))
               _ (&/|map (fn [field]
-                          (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
+                          (doto (.visitField =class (&host/modifiers->int (:modifiers field)) (:name field)
                                              (&host/->type-signature (:type field)) nil nil)
                             (.visitEnd)))
                         ?fields)]

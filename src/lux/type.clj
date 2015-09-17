@@ -404,8 +404,6 @@
        "\n\nActual: " (show-type actual)
        "\n"))
 
-;; (def !flag (atom false))
-
 (defn beta-reduce [env type]
   ;; (when @!flag
   ;;   (prn 'beta-reduce (show-type type)))
