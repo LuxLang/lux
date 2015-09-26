@@ -430,11 +430,11 @@
     (&a/$jvm-program ?body)
     (&&host/compile-jvm-program compile-expression ?body)
     
-    (&a/$jvm-interface ?name ?supers ?methods)
-    (&&host/compile-jvm-interface compile-expression ?name ?supers ?methods)
+    (&a/$jvm-interface ?name ?supers ?anns ?methods)
+    (&&host/compile-jvm-interface compile-expression ?name ?supers ?anns ?methods)
 
-    (&a/$jvm-class ?name ?super-class ?interfaces ?fields ?methods ??env)
-    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?fields ?methods ??env)
+    (&a/$jvm-class ?name ?super-class ?interfaces ?anns ?fields ?methods ??env)
+    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?anns ?fields ?methods ??env)
 
     _
     (compile-expression syntax)))

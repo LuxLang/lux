@@ -411,15 +411,45 @@
             :concurrency nil}
            modifiers))
 
+(let [failure (fail (str "[Analyser Error] Invalid annotation parameter."))]
+  (defn ^:private extract-ann-param [param]
+    (|case param
+      [[_ (&/$TextS param-name)] param-value]
+      (|case param-value
+        [_ (&/$BoolS param-value*)] (return (&/T param-name (boolean param-value*)))
+        [_ (&/$IntS param-value*)]  (return (&/T param-name (int param-value*)))
+        [_ (&/$RealS param-value*)] (return (&/T param-name (float param-value*)))
+        [_ (&/$CharS param-value*)] (return (&/T param-name (char param-value*)))
+        [_ (&/$TextS param-value*)] (return (&/T param-name param-value*))
+
+        _
+        failure)
+
+      _
+      failure)))
+
+(defn ^:private analyse-ann [ann]
+  (|case ann
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS ann-name)] (&/$Cons [_ (&/$RecordS ann-params)] (&/$Nil))))]
+    (|do [=ann-params (&/map% extract-ann-param ann-params)]
+      (return {:name ann-name
+               :params ann-params}))
+
+    _
+    (fail (str "[Analyser Error] Invalid annotation: " (&/show-ast ann)))))
+
 (defn ^:private analyse-field [field]
   (|case field
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
                           (&/$Cons [_ (&/$TupleS ?field-modifiers)]
-                                   (&/$Cons [_ (&/$TextS ?field-type)]
-                                            (&/$Nil)))))]
-    (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
+                                   (&/$Cons [_ (&/$TupleS ?anns)]
+                                            (&/$Cons [_ (&/$TextS ?field-type)]
+                                                     (&/$Nil))))))]
+    (|do [=field-modifiers (analyse-modifiers ?field-modifiers)
+          =anns (&/map% analyse-ann ?anns)]
       (return {:name ?field-name
                :modifiers =field-modifiers
+               :anns =anns
                :type ?field-type}))
     
     _
@@ -429,11 +459,12 @@
   (|case method
     [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
                           (&/$Cons [_ (&/$TupleS method-modifiers)]
-                                   (&/$Cons [_ (&/$TupleS method-exs)]
-                                            (&/$Cons [_ (&/$TupleS method-inputs)]
-                                                     (&/$Cons [_ (&/$TextS method-output)]
-                                                              (&/$Cons method-body
-                                                                       (&/$Nil))))))))]
+                                   (&/$Cons [_ (&/$TupleS method-anns)]
+                                            (&/$Cons [_ (&/$TupleS method-exs)]
+                                                     (&/$Cons [_ (&/$TupleS method-inputs)]
+                                                              (&/$Cons [_ (&/$TextS method-output)]
+                                                                       (&/$Cons method-body
+                                                                                (&/$Nil)))))))))]
     (|do [=method-modifiers (analyse-modifiers method-modifiers)
           =method-exs (&/map% extract-text method-exs)
           =method-inputs (&/map% (fn [minput]
@@ -448,23 +479,26 @@
                                  method-inputs)]
       (return {:name method-name
                :modifiers =method-modifiers
+               :anns (&/|list)
                :exceptions =method-exs
                :inputs (&/|map &/|second =method-inputs)
                :output method-output}))
     
     _
-    (fail "[Analyser Error] Wrong syntax for method.")))
+    (fail (str "[Analyser Error] Wrong syntax for method: " (&/show-ast method)))))
 
 (defn ^:private analyse-method [analyse owner-class method]
   (|case method
     [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
                           (&/$Cons [_ (&/$TupleS method-modifiers)]
-                                   (&/$Cons [_ (&/$TupleS method-exs)]
-                                            (&/$Cons [_ (&/$TupleS method-inputs)]
-                                                     (&/$Cons [_ (&/$TextS method-output)]
-                                                              (&/$Cons method-body
-                                                                       (&/$Nil))))))))]
+                                   (&/$Cons [_ (&/$TupleS method-anns)]
+                                            (&/$Cons [_ (&/$TupleS method-exs)]
+                                                     (&/$Cons [_ (&/$TupleS method-inputs)]
+                                                              (&/$Cons [_ (&/$TextS method-output)]
+                                                                       (&/$Cons method-body
+                                                                                (&/$Nil)))))))))]
     (|do [=method-modifiers (analyse-modifiers method-modifiers)
+          =anns (&/map% analyse-ann method-anns)
           =method-exs (&/map% extract-text method-exs)
           =method-inputs (&/map% (fn [minput]
                                    (|case minput
@@ -487,27 +521,31 @@
                                                     =method-inputs)))]
       (return {:name method-name
                :modifiers =method-modifiers
+               :anns =anns
                :exceptions =method-exs
                :inputs (&/|map &/|second =method-inputs)
                :output method-output
                :body =method-body}))
     
     _
-    (fail "[Analyser Error] Wrong syntax for method.")))
+    (fail (str "[Analyser Error] Wrong syntax for method: " (&/show-ast method)))))
 
 (defn ^:private analyse-method-decl [method]
   (|case method
     [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
                           (&/$Cons [_ (&/$TupleS modifiers)]
-                                   (&/$Cons [_ (&/$TupleS method-exs)]
-                                            (&/$Cons [_ (&/$TupleS inputs)]
-                                                     (&/$Cons [_ (&/$TextS output)]
-                                                              (&/$Nil)))))))]
-    (|do [=inputs (&/map% extract-text inputs)
-          =modifiers (analyse-modifiers modifiers)
+                                   (&/$Cons [_ (&/$TupleS ?anns)]
+                                            (&/$Cons [_ (&/$TupleS method-exs)]
+                                                     (&/$Cons [_ (&/$TupleS inputs)]
+                                                              (&/$Cons [_ (&/$TextS output)]
+                                                                       (&/$Nil))))))))]
+    (|do [=modifiers (analyse-modifiers modifiers)
+          =anns (&/map% analyse-ann ?anns)
+          =inputs (&/map% extract-text inputs)
           =method-exs (&/map% extract-text method-exs)]
       (return {:name method-name
                :modifiers =modifiers
+               :anns =anns
                :exceptions =method-exs
                :inputs =inputs
                :output output}))
@@ -544,11 +582,12 @@
       (return nil)
       (fail (str "[Analyser Error] Missing method: " missing-method)))))
 
-(defn analyse-jvm-class [analyse compile-token name super-class interfaces fields methods]
+(defn analyse-jvm-class [analyse compile-token name super-class interfaces anns fields methods]
   (&/with-closure
     (|do [module &/get-module-name
           :let [full-name (str module "." name)]
           ;; :let [_ (prn 'analyse-jvm-class/_0)]
+          =anns (&/map% analyse-ann anns)
           =fields (&/map% analyse-field fields)
           ;; :let [_ (prn 'analyse-jvm-class/_1)]
           =method-descs (&/map% dummy-method-desc methods)
@@ -557,14 +596,15 @@
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
           ;; :let [_ (prn 'analyse-jvm-class/_3)]
-          _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =fields =methods nil)))
+          _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =anns =fields =methods nil)))
           :let [_ (println 'DEF (str module "." name))]]
       (return &/Nil$))))
 
-(defn analyse-jvm-interface [analyse compile-token name supers methods]
+(defn analyse-jvm-interface [analyse compile-token name supers anns methods]
   (|do [module &/get-module-name
+        =anns (&/map% analyse-ann anns)
         =methods (&/map% analyse-method-decl methods)
-        _ (compile-token (&/V &&/$jvm-interface (&/T name supers =methods)))
+        _ (compile-token (&/V &&/$jvm-interface (&/T name supers =anns =methods)))
         :let [_ (println 'DEF (str module "." name))]]
     (return &/Nil$)))
 
@@ -598,6 +638,7 @@
             :let [=fields (&/|map (fn [idx+capt]
                                     {:name (str &c!base/closure-prefix (aget idx+capt 0))
                                      :modifiers captured-slot-modifier
+                                     :anns (&/|list)
                                      :type captured-slot-type})
                                   (&/enumerate =captured))
                   ;; _ (prn '=methods (&/adt->text (&/|map :body =methods)))
@@ -606,7 +647,7 @@
             :let [sources (&/|map captured-source =captured)]
             ;; :let [_ (prn 'analyse-jvm-anon-class/_5 name anon-class)]
             ;; _ (compile-token (&/T (&/V &&/$jvm-anon-class (&/T name super-class interfaces =captured =methods)) exo-type))
-            _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =fields =methods =captured)))
+            _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces (&/|list) =fields =methods =captured)))
             :let [_ (println 'DEF anon-class)]
             _cursor &/cursor]
         (return (&/|list (&&/|meta (&type/Data$ anon-class (&/|list)) _cursor

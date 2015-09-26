@@ -33,9 +33,17 @@
 (deftype Modifier Text)
 (deftype JvmType Text)
 
+(deftype AnnotationParam
+  (, Text AST))
+
+(deftype Annotation
+  (& #ann-name Text
+     #ann-params (List AnnotationParam)))
+
 (deftype MemberDecl
-  (& #member-modifiers (List Modifier)
-     #member-name      Text))
+  (& #member-name      Text
+     #member-modifiers (List Modifier)
+     #member-anns      (List Annotation)))
 
 (deftype FieldDecl
   JvmType)
@@ -86,9 +94,34 @@
     (wrap [vars var-types (list:join var-rebinds) arg-classes])))
 
 ## Parsers
+(def annotation-params^
+  (Parser (List AnnotationParam))
+  (record^ (*^ (tuple^ (&^ local-tag^ id^)))))
+
+(def annotation^
+  (Parser Annotation)
+  (form^ (&^ local-symbol^
+             annotation-params^)))
+
+(def annotations^'
+  (Parser (List Annotation))
+  (do Parser/Monad
+    [_ (tag!^ ["" "ann"])]
+    (tuple^ (*^ annotation^))))
+
+(def annotations^
+  (Parser (List Annotation))
+  (do Parser/Monad
+    [anns?? (?^ annotations^')]
+    (wrap (? (@list) anns??))))
+
 (def member-decl^
   (Parser MemberDecl)
-  (&^ (*^ local-tag^) local-symbol^))
+  (do Parser/Monad
+    [modifiers (*^ local-tag^)
+     name local-symbol^
+     anns annotations^]
+    (wrap [name modifiers anns])))
 
 (def throws-decl'^
   (Parser (List JvmType))
@@ -152,18 +185,29 @@
     (wrap [ex? opt? return])))
 
 ## Generators
-(def (gen-method-decl [[modifiers name] [inputs output exs]])
+(def (gen-annotation-param [name value])
+  (-> AnnotationParam (, AST AST))
+  [(text$ name) value])
+
+(def (gen-annotation [name params])
+  (-> Annotation AST)
+  (` ((~ (text$ name))
+      (~ (record$ (map gen-annotation-param params))))))
+
+(def (gen-method-decl [[name modifiers anns] [inputs output exs]])
   (-> (, MemberDecl MethodDecl) AST)
   (` ((~ (text$ name))
       [(~@ (map text$ modifiers))]
+      [(~@ (map gen-annotation anns))]
       [(~@ (map text$ exs))]
       [(~@ (map text$ inputs))]
       (~ (text$ output)))))
 
-(def (gen-field-decl [[modifiers name] class])
+(def (gen-field-decl [[name modifiers anns] class])
   (-> (, MemberDecl FieldDecl) AST)
   (` ((~ (text$ name))
       [(~@ (map text$ modifiers))]
+      [(~@ (map gen-annotation anns))]
       (~ (text$ class))
       )))
 
@@ -171,10 +215,11 @@
   (-> ArgDecl AST)
   (form$ (@list (symbol$ ["" name]) (text$ type))))
 
-(def (gen-method-def [[modifiers name] [inputs output body exs]])
+(def (gen-method-def [[name modifiers anns] [inputs output body exs]])
   (-> (, MemberDecl MethodDef) AST)
   (` ((~ (text$ name))
       [(~@ (map text$ modifiers))]
+      [(~@ (map gen-annotation anns))]
       [(~@ (map text$ exs))]
       [(~@ (map gen-arg-decl inputs))]
       (~ (text$ output))
@@ -217,17 +262,22 @@
     (|> t get-stack-trace stack-trace->text)))
 
 ## [Syntax]
-(defsyntax #export (definterface [name local-symbol^] [supers (tuple^ (*^ local-symbol^))] [members (*^ method-decl^)])
-  (emit (@list (` (;_jvm_interface (~ (text$ name)) [(~@ (map text$ supers))]
-                                   (~@ (map gen-method-decl members)))))))
-
 (defsyntax #export (defclass [name local-symbol^] [super local-symbol^] [interfaces (tuple^ (*^ local-symbol^))]
+                     [annotations annotations^]
                      [fields (*^ field-decl^)]
                      [methods (*^ method-def^)])
   (emit (@list (` (;_jvm_class (~ (text$ name)) (~ (text$ super))
                                [(~@ (map text$ interfaces))]
+                               [(~@ (map gen-annotation annotations))]
                                [(~@ (map gen-field-decl fields))]
                                [(~@ (map gen-method-def methods))])))))
+
+(defsyntax #export (definterface [name local-symbol^] [supers (tuple^ (*^ local-symbol^))]
+                     [annotations annotations^]
+                     [members (*^ method-decl^)])
+  (emit (@list (` (;_jvm_interface (~ (text$ name)) [(~@ (map text$ supers))]
+                                   [(~@ (map gen-annotation annotations))]
+                                   (~@ (map gen-method-decl members)))))))
 
 (defsyntax #export (object [super local-symbol^] [interfaces (tuple^ (*^ local-symbol^))]
                            [methods (*^ method-def^)])

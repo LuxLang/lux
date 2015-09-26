@@ -410,6 +410,25 @@
                   (&&/wrap-boolean))]]
     (return nil)))
 
+(defn ^:private compile-annotation [writer ann]
+  (doto (.visitAnnotation writer (&host/->class (:name ann)) true)
+    (-> (.visit param-name param-value)
+        (->> (|let [[param-name param-value] param])
+             (doseq [param (&/->seq (:params ann))])))
+    (.visitEnd))
+  nil)
+
+(defn ^:private compile-field [writer field]
+  (let [=field (.visitField writer (&host/modifiers->int (:modifiers field)) (:name field)
+                            (&host/->type-signature (:type field)) nil nil)]
+    (&/|map (partial compile-annotation =field) (:anns field))
+    (.visitEnd =field)
+    nil)
+  ;; (doto (.visitField writer (&host/modifiers->int (:modifiers field)) (:name field)
+  ;;                    (&host/->type-signature (:type field)) nil nil)
+  ;;   (.visitEnd))
+  )
+
 (defn ^:private compile-method-return [writer output]
   (case output
     "void" (.visitInsn writer Opcodes/RETURN)
@@ -453,7 +472,8 @@
                                  nil
                                  (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))
       (|do [^MethodVisitor =method &/get-writer
-            :let [_ (.visitCode =method)]
+            :let [_ (&/|map (partial compile-annotation =method) (:anns method))
+                  _ (.visitCode =method)]
             _ (compile (:body method))
             :let [_ (doto =method
                       (compile-method-return (:output method))
@@ -464,7 +484,9 @@
 (defn ^:private compile-method-decl [class-writer method]
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
-    (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))))
+    (let [=method (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))]
+      (&/|map (partial compile-annotation =method) (:anns method))
+      nil)))
 
 (let [clo-field-sig (&host/->type-signature "java.lang.Object")
       <init>-return "V"]
@@ -489,7 +511,7 @@
       (.visitEnd)))
   )
 
-(defn compile-jvm-class [compile ?name ?super-class ?interfaces ?fields ?methods env]
+(defn compile-jvm-class [compile ?name ?super-class ?interfaces ?anns ?fields ?methods env]
   (|do [;; :let [_ (prn 'compile-jvm-class/_0)]
         module &/get-module-name
         ;; :let [_ (prn 'compile-jvm-class/_1)]
@@ -500,10 +522,8 @@
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                full-name nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String)))
                        (.visitSource file-name nil))
-              _ (&/|map (fn [field]
-                          (doto (.visitField =class (&host/modifiers->int (:modifiers field)) (:name field)
-                                             (&host/->type-signature (:type field)) nil nil)
-                            (.visitEnd)))
+              _ (&/|map (partial compile-annotation =class) ?anns)
+              _ (&/|map (partial compile-field =class)
                         ?fields)]
         ;; :let [_ (prn 'compile-jvm-class/_2)]
         _ (&/map% (partial compile-method compile =class) ?methods)
@@ -514,7 +534,7 @@
         ]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
-(defn compile-jvm-interface [compile ?name ?supers ?methods]
+(defn compile-jvm-interface [compile ?name ?supers ?anns ?methods]
   ;; (prn 'compile-jvm-interface (->> ?supers &/->seq pr-str))
   (|do [module &/get-module-name
         [file-name _ _] &/cursor]
@@ -522,6 +542,7 @@
                        (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE)
                                (str module "/" ?name) nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String)))
                        (.visitSource file-name nil))
+          _ (&/|map (partial compile-annotation =interface) ?anns)
           _ (do (&/|map (partial compile-method-decl =interface) ?methods)
               (.visitEnd =interface))]
       (&&/save-class! ?name (.toByteArray =interface)))))

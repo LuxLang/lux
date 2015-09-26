@@ -160,18 +160,20 @@
                        (&/$Cons [_ (&/$TextS ?name)]
                                 (&/$Cons [_ (&/$TextS ?super-class)]
                                          (&/$Cons [_ (&/$TupleS ?interfaces)]
-                                                  (&/$Cons [_ (&/$TupleS ?fields)]
-                                                           (&/$Cons [_ (&/$TupleS ?methods)]
-                                                                    (&/$Nil))))))))
+                                                  (&/$Cons [_ (&/$TupleS ?anns)]
+                                                           (&/$Cons [_ (&/$TupleS ?fields)]
+                                                                    (&/$Cons [_ (&/$TupleS ?methods)]
+                                                                             (&/$Nil)))))))))
     (|do [=interfaces (&/map% extract-text ?interfaces)]
-      (&&host/analyse-jvm-class analyse compile-token ?name ?super-class =interfaces ?fields ?methods))
+      (&&host/analyse-jvm-class analyse compile-token ?name ?super-class =interfaces ?anns ?fields ?methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_interface")]
                        (&/$Cons [_ (&/$TextS ?name)]
                                 (&/$Cons [_ (&/$TupleS ?supers)]
-                                         ?methods))))
+                                         (&/$Cons [_ (&/$TupleS ?anns)]
+                                                  ?methods)))))
     (|do [=supers (&/map% extract-text ?supers)]
-      (&&host/analyse-jvm-interface analyse compile-token ?name =supers ?methods))
+      (&&host/analyse-jvm-interface analyse compile-token ?name =supers ?anns ?methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anon-class")]
                        (&/$Cons [_ (&/$TextS ?super-class)]
