@@ -663,31 +663,37 @@
           (|do [actual* (apply-type actual $arg)]
             (check* class-loader fixpoints invariant?? expected actual*))))
 
-      [(&/$DataT e!name e!params) (&/$DataT "#Null" (&/$Nil))]
-      (if (contains? primitive-types e!name)
-        (fail (str "[Type Error] Can't use \"null\" with primitive types."))
-        (return (&/T fixpoints nil)))
-
       [(&/$DataT e!name e!params) (&/$DataT a!name a!params)]
-      (let [e!name (as-obj e!name)
-            a!name (as-obj a!name)]
-        (cond (and (.equals ^Object e!name a!name)
-                   (= (&/|length e!params) (&/|length a!params)))
-              (|do [_ (&/map2% (partial check* class-loader fixpoints true) e!params a!params)]
-                (return (&/T fixpoints nil)))
-
-              (and (not invariant??)
-                   ;; (do (println '[Data Data] [e!name a!name]
-                   ;;              [(str "(" (->> e!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
-                   ;;               (str "(" (->> a!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")])
-                   ;;   true)
-                   (try (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader))
-                     (catch Exception e
-                       (prn 'FAILED_HERE e!name a!name))))
+      (cond (= "#Null" a!name)
+            (if (not (contains? primitive-types e!name))
               (return (&/T fixpoints nil))
+              (fail (check-error expected actual)))
 
-              :else
-              (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name))))
+            (= "#Null" e!name)
+            (if (= "#Null" a!name)
+              (return (&/T fixpoints nil))
+              (fail (check-error expected actual)))
+
+            :else
+            (let [e!name (as-obj e!name)
+                  a!name (as-obj a!name)]
+              (cond (and (.equals ^Object e!name a!name)
+                         (= (&/|length e!params) (&/|length a!params)))
+                    (|do [_ (&/map2% (partial check* class-loader fixpoints true) e!params a!params)]
+                      (return (&/T fixpoints nil)))
+
+                    (and (not invariant??)
+                         ;; (do (println '[Data Data] [e!name a!name]
+                         ;;              [(str "(" (->> e!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
+                         ;;               (str "(" (->> a!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")])
+                         ;;   true)
+                         (try (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader))
+                           (catch Exception e
+                             (prn 'FAILED_HERE e!name a!name))))
+                    (return (&/T fixpoints nil))
+
+                    :else
+                    (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
 
       [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
       (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]

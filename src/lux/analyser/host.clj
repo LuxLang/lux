@@ -425,15 +425,45 @@
     _
     (fail "[Analyser Error] Wrong syntax for field.")))
 
+(defn ^:private dummy-method-desc [method]
+  (|case method
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
+                          (&/$Cons [_ (&/$TupleS method-modifiers)]
+                                   (&/$Cons [_ (&/$TupleS method-exs)]
+                                            (&/$Cons [_ (&/$TupleS method-inputs)]
+                                                     (&/$Cons [_ (&/$TextS method-output)]
+                                                              (&/$Cons method-body
+                                                                       (&/$Nil))))))))]
+    (|do [=method-modifiers (analyse-modifiers method-modifiers)
+          =method-exs (&/map% extract-text method-exs)
+          =method-inputs (&/map% (fn [minput]
+                                   (|case minput
+                                     [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
+                                                           (&/$Cons [_ (&/$TextS input-type)]
+                                                                    (&/$Nil))))]
+                                     (return (&/T input-name input-type))
+
+                                     _
+                                     (fail "[Analyser Error] Wrong syntax for method input.")))
+                                 method-inputs)]
+      (return {:name method-name
+               :modifiers =method-modifiers
+               :exceptions =method-exs
+               :inputs (&/|map &/|second =method-inputs)
+               :output method-output}))
+    
+    _
+    (fail "[Analyser Error] Wrong syntax for method.")))
+
 (defn ^:private analyse-method [analyse owner-class method]
   (|case method
-    [idx [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                               (&/$Cons [_ (&/$TupleS method-modifiers)]
-                                        (&/$Cons [_ (&/$TupleS method-exs)]
-                                                 (&/$Cons [_ (&/$TupleS method-inputs)]
-                                                          (&/$Cons [_ (&/$TextS method-output)]
-                                                                   (&/$Cons method-body
-                                                                            (&/$Nil))))))))]]
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
+                          (&/$Cons [_ (&/$TupleS method-modifiers)]
+                                   (&/$Cons [_ (&/$TupleS method-exs)]
+                                            (&/$Cons [_ (&/$TupleS method-inputs)]
+                                                     (&/$Cons [_ (&/$TextS method-output)]
+                                                              (&/$Cons method-body
+                                                                       (&/$Nil))))))))]
     (|do [=method-modifiers (analyse-modifiers method-modifiers)
           =method-exs (&/map% extract-text method-exs)
           =method-inputs (&/map% (fn [minput]
@@ -521,8 +551,9 @@
           ;; :let [_ (prn 'analyse-jvm-class/_0)]
           =fields (&/map% analyse-field fields)
           ;; :let [_ (prn 'analyse-jvm-class/_1)]
-          _ (&host/use-dummy-class name super-class interfaces =fields)
-          =methods (&/map% (partial analyse-method analyse full-name) (&/enumerate methods))
+          =method-descs (&/map% dummy-method-desc methods)
+          _ (&host/use-dummy-class name super-class interfaces =fields =method-descs)
+          =methods (&/map% (partial analyse-method analyse full-name) methods)
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
           ;; :let [_ (prn 'analyse-jvm-class/_3)]
@@ -557,8 +588,9 @@
             :let [name (&host/location (&/|tail scope))
                   anon-class (str module "." name)]
             ;; :let [_ (prn 'analyse-jvm-anon-class/_2 name anon-class)]
-            _ (&host/use-dummy-class name super-class interfaces (&/|list))
-            =methods (&/map% (partial analyse-method analyse anon-class) (&/enumerate methods))
+            =method-descs (&/map% dummy-method-desc methods)
+            _ (&host/use-dummy-class name super-class interfaces (&/|list) =method-descs)
+            =methods (&/map% (partial analyse-method analyse anon-class) methods)
             ;; :let [_ (prn 'analyse-jvm-anon-class/_3 name anon-class)]
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
             ;; :let [_ (prn 'analyse-jvm-anon-class/_4 name anon-class)]

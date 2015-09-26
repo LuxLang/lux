@@ -410,6 +410,36 @@
                   (&&/wrap-boolean))]]
     (return nil)))
 
+(defn ^:private compile-method-return [writer output]
+  (case output
+    "void" (.visitInsn writer Opcodes/RETURN)
+    "boolean" (doto writer
+                &&/unwrap-boolean
+                (.visitInsn Opcodes/IRETURN))
+    "byte" (doto writer
+             &&/unwrap-byte
+             (.visitInsn Opcodes/IRETURN))
+    "short" (doto writer
+              &&/unwrap-short
+              (.visitInsn Opcodes/IRETURN))
+    "int" (doto writer
+            &&/unwrap-int
+            (.visitInsn Opcodes/IRETURN))
+    "long" (doto writer
+             &&/unwrap-long
+             (.visitInsn Opcodes/LRETURN))
+    "float" (doto writer
+              &&/unwrap-float
+              (.visitInsn Opcodes/FRETURN))
+    "double" (doto writer
+               &&/unwrap-double
+               (.visitInsn Opcodes/DRETURN))
+    "char" (doto writer
+             &&/unwrap-char
+             (.visitInsn Opcodes/IRETURN))
+    ;; else
+    (.visitInsn writer Opcodes/ARETURN)))
+
 (defn ^:private compile-method [compile class-writer method]
   ;; (prn 'compile-method/_0 (dissoc method :inputs :output :body))
   ;; (prn 'compile-method/_1 (&/adt->text (:inputs method)))
@@ -421,12 +451,12 @@
                                  (:name method)
                                  signature
                                  nil
-                                 (->> (:exceptions method) &/->seq (into-array java.lang.String)))
+                                 (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))
       (|do [^MethodVisitor =method &/get-writer
             :let [_ (.visitCode =method)]
             _ (compile (:body method))
             :let [_ (doto =method
-                      (.visitInsn (if (= "void" (:output method)) Opcodes/RETURN Opcodes/ARETURN))
+                      (compile-method-return (:output method))
                       (.visitMaxs 0 0)
                       (.visitEnd))]]
         (return nil)))))
@@ -434,7 +464,7 @@
 (defn ^:private compile-method-decl [class-writer method]
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
-    (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) &/->seq (into-array java.lang.String)))))
+    (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))))
 
 (let [clo-field-sig (&host/->type-signature "java.lang.Object")
       <init>-return "V"]
