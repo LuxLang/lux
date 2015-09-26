@@ -42,7 +42,8 @@
 
 (deftype MethodDecl
   (& #method-inputs (List JvmType)
-     #method-output JvmType))
+     #method-output JvmType
+     #method-exs    (List JvmType)))
 
 (deftype ArgDecl
   (& #arg-name Text
@@ -51,7 +52,8 @@
 (deftype MethodDef
   (& #method-vars (List ArgDecl)
      #return-type JvmType
-     #return-body AST))
+     #return-body AST
+     #throws-exs  (List JvmType)))
 
 (deftype ExpectedInput
   (& #opt-input? Bool
@@ -88,11 +90,30 @@
   (Parser MemberDecl)
   (&^ (*^ local-tag^) local-symbol^))
 
+(def throws-decl'^
+  (Parser (List JvmType))
+  (do Parser/Monad
+    [_ (tag!^ ["" "throws"])]
+    (tuple^ (*^ local-symbol^))))
+
+(def throws-decl^
+  (Parser (List JvmType))
+  (do Parser/Monad
+    [exs? (?^ throws-decl'^)]
+    (wrap (? (@list) exs?))))
+
+(def method-decl'^
+  (Parser MethodDecl)
+  (do Parser/Monad
+    [inputs (tuple^ (*^ local-symbol^))
+     outputs local-symbol^
+     exs throws-decl^]
+    (wrap [inputs outputs exs])))
+
 (def method-decl^
   (Parser (, MemberDecl MethodDecl))
   (form^ (&^ member-decl^
-             (&^ (tuple^ (*^ local-symbol^))
-                 local-symbol^))))
+             method-decl'^)))
 
 (def field-decl^
   (Parser (, MemberDecl FieldDecl))
@@ -103,14 +124,19 @@
   (Parser ArgDecl)
   (form^ (&^ local-symbol^ local-symbol^)))
 
+(def method-def'^
+  (Parser MethodDef)
+  (do Parser/Monad
+    [inputs (tuple^ (*^ arg-decl^))
+     output local-symbol^
+     exs throws-decl^
+     body id^]
+    (wrap [inputs output body exs])))
+
 (def method-def^
   (Parser (, MemberDecl MethodDef))
-  (form^ (do Parser/Monad
-           [=member-decl member-decl^
-            inputs (tuple^ (*^ arg-decl^))
-            output local-symbol^
-            body id^]
-           (wrap [=member-decl [inputs output body]]))))
+  (form^ (&^ member-decl^
+             method-def'^)))
 
 (def exp-input^
   (Parser ExpectedInput)
@@ -126,26 +152,32 @@
     (wrap [ex? opt? return])))
 
 ## Generators
-(def (gen-method-decl [[modifiers name] [inputs output]])
+(def (gen-method-decl [[modifiers name] [inputs output exs]])
   (-> (, MemberDecl MethodDecl) AST)
-  (` ((~ (text$ name)) [(~@ (map text$ inputs))] (~ (text$ output)) [(~@ (map text$ modifiers))])))
+  (` ((~ (text$ name))
+      [(~@ (map text$ modifiers))]
+      [(~@ (map text$ exs))]
+      [(~@ (map text$ inputs))]
+      (~ (text$ output)))))
 
 (def (gen-field-decl [[modifiers name] class])
   (-> (, MemberDecl FieldDecl) AST)
   (` ((~ (text$ name))
+      [(~@ (map text$ modifiers))]
       (~ (text$ class))
-      [(~@ (map text$ modifiers))])))
+      )))
 
 (def (gen-arg-decl [name type])
   (-> ArgDecl AST)
   (form$ (@list (symbol$ ["" name]) (text$ type))))
 
-(def (gen-method-def [[modifiers name] [inputs output body]])
+(def (gen-method-def [[modifiers name] [inputs output body exs]])
   (-> (, MemberDecl MethodDef) AST)
   (` ((~ (text$ name))
+      [(~@ (map text$ modifiers))]
+      [(~@ (map text$ exs))]
       [(~@ (map gen-arg-decl inputs))]
       (~ (text$ output))
-      [(~@ (map text$ modifiers))]
       (~ body))))
 
 (def (gen-expected-output [ex? opt? output] body)

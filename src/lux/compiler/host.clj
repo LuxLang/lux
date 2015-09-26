@@ -419,7 +419,9 @@
                         (&host/->type-signature (:output method)))]
     (&/with-writer (.visitMethod class-writer (&host/modifiers->int (:modifiers method))
                                  (:name method)
-                                 signature nil nil)
+                                 signature
+                                 nil
+                                 (->> (:exceptions method) &/->seq (into-array java.lang.String)))
       (|do [^MethodVisitor =method &/get-writer
             :let [_ (.visitCode =method)]
             _ (compile (:body method))
@@ -432,7 +434,7 @@
 (defn ^:private compile-method-decl [class-writer method]
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
-    (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil nil)))
+    (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) &/->seq (into-array java.lang.String)))))
 
 (let [clo-field-sig (&host/->type-signature "java.lang.Object")
       <init>-return "V"]

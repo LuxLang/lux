@@ -414,8 +414,8 @@
 (defn ^:private analyse-field [field]
   (|case field
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
-                          (&/$Cons [_ (&/$TextS ?field-type)]
-                                   (&/$Cons [_ (&/$TupleS ?field-modifiers)]
+                          (&/$Cons [_ (&/$TupleS ?field-modifiers)]
+                                   (&/$Cons [_ (&/$TextS ?field-type)]
                                             (&/$Nil)))))]
     (|do [=field-modifiers (analyse-modifiers ?field-modifiers)]
       (return {:name ?field-name
@@ -428,12 +428,14 @@
 (defn ^:private analyse-method [analyse owner-class method]
   (|case method
     [idx [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                               (&/$Cons [_ (&/$TupleS method-inputs)]
-                                        (&/$Cons [_ (&/$TextS method-output)]
-                                                 (&/$Cons [_ (&/$TupleS method-modifiers)]
-                                                          (&/$Cons method-body
-                                                                   (&/$Nil)))))))]]
+                               (&/$Cons [_ (&/$TupleS method-modifiers)]
+                                        (&/$Cons [_ (&/$TupleS method-exs)]
+                                                 (&/$Cons [_ (&/$TupleS method-inputs)]
+                                                          (&/$Cons [_ (&/$TextS method-output)]
+                                                                   (&/$Cons method-body
+                                                                            (&/$Nil))))))))]]
     (|do [=method-modifiers (analyse-modifiers method-modifiers)
+          =method-exs (&/map% extract-text method-exs)
           =method-inputs (&/map% (fn [minput]
                                    (|case minput
                                      [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
@@ -455,6 +457,7 @@
                                                     =method-inputs)))]
       (return {:name method-name
                :modifiers =method-modifiers
+               :exceptions =method-exs
                :inputs (&/|map &/|second =method-inputs)
                :output method-output
                :body =method-body}))
@@ -465,14 +468,17 @@
 (defn ^:private analyse-method-decl [method]
   (|case method
     [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                          (&/$Cons [_ (&/$TupleS inputs)]
-                                   (&/$Cons [_ (&/$TextS output)]
-                                            (&/$Cons [_ (&/$TupleS modifiers)]
-                                                     (&/$Nil))))))]
+                          (&/$Cons [_ (&/$TupleS modifiers)]
+                                   (&/$Cons [_ (&/$TupleS method-exs)]
+                                            (&/$Cons [_ (&/$TupleS inputs)]
+                                                     (&/$Cons [_ (&/$TextS output)]
+                                                              (&/$Nil)))))))]
     (|do [=inputs (&/map% extract-text inputs)
-          =modifiers (analyse-modifiers modifiers)]
+          =modifiers (analyse-modifiers modifiers)
+          =method-exs (&/map% extract-text method-exs)]
       (return {:name method-name
                :modifiers =modifiers
+               :exceptions =method-exs
                :inputs =inputs
                :output output}))
     
