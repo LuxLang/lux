@@ -5,11 +5,26 @@
 
 (ns lux.compiler.io
   (:require (lux [base :as & :refer [|let |do return* return fail fail*]])
-            ))
+            (lux.compiler [base :as &&])
+            [lux.lib.loader :as &lib]))
+
+;; [Utils]
+(def ^:private !libs (atom nil))
+
+(defn ^:private libs-imported? []
+  (not (nil? @!libs)))
+
+(defn ^:private init-libs! []
+  (reset! !libs (&lib/load &/lib-dir)))
 
 ;; [Resources]
-(defn read-file [^String path]
-  (let [file (new java.io.File path)]
+(defn read-file [^String file-name]
+  ;; (prn 'read-file file-name)
+  (let [file (new java.io.File (str &&/input-dir  "/" file-name))]
     (if (.exists file)
       (return (slurp file))
-      (fail (str "[I/O Error] File doesn't exist: " path)))))
+      (do (when (not (libs-imported?))
+            (init-libs!))
+        (if-let [code (get @!libs file-name)]
+          (return code)
+          (fail (str "[I/O Error] File doesn't exist: " file-name)))))))

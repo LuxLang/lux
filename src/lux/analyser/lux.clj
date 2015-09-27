@@ -558,7 +558,9 @@
            active? (&/active-module? path)
            _ (&/assert! (not active?) (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " module-name))
            _ (&&module/add-import path)
-           _ (&/when% (not already-compiled?) (compile-module path))]
+           _ (if (not already-compiled?)
+               (compile-module path)
+               (return nil))]
        (return &/Nil$)))))
 
 (defn analyse-export [analyse compile-token name]

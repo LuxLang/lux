@@ -89,7 +89,7 @@
                           ;; _ (prn 'load/IMPORTS module imports)
                           ]
                       (|do [loads (&/map% (fn [_import]
-                                            (|do [content (&&io/read-file (str &&/input-dir "/" _import ".lux"))
+                                            (|do [content (&&io/read-file (str _import ".lux"))
                                                   _ (load _import (hash content) compile-module)]
                                               (&/cached-module? _import)))
                                           (if (= [""] imports)

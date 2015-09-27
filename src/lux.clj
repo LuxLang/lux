@@ -5,17 +5,29 @@
 
 (ns lux
   (:gen-class)
-  (:require [lux.base :as &]
+  (:require [lux.base :as & :refer [|let |do return fail return* fail* |case]]
+            [lux.compiler.base :as &compiler-base]
             [lux.compiler :as &compiler]
-            :reload-all))
+            [lux.packager.lib :as &lib]
+            :reload-all)
+  (:import (java.io File)))
 
-(defn -main [& [program-module & _]]
-  (if program-module
-    (time (&compiler/compile-program program-module))
-    (println "Please provide a module name to compile."))
-  (System/exit 0)
+(defn -main [& args]
+  (|case (&/->list args)
+    (&/$Cons "compile" (&/$Cons program-module (&/$Nil)))
+    (if program-module
+      (time (&compiler/compile-program program-module))
+      (println "Please provide a module name to compile."))
+
+    (&/$Cons "lib" (&/$Cons lib-module (&/$Nil)))
+    (&lib/package lib-module (new File &compiler-base/input-dir))
+
+    _
+    (println "Can't understand command."))
+  ;; (System/exit 0)
   )
 
 (comment
-  (-main "program")
+  (-main "compile" "program")
+  (-main "lib" "lux")
   )

@@ -300,7 +300,9 @@
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
             _ (compile ?idx)
-            :let [_ (.visitInsn *writer* Opcodes/L2I)]
+            :let [_ (doto *writer*
+                      &&/unwrap-long
+                      (.visitInsn Opcodes/L2I))]
             :let [_ (doto *writer*
                       (.visitInsn <load-op>)
                       <wrapper>)]]
@@ -312,7 +314,9 @@
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
             :let [_ (.visitInsn *writer* Opcodes/DUP)]
             _ (compile ?idx)
-            :let [_ (.visitInsn *writer* Opcodes/L2I)]
+            :let [_ (doto *writer*
+                      &&/unwrap-long
+                      (.visitInsn Opcodes/L2I))]
             _ (compile ?elem)
             :let [_ (doto *writer*
                       <unwrapper>
@@ -342,7 +346,9 @@
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
         _ (compile ?idx)
-        :let [_ (.visitInsn *writer* Opcodes/L2I)]
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
         :let [_ (.visitInsn *writer* Opcodes/AALOAD)]]
     (return nil)))
 
@@ -352,7 +358,9 @@
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
         _ (compile ?idx)
-        :let [_ (.visitInsn *writer* Opcodes/L2I)]
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
         _ (compile ?elem)
         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))

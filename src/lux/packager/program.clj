@@ -3,19 +3,22 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(ns lux.compiler.package
+(ns lux.packager.program
   (:require [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
             (lux [base :as & :refer [|let |do return* return fail fail*]]
                  [host :as &host])
             (lux.compiler [base :as &&]))
-  (:import (java.io File
+  (:import (java.io InputStream
+                    File
                     FileInputStream
                     FileOutputStream
-                    BufferedInputStream)
+                    BufferedInputStream
+                    ByteArrayOutputStream)
            (java.util.jar Manifest
                           Attributes$Name
                           JarEntry
+                          JarInputStream
                           JarOutputStream
                           )))
 
@@ -49,12 +52,44 @@
     (let [module-name (.substring (.getPath file) output-dir-size) ;; (.getName file)
           ;; _ (prn 'write-module! module-name file (.getPath file) (.substring (.getPath file) output-dir-size))
           inner-files (.listFiles file)
-          inner-modules (filter #(.isDirectory %) inner-files)
-          inner-classes (filter #(not (.isDirectory %)) inner-files)]
+          inner-modules (filter #(.isDirectory ^File %) inner-files)
+          inner-classes (filter #(not (.isDirectory ^File %)) inner-files)]
       (doseq [$class inner-classes]
         (write-class! module-name $class out))
       (doseq [$module inner-modules]
         (write-module! $module out)))))
+
+(defn ^:private fetch-available-jars []
+  (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
+       (.getURLs)
+       (map #(.getFile ^java.net.URL %))
+       (filter #(.endsWith ^String % ".jar"))))
+
+(let [init-capacity (* 100 1024)
+      buffer-size 1024]
+  (defn ^:private ^"[B" read-stream [^InputStream is]
+    (let [buffer (byte-array buffer-size)]
+      (with-open [os (new ByteArrayOutputStream init-capacity)]
+        (loop [bytes-read (.read is buffer 0 buffer-size)]
+          (when (not= -1 bytes-read)
+            (do (.write os buffer 0 bytes-read)
+              (recur (.read is buffer 0 buffer-size)))))
+        (.toByteArray os)))))
+
+(defn ^:private add-jar! [^File jar-file ^JarOutputStream out]
+  (with-open [is (->> jar-file (new FileInputStream) (new JarInputStream))]
+    (loop [^JarEntry entry (.getNextJarEntry is)]
+      (when entry
+        ;; (prn 'add-jar! (.getName entry) (.isDirectory entry))
+        (when (and (not (.isDirectory entry))
+                   (not (.startsWith (.getName entry) "META-INF/")))
+          (let [entry-data (read-stream is)]
+            (doto out
+              (.putNextEntry entry)
+              (.write entry-data 0 (alength entry-data))
+              (.flush)
+              (.closeEntry))))
+        (recur (.getNextJarEntry is))))))
 
 ;; [Resources]
 (defn package [module]
@@ -63,4 +98,6 @@
   (with-open [out (new JarOutputStream (->> &&/output-package (new File) (new FileOutputStream)) (manifest module))]
     (doseq [$group (.listFiles (new File &&/output-dir))]
       (write-module! $group out))
+    (doseq [^String jar-file (fetch-available-jars)]
+      (add-jar! (new File jar-file) out))
     ))

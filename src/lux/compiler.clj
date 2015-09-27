@@ -26,9 +26,9 @@
                           [host :as &&host]
                           [case :as &&case]
                           [lambda :as &&lambda]
-                          [package :as &&package]
                           [module :as &&module]
-                          [io :as &&io]))
+                          [io :as &&io])
+            [lux.packager.program :as &packager-program])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -473,7 +473,7 @@
 
 (defn ^:private compile-module [name]
   ;; (prn 'compile-module name (&&cache/cached? name))
-  (let [file-name (str &&/input-dir "/" name ".lux")]
+  (let [file-name (str name ".lux")]
     (|do [file-content (&&io/read-file file-name)
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
@@ -551,7 +551,7 @@
     (&/$Right ?state _)
     (do (println "Compilation complete!")
       (&&cache/clean ?state)
-      (&&package/package program-module))
+      (&packager-program/package program-module))
 
     (&/$Left ?message)
     (assert false ?message)))

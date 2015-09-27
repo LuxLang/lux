@@ -118,6 +118,7 @@
 (def tags-field "_tags")
 (def module-class-name "_")
 (def +name-separator+ ";")
+(def lib-dir "lib")
 
 (defn T [& elems]
   (to-array elems))
