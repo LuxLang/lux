@@ -11,10 +11,12 @@
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
+            [lux.type.host :as &host-type]
             (lux.analyser [base :as &&]
                           [lambda :as &&lambda]
                           [env :as &&env])
-            [lux.compiler.base :as &c!base]))
+            [lux.compiler.base :as &c!base])
+  (:import (java.lang.reflect TypeVariable)))
 
 ;; [Utils]
 (defn ^:private extract-text [ast]
@@ -80,7 +82,7 @@
   "(-> Type Type)"
   (|case type
     (&/$DataT class params)
-    (&type/Data$ (&type/as-obj class) params)
+    (&type/Data$ (&host-type/as-obj class) params)
 
     _
     type))
@@ -279,19 +281,68 @@
                                (&/V &&/$jvm-null? =object))))))
 
 (defn analyse-jvm-null [analyse exo-type]
-  (|do [:let [output-type (&type/Data$ &host/null-data-tag &/Nil$)]
+  (|do [:let [output-type (&type/Data$ &host-type/null-data-tag &/Nil$)]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta output-type _cursor
                                (&/V &&/$jvm-null nil))))))
 
+(defn ^:private clean-gtype-var [idx gtype-var]
+  (|let [(&/$VarT id) gtype-var]
+    (|do [? (&type/bound? id)]
+      (if ?
+        (|do [real-type (&type/deref id)]
+          (return (&/T idx real-type)))
+        (return (&/T (+ 2 idx) (&type/Bound$ idx)))))))
+
+(defn ^:private clean-gtype-vars [gtype-vars]
+  (|do [[_ clean-types] (&/fold% (fn [idx+types gtype-var]
+                                   (|do [:let [[idx types] idx+types]
+                                         [idx* real-type] (clean-gtype-var idx gtype-var)]
+                                     (return (&/T idx* (&/Cons$ real-type types)))))
+                                 (&/T 0 (&/|list))
+                                 gtype-vars)]
+    (return clean-types)))
+
+(defn ^:private make-gtype [class-name type-args]
+  "(-> Text (List Type) Type)"
+  (&/fold (fn [base-type type-arg]
+            (|case type-arg
+              (&/$BoundT _)
+              (&type/Univ$ &type/empty-env base-type)
+              
+              _
+              base-type))
+          (&type/Data$ class-name type-args)
+          type-args))
+
+(defn ^:private analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
+  (|case gtype-vars
+    (&/$Nil)
+    (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
+          ;; :let [_ (prn 'analyse-jvm-new-helper/_0 gtype)
+          ;;       _ (prn 'analyse-jvm-new-helper/_1 gtype (->> arg-types (&/|map &type/show-type) &/->seq))
+          ;;       _ (prn 'analyse-jvm-new-helper/_2 gtype (->> args (&/|map &/show-ast) &/->seq))]
+          =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
+          gtype-vars* (->> gtype-env (&/|map &/|second) (clean-gtype-vars))]
+      (return (&/T (make-gtype gtype gtype-vars*)
+                   =args)))
+    
+    (&/$Cons ^TypeVariable gtv gtype-vars*)
+    (&type/with-var
+      (fn [$var]
+        ;; (prn 'analyse-jvm-new-helper gtype gtv $var (&/|length gtype-vars) (&/|length gtype-args))
+        (|let [gtype-env* (&/Cons$ (&/T (.getName gtv) $var) gtype-env)]
+          (analyse-jvm-new-helper analyse gtype gtype-env* gtype-vars* gtype-args args))))
+    ))
+
 (defn analyse-jvm-new [analyse exo-type class classes args]
   (|do [class-loader &/loader
-        [=return exceptions] (&host/lookup-constructor class-loader class classes)
-        =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
-                       classes args)
+        [exceptions gvars gargs] (&host/lookup-constructor class-loader class classes)
+        ;; :let [_ (prn 'analyse-jvm-new class (&/->seq gvars) (&/->seq gargs))]
         _ (ensure-catching exceptions)
-        :let [output-type (&type/Data$ class &/Nil$)]
+        [output-type =args] (analyse-jvm-new-helper analyse class (&/|table) gvars gargs args)
+        ;; :let [_ (prn 'analyse-jvm-new/POST class (->> classes &/->seq vec) (&type/show-type output-type))]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta output-type _cursor
@@ -299,7 +350,7 @@
 
 (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
   (let [elem-type (&type/Data$ <class> &/Nil$)
-        array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))
+        array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))
         length-type &type/Int
         idx-type &type/Int]
     (defn <new-name> [analyse length]
@@ -338,7 +389,7 @@
       idx-type &type/Int]
   (defn analyse-jvm-anewarray [analyse class length]
     (let [elem-type (&type/Data$ class &/Nil$)
-          array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
       (|do [=length (&&/analyse-1 analyse length-type length)
             _cursor &/cursor]
         (return (&/|list (&&/|meta array-type _cursor
@@ -346,7 +397,7 @@
 
   (defn analyse-jvm-aaload [analyse class array idx]
     (let [elem-type (&type/Data$ class &/Nil$)
-          array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
             _cursor &/cursor]
@@ -355,7 +406,7 @@
 
   (defn analyse-jvm-aastore [analyse class array idx elem]
     (let [elem-type (&type/Data$ class &/Nil$)
-          array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
             =elem (&&/analyse-1 analyse elem-type elem)
@@ -368,7 +419,7 @@
     (&type/with-var
       (fn [$var]
         (let [elem-type $var
-              array-type (&type/Data$ &host/array-data-tag (&/|list elem-type))]
+              array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
           (|do [=array (&&/analyse-1 analyse array-type array)
                 _cursor &/cursor]
             (return (&/|list (&&/|meta length-type _cursor

@@ -7,7 +7,8 @@
   (:refer-clojure :exclude [deref apply merge bound?])
   (:require clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [|do return* return fail fail* assert! |let |case]]))
+            (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
+            [lux.type.host :as &&host]))
 
 (declare show-type)
 
@@ -23,7 +24,7 @@
     _
     false))
 
-(def ^:private empty-env &/Nil$)
+(def empty-env &/Nil$)
 (defn Data$ [name params]
   (&/V &/$DataT (&/T name params)))
 (defn Bound$ [idx]
@@ -463,21 +464,6 @@
     _
     (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
 
-(defn as-obj [class]
-  (case class
-    "boolean" "java.lang.Boolean"
-    "byte"    "java.lang.Byte"
-    "short"   "java.lang.Short"
-    "int"     "java.lang.Integer"
-    "long"    "java.lang.Long"
-    "float"   "java.lang.Float"
-    "double"  "java.lang.Double"
-    "char"    "java.lang.Character"
-    ;; else
-    class))
-
-(def ^:private primitive-types #{"boolean" "byte" "short" "int" "long" "float" "double" "char"})
-
 (def ^:private init-fixpoints &/Nil$)
 
 (defn ^:private check* [class-loader fixpoints invariant?? expected actual]
@@ -665,7 +651,7 @@
 
       [(&/$DataT e!name e!params) (&/$DataT a!name a!params)]
       (cond (= "#Null" a!name)
-            (if (not (contains? primitive-types e!name))
+            (if (not (&&host/primitive-type? e!name))
               (return (&/T fixpoints nil))
               (fail (check-error expected actual)))
 
@@ -675,22 +661,16 @@
               (fail (check-error expected actual)))
 
             :else
-            (let [e!name (as-obj e!name)
-                  a!name (as-obj a!name)]
+            (let [e!name (&&host/as-obj e!name)
+                  a!name (&&host/as-obj a!name)]
               (cond (and (.equals ^Object e!name a!name)
                          (= (&/|length e!params) (&/|length a!params)))
                     (|do [_ (&/map2% (partial check* class-loader fixpoints true) e!params a!params)]
                       (return (&/T fixpoints nil)))
 
-                    (and (not invariant??)
-                         ;; (do (println '[Data Data] [e!name a!name]
-                         ;;              [(str "(" (->> e!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
-                         ;;               (str "(" (->> a!params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")])
-                         ;;   true)
-                         (try (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader))
-                           (catch Exception e
-                             (prn 'FAILED_HERE e!name a!name))))
-                    (return (&/T fixpoints nil))
+                    (not invariant??)
+                    (|do [actual& (&&host/->super-type existential class-loader e!name a!name a!params)]
+                      (check* class-loader fixpoints invariant?? expected actual&))
 
                     :else
                     (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))

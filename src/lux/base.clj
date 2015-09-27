@@ -987,3 +987,15 @@
   flag-compiled-module compiled-module? $Compiled
   flag-cached-module   cached-module?   $Cached
   )
+
+(do-template [<name> <default> <op>]
+  (defn <name> [p xs]
+    (|case xs
+      ($Nil)
+      <default>
+
+      ($Cons x xs*)
+      (<op> (p x) (|every? p xs*))))
+
+  |every? true  and
+  |any?   false or)

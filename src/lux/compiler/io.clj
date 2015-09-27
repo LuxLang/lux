@@ -15,7 +15,7 @@
   (not (nil? @!libs)))
 
 (defn ^:private init-libs! []
-  (reset! !libs (&lib/load &/lib-dir)))
+  (reset! !libs (&lib/load)))
 
 ;; [Resources]
 (defn read-file [^String file-name]

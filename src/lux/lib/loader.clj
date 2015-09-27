@@ -16,8 +16,13 @@
                                                       TarArchiveInputStream)))
 
 ;; [Utils]
-(defn ^:private fetch-libs [from]
-  (seq (.listFiles (new File from))))
+(defn ^:private fetch-libs []
+  (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
+       (.getURLs)
+       seq
+       (map #(.getFile ^java.net.URL %))
+       (filter #(.endsWith ^String % ".tar.gz"))
+       (map #(new File ^String %))))
 
 (let [init-capacity (* 100 1024)
       buffer-size 1024]
@@ -45,10 +50,10 @@
 ;; [Exports]
 (def lib-ext ".tar.gz")
 
-(defn load [from]
-  (reduce merge {}
-          (for [lib (fetch-libs from)]
-            (unpackage lib))))
+(defn load []
+  (->> (fetch-libs)
+       (map unpackage)
+       (reduce merge {})))
 
 (comment
   (->> &/lib-dir load keys)

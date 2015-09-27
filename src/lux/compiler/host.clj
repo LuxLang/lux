@@ -15,6 +15,7 @@
                  [parser :as &parser]
                  [analyser :as &analyser]
                  [host :as &host])
+            [lux.type.host :as &host-type]
             [lux.analyser.base :as &a]
             [lux.compiler.base :as &&]
             :reload)
@@ -208,13 +209,13 @@
                        (return ret)))
                    ?classes ?args)
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class (&type/as-obj ?class)) ?method method-sig)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class (&host-type/as-obj ?class)) ?method method-sig)
                   (prepare-return! ?output-type))]]
     (return nil)))
 
 (do-template [<name> <op>]
   (defn <name> [compile ?class ?method ?classes ?object ?args ?output-type]
-    (|do [:let [?class* (&host/->class (&type/as-obj ?class))]
+    (|do [:let [?class* (&host/->class (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
           :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
           _ (compile ?object)
@@ -235,7 +236,7 @@
   )
 
 (defn compile-jvm-invokespecial [compile ?class ?method ?classes ?object ?args ?output-type]
-  (|do [:let [?class* (&host/->class (&type/as-obj ?class))]
+  (|do [:let [?class* (&host/->class (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
         _ (compile ?object)
@@ -378,12 +379,12 @@
 (defn compile-jvm-getstatic [compile ?class ?field ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&type/as-obj ?class)) ?field (&host/->java-sig ?output-type))
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&host-type/as-obj ?class)) ?field (&host/->java-sig ?output-type))
                   (prepare-return! ?output-type))]]
     (return nil)))
 
 (defn compile-jvm-getfield [compile ?class ?field ?object ?output-type]
-  (|do [:let [class* (&host/->class (&type/as-obj ?class))]
+  (|do [:let [class* (&host/->class (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [_ (doto *writer*
@@ -395,12 +396,12 @@
 (defn compile-jvm-putstatic [compile ?class ?field ?value ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&type/as-obj ?class)) ?field (&host/->java-sig ?output-type))]
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&host-type/as-obj ?class)) ?field (&host/->java-sig ?output-type))]
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
 (defn compile-jvm-putfield [compile ?class ?field ?object ?value ?output-type]
-  (|do [:let [class* (&host/->class (&type/as-obj ?class))]
+  (|do [:let [class* (&host/->class (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [_ (.visitInsn *writer* Opcodes/DUP)]

@@ -332,32 +332,29 @@
                          (let [(~@ var-rebinds)]
                            (~ new-expr)))))))))
 
-(do-template [<name> <op>]
+(do-template [<name> <op> <use-self?>]
   [(defsyntax #export (<name> [class local-symbol^] [method local-symbol^] [args (tuple^ (*^ exp-input^))]
-                              [expected-output exp-output^])
+                              [expected-output exp-output^] [unsafe? (tag?^ ["" "unsafe"])])
      (do Lux/Monad
        [[vars var-types var-rebinds arg-classes] (prepare-args args)
         g!self (gensym "self")
-        #let [[body return-type] (gen-expected-output expected-output
-                                                      (` (<op> (~ (text$ class)) (~ (text$ method)) [(~@ (map text$ arg-classes))] (~ g!self) [(~@ vars)])))]]
+        #let [included-self (: (List AST)
+                               (if <use-self?>
+                                 (@list g!self)
+                                 (@list)))
+              [body return-type] (gen-expected-output expected-output
+                                                      (` (<op> (~ (text$ class)) (~ (text$ method)) [(~@ (map text$ arg-classes))] (~@ included-self) [(~@ vars)])))
+              [body return-type] (if unsafe?
+                                   [(` (try (~ body))) (` (Either Text (~ return-type)))]
+                                   [body return-type])]]
        (wrap (@list (` (: (-> (, (~@ var-types)) (^ (~ (symbol$ ["" class]))) (~ return-type))
-                          (lambda [[(~@ vars)] (~ g!self)]
+                          (lambda [[(~@ vars)] (~@ included-self)]
                             (let [(~@ var-rebinds)]
                               (~ body)))))))
        ))]
 
-  [invoke-virtual$   ;_jvm_invokevirtual]
-  [invoke-interface$ ;_jvm_invokeinterface]
+  [invoke-virtual$   ;_jvm_invokevirtual   true]
+  [invoke-interface$ ;_jvm_invokeinterface true]
+  [invoke-special$   ;_jvm_invokespecial   true]
+  [invoke-static$    ;_jvm_invokestatic    false]
   )
-
-(defsyntax #export (invoke-static$ [class local-symbol^] [method local-symbol^] [args (tuple^ (*^ exp-input^))]
-                                   [expected-output exp-output^])
-  (do Lux/Monad
-    [[vars var-types var-rebinds arg-classes] (prepare-args args)
-     #let [[body return-type] (gen-expected-output expected-output
-                                                   (` (;_jvm_invokestatic (~ (text$ class)) (~ (text$ method)) [(~@ (map text$ arg-classes))] [(~@ vars)])))]]
-    (wrap (@list (` (: (-> (, (~@ var-types)) (~ return-type))
-                       (lambda [[(~@ vars)]]
-                         (let [(~@ var-rebinds)]
-                           (~ body)))))))
-    ))

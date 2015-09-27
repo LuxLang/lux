@@ -9,7 +9,8 @@
             clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
-                 [type :as &type]))
+                 [type :as &type])
+            [lux.type.host :as &host-type])
   (:import (java.lang.reflect Field Method Constructor Modifier)
            java.util.regex.Pattern
            (org.objectweb.asm Opcodes
@@ -23,29 +24,9 @@
 (def module-separator "/")
 (def class-name-separator ".")
 (def class-separator "/")
-(def array-data-tag "#Array")
-(def null-data-tag "#Null")
 
 ;; [Utils]
 (def class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+))")
-
-(comment
-  (let [class (class (to-array []))]
-    (str (if-let [pkg (.getPackage class)]
-           (str (.getName pkg) ".")
-           "")
-         (.getSimpleName class)))
-
-  (.getName String) "java.lang.String"
-
-  (.getName (class (to-array []))) "[Ljava.lang.Object;"
-
-  (re-find class-name-re "java.lang.String")
-  ["java.lang.String" "java.lang.String" nil nil "java.lang.String"]
-
-  (re-find class-name-re "[Ljava.lang.Object;")
-  ["[Ljava.lang.Object;" "[Ljava.lang.Object;" "[" "java.lang.Object" nil]
-  )
 
 (defn ^:private class->type [^Class class]
   "(-> Class Type)"
@@ -55,7 +36,7 @@
           ;; (prn 'class->type/_1 class base arr-brackets)
           (let [output-type (if (.equals "void" base)
                               &type/Unit
-                              (reduce (fn [inner _] (&type/Data$ array-data-tag (&/|list inner)))
+                              (reduce (fn [inner _] (&type/Data$ &host-type/array-data-tag (&/|list inner)))
                                       (&type/Data$ base &/Nil$)
                                       (range (count (or arr-brackets ""))))
                               )]
@@ -113,16 +94,16 @@
   "(-> Type Text)"
   (|case type
     (&/$DataT ?name params)
-    (cond (= array-data-tag ?name) (|let [[level base] (unfold-array type)
-                                          base-sig (|case base
-                                                     (&/$DataT base-class _)
-                                                     (->class base-class)
+    (cond (= &host-type/array-data-tag ?name) (|let [[level base] (unfold-array type)
+                                                     base-sig (|case base
+                                                                (&/$DataT base-class _)
+                                                                (->class base-class)
 
-                                                     _
-                                                     (->java-sig base))]
-                                     (str (->> (&/|repeat level "[") (&/fold str ""))
-                                          "L" base-sig ";"))
-          (= null-data-tag ?name)  (->type-signature "java.lang.Object")
+                                                                _
+                                                                (->java-sig base))]
+                                                (str (->> (&/|repeat level "[") (&/fold str ""))
+                                                     "L" base-sig ";"))
+          (= &host-type/null-data-tag ?name)  (->type-signature "java.lang.Object")
           :else                    (->type-signature ?name))
 
     (&/$LambdaT _ _)
@@ -140,7 +121,7 @@
 
 (do-template [<name> <static?>]
   (defn <name> [class-loader target field]
-    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName (&type/as-obj target) true class-loader))
+    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName (&host-type/as-obj target) true class-loader))
                                 :when (and (.equals ^Object field (.getName =field))
                                            (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
                             (.getType =field)))]
@@ -154,7 +135,7 @@
 (do-template [<name> <static?>]
   (defn <name> [class-loader target method-name args]
     ;; (prn '<name> target method-name)
-    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&type/as-obj target) true class-loader))
+    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj target) true class-loader))
                                  :when (and (.equals ^Object method-name (.getName =method))
                                             (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
                                             (let [param-types (&/->list (seq (.getParameterTypes =method)))]
@@ -172,20 +153,24 @@
   )
 
 (defn lookup-constructor [class-loader target args]
-  ;; (prn 'lookup-constructor class-loader target (&type/as-obj target))
-  (if-let [ctor (first (for [^Constructor =method (.getDeclaredConstructors (Class/forName (&type/as-obj target) true class-loader))
-                             :when (let [param-types (&/->list (seq (.getParameterTypes =method)))]
-                                     (and (= (&/|length args) (&/|length param-types))
-                                          (&/fold2 #(and %1 (.equals ^Object %2 %3))
-                                                   true
-                                                   args
-                                                   (&/|map #(.getName ^Class %) param-types))))]
-                         =method))]
-    (return (&/T &type/Unit (->> ctor .getExceptionTypes &/->list (&/|map #(.getName %)))))
-    (fail (str "[Host Error] Constructor does not exist: " target))))
+  ;; (prn 'lookup-constructor class-loader target (&host-type/as-obj target))
+  (let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
+    (if-let [^Constructor ctor (first (for [^Constructor =method (.getDeclaredConstructors target-class)
+                                            :when (let [param-types (&/->list (seq (.getParameterTypes =method)))]
+                                                    (and (= (&/|length args) (&/|length param-types))
+                                                         (&/fold2 #(and %1 (.equals ^Object %2 %3))
+                                                                  true
+                                                                  args
+                                                                  (&/|map #(.getName ^Class %) param-types))))]
+                                        =method))]
+      (|let [gvars (->> target-class .getTypeParameters seq &/->list)
+             gargs (->> ctor .getGenericParameterTypes seq &/->list)
+             exs (->> ctor .getExceptionTypes &/->list (&/|map #(.getName %)))]
+        (return (&/T exs gvars gargs)))
+      (fail (str "[Host Error] Constructor does not exist: " target)))))
 
 (defn abstract-methods [class-loader class]
-  (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&type/as-obj class) true class-loader))
+  (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj class) true class-loader))
                           :when (.equals true (Modifier/isAbstract (.getModifiers =method)))]
                       (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method)))))))))
 

@@ -68,7 +68,7 @@
       (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
       )))
 
-(defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba8 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Arrays
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_znewarray")] (&/$Cons ?length (&/$Nil))))
@@ -155,6 +155,12 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_arraylength")] (&/$Cons ?array (&/$Nil))))
     (&&host/analyse-jvm-arraylength analyse ?array)
 
+    _
+    (do (prn 'aba8 (&/adt->text token))
+      (assert false (str "Unknown syntax: " (prn-str (&/show-ast (&&/|meta (&/T "" -1 -1) token))))))))
+
+(defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
+  (|case token
     ;; Classes & interfaces
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_class")]
                        (&/$Cons [_ (&/$TextS ?name)]
@@ -191,7 +197,7 @@
     (&&host/analyse-jvm-program analyse compile-token ?args ?body)
     
     _
-    (fail "")))
+    (aba8 analyse eval! compile-module compile-token exo-type token)))
 
 (defn ^:private aba6 [analyse eval! compile-module compile-token exo-type token]
   (|case token
