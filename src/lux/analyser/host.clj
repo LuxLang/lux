@@ -69,14 +69,23 @@
                                output)))))
     ))
 
-(defn ^:private ensure-object [token]
-  "(-> Analysis (Lux (,)))"
-  (|case token
-    [_ (&/$DataT _ _)]
-    (return nil)
+(defn ^:private ensure-object [type]
+  "(-> Type (Lux (, Text (List Type))))"
+  (|case type
+    (&/$DataT payload)
+    (return payload)
+
+    (&/$NamedT _ type*)
+    (ensure-object type*)
+
+    (&/$UnivQ _ type*)
+    (ensure-object type*)
+
+    (&/$ExQ _ type*)
+    (ensure-object type*)
 
     _
-    (fail "[Analyser Error] Expecting object")))
+    (fail (str "[Analyser Error] Expecting object: " (&type/show-type type)))))
 
 (defn ^:private as-object [type]
   "(-> Type Type)"
@@ -109,6 +118,35 @@
 
     _
     type))
+
+(defn ^:private clean-gtype-var [idx gtype-var]
+  (|let [(&/$VarT id) gtype-var]
+    (|do [? (&type/bound? id)]
+      (if ?
+        (|do [real-type (&type/deref id)]
+          (return (&/T idx real-type)))
+        (return (&/T (+ 2 idx) (&type/Bound$ idx)))))))
+
+(defn ^:private clean-gtype-vars [gtype-vars]
+  (|do [[_ clean-types] (&/fold% (fn [idx+types gtype-var]
+                                   (|do [:let [[idx types] idx+types]
+                                         [idx* real-type] (clean-gtype-var idx gtype-var)]
+                                     (return (&/T idx* (&/Cons$ real-type types)))))
+                                 (&/T 0 (&/|list))
+                                 gtype-vars)]
+    (return clean-types)))
+
+(defn ^:private make-gtype [class-name type-args]
+  "(-> Text (List Type) Type)"
+  (&/fold (fn [base-type type-arg]
+            (|case type-arg
+              (&/$BoundT _)
+              (&type/Univ$ &type/empty-env base-type)
+              
+              _
+              base-type))
+          (&type/Data$ class-name type-args)
+          type-args))
 
 ;; [Resources]
 (do-template [<name> <output-tag> <input-class> <output-class>]
@@ -163,50 +201,124 @@
   analyse-jvm-dgt  &&/$jvm-dgt  "java.lang.Double"  "java.lang.Boolean"
   )
 
+(defn ^:private analyse-field-access-helper [obj-type gvars gtype]
+  "(-> Type (List (^ java.lang.reflect.Type)) (^ java.lang.reflect.Type) (Lux Type))"
+  (|case obj-type
+    (&/$DataT class targs)
+    (if (= (&/|length targs) (&/|length gvars))
+      (|let [gtype-env (&/fold2 (fn [m g t] (&/Cons$ (&/T (.getName g) t) m))
+                                (&/|table)
+                                gvars
+                                targs)]
+        (&host-type/instance-param &type/existential gtype-env gtype))
+      (fail (str "[Type Error] Mismatched number of type-parameters: " (&/|length gvars) " - " (&type/show-type obj-type))))
+
+    _
+    (fail (str "[Type Error] Type is not an object type: " (&type/show-type obj-type)))))
+
 (defn analyse-jvm-getstatic [analyse exo-type class field]
   (|do [class-loader &/loader
-        =type (&host/lookup-static-field class-loader class field)
+        [gvars gtype] (&host/lookup-static-field class-loader class field)
+        ;; :let [_ (prn 'analyse-jvm-getstatic class field (&/->seq gvars) gtype)]
+        :let [=type (&host-type/class->type (cast Class gtype))]
         :let [output-type =type]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-getstatic (&/T class field output-type)))))))
 
 (defn analyse-jvm-getfield [analyse exo-type class field object]
   (|do [class-loader &/loader
-        =type (&host/lookup-static-field class-loader class field)
         =object (&&/analyse-1 analyse object)
+        _ (ensure-object (&&/expr-type* =object))
+        [gvars gtype] (&host/lookup-field class-loader class field)
+        =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
         :let [output-type =type]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-getfield (&/T class field =object output-type)))))))
 
 (defn analyse-jvm-putstatic [analyse exo-type class field value]
   (|do [class-loader &/loader
-        =type (&host/lookup-static-field class-loader class field)
+        [gvars gtype] (&host/lookup-static-field class-loader class field)
+        :let [=type (&host-type/class->type (cast Class gtype))]
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-putstatic (&/T class field =value output-type)))))))
 
 (defn analyse-jvm-putfield [analyse exo-type class field value object]
   (|do [class-loader &/loader
-        =type (&host/lookup-static-field class-loader class field)
         =object (&&/analyse-1 analyse object)
+        _ (ensure-object (&&/expr-type* =object))
+        [gvars gtype] (&host/lookup-field class-loader class field)
+        =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-putfield (&/T class field =value =object (&&/expr-type* =object))))))))
+
+(defn analyse-jvm-instanceof [analyse exo-type class object]
+  (|do [=object (&&/analyse-1+ analyse object)
+        _ (ensure-object (&&/expr-type* =object))
+        :let [output-type &type/Bool]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&/V &&/$jvm-instanceof (&/T class =object)))))))
+
+(defn ^:private analyse-method-call-helper [analyse gret gtype-env gtype-vars gtype-args args]
+  (|case gtype-vars
+    (&/$Nil)
+    (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
+          =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
+          =gret (&host-type/instance-param &type/existential gtype-env gret)]
+      (return (&/T =gret =args)))
+    
+    (&/$Cons ^TypeVariable gtv gtype-vars*)
+    (&type/with-var
+      (fn [$var]
+        (|let [gtype-env* (&/Cons$ (&/T (.getName gtv) $var) gtype-env)]
+          (analyse-method-call-helper analyse gret gtype-env* gtype-vars* gtype-args args))))
+    ))
+
+(let [dummy-type-param (&type/Data$ "java.lang.Object" (&/|list))]
+  (do-template [<name> <tag>]
+    (defn <name> [analyse exo-type class method classes object args]
+      (|do [class-loader &/loader
+            [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
+                                                         (return (&/T Void/TYPE &/Nil$ &/Nil$ &/Nil$ &/Nil$))
+                                                         (&host/lookup-virtual-method class-loader class method classes))
+            ;; :let [_ (prn '<name> [class method] (&/adt->text =return+exceptions))]
+            _ (ensure-catching exceptions)
+            =object (&&/analyse-1+ analyse object)
+            [sub-class sub-params] (ensure-object (&&/expr-type* =object))
+            (&/$DataT super-class* super-params*) (&host-type/->super-type &type/existential class-loader class sub-class sub-params)
+            :let [gtype-env (&/fold2 (fn [m g t] (&/Cons$ (&/T g t) m))
+                                     (&/|table)
+                                     parent-gvars
+                                     super-params*)]
+            [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
+            ;; :let [_ (prn '<name> [class method] (&type/show-type exo-type) (&type/show-type output-type))]
+            ;; :let [_ (prn '<name> '(as-otype+ output-type) (&type/show-type (as-otype+ output-type)))]
+            _ (&type/check exo-type (as-otype+ output-type))
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&/V <tag> (&/T class method classes =object =args output-type)))))))
+
+    analyse-jvm-invokevirtual   &&/$jvm-invokevirtual
+    analyse-jvm-invokeinterface &&/$jvm-invokeinterface
+    analyse-jvm-invokespecial   &&/$jvm-invokespecial
+    ))
 
 (defn analyse-jvm-invokestatic [analyse exo-type class method classes args]
   (|do [class-loader &/loader
-        =return+exceptions (&host/lookup-static-method class-loader class method classes)
-        :let [[=return exceptions] =return+exceptions]
+        [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader class method classes)
         ;; :let [_ (prn 'analyse-jvm-invokestatic (&/adt->text =return+exceptions))]
         _ (ensure-catching exceptions)
         ;; :let [_ (matchv ::M/objects [=return]
@@ -216,64 +328,15 @@
                          (&&/analyse-1 analyse (&type/Data$ _class &/Nil$) _arg))
                        classes
                        args)
-        :let [output-type =return]
+        :let [output-type (&host-type/class->type (cast Class gret))]
         _ (&type/check exo-type (as-otype+ output-type))
         _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-invokestatic (&/T class method classes =args output-type)))))))
-
-(defn analyse-jvm-instanceof [analyse exo-type class object]
-  (|do [=object (&&/analyse-1+ analyse object)
-        _ (ensure-object =object)
-        :let [output-type &type/Bool]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
-                               (&/V &&/$jvm-instanceof (&/T class =object)))))))
-
-(do-template [<name> <tag>]
-  (defn <name> [analyse exo-type class method classes object args]
-    (|do [class-loader &/loader
-          =return+exceptions (&host/lookup-virtual-method class-loader class method classes)
-          ;; :let [_ (prn '<name> [class method] (&/adt->text =return+exceptions))]
-          :let [[=return exceptions] =return+exceptions]
-          _ (ensure-catching exceptions)
-          =object (&&/analyse-1 analyse (&type/Data$ class &/Nil$) object)
-          =args (&/map2% (fn [c o] (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
-                         classes args)
-          :let [output-type =return]
-          ;; :let [_ (prn '<name> [class method] '=return (&type/show-type =return))]
-          ;; :let [_ (prn '<name> '(as-otype+ output-type) (&type/show-type (as-otype+ output-type)))]
-          _ (&type/check exo-type (as-otype+ output-type))
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta output-type _cursor
-                                 (&/V <tag> (&/T class method classes =object =args output-type)))))))
-
-  analyse-jvm-invokevirtual   &&/$jvm-invokevirtual
-  analyse-jvm-invokeinterface &&/$jvm-invokeinterface
-  )
-
-(defn analyse-jvm-invokespecial [analyse exo-type class method classes object args]
-  (|do [class-loader &/loader
-        =return+exceptions (if (= "<init>" method)
-                             (return (&/T &type/Unit &/Nil$))
-                             (&host/lookup-virtual-method class-loader class method classes))
-        :let [[=return exceptions] =return+exceptions]
-        ;; :let [_ (prn 'analyse-jvm-invokespecial (&/adt->text =return+exceptions))]
-        _ (ensure-catching exceptions)
-        =object (&&/analyse-1 analyse (&type/Data$ class &/Nil$) object)
-        =args (&/map2% (fn [c o]
-                         (&&/analyse-1 analyse (&type/Data$ c &/Nil$) o))
-                       classes args)
-        :let [output-type =return]
-        _ (&type/check exo-type (as-otype+ output-type))
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
-                               (&/V &&/$jvm-invokespecial (&/T class method classes =object =args output-type)))))))
 
 (defn analyse-jvm-null? [analyse exo-type object]
   (|do [=object (&&/analyse-1+ analyse object)
-        _ (ensure-object =object)
+        _ (ensure-object (&&/expr-type* =object))
         :let [output-type &type/Bool]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
@@ -286,35 +349,6 @@
         _cursor &/cursor]
     (return (&/|list (&&/|meta output-type _cursor
                                (&/V &&/$jvm-null nil))))))
-
-(defn ^:private clean-gtype-var [idx gtype-var]
-  (|let [(&/$VarT id) gtype-var]
-    (|do [? (&type/bound? id)]
-      (if ?
-        (|do [real-type (&type/deref id)]
-          (return (&/T idx real-type)))
-        (return (&/T (+ 2 idx) (&type/Bound$ idx)))))))
-
-(defn ^:private clean-gtype-vars [gtype-vars]
-  (|do [[_ clean-types] (&/fold% (fn [idx+types gtype-var]
-                                   (|do [:let [[idx types] idx+types]
-                                         [idx* real-type] (clean-gtype-var idx gtype-var)]
-                                     (return (&/T idx* (&/Cons$ real-type types)))))
-                                 (&/T 0 (&/|list))
-                                 gtype-vars)]
-    (return clean-types)))
-
-(defn ^:private make-gtype [class-name type-args]
-  "(-> Text (List Type) Type)"
-  (&/fold (fn [base-type type-arg]
-            (|case type-arg
-              (&/$BoundT _)
-              (&type/Univ$ &type/empty-env base-type)
-              
-              _
-              base-type))
-          (&type/Data$ class-name type-args)
-          type-args))
 
 (defn ^:private analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
   (|case gtype-vars
@@ -345,7 +379,7 @@
         ;; :let [_ (prn 'analyse-jvm-new/POST class (->> classes &/->seq vec) (&type/show-type output-type))]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-new (&/T class classes =args)))))))
 
 (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
@@ -353,25 +387,28 @@
         array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))
         length-type &type/Int
         idx-type &type/Int]
-    (defn <new-name> [analyse length]
+    (defn <new-name> [analyse exo-type length]
       (|do [=length (&&/analyse-1 analyse length-type length)
+            _ (&type/check exo-type array-type)
             _cursor &/cursor]
-        (return (&/|list (&&/|meta array-type _cursor
+        (return (&/|list (&&/|meta exo-type _cursor
                                    (&/V <new-tag> =length))))))
 
-    (defn <load-name> [analyse array idx]
+    (defn <load-name> [analyse exo-type array idx]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
+            _ (&type/check exo-type elem-type)
             _cursor &/cursor]
-        (return (&/|list (&&/|meta elem-type _cursor
+        (return (&/|list (&&/|meta exo-type _cursor
                                    (&/V <load-tag> (&/T =array =idx)))))))
 
-    (defn <store-name> [analyse array idx elem]
+    (defn <store-name> [analyse exo-type array idx elem]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
             =elem (&&/analyse-1 analyse elem-type elem)
+            _ (&type/check exo-type array-type)
             _cursor &/cursor]
-        (return (&/|list (&&/|meta array-type _cursor
+        (return (&/|list (&&/|meta exo-type _cursor
                                    (&/V <store-tag> (&/T =array =idx =elem)))))))
     )
 
@@ -387,44 +424,46 @@
 
 (let [length-type &type/Int
       idx-type &type/Int]
-  (defn analyse-jvm-anewarray [analyse class length]
+  (defn analyse-jvm-anewarray [analyse exo-type class length]
     (let [elem-type (&type/Data$ class &/Nil$)
           array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
       (|do [=length (&&/analyse-1 analyse length-type length)
+            _ (&type/check exo-type array-type)
             _cursor &/cursor]
-        (return (&/|list (&&/|meta array-type _cursor
+        (return (&/|list (&&/|meta exo-type _cursor
                                    (&/V &&/$jvm-anewarray (&/T class =length))))))))
 
-  (defn analyse-jvm-aaload [analyse class array idx]
-    (let [elem-type (&type/Data$ class &/Nil$)
-          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
-      (|do [=array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse idx-type idx)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta elem-type _cursor
-                                   (&/V &&/$jvm-aaload (&/T class =array =idx))))))))
+  (defn analyse-jvm-aaload [analyse exo-type class array idx]
+    (|do [=array (&&/analyse-1+ analyse array)
+          [arr-class arr-params] (ensure-object (&&/expr-type* =array))
+          _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
+          :let [(&/$Cons inner-arr-type (&/$Nil)) arr-params]
+          =idx (&&/analyse-1 analyse idx-type idx)
+          _ (&type/check exo-type inner-arr-type)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&/V &&/$jvm-aaload (&/T class =array =idx)))))))
 
-  (defn analyse-jvm-aastore [analyse class array idx elem]
+  (defn analyse-jvm-aastore [analyse exo-type class array idx elem]
     (let [elem-type (&type/Data$ class &/Nil$)
           array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
       (|do [=array (&&/analyse-1 analyse array-type array)
             =idx (&&/analyse-1 analyse idx-type idx)
             =elem (&&/analyse-1 analyse elem-type elem)
+            _ (&type/check exo-type array-type)
             _cursor &/cursor]
-        (return (&/|list (&&/|meta array-type _cursor
+        (return (&/|list (&&/|meta exo-type _cursor
                                    (&/V &&/$jvm-aastore (&/T class =array =idx =elem)))))))))
 
-(let [length-type (&type/Data$ "java.lang.Long" &/Nil$)]
-  (defn analyse-jvm-arraylength [analyse array]
-    (&type/with-var
-      (fn [$var]
-        (let [elem-type $var
-              array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
-          (|do [=array (&&/analyse-1 analyse array-type array)
-                _cursor &/cursor]
-            (return (&/|list (&&/|meta length-type _cursor
-                                       (&/V &&/$jvm-arraylength =array)
-                                       )))))))))
+(defn analyse-jvm-arraylength [analyse exo-type array]
+  (|do [=array (&&/analyse-1+ analyse array)
+        [arr-class arr-params] (ensure-object (&&/expr-type* =array))
+        _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
+        _ (&type/check exo-type &type/Int)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&/V &&/$jvm-arraylength =array)
+                               )))))
 
 (defn ^:private analyse-modifiers [modifiers]
   (&/fold% (fn [so-far modif]
@@ -734,7 +773,7 @@
 (do-template [<name> <tag>]
   (defn <name> [analyse exo-type ?monitor]
     (|do [=monitor (&&/analyse-1+ analyse ?monitor)
-          _ (ensure-object =monitor)
+          _ (ensure-object (&&/expr-type* =monitor))
           :let [output-type &type/Unit]
           _ (&type/check exo-type output-type)
           _cursor &/cursor]

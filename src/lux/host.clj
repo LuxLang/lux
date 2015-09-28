@@ -11,7 +11,7 @@
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type])
             [lux.type.host :as &host-type])
-  (:import (java.lang.reflect Field Method Constructor Modifier)
+  (:import (java.lang.reflect Field Method Constructor Modifier Type)
            java.util.regex.Pattern
            (org.objectweb.asm Opcodes
                               Label
@@ -24,29 +24,6 @@
 (def module-separator "/")
 (def class-name-separator ".")
 (def class-separator "/")
-
-;; [Utils]
-(def class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+))")
-
-(defn ^:private class->type [^Class class]
-  "(-> Class Type)"
-  (do ;; (prn 'class->type/_0 class (.getSimpleName class) (.getName class))
-      (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
-        (let [base (or arr-base simple-base)]
-          ;; (prn 'class->type/_1 class base arr-brackets)
-          (let [output-type (if (.equals "void" base)
-                              &type/Unit
-                              (reduce (fn [inner _] (&type/Data$ &host-type/array-data-tag (&/|list inner)))
-                                      (&type/Data$ base &/Nil$)
-                                      (range (count (or arr-brackets ""))))
-                              )]
-            ;; (prn 'class->type/_2 class (&type/show-type output-type))
-            output-type)
-          ))))
-
-(defn ^:private method->type [^Method method]
-  "(-> Method Type)"
-  (class->type (.getReturnType method)))
 
 ;; [Resources]
 (do-template [<name> <old-sep> <new-sep>]
@@ -121,12 +98,14 @@
 
 (do-template [<name> <static?>]
   (defn <name> [class-loader target field]
-    (if-let [type* (first (for [^Field =field (.getDeclaredFields (Class/forName (&host-type/as-obj target) true class-loader))
-                                :when (and (.equals ^Object field (.getName =field))
-                                           (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
-                            (.getType =field)))]
-      (return (class->type type*))
-      (fail (str "[Host Error] Field does not exist: " target "." field))))
+    (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
+      (if-let [^Type gtype (first (for [^Field =field (.getDeclaredFields target-class)
+                                        :when (and (.equals ^Object field (.getName =field))
+                                                   (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
+                                    (.getGenericType =field)))]
+        (|let [gvars (->> target-class .getTypeParameters seq &/->list)]
+          (return (&/T gvars gtype)))
+        (fail (str "[Host Error] Field does not exist: " target "." field)))))
 
   lookup-static-field true
   lookup-field        false
@@ -135,18 +114,26 @@
 (do-template [<name> <static?>]
   (defn <name> [class-loader target method-name args]
     ;; (prn '<name> target method-name)
-    (if-let [method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj target) true class-loader))
-                                 :when (and (.equals ^Object method-name (.getName =method))
-                                            (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
-                                            (let [param-types (&/->list (seq (.getParameterTypes =method)))]
-                                              (and (= (&/|length args) (&/|length param-types))
-                                                   (&/fold2 #(and %1 (.equals ^Object %2 %3))
-                                                            true
-                                                            args
-                                                            (&/|map #(.getName ^Class %) param-types)))))]
-                             =method))]
-      (return (&/T (method->type method) (->> method .getExceptionTypes &/->list (&/|map #(.getName %)))))
-      (fail (str "[Host Error] Method does not exist: " target "." method-name))))
+    (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
+      (if-let [^Method method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj target) true class-loader))
+                                           :when (and (.equals ^Object method-name (.getName =method))
+                                                      (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
+                                                      (let [param-types (&/->list (seq (.getParameterTypes =method)))]
+                                                        (and (= (&/|length args) (&/|length param-types))
+                                                             (&/fold2 #(and %1 (.equals ^Object %2 %3))
+                                                                      true
+                                                                      args
+                                                                      (&/|map #(.getName ^Class %) param-types)))))]
+                                       =method))]
+        (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
+               gvars (->> method .getTypeParameters seq &/->list)
+               gargs (->> method .getGenericParameterTypes seq &/->list)]
+          (return (&/T (.getGenericReturnType method)
+                       (->> method .getExceptionTypes &/->list (&/|map #(.getName %)))
+                       parent-gvars
+                       gvars
+                       gargs)))
+        (fail (str "[Host Error] Method does not exist: " target "." method-name)))))
 
   lookup-static-method  true
   lookup-virtual-method false
@@ -255,7 +242,7 @@
                               (.visitEnd))))
                         methods)
               bytecode (.toByteArray (doto =class .visitEnd))]
-        loader &/loader
+        ^ClassLoader loader &/loader
         !classes &/classes
         :let [real-name (str (->class-name module) "." name)
               _ (swap! !classes assoc real-name bytecode)

@@ -72,88 +72,88 @@
   (|case token
     ;; Arrays
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_znewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-znewarray analyse ?length)
+    (&&host/analyse-jvm-znewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_zastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-zastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-zastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_zaload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-zaload analyse ?array ?idx)
+    (&&host/analyse-jvm-zaload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_bnewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-bnewarray analyse ?length)
+    (&&host/analyse-jvm-bnewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_bastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-bastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-bastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_baload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-baload analyse ?array ?idx)
+    (&&host/analyse-jvm-baload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_snewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-snewarray analyse ?length)
+    (&&host/analyse-jvm-snewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_sastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-sastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-sastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_saload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-saload analyse ?array ?idx)
+    (&&host/analyse-jvm-saload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_inewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-inewarray analyse ?length)
+    (&&host/analyse-jvm-inewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-iastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-iastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iaload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-iaload analyse ?array ?idx)
+    (&&host/analyse-jvm-iaload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lnewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-lnewarray analyse ?length)
+    (&&host/analyse-jvm-lnewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-lastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-lastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_laload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-laload analyse ?array ?idx)
+    (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fnewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-fnewarray analyse ?length)
+    (&&host/analyse-jvm-fnewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-fastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-fastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_faload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-faload analyse ?array ?idx)
+    (&&host/analyse-jvm-faload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dnewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-dnewarray analyse ?length)
+    (&&host/analyse-jvm-dnewarray analyse exo-type ?length)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-dastore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-dastore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_daload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-daload analyse ?array ?idx)
+    (&&host/analyse-jvm-daload analyse exo-type ?array ?idx)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_cnewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-cnewarray analyse ?length)
+    (&&host/analyse-jvm-cnewarray analyse exo-type ?length)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_castore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-castore analyse ?array ?idx ?elem)
+    (&&host/analyse-jvm-castore analyse exo-type ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_caload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-caload analyse ?array ?idx)
+    (&&host/analyse-jvm-caload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anewarray")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-anewarray analyse ?class ?length)
+    (&&host/analyse-jvm-anewarray analyse exo-type ?class ?length)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aastore")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))))))
-    (&&host/analyse-jvm-aastore analyse ?class ?array ?idx ?elem)
+    (&&host/analyse-jvm-aastore analyse exo-type ?class ?array ?idx ?elem)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aaload")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?array (&/$Cons ?idx (&/$Nil))))))
-    (&&host/analyse-jvm-aaload analyse ?class ?array ?idx)
+    (&&host/analyse-jvm-aaload analyse exo-type ?class ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_arraylength")] (&/$Cons ?array (&/$Nil))))
-    (&&host/analyse-jvm-arraylength analyse ?array)
+    (&&host/analyse-jvm-arraylength analyse exo-type ?array)
 
     _
     (do (prn 'aba8 (&/adt->text token))

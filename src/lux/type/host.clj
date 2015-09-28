@@ -17,9 +17,6 @@
 (def null-data-tag "#Null")
 
 ;; [Utils]
-(defn ^:private Data$ [name params]
-  (&/V &/$DataT (&/T name params)))
-
 (defn ^:private trace-lineage* [^Class super-class ^Class sub-class]
   "(-> Class Class (List Class))"
   ;; Either they're both interfaces, of they're both classes
@@ -56,7 +53,9 @@
 
 (defn ^:private trace-lineage [^Class sub-class ^Class super-class]
   "(-> Class Class (List Class))"
-  (&/|reverse (trace-lineage* super-class sub-class)))
+  (if (= sub-class super-class)
+    (&/|list)
+    (&/|reverse (trace-lineage* super-class sub-class))))
 
 (let [matcher (fn [m ^TypeVariable jt lt] (&/Cons$ (&/T (.getName jt) lt) m))]
   (defn ^:private match-params [sub-type-params params]
@@ -65,15 +64,30 @@
     (&/fold2 matcher (&/|table) sub-type-params params)))
 
 ;; [Exports]
+(let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+))"
+      Unit (&/V &/$TupleT (&/|list))]
+  (defn class->type [^Class class]
+    "(-> Class Type)"
+    (do ;; (prn 'class->type/_0 class (.getSimpleName class) (.getName class))
+        (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
+          (let [base (or arr-base simple-base)]
+            ;; (prn 'class->type/_1 class base arr-brackets)
+            (if (.equals "void" base)
+              Unit
+              (reduce (fn [inner _] (&/V &/$DataT (&/T array-data-tag (&/|list inner))))
+                      (&/V &/$DataT (&/T base &/Nil$))
+                      (range (count (or arr-brackets "")))))
+            )))))
+
 (defn instance-param [existential matchings refl-type]
   "(-> (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
   ;; (prn 'instance-param refl-type (class refl-type))
   (cond (instance? Class refl-type)
-        (return (Data$ (.getName ^Class refl-type) (&/|list)))
+        (return (class->type refl-type))
 
         (instance? GenericArrayType refl-type)
         (let [inner-type (instance-param existential matchings (.getGenericComponentType ^GenericArrayType refl-type))]
-          (return (Data$ array-data-tag (&/|list inner-type))))
+          (return (&/V &/$DataT (&/T array-data-tag (&/|list inner-type)))))
         
         (instance? ParameterizedType refl-type)
         (|do [:let [refl-type* ^ParameterizedType refl-type]
@@ -81,8 +95,8 @@
                            .getActualTypeArguments
                            seq &/->list
                            (&/map% (partial instance-param existential matchings)))]
-          (return (Data$ (->> refl-type* ^Class (.getRawType) .getName)
-                         params*)))
+          (return (&/V &/$DataT (&/T (->> refl-type* ^Class (.getRawType) .getName)
+                                     params*))))
         
         (instance? TypeVariable refl-type)
         (let [gvar (.getName ^TypeVariable refl-type)]
@@ -140,8 +154,8 @@
         sub-class+ (Class/forName sub-class true class-loader)]
     (if (.isAssignableFrom super-class+ sub-class+)
       (let [lineage (trace-lineage sub-class+ super-class+)]
-        (|do [[sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
-          (return (Data$ (.getName sub-class*) sub-params*))))
+        (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
+          (return (&/V &/$DataT (&/T (.getName sub-class*) sub-params*)))))
       (fail (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </=" super-class)))))
 
 (defn as-obj [class]
@@ -160,3 +174,38 @@
 (let [primitive-types #{"boolean" "byte" "short" "int" "long" "float" "double" "char"}]
   (defn primitive-type? [type-name]
     (contains? primitive-types type-name)))
+
+(defn check-host-types [check check-error fixpoints existential class-loader invariant?? expected actual]
+  (|let [[e!name e!params] expected
+         [a!name a!params] actual]
+    (cond (= "java.lang.Object" e!name)
+          (return (&/T fixpoints nil))
+
+          (= null-data-tag a!name)
+          (if (not (primitive-type? e!name))
+            (return (&/T fixpoints nil))
+            (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))))
+
+          (= null-data-tag e!name)
+          (if (= null-data-tag a!name)
+            (return (&/T fixpoints nil))
+            (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))))
+
+          (and (= array-data-tag e!name)
+               (not= array-data-tag a!name))
+          (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual)))
+          
+          :else
+          (let [e!name (as-obj e!name)
+                a!name (as-obj a!name)]
+            (cond (and (.equals ^Object e!name a!name)
+                       (= (&/|length e!params) (&/|length a!params)))
+                  (|do [_ (&/map2% check e!params a!params)]
+                    (return (&/T fixpoints nil)))
+
+                  (not invariant??)
+                  (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
+                    (check (&/V &/$DataT expected) actual*))
+
+                  :else
+                  (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))))
