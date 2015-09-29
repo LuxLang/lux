@@ -126,7 +126,7 @@
                                    (|do [:let [[idx types] idx+types]
                                          [idx* real-type] (clean-gtype-var idx gtype-var)]
                                      (return (&/T idx* (&/Cons$ real-type types)))))
-                                 (&/T 0 (&/|list))
+                                 (&/T 1 (&/|list))
                                  gtype-vars)]
     (return clean-types)))
 

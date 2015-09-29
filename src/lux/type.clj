@@ -57,7 +57,7 @@
 (def IO
   (Named$ (&/T "lux/data" "IO")
           (Univ$ empty-env
-                 (Lambda$ Unit (Bound$ 0)))))
+                 (Lambda$ Unit (Bound$ 1)))))
 
 (def List
   (Named$ (&/T "lux" "List")
@@ -66,9 +66,9 @@
                             ;; lux;Nil
                             Unit
                             ;; lux;Cons
-                            (Tuple$ (&/|list (Bound$ 0)
-                                             (App$ (Bound$ 1)
-                                                   (Bound$ 0))))
+                            (Tuple$ (&/|list (Bound$ 1)
+                                             (App$ (Bound$ 0)
+                                                   (Bound$ 1))))
                             )))))
 
 (def Maybe
@@ -78,12 +78,12 @@
                             ;; lux;None
                             Unit
                             ;; lux;Some
-                            (Bound$ 0)
+                            (Bound$ 1)
                             )))))
 
 (def Type
   (Named$ (&/T "lux" "Type")
-          (let [Type (App$ (Bound$ 1) (Bound$ 0))
+          (let [Type (App$ (Bound$ 0) (Bound$ 1))
                 TypeList (App$ List Type)
                 TypePair (Tuple$ (&/|list Type Type))]
             (App$ (Univ$ empty-env
@@ -440,8 +440,8 @@
   (|case type-fn
     (&/$UnivQ local-env local-def)
     (return (beta-reduce (->> local-env
-                              (&/Cons$ type-fn)
-                              (&/Cons$ param))
+                              (&/Cons$ param)
+                              (&/Cons$ type-fn))
                          local-def))
 
     (&/$AppT F A)
@@ -593,16 +593,16 @@
       (with-var
         (fn [$arg]
           (|let [expected* (beta-reduce (->> e!env
-                                             (&/Cons$ expected)
-                                             (&/Cons$ $arg))
+                                             (&/Cons$ $arg)
+                                             (&/Cons$ expected))
                                         e!def)]
             (check* class-loader fixpoints invariant?? expected* actual))))
 
       [_ (&/$ExQ a!env a!def)]
       (|do [$arg existential]
         (|let [actual* (beta-reduce (->> a!env
-                                         (&/Cons$ expected)
-                                         (&/Cons$ $arg))
+                                         (&/Cons$ $arg)
+                                         (&/Cons$ expected))
                                     a!def)]
           (check* class-loader fixpoints invariant?? expected actual*)))
 
