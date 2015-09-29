@@ -309,11 +309,11 @@
         (&a/$jvm-anewarray ?class ?length)
         (&&host/compile-jvm-anewarray compile-expression ?class ?length)
 
-        (&a/$jvm-aastore ?class ?array ?idx ?elem)
-        (&&host/compile-jvm-aastore compile-expression ?class ?array ?idx ?elem)
+        (&a/$jvm-aastore ?array ?idx ?elem)
+        (&&host/compile-jvm-aastore compile-expression ?array ?idx ?elem)
 
-        (&a/$jvm-aaload ?class ?array ?idx)
-        (&&host/compile-jvm-aaload compile-expression ?class ?array ?idx)
+        (&a/$jvm-aaload ?array ?idx)
+        (&&host/compile-jvm-aaload compile-expression ?array ?idx)
 
         (&a/$jvm-arraylength ?array)
         (&&host/compile-jvm-arraylength compile-expression ?array)

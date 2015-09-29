@@ -117,7 +117,7 @@
     (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
     _
-    (assert false (str "Unknown syntax: " (prn-str (&/show-ast (&&/|meta (&/T "" -1 -1) token)))))))
+    (assert false (str "Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token)))))))
 
 (defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
   (|case token
@@ -158,11 +158,11 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anewarray")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?length (&/$Nil)))))
     (&&host/analyse-jvm-anewarray analyse exo-type ?class ?length)
 
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aastore")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))))))
-    (&&host/analyse-jvm-aastore analyse exo-type ?class ?array ?idx ?elem)
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
+    (&&host/analyse-jvm-aastore analyse exo-type ?array ?idx ?elem)
 
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aaload")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?array (&/$Cons ?idx (&/$Nil))))))
-    (&&host/analyse-jvm-aaload analyse exo-type ?class ?array ?idx)
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aaload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
+    (&&host/analyse-jvm-aaload analyse exo-type ?array ?idx)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_arraylength")] (&/$Cons ?array (&/$Nil))))
     (&&host/analyse-jvm-arraylength analyse exo-type ?array)

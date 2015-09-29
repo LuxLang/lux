@@ -129,7 +129,7 @@
                gvars (->> method .getTypeParameters seq &/->list)
                gargs (->> method .getGenericParameterTypes seq &/->list)]
           (return (&/T (.getGenericReturnType method)
-                       (->> method .getExceptionTypes &/->list (&/|map #(.getName %)))
+                       (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
                        parent-gvars
                        gvars
                        gargs)))
@@ -152,13 +152,13 @@
                                         =method))]
       (|let [gvars (->> target-class .getTypeParameters seq &/->list)
              gargs (->> ctor .getGenericParameterTypes seq &/->list)
-             exs (->> ctor .getExceptionTypes &/->list (&/|map #(.getName %)))]
+             exs (->> ctor .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))]
         (return (&/T exs gvars gargs)))
       (fail (str "[Host Error] Constructor does not exist: " target)))))
 
 (defn abstract-methods [class-loader class]
   (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj class) true class-loader))
-                          :when (.equals true (Modifier/isAbstract (.getModifiers =method)))]
+                          :when (Modifier/isAbstract (.getModifiers =method))]
                       (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method)))))))))
 
 (defn location [scope]
@@ -180,7 +180,7 @@
        0)))
 
 (let [object-real-class (->class "java.lang.Object")]
-  (defn ^:private dummy-return [writer name output]
+  (defn ^:private dummy-return [^MethodVisitor writer name output]
     (case output
       "void" (if (= "<init>" name)
                (doto writer

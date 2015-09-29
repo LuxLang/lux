@@ -32,7 +32,7 @@
 
 (defn ^:private clean-file [^File file]
   "(-> File (,))"
-  (doseq [f (seq (.listFiles file))
+  (doseq [^File f (seq (.listFiles file))
           :when (not (.isDirectory f))]
     (.delete f)))
 

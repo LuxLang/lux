@@ -13,23 +13,24 @@
            ))
 
 ;; [Utils]
-(defn ^:private read-file [file]
+(defn ^:private read-file ^objects [^File file]
   (with-open [is (java.io.FileInputStream. file)]
     (let [data (byte-array (.length file))]
       (.read is data)
       data)))
 
-(defn ^:private add-to-tar! [prefix ^File file os]
+(defn ^:private add-to-tar! [prefix ^File file ^TarArchiveOutputStream os]
   "(-> Text File TarArchiveOutputStream Unit)"
   (let [file-name (str prefix "/" (.getName file))]
     (if (.isDirectory file)
       (doseq [file (seq (.listFiles file))]
         (add-to-tar! file-name file os))
-      (doto os
-        (.putArchiveEntry (doto (new TarArchiveEntry file-name)
-                            (.setSize (.length file))))
-        (.write (read-file file))
-        (.closeArchiveEntry)))))
+      (let [data (read-file file)]
+        (doto os
+          (.putArchiveEntry (doto (new TarArchiveEntry file-name)
+                              (.setSize (.length file))))
+          (.write data 0 (alength data))
+          (.closeArchiveEntry))))))
 
 ;; [Exports]
 (defn package [output-lib-name ^File source-dir]

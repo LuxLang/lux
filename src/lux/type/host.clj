@@ -115,14 +115,16 @@
   (|let [matchings (match-params sub-type-params params)]
     (&/map% (partial instance-param existential matchings) super-type-params)))
 
-(defn ^:private raise* [existential sub+params super]
+(defn ^:private raise* [existential sub+params ^Class super]
   "(-> (, Class (List Type)) Class (Lux (, Class (List Type))))"
   (|let [[^Class sub params] sub+params]
     (if (.isInterface super)
       (|do [:let [super-params (->> sub
                                     .getGenericInterfaces
                                     (some #(if (= super (if (instance? Class %) % (.getRawType ^ParameterizedType %)))
-                                             (if (instance? Class %) (&/|list) (->> % .getActualTypeArguments seq &/->list))
+                                             (if (instance? Class %)
+                                               (&/|list)
+                                               (->> ^ParameterizedType % .getActualTypeArguments seq &/->list))
                                              nil)))]
             params* (translate-params existential
                                       super-params
@@ -209,3 +211,13 @@
 
                   :else
                   (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))))
+
+(let [Void$ (&/V &/$VariantT (&/|list))
+      gen-type (constantly Void$)]
+  (defn dummy-gtype [class]
+    (|do [class-loader &/loader]
+      (try (|let [=class (Class/forName class true class-loader)
+                  params (->> =class .getTypeParameters seq &/->list (&/|map gen-type))]
+             (return (&/V &/$DataT (&/T class params))))
+        (catch Exception e
+          (fail (str "[Type Error] Unknown type: " class)))))))

@@ -22,7 +22,8 @@
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
-                              MethodVisitor)))
+                              MethodVisitor
+                              AnnotationVisitor)))
 
 ;; [Utils]
 (let [class+method+sig {"boolean" [(&host/->class "java.lang.Boolean")   "booleanValue" "()Z"]
@@ -342,7 +343,7 @@
         :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host/->class ?class))]]
     (return nil)))
 
-(defn compile-jvm-aaload [compile ?class ?array ?idx]
+(defn compile-jvm-aaload [compile ?array ?idx]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -353,7 +354,7 @@
         :let [_ (.visitInsn *writer* Opcodes/AALOAD)]]
     (return nil)))
 
-(defn compile-jvm-aastore [compile ?class ?array ?idx ?elem]
+(defn compile-jvm-aastore [compile ?array ?idx ?elem]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
@@ -420,25 +421,21 @@
     (return nil)))
 
 (defn ^:private compile-annotation [writer ann]
-  (doto (.visitAnnotation writer (&host/->class (:name ann)) true)
+  (doto ^AnnotationVisitor (.visitAnnotation writer (&host/->class (:name ann)) true)
     (-> (.visit param-name param-value)
         (->> (|let [[param-name param-value] param])
              (doseq [param (&/->seq (:params ann))])))
     (.visitEnd))
   nil)
 
-(defn ^:private compile-field [writer field]
+(defn ^:private compile-field [^ClassWriter writer field]
   (let [=field (.visitField writer (&host/modifiers->int (:modifiers field)) (:name field)
                             (&host/->type-signature (:type field)) nil nil)]
     (&/|map (partial compile-annotation =field) (:anns field))
     (.visitEnd =field)
-    nil)
-  ;; (doto (.visitField writer (&host/modifiers->int (:modifiers field)) (:name field)
-  ;;                    (&host/->type-signature (:type field)) nil nil)
-  ;;   (.visitEnd))
-  )
+    nil))
 
-(defn ^:private compile-method-return [writer output]
+(defn ^:private compile-method-return [^MethodVisitor writer output]
   (case output
     "void" (.visitInsn writer Opcodes/RETURN)
     "boolean" (doto writer
@@ -468,7 +465,7 @@
     ;; else
     (.visitInsn writer Opcodes/ARETURN)))
 
-(defn ^:private compile-method [compile class-writer method]
+(defn ^:private compile-method [compile ^ClassWriter class-writer method]
   ;; (prn 'compile-method/_0 (dissoc method :inputs :output :body))
   ;; (prn 'compile-method/_1 (&/adt->text (:inputs method)))
   ;; (prn 'compile-method/_2 (&/adt->text (:output method)))
@@ -490,7 +487,7 @@
                       (.visitEnd))]]
         (return nil)))))
 
-(defn ^:private compile-method-decl [class-writer method]
+(defn ^:private compile-method-decl [^ClassWriter class-writer method]
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
     (let [=method (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))]
@@ -503,8 +500,8 @@
     (str "(" (&/fold str "" (&/|repeat (&/|length env) clo-field-sig)) ")"
          <init>-return))
 
-  (defn ^:private add-anon-class-<init> [class-writer class-name env]
-    (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC "<init>" (anon-class-<init>-signature env) nil nil)
+  (defn ^:private add-anon-class-<init> [^ClassWriter class-writer class-name env]
+    (doto (.visitMethod class-writer Opcodes/ACC_PUBLIC "<init>" (anon-class-<init>-signature env) nil nil)
       (.visitCode)
       (.visitVarInsn Opcodes/ALOAD 0)
       (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")

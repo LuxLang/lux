@@ -34,9 +34,9 @@
       (let [exceptions (&/|map #(Class/forName % true class-loader) exceptions)
             catching (->> state (&/get$ &/$host) (&/get$ &/$catching)
                           (&/|map #(Class/forName % true class-loader)))]
-        (if-let [missing-ex (&/fold (fn [prev now]
+        (if-let [missing-ex (&/fold (fn [prev ^Class now]
                                       (or prev
-                                          (if (&/fold (fn [found? ex-catch]
+                                          (if (&/fold (fn [found? ^Class ex-catch]
                                                         (or found?
                                                             (.isAssignableFrom ex-catch now)))
                                                       false
@@ -206,7 +206,7 @@
   (|case obj-type
     (&/$DataT class targs)
     (if (= (&/|length targs) (&/|length gvars))
-      (|let [gtype-env (&/fold2 (fn [m g t] (&/Cons$ (&/T (.getName g) t) m))
+      (|let [gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/Cons$ (&/T (.getName g) t) m))
                                 (&/|table)
                                 gvars
                                 targs)]
@@ -382,58 +382,58 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&/V &&/$jvm-new (&/T class classes =args)))))))
 
-(do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
-  (let [elem-type (&type/Data$ <class> &/Nil$)
-        array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))
-        length-type &type/Int
-        idx-type &type/Int]
-    (defn <new-name> [analyse exo-type length]
-      (|do [=length (&&/analyse-1 analyse length-type length)
-            _ (&type/check exo-type array-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&/V <new-tag> =length))))))
+(let [length-type &type/Int
+      idx-type &type/Int]
+  (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
+    (let [elem-type (&type/Data$ <class> &/Nil$)
+          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
+      (defn <new-name> [analyse exo-type length]
+        (|do [=length (&&/analyse-1 analyse length-type length)
+              _ (&type/check exo-type array-type)
+              _cursor &/cursor]
+          (return (&/|list (&&/|meta exo-type _cursor
+                                     (&/V <new-tag> =length))))))
 
-    (defn <load-name> [analyse exo-type array idx]
-      (|do [=array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse idx-type idx)
-            _ (&type/check exo-type elem-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&/V <load-tag> (&/T =array =idx)))))))
+      (defn <load-name> [analyse exo-type array idx]
+        (|do [=array (&&/analyse-1 analyse array-type array)
+              =idx (&&/analyse-1 analyse idx-type idx)
+              _ (&type/check exo-type elem-type)
+              _cursor &/cursor]
+          (return (&/|list (&&/|meta exo-type _cursor
+                                     (&/V <load-tag> (&/T =array =idx)))))))
 
-    (defn <store-name> [analyse exo-type array idx elem]
-      (|do [=array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse idx-type idx)
-            =elem (&&/analyse-1 analyse elem-type elem)
-            _ (&type/check exo-type array-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&/V <store-tag> (&/T =array =idx =elem)))))))
-    )
+      (defn <store-name> [analyse exo-type array idx elem]
+        (|do [=array (&&/analyse-1 analyse array-type array)
+              =idx (&&/analyse-1 analyse idx-type idx)
+              =elem (&&/analyse-1 analyse elem-type elem)
+              _ (&type/check exo-type array-type)
+              _cursor &/cursor]
+          (return (&/|list (&&/|meta exo-type _cursor
+                                     (&/V <store-tag> (&/T =array =idx =elem)))))))
+      )
 
-  "java.lang.Boolean"   analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
-  "java.lang.Byte"      analyse-jvm-bnewarray &&/$jvm-bnewarray analyse-jvm-baload &&/$jvm-baload analyse-jvm-bastore &&/$jvm-bastore
-  "java.lang.Short"     analyse-jvm-snewarray &&/$jvm-snewarray analyse-jvm-saload &&/$jvm-saload analyse-jvm-sastore &&/$jvm-sastore
-  "java.lang.Integer"   analyse-jvm-inewarray &&/$jvm-inewarray analyse-jvm-iaload &&/$jvm-iaload analyse-jvm-iastore &&/$jvm-iastore
-  "java.lang.Long"      analyse-jvm-lnewarray &&/$jvm-lnewarray analyse-jvm-laload &&/$jvm-laload analyse-jvm-lastore &&/$jvm-lastore
-  "java.lang.Float"     analyse-jvm-fnewarray &&/$jvm-fnewarray analyse-jvm-faload &&/$jvm-faload analyse-jvm-fastore &&/$jvm-fastore
-  "java.lang.Double"    analyse-jvm-dnewarray &&/$jvm-dnewarray analyse-jvm-daload &&/$jvm-daload analyse-jvm-dastore &&/$jvm-dastore
-  "java.lang.Character" analyse-jvm-cnewarray &&/$jvm-cnewarray analyse-jvm-caload &&/$jvm-caload analyse-jvm-castore &&/$jvm-castore
-  )
+    "java.lang.Boolean"   analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
+    "java.lang.Byte"      analyse-jvm-bnewarray &&/$jvm-bnewarray analyse-jvm-baload &&/$jvm-baload analyse-jvm-bastore &&/$jvm-bastore
+    "java.lang.Short"     analyse-jvm-snewarray &&/$jvm-snewarray analyse-jvm-saload &&/$jvm-saload analyse-jvm-sastore &&/$jvm-sastore
+    "java.lang.Integer"   analyse-jvm-inewarray &&/$jvm-inewarray analyse-jvm-iaload &&/$jvm-iaload analyse-jvm-iastore &&/$jvm-iastore
+    "java.lang.Long"      analyse-jvm-lnewarray &&/$jvm-lnewarray analyse-jvm-laload &&/$jvm-laload analyse-jvm-lastore &&/$jvm-lastore
+    "java.lang.Float"     analyse-jvm-fnewarray &&/$jvm-fnewarray analyse-jvm-faload &&/$jvm-faload analyse-jvm-fastore &&/$jvm-fastore
+    "java.lang.Double"    analyse-jvm-dnewarray &&/$jvm-dnewarray analyse-jvm-daload &&/$jvm-daload analyse-jvm-dastore &&/$jvm-dastore
+    "java.lang.Character" analyse-jvm-cnewarray &&/$jvm-cnewarray analyse-jvm-caload &&/$jvm-caload analyse-jvm-castore &&/$jvm-castore
+    ))
 
 (let [length-type &type/Int
       idx-type &type/Int]
   (defn analyse-jvm-anewarray [analyse exo-type class length]
-    (let [elem-type (&type/Data$ class &/Nil$)
-          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
-      (|do [=length (&&/analyse-1 analyse length-type length)
-            _ (&type/check exo-type array-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&/V &&/$jvm-anewarray (&/T class =length))))))))
+    (|do [elem-type (&host-type/dummy-gtype class)
+          :let [array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
+          =length (&&/analyse-1 analyse length-type length)
+          _ (&type/check exo-type array-type)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&/V &&/$jvm-anewarray (&/T class =length)))))))
 
-  (defn analyse-jvm-aaload [analyse exo-type class array idx]
+  (defn analyse-jvm-aaload [analyse exo-type array idx]
     (|do [=array (&&/analyse-1+ analyse array)
           [arr-class arr-params] (ensure-object (&&/expr-type* =array))
           _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
@@ -442,18 +442,20 @@
           _ (&type/check exo-type inner-arr-type)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
-                                 (&/V &&/$jvm-aaload (&/T class =array =idx)))))))
+                                 (&/V &&/$jvm-aaload (&/T =array =idx)))))))
 
-  (defn analyse-jvm-aastore [analyse exo-type class array idx elem]
-    (let [elem-type (&type/Data$ class &/Nil$)
-          array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
-      (|do [=array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse idx-type idx)
-            =elem (&&/analyse-1 analyse elem-type elem)
-            _ (&type/check exo-type array-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&/V &&/$jvm-aastore (&/T class =array =idx =elem)))))))))
+  (defn analyse-jvm-aastore [analyse exo-type array idx elem]
+    (|do [=array (&&/analyse-1+ analyse array)
+          :let [array-type (&&/expr-type* =array)]
+          [arr-class arr-params] (ensure-object array-type)
+          _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
+          :let [(&/$Cons inner-arr-type (&/$Nil)) arr-params]
+          =idx (&&/analyse-1 analyse idx-type idx)
+          =elem (&&/analyse-1 analyse inner-arr-type elem)
+          _ (&type/check exo-type array-type)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&/V &&/$jvm-aastore (&/T =array =idx =elem))))))))
 
 (defn analyse-jvm-arraylength [analyse exo-type array]
   (|do [=array (&&/analyse-1+ analyse array)
@@ -725,7 +727,7 @@
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
             ;; :let [_ (prn 'analyse-jvm-anon-class/_4 name anon-class)]
             =captured &&env/captured-vars
-            :let [=fields (&/|map (fn [idx+capt]
+            :let [=fields (&/|map (fn [^objects idx+capt]
                                     {:name (str &c!base/closure-prefix (aget idx+capt 0))
                                      :modifiers captured-slot-modifier
                                      :anns (&/|list)
@@ -738,7 +740,7 @@
             ;; :let [_ (prn 'analyse-jvm-anon-class/_5 name anon-class)]
             ;; _ (compile-token (&/T (&/V &&/$jvm-anon-class (&/T name super-class interfaces =captured =methods)) exo-type))
             _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces (&/|list) =fields =methods =captured)))
-            :let [_ (println 'DEF anon-class)]
+            ;; :let [_ (println 'DEF anon-class)]
             _cursor &/cursor]
         (return (&/|list (&&/|meta (&type/Data$ anon-class (&/|list)) _cursor
                                    (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources))
@@ -754,7 +756,7 @@
                                  idx &&env/next-local-idx]
                              (return (&/T ?ex-class idx =catch-body))))
                          ?catches)
-        :let [catched-exceptions (&/|map #(aget % 0) =catches)]
+        :let [catched-exceptions (&/|map #(aget ^objects % 0) =catches)]
         =body (with-catches catched-exceptions
                 (&&/analyse-1 analyse exo-type ?body))
         =finally (|case ?finally
