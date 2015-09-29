@@ -220,7 +220,8 @@
           ^MethodVisitor *writer* &/get-writer
           :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
           _ (compile ?object)
-          :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*)]
+          :let [_ (when (not= "<init>" ?method)
+                    (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*))]
           _ (&/map2% (fn [class-name arg]
                        (|do [ret (compile arg)
                              :let [_ (prepare-arg! *writer* class-name)]]
@@ -233,26 +234,8 @@
 
   compile-jvm-invokevirtual   Opcodes/INVOKEVIRTUAL
   compile-jvm-invokeinterface Opcodes/INVOKEINTERFACE
-  ;; compile-jvm-invokespecial   Opcodes/INVOKESPECIAL
+  compile-jvm-invokespecial   Opcodes/INVOKESPECIAL
   )
-
-(defn compile-jvm-invokespecial [compile ?class ?method ?classes ?object ?args ?output-type]
-  (|do [:let [?class* (&host/->class (&host-type/as-obj ?class))]
-        ^MethodVisitor *writer* &/get-writer
-        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
-        _ (compile ?object)
-        ;; :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*)]
-        :let [_ (when (not= "<init>" ?method)
-                  (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*))]
-        _ (&/map2% (fn [class-name arg]
-                     (|do [ret (compile arg)
-                           :let [_ (prepare-arg! *writer* class-name)]]
-                       (return ret)))
-                   ?classes ?args)
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESPECIAL ?class* ?method method-sig)
-                  (prepare-return! ?output-type))]]
-    (return nil)))
 
 (defn compile-jvm-null [compile]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -422,10 +405,10 @@
 
 (defn ^:private compile-annotation [writer ann]
   (doto ^AnnotationVisitor (.visitAnnotation writer (&host/->class (:name ann)) true)
-    (-> (.visit param-name param-value)
-        (->> (|let [[param-name param-value] param])
-             (doseq [param (&/->seq (:params ann))])))
-    (.visitEnd))
+        (-> (.visit param-name param-value)
+            (->> (|let [[param-name param-value] param])
+                 (doseq [param (&/->seq (:params ann))])))
+        (.visitEnd))
   nil)
 
 (defn ^:private compile-field [^ClassWriter writer field]
@@ -466,10 +449,6 @@
     (.visitInsn writer Opcodes/ARETURN)))
 
 (defn ^:private compile-method [compile ^ClassWriter class-writer method]
-  ;; (prn 'compile-method/_0 (dissoc method :inputs :output :body))
-  ;; (prn 'compile-method/_1 (&/adt->text (:inputs method)))
-  ;; (prn 'compile-method/_2 (&/adt->text (:output method)))
-  ;; (prn 'compile-method/_3 (&/adt->text (:body method)))
   (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
                         (&host/->type-signature (:output method)))]
     (&/with-writer (.visitMethod class-writer (&host/modifiers->int (:modifiers method))
@@ -518,9 +497,7 @@
   )
 
 (defn compile-jvm-class [compile ?name ?super-class ?interfaces ?anns ?fields ?methods env]
-  (|do [;; :let [_ (prn 'compile-jvm-class/_0)]
-        module &/get-module-name
-        ;; :let [_ (prn 'compile-jvm-class/_1)]
+  (|do [module &/get-module-name
         [file-name _ _] &/cursor
         :let [full-name (str module "/" ?name)
               super-class* (&host/->class ?super-class)
@@ -531,17 +508,12 @@
               _ (&/|map (partial compile-annotation =class) ?anns)
               _ (&/|map (partial compile-field =class)
                         ?fields)]
-        ;; :let [_ (prn 'compile-jvm-class/_2)]
         _ (&/map% (partial compile-method compile =class) ?methods)
-        ;; :let [_ (prn 'compile-jvm-class/_3)]
         :let [_ (when env
-                  (add-anon-class-<init> =class full-name env))]
-        ;; :let [_ (prn 'compile-jvm-class/_4)]
-        ]
+                  (add-anon-class-<init> =class full-name env))]]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
 (defn compile-jvm-interface [compile ?name ?supers ?anns ?methods]
-  ;; (prn 'compile-jvm-interface (->> ?supers &/->seq pr-str))
   (|do [module &/get-module-name
         [file-name _ _] &/cursor]
     (let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -571,9 +543,7 @@
                                             (return nil)))
               catch-boundaries (&/|map (fn [[?ex-class ?ex-idx ?catch-body]] [?ex-class (new Label) (new Label)])
                                        ?catches)
-              _ (doseq [[?ex-class $handler-start $handler-end] (&/->seq catch-boundaries)
-                        ;; :let [_ (prn 'HANDLER ?ex-class (&host/->class ?ex-class) $handler-start $handler-end $from $to $catch-finally)]
-                        ]
+              _ (doseq [[?ex-class $handler-start $handler-end] (&/->seq catch-boundaries)]
                   (doto *writer*
                     (.visitTryCatchBlock $from $to $handler-start (&host/->class ?ex-class))
                     (.visitTryCatchBlock $handler-start $handler-end $catch-finally nil)))
@@ -591,7 +561,6 @@
                               compile-finally))
                           ?catches
                           catch-boundaries)
-        ;; :let [_ (prn 'handlers (&/->seq handlers))]
         :let [_ (.visitLabel *writer* $catch-finally)]
         _ (|case ?finally
             (&/$Some ?finally*) (|do [_ (compile ?finally*)
@@ -694,16 +663,12 @@
 
 (defn compile-jvm-program [compile ?body]
   (|do [module-name &/get-module-name
-        ;; :let [_ (prn 'compile-jvm-program module-name)]
         ^ClassWriter *writer* &/get-writer]
     (&/with-writer (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "main" "([Ljava/lang/String;)V" nil nil)
                      (.visitCode))
       (|do [^MethodVisitor main-writer &/get-writer
-            :let [;; _ (prn "#1" module-name *writer*)
-                  $loop (new Label)
-                  ;; _ (prn "#2")
+            :let [$loop (new Label)
                   $end (new Label)
-                  ;; _ (prn "#3")
                   _ (doto main-writer
                       ;; Tail: Begin
                       (.visitLdcInsn (int 2)) ;; S
@@ -772,20 +737,14 @@
                       (.visitInsn Opcodes/POP) ;; V
                       (.visitVarInsn Opcodes/ASTORE (int 0)) ;;
                       )
-                  ;; _ (prn "#4")
                   ]
             _ (compile ?body)
-            :let [;; _ (prn "#5")
-                  _ (doto main-writer
+            :let [_ (doto main-writer
                       (.visitInsn Opcodes/ACONST_NULL)
-                      (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))
-                  ;; _ (prn "#6")
-                  ]
+                      (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))]
             :let [_ (doto main-writer
                       (.visitInsn Opcodes/POP)
                       (.visitInsn Opcodes/RETURN)
                       (.visitMaxs 0 0)
-                      (.visitEnd))
-                  ;; _ (prn "#7")
-                  ]]
+                      (.visitEnd))]]
         (return nil)))))

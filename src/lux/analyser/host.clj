@@ -45,28 +45,22 @@
                                             now)))
                                     nil
                                     exceptions)]
-          (assert false (str "[Analyser Error] Unhandled exception: " missing-ex))
-          ;; (&/fail* (str "[Analyser Error] Unhandled exception: " missing-ex))
+          (&/fail* (str "[Analyser Error] Unhandled exception: " missing-ex))
           (&/return* state nil)))
       )))
 
 (defn ^:private with-catches [catches body]
   "(All [a] (-> (List Text) (Lux a) (Lux a)))"
   (fn [state]
-    (let [;; _ (prn 'with-catches/_0 (&/->seq catches))
-          old-catches (->> state (&/get$ &/$host) (&/get$ &/$catching))
-          ;; _ (prn 'with-catches/_1 (&/->seq (->> state (&/get$ &/$host) (&/get$ &/$catching))))
-          state* (->> state (&/update$ &/$host #(&/update$ &/$catching (partial &/|++ catches) %)))
-          ;; _ (prn 'with-catches/_2 (&/->seq (->> state* (&/get$ &/$host) (&/get$ &/$catching))))
-          ]
+    (let [old-catches (->> state (&/get$ &/$host) (&/get$ &/$catching))
+          state* (->> state (&/update$ &/$host #(&/update$ &/$catching (partial &/|++ catches) %)))]
       (|case (&/run-state body state*)
         (&/$Left msg)
         (&/V &/$Left msg)
 
         (&/$Right state** output)
-        (do ;; (prn 'with-catches/_3 (&/->seq (->> state** (&/get$ &/$host) (&/get$ &/$catching))))
-            (&/V &/$Right (&/T (->> state** (&/update$ &/$host #(&/set$ &/$catching old-catches %)))
-                               output)))))
+        (&/V &/$Right (&/T (->> state** (&/update$ &/$host #(&/set$ &/$catching old-catches %)))
+                           output))))
     ))
 
 (defn ^:private ensure-object [type]
@@ -219,7 +213,6 @@
 (defn analyse-jvm-getstatic [analyse exo-type class field]
   (|do [class-loader &/loader
         [gvars gtype] (&host/lookup-static-field class-loader class field)
-        ;; :let [_ (prn 'analyse-jvm-getstatic class field (&/->seq gvars) gtype)]
         :let [=type (&host-type/class->type (cast Class gtype))]
         :let [output-type =type]
         _ (&type/check exo-type output-type)
@@ -294,7 +287,6 @@
             [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
                                                          (return (&/T Void/TYPE &/Nil$ &/Nil$ &/Nil$ &/Nil$))
                                                          (&host/lookup-virtual-method class-loader class method classes))
-            ;; :let [_ (prn '<name> [class method] (&/adt->text =return+exceptions))]
             _ (ensure-catching exceptions)
             =object (&&/analyse-1+ analyse object)
             [sub-class sub-params] (ensure-object (&&/expr-type* =object))
@@ -304,8 +296,6 @@
                                      parent-gvars
                                      super-params*)]
             [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
-            ;; :let [_ (prn '<name> [class method] (&type/show-type exo-type) (&type/show-type output-type))]
-            ;; :let [_ (prn '<name> '(as-otype+ output-type) (&type/show-type (as-otype+ output-type)))]
             _ (&type/check exo-type (as-otype+ output-type))
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
@@ -319,11 +309,7 @@
 (defn analyse-jvm-invokestatic [analyse exo-type class method classes args]
   (|do [class-loader &/loader
         [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader class method classes)
-        ;; :let [_ (prn 'analyse-jvm-invokestatic (&/adt->text =return+exceptions))]
         _ (ensure-catching exceptions)
-        ;; :let [_ (matchv ::M/objects [=return]
-        ;;           [[&/$DataT _return-class &/Nil$]]
-        ;;           (prn 'analyse-jvm-invokestatic class method _return-class))]
         =args (&/map2% (fn [_class _arg]
                          (&&/analyse-1 analyse (&type/Data$ _class &/Nil$) _arg))
                        classes
@@ -354,9 +340,6 @@
   (|case gtype-vars
     (&/$Nil)
     (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
-          ;; :let [_ (prn 'analyse-jvm-new-helper/_0 gtype)
-          ;;       _ (prn 'analyse-jvm-new-helper/_1 gtype (->> arg-types (&/|map &type/show-type) &/->seq))
-          ;;       _ (prn 'analyse-jvm-new-helper/_2 gtype (->> args (&/|map &/show-ast) &/->seq))]
           =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
           gtype-vars* (->> gtype-env (&/|map &/|second) (clean-gtype-vars))]
       (return (&/T (make-gtype gtype gtype-vars*)
@@ -365,7 +348,6 @@
     (&/$Cons ^TypeVariable gtv gtype-vars*)
     (&type/with-var
       (fn [$var]
-        ;; (prn 'analyse-jvm-new-helper gtype gtv $var (&/|length gtype-vars) (&/|length gtype-args))
         (|let [gtype-env* (&/Cons$ (&/T (.getName gtv) $var) gtype-env)]
           (analyse-jvm-new-helper analyse gtype gtype-env* gtype-vars* gtype-args args))))
     ))
@@ -373,10 +355,8 @@
 (defn analyse-jvm-new [analyse exo-type class classes args]
   (|do [class-loader &/loader
         [exceptions gvars gargs] (&host/lookup-constructor class-loader class classes)
-        ;; :let [_ (prn 'analyse-jvm-new class (&/->seq gvars) (&/->seq gargs))]
         _ (ensure-catching exceptions)
         [output-type =args] (analyse-jvm-new-helper analyse class (&/|table) gvars gargs args)
-        ;; :let [_ (prn 'analyse-jvm-new/POST class (->> classes &/->seq vec) (&type/show-type output-type))]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -713,39 +693,27 @@
       captured-slot-type "java.lang.Object"]
   (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces methods]
     (&/with-closure
-      (|do [;; :let [_ (prn 'analyse-jvm-anon-class/_0 super-class)]
-            module &/get-module-name
+      (|do [module &/get-module-name
             scope &/get-scope-name
-            ;; :let [_ (prn 'analyse-jvm-anon-class/_1 super-class)]
             :let [name (&host/location (&/|tail scope))
                   anon-class (str module "." name)]
-            ;; :let [_ (prn 'analyse-jvm-anon-class/_2 name anon-class)]
             =method-descs (&/map% dummy-method-desc methods)
             _ (&host/use-dummy-class name super-class interfaces (&/|list) =method-descs)
             =methods (&/map% (partial analyse-method analyse anon-class) methods)
-            ;; :let [_ (prn 'analyse-jvm-anon-class/_3 name anon-class)]
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
-            ;; :let [_ (prn 'analyse-jvm-anon-class/_4 name anon-class)]
             =captured &&env/captured-vars
             :let [=fields (&/|map (fn [^objects idx+capt]
                                     {:name (str &c!base/closure-prefix (aget idx+capt 0))
                                      :modifiers captured-slot-modifier
                                      :anns (&/|list)
                                      :type captured-slot-type})
-                                  (&/enumerate =captured))
-                  ;; _ (prn '=methods (&/adt->text (&/|map :body =methods)))
-                  ;; =methods* (rename-captured-vars)
-                  ]
+                                  (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
-            ;; :let [_ (prn 'analyse-jvm-anon-class/_5 name anon-class)]
-            ;; _ (compile-token (&/T (&/V &&/$jvm-anon-class (&/T name super-class interfaces =captured =methods)) exo-type))
             _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces (&/|list) =fields =methods =captured)))
-            ;; :let [_ (println 'DEF anon-class)]
             _cursor &/cursor]
         (return (&/|list (&&/|meta (&type/Data$ anon-class (&/|list)) _cursor
                                    (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources))
                                    )))
-        ;; (analyse-jvm-new analyse exo-type anon-class (&/|repeat (&/|length sources) captured-slot-type) sources)
         ))))
 
 (defn analyse-jvm-try [analyse exo-type ?body ?catches+?finally]

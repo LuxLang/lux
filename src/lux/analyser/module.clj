@@ -60,7 +60,6 @@
                nil))))
 
 (defn define [module name ^objects def-data type]
-  ;; (prn 'define module name (aget def-data 0) (&type/show-type type))
   (fn [state]
     (when (and (= "Macro" name) (= "lux" module))
       (&type/set-macro-type! (aget def-data 1)))
@@ -116,7 +115,6 @@
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
 (defn def-alias [a-module a-name r-module r-name type]
-  ;; (prn 'def-alias [a-module a-name] [r-module r-name] (&type/show-type type))
   (fn [state]
     (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
@@ -165,23 +163,19 @@
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      ;; (prn 'find-def/_0 module name 'current-module current-module)
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
-        (do ;; (prn 'find-def/_0.1 module (&/->seq (&/|keys $module)))
-            (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-              (|let [[exported? $$def] $def]
-                (do ;; (prn 'find-def/_1 module name 'exported? exported? (.equals ^Object current-module module))
-                    (if (or exported? (.equals ^Object current-module module))
-                      (|case $$def
-                        (&/$AliasD ?r-module ?r-name)
-                        (do ;; (prn 'find-def/_2 [module name] [?r-module ?r-name])
-                            ((find-def ?r-module ?r-name)
-                             state))
+        (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+          (|let [[exported? $$def] $def]
+            (if (or exported? (.equals ^Object current-module module))
+              (|case $$def
+                (&/$AliasD ?r-module ?r-name)
+                ((find-def ?r-module ?r-name)
+                 state)
 
-                        _
-                        (return* state (&/T (&/T module name) $$def)))
-                      (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
-              (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))))
+                _
+                (return* state (&/T (&/T module name) $$def)))
+              (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name)))))
+          (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
         (fail* (str "[Analyser Error] Module doesn't exist: " module))))))
 
 (defn ensure-type-def [def-data]
@@ -321,8 +315,7 @@
 
 (defn declare-tags [module tag-names type]
   "(-> Text (List Text) Type (Lux (,)))"
-  (|do [;; :let [_ (prn 'declare-tags module (&/->seq tag-names) (&type/show-type type))]
-        _ (ensure-undeclared-tags module tag-names)
+  (|do [_ (ensure-undeclared-tags module tag-names)
         type-name (&type/type-name type)
         :let [[_module _name] type-name]
         _ (&/assert! (= module _module)

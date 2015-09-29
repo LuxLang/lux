@@ -19,7 +19,6 @@
 
 ;; [Resources]
 (defn read-file [^String file-name]
-  ;; (prn 'read-file file-name)
   (let [file (new java.io.File (str &&/input-dir  "/" file-name))]
     (if (.exists file)
       (return (slurp file))

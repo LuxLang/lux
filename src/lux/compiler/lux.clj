@@ -68,7 +68,6 @@
     (return nil)))
 
 (defn compile-variant [compile ?tag ?value]
-  ;; (prn 'compile-variant ?tag (class ?tag))
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitLdcInsn (int 2))
@@ -118,8 +117,7 @@
   (|do [^MethodVisitor **writer** &/get-writer]
     (|case def-type
       "type"
-      (|do [:let [;; ?type* (&&type/->analysis ?type)
-                  _ (doto **writer**
+      (|do [:let [_ (doto **writer**
                       ;; Tail: Begin
                       (.visitLdcInsn (int 2)) ;; S
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
@@ -131,17 +129,12 @@
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 1)) ;; VVI
                       (.visitFieldInsn Opcodes/GETSTATIC current-class &/datum-field "Ljava/lang/Object;")
-                      ;; (.visitInsn Opcodes/ACONST_NULL) ;; VVIN
                       (.visitInsn Opcodes/AASTORE) ;; V
-                      )]
-            ;; _ (compile ?type*)
-            ;; :let [_ (.visitInsn **writer** Opcodes/AASTORE)]
-            ]
+                      )]]
         (return nil))
 
       "value"
-      (|let [;; _ (prn '?body (aget ?body 0) (aget ?body 1 0))
-             ?def-type (|case ?body
+      (|let [?def-type (|case ?body
                          [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr)]
                          ?type-expr
 

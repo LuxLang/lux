@@ -33,7 +33,6 @@
 
 (defn ^:private write-class! [^String path ^File file ^JarOutputStream out]
   "(-> Text File JarOutputStream Unit)"
-  ;; (prn 'write-class! path file)
   (with-open [in (new BufferedInputStream (new FileInputStream file))]
     (let [buffer (byte-array (* 10 kilobyte))]
       (doto out
@@ -49,8 +48,7 @@
 (let [output-dir-size (.length &&/output-dir)]
   (defn ^:private write-module! [^File file ^JarOutputStream out]
     "(-> File JarOutputStream Unit)"
-    (let [module-name (.substring (.getPath file) output-dir-size) ;; (.getName file)
-          ;; _ (prn 'write-module! module-name file (.getPath file) (.substring (.getPath file) output-dir-size))
+    (let [module-name (.substring (.getPath file) output-dir-size)
           inner-files (.listFiles file)
           inner-modules (filter #(.isDirectory ^File %) inner-files)
           inner-classes (filter #(not (.isDirectory ^File %)) inner-files)]
@@ -80,7 +78,6 @@
   (with-open [is (->> jar-file (new FileInputStream) (new JarInputStream))]
     (loop [^JarEntry entry (.getNextJarEntry is)]
       (when entry
-        ;; (prn 'add-jar! (.getName entry) (.isDirectory entry))
         (when (and (not (.isDirectory entry))
                    (not (.startsWith (.getName entry) "META-INF/")))
           (let [entry-data (read-stream is)]
@@ -94,7 +91,6 @@
 ;; [Resources]
 (defn package [module]
   "(-> Text (,))"
-  ;; (prn 'package module)
   (with-open [out (new JarOutputStream (->> &&/output-package (new File) (new FileOutputStream)) (manifest module))]
     (doseq [$group (.listFiles (new File &&/output-dir))]
       (write-module! $group out))

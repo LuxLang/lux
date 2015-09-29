@@ -109,10 +109,8 @@
                                                     ? (&module/exists? token)]
                                                 (if ?
                                                   (return (&/T meta (&/T token local-token)))
-                                                  (|do [unaliased (do ;; (prn "Unaliasing: " token ";" local-token)
-                                                                    (&module/dealias token))]
-                                                    (do ;; (prn "Unaliased: " unaliased ";" local-token)
-                                                      (return (&/T meta (&/T unaliased local-token)))))))
+                                                  (|do [unaliased (&module/dealias token)]
+                                                    (return (&/T meta (&/T unaliased local-token))))))
                                               (return (&/T meta (&/T "" token)))
                                               )))
                        (|do [[meta _] (&reader/read-text ";;")

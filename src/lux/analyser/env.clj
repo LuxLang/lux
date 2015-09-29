@@ -15,9 +15,7 @@
     (return* state (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$counter)))))
 
 (defn with-local [name type body]
-  ;; (prn 'with-local name)
   (fn [state]
-    ;; (prn 'with-local name)
     (let [old-mappings (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
           =return (body (&/update$ &/$envs
                                    (fn [stack]

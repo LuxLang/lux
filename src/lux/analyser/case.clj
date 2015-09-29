@@ -62,7 +62,6 @@
 
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
-  ;; (prn 'adjust-type* (&type/show-type type))
   (|case type
     (&/$UnivQ _aenv _abody)
     (&type/with-var
@@ -159,63 +158,47 @@
 
       (&/$TupleS ?members)
       (|do [value-type* (adjust-type value-type)]
-        (do ;; (prn 'PM/TUPLE-1 (&type/show-type value-type*))
-            (|case value-type*
-              (&/$TupleT ?member-types)
-              (do ;; (prn 'PM/TUPLE-2 (&/|length ?member-types) (&/|length ?members))
-                  (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-                    (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
-                    (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                                   (|let [[v m] vm]
-                                                     (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
-                                                       (return (&/T (&/Cons$ =test =tests) =kont)))))
-                                                 (|do [=kont kont]
-                                                   (return (&/T &/Nil$ =kont)))
-                                                 (&/|reverse (&/zip2 ?member-types ?members)))]
-                      (return (&/T (&/V $TupleTestAC =tests) =kont)))))
+        (|case value-type*
+          (&/$TupleT ?member-types)
+          (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
+            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
+            (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                           (|let [[v m] vm]
+                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
+                                               (return (&/T (&/Cons$ =test =tests) =kont)))))
+                                         (|do [=kont kont]
+                                           (return (&/T &/Nil$ =kont)))
+                                         (&/|reverse (&/zip2 ?member-types ?members)))]
+              (return (&/T (&/V $TupleTestAC =tests) =kont))))
 
-              _
-              (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*))))))
+          _
+          (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*)))))
       
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)]
         (analyse-pattern value-type (&/T meta (&/V &/$TupleS rec-members)) kont))
 
       (&/$TagS ?ident)
-      (|do [;; :let [_ (println "#00" (&/ident->text ?ident))]
-            [=module =name] (&&/resolved-ident ?ident)
-            ;; :let [_ (println "#01")]
+      (|do [[=module =name] (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
-            ;; :let [_ (println "#02")]
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
-            ;; :let [_ (println "#03")]
             case-type (&type/variant-case idx value-type*)
-            ;; :let [_ (println "#04")]
-            [=test =kont] (analyse-pattern case-type unit kont)
-            ;; :let [_ (println "#05")]
-            ]
+            [=test =kont] (analyse-pattern case-type unit kont)]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
       (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
                          ?values))
-      (|do [;; :let [_ (println "#10" (&/ident->text ?ident))]
-            [=module =name] (&&/resolved-ident ?ident)
-            ;; :let [_ (println "#11")]
+      (|do [[=module =name] (&&/resolved-ident ?ident)
             value-type* (adjust-type value-type)
-            ;; :let [_ (println "#12" (&type/show-type value-type*))]
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
-            ;; :let [_ (println "#13")]
             case-type (&type/variant-case idx value-type*)
-            ;; :let [_ (println "#14" (&type/show-type case-type))]
             [=test =kont] (case (int (&/|length ?values))
                             0 (analyse-pattern case-type unit kont)
                             1 (analyse-pattern case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern case-type (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values)) kont))
-            ;; :let [_ (println "#15")]
-            ]
+                            (analyse-pattern case-type (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values)) kont))]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
       _
@@ -319,7 +302,6 @@
           (return (&/T =output =type)))))))
 
 (defn ^:private check-totality [value-type struct]
-  ;; (prn 'check-totality (&type/show-type value-type) (&/adt->text struct))
   (|case struct
     ($DefaultTotal ?total)
     (return ?total)
@@ -371,20 +353,11 @@
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
           (&/$VariantT ?members)
-          (|do [totals (&/map2% (fn [sub-struct ?member]
-                                  ;; (prn '$VariantTotal
-                                  ;;      (&/adt->text sub-struct)
-                                  ;;      (&type/show-type ?member))
-                                  (check-totality ?member sub-struct))
-                                ?structs ?members)]
+          (|do [totals (&/map2% check-totality ?members ?structs)]
             (return (&/fold #(and %1 %2) true totals)))
 
           _
           (fail "[Pattern-maching Error] Variant is not total."))))
-    
-    ;; _
-    ;; (assert false (prn-str 'check-totality (&type/show-type value-type)
-    ;;                        (&/adt->text struct)))
     ))
 
 ;; [Exports]

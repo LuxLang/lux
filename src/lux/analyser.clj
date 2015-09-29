@@ -694,7 +694,6 @@
         ))))
 
 (defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]
-  ;; (prn 'analyse-ast (&/show-ast token))
   (|let [[cursor _] token]
     (&/with-cursor cursor
       (&/with-expected-type exo-type
@@ -709,8 +708,7 @@
           (fn [state]
             (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
               (&/$Right state* =fn)
-              (do ;; (prn 'GOT_FUN (&/show-ast ?fn) (&/show-ast token) (aget =fn 0 0) (aget =fn 1 0))
-                  ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*))
+              ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*)
 
               _
               ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))

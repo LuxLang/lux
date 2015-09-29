@@ -217,9 +217,6 @@
     (if (.equals ^Object k slot)
       (V $Cons (T (T slot value) table*))
       (V $Cons (T (T k v) (|put slot value table*))))
-
-    ;; _
-    ;; (assert false (prn-str '|put (aget table 0)))
     ))
 
 (defn |remove [slot table]
@@ -801,7 +798,6 @@
     (return* state (get$ $cursor state))))
 
 (defn show-ast [ast]
-  ;; (prn 'show-ast/GOOD (aget ast 0) (aget ast 1 1 0))
   (|case ast
     [_ ($BoolS ?value)]
     (pr-str ?value)

@@ -68,20 +68,17 @@
       Unit (&/V &/$TupleT (&/|list))]
   (defn class->type [^Class class]
     "(-> Class Type)"
-    (do ;; (prn 'class->type/_0 class (.getSimpleName class) (.getName class))
-        (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
-          (let [base (or arr-base simple-base)]
-            ;; (prn 'class->type/_1 class base arr-brackets)
-            (if (.equals "void" base)
-              Unit
-              (reduce (fn [inner _] (&/V &/$DataT (&/T array-data-tag (&/|list inner))))
-                      (&/V &/$DataT (&/T base &/Nil$))
-                      (range (count (or arr-brackets "")))))
-            )))))
+    (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
+      (let [base (or arr-base simple-base)]
+        (if (.equals "void" base)
+          Unit
+          (reduce (fn [inner _] (&/V &/$DataT (&/T array-data-tag (&/|list inner))))
+                  (&/V &/$DataT (&/T base &/Nil$))
+                  (range (count (or arr-brackets "")))))
+        ))))
 
 (defn instance-param [existential matchings refl-type]
   "(-> (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
-  ;; (prn 'instance-param refl-type (class refl-type))
   (cond (instance? Class refl-type)
         (return (class->type refl-type))
 

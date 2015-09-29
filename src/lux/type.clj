@@ -36,10 +36,8 @@
 (defn App$ [fun arg]
   (&/V &/$AppT (&/T fun arg)))
 (defn Tuple$ [members]
-  ;; (assert (|list? members))
   (&/V &/$TupleT members))
 (defn Variant$ [members]
-  ;; (assert (|list? members))
   (&/V &/$VariantT members))
 (defn Univ$ [env body]
   (&/V &/$UnivQ (&/T env body)))
@@ -149,7 +147,6 @@
     (deref id)
 
     _
-    ;; (assert false (str "[Type Error] Type is not a variable: " (show-type type)))
     (fail (str "[Type Error] Type is not a variable: " (show-type type)))
     ))
 
@@ -406,8 +403,6 @@
        "\n"))
 
 (defn beta-reduce [env type]
-  ;; (when @!flag
-  ;;   (prn 'beta-reduce (show-type type)))
   (|case type
     (&/$VariantT ?members)
     (Variant$ (&/|map (partial beta-reduce env) ?members))
@@ -442,8 +437,6 @@
     ))
 
 (defn apply-type [type-fn param]
-  ;; (when @!flag
-  ;;   (prn 'apply-type (show-type type-fn) (show-type param)))
   (|case type-fn
     (&/$UnivQ local-env local-def)
     (return (beta-reduce (->> local-env
@@ -528,40 +521,6 @@
         (check* class-loader fixpoints invariant?? eA aA)
         (fail (check-error expected actual)))
 
-      ;; [(&/$AppT (&/$VarT ?eid) A1) (&/$AppT (&/$VarT ?aid) A2)]
-      ;; (fn [state]
-      ;;   (|case ((|do [F1 (deref ?eid)]
-      ;;             (fn [state]
-      ;;               (|case ((|do [F2 (deref ?aid)]
-      ;;                         (check* class-loader fixpoints invariant?? (App$ F1 A1) (App$ F2 A2)))
-      ;;                       state)
-      ;;                 (&/$Right state* output)
-      ;;                 (return* state* output)
-
-      ;;                 (&/$Left _)
-      ;;                 ((check* class-loader fixpoints invariant?? (App$ F1 A1) actual)
-      ;;                  state))))
-      ;;           state)
-      ;;     (&/$Right state* output)
-      ;;     (return* state* output)
-
-      ;;     (&/$Left _)
-      ;;     (|case ((|do [F2 (deref ?aid)]
-      ;;               (check* class-loader fixpoints invariant?? expected (App$ F2 A2)))
-      ;;             state)
-      ;;       (&/$Right state* output)
-      ;;       (return* state* output)
-
-      ;;       (&/$Left _)
-      ;;       ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? (Var$ ?eid) (Var$ ?aid))
-      ;;              [fixpoints** _] (check* class-loader fixpoints* invariant?? A1 A2)]
-      ;;          (return (&/T fixpoints** nil)))
-      ;;        state))))
-      
-      ;; (|do [_ (check* class-loader fixpoints invariant?? (Var$ ?eid) (Var$ ?aid))
-      ;;       _ (check* class-loader fixpoints invariant?? A1 A2)]
-      ;;   (return (&/T fixpoints nil)))
-      
       [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
       (fn [state]
         (|case ((|do [F1 (deref ?id)]
@@ -578,13 +537,6 @@
              (return (&/T fixpoints** nil)))
            state)))
       
-      ;; [[&/$AppT [[&/$VarT ?id] A1]] [&/$AppT [F2 A2]]]
-      ;; (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? (Var$ ?id) F2)
-      ;;       e* (apply-type F2 A1)
-      ;;       a* (apply-type F2 A2)
-      ;;       [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-      ;;   (return (&/T fixpoints** nil)))
-      
       [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
       (fn [state]
         (|case ((|do [F2 (deref ?id)]
@@ -600,17 +552,6 @@
                  [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
-      
-      ;; [[&/$AppT [F1 A1]] [&/$AppT [[&/$VarT ?id] A2]]]
-      ;; (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? F1 (Var$ ?id))
-      ;;       e* (apply-type F1 A1)
-      ;;       a* (apply-type F1 A2)
-      ;;       [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-      ;;   (return (&/T fixpoints** nil)))
-
-      ;; [(&/$AppT eF eA) (&/$AppT aF aA)]
-      ;; (|do [_ (check* class-loader fixpoints invariant?? eF aF)]
-      ;;   (check* class-loader fixpoints invariant?? eA aA))
       
       [(&/$AppT F A) _]
       (let [fp-pair (&/T expected actual)
@@ -641,11 +582,7 @@
       (|do [$arg existential
             expected* (apply-type expected $arg)]
         (check* class-loader fixpoints invariant?? expected* actual))
-      ;; (with-var
-      ;;   (fn [$arg]
-      ;;     (|do [expected* (apply-type expected $arg)]
-      ;;       (check* class-loader fixpoints invariant?? expected* actual))))
-
+      
       [_ (&/$UnivQ _)]
       (with-var
         (fn [$arg]

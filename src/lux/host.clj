@@ -113,7 +113,6 @@
 
 (do-template [<name> <static?>]
   (defn <name> [class-loader target method-name args]
-    ;; (prn '<name> target method-name)
     (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
       (if-let [^Method method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj target) true class-loader))
                                            :when (and (.equals ^Object method-name (.getName =method))

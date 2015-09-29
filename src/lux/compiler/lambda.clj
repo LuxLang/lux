@@ -92,7 +92,6 @@
 (let [lambda-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       datum-flags (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL)]
   (defn compile-lambda [compile ?scope ?env ?body]
-    ;; (prn 'compile-lambda (->> ?scope &/->seq))
     (|do [[file-name _ _] &/cursor
           :let [name (&host/location (&/|tail ?scope))
                 class-name (str (&host/->module-class (&/|head ?scope)) "/" name)

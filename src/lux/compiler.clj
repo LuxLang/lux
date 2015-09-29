@@ -38,7 +38,6 @@
 (def ^:private !source->last-line (atom nil))
 
 (defn ^:private compile-expression [syntax]
-  ;; (prn 'compile-expression (&/adt->text syntax))
   (|let [[[?type [_file-name _line _column]] ?form] syntax]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [debug-label (new Label)
@@ -52,8 +51,7 @@
         (&&lux/compile-bool compile-expression ?value)
 
         (&a/$int ?value)
-        (do ;; (prn 'compile-expression (&/adt->text syntax))
-            (&&lux/compile-int compile-expression ?value))
+        (&&lux/compile-int compile-expression ?value)
 
         (&a/$real ?value)
         (&&lux/compile-real compile-expression ?value)
@@ -445,7 +443,6 @@
           id &/gen-id
           [file-name _ _] &/cursor
           :let [class-name (str (&host/->module-class module) "/" id)
-                ;; _ (prn 'eval! id class-name)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                  class-name nil "java/lang/Object" nil)
@@ -472,7 +469,6 @@
           return))))
 
 (defn ^:private compile-module [name]
-  ;; (prn 'compile-module name (&&cache/cached? name))
   (let [file-name (str name ".lux")]
     (|do [file-content (&&io/read-file file-name)
           :let [file-hash (hash file-content)]]
@@ -492,9 +488,7 @@
                                        .visitEnd)
                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &&/version)
                                        .visitEnd)
-                                   (.visitSource file-name nil))
-                          ;; _ (prn 'compile-module name =class)
-                          ]]
+                                   (.visitSource file-name nil))]]
                 (fn [state]
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
@@ -529,7 +523,6 @@
                                                                        (&/fold str "")))
                                                      .visitEnd)
                                                  (.visitEnd))
-                                             ;; _ (prn 'CLOSED name =class)
                                              ]
                                        _ (&/flag-compiled-module name)]
                                    (&&/save-class! &/module-class-name (.toByteArray =class)))
