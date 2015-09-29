@@ -638,16 +638,36 @@
         (check* class-loader fixpoints invariant?? expected actual*))
 
       [(&/$UnivQ _) _]
-      (with-var
-        (fn [$arg]
-          (|do [expected* (apply-type expected $arg)]
-            (check* class-loader fixpoints invariant?? expected* actual))))
+      (|do [$arg existential
+            expected* (apply-type expected $arg)]
+        (check* class-loader fixpoints invariant?? expected* actual))
+      ;; (with-var
+      ;;   (fn [$arg]
+      ;;     (|do [expected* (apply-type expected $arg)]
+      ;;       (check* class-loader fixpoints invariant?? expected* actual))))
 
       [_ (&/$UnivQ _)]
       (with-var
         (fn [$arg]
           (|do [actual* (apply-type actual $arg)]
             (check* class-loader fixpoints invariant?? expected actual*))))
+
+      [(&/$ExQ e!env e!def) _]
+      (with-var
+        (fn [$arg]
+          (|let [expected* (beta-reduce (->> e!env
+                                             (&/Cons$ expected)
+                                             (&/Cons$ $arg))
+                                        e!def)]
+            (check* class-loader fixpoints invariant?? expected* actual))))
+
+      [_ (&/$ExQ a!env a!def)]
+      (|do [$arg existential]
+        (|let [actual* (beta-reduce (->> a!env
+                                         (&/Cons$ expected)
+                                         (&/Cons$ $arg))
+                                    a!def)]
+          (check* class-loader fixpoints invariant?? expected actual*)))
 
       [(&/$DataT e!data) (&/$DataT a!data)]
       (&&host/check-host-types (partial check* class-loader fixpoints true)
@@ -658,31 +678,6 @@
                                invariant??
                                e!data
                                a!data)
-      ;; [(&/$DataT e!name e!params) (&/$DataT a!name a!params)]
-      ;; (cond (= "#Null" a!name)
-      ;;       (if (not (&&host/primitive-type? e!name))
-      ;;         (return (&/T fixpoints nil))
-      ;;         (fail (check-error expected actual)))
-
-      ;;       (= "#Null" e!name)
-      ;;       (if (= "#Null" a!name)
-      ;;         (return (&/T fixpoints nil))
-      ;;         (fail (check-error expected actual)))
-
-      ;;       :else
-      ;;       (let [e!name (&&host/as-obj e!name)
-      ;;             a!name (&&host/as-obj a!name)]
-      ;;         (cond (and (.equals ^Object e!name a!name)
-      ;;                    (= (&/|length e!params) (&/|length a!params)))
-      ;;               (|do [_ (&/map2% (partial check* class-loader fixpoints true) e!params a!params)]
-      ;;                 (return (&/T fixpoints nil)))
-
-      ;;               (not invariant??)
-      ;;               (|do [actual* (&&host/->super-type existential class-loader e!name a!name a!params)]
-      ;;                 (check* class-loader fixpoints invariant?? expected actual*))
-
-      ;;               :else
-      ;;               (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
 
       [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
       (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
@@ -696,6 +691,9 @@
                                  e!members a!members)]
         (return (&/T fixpoints* nil)))
       
+      [_ (&/$VariantT (&/$Nil))]
+      (return (&/T fixpoints nil))
+
       [(&/$VariantT e!cases) (&/$VariantT a!cases)]
       (|do [fixpoints* (&/fold2% (fn [fp e a]
                                    (|do [[fp* _] (check* class-loader fp invariant?? e a)]

@@ -68,7 +68,7 @@
       (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
       )))
 
-(defn ^:private aba8 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba10 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Arrays
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_znewarray")] (&/$Cons ?length (&/$Nil))))
@@ -116,6 +116,12 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_laload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
     (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
+    _
+    (assert false (str "Unknown syntax: " (prn-str (&/show-ast (&&/|meta (&/T "" -1 -1) token)))))))
+
+(defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
+  (|case token
+    ;; Arrays
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fnewarray")] (&/$Cons [_ (&/$SymbolS _ ?class)] (&/$Cons ?length (&/$Nil)))))
     (&&host/analyse-jvm-fnewarray analyse exo-type ?length)
     
@@ -143,6 +149,12 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_caload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
     (&&host/analyse-jvm-caload analyse exo-type ?array ?idx)
 
+    _
+    (aba10 analyse eval! compile-module compile-token exo-type token)))
+
+(defn ^:private aba8 [analyse eval! compile-module compile-token exo-type token]
+  (|case token
+    ;; Arrays
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anewarray")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?length (&/$Nil)))))
     (&&host/analyse-jvm-anewarray analyse exo-type ?class ?length)
 
@@ -156,8 +168,7 @@
     (&&host/analyse-jvm-arraylength analyse exo-type ?array)
 
     _
-    (do (prn 'aba8 (&/adt->text token))
-      (assert false (str "Unknown syntax: " (prn-str (&/show-ast (&&/|meta (&/T "" -1 -1) token))))))))
+    (aba9 analyse eval! compile-module compile-token exo-type token)))
 
 (defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
   (|case token
