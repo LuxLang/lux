@@ -24,7 +24,7 @@
 
     _
     (println "Can't understand command."))
-  ;; (System/exit 0)
+  (System/exit 0)
   )
 
 (comment

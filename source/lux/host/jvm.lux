@@ -93,6 +93,21 @@
            arg-classes (map second args)]]
     (wrap [vars var-types (list:join var-rebinds) arg-classes])))
 
+(def (class->type class)
+  (-> JvmType AST)
+  (case class
+    "boolean" (' (;^ java.lang.Boolean))
+    "byte" (' (;^ java.lang.Byte))
+    "short" (' (;^ java.lang.Short))
+    "int" (' (;^ java.lang.Integer))
+    "long" (' (;^ java.lang.Long))
+    "float" (' (;^ java.lang.Float))
+    "double" (' (;^ java.lang.Double))
+    "char" (' (;^ java.lang.Character))
+    "void" (` ;Unit)
+    _
+    (` (^ (~ (symbol$ ["" class]))))))
+
 ## Parsers
 (def annotation-params^
   (Parser (List AnnotationParam))
@@ -227,7 +242,7 @@
 
 (def (gen-expected-output [ex? opt? output] body)
   (-> ExpectedOutput AST (, AST AST))
-  (let [type (` (^ (~ (symbol$ ["" output]))))
+  (let [type (class->type output)
         [body type] (if opt?
                       [(` (;;??? (~ body)))
                        (` (Maybe (~ type)))]
@@ -321,14 +336,15 @@
 (defsyntax #export (null? obj)
   (emit (@list (` (;_jvm_null? (~ obj))))))
 
-(defsyntax #export (new$ [class local-symbol^] [args (tuple^ (*^ exp-input^))] [ex? (tag?^ ["" "!"])])
+(defsyntax #export (new$ [class local-symbol^] [args (tuple^ (*^ exp-input^))] [unsafe? (tag?^ ["" "unsafe"])])
   (do Lux/Monad
     [[vars var-types var-rebinds arg-classes] (prepare-args args)
      #let [new-expr (` (;_jvm_new (~ (text$ class)) [(~@ (map text$ arg-classes))] [(~@ vars)]))
-           new-expr (if ex?
-                      (` (try (~ new-expr)))
-                      new-expr)]]
-    (wrap (@list (` (: (-> (, (~@ var-types)) (^ (~ (symbol$ ["" class]))))
+           return-type (class->type class)
+           [new-expr return-type] (if unsafe?
+                                    [(` (try (~ new-expr))) (` (Either Text (~ return-type)))]
+                                    [new-expr return-type])]]
+    (wrap (@list (` (: (-> (, (~@ var-types)) (~ return-type))
                        (lambda [[(~@ vars)]]
                          (let [(~@ var-rebinds)]
                            (~ new-expr)))))))))

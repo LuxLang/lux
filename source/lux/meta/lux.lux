@@ -9,9 +9,11 @@
                       (functor #as F)
                       (monad #as M #refer (#only do))
                       (show #as S))
-         (lux/data (list #refer #all #open ("list:" List/Monoid))
+         (lux/data (list #refer #all #open ("list:" List/Monoid List/Functor))
                    (text #as T #open ("text:" Text/Monoid Text/Eq))
-                   (number/int #as I #open ("i" Int/Number))))
+                   (number/int #as I #open ("i" Int/Number))
+                   (tuple #as t)
+                   ident))
 
 ## [Types]
 ## (deftype (Lux a)
@@ -77,7 +79,7 @@
     (#;Some $module)
     (case (|> (: (Module Compiler) $module) (get@ #;defs) (get name))
       (#;Some gdef)
-      (case (: (, Bool DefData) gdef)
+      (case (: Definition gdef)
         [exported? (#;MacroD macro')]
         (if (or exported? (text:= module current-module))
           (#;Some macro')
@@ -210,7 +212,7 @@
   (case (get module (get@ #;modules state))
     (#;Some =module)
     (using List/Monad
-      (#;Right [state (join (map (: (-> (, Text (, Bool DefData))
+      (#;Right [state (join (map (: (-> (, Text Definition)
                                         (List Text))
                                     (lambda [gdef]
                                       (let [[name [export? _]] gdef]
@@ -251,7 +253,7 @@
           envs)))
 
 (def (find-in-defs' name state)
-  (-> Ident Compiler (Maybe DefData))
+  (-> Ident Compiler (Maybe Definition))
   (let [[v-prefix v-name] name
         {#;source source #;modules modules
          #;envs   envs   #;type-vars   types   #;host           host
@@ -266,17 +268,17 @@
         #;None
         #;None
 
-        (#;Some [_ def-data])
-        (case def-data
-          (#;AliasD name')  (find-in-defs' name' state)
-          _                 (#;Some def-data)
+        (#;Some def)
+        (case def
+          [_ (#;AliasD name')]  (find-in-defs' name' state)
+          _                     (#;Some def)
           )))
     ))
 
 (def #export (find-in-defs name state)
   (-> Ident Compiler (Maybe Type))
   (case (find-in-defs' name state)
-    (#;Some def-data)
+    (#;Some [_ def-data])
     (case def-data
       (#;ValueD [type value]) (#;Some type)
       (#;MacroD _)            (#;Some Macro)
@@ -315,9 +317,50 @@
          (case (find-in-defs' name' state)
            (#;Some def-data)
            (case def-data
-             (#;TypeD type) (#;Right [state type])
-             _              (#;Left ($ text:++ "Definition is not a type: " (ident->text name))))
+             [_ (#;TypeD type)] (#;Right [state type])
+             _                  (#;Left ($ text:++ "Definition is not a type: " (ident->text name))))
 
            _
            (#;Left ($ text:++ "Unknown var: " (ident->text name))))))
     ))
+
+(def #export (defs module-name state)
+  (-> Text (Lux (List (, Text Definition))))
+  (case (get module-name (get@ #;modules state))
+    #;None          (#;Left ($ text:++ "Unknown module: " module-name))
+    (#;Some module) (#;Right [state (get@ #;defs module)])
+    ))
+
+(def #export (exports module-name)
+  (-> Text (Lux (List (, Text Definition))))
+  (do Lux/Monad
+    [defs (defs module-name)]
+    (wrap (filter (lambda [[name [exported? data]]] exported?)
+                  defs))))
+
+(def #export (modules state)
+  (Lux (List Text))
+  (|> state
+      (get@ #;modules)
+      (list:map t;first)
+      (#;Right state)))
+
+(def #export (find-module name state)
+  (-> Text (Lux (Module Compiler)))
+  (case (get name (get@ #;modules state))
+    (#;Some module)
+    (#;Right state module)
+
+    _
+    (#;Left ($ text:++ "Unknown module: " name))))
+
+(def #export (tags-for [module name])
+  (-> Ident (Lux (Maybe (List Ident))))
+  (do Lux/Monad
+    [module (find-module module)]
+    (case (get name (get@ #;types module))
+      (#;Some [tags _])
+      (wrap (#;Some tags))
+
+      _
+      (wrap #;None))))

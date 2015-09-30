@@ -155,7 +155,7 @@
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
           (return (&/V &/$DataT (&/T (.getName sub-class*) sub-params*)))))
-      (fail (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </=" super-class)))))
+      (fail (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </= " super-class)))))
 
 (defn as-obj [class]
   (case class

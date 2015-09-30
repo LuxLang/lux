@@ -376,7 +376,7 @@
     init
 
     ($Cons x xs*)
-    (fold f (f init x) xs*)))
+    (recur f (f init x) xs*)))
 
 (defn fold% [f init xs]
   (|case xs

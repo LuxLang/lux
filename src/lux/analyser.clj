@@ -212,6 +212,48 @@
 
 (defn ^:private aba6 [analyse eval! compile-module compile-token exo-type token]
   (|case token
+    ;; Bitwise operators
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iand")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-iand analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ior")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-ior analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ixor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-ixor analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ishl")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-ishl analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ishr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-ishr analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iushr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-iushr analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_land")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-land analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-lor analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lxor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-lxor analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lshl")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-lshl analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lshr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-lshr analyse exo-type ?x ?y)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lushr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
+    (&&host/analyse-jvm-lushr analyse exo-type ?x ?y)
+
+    _
+    (aba7 analyse eval! compile-module compile-token exo-type token)))
+
+(defn ^:private aba5_5 [analyse eval! compile-module compile-token exo-type token]
+  (|case token
     ;; Primitive conversions
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_d2f")] (&/$Cons ?value (&/$Nil))))
     (&&host/analyse-jvm-d2f analyse exo-type ?value)
@@ -258,45 +300,8 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_l2i")] (&/$Cons ?value (&/$Nil))))
     (&&host/analyse-jvm-l2i analyse exo-type ?value)
 
-    ;; Bitwise operators
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iand")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-iand analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ior")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ior analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ixor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ixor analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ishl")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ishl analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ishr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ishr analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iushr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-iushr analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_land")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-land analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lor analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lxor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lxor analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lshl")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lshl analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lshr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lshr analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lushr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lushr analyse exo-type ?x ?y)
-
     _
-    (aba7 analyse eval! compile-module compile-token exo-type token)))
+    (aba6 analyse eval! compile-module compile-token exo-type token)))
 
 (defn ^:private aba5 [analyse eval! compile-module compile-token exo-type token]
   (|case token
@@ -411,7 +416,7 @@
     (&&host/analyse-jvm-monitorexit analyse exo-type ?monitor)
 
     _
-    (aba6 analyse eval! compile-module compile-token exo-type token)))
+    (aba5_5 analyse eval! compile-module compile-token exo-type token)))
 
 (defn ^:private aba4 [analyse eval! compile-module compile-token exo-type token]
   (|case token
