@@ -1,10 +1,11 @@
-(defproject lux-jvm "0.2.0"
+(defproject lux-jvm "0.3.0"
   :description "The JVM compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
-  :license {:name "Eclipse Public License"
-            :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :license {:name "Mozilla Public License (Version 2.0)"
+            :url "https://www.mozilla.org/en-US/MPL/2.0/"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
-                 [org.ow2.asm/asm-all "5.0.3"]]
+                 [org.ow2.asm/asm-all "5.0.3"]
+                 [org.apache.commons/commons-compress "1.10"]]
   :warn-on-reflection true
   :main lux)

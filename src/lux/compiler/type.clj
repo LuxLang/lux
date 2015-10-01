@@ -1,97 +1,86 @@
-;;   Copyright (c) Eduardo Julian. All rights reserved.
-;;   The use and distribution terms for this software are covered by the
-;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-;;   which can be found in the file epl-v10.html at the root of this distribution.
-;;   By using this software in any fashion, you are agreeing to be bound by
-;;   the terms of this license.
-;;   You must not remove this notice, or any other, from this software.
+;;  Copyright (c) Eduardo Julian. All rights reserved.
+;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+;;  If a copy of the MPL was not distributed with this file,
+;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.compiler.type
-  (:require [clojure.core.match :as M :refer [matchv]]
+  (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let]]
-                 [type :as &type])))
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
+                 [type :as &type])
+            [lux.analyser.base :as &a]))
 
 ;; [Utils]
 (defn ^:private variant$ [tag body]
   "(-> Text Analysis Analysis)"
-  (&/T (&/V "variant" (&/T tag body))
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$variant (&/T tag body))
+            ))
 
 (defn ^:private tuple$ [members]
   "(-> (List Analysis) Analysis)"
-  (&/T (&/V "tuple" members)
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$tuple members)
+            ))
+
+(defn ^:private int$ [value]
+  "(-> Int Analysis)"
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$int value)
+            ))
 
 (defn ^:private text$ [text]
   "(-> Text Analysis)"
-  (&/T (&/V "text" text)
-       &type/$Void))
+  (&a/|meta &type/$Void &/empty-cursor
+            (&/V &a/$text text)
+            ))
 
 (def ^:private $Nil
   "Analysis"
-  (variant$ "lux;Nil" (tuple$ (&/|list))))
+  (variant$ &/$Nil (tuple$ &/Nil$)))
 
 (defn ^:private Cons$ [head tail]
   "(-> Analysis Analysis Analysis)"
-  (variant$ "lux;Cons" (tuple$ (&/|list head tail))))
+  (variant$ &/$Cons (tuple$ (&/|list head tail))))
+
+(defn ^:private List$ [elems]
+  (&/fold (fn [tail head]
+            (Cons$ head tail))
+          $Nil
+          (&/|reverse elems)))
 
 ;; [Exports]
 (defn ->analysis [type]
   "(-> Type Analysis)"
-  (matchv ::M/objects [type]
-    [["lux;DataT" ?class]]
-    (variant$ "lux;DataT" (text$ ?class))
+  (|case type
+    (&/$DataT class params)
+    (variant$ &/$DataT (tuple$ (&/|list (text$ class)
+                                        (List$ (&/|map ->analysis params)))))
     
-    [["lux;TupleT" ?members]]
-    (variant$ "lux;TupleT"
-              (&/fold (fn [tail head]
-                        (Cons$ (->analysis head) tail))
-                      $Nil
-                      (&/|reverse ?members)))
+    (&/$TupleT members)
+    (variant$ &/$TupleT (List$ (&/|map ->analysis members)))
 
-    [["lux;VariantT" ?cases]]
-    (variant$ "lux;VariantT"
-              (&/fold (fn [tail head]
-                        (|let [[hlabel htype] head]
-                          (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                 tail)))
-                      $Nil
-                      (&/|reverse ?cases)))
+    (&/$VariantT members)
+    (variant$ &/$VariantT (List$ (&/|map ->analysis members)))
 
-    [["lux;RecordT" ?slots]]
-    (variant$ "lux;RecordT"
-              (&/fold (fn [tail head]
-                        (|let [[hlabel htype] head]
-                          (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                 tail)))
-                      $Nil
-                      (&/|reverse ?slots)))
+    (&/$LambdaT input output)
+    (variant$ &/$LambdaT (tuple$ (&/|list (->analysis input) (->analysis output))))
 
-    [["lux;LambdaT" [?input ?output]]]
-    (variant$ "lux;LambdaT" (tuple$ (&/|list (->analysis ?input) (->analysis ?output))))
+    (&/$UnivQ env body)
+    (variant$ &/$UnivQ
+              (tuple$ (&/|list (List$ (&/|map ->analysis env))
+                               (->analysis body))))
 
-    [["lux;AllT" [?env ?name ?arg ?body]]]
-    (variant$ "lux;AllT"
-              (tuple$ (&/|list (matchv ::M/objects [?env]
-                                 [["lux;None" _]]
-                                 (variant$ "lux;Some" (tuple$ (&/|list)))
+    (&/$BoundT idx)
+    (variant$ &/$BoundT (int$ idx))
 
-                                 [["lux;Some" ??env]]
-                                 (variant$ "lux;Some"
-                                           (&/fold (fn [tail head]
-                                                     (|let [[hlabel htype] head]
-                                                       (Cons$ (tuple$ (&/|list (text$ hlabel) (->analysis htype)))
-                                                              tail)))
-                                                   $Nil
-                                                   (&/|reverse ??env))))
-                               (text$ ?name)
-                               (text$ ?arg)
-                               (->analysis ?body))))
+    (&/$AppT fun arg)
+    (variant$ &/$AppT (tuple$ (&/|list (->analysis fun) (->analysis arg))))
 
-    [["lux;BoundT" ?name]]
-    (variant$ "lux;BoundT" (text$ ?name))
+    (&/$NamedT [module name] type*)
+    (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ module) (text$ name)))
+                                         (->analysis type*))))
 
-    [["lux;AppT" [?fun ?arg]]]
-    (variant$ "lux;AppT" (tuple$ (&/|list (->analysis ?fun) (->analysis ?arg))))
+    _
+    (assert false (prn '->analysis (&type/show-type type) (&/adt->text type)))
     ))

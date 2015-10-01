@@ -1,22 +1,20 @@
-;;   Copyright (c) Eduardo Julian. All rights reserved.
-;;   The use and distribution terms for this software are covered by the
-;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-;;   which can be found in the file epl-v10.html at the root of this distribution.
-;;   By using this software in any fashion, you are agreeing to be bound by
-;;   the terms of this license.
-;;   You must not remove this notice, or any other, from this software.
+;;  Copyright (c) Eduardo Julian. All rights reserved.
+;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+;;  If a copy of the MPL was not distributed with this file,
+;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.compiler.case
   (:require (clojure [set :as set]
                      [template :refer [do-template]])
-            [clojure.core.match :as M :refer [match matchv]]
+            clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let]]
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
                  [analyser :as &analyser]
                  [host :as &host])
+            [lux.analyser.case :as &a-case]
             [lux.compiler.base :as &&])
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -26,13 +24,13 @@
 ;; [Utils]
 (let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
   (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
-    (matchv ::M/objects [?match]
-      [["StoreTestAC" ?idx]]
+    (|case ?match
+      (&a-case/$StoreTestAC ?idx)
       (doto writer
         (.visitVarInsn Opcodes/ASTORE ?idx)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["BoolTestAC" ?value]]
+      (&a-case/$BoolTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
         (.visitInsn Opcodes/DUP)
@@ -42,29 +40,29 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["IntTestAC" ?value]]
+      (&a-case/$IntTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
-        (.visitLdcInsn ?value)
+        (.visitLdcInsn (long ?value))
         (.visitInsn Opcodes/LCMP)
         (.visitJumpInsn Opcodes/IFNE $else)
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["RealTestAC" ?value]]
+      (&a-case/$RealTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
         (.visitInsn Opcodes/DUP)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
-        (.visitLdcInsn ?value)
+        (.visitLdcInsn (double ?value))
         (.visitInsn Opcodes/DCMPL)
         (.visitJumpInsn Opcodes/IFNE $else)
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["CharTestAC" ?value]]
+      (&a-case/$CharTestAC ?value)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
         (.visitInsn Opcodes/DUP)
@@ -74,7 +72,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["TextTestAC" ?value]]
+      (&a-case/$TextTestAC ?value)
       (doto writer
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn ?value)
@@ -83,7 +81,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["TupleTestAC" ?members]]
+      (&a-case/$TupleTestAC ?members)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (-> (doto (.visitInsn Opcodes/DUP)
@@ -101,36 +99,14 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      [["RecordTestAC" ?slots]]
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (-> (doto (.visitInsn Opcodes/DUP)
-              (.visitLdcInsn (int idx))
-              (.visitInsn Opcodes/AALOAD)
-              (compile-match test $next $sub-else)
-              (.visitLabel $sub-else)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else)
-              (.visitLabel $next))
-            (->> (|let [[idx [_ test]] idx+member
-                        $next (new Label)
-                        $sub-else (new Label)])
-                 (doseq [idx+member (->> ?slots
-                                         &/->seq
-                                         (sort compare-kv)
-                                         &/->list
-                                         &/enumerate
-                                         &/->seq)])))
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
-      
-      [["VariantTestAC" [?tag ?test]]]
+      (&a-case/$VariantTestAC ?tag ?count ?test)
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)
         (.visitLdcInsn (int 0))
         (.visitInsn Opcodes/AALOAD)
         (.visitLdcInsn ?tag)
+        (&&/wrap-long)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
         (.visitJumpInsn Opcodes/IFEQ $else)
         (.visitInsn Opcodes/DUP)
@@ -185,7 +161,7 @@
     ))
 
 ;; [Resources]
-(defn compile-case [compile *type* ?value ?matches]
+(defn compile-case [compile ?value ?matches]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)]
         _ (compile ?value)

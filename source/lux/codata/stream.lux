@@ -1,20 +1,20 @@
-##   Copyright (c) Eduardo Julian. All rights reserved.
-##   The use and distribution terms for this software are covered by the
-##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-##   which can be found in the file epl-v10.html at the root of this distribution.
-##   By using this software in any fashion, you are agreeing to be bound by
-##   the terms of this license.
-##   You must not remove this notice, or any other, from this software.
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (;import lux
-         (lux (control (lazy #as L #refer #all)
-                       (functor #as F #refer #all)
+         (lux (control (functor #as F #refer #all)
                        (monad #as M #refer #all)
                        (comonad #as CM #refer #all))
               (meta lux
-                    macro
                     syntax)
-              (data (list #as l #refer (#only list list& List/Monad)))))
+              (data (list #as l #refer (#only @list @list& List/Monad) #open ("" List/Fold))
+                    (number (int #open ("i" Int/Number Int/Ord)))
+                    bool)
+              (codata (lazy #as L #refer #all))))
+
+(open List/Monad "list:")
 
 ## [Types]
 (deftype #export (Stream a)
@@ -25,8 +25,8 @@
   (All [a]
     (-> a (List a) a (List a) (Stream a)))
   (case xs
-    #;Nil            (cycle' init full init full)
-    (#;Cons [y xs']) (... [x (cycle' y xs' init full)])))
+    #;Nil           (cycle' init full init full)
+    (#;Cons x' xs') (... [x (cycle' x' xs' init full)])))
 
 ## [Functions]
 (def #export (iterate f x)
@@ -43,8 +43,8 @@
   (All [a]
     (-> (List a) (Maybe (Stream a))))
   (case xs
-    #;Nil            #;None
-    (#;Cons [x xs']) (#;Some (cycle' x xs' x xs'))))
+    #;Nil          #;None
+    (#;Cons x xs') (#;Some (cycle' x xs' x xs'))))
 
 (do-template [<name> <return> <part>]
   [(def #export (<name> s)
@@ -59,7 +59,7 @@
   (All [a] (-> Int (Stream a) a))
   (let [[h t] (! s)]
     (if (i> idx 0)
-      (@ (dec idx) t)
+      (@ (i+ -1 idx) t)
       h)))
 
 (do-template [<taker> <dropper> <splitter> <det-type> <det-test> <det-step>]
@@ -68,8 +68,8 @@
        (-> <det-type> (Stream a) (List a)))
      (let [[x xs'] (! xs)]
        (if <det-test>
-         (list& x (<taker> <det-step> xs'))
-         (list))))
+         (@list& x (<taker> <det-step> xs'))
+         (@list))))
 
    (def #export (<dropper> det xs)
      (All [a]
@@ -86,10 +86,10 @@
        (if <det-test>
          (let [[tail next] (<splitter> <det-step> xs')]
            [(#;Cons [x tail]) next])
-         [(list) xs])))]
+         [(@list) xs])))]
   
   [take-while drop-while split-with (-> a Bool) (det x)    det]
-  [take       drop       split      Int         (i> det 0) (dec det)]
+  [take       drop       split      Int         (i> det 0) (i+ -1 det)]
   )
 
 (def #export (unfold step init)
@@ -107,27 +107,34 @@
 
 (def #export (partition p xs)
   (All [a] (-> (-> a Bool) (Stream a) (, (Stream a) (Stream a))))
-  [(filter p xs) (filter (complement p) xs)])
+  [(filter p xs) (filter (comp p) xs)])
 
 ## [Structures]
 (defstruct #export Stream/Functor (Functor Stream)
-  (def (F;map f fa)
+  (def (map f fa)
     (let [[h t] (! fa)]
-      (... [(f h) (F;map f t)]))))
+      (... [(f h) (map f t)]))))
 
 (defstruct #export Stream/CoMonad (CoMonad Stream)
-  (def CM;_functor Stream/Functor)
-  (def CM;unwrap head)
-  (def (CM;split wa)
-    (:: Stream/Functor (F;map repeat wa))))
+  (def _functor Stream/Functor)
+  (def unwrap head)
+  (def (split wa)
+    (let [[head tail] (! wa)]
+      (... [wa (split tail)]))))
 
 ## [Pattern-matching]
-(defsyntax #export (\stream body [patterns' (+^ id^)])
-  (do Lux/Monad
-    [patterns (map% Lux/Monad macro-expand-1 patterns')
-     g!s (gensym "s")
-     #let [patterns+ (: (List Syntax)
-                        (do List/Monad
-                          [pattern (l;reverse patterns)]
-                          (list (` [(~ pattern) (~ g!s)]) (` (L;! (~ g!s))))))]]
-    (M;wrap (list g!s (` (;let [(~@ patterns+)] (~ body)))))))
+(defsyntax #export (\stream& body [patterns (+^ id^)])
+  (case (l;reverse patterns)
+    (\ (@list& last prevs))
+    (do Lux/Monad
+      [prevs (map% Lux/Monad macro-expand-1 prevs)
+       g!s (gensym "s")
+       #let [body+ (foldL (lambda [inner outer]
+                            (` (let [[(~ outer) (~ g!s)] (! (~ g!s))]
+                                 (~ inner))))
+                          (` (let [(~ last) (~ g!s)] (~ body)))
+                          prevs)]]
+      (wrap (@list g!s body+)))
+
+    _
+    (fail "Wrong syntax for \\stream&")))

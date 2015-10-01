@@ -1,15 +1,11 @@
-##   Copyright (c) Eduardo Julian. All rights reserved.
-##   The use and distribution terms for this software are covered by the
-##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-##   which can be found in the file epl-v10.html at the root of this distribution.
-##   By using this software in any fashion, you are agreeing to be bound by
-##   the terms of this license.
-##   You must not remove this notice, or any other, from this software.
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (;import lux
          (.. (functor #as F)
-             (monoid #as M))
-         lux/meta/macro)
+             (monoid #as M)))
 
 ## [Utils]
 (def (foldL f init xs)
@@ -19,21 +15,21 @@
     #;Nil
     init
 
-    (#;Cons [x xs'])
+    (#;Cons x xs')
     (foldL f (f init x) xs')))
 
 (def (reverse xs)
   (All [a]
     (-> (List a) (List a)))
-  (foldL (lambda [tail head] (#;Cons [head tail]))
+  (foldL (lambda [tail head] (#;Cons head tail))
          #;Nil
          xs))
 
 (def (as-pairs xs)
   (All [a] (-> (List a) (List (, a a))))
   (case xs
-    (#;Cons [x1 (#;Cons [x2 xs'])])
-    (#;Cons [[x1 x2] (as-pairs xs')])
+    (#;Cons x1 (#;Cons x2 xs'))
+    (#;Cons [x1 x2] (as-pairs xs'))
 
     _
     #;Nil))
@@ -52,27 +48,25 @@
 ## [Syntax]
 (defmacro #export (do tokens state)
   (case tokens
-    ## (\ (list monad (#;Meta [_ (#;TupleS bindings)]) body))
-    (#;Cons [monad (#;Cons [(#;Meta [_ (#;TupleS bindings)]) (#;Cons [body #;Nil])])])
-    (let [body' (foldL (: (-> Syntax (, Syntax Syntax) Syntax)
+    (#;Cons monad (#;Cons [_ (#;TupleS bindings)] (#;Cons body #;Nil)))
+    (let [g!map (: AST [["" -1 -1] (#;SymbolS ["" " map "])])
+          g!join (: AST [["" -1 -1] (#;SymbolS ["" " join "])])
+          body' (foldL (: (-> AST (, AST AST) AST)
                           (lambda [body' binding]
                             (let [[var value] binding]
                               (case var
-                                (#;Meta [_ (#;TagS ["" "let"])])
-                                (` (;let (~ value) (~ body')))
+                                [_ (#;TagS ["" "let"])]
+                                (` (let (~ value) (~ body')))
 
                                 _
-                                (` (;case ;;_functor
-                                          {#F;map F;map}
-                                          (;|> (~ value) (F;map (;lambda [(~ var)] (~ body'))) (;;join))))
-                                ## (` (;|> (~ value) (F;map (;lambda [(~ var)] (~ body'))) (;:: ;;_functor) (;;join)))
+                                (` (|> (~ value) ((~ g!map) (lambda [(~ var)] (~ body'))) (~ g!join)))
                                 ))))
                        body
                        (reverse (as-pairs bindings)))]
-      (#;Right [state (#;Cons [(` (;case (~ monad)
-                                         {#;;_functor ;;_functor #;;wrap ;;wrap #;;join ;;join}
-                                         (~ body')))
-                               #;Nil])]))
+      (#;Right [state (#;Cons (` (case (~ monad)
+                                   {#_functor {#F;map (~ g!map)} #wrap (~ (' wrap)) #join (~ g!join)}
+                                   (~ body')))
+                              #;Nil)]))
 
     _
     (#;Left "Wrong syntax for do")))
@@ -82,18 +76,32 @@
   (All [m a b]
     (-> (Monad m) (-> a (m b)) (m a) (m b)))
   (using m
-    (join (:: _functor (F;map f ma)))))
+    (join (map f ma))))
 
-(def #export (map% m f xs)
-  (All [m a b]
-    (-> (Monad m) (-> a (m b)) (List a) (m (List b))))
+(def #export (seq% monad xs)
+  (All [M a]
+    (-> (Monad M) (List (M a)) (M (List a))))
   (case xs
     #;Nil
-    (:: m (;;wrap #;Nil))
+    (:: monad (wrap #;Nil))
     
-    (#;Cons [x xs'])
-    (do m
-      [y (f x)
-       ys (map% m f xs')]
-      (;;wrap (#;Cons [y ys])))
+    (#;Cons x xs')
+    (do monad
+      [_x x
+       _xs (seq% monad xs')]
+      (wrap (#;Cons _x _xs)))
+    ))
+
+(def #export (map% monad f xs)
+  (All [M a b]
+    (-> (Monad M) (-> a (M b)) (List a) (M (List b))))
+  (case xs
+    #;Nil
+    (:: monad (wrap #;Nil))
+    
+    (#;Cons x xs')
+    (do monad
+      [_x (f x)
+       _xs (map% monad f xs')]
+      (wrap (#;Cons _x _xs)))
     ))

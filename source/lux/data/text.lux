@@ -1,16 +1,16 @@
-##   Copyright (c) Eduardo Julian. All rights reserved.
-##   The use and distribution terms for this software are covered by the
-##   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-##   which can be found in the file epl-v10.html at the root of this distribution.
-##   By using this software in any fashion, you are agreeing to be bound by
-##   the terms of this license.
-##   You must not remove this notice, or any other, from this software.
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (;import lux
-         (lux/control (monoid #as m))
-         (lux/data (eq #as E)
-                   (ord #as O)
-                   (show #as S)))
+         (lux (control (monoid #as m)
+                       (eq #as E)
+                       (ord #as O)
+                       (show #as S)
+                       (monad #as M #refer #all))
+              (data (number (int #open ("i" Int/Number Int/Ord)))
+                    maybe)))
 
 ## [Functions]
 (def #export (size x)
@@ -112,12 +112,12 @@
 
 ## [Structures]
 (defstruct #export Text/Eq (E;Eq Text)
-  (def (E;= x y)
+  (def (= x y)
     (_jvm_invokevirtual "java.lang.Object" "equals" ["java.lang.Object"]
                         x [y])))
 
 (defstruct #export Text/Ord (O;Ord Text)
-  (def O;_eq Text/Eq)
+  (def _eq Text/Eq)
 
   (do-template [<name> <op>]
     [(def (<name> x y)
@@ -125,17 +125,71 @@
                                            x [y]))
              0))]
 
-    [O;<  i<]
-    [O;<= i<=]
-    [O;>  i>]
-    [O;>= i>=]))
+    [<  i<]
+    [<= i<=]
+    [>  i>]
+    [>= i>=]))
 
 (defstruct #export Text/Show (S;Show Text)
-  (def (S;show x)
-    x))
+  (def show id))
 
 (defstruct #export Text/Monoid (m;Monoid Text)
-  (def m;unit "")
-  (def (m;++ x y)
+  (def unit "")
+  (def (++ x y)
     (_jvm_invokevirtual "java.lang.String" "concat" ["java.lang.String"]
                         x [y])))
+
+## [Syntax]
+(def (extract-var template)
+  (-> Text (Maybe (, Text Text Text)))
+  (do Maybe/Monad
+    [pre-idx (index-of "#{" template)
+     [pre in] (split pre-idx template)
+     [_ in] (split 2 in)
+     post-idx (index-of "}" in)
+     [var post] (split post-idx in)
+     #let [[_ post] (? ["" ""] (split 1 post))]]
+    (wrap [pre var post])))
+
+(do-template [<name> <type> <tag>]
+  [(def (<name> value)
+     (-> <type> AST)
+     [["" -1 -1] (<tag> value)])]
+
+  [text$   Text  #;TextS]
+  [symbol$ Ident #;SymbolS])
+
+(def (unravel-template template)
+  (-> Text (List AST))
+  (case (extract-var template)
+    (#;Some [pre var post])
+    (#;Cons (text$ pre)
+            (#;Cons (symbol$ ["" var])
+                    (unravel-template post)))
+
+    #;None
+    (#;Cons (text$ template) #;Nil)))
+
+(defmacro #export (<> tokens state)
+  (case tokens
+    (#;Cons [_ (#;TextS template)] #;Nil)
+    (let [++ (symbol$ ["" ""])]
+      (#;Right state (#;Cons (` (;let [(~ ++) (get@ #m;++ Text/Monoid)]
+                                      (;$ (~ ++) (~@ (unravel-template template)))))
+                             #;Nil)))
+
+    _
+    (#;Left "Wrong syntax for <>")))
+
+(def #export (split-lines text)
+  (-> Text (List Text))
+  (case (: (Maybe (List Text))
+           (do Maybe/Monad
+             [idx (index-of "\n" text)
+              [head post] (split (inc idx) text)]
+             (wrap (#;Cons head (split-lines post)))))
+    #;None
+    (#;Cons text #;Nil)
+
+    (#;Some xs)
+    xs))

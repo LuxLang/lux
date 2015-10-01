@@ -1,0 +1,113 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;import lux
+         (lux (control (show #as S #refer #all)
+                       (eq #as E #refer #all))
+              (data bool
+                    (number int
+                            real)
+                    char
+                    (text #refer (#only Text/Show Text/Eq) #open ("text:" Text/Monoid))
+                    ident
+                    (list #refer #all #open ("" List/Functor List/Fold))
+                    )))
+
+## [Types]
+## (deftype (AST' w)
+##   (| (#;BoolS Bool)
+##      (#;IntS Int)
+##      (#;RealS Real)
+##      (#;CharS Char)
+##      (#;TextS Text)
+##      (#;SymbolS Text Text)
+##      (#;TagS Text Text)
+##      (#;FormS (List (w (AST' w))))
+##      (#;TupleS (List (w (AST' w))))
+##      (#;RecordS (List (, (w (AST' w)) (w (AST' w)))))))
+
+## (deftype AST
+##   (Meta Cursor (AST' (Meta Cursor))))
+
+## [Utils]
+(def _cursor Cursor ["" -1 -1])
+
+## [Functions]
+(do-template [<name> <type> <tag>]
+  [(def #export (<name> x)
+     (-> <type> AST)
+     [_cursor (<tag> x)])]
+  
+  [bool$   Bool               #;BoolS]
+  [int$    Int                #;IntS]
+  [real$   Real               #;RealS]
+  [char$   Char               #;CharS]
+  [text$   Text               #;TextS]
+  [symbol$ Ident              #;SymbolS]
+  [tag$    Ident              #;TagS]
+  [form$   (List AST)         #;FormS]
+  [tuple$  (List AST)         #;TupleS]
+  [record$ (List (, AST AST)) #;RecordS]
+  )
+
+## [Structures]
+(defstruct #export AST/Show (Show AST)
+  (def (show ast)
+    (case ast
+      (\template [<tag> <struct>]
+       [[_ (<tag> value)]
+        (:: <struct> (show value))])
+      [[#;BoolS Bool/Show]
+       [#;IntS  Int/Show]
+       [#;RealS Real/Show]
+       [#;CharS Char/Show]
+       [#;TextS Text/Show]]
+
+      (\template [<tag> <prefix>]
+       [[_ (<tag> ident)]
+        (text:++ <prefix> (:: Ident/Show (show ident)))])
+      [[#;SymbolS ""] [#;TagS "#"]]
+
+      (\template [<tag> <open> <close>]
+       [[_ (<tag> members)]
+        ($ text:++ <open> (|> members (map show) (interpose "") (foldL text:++ text:unit)) <close>)])
+      [[#;FormS "(" ")"] [#;TupleS "[" "]"]]
+
+      [_ (#;RecordS pairs)]
+      ($ text:++ "{" (|> pairs (map (lambda [[left right]] ($ text:++ (show left) " " (show right)))) (interpose "") (foldL text:++ text:unit)) "}")
+      )))
+
+(defstruct #export AST/Eq (Eq AST)
+  (def (= x y)
+    (case [x y]
+      (\template [<tag> <struct>]
+       [[[_ (<tag> x')] [_ (<tag> y')]]
+        (:: <struct> (= x' y'))])
+      [[#;BoolS   Bool/Eq]
+       [#;IntS    Int/Eq]
+       [#;RealS   Real/Eq]
+       [#;CharS   Char/Eq]
+       [#;TextS   Text/Eq]
+       [#;SymbolS Ident/Eq]
+       [#;TagS    Ident/Eq]]
+
+      (\template [<tag>]
+       [[[_ (<tag> xs')] [_ (<tag> ys')]]
+        (and (:: Int/Eq (= (size xs') (size ys')))
+             (foldL (lambda [old [x' y']]
+                      (and old (= x' y')))
+                    true
+                    (zip2 xs' ys')))])
+      [[#;FormS] [#;TupleS]]
+
+      [[_ (#;RecordS xs')] [_ (#;RecordS ys')]]
+      (and (:: Int/Eq (= (size xs') (size ys')))
+           (foldL (lambda [old [[xl' xr'] [yl' yr']]]
+                    (and old (= xl' yl') (= xr' yr')))
+                  true
+                  (zip2 xs' ys')))
+      
+      _
+      false)))

@@ -1,240 +1,184 @@
-;;   Copyright (c) Eduardo Julian. All rights reserved.
-;;   The use and distribution terms for this software are covered by the
-;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-;;   which can be found in the file epl-v10.html at the root of this distribution.
-;;   By using this software in any fashion, you are agreeing to be bound by
-;;   the terms of this license.
-;;   You must not remove this notice, or any other, from this software.
+;;  Copyright (c) Eduardo Julian. All rights reserved.
+;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+;;  If a copy of the MPL was not distributed with this file,
+;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.type
   (:refer-clojure :exclude [deref apply merge bound?])
-  (:require [clojure.core.match :as M :refer [match matchv]]
+  (:require clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [|do return* return fail fail* assert! |let]]))
+            (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
+            [lux.type.host :as &&host]))
 
 (declare show-type)
 
-;; [Util]
-(def Bool (&/V "lux;DataT" "java.lang.Boolean"))
-(def Int (&/V "lux;DataT" "java.lang.Long"))
-(def Real (&/V "lux;DataT" "java.lang.Double"))
-(def Char (&/V "lux;DataT" "java.lang.Character"))
-(def Text (&/V "lux;DataT" "java.lang.String"))
-(def Unit (&/V "lux;TupleT" (&/|list)))
-(def $Void (&/V "lux;VariantT" (&/|list)))
+;; [Utils]
+(defn |list? [xs]
+  (|case xs
+    (&/$Nil)
+    true
+
+    (&/$Cons x xs*)
+    (|list? xs*)
+
+    _
+    false))
+
+(def empty-env &/Nil$)
+(defn Data$ [name params]
+  (&/V &/$DataT (&/T name params)))
+(defn Bound$ [idx]
+  (&/V &/$BoundT idx))
+(defn Var$ [id]
+  (&/V &/$VarT id))
+(defn Lambda$ [in out]
+  (&/V &/$LambdaT (&/T in out)))
+(defn App$ [fun arg]
+  (&/V &/$AppT (&/T fun arg)))
+(defn Tuple$ [members]
+  (&/V &/$TupleT members))
+(defn Variant$ [members]
+  (&/V &/$VariantT members))
+(defn Univ$ [env body]
+  (&/V &/$UnivQ (&/T env body)))
+(defn Named$ [name type]
+  (&/V &/$NamedT (&/T name type)))
+
+
+(def Bool (Named$ (&/T "lux" "Bool") (Data$ "java.lang.Boolean" &/Nil$)))
+(def Int (Named$ (&/T "lux" "Int") (Data$ "java.lang.Long" &/Nil$)))
+(def Real (Named$ (&/T "lux" "Real") (Data$ "java.lang.Double" &/Nil$)))
+(def Char (Named$ (&/T "lux" "Char") (Data$ "java.lang.Character" &/Nil$)))
+(def Text (Named$ (&/T "lux" "Text") (Data$ "java.lang.String" &/Nil$)))
+(def Unit (Named$ (&/T "lux" "Unit") (Tuple$ &/Nil$)))
+(def $Void (Named$ (&/T "lux" "Void") (Variant$ &/Nil$)))
+(def Ident (Named$ (&/T "lux" "Ident") (Tuple$ (&/|list Text Text))))
 
 (def IO
-  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "IO" "a"
-                       (&/V "lux;LambdaT" (&/T Unit (&/V "lux;BoundT" "a"))))))
+  (Named$ (&/T "lux/data" "IO")
+          (Univ$ empty-env
+                 (Lambda$ Unit (Bound$ 1)))))
 
 (def List
-  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;List" "a"
-                       (&/V "lux;VariantT" (&/|list (&/T "lux;Nil" Unit)
-                                                    (&/T "lux;Cons" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "a")
-                                                                                               (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;List")
-                                                                                                                    (&/V "lux;BoundT" "a")))))))))))
+  (Named$ (&/T "lux" "List")
+          (Univ$ empty-env
+                 (Variant$ (&/|list
+                            ;; lux;Nil
+                            Unit
+                            ;; lux;Cons
+                            (Tuple$ (&/|list (Bound$ 1)
+                                             (App$ (Bound$ 0)
+                                                   (Bound$ 1))))
+                            )))))
 
 (def Maybe
-  (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "lux;Maybe" "a"
-                       (&/V "lux;VariantT" (&/|list (&/T "lux;None" Unit)
-                                                    (&/T "lux;Some" (&/V "lux;BoundT" "a")))))))
+  (Named$ (&/T "lux" "Maybe")
+          (Univ$ empty-env
+                 (Variant$ (&/|list
+                            ;; lux;None
+                            Unit
+                            ;; lux;Some
+                            (Bound$ 1)
+                            )))))
 
 (def Type
-  (let [Type (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "Type") (&/V "lux;BoundT" "_")))
-        TypeEnv (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Type))))
-        TypePair (&/V "lux;TupleT" (&/|list Type Type))]
-    (&/V "lux;AppT" (&/T (&/V "lux;AllT" (&/T (&/V "lux;Some" (&/V "lux;Nil" nil)) "Type" "_"
-                                              (&/V "lux;VariantT" (&/|list (&/T "lux;DataT" Text)
-                                                                           (&/T "lux;TupleT" (&/V "lux;AppT" (&/T List Type)))
-                                                                           (&/T "lux;VariantT" TypeEnv)
-                                                                           (&/T "lux;RecordT" TypeEnv)
-                                                                           (&/T "lux;LambdaT" TypePair)
-                                                                           (&/T "lux;BoundT" Text)
-                                                                           (&/T "lux;VarT" Int)
-                                                                           (&/T "lux;AllT" (&/V "lux;TupleT" (&/|list (&/V "lux;AppT" (&/T Maybe TypeEnv)) Text Text Type)))
-                                                                           (&/T "lux;AppT" TypePair)
-                                                                           (&/T "lux;ExT" Int)
-                                                                           ))))
-                         $Void))))
+  (Named$ (&/T "lux" "Type")
+          (let [Type (App$ (Bound$ 0) (Bound$ 1))
+                TypeList (App$ List Type)
+                TypePair (Tuple$ (&/|list Type Type))]
+            (App$ (Univ$ empty-env
+                         (Variant$ (&/|list
+                                    ;; DataT
+                                    (Tuple$ (&/|list Text TypeList))
+                                    ;; VariantT
+                                    TypeList
+                                    ;; TupleT
+                                    TypeList
+                                    ;; LambdaT
+                                    TypePair
+                                    ;; BoundT
+                                    Int
+                                    ;; VarT
+                                    Int
+                                    ;; ExT
+                                    Int
+                                    ;; UnivQ
+                                    (Tuple$ (&/|list TypeList Type))
+                                    ;; ExQ
+                                    (Tuple$ (&/|list TypeList Type))
+                                    ;; AppT
+                                    TypePair
+                                    ;; NamedT
+                                    (Tuple$ (&/|list Ident Type))
+                                    )))
+                  $Void))))
 
-(defn fAll [name arg body]
-  (&/V "lux;AllT" (&/T (&/V "lux;None" nil) name arg body)))
+(def Macro)
 
-(def Bindings
-  (fAll "lux;Bindings" "k"
-        (fAll "" "v"
-              (&/V "lux;RecordT" (&/|list (&/T "lux;counter" Int)
-                                          (&/T "lux;mappings" (&/V "lux;AppT" (&/T List
-                                                                                   (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "k")
-                                                                                                              (&/V "lux;BoundT" "v")))))))))))
-
-(def Env
-  (let [bindings (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings (&/V "lux;BoundT" "k")))
-                                      (&/V "lux;BoundT" "v")))]
-    (fAll "lux;Env" "k"
-          (fAll "" "v"
-                (&/V "lux;RecordT"
-                     (&/|list (&/T "lux;name" Text)
-                              (&/T "lux;inner-closures" Int)
-                              (&/T "lux;locals" bindings)
-                              (&/T "lux;closure" bindings)
-                              ))))))
-
-(def Cursor
-  (&/V "lux;TupleT" (&/|list Text Int Int)))
-
-(def Meta
-  (fAll "lux;Meta" "m"
-        (fAll "" "v"
-              (&/V "lux;VariantT" (&/|list (&/T "lux;Meta" (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "m")
-                                                                                      (&/V "lux;BoundT" "v")))))))))
-
-(def Ident (&/V "lux;TupleT" (&/|list Text Text)))
-
-(def Syntax*
-  (let [Syntax* (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "w")
-                                     (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Syntax'")
-                                                          (&/V "lux;BoundT" "w")))))
-        Syntax*List (&/V "lux;AppT" (&/T List Syntax*))]
-    (fAll "lux;Syntax'" "w"
-          (&/V "lux;VariantT" (&/|list (&/T "lux;BoolS" Bool)
-                                       (&/T "lux;IntS" Int)
-                                       (&/T "lux;RealS" Real)
-                                       (&/T "lux;CharS" Char)
-                                       (&/T "lux;TextS" Text)
-                                       (&/T "lux;SymbolS" Ident)
-                                       (&/T "lux;TagS" Ident)
-                                       (&/T "lux;FormS" Syntax*List)
-                                       (&/T "lux;TupleS" Syntax*List)
-                                       (&/T "lux;RecordS" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Syntax* Syntax*))))))
-               ))))
-
-(def Syntax
-  (let [w (&/V "lux;AppT" (&/T Meta Cursor))]
-    (&/V "lux;AppT" (&/T w (&/V "lux;AppT" (&/T Syntax* w))))))
-
-(def ^:private SyntaxList (&/V "lux;AppT" (&/T List Syntax)))
-
-(def Either
-  (fAll "lux;Either" "l"
-        (fAll "" "r"
-              (&/V "lux;VariantT" (&/|list (&/T "lux;Left" (&/V "lux;BoundT" "l"))
-                                           (&/T "lux;Right" (&/V "lux;BoundT" "r")))))))
-
-(def StateE
-  (fAll "lux;StateE" "s"
-        (fAll "" "a"
-              (&/V "lux;LambdaT" (&/T (&/V "lux;BoundT" "s")
-                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Either Text))
-                                                           (&/V "lux;TupleT" (&/|list (&/V "lux;BoundT" "s")
-                                                                                      (&/V "lux;BoundT" "a"))))))))))
-
-(def Reader
-  (&/V "lux;AppT" (&/T List
-                       (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Meta Cursor))
-                                            Text)))))
-
-(def HostState
-  (&/V "lux;RecordT"
-       (&/|list (&/T "lux;writer" (&/V "lux;DataT" "org.objectweb.asm.ClassWriter"))
-                (&/T "lux;loader" (&/V "lux;DataT" "java.lang.ClassLoader"))
-                (&/T "lux;classes" (&/V "lux;DataT" "clojure.lang.Atom")))))
-
-(def DefData*
-  (fAll "lux;DefData'" ""
-        (&/V "lux;VariantT" (&/|list (&/T "lux;TypeD" Unit)
-                                     (&/T "lux;ValueD" Type)
-                                     (&/T "lux;MacroD" (&/V "lux;BoundT" ""))
-                                     (&/T "lux;AliasD" Ident)))))
-
-(def LuxVar
-  (&/V "lux;VariantT" (&/|list (&/T "lux;Local" Int)
-                               (&/T "lux;Global" Ident))))
-
-(def $Module
-  (fAll "lux;$Module" "Compiler"
-        (&/V "lux;RecordT"
-             (&/|list (&/T "lux;module-aliases" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT" (&/|list Text Text)))))
-                      (&/T "lux;defs" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
-                                                                     (&/|list Text
-                                                                              (&/V "lux;TupleT" (&/|list Bool
-                                                                                                         (&/V "lux;AppT" (&/T DefData*
-                                                                                                                              (&/V "lux;LambdaT" (&/T SyntaxList
-                                                                                                                                                      (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE (&/V "lux;BoundT" "Compiler")))
-                                                                                                                                                                           SyntaxList)))))))))))))
-                      (&/T "lux;imports" (&/V "lux;AppT" (&/T List Text)))))))
-
-(def $Compiler
-  (&/V "lux;AppT" (&/T (fAll "lux;Compiler" ""
-                             (&/V "lux;RecordT"
-                                  (&/|list (&/T "lux;source" Reader)
-                                           (&/T "lux;modules" (&/V "lux;AppT" (&/T List (&/V "lux;TupleT"
-                                                                                             (&/|list Text
-                                                                                                      (&/V "lux;AppT" (&/T $Module (&/V "lux;AppT" (&/T (&/V "lux;BoundT" "lux;Compiler") (&/V "lux;BoundT" ""))))))))))
-                                           (&/T "lux;envs" (&/V "lux;AppT" (&/T List
-                                                                                (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Env Text))
-                                                                                                     (&/V "lux;TupleT" (&/|list LuxVar Type)))))))
-                                           (&/T "lux;types" (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T Bindings Int)) Type)))
-                                           (&/T "lux;host" HostState)
-                                           (&/T "lux;seed" Int)
-                                           (&/T "lux;eval?" Bool))))
-                       $Void)))
-
-(def Macro
-  (&/V "lux;LambdaT" (&/T SyntaxList
-                          (&/V "lux;AppT" (&/T (&/V "lux;AppT" (&/T StateE $Compiler))
-                                               SyntaxList)))))
+(defn set-macro-type! [type]
+  (def Macro type)
+  nil)
 
 (defn bound? [id]
   (fn [state]
-    (if-let [type (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
-      (matchv ::M/objects [type]
-        [["lux;Some" type*]]
+    (if-let [type (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+      (|case type
+        (&/$Some type*)
         (return* state true)
         
-        [["lux;None" _]]
+        (&/$None)
         (return* state false))
       (fail* (str "[Type Error] <bound?> Unknown type-var: " id)))))
 
 (defn deref [id]
   (fn [state]
-    (if-let [type* (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
-      (matchv ::M/objects [type*]
-        [["lux;Some" type]]
+    (if-let [type* (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+      (|case type*
+        (&/$Some type)
         (return* state type)
         
-        [["lux;None" _]]
+        (&/$None)
         (fail* (str "[Type Error] Unbound type-var: " id)))
       (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))
 
+(defn deref+ [type]
+  (|case type
+    (&/$VarT id)
+    (deref id)
+
+    _
+    (fail (str "[Type Error] Type is not a variable: " (show-type type)))
+    ))
+
 (defn set-var [id type]
   (fn [state]
-    (if-let [tvar (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) (&/|get id))]
-      (matchv ::M/objects [tvar]
-        [["lux;Some" bound]]
+    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+      (|case tvar
+        (&/$Some bound)
         (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
         
-        [["lux;None" _]]
-        (return* (&/update$ &/$TYPES (fn [ts] (&/update$ &/$MAPPINGS #(&/|put id (&/V "lux;Some" type) %)
-                                                        ts))
+        (&/$None)
+        (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/V &/$Some type) %)
+                                                            ts))
                             state)
                  nil))
-      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS) &/|length))))))
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
 
 ;; [Exports]
 ;; Type vars
 (def ^:private create-var
   (fn [state]
-    (let [id (->> state (&/get$ &/$TYPES) (&/get$ &/$COUNTER))]
-      (return* (&/update$ &/$TYPES #(->> %
-                                         (&/update$ &/$COUNTER inc)
-                                         (&/update$ &/$MAPPINGS (fn [ms] (&/|put id (&/V "lux;None" nil) ms))))
+    (let [id (->> state (&/get$ &/$type-vars) (&/get$ &/$counter))]
+      (return* (&/update$ &/$type-vars #(->> %
+                                             (&/update$ &/$counter inc)
+                                             (&/update$ &/$mappings (fn [ms] (&/|put id &/None$ ms))))
                           state)
                id))))
 
 (def existential
+  ;; (Lux Type)
   (|do [seed &/gen-id]
-    (return (&/V "lux;ExT" seed))))
+    (return (&/V &/$ExT seed))))
 
 (declare clean*)
 (defn ^:private delete-var [id]
@@ -248,249 +192,190 @@
                                  (|let [[?id ?type] binding]
                                    (if (.equals ^Object id ?id)
                                      (return binding)
-                                     (matchv ::M/objects [?type]
-                                       [["lux;None" _]]
+                                     (|case ?type
+                                       (&/$None)
                                        (return binding)
 
-                                       [["lux;Some" ?type*]]
-                                       (matchv ::M/objects [?type*]
-                                         [["lux;VarT" ?id*]]
+                                       (&/$Some ?type*)
+                                       (|case ?type*
+                                         (&/$VarT ?id*)
                                          (if (.equals ^Object id ?id*)
-                                           (return (&/T ?id (&/V "lux;None" nil)))
+                                           (return (&/T ?id &/None$))
                                            (return binding))
 
-                                         [_]
+                                         _
                                          (|do [?type** (clean* id ?type*)]
-                                           (return (&/T ?id (&/V "lux;Some" ?type**)))))
+                                           (return (&/T ?id (&/V &/$Some ?type**)))))
                                        ))))
-                               (->> state (&/get$ &/$TYPES) (&/get$ &/$MAPPINGS)))]
+                               (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings)))]
          (fn [state]
-           (return* (&/update$ &/$TYPES #(->> %
-                                              (&/update$ &/$COUNTER dec)
-                                              (&/set$ &/$MAPPINGS (&/|remove id mappings*)))
+           (return* (&/update$ &/$type-vars #(&/set$ &/$mappings (&/|remove id mappings*) %)
                                state)
                     nil)))
        state))))
 
 (defn with-var [k]
   (|do [id create-var
-        output (k (&/V "lux;VarT" id))
+        output (k (Var$ id))
         _ (delete-var id)]
     (return output)))
 
-(defn with-vars [amount k]
-  (|do [=vars (&/map% (constantly create-var) (&/|range amount))
-        output (k (&/|map #(&/V "lux;VarT" %) =vars))
-        _ (&/map% delete-var (&/|reverse =vars))]
-    (return output)))
-
 (defn clean* [?tid type]
-  (matchv ::M/objects [type]
-    [["lux;VarT" ?id]]
+  (|case type
+    (&/$VarT ?id)
     (if (.equals ^Object ?tid ?id)
       (deref ?id)
       (return type))
     
-    [["lux;LambdaT" [?arg ?return]]]
+    (&/$LambdaT ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
           =return (clean* ?tid ?return)]
-      (return (&/V "lux;LambdaT" (&/T =arg =return))))
+      (return (Lambda$ =arg =return)))
 
-    [["lux;AppT" [?lambda ?param]]]
+    (&/$AppT ?lambda ?param)
     (|do [=lambda (clean* ?tid ?lambda)
           =param (clean* ?tid ?param)]
-      (return (&/V "lux;AppT" (&/T =lambda =param))))
+      (return (App$ =lambda =param)))
 
-    [["lux;TupleT" ?members]]
+    (&/$TupleT ?members)
     (|do [=members (&/map% (partial clean* ?tid) ?members)]
-      (return (&/V "lux;TupleT" =members)))
+      (return (Tuple$ =members)))
     
-    [["lux;VariantT" ?members]]
-    (|do [=members (&/map% (fn [[k v]]
-                             (|do [=v (clean* ?tid v)]
-                               (return (&/T k =v))))
-                           ?members)]
-      (return (&/V "lux;VariantT" =members)))
+    (&/$VariantT ?members)
+    (|do [=members (&/map% (partial clean* ?tid) ?members)]
+      (return (Variant$ =members)))
 
-    [["lux;RecordT" ?members]]
-    (|do [=members (&/map% (fn [[k v]]
-                             (|do [=v (clean* ?tid v)]
-                               (return (&/T k =v))))
-                           ?members)]
-      (return (&/V "lux;RecordT" =members)))
-
-    [["lux;AllT" [?env ?name ?arg ?body]]]
-    (|do [=env (matchv ::M/objects [?env]
-                 [["lux;None" _]]
-                 (return ?env)
-
-                 [["lux;Some" ?env*]]
-                 (|do [clean-env (&/map% (fn [[k v]]
-                                           (|do [=v (clean* ?tid v)]
-                                             (return (&/T k =v))))
-                                         ?env*)]
-                   (return (&/V "lux;Some" clean-env))))
+    (&/$UnivQ ?env ?body)
+    (|do [=env (&/map% (partial clean* ?tid) ?env)
           body* (clean* ?tid ?body)]
-      (return (&/V "lux;AllT" (&/T =env ?name ?arg body*))))
+      (return (Univ$ =env body*)))
 
-    [_]
+    _
     (return type)
     ))
 
 (defn clean [tvar type]
-  (matchv ::M/objects [tvar]
-    [["lux;VarT" ?id]]
+  (|case tvar
+    (&/$VarT ?id)
     (clean* ?id type)
     
-    [_]
+    _
     (fail (str "[Type Error] Not type-var: " (show-type tvar)))))
 
 (defn ^:private unravel-fun [type]
-  (matchv ::M/objects [type]
-    [["lux;LambdaT" [?in ?out]]]
+  (|case type
+    (&/$LambdaT ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
-      (&/T ??out (&/|cons ?in ?args)))
+      (&/T ??out (&/Cons$ ?in ?args)))
 
-    [_]
-    (&/T type (&/|list))))
+    _
+    (&/T type &/Nil$)))
 
 (defn ^:private unravel-app [fun-type]
-  (matchv ::M/objects [fun-type]
-    [["lux;AppT" [?left ?right]]]
+  (|case fun-type
+    (&/$AppT ?left ?right)
     (|let [[?fun-type ?args] (unravel-app ?left)]
       (&/T ?fun-type (&/|++ ?args (&/|list ?right))))
 
-    [_]
-    (&/T fun-type (&/|list))))
+    _
+    (&/T fun-type &/Nil$)))
 
 (defn show-type [^objects type]
-  (matchv ::M/objects [type]
-    [["lux;DataT" name]]
-    (str "(^ " name ")")
+  (|case type
+    (&/$DataT name params)
+    (|case params
+      (&/$Nil)
+      (str "(^ " name ")")
+
+      _
+      (str "(^ " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
-    [["lux;TupleT" elems]]
+    (&/$TupleT elems)
     (if (&/|empty? elems)
       "(,)"
       (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
-    [["lux;VariantT" cases]]
+    (&/$VariantT cases)
     (if (&/|empty? cases)
       "(|)"
       (str "(| " (->> cases
-                      (&/|map (fn [kv]
-                                (matchv ::M/objects [kv]
-                                  [[k ["lux;TupleT" ["lux;Nil" _]]]]
-                                  (str "#" k)
-
-                                  [[k v]]
-                                  (str "(#" k " " (show-type v) ")"))))
+                      (&/|map show-type)
                       (&/|interpose " ")
                       (&/fold str "")) ")"))
     
-
-    [["lux;RecordT" fields]]
-    (str "(& " (->> fields
-                    (&/|map (fn [kv]
-                              (matchv ::M/objects [kv]
-                                [[k v]]
-                                (str "#" k " " (show-type v)))))
-                    (&/|interpose " ")
-                    (&/fold str "")) ")")
-
-    [["lux;LambdaT" [input output]]]
+    (&/$LambdaT input output)
     (|let [[?out ?ins] (unravel-fun type)]
       (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
 
-    [["lux;VarT" id]]
+    (&/$VarT id)
     (str "⌈" id "⌋")
 
-    [["lux;ExT" ?id]]
+    (&/$ExT ?id)
     (str "⟨" ?id "⟩")
 
-    [["lux;BoundT" name]]
-    name
+    (&/$BoundT idx)
+    (str idx)
 
-    [["lux;AppT" [_ _]]]
+    (&/$AppT _ _)
     (|let [[?call-fun ?call-args] (unravel-app type)]
       (str "(" (show-type ?call-fun) " " (->> ?call-args (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
-    [["lux;AllT" [?env ?name ?arg ?body]]]
-    (if (= "" ?name)
-      (let [[args body] (loop [args (list ?arg)
-                               body* ?body]
-                          (matchv ::M/objects [body*]
-                            [["lux;AllT" [?env* ?name* ?arg* ?body*]]]
-                            (recur (cons ?arg* args) ?body*)
+    (&/$UnivQ ?env ?body)
+    (str "(All " (show-type ?body) ")")
+    
+    (&/$NamedT ?name ?type)
+    (&/ident->text ?name)
 
-                            [_]
-                            [args body*]))]
-        (str "(All " ?name " [" (->> args reverse (interpose " ") (reduce str "")) "] " (show-type body) ")"))
-      ?name)
-    ))
+    _
+    (assert false (prn-str 'show-type (&/adt->text type)))))
 
 (defn type= [x y]
   (or (clojure.lang.Util/identical x y)
-      (let [output (matchv ::M/objects [x y]
-                     [["lux;DataT" xname] ["lux;DataT" yname]]
-                     (.equals ^Object xname yname)
+      (let [output (|case [x y]
+                     [(&/$NamedT [?xmodule ?xname] ?xtype) (&/$NamedT [?ymodule ?yname] ?ytype)]
+                     (and (= ?xmodule ?ymodule)
+                          (= ?xname ?yname))
 
-                     [["lux;TupleT" xelems] ["lux;TupleT" yelems]]
-                     (&/fold2 (fn [old x y]
-                                (and old (type= x y)))
+                     [(&/$DataT xname xparams) (&/$DataT yname yparams)]
+                     (and (.equals ^Object xname yname)
+                          (= (&/|length xparams) (&/|length yparams))
+                          (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
+
+                     [(&/$TupleT xelems) (&/$TupleT yelems)]
+                     (&/fold2 (fn [old x y] (and old (type= x y)))
                               true
                               xelems yelems)
 
-                     [["lux;VariantT" xcases] ["lux;VariantT" ycases]]
-                     (&/fold2 (fn [old xcase ycase]
-                                (|let [[xname xtype] xcase
-                                       [yname ytype] ycase]
-                                  (and old (.equals ^Object xname yname) (type= xtype ytype))))
+                     [(&/$VariantT xcases) (&/$VariantT ycases)]
+                     (&/fold2 (fn [old x y] (and old (type= x y)))
                               true
                               xcases ycases)
 
-                     [["lux;RecordT" xslots] ["lux;RecordT" yslots]]
-                     (&/fold2 (fn [old xslot yslot]
-                                (|let [[xname xtype] xslot
-                                       [yname ytype] yslot]
-                                  (and old (.equals ^Object xname yname) (type= xtype ytype))))
-                              true
-                              xslots yslots)
-
-                     [["lux;LambdaT" [xinput xoutput]] ["lux;LambdaT" [yinput youtput]]]
+                     [(&/$LambdaT xinput xoutput) (&/$LambdaT yinput youtput)]
                      (and (type= xinput yinput)
                           (type= xoutput youtput))
 
-                     [["lux;VarT" xid] ["lux;VarT" yid]]
+                     [(&/$VarT xid) (&/$VarT yid)]
                      (.equals ^Object xid yid)
 
-                     [["lux;BoundT" xname] ["lux;BoundT" yname]]
-                     (.equals ^Object xname yname)
+                     [(&/$BoundT xidx) (&/$BoundT yidx)]
+                     (= xidx yidx)
 
-                     [["lux;ExT" xid] ["lux;ExT" yid]]
+                     [(&/$ExT xid) (&/$ExT yid)]
                      (.equals ^Object xid yid)
 
-                     [["lux;AppT" [xlambda xparam]] ["lux;AppT" [ylambda yparam]]]
+                     [(&/$AppT xlambda xparam) (&/$AppT ylambda yparam)]
                      (and (type= xlambda ylambda) (type= xparam yparam))
                      
-                     [["lux;AllT" [xenv xname xarg xbody]] ["lux;AllT" [yenv yname yarg ybody]]]
-                     (and (.equals ^Object xname yname)
-                          (.equals ^Object xarg yarg)
-                          ;; (matchv ::M/objects [xenv yenv]
-                          ;;   [["lux;None" _] ["lux;None" _]]
-                          ;;   true
+                     [(&/$UnivQ xenv xbody) (&/$UnivQ yenv ybody)]
+                     (type= xbody ybody)
 
-                          ;;   [["lux;Some" xenv*] ["lux;Some" yenv*]]
-                          ;;   (&/fold (fn [old bname]
-                          ;;             (and old
-                          ;;                  (type= (&/|get bname xenv*) (&/|get bname yenv*))))
-                          ;;           (= (&/|length xenv*) (&/|length yenv*))
-                          ;;           (&/|keys xenv*))
+                     [(&/$NamedT ?xname ?xtype) _]
+                     (type= ?xtype y)
 
-                          ;;   [_ _]
-                          ;;   false)
-                          (type= xbody ybody)
-                          )
-
+                     [_ (&/$NamedT ?yname ?ytype)]
+                     (type= x ?ytype)
+                     
                      [_ _]
                      false
                      )]
@@ -498,19 +383,19 @@
 
 (defn ^:private fp-get [k fixpoints]
   (|let [[e a] k]
-    (matchv ::M/objects [fixpoints]
-      [["lux;Nil" _]]
-      (&/V "lux;None" nil)
+    (|case fixpoints
+      (&/$Nil)
+      &/None$
 
-      [["lux;Cons" [[[e* a*] v*] fixpoints*]]]
+      (&/$Cons [[e* a*] v*] fixpoints*)
       (if (and (type= e e*)
                (type= a a*))
-        (&/V "lux;Some" v*)
+        (&/V &/$Some v*)
         (fp-get k fixpoints*))
       )))
 
 (defn ^:private fp-put [k v fixpoints]
-  (&/|cons (&/T k v) fixpoints))
+  (&/Cons$ (&/T k v) fixpoints))
 
 (defn ^:private check-error [expected actual]
   (str "[Type Checker]\nExpected: " (show-type expected)
@@ -518,227 +403,157 @@
        "\n"))
 
 (defn beta-reduce [env type]
-  (matchv ::M/objects [type]
-    [["lux;VariantT" ?cases]]
-    (&/V "lux;VariantT" (&/|map (fn [kv]
-                                  (|let [[k v] kv]
-                                    (&/T k (beta-reduce env v))))
-                                ?cases))
+  (|case type
+    (&/$VariantT ?members)
+    (Variant$ (&/|map (partial beta-reduce env) ?members))
 
-    [["lux;RecordT" ?fields]]
-    (&/V "lux;RecordT" (&/|map (fn [kv]
-                                 (|let [[k v] kv]
-                                   (&/T k (beta-reduce env v))))
-                               ?fields))
+    (&/$TupleT ?members)
+    (Tuple$ (&/|map (partial beta-reduce env) ?members))
 
-    [["lux;TupleT" ?members]]
-    (&/V "lux;TupleT" (&/|map (partial beta-reduce env) ?members))
+    (&/$AppT ?type-fn ?type-arg)
+    (App$ (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
 
-    [["lux;AppT" [?type-fn ?type-arg]]]
-    (&/V "lux;AppT" (&/T (beta-reduce env ?type-fn) (beta-reduce env ?type-arg)))
+    (&/$UnivQ ?local-env ?local-def)
+    (|case ?local-env
+      (&/$Nil)
+      (Univ$ env ?local-def)
 
-    [["lux;AllT" [?local-env ?local-name ?local-arg ?local-def]]]
-    (matchv ::M/objects [?local-env]
-      [["lux;None" _]]
-      (&/V "lux;AllT" (&/T (&/V "lux;Some" env) ?local-name ?local-arg ?local-def))
-
-      [["lux;Some" _]]
+      _
       type)
 
-    [["lux;LambdaT" [?input ?output]]]
-    (&/V "lux;LambdaT" (&/T (beta-reduce env ?input) (beta-reduce env ?output)))
+    (&/$LambdaT ?input ?output)
+    (Lambda$ (beta-reduce env ?input) (beta-reduce env ?output))
 
-    [["lux;BoundT" ?name]]
-    (if-let [bound (&/|get ?name env)]
+    (&/$BoundT ?idx)
+    (|case (&/|at ?idx env)
+      (&/$Some bound)
       (beta-reduce env bound)
-      type)
 
-    [_]
+      _
+      (assert false (str "[Type Error] Unknown var: " ?idx " | " (&/->seq (&/|map show-type env)))))
+
+    _
     type
     ))
 
-(defn slot-type [record slot]
-  (fn [state]
-    (matchv ::M/objects [(&/|get slot record)]
-      [["lux;Left" msg]]
-      (fail* msg)
-
-      [["lux;Right" type]]
-      (return* state type))))
-
 (defn apply-type [type-fn param]
-  (matchv ::M/objects [type-fn]
-    [["lux;AllT" [local-env local-name local-arg local-def]]]
-    (let [local-env* (matchv ::M/objects [local-env]
-                       [["lux;None" _]]
-                       (&/|table)
+  (|case type-fn
+    (&/$UnivQ local-env local-def)
+    (return (beta-reduce (->> local-env
+                              (&/Cons$ param)
+                              (&/Cons$ type-fn))
+                         local-def))
 
-                       [["lux;Some" local-env*]]
-                       local-env*)]
-      (return (beta-reduce (->> local-env*
-                                (&/|put local-name type-fn)
-                                (&/|put local-arg param))
-                           local-def)))
-
-    [["lux;AppT" [F A]]]
+    (&/$AppT F A)
     (|do [type-fn* (apply-type F A)]
       (apply-type type-fn* param))
+
+    (&/$NamedT ?name ?type)
+    (apply-type ?type param)
+
+    (&/$ExT id)
+    (return (App$ type-fn param))
     
-    [_]
-    (fail (str "[Type System] Not type function:\n" (show-type type-fn) "\n"))))
+    _
+    (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
 
-(defn as-obj [class]
-  (case class
-    "boolean" "java.lang.Boolean"
-    "byte"    "java.lang.Byte"
-    "short"   "java.lang.Short"
-    "int"     "java.lang.Integer"
-    "long"    "java.lang.Long"
-    "float"   "java.lang.Float"
-    "double"  "java.lang.Double"
-    "char"    "java.lang.Character"
-    ;; else
-    class))
+(def ^:private init-fixpoints &/Nil$)
 
-(def ^:private primitive-types #{"boolean" "byte" "short" "int" "long" "float" "double" "char"})
-
-(def ^:private init-fixpoints (&/|list))
-
-(defn ^:private check* [class-loader fixpoints expected actual]
+(defn ^:private check* [class-loader fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
     (return (&/T fixpoints nil))
-    (matchv ::M/objects [expected actual]
-      [["lux;VarT" ?eid] ["lux;VarT" ?aid]]
+    (|case [expected actual]
+      [(&/$VarT ?eid) (&/$VarT ?aid)]
       (if (.equals ^Object ?eid ?aid)
         (return (&/T fixpoints nil))
         (|do [ebound (fn [state]
-                       (matchv ::M/objects [((deref ?eid) state)]
-                         [["lux;Right" [state* ebound]]]
-                         (return* state* (&/V "lux;Some" ebound))
+                       (|case ((deref ?eid) state)
+                         (&/$Right state* ebound)
+                         (return* state* (&/V &/$Some ebound))
 
-                         [["lux;Left" _]]
-                         (return* state (&/V "lux;None" nil))))
+                         (&/$Left _)
+                         (return* state &/None$)))
               abound (fn [state]
-                       (matchv ::M/objects [((deref ?aid) state)]
-                         [["lux;Right" [state* abound]]]
-                         (return* state* (&/V "lux;Some" abound))
+                       (|case ((deref ?aid) state)
+                         (&/$Right state* abound)
+                         (return* state* (&/V &/$Some abound))
 
-                         [["lux;Left" _]]
-                         (return* state (&/V "lux;None" nil))))]
-          (matchv ::M/objects [ebound abound]
-            [["lux;None" _] ["lux;None" _]]
+                         (&/$Left _)
+                         (return* state &/None$)))]
+          (|case [ebound abound]
+            [(&/$None _) (&/$None _)]
             (|do [_ (set-var ?eid actual)]
               (return (&/T fixpoints nil)))
             
-            [["lux;Some" etype] ["lux;None" _]]
-            (check* class-loader fixpoints etype actual)
+            [(&/$Some etype) (&/$None _)]
+            (check* class-loader fixpoints invariant?? etype actual)
 
-            [["lux;None" _] ["lux;Some" atype]]
-            (check* class-loader fixpoints expected atype)
+            [(&/$None _) (&/$Some atype)]
+            (check* class-loader fixpoints invariant?? expected atype)
 
-            [["lux;Some" etype] ["lux;Some" atype]]
-            (check* class-loader fixpoints etype atype))))
+            [(&/$Some etype) (&/$Some atype)]
+            (check* class-loader fixpoints invariant?? etype atype))))
       
-      [["lux;VarT" ?id] _]
+      [(&/$VarT ?id) _]
       (fn [state]
-        (matchv ::M/objects [((set-var ?id actual) state)]
-          [["lux;Right" [state* _]]]
+        (|case ((set-var ?id actual) state)
+          (&/$Right state* _)
           (return* state* (&/T fixpoints nil))
 
-          [["lux;Left" _]]
+          (&/$Left _)
           ((|do [bound (deref ?id)]
-             (check* class-loader fixpoints bound actual))
+             (check* class-loader fixpoints invariant?? bound actual))
            state)))
       
-      [_ ["lux;VarT" ?id]]
+      [_ (&/$VarT ?id)]
       (fn [state]
-        (matchv ::M/objects [((set-var ?id expected) state)]
-          [["lux;Right" [state* _]]]
+        (|case ((set-var ?id expected) state)
+          (&/$Right state* _)
           (return* state* (&/T fixpoints nil))
 
-          [["lux;Left" _]]
+          (&/$Left _)
           ((|do [bound (deref ?id)]
-             (check* class-loader fixpoints expected bound))
+             (check* class-loader fixpoints invariant?? expected bound))
            state)))
 
-      [["lux;AppT" [["lux;VarT" ?eid] A1]] ["lux;AppT" [["lux;VarT" ?aid] A2]]]
-      (fn [state]
-        (matchv ::M/objects [((|do [F1 (deref ?eid)]
-                                (fn [state]
-                                  (matchv ::M/objects [((|do [F2 (deref ?aid)]
-                                                          (check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) (&/V "lux;AppT" (&/T F2 A2))))
-                                                        state)]
-                                    [["lux;Right" [state* output]]]
-                                    (return* state* output)
+      [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
+      (if (= eid aid)
+        (check* class-loader fixpoints invariant?? eA aA)
+        (fail (check-error expected actual)))
 
-                                    [["lux;Left" _]]
-                                    ((check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual)
-                                     state))))
-                              state)]
-          [["lux;Right" [state* output]]]
+      [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
+      (fn [state]
+        (|case ((|do [F1 (deref ?id)]
+                  (check* class-loader fixpoints invariant?? (App$ F1 A1) actual))
+                state)
+          (&/$Right state* output)
           (return* state* output)
 
-          [["lux;Left" _]]
-          (matchv ::M/objects [((|do [F2 (deref ?aid)]
-                                  (check* class-loader fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
-                                state)]
-            [["lux;Right" [state* output]]]
-            (return* state* output)
-
-            [["lux;Left" _]]
-            ((|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-                   [fixpoints** _] (check* class-loader fixpoints* A1 A2)]
-               (return (&/T fixpoints** nil)))
-             state))))
-      ;; (|do [_ (check* class-loader fixpoints (&/V "lux;VarT" ?eid) (&/V "lux;VarT" ?aid))
-      ;;       _ (check* class-loader fixpoints A1 A2)]
-      ;;   (return (&/T fixpoints nil)))
-      
-      [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-      (fn [state]
-        (matchv ::M/objects [((|do [F1 (deref ?id)]
-                                (check* class-loader fixpoints (&/V "lux;AppT" (&/T F1 A1)) actual))
-                              state)]
-          [["lux;Right" [state* output]]]
-          (return* state* output)
-
-          [["lux;Left" _]]
-          ((|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?id) F2)
+          (&/$Left _)
+          ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? (Var$ ?id) F2)
                  e* (apply-type F2 A1)
                  a* (apply-type F2 A2)
-                 [fixpoints** _] (check* class-loader fixpoints* e* a*)]
+                 [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
-      ;; [["lux;AppT" [["lux;VarT" ?id] A1]] ["lux;AppT" [F2 A2]]]
-      ;; (|do [[fixpoints* _] (check* class-loader fixpoints (&/V "lux;VarT" ?id) F2)
-      ;;       e* (apply-type F2 A1)
-      ;;       a* (apply-type F2 A2)
-      ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
-      ;;   (return (&/T fixpoints** nil)))
       
-      [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
+      [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
       (fn [state]
-        (matchv ::M/objects [((|do [F2 (deref ?id)]
-                                (check* class-loader fixpoints expected (&/V "lux;AppT" (&/T F2 A2))))
-                              state)]
-          [["lux;Right" [state* output]]]
+        (|case ((|do [F2 (deref ?id)]
+                  (check* class-loader fixpoints invariant?? expected (App$ F2 A2)))
+                state)
+          (&/$Right state* output)
           (return* state* output)
 
-          [["lux;Left" _]]
-          ((|do [[fixpoints* _] (check* class-loader fixpoints F1 (&/V "lux;VarT" ?id))
+          (&/$Left _)
+          ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? F1 (Var$ ?id))
                  e* (apply-type F1 A1)
                  a* (apply-type F1 A2)
-                 [fixpoints** _] (check* class-loader fixpoints* e* a*)]
+                 [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
              (return (&/T fixpoints** nil)))
            state)))
-      ;; [["lux;AppT" [F1 A1]] ["lux;AppT" [["lux;VarT" ?id] A2]]]
-      ;; (|do [[fixpoints* _] (check* class-loader fixpoints F1 (&/V "lux;VarT" ?id))
-      ;;       e* (apply-type F1 A1)
-      ;;       a* (apply-type F1 A2)
-      ;;       [fixpoints** _] (check* class-loader fixpoints* e* a*)]
-      ;;   (return (&/T fixpoints** nil)))
-
-      [["lux;AppT" [F A]] _]
+      
+      [(&/$AppT F A) _]
       (let [fp-pair (&/T expected actual)
             _ (when (> (&/|length fixpoints) 40)
                 (println 'FIXPOINTS (->> (&/|keys fixpoints)
@@ -748,86 +563,92 @@
                                                           (show-type a)))))
                                          (&/|interpose "\n\n")
                                          (&/fold str "")))
-                (assert false))]
-        (matchv ::M/objects [(fp-get fp-pair fixpoints)]
-          [["lux;Some" ?]]
+                (assert false (prn-str 'check* '[(&/$AppT F A) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
+        (|case (fp-get fp-pair fixpoints)
+          (&/$Some ?)
           (if ?
             (return (&/T fixpoints nil))
             (fail (check-error expected actual)))
 
-          [["lux;None" _]]
+          (&/$None)
           (|do [expected* (apply-type F A)]
-            (check* class-loader (fp-put fp-pair true fixpoints) expected* actual))))
+            (check* class-loader (fp-put fp-pair true fixpoints) invariant?? expected* actual))))
 
-      [_ ["lux;AppT" [F A]]]
+      [_ (&/$AppT F A)]
       (|do [actual* (apply-type F A)]
-        (check* class-loader fixpoints expected actual*))
+        (check* class-loader fixpoints invariant?? expected actual*))
 
-      [["lux;AllT" _] _]
-      (with-var
-        (fn [$arg]
-          (|do [expected* (apply-type expected $arg)]
-            (check* class-loader fixpoints expected* actual))))
-
-      [_ ["lux;AllT" _]]
+      [(&/$UnivQ _) _]
+      (|do [$arg existential
+            expected* (apply-type expected $arg)]
+        (check* class-loader fixpoints invariant?? expected* actual))
+      
+      [_ (&/$UnivQ _)]
       (with-var
         (fn [$arg]
           (|do [actual* (apply-type actual $arg)]
-            (check* class-loader fixpoints expected actual*))))
+            (check* class-loader fixpoints invariant?? expected actual*))))
 
-      [["lux;DataT" e!name] ["lux;DataT" "null"]]
-      (if (contains? primitive-types e!name)
-        (fail (str "[Type Error] Can't use \"null\" with primitive types."))
-        (return (&/T fixpoints nil)))
+      [(&/$ExQ e!env e!def) _]
+      (with-var
+        (fn [$arg]
+          (|let [expected* (beta-reduce (->> e!env
+                                             (&/Cons$ $arg)
+                                             (&/Cons$ expected))
+                                        e!def)]
+            (check* class-loader fixpoints invariant?? expected* actual))))
 
-      [["lux;DataT" e!name] ["lux;DataT" a!name]]
-      (let [e!name (as-obj e!name)
-            a!name (as-obj a!name)]
-        (if (or (.equals ^Object e!name a!name)
-                (.isAssignableFrom (Class/forName e!name true class-loader) (Class/forName a!name true class-loader)))
-          (return (&/T fixpoints nil))
-          (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name))))
+      [_ (&/$ExQ a!env a!def)]
+      (|do [$arg existential]
+        (|let [actual* (beta-reduce (->> a!env
+                                         (&/Cons$ $arg)
+                                         (&/Cons$ expected))
+                                    a!def)]
+          (check* class-loader fixpoints invariant?? expected actual*)))
 
-      [["lux;LambdaT" [eI eO]] ["lux;LambdaT" [aI aO]]]
-      (|do [[fixpoints* _] (check* class-loader fixpoints aI eI)]
-        (check* class-loader fixpoints* eO aO))
+      [(&/$DataT e!data) (&/$DataT a!data)]
+      (&&host/check-host-types (partial check* class-loader fixpoints true)
+                               check-error
+                               fixpoints
+                               existential
+                               class-loader
+                               invariant??
+                               e!data
+                               a!data)
 
-      [["lux;TupleT" e!members] ["lux;TupleT" a!members]]
+      [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
+      (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
+        (check* class-loader fixpoints* invariant?? eO aO))
+
+      [(&/$TupleT e!members) (&/$TupleT a!members)]
       (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                   (|do [[fp* _] (check* class-loader fp e a)]
+                                   (|do [[fp* _] (check* class-loader fp invariant?? e a)]
                                      (return fp*)))
                                  fixpoints
                                  e!members a!members)]
         (return (&/T fixpoints* nil)))
       
-      [["lux;VariantT" e!cases] ["lux;VariantT" a!cases]]
-      (|do [fixpoints* (&/fold2% (fn [fp e!case a!case]
-                                   (|let [[e!name e!type] e!case
-                                          [a!name a!type] a!case]
-                                     (if (.equals ^Object e!name a!name)
-                                       (|do [[fp* _] (check* class-loader fp e!type a!type)]
-                                         (return fp*))
-                                       (fail (check-error expected actual)))))
+      [_ (&/$VariantT (&/$Nil))]
+      (return (&/T fixpoints nil))
+
+      [(&/$VariantT e!cases) (&/$VariantT a!cases)]
+      (|do [fixpoints* (&/fold2% (fn [fp e a]
+                                   (|do [[fp* _] (check* class-loader fp invariant?? e a)]
+                                     (return fp*)))
                                  fixpoints
                                  e!cases a!cases)]
         (return (&/T fixpoints* nil)))
 
-      [["lux;RecordT" e!slots] ["lux;RecordT" a!slots]]
-      (|do [fixpoints* (&/fold2% (fn [fp e!slot a!slot]
-                                   (|let [[e!name e!type] e!slot
-                                          [a!name a!type] a!slot]
-                                     (if (.equals ^Object e!name a!name)
-                                       (|do [[fp* _] (check* class-loader fp e!type a!type)]
-                                         (return fp*))
-                                       (fail (check-error expected actual)))))
-                                 fixpoints
-                                 e!slots a!slots)]
-        (return (&/T fixpoints* nil)))
-
-      [["lux;ExT" e!id] ["lux;ExT" a!id]]
+      [(&/$ExT e!id) (&/$ExT a!id)]
       (if (.equals ^Object e!id a!id)
         (return (&/T fixpoints nil))
         (fail (check-error expected actual)))
+
+      [(&/$NamedT ?ename ?etype) _]
+      (check* class-loader fixpoints invariant?? ?etype actual)
+
+      [_ (&/$NamedT ?aname ?atype)]
+      (check* class-loader fixpoints invariant?? expected ?atype)
 
       [_ _]
       (fail (check-error expected actual))
@@ -835,45 +656,71 @@
 
 (defn check [expected actual]
   (|do [class-loader &/loader
-        _ (check* class-loader init-fixpoints expected actual)]
+        _ (check* class-loader init-fixpoints false expected actual)]
     (return nil)))
 
-(defn apply-lambda [func param]
-  (matchv ::M/objects [func]
-    [["lux;LambdaT" [input output]]]
-    (|do [_ (check* init-fixpoints input param)]
-      (return output))
-
-    [["lux;AllT" _]]
-    (with-var
-      (fn [$var]
-        (|do [func* (apply-type func $var)
-              =return (apply-lambda func* param)]
-          (clean $var =return))))
-
-    [_]
-    (fail (str "[Type System] Not a function type:\n" (show-type func) "\n"))
-    ))
-
 (defn actual-type [type]
-  (matchv ::M/objects [type]
-    [["lux;AppT" [?all ?param]]]
+  "(-> Type (Lux Type))"
+  (|case type
+    (&/$AppT ?all ?param)
     (|do [type* (apply-type ?all ?param)]
       (actual-type type*))
 
-    [["lux;VarT" ?id]]
-    (deref ?id)
+    (&/$VarT id)
+    (|do [=type (deref id)]
+      (actual-type =type))
+
+    (&/$NamedT ?name ?type)
+    (actual-type ?type)
     
-    [_]
+    _
     (return type)
     ))
 
-(defn variant-case [case type]
-  (matchv ::M/objects [type]
-    [["lux;VariantT" ?cases]]
-    (if-let [case-type (&/|get case ?cases)]
+(defn variant-case [tag type]
+  (|case type
+    (&/$NamedT ?name ?type)
+    (variant-case tag ?type)
+    
+    (&/$VariantT ?cases)
+    (|case (&/|at tag ?cases)
+      (&/$Some case-type)
       (return case-type)
-      (fail (str "[Type Error] Variant lacks case: " case " | " (show-type type))))
 
-    [_]
+      (&/$None)
+      (fail (str "[Type Error] Variant lacks case: " tag " | " (show-type type))))
+
+    _
     (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
+
+(defn type-name [type]
+  "(-> Type (Lux Ident))"
+  (|case type
+    (&/$NamedT name _)
+    (return name)
+    
+    _
+    (fail (str "[Type Error] Type is not named: " (show-type type)))
+    ))
+
+(defn unknown? [type]
+  "(-> Type (Lux Bool))"
+  (|case type
+    (&/$VarT id)
+    (|do [? (bound? id)]
+      (return (not ?)))
+
+    _
+    (return false)))
+
+(defn resolve-type [type]
+  "(-> Type (Lux Type))"
+  (|case type
+    (&/$VarT id)
+    (|do [? (bound? id)]
+      (if ?
+        (deref id)
+        (return type)))
+
+    _
+    (return type)))
