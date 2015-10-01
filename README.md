@@ -1,5 +1,7 @@
 ## What is Lux?
 
+[![Join the chat at https://gitter.im/LuxLang/lux](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/LuxLang/lux?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Lux is a new programming language in the making.
 It's meant to be a functional, statically-typed Lisp that will run on several platforms, such as the Java Virtual Machine and JavaScript interpreters.
 
@@ -102,7 +104,7 @@ The mechanism hasn't been added yet to the language (mainly because there's only
 ### Macros
 
 Unlike in most other lisps, Lux macros are monadic.
-The **(Lux a)** type is the one responsible for the magic by treading **Compiler** instances through macros.
+The **(Lux a)** type is the one responsibly for the magic by threading **Compiler** instances through macros.
 Macros must have the **Macro** type and then be declared as macros.
 
 However, just using the **defmacro** macro will take care of it for you.
