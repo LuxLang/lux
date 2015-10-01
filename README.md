@@ -7,34 +7,36 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-v0.2
+v0.3
 
 ### How far ahead is the project?
 
 The Java-bytecode compiler is almost complete.
 
-A few features are missing and the compiler is not as fast as I would like.
+Type-inference is halfway done and the compiler is not as fast as I would like.
 
-However, programs can be written to try out Lux and get a feeling for the language.
+However, programs can be written that can interop with the JVM and you can even publish Lux libraries to Clojars or Maven.
 
 ### How can I use it?
 
-Download the 0.2 compiler from here: https://github.com/LuxLang/lux/releases/download/0.2.0/lux-jvm-0.2.0-standalone.jar
+Download the 0.3 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.0/luxc.jar
 
 Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
 
 You can run the compiler like this:
 
-	java -jar -Xss4m lux-jvm-0.2.0-standalone.jar program
-
-The **program** module is already inside **source/** to make it easier to start.
-
-##### Note: You can download all the files inside the source/ directory in this repo to get started.
+	java -jar -Xss4m luxc.jar compile <program-module-name>
 
 This will generate a directory named "target" and put all the .class files there.
 Then, you can run the program like this:
 
 	cd target/jvm/ && java -jar program.jar
+
+### Sample
+
+To take a look at a sample Lux project, please take a look at this repository: https://github.com/LuxLang/luxdoc
+
+The program in there was actually used to generate most of the documentation for the standard library in the wiki (located over here: https://github.com/LuxLang/lux/wiki/Standard-Library)
 
 ### What's the license?
 
@@ -119,15 +121,15 @@ Custom pattern-matching basically means that you can use macros to provide custo
 For instance, the **list** and **list&** macros are used to build lists.
 But you can also use them to destructure them inside pattern-matching:
 
-	(case (: (List Int) (list 1 2 3))
-	  (#Cons [x (#Cons [y (#Cons [z #Nil])])])
+	(case (: (List Int) (@list 1 2 3))
+	  (#Cons x (#Cons y (#Cons z #Nil)))
 	  (#Some ($ int:* x y z))
 
 	  _
 	  #None)
 
-	(case (: (List Int) (list 1 2 3))
-	  (\ (list x y z))
+	(case (: (List Int) (@list 1 2 3))
+	  (\ (@list x y z))
 	  (#Some ($ int:* x y z))
 
 	  _
@@ -176,14 +178,6 @@ Check out the Emacs plugin for it: https://github.com/LuxLang/lux-mode
 Just head to the wiki and check out the documentation for the currently available modules, and the tutorials.
 
 ## Caveats
-
-### Errors
-The compiler is not fully stable so you might get an error if you do anything funny.
-
-Also, the error messages could really use an overhaul, so any error message you get will probably startle you.
-
-Don't worry about it, version 0.3 will improve error reporting a lot.
-If you have any doubts, feel free to ask/complain in the Google Group.
 
 ### Tags
 
