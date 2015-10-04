@@ -5,7 +5,6 @@
             :url "https://www.mozilla.org/en-US/MPL/2.0/"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
-                 [org.ow2.asm/asm-all "5.0.3"]
-                 [org.apache.commons/commons-compress "1.10"]]
+                 [org.ow2.asm/asm-all "5.0.3"]]
   :warn-on-reflection true
   :main lux)

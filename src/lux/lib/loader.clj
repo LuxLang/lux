@@ -11,9 +11,7 @@
                     FileInputStream
                     ByteArrayInputStream
                     ByteArrayOutputStream)
-           java.util.zip.GZIPInputStream
-           (org.apache.commons.compress.archivers.tar TarArchiveEntry
-                                                      TarArchiveInputStream)))
+           java.util.jar.JarInputStream))
 
 ;; [Utils]
 (defn ^:private fetch-libs []
@@ -21,7 +19,7 @@
        (.getURLs)
        seq
        (map #(.getFile ^java.net.URL %))
-       (filter #(.endsWith ^String % ".tar.gz"))
+       (filter #(.endsWith ^String % ".jar"))
        (map #(new File ^String %))))
 
 (let [init-capacity (* 100 1024)
@@ -38,23 +36,19 @@
 (defn ^:private unpackage [^File lib-file]
   (let [is (->> lib-file
                 (new FileInputStream)
-                (new GZIPInputStream)
-                (new TarArchiveInputStream))]
+                (new JarInputStream))]
     (loop [lib-data {}
-           entry (.getNextTarEntry is)]
+           entry (.getNextJarEntry is)]
       (if entry
-        (recur (assoc lib-data (.getName entry) (new String (read-stream is)))
-               (.getNextTarEntry is))
+        (if (.endsWith (.getName entry) ".lux")
+          (recur (assoc lib-data (.substring (.getName entry) 1) (new String (read-stream is)))
+                 (.getNextJarEntry is))
+          (recur lib-data
+                 (.getNextJarEntry is)))
         lib-data))))
 
 ;; [Exports]
-(def lib-ext ".tar.gz")
-
 (defn load []
   (->> (fetch-libs)
        (map unpackage)
        (reduce merge {})))
-
-(comment
-  (->> &/lib-dir load keys)
-  )

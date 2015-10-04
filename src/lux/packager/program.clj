@@ -74,19 +74,29 @@
               (recur (.read is buffer 0 buffer-size)))))
         (.toByteArray os)))))
 
-(defn ^:private add-jar! [^File jar-file ^JarOutputStream out]
+(defn ^:private add-jar! [^File jar-file seen ^JarOutputStream out]
   (with-open [is (->> jar-file (new FileInputStream) (new JarInputStream))]
-    (loop [^JarEntry entry (.getNextJarEntry is)]
-      (when entry
-        (when (and (not (.isDirectory entry))
-                   (not (.startsWith (.getName entry) "META-INF/")))
-          (let [entry-data (read-stream is)]
-            (doto out
-              (.putNextEntry entry)
-              (.write entry-data 0 (alength entry-data))
-              (.flush)
-              (.closeEntry))))
-        (recur (.getNextJarEntry is))))))
+    (loop [^JarEntry entry (.getNextJarEntry is)
+           seen seen]
+      (if entry
+        (let [entry-name (.getName entry)]
+          (if (and (not (.isDirectory entry))
+                   (not (.startsWith entry-name "META-INF/"))
+                   (.endsWith entry-name ".class")
+                   (not (contains? seen entry-name)))
+            (let [;; _ (prn 'entry entry-name)
+                  entry-data (read-stream is)]
+              (doto out
+                (.putNextEntry entry)
+                (.write entry-data 0 (alength entry-data))
+                (.flush)
+                (.closeEntry))
+              (recur (.getNextJarEntry is)
+                     (conj seen entry-name)))
+            (recur (.getNextJarEntry is)
+                   seen)))
+        seen
+        ))))
 
 ;; [Resources]
 (defn package [module]
@@ -94,6 +104,10 @@
   (with-open [out (new JarOutputStream (->> &&/output-package (new File) (new FileOutputStream)) (manifest module))]
     (doseq [$group (.listFiles (new File &&/output-dir))]
       (write-module! $group out))
-    (doseq [^String jar-file (fetch-available-jars)]
-      (add-jar! (new File jar-file) out))
+    (->> (fetch-available-jars)
+         (filter #(and (not (.endsWith % "luxc.jar"))
+                       (not (.endsWith % "tools.nrepl-0.2.3.jar"))
+                       (not (.endsWith % "clojure-complete-0.2.3.jar"))))
+         (reduce (fn [s ^String j] (add-jar! (new File ^String j) s out))
+                 #{}))
     ))
