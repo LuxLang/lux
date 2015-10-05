@@ -32,6 +32,17 @@ Then, you can run the program like this:
 
 	cd target/jvm/ && java -jar program.jar
 
+### Sample
+
+To take a look at a sample Lux project, please take a look at this repository: https://github.com/LuxLang/luxdoc
+
+The program in there was actually used to generate most of the documentation for the standard library in the wiki (located over here: https://github.com/LuxLang/lux/wiki/Standard-Library)
+
+### Building Lux projects
+
+To make programming with Lux easier, you might want to checkout the new Leiningen plugin for Lux:
+https://github.com/LuxLang/lux-lein
+
 ### What's the license?
 
 Mozilla Public License v2.0
