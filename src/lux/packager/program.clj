@@ -81,8 +81,8 @@
       (if entry
         (let [entry-name (.getName entry)]
           (if (and (not (.isDirectory entry))
-                   (not (.startsWith entry-name "META-INF/"))
-                   (.endsWith entry-name ".class")
+                   (not (.startsWith entry-name "META-INF/maven/"))
+                   ;; (.endsWith entry-name ".class")
                    (not (contains? seen entry-name)))
             (let [;; _ (prn 'entry entry-name)
                   entry-data (read-stream is)]

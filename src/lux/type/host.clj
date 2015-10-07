@@ -197,10 +197,11 @@
           :else
           (let [e!name (as-obj e!name)
                 a!name (as-obj a!name)]
-            (cond (and (.equals ^Object e!name a!name)
-                       (= (&/|length e!params) (&/|length a!params)))
-                  (|do [_ (&/map2% check e!params a!params)]
-                    (return (&/T fixpoints nil)))
+            (cond (.equals ^Object e!name a!name)
+                  (if (= (&/|length e!params) (&/|length a!params))
+                    (|do [_ (&/map2% check e!params a!params)]
+                      (return (&/T fixpoints nil)))
+                    (fail (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
 
                   (not invariant??)
                   (|do [actual* (->super-type existential class-loader e!name a!name a!params)]

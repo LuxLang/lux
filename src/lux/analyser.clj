@@ -117,7 +117,7 @@
     (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
     _
-    (assert false (str "Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token)))))))
+    (assert false (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token)))))))
 
 (defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
   (|case token

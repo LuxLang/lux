@@ -7,7 +7,7 @@
   (:require (clojure [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail |case]]
+            (lux [base :as & :refer [|let |do return fail |case assert!]]
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
@@ -281,9 +281,16 @@
     ))
 
 (let [dummy-type-param (&type/Data$ "java.lang.Object" (&/|list))]
-  (do-template [<name> <tag>]
+  (do-template [<name> <tag> <only-interface?>]
     (defn <name> [analyse exo-type class method classes object args]
       (|do [class-loader &/loader
+            _ (try (assert! (let [=class (Class/forName class true class-loader)]
+                              (= <only-interface?> (.isInterface =class)))
+                            (if <only-interface?>
+                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on interface.")
+                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on class.")))
+                (catch Exception e
+                  (fail (str "[Analyser Error] Unknown class: " class))))
             [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
                                                          (return (&/T Void/TYPE &/Nil$ &/Nil$ &/Nil$ &/Nil$))
                                                          (&host/lookup-virtual-method class-loader class method classes))
@@ -301,9 +308,9 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&/V <tag> (&/T class method classes =object =args output-type)))))))
 
-    analyse-jvm-invokevirtual   &&/$jvm-invokevirtual
-    analyse-jvm-invokeinterface &&/$jvm-invokeinterface
-    analyse-jvm-invokespecial   &&/$jvm-invokespecial
+    analyse-jvm-invokevirtual   &&/$jvm-invokevirtual   false
+    analyse-jvm-invokespecial   &&/$jvm-invokespecial   false
+    analyse-jvm-invokeinterface &&/$jvm-invokeinterface true
     ))
 
 (defn analyse-jvm-invokestatic [analyse exo-type class method classes args]
@@ -690,6 +697,16 @@
                               :final? false
                               :abstract? false
                               :concurrency nil}
+      default-<init> {:name "<init>"
+                      :modifiers {:visibility "public"
+                                  :static? false
+                                  :final? false
+                                  :abstract? false
+                                  :concurrency nil}
+                      :anns (&/|list)
+                      :exceptions (&/|list)
+                      :inputs (&/|list)
+                      :output "void"}
       captured-slot-type "java.lang.Object"]
   (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces methods]
     (&/with-closure
@@ -698,7 +715,9 @@
             :let [name (&host/location (&/|tail scope))
                   anon-class (str module "." name)]
             =method-descs (&/map% dummy-method-desc methods)
-            _ (&host/use-dummy-class name super-class interfaces (&/|list) =method-descs)
+            _ (->> =method-descs
+                   (&/Cons$ default-<init>)
+                   (&host/use-dummy-class name super-class interfaces (&/|list)))
             =methods (&/map% (partial analyse-method analyse anon-class) methods)
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
             =captured &&env/captured-vars

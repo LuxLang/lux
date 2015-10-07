@@ -178,43 +178,42 @@
        ;; else
        0)))
 
-(let [object-real-class (->class "java.lang.Object")]
-  (defn ^:private dummy-return [^MethodVisitor writer name output]
-    (case output
-      "void" (if (= "<init>" name)
-               (doto writer
-                 (.visitVarInsn Opcodes/ALOAD 0)
-                 (.visitMethodInsn Opcodes/INVOKESPECIAL object-real-class "<init>" "()V")
-                 (.visitInsn Opcodes/RETURN))
-               (.visitInsn writer Opcodes/RETURN))
-      "boolean" (doto writer
-                  (.visitLdcInsn false)
-                  (.visitInsn Opcodes/IRETURN))
-      "byte" (doto writer
-               (.visitLdcInsn (byte 0))
-               (.visitInsn Opcodes/IRETURN))
-      "short" (doto writer
-                (.visitLdcInsn (short 0))
+(defn ^:private dummy-return [^MethodVisitor writer super-class name output]
+  (case output
+    "void" (if (= "<init>" name)
+             (doto writer
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitMethodInsn Opcodes/INVOKESPECIAL (->class super-class) "<init>" "()V")
+               (.visitInsn Opcodes/RETURN))
+             (.visitInsn writer Opcodes/RETURN))
+    "boolean" (doto writer
+                (.visitLdcInsn false)
                 (.visitInsn Opcodes/IRETURN))
-      "int" (doto writer
-              (.visitLdcInsn (int 0))
+    "byte" (doto writer
+             (.visitLdcInsn (byte 0))
+             (.visitInsn Opcodes/IRETURN))
+    "short" (doto writer
+              (.visitLdcInsn (short 0))
               (.visitInsn Opcodes/IRETURN))
-      "long" (doto writer
-               (.visitLdcInsn (long 0))
-               (.visitInsn Opcodes/LRETURN))
-      "float" (doto writer
-                (.visitLdcInsn (float 0.0))
-                (.visitInsn Opcodes/FRETURN))
-      "double" (doto writer
-                 (.visitLdcInsn (double 0.0))
-                 (.visitInsn Opcodes/DRETURN))
-      "char" (doto writer
-               (.visitLdcInsn (char 0))
-               (.visitInsn Opcodes/IRETURN))
-      ;; else
-      (doto writer
-        (.visitInsn Opcodes/ACONST_NULL)
-        (.visitInsn Opcodes/ARETURN)))))
+    "int" (doto writer
+            (.visitLdcInsn (int 0))
+            (.visitInsn Opcodes/IRETURN))
+    "long" (doto writer
+             (.visitLdcInsn (long 0))
+             (.visitInsn Opcodes/LRETURN))
+    "float" (doto writer
+              (.visitLdcInsn (float 0.0))
+              (.visitInsn Opcodes/FRETURN))
+    "double" (doto writer
+               (.visitLdcInsn (double 0.0))
+               (.visitInsn Opcodes/DRETURN))
+    "char" (doto writer
+             (.visitLdcInsn (char 0))
+             (.visitInsn Opcodes/IRETURN))
+    ;; else
+    (doto writer
+      (.visitInsn Opcodes/ACONST_NULL)
+      (.visitInsn Opcodes/ARETURN))))
 
 (defn use-dummy-class [name super-class interfaces fields methods]
   (|do [module &/get-module-name
@@ -236,7 +235,7 @@
                                                 nil
                                                 (->> (:exceptions method) (&/|map ->class) &/->seq (into-array java.lang.String)))
                               .visitCode
-                              (dummy-return (:name method) (:output method))
+                              (dummy-return super-class (:name method) (:output method))
                               (.visitMaxs 0 0)
                               (.visitEnd))))
                         methods)

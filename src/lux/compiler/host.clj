@@ -479,11 +479,11 @@
     (str "(" (&/fold str "" (&/|repeat (&/|length env) clo-field-sig)) ")"
          <init>-return))
 
-  (defn ^:private add-anon-class-<init> [^ClassWriter class-writer class-name env]
+  (defn ^:private add-anon-class-<init> [^ClassWriter class-writer class-name super-class env]
     (doto (.visitMethod class-writer Opcodes/ACC_PUBLIC "<init>" (anon-class-<init>-signature env) nil nil)
       (.visitCode)
       (.visitVarInsn Opcodes/ALOAD 0)
-      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" "<init>" "()V")
+      (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class super-class) "<init>" "()V")
       (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
             (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
             (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
@@ -510,7 +510,7 @@
                         ?fields)]
         _ (&/map% (partial compile-method compile =class) ?methods)
         :let [_ (when env
-                  (add-anon-class-<init> =class full-name env))]]
+                  (add-anon-class-<init> =class full-name ?super-class env))]]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
 (defn compile-jvm-interface [compile ?name ?supers ?anns ?methods]
