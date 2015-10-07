@@ -82,22 +82,26 @@
         (.visitJumpInsn Opcodes/GOTO $target))
 
       (&a-case/$TupleTestAC ?members)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (-> (doto (.visitInsn Opcodes/DUP)
-              (.visitLdcInsn (int idx))
-              (.visitInsn Opcodes/AALOAD)
-              (compile-match test $next $sub-else)
-              (.visitLabel $sub-else)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else)
-              (.visitLabel $next))
-            (->> (|let [[idx test] idx+member
-                        $next (new Label)
-                        $sub-else (new Label)])
-                 (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
+      (if (&/|empty? ?members)
+        (doto writer
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $target))
+        (doto writer
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (-> (doto (.visitInsn Opcodes/DUP)
+                (.visitLdcInsn (int idx))
+                (.visitInsn Opcodes/AALOAD)
+                (compile-match test $next $sub-else)
+                (.visitLabel $sub-else)
+                (.visitInsn Opcodes/POP)
+                (.visitJumpInsn Opcodes/GOTO $else)
+                (.visitLabel $next))
+              (->> (|let [[idx test] idx+member
+                          $next (new Label)
+                          $sub-else (new Label)])
+                   (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $target)))
 
       (&a-case/$VariantTestAC ?tag ?count ?test)
       (doto writer

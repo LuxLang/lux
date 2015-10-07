@@ -24,7 +24,7 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-(def ^String version "0.3")
+(def ^String version "0.4")
 (def ^String input-dir "source")
 (def ^String output-dir "target/jvm/")
 (def ^String output-package (str output-dir "program.jar"))

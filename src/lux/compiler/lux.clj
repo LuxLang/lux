@@ -53,19 +53,22 @@
 
 (defn compile-tuple [compile ?elems]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [num-elems (&/|length ?elems)
-              _ (doto *writer*
-                  (.visitLdcInsn (int num-elems))
-                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
-        _ (&/map2% (fn [idx elem]
-                     (|do [:let [_ (doto *writer*
-                                     (.visitInsn Opcodes/DUP)
-                                     (.visitLdcInsn (int idx)))]
-                           ret (compile elem)
-                           :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-                       (return ret)))
-                   (&/|range num-elems) ?elems)]
-    (return nil)))
+        :let [num-elems (&/|length ?elems)]]
+    (if (= 0 num-elems)
+      (|do [:let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
+        (return nil))
+      (|do [:let [_ (doto *writer*
+                      (.visitLdcInsn (int num-elems))
+                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
+            _ (&/map2% (fn [idx elem]
+                         (|do [:let [_ (doto *writer*
+                                         (.visitInsn Opcodes/DUP)
+                                         (.visitLdcInsn (int idx)))]
+                               ret (compile elem)
+                               :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+                           (return ret)))
+                       (&/|range num-elems) ?elems)]
+        (return nil)))))
 
 (defn compile-variant [compile ?tag ?value]
   (|do [^MethodVisitor *writer* &/get-writer
