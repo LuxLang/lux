@@ -138,7 +138,7 @@
 
       "value"
       (|let [?def-type (|case ?body
-                         [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr)]
+                         [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr ?def-value-type)]
                          ?type-expr
 
                          [[?def-type ?def-cursor] ?def-value]
@@ -215,8 +215,27 @@
           _ (&a-module/define module-name ?name (-> def-class (.getField &/meta-field) (.get nil)) =value-type)]
       (return nil))))
 
-(defn compile-ann [compile ?value-ex ?type-ex]
+(defn check-cast [type]
+  "(-> Type (Lux (,)))"
+  (|do [^MethodVisitor writer &/get-writer]
+    (let [^String type-class* (&host/->java-sig type)
+          type-class (cond (.startsWith type-class* "[")
+                           type-class*
+                           
+                           (.endsWith type-class* ";")
+                           (.substring type-class* 1 (- (.length type-class*) 1))
+
+                           :else
+                           type-class*)
+          _ (.visitTypeInsn writer Opcodes/CHECKCAST type-class)]
+      (return nil))))
+
+(defn compile-ann [compile ?value-ex ?type-ex ?value-type]
   (compile ?value-ex))
+
+(defn compile-coerce [compile ?value-ex ?type-ex ?value-type]
+  (|do [_ (compile ?value-ex)]
+    (check-cast ?value-type)))
 
 (defn compile-declare-macro [compile module name]
   (|do [_ (&a-module/declare-macro module name)]

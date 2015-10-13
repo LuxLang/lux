@@ -353,7 +353,7 @@
 (defn compile-jvm-arraylength [compile ?array]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+        ;; :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
         :let [_ (doto *writer*
                   (.visitInsn Opcodes/ARRAYLENGTH)
                   (.visitInsn Opcodes/I2L)

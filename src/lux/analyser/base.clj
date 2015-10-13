@@ -22,6 +22,7 @@
    "case"
    "lambda"
    "ann"
+   "coerce"
    "def"
    "declare-macro"
    "var"

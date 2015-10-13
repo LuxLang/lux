@@ -86,8 +86,11 @@
         (&a/$lambda ?scope ?env ?body)
         (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
 
-        (&a/$ann ?value-ex ?type-ex)
-        (&&lux/compile-ann compile-expression ?value-ex ?type-ex)
+        (&a/$ann ?value-ex ?type-ex ?value-type)
+        (&&lux/compile-ann compile-expression ?value-ex ?type-ex ?value-type)
+
+        (&a/$coerce ?value-ex ?type-ex ?value-type)
+        (&&lux/compile-coerce compile-expression ?value-ex ?type-ex ?value-type)
 
         ;; Characters
         (&a/$jvm-ceq ?x ?y)

@@ -524,15 +524,18 @@
         _cursor &/cursor
         ]
     (return (&/|list (&&/|meta ==type _cursor
-                               (&/V &&/$ann (&/T =value =type))
+                               (&/V &&/$ann (&/T =value =type ==type))
                                )))))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
+        ;; :let [_ (prn 'analyse-coerce/_0 (&/show-ast ?value) (&type/show-type ==type))]
         =value (&&/analyse-1+ analyse ?value)
+        ;; =value (&&/analyse-1* analyse ?value)
+        ;; :let [_ (prn 'analyse-coerce/_1 (&/show-ast ?value) (&type/show-type ==type))]
         _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
-                               (&/V &&/$ann (&/T =value =type))
+                               (&/V &&/$coerce (&/T =value =type ==type))
                                )))))

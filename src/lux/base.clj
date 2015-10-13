@@ -815,7 +815,9 @@
     (str "\"" ?value "\"")
 
     [_ ($TagS ?module ?tag)]
-    (str "#" ?module ";" ?tag)
+    (if (.equals "" ?module)
+      (str "#" ?tag)
+      (str "#" ?module ";" ?tag))
 
     [_ ($SymbolS ?module ?name)]
     (if (.equals "" ?module)

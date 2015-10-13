@@ -67,34 +67,41 @@
     _
     (&/T 0 type)))
 
-(defn ->java-sig [^objects type]
-  "(-> Type Text)"
-  (|case type
-    (&/$DataT ?name params)
-    (cond (= &host-type/array-data-tag ?name) (|let [[level base] (unfold-array type)
-                                                     base-sig (|case base
-                                                                (&/$DataT base-class _)
-                                                                (->class base-class)
+(let [object-array (str "[" "L" (->class "java.lang.Object") ";")]
+  (defn ->java-sig [^objects type]
+    "(-> Type Text)"
+    (|case type
+      (&/$DataT ?name params)
+      (cond (= &host-type/array-data-tag ?name) (|let [[level base] (unfold-array type)
+                                                       base-sig (|case base
+                                                                  (&/$DataT base-class _)
+                                                                  (->type-signature base-class)
 
-                                                                _
-                                                                (->java-sig base))]
-                                                (str (->> (&/|repeat level "[") (&/fold str ""))
-                                                     "L" base-sig ";"))
-          (= &host-type/null-data-tag ?name)  (->type-signature "java.lang.Object")
-          :else                    (->type-signature ?name))
+                                                                  _
+                                                                  (->java-sig base))]
+                                                  (str (->> (&/|repeat level "[") (&/fold str ""))
+                                                       base-sig))
+            (= &host-type/null-data-tag ?name)  (->type-signature "java.lang.Object")
+            :else                    (->type-signature ?name))
 
-    (&/$LambdaT _ _)
-    (->type-signature function-class)
+      (&/$LambdaT _ _)
+      (->type-signature function-class)
 
-    (&/$TupleT (&/$Nil))
-    "V"
+      (&/$TupleT (&/$Nil))
+      "V"
 
-    (&/$NamedT ?name ?type)
-    (->java-sig ?type)
+      (&/$VariantT _)
+      object-array
 
-    _
-    (assert false (str '->java-sig " " (&type/show-type type)))
-    ))
+      (&/$TupleT _)
+      object-array
+
+      (&/$NamedT ?name ?type)
+      (->java-sig ?type)
+
+      _
+      (assert false (str '->java-sig " " (&type/show-type type)))
+      )))
 
 (do-template [<name> <static?>]
   (defn <name> [class-loader target field]

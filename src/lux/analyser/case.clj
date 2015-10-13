@@ -112,7 +112,7 @@
     (adjust-type* up ?type)
 
     _
-    (assert false (prn-str 'adjust-type* (&type/show-type type)))
+    (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
     ))
 
 (defn adjust-type [type]
@@ -161,7 +161,7 @@
         (|case value-type*
           (&/$TupleT ?member-types)
           (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]"))
+            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
             (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                            (|let [[v m] vm]
                                              (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
@@ -172,7 +172,7 @@
               (return (&/T (&/V $TupleTestAC =tests) =kont))))
 
           _
-          (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*)))))
+          (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*) " -- " (&/show-ast pattern)))))
       
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)]

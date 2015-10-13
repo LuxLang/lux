@@ -64,18 +64,32 @@
     (&/fold2 matcher (&/|table) sub-type-params params)))
 
 ;; [Exports]
-(let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+))"
-      Unit (&/V &/$TupleT (&/|list))]
+(let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))"
+      Unit (&/V &/$TupleT (&/|list))
+      jprim->lprim (fn [prim]
+                     (case prim
+                       "Z" "boolean"
+                       "B" "byte"
+                       "S" "short"
+                       "I" "int"
+                       "J" "long"
+                       "F" "float"
+                       "D" "double"
+                       "C" "char"))]
   (defn class->type [^Class class]
     "(-> Class Type)"
-    (if-let [[_ _ arr-brackets arr-base simple-base] (re-find class-name-re (.getName class))]
-      (let [base (or arr-base simple-base)]
+    (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re (.getName class))]
+      (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
         (if (.equals "void" base)
           Unit
           (reduce (fn [inner _] (&/V &/$DataT (&/T array-data-tag (&/|list inner))))
                   (&/V &/$DataT (&/T base &/Nil$))
-                  (range (count (or arr-brackets "")))))
+                  (range (count (or arr-obrackets arr-pbrackets "")))))
         ))))
+
+;; (-> String (.getMethod "getBytes" (into-array Class [])) .getReturnType)
+;; (-> String (.getMethod "getBytes" (into-array Class [])) ^Class (.getGenericReturnType)
+;;     .getName (->> (re-find #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))")))
 
 (defn instance-param [existential matchings refl-type]
   "(-> (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
