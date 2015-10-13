@@ -119,15 +119,23 @@
   "(-> Type (Lux Type))"
   (adjust-type* &/Nil$ type))
 
-(defn ^:private analyse-pattern [value-type pattern kont]
+(defn ^:private analyse-pattern [var?? value-type pattern kont]
   (|let [[meta pattern*] pattern]
     (|case pattern*
       (&/$SymbolS "" name)
-      (|do [=kont (&env/with-local name value-type
-                    kont)
-            idx &env/next-local-idx]
-        (return (&/T (&/V $StoreTestAC idx) =kont)))
+      (|case var??
+        (&/$Some var-analysis)
+        (|do [=kont (&env/with-alias name var-analysis
+                      kont)
+              idx &env/next-local-idx]
+          (return (&/T (&/V $StoreTestAC idx) =kont)))
 
+        _
+        (|do [=kont (&env/with-local name value-type
+                      kont)
+              idx &env/next-local-idx]
+          (return (&/T (&/V $StoreTestAC idx) =kont))))
+      
       (&/$SymbolS ident)
       (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
@@ -164,7 +172,7 @@
             (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
             (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                            (|let [[v m] vm]
-                                             (|do [[=test [=tests =kont]] (analyse-pattern v m kont*)]
+                                             (|do [[=test [=tests =kont]] (analyse-pattern &/None$ v m kont*)]
                                                (return (&/T (&/Cons$ =test =tests) =kont)))))
                                          (|do [=kont kont]
                                            (return (&/T &/Nil$ =kont)))
@@ -176,7 +184,7 @@
       
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)]
-        (analyse-pattern value-type (&/T meta (&/V &/$TupleS rec-members)) kont))
+        (analyse-pattern &/None$ value-type (&/T meta (&/V &/$TupleS rec-members)) kont))
 
       (&/$TagS ?ident)
       (|do [[=module =name] (&&/resolved-ident ?ident)
@@ -184,7 +192,7 @@
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
             case-type (&type/variant-case idx value-type*)
-            [=test =kont] (analyse-pattern case-type unit kont)]
+            [=test =kont] (analyse-pattern &/None$ case-type unit kont)]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
       (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
@@ -195,18 +203,18 @@
             group (&module/tag-group =module =name)
             case-type (&type/variant-case idx value-type*)
             [=test =kont] (case (int (&/|length ?values))
-                            0 (analyse-pattern case-type unit kont)
-                            1 (analyse-pattern case-type (&/|head ?values) kont)
+                            0 (analyse-pattern &/None$ case-type unit kont)
+                            1 (analyse-pattern &/None$ case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern case-type (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values)) kont))]
+                            (analyse-pattern &/None$ case-type (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values)) kont))]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
       _
       (fail (str "[Pattern-matching Error] Unrecognized pattern syntax: " (&/show-ast pattern)))
       )))
 
-(defn ^:private analyse-branch [analyse exo-type value-type pattern body patterns]
-  (|do [pattern+body (analyse-pattern value-type pattern
+(defn ^:private analyse-branch [analyse exo-type var?? value-type pattern body patterns]
+  (|do [pattern+body (analyse-pattern var?? value-type pattern
                                       (&&/analyse-1 analyse exo-type body))]
     (return (&/Cons$ pattern+body patterns))))
 
@@ -361,10 +369,10 @@
     ))
 
 ;; [Exports]
-(defn analyse-branches [analyse exo-type value-type branches]
+(defn analyse-branches [analyse exo-type var?? value-type branches]
   (|do [patterns (&/fold% (fn [patterns branch]
                             (|let [[pattern body] branch]
-                              (analyse-branch analyse exo-type value-type pattern body patterns)))
+                              (analyse-branch analyse exo-type var?? value-type pattern body patterns)))
                           &/Nil$
                           branches)
         struct (&/fold% merge-total (&/V $DefaultTotal false) patterns)
