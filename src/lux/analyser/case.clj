@@ -126,9 +126,8 @@
       (|case var??
         (&/$Some var-analysis)
         (|do [=kont (&env/with-alias name var-analysis
-                      kont)
-              idx &env/next-local-idx]
-          (return (&/T (&/V $StoreTestAC idx) =kont)))
+                      kont)]
+          (return (&/T (&/V $StoreTestAC -1) =kont)))
 
         _
         (|do [=kont (&env/with-local name value-type

@@ -655,23 +655,10 @@
       (str "@ " file "," line "," col "\n" msg))))
 
 (defn ^:private analyse-basic-ast [analyse eval! compile-module compile-token exo-type token]
-  ;; (prn 'analyse-basic-ast (&/show-ast token))
   (|case token
     [meta ?token]
     (fn [state]
-      (|case (try ((aba1 analyse eval! compile-module compile-token exo-type ?token) state)
-               (catch Error e
-                 (prn 'analyse-basic-ast/Error-1 e)
-                 (prn 'analyse-basic-ast/Error-2 (&/show-ast token))
-                 (prn 'analyse-basic-ast/Error-3 (&type/show-type exo-type))
-                 (|case ((&type/deref+ exo-type) state)
-                   (&/$Right [_state _exo-type])
-                   (prn 'analyse-basic-ast/Error-4 (&type/show-type _exo-type))
-
-                   _
-                   (prn 'analyse-basic-ast/Error-4 'YOLO))
-                 (throw e))
-               )
+      (|case ((aba1 analyse eval! compile-module compile-token exo-type ?token) state)
         (&/$Right state* output)
         (return* state* output)
 

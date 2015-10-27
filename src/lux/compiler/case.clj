@@ -26,9 +26,13 @@
   (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
     (|case ?match
       (&a-case/$StoreTestAC ?idx)
-      (doto writer
-        (.visitVarInsn Opcodes/ASTORE ?idx)
-        (.visitJumpInsn Opcodes/GOTO $target))
+      (if (< ?idx 0)
+        (doto writer
+          (.visitInsn Opcodes/POP) ;; Basically, a No-Op
+          (.visitJumpInsn Opcodes/GOTO $target))
+        (doto writer
+          (.visitVarInsn Opcodes/ASTORE ?idx)
+          (.visitJumpInsn Opcodes/GOTO $target)))
 
       (&a-case/$BoolTestAC ?value)
       (doto writer
