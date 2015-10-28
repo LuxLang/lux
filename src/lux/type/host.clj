@@ -87,12 +87,8 @@
                   (range (count (or arr-obrackets arr-pbrackets "")))))
         ))))
 
-;; (-> String (.getMethod "getBytes" (into-array Class [])) .getReturnType)
-;; (-> String (.getMethod "getBytes" (into-array Class [])) ^Class (.getGenericReturnType)
-;;     .getName (->> (re-find #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))")))
-
 (defn instance-param [existential matchings refl-type]
-  "(-> (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
+  "(-> (Lux Type) (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
   (cond (instance? Class refl-type)
         (return (class->type refl-type))
 
@@ -113,7 +109,9 @@
         (let [gvar (.getName ^TypeVariable refl-type)]
           (if-let [m-type (&/|get gvar matchings)]
             (return m-type)
-            (fail (str "[Type Error] Unknown generic type variable: " gvar))))
+            (fail (str "[Type Error] Unknown generic type variable: " gvar " -- " (->> matchings
+                                                                                       (&/|map &/|first)
+                                                                                       &/->seq)))))
         
         (instance? WildcardType refl-type)
         (if-let [bound (->> ^WildcardType refl-type .getUpperBounds seq first)]
@@ -191,38 +189,41 @@
 (defn check-host-types [check check-error fixpoints existential class-loader invariant?? expected actual]
   (|let [[e!name e!params] expected
          [a!name a!params] actual]
-    (cond (= "java.lang.Object" e!name)
-          (return (&/T fixpoints nil))
+    (try (cond (= "java.lang.Object" e!name)
+               (return (&/T fixpoints nil))
 
-          (= null-data-tag a!name)
-          (if (not (primitive-type? e!name))
-            (return (&/T fixpoints nil))
-            (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))))
+               (= null-data-tag a!name)
+               (if (not (primitive-type? e!name))
+                 (return (&/T fixpoints nil))
+                 (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))))
 
-          (= null-data-tag e!name)
-          (if (= null-data-tag a!name)
-            (return (&/T fixpoints nil))
-            (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))))
+               (= null-data-tag e!name)
+               (if (= null-data-tag a!name)
+                 (return (&/T fixpoints nil))
+                 (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))))
 
-          (and (= array-data-tag e!name)
-               (not= array-data-tag a!name))
-          (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual)))
-          
-          :else
-          (let [e!name (as-obj e!name)
-                a!name (as-obj a!name)]
-            (cond (.equals ^Object e!name a!name)
-                  (if (= (&/|length e!params) (&/|length a!params))
-                    (|do [_ (&/map2% check e!params a!params)]
-                      (return (&/T fixpoints nil)))
-                    (fail (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
+               (and (= array-data-tag e!name)
+                    (not= array-data-tag a!name))
+               (fail (check-error (&/V &/$DataT expected) (&/V &/$DataT actual)))
+               
+               :else
+               (let [e!name (as-obj e!name)
+                     a!name (as-obj a!name)]
+                 (cond (.equals ^Object e!name a!name)
+                       (if (= (&/|length e!params) (&/|length a!params))
+                         (|do [_ (&/map2% check e!params a!params)]
+                           (return (&/T fixpoints nil)))
+                         (fail (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
 
-                  (not invariant??)
-                  (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
-                    (check (&/V &/$DataT expected) actual*))
+                       (not invariant??)
+                       (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
+                         (check (&/V &/$DataT expected) actual*))
 
-                  :else
-                  (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))))
+                       :else
+                       (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
+      (catch Exception e
+        (prn 'check-host-types e [e!name a!name])
+        (throw e)))))
 
 (let [Void$ (&/V &/$VariantT (&/|list))
       gen-type (constantly Void$)]
@@ -233,3 +234,24 @@
              (return (&/V &/$DataT (&/T class params))))
         (catch Exception e
           (fail (str "[Type Error] Unknown type: " class)))))))
+
+(defn class-name->type [class-name]
+  (case class-name
+    "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Boolean" (&/|list))))))
+    "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Byte" (&/|list))))))
+    "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Short" (&/|list))))))
+    "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Integer" (&/|list))))))
+    "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Long" (&/|list))))))
+    "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Float" (&/|list))))))
+    "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Double" (&/|list))))))
+    "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Character" (&/|list))))))
+    ;; "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "boolean" (&/|list))))))
+    ;; "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "byte" (&/|list))))))
+    ;; "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "short" (&/|list))))))
+    ;; "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "int" (&/|list))))))
+    ;; "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "long" (&/|list))))))
+    ;; "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "float" (&/|list))))))
+    ;; "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "double" (&/|list))))))
+    ;; "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "char" (&/|list))))))
+    ;; else
+    (&/V &/$DataT (&/T class-name (&/|list)))))

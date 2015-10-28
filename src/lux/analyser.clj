@@ -68,6 +68,12 @@
       (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
       )))
 
+(defn ^:private add-loc [meta ^String msg]
+  (if (.startsWith msg "@")
+    msg
+    (|let [[file line col] meta]
+      (str "@ " file "," line "," col "\n" msg))))
+
 (defn ^:private aba10 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Arrays
@@ -117,7 +123,8 @@
     (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
     _
-    (assert false (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token)))))))
+    #(fail* (add-loc (&/get$ &/$cursor %)
+                     (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token))))))))
 
 (defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
   (|case token
@@ -647,12 +654,6 @@
     _
     (aba2 analyse eval! compile-module compile-token exo-type token)
     ))
-
-(defn ^:private add-loc [meta ^String msg]
-  (if (.startsWith msg "@")
-    msg
-    (|let [[file line col] meta]
-      (str "@ " file "," line "," col "\n" msg))))
 
 (defn ^:private analyse-basic-ast [analyse eval! compile-module compile-token exo-type token]
   (|case token
