@@ -74,6 +74,22 @@
     (|let [[file line col] meta]
       (str "@ " file "," line "," col "\n" msg))))
 
+(defn ^:private fail-with-loc [msg]
+  (fn [state]
+    (fail* (add-loc (&/get$ &/$cursor state) msg))))
+
+(defn ^:private parse-generic-class [sample]
+  "(-> AST (Lux GenericClass))"
+  (|case sample
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS ?name)]
+                          (&/$Cons [_ (&/$TupleS ?params)]
+                                   (&/$Nil))))]
+    (|do [=params (&/map% parse-generic-class ?params)]
+      (return (&/T ?name =params)))
+
+    _
+    (fail-with-loc (str "[Analyser Error] Wrong syntax for generic class: " (&/show-ast sample)))))
+
 (defn ^:private aba10 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Arrays
@@ -123,8 +139,7 @@
     (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
     _
-    #(fail* (add-loc (&/get$ &/$cursor %)
-                     (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token))))))))
+    (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token)))))))
 
 (defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
   (|case token
@@ -325,12 +340,13 @@
     (&&host/analyse-jvm-instanceof analyse exo-type ?class ?object)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_new")]
-                       (&/$Cons [_ (&/$TextS ?class)]
+                       (&/$Cons ?poly-class
                                 (&/$Cons [_ (&/$TupleS ?classes)]
                                          (&/$Cons [_ (&/$TupleS ?args)]
                                                   (&/$Nil))))))
-    (|do [=classes (&/map% extract-text ?classes)]
-      (&&host/analyse-jvm-new analyse exo-type ?class =classes ?args))
+    (|do [=generic-class (parse-generic-class ?poly-class)
+          =classes (&/map% extract-text ?classes)]
+      (&&host/analyse-jvm-new analyse exo-type =generic-class =classes ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_getstatic")]
                        (&/$Cons [_ (&/$TextS ?class)]
@@ -361,43 +377,47 @@
     (&&host/analyse-jvm-putfield analyse exo-type ?class ?field ?value ?object)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokestatic")]
-                       (&/$Cons [_ (&/$TextS ?class)]
+                       (&/$Cons ?poly-class
                                 (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?classes)]
+                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
                                                   (&/$Cons [_ (&/$TupleS ?args)]
                                                            (&/$Nil)))))))
-    (|do [=classes (&/map% extract-text ?classes)]
-      (&&host/analyse-jvm-invokestatic analyse exo-type ?class ?method =classes ?args))
+    (|do [=generic-class (parse-generic-class ?poly-class)
+          =arg-classes (&/map% parse-generic-class ?arg-classes)]
+      (&&host/analyse-jvm-invokestatic analyse exo-type =generic-class ?method =arg-classes ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokevirtual")]
-                       (&/$Cons [_ (&/$TextS ?class)]
+                       (&/$Cons ?poly-class
                                 (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?classes)]
+                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (|do [=classes (&/map% extract-text ?classes)]
-      (&&host/analyse-jvm-invokevirtual analyse exo-type ?class ?method =classes ?object ?args))
+    (|do [=generic-class (parse-generic-class ?poly-class)
+          =arg-classes (&/map% parse-generic-class ?arg-classes)]
+      (&&host/analyse-jvm-invokevirtual analyse exo-type =generic-class ?method =arg-classes ?object ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokeinterface")]
-                       (&/$Cons [_ (&/$TextS ?class)]
+                       (&/$Cons ?poly-class
                                 (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?classes)]
+                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (|do [=classes (&/map% extract-text ?classes)]
-      (&&host/analyse-jvm-invokeinterface analyse exo-type ?class ?method =classes ?object ?args))
+    (|do [=generic-class (parse-generic-class ?poly-class)
+          =arg-classes (&/map% parse-generic-class ?arg-classes)]
+      (&&host/analyse-jvm-invokeinterface analyse exo-type =generic-class ?method =arg-classes ?object ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokespecial")]
-                       (&/$Cons [_ (&/$TextS ?class)]
+                       (&/$Cons ?poly-class
                                 (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?classes)]
+                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (|do [=classes (&/map% extract-text ?classes)]
-      (&&host/analyse-jvm-invokespecial analyse exo-type ?class ?method =classes ?object ?args))
+    (|do [=generic-class (parse-generic-class ?poly-class)
+          =arg-classes (&/map% parse-generic-class ?arg-classes)]
+      (&&host/analyse-jvm-invokespecial analyse exo-type =generic-class ?method =arg-classes ?object ?args))
 
     ;; Exceptions
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
