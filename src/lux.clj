@@ -19,10 +19,4 @@
       (println "Please provide a module name to compile."))
 
     _
-    (println "Can't understand command."))
-  (System/exit 0)
-  )
-
-(comment
-  (-main "compile" "program")
-  )
+    (println "Can't understand command.")))

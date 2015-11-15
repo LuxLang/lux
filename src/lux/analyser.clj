@@ -328,6 +328,9 @@
 (defn ^:private aba5 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Objects
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_null")] (&/$Nil)))
+    (&&host/analyse-jvm-null analyse exo-type)
+    
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_null?")]
                        (&/$Cons ?object
                                 (&/$Nil))))
@@ -568,9 +571,6 @@
 
 (defn ^:private aba2 [analyse eval! compile-module compile-token exo-type token]
   (|case token
-    (&/$SymbolS ?ident)
-    (&&lux/analyse-symbol analyse exo-type ?ident)
-
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_case")]
                        (&/$Cons ?value ?branches)))
     (&&lux/analyse-case analyse exo-type ?value ?branches)
@@ -667,10 +667,10 @@
 
     (&/$TagS ?ident)
     (analyse-variant+ analyse exo-type ?ident &/Nil$)
-    
-    (&/$SymbolS _ "_jvm_null")
-    (&&host/analyse-jvm-null analyse exo-type)
 
+    (&/$SymbolS ?ident)
+    (&&lux/analyse-symbol analyse exo-type ?ident)
+    
     _
     (aba2 analyse eval! compile-module compile-token exo-type token)
     ))

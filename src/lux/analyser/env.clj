@@ -65,4 +65,10 @@
 
 (def captured-vars
   (fn [state]
-    (return* state (->> state (&/get$ &/$envs) &/|head (&/get$ &/$closure) (&/get$ &/$mappings)))))
+    (|case (&/get$ &/$envs state)
+      (&/$Nil)
+      (fail* "[Analyser Error] Can't obtain captured vars without environments.")
+
+      (&/$Cons env _)
+      (return* state (->> env (&/get$ &/$closure) (&/get$ &/$mappings))))
+    ))

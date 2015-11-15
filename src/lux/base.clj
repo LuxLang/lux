@@ -887,7 +887,9 @@
     init
 
     [_ _]
-    false))
+    init
+    ;; (assert false)
+    ))
 
 (defn ^:private enumerate* [idx xs]
   "(All [a] (-> Int (List a) (List (, Int a))))"
@@ -996,3 +998,9 @@
 
   |every? true  and
   |any?   false or)
+
+(defn m-comp [f g]
+  (All [a b c] (-> (-> b (Lux c)) (-> a (Lux b)) (-> a (Lux c))))
+  (fn [x]
+    (|do [y (g x)]
+      (f y))))
