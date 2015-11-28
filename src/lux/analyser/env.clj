@@ -6,7 +6,7 @@
 (ns lux.analyser.env
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return return* fail |case]])
+            (lux [base :as & :refer [|do return return* fail fail* |case]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]

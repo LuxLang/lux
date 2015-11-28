@@ -69,35 +69,39 @@
 
 (let [object-array (str "[" "L" (->class "java.lang.Object") ";")]
   (defn ->java-sig [^objects type]
-    "(-> Type Text)"
+    "(-> Type (Lux Text))"
     (|case type
       (&/$DataT ?name params)
-      (cond (= &host-type/array-data-tag ?name) (|let [[level base] (unfold-array type)
-                                                       base-sig (|case base
-                                                                  (&/$DataT base-class _)
-                                                                  (->type-signature base-class)
+      (cond (= &host-type/array-data-tag ?name) (|do [:let [[level base] (unfold-array type)]
+                                                      base-sig (|case base
+                                                                 (&/$DataT base-class _)
+                                                                 (return (->type-signature base-class))
 
-                                                                  _
-                                                                  (->java-sig base))]
-                                                  (str (->> (&/|repeat level "[") (&/fold str ""))
-                                                       base-sig))
-            (= &host-type/null-data-tag ?name)  (->type-signature "java.lang.Object")
-            :else                    (->type-signature ?name))
+                                                                 _
+                                                                 (->java-sig base))]
+                                                  (return (str (->> (&/|repeat level "[") (&/fold str ""))
+                                                               base-sig)))
+            (= &host-type/null-data-tag ?name)  (return (->type-signature "java.lang.Object"))
+            :else                               (return (->type-signature ?name)))
 
       (&/$LambdaT _ _)
-      (->type-signature function-class)
+      (return (->type-signature function-class))
 
       (&/$TupleT (&/$Nil))
-      "V"
+      (return "V")
 
       (&/$VariantT _)
-      object-array
+      (return object-array)
 
       (&/$TupleT _)
-      object-array
+      (return object-array)
 
       (&/$NamedT ?name ?type)
       (->java-sig ?type)
+
+      (&/$AppT ?F ?A)
+      (|do [type* (&type/apply-type ?F ?A)]
+        (->java-sig type*))
 
       _
       (assert false (str '->java-sig " " (&type/show-type type)))

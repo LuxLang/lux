@@ -217,9 +217,9 @@
 
 (defn check-cast [type]
   "(-> Type (Lux (,)))"
-  (|do [^MethodVisitor writer &/get-writer]
-    (let [^String type-class* (&host/->java-sig type)
-          type-class (cond (.startsWith type-class* "[")
+  (|do [^MethodVisitor writer &/get-writer
+        ^String type-class* (&host/->java-sig type)]
+    (let [type-class (cond (.startsWith type-class* "[")
                            type-class*
                            
                            (.endsWith type-class* ";")

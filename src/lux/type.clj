@@ -322,6 +322,9 @@
     
     (&/$UnivQ ?env ?body)
     (str "(All " (show-type ?body) ")")
+
+    (&/$ExQ ?env ?body)
+    (str "(Ex " (show-type ?body) ")")
     
     (&/$NamedT ?name ?type)
     (&/ident->text ?name)
@@ -404,6 +407,9 @@
 
 (defn beta-reduce [env type]
   (|case type
+    (&/$DataT ?name ?params)
+    (Data$ ?name (&/|map (partial beta-reduce env) ?params))
+
     (&/$VariantT ?members)
     (Variant$ (&/|map (partial beta-reduce env) ?members))
 
@@ -439,6 +445,12 @@
 (defn apply-type [type-fn param]
   (|case type-fn
     (&/$UnivQ local-env local-def)
+    (return (beta-reduce (->> local-env
+                              (&/Cons$ param)
+                              (&/Cons$ type-fn))
+                         local-def))
+
+    (&/$ExQ local-env local-def)
     (return (beta-reduce (->> local-env
                               (&/Cons$ param)
                               (&/Cons$ type-fn))

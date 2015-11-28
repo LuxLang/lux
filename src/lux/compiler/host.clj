@@ -203,7 +203,8 @@
 
 (defn compile-jvm-invokestatic [compile ?class ?method ?classes ?args ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
+        =output-type (&host/->java-sig ?output-type)
+        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" =output-type)]
         _ (&/map2% (fn [class-name arg]
                      (|do [ret (compile arg)
                            :let [_ (prepare-arg! *writer* class-name)]]
@@ -218,7 +219,8 @@
   (defn <name> [compile ?class ?method ?classes ?object ?args ?output-type]
     (|do [:let [?class* (&host/->class (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
-          :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" (&host/->java-sig ?output-type))]
+          =output-type (&host/->java-sig ?output-type)
+          :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" =output-type)]
           _ (compile ?object)
           :let [_ (when (not= "<init>" ?method)
                     (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*))]
@@ -362,8 +364,9 @@
 
 (defn compile-jvm-getstatic [compile ?class ?field ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
+        =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&host-type/as-obj ?class)) ?field (&host/->java-sig ?output-type))
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&host-type/as-obj ?class)) ?field =output-type)
                   (prepare-return! ?output-type))]]
     (return nil)))
 
@@ -371,16 +374,18 @@
   (|do [:let [class* (&host/->class (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
+        =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/CHECKCAST class*)
-                  (.visitFieldInsn Opcodes/GETFIELD class* ?field (&host/->java-sig ?output-type))
+                  (.visitFieldInsn Opcodes/GETFIELD class* ?field =output-type)
                   (prepare-return! ?output-type))]]
     (return nil)))
 
 (defn compile-jvm-putstatic [compile ?class ?field ?value ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&host-type/as-obj ?class)) ?field (&host/->java-sig ?output-type))]
+        =output-type (&host/->java-sig ?output-type)
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&host-type/as-obj ?class)) ?field =output-type)]
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
@@ -391,7 +396,8 @@
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
         _ (compile ?value)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST class*)]
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field (&host/->java-sig ?output-type))]]
+        =output-type (&host/->java-sig ?output-type)
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field =output-type)]]
     (return nil)))
 
 (defn compile-jvm-instanceof [compile class object]

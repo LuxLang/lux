@@ -1000,7 +1000,7 @@
   |any?   false or)
 
 (defn m-comp [f g]
-  (All [a b c] (-> (-> b (Lux c)) (-> a (Lux b)) (-> a (Lux c))))
+  "(All [a b c] (-> (-> b (Lux c)) (-> a (Lux b)) (-> a (Lux c))))"
   (fn [x]
     (|do [y (g x)]
       (f y))))

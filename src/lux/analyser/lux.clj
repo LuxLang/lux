@@ -192,6 +192,12 @@
         (|do [$var &type/existential
               exo-type** (&type/apply-type exo-type* $var)]
           (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))
+
+        (&/$ExQ _)
+        (&type/with-var
+          (fn [$var]
+            (|do [exo-type** (&type/apply-type exo-type* $var)]
+              (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))))
         
         _
         (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*)))))))
@@ -320,6 +326,11 @@
                   (return (&/T type** =args)))
                 ))))
 
+        (&/$ExQ _)
+        (|do [$var &type/existential
+              type* (&type/apply-type ?fun-type* $var)]
+          (analyse-apply* analyse exo-type type* ?args))
+
         (&/$LambdaT ?input-t ?output-t)
         (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
               =arg (with-attempt
@@ -343,14 +354,15 @@
           (|case $def
             (&/$MacroD macro)
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
-                  ;; :let [_ (when (or (= "do" (aget real-name 1))
-                  ;;                   ;; (= "..?" (aget real-name 1))
-                  ;;                   ;; (= "try$" (aget real-name 1))
-                  ;;                   )
-                  ;;           (->> (&/|map &/show-ast macro-expansion)
-                  ;;                (&/|interpose "\n")
-                  ;;                (&/fold str "")
-                  ;;                (prn (&/ident->text real-name))))]
+                  :let [_ (when (or (= "invoke-static$" (aget real-name 1))
+                                    (= "invoke-virtual$" (aget real-name 1))
+                                    (= "new$" (aget real-name 1))
+                                    (= "let%" (aget real-name 1))
+                                    (= "jvm-import" (aget real-name 1)))
+                            (->> (&/|map &/show-ast macro-expansion)
+                                 (&/|interpose "\n")
+                                 (&/fold str "")
+                                 (prn (&/ident->text real-name))))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 
@@ -423,6 +435,12 @@
         (|do [$var &type/existential
               exo-type** (&type/apply-type exo-type* $var)]
           (analyse-lambda* analyse exo-type** ?self ?arg ?body))
+
+        (&/$ExQ _)
+        (&type/with-var
+          (fn [$var]
+            (|do [exo-type** (&type/apply-type exo-type* $var)]
+              (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
         
         (&/$LambdaT ?arg-t ?return-t)
         (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
