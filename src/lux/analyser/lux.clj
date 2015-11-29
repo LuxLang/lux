@@ -545,8 +545,7 @@
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)
-        _cursor &/cursor
-        ]
+        _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
                                (&/V &&/$ann (&/T =value =type ==type))
                                )))))

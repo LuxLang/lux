@@ -277,7 +277,7 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
-(do-template [<prim-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
+(do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
   (do (defn <new-name> [compile ?length]
         (|do [^MethodVisitor *writer* &/get-writer
               _ (compile ?length)
@@ -288,7 +288,7 @@
     (defn <load-name> [compile ?array ?idx]
       (|do [^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
-            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
             _ (compile ?idx)
             :let [_ (doto *writer*
                       &&/unwrap-long
@@ -301,7 +301,7 @@
     (defn <store-name> [compile ?array ?idx ?elem]
       (|do [^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
-            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
             :let [_ (.visitInsn *writer* Opcodes/DUP)]
             _ (compile ?idx)
             :let [_ (doto *writer*
@@ -314,14 +314,14 @@
         (return nil)))
     )
 
-  Opcodes/T_BOOLEAN compile-jvm-znewarray compile-jvm-zaload Opcodes/BALOAD compile-jvm-zastore Opcodes/BASTORE &&/wrap-boolean &&/unwrap-boolean
-  Opcodes/T_BYTE    compile-jvm-bnewarray compile-jvm-baload Opcodes/BALOAD compile-jvm-bastore Opcodes/BASTORE &&/wrap-byte    &&/unwrap-byte
-  Opcodes/T_SHORT   compile-jvm-snewarray compile-jvm-saload Opcodes/SALOAD compile-jvm-sastore Opcodes/SASTORE &&/wrap-short   &&/unwrap-short
-  Opcodes/T_INT     compile-jvm-inewarray compile-jvm-iaload Opcodes/IALOAD compile-jvm-iastore Opcodes/IASTORE &&/wrap-int     &&/unwrap-int
-  Opcodes/T_LONG    compile-jvm-lnewarray compile-jvm-laload Opcodes/LALOAD compile-jvm-lastore Opcodes/LASTORE &&/wrap-long    &&/unwrap-long
-  Opcodes/T_FLOAT   compile-jvm-fnewarray compile-jvm-faload Opcodes/FALOAD compile-jvm-fastore Opcodes/FASTORE &&/wrap-float   &&/unwrap-float
-  Opcodes/T_DOUBLE  compile-jvm-dnewarray compile-jvm-daload Opcodes/DALOAD compile-jvm-dastore Opcodes/DASTORE &&/wrap-double  &&/unwrap-double
-  Opcodes/T_CHAR    compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
+  Opcodes/T_BOOLEAN "[Z" compile-jvm-znewarray compile-jvm-zaload Opcodes/BALOAD compile-jvm-zastore Opcodes/BASTORE &&/wrap-boolean &&/unwrap-boolean
+  Opcodes/T_BYTE    "[B" compile-jvm-bnewarray compile-jvm-baload Opcodes/BALOAD compile-jvm-bastore Opcodes/BASTORE &&/wrap-byte    &&/unwrap-byte
+  Opcodes/T_SHORT   "[S" compile-jvm-snewarray compile-jvm-saload Opcodes/SALOAD compile-jvm-sastore Opcodes/SASTORE &&/wrap-short   &&/unwrap-short
+  Opcodes/T_INT     "[I" compile-jvm-inewarray compile-jvm-iaload Opcodes/IALOAD compile-jvm-iastore Opcodes/IASTORE &&/wrap-int     &&/unwrap-int
+  Opcodes/T_LONG    "[J" compile-jvm-lnewarray compile-jvm-laload Opcodes/LALOAD compile-jvm-lastore Opcodes/LASTORE &&/wrap-long    &&/unwrap-long
+  Opcodes/T_FLOAT   "[F" compile-jvm-fnewarray compile-jvm-faload Opcodes/FALOAD compile-jvm-fastore Opcodes/FASTORE &&/wrap-float   &&/unwrap-float
+  Opcodes/T_DOUBLE  "[D" compile-jvm-dnewarray compile-jvm-daload Opcodes/DALOAD compile-jvm-dastore Opcodes/DASTORE &&/wrap-double  &&/unwrap-double
+  Opcodes/T_CHAR    "[C" compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
   )
 
 (defn compile-jvm-anewarray [compile ?class ?length]
@@ -333,8 +333,9 @@
 
 (defn compile-jvm-aaload [compile ?array ?idx]
   (|do [^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         _ (compile ?idx)
         :let [_ (doto *writer*
                   &&/unwrap-long
@@ -344,8 +345,9 @@
 
 (defn compile-jvm-aastore [compile ?array ?idx ?elem]
   (|do [^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
         _ (compile ?idx)
         :let [_ (doto *writer*
@@ -357,8 +359,9 @@
 
 (defn compile-jvm-arraylength [compile ?array]
   (|do [^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
-        ;; :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         :let [_ (doto *writer*
                   (.visitInsn Opcodes/ARRAYLENGTH)
                   (.visitInsn Opcodes/I2L)

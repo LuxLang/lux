@@ -215,27 +215,11 @@
           _ (&a-module/define module-name ?name (-> def-class (.getField &/meta-field) (.get nil)) =value-type)]
       (return nil))))
 
-(defn check-cast [type]
-  "(-> Type (Lux (,)))"
-  (|do [^MethodVisitor writer &/get-writer
-        ^String type-class* (&host/->java-sig type)]
-    (let [type-class (cond (.startsWith type-class* "[")
-                           type-class*
-                           
-                           (.endsWith type-class* ";")
-                           (.substring type-class* 1 (- (.length type-class*) 1))
-
-                           :else
-                           type-class*)
-          _ (.visitTypeInsn writer Opcodes/CHECKCAST type-class)]
-      (return nil))))
-
 (defn compile-ann [compile ?value-ex ?type-ex ?value-type]
   (compile ?value-ex))
 
 (defn compile-coerce [compile ?value-ex ?type-ex ?value-type]
-  (|do [_ (compile ?value-ex)]
-    (check-cast ?value-type)))
+  (compile ?value-ex))
 
 (defn compile-declare-macro [compile module name]
   (|do [_ (&a-module/declare-macro module name)]
