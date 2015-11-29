@@ -80,38 +80,32 @@
                                      (&/V &&/$tuple =elems)
                                      ))))
         (|do [exo-type* (&type/actual-type exo-type)]
-          (|case exo-type*
-            (&/$TupleT ?members)
-            (|do [=elems (&/map2% (fn [elem-t elem]
-                                    (&&/analyse-1 analyse elem-t elem))
-                                  ?members ?elems)
-                  _cursor &/cursor]
-              (return (&/|list (&&/|meta exo-type _cursor
-                                         (&/V &&/$tuple =elems)
-                                         ))))
+          (&/with-attempt
+            (|case exo-type*
+              (&/$TupleT ?members)
+              (|do [=elems (&/map2% (fn [elem-t elem]
+                                      (&&/analyse-1 analyse elem-t elem))
+                                    ?members ?elems)
+                    _cursor &/cursor]
+                (return (&/|list (&&/|meta exo-type _cursor
+                                           (&/V &&/$tuple =elems)
+                                           ))))
 
-            (&/$UnivQ _)
-            (|do [$var &type/existential
-                  exo-type** (&type/apply-type exo-type* $var)
-                  [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
-              (return (&/|list (&&/|meta exo-type tuple-cursor
-                                         tuple-analysis))))
+              (&/$UnivQ _)
+              (|do [$var &type/existential
+                    exo-type** (&type/apply-type exo-type* $var)
+                    [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
+                (return (&/|list (&&/|meta exo-type tuple-cursor
+                                           tuple-analysis))))
 
-            _
-            (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*) " " (&type/show-type exo-type) " " "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]"))
-            ))))))
-
-(defn with-attempt [m-value on-error]
-  (fn [state]
-    (|case (m-value state)
-      (&/$Left msg)
-      ((on-error msg) state)
-      
-      output
-      output)))
+              _
+              (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*)))
+              )
+            (fn [err]
+              (fail (str err "\n" "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type))))))))))
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
-  (|do [output (with-attempt
+  (|do [output (&/with-attempt
                  (|case ?values
                    (&/$Nil)
                    (analyse-tuple analyse (&/V &/$Right exo-type) &/Nil$)
@@ -169,38 +163,48 @@
 
                       _
                       (&type/actual-type exo-type))]
-      (|case exo-type*
-        (&/$VariantT ?cases)
-        (|case (&/|at idx ?cases)
-          (&/$Some vtype)
-          (|do [=value (with-attempt
-                         (analyse-variant-body analyse vtype ?values)
-                         (fn [err]
-                           (|do [_exo-type (&type/deref+ exo-type)]
-                             (fail (str err "\n"
-                                        'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
-                                        " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
-                _cursor &/cursor]
-            (return (&/|list (&&/|meta exo-type _cursor
-                                       (&/V &&/$variant (&/T idx =value))
-                                       ))))
+      (&/with-attempt
+        (|case exo-type*
+          (&/$VariantT ?cases)
+          (|case (&/|at idx ?cases)
+            (&/$Some vtype)
+            (|do [=value (&/with-attempt
+                           (analyse-variant-body analyse vtype ?values)
+                           (fn [err]
+                             (|do [_exo-type (&type/deref+ exo-type)]
+                               (fail (str err "\n"
+                                          'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
+                                          " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+                  _cursor &/cursor]
+              (return (&/|list (&&/|meta exo-type _cursor
+                                         (&/V &&/$variant (&/T idx =value))
+                                         ))))
 
-          (&/$None)
-          (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
+            (&/$None)
+            (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
 
-        (&/$UnivQ _)
-        (|do [$var &type/existential
-              exo-type** (&type/apply-type exo-type* $var)]
-          (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))
+          (&/$UnivQ _)
+          (|do [$var &type/existential
+                exo-type** (&type/apply-type exo-type* $var)]
+            (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))
 
-        (&/$ExQ _)
-        (&type/with-var
-          (fn [$var]
-            (|do [exo-type** (&type/apply-type exo-type* $var)]
-              (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))))
-        
-        _
-        (fail (str "[Analyser Error] Can't create a variant if the expected type is " (&type/show-type exo-type*)))))))
+          (&/$ExQ _)
+          (&type/with-var
+            (fn [$var]
+              (|do [exo-type** (&type/apply-type exo-type* $var)]
+                (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))))
+          
+          _
+          (fail (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*))))
+        (fn [err]
+          (|case exo-type
+            (&/$VarT ?id)
+            (|do [=exo-type (&type/deref ?id)]
+              (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type =exo-type))))
+
+            _
+            (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type))))))
+      )))
 
 (defn analyse-record [analyse exo-type ?elems]
   (|do [[rec-members rec-type] (&&record/order-record ?elems)]
@@ -276,7 +280,7 @@
 
             _
             (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))
-          (fail* ""))
+          (fail* (str "[Analyser Error] Unknown global definition: " name)))
         
         (&/$Cons top-outer _)
         (|let [scopes (&/|tail (&/folds #(&/Cons$ (&/get$ &/$name %2) %1)
@@ -310,39 +314,40 @@
     
     (&/$Cons ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
-      (|case ?fun-type*
-        (&/$UnivQ _)
-        (&type/with-var
-          (fn [$var]
-            (|do [type* (&type/apply-type ?fun-type* $var)
-                  [=output-t =args] (analyse-apply* analyse exo-type type* ?args)]
-              (|case $var
-                (&/$VarT ?id)
-                (|do [? (&type/bound? ?id)
-                      type** (if ?
-                               (&type/clean $var =output-t)
-                               (|do [_ (&type/set-var ?id (&/V &/$BoundT 1))]
-                                 (&type/clean $var =output-t)))]
-                  (return (&/T type** =args)))
-                ))))
+      (&/with-attempt
+        (|case ?fun-type*
+          (&/$UnivQ _)
+          (&type/with-var
+            (fn [$var]
+              (|do [type* (&type/apply-type ?fun-type* $var)
+                    [=output-t =args] (analyse-apply* analyse exo-type type* ?args)]
+                (|case $var
+                  (&/$VarT ?id)
+                  (|do [? (&type/bound? ?id)
+                        type** (if ?
+                                 (&type/clean $var =output-t)
+                                 (|do [_ (&type/set-var ?id (&/V &/$BoundT 1))]
+                                   (&type/clean $var =output-t)))]
+                    (return (&/T type** =args)))
+                  ))))
 
-        (&/$ExQ _)
-        (|do [$var &type/existential
-              type* (&type/apply-type ?fun-type* $var)]
-          (analyse-apply* analyse exo-type type* ?args))
+          (&/$ExQ _)
+          (|do [$var &type/existential
+                type* (&type/apply-type ?fun-type* $var)]
+            (analyse-apply* analyse exo-type type* ?args))
 
-        (&/$LambdaT ?input-t ?output-t)
-        (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
-              =arg (with-attempt
-                     (&&/analyse-1 analyse ?input-t ?arg)
-                     (fn [err]
-                       (fail (str err "\n"
-                                  'analyse-apply* " " (&type/show-type exo-type) " " (&type/show-type ?fun-type*)
-                                  " " "(_ " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) ")"))))]
-          (return (&/T =output-t (&/Cons$ =arg =args))))
+          (&/$LambdaT ?input-t ?output-t)
+          (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
+                =arg (&/with-attempt
+                       (&&/analyse-1 analyse ?input-t ?arg)
+                       (fn [err]
+                         (fail (str err "\n" "[Analyser Error] Function expected: " (&type/show-type ?input-t)))))]
+            (return (&/T =output-t (&/Cons$ =arg =args))))
 
-        _
-        (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*)))))
+          _
+          (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*))))
+        (fn [err]
+          (fail (str err "\n" "[Analyser Error] Can't apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
     ))
 
 (defn analyse-apply [analyse exo-type form-cursor =fn ?args]
@@ -354,15 +359,15 @@
           (|case $def
             (&/$MacroD macro)
             (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
-                  :let [_ (when (or (= "invoke-static$" (aget real-name 1))
-                                    (= "invoke-virtual$" (aget real-name 1))
-                                    (= "new$" (aget real-name 1))
-                                    (= "let%" (aget real-name 1))
-                                    (= "jvm-import" (aget real-name 1)))
-                            (->> (&/|map &/show-ast macro-expansion)
-                                 (&/|interpose "\n")
-                                 (&/fold str "")
-                                 (prn (&/ident->text real-name))))]
+                  ;; :let [_ (when (or (= "invoke-static$" (aget real-name 1))
+                  ;;                   (= "invoke-virtual$" (aget real-name 1))
+                  ;;                   (= "new$" (aget real-name 1))
+                  ;;                   (= "let%" (aget real-name 1))
+                  ;;                   (= "jvm-import" (aget real-name 1)))
+                  ;;           (->> (&/|map &/show-ast macro-expansion)
+                  ;;                (&/|interpose "\n")
+                  ;;                (&/fold str "")
+                  ;;                (prn (&/ident->text real-name))))]
                   ]
               (&/flat-map% (partial analyse exo-type) macro-expansion))
 

@@ -474,197 +474,199 @@
 (defn ^:private check* [class-loader fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
     (return (&/T fixpoints nil))
-    (|case [expected actual]
-      [(&/$VarT ?eid) (&/$VarT ?aid)]
-      (if (.equals ^Object ?eid ?aid)
-        (return (&/T fixpoints nil))
-        (|do [ebound (fn [state]
-                       (|case ((deref ?eid) state)
-                         (&/$Right state* ebound)
-                         (return* state* (&/V &/$Some ebound))
+    (&/with-attempt
+      (|case [expected actual]
+        [(&/$VarT ?eid) (&/$VarT ?aid)]
+        (if (.equals ^Object ?eid ?aid)
+          (return (&/T fixpoints nil))
+          (|do [ebound (fn [state]
+                         (|case ((deref ?eid) state)
+                           (&/$Right state* ebound)
+                           (return* state* (&/V &/$Some ebound))
 
-                         (&/$Left _)
-                         (return* state &/None$)))
-              abound (fn [state]
-                       (|case ((deref ?aid) state)
-                         (&/$Right state* abound)
-                         (return* state* (&/V &/$Some abound))
+                           (&/$Left _)
+                           (return* state &/None$)))
+                abound (fn [state]
+                         (|case ((deref ?aid) state)
+                           (&/$Right state* abound)
+                           (return* state* (&/V &/$Some abound))
 
-                         (&/$Left _)
-                         (return* state &/None$)))]
-          (|case [ebound abound]
-            [(&/$None _) (&/$None _)]
-            (|do [_ (set-var ?eid actual)]
-              (return (&/T fixpoints nil)))
-            
-            [(&/$Some etype) (&/$None _)]
-            (check* class-loader fixpoints invariant?? etype actual)
+                           (&/$Left _)
+                           (return* state &/None$)))]
+            (|case [ebound abound]
+              [(&/$None _) (&/$None _)]
+              (|do [_ (set-var ?eid actual)]
+                (return (&/T fixpoints nil)))
+              
+              [(&/$Some etype) (&/$None _)]
+              (check* class-loader fixpoints invariant?? etype actual)
 
-            [(&/$None _) (&/$Some atype)]
-            (check* class-loader fixpoints invariant?? expected atype)
+              [(&/$None _) (&/$Some atype)]
+              (check* class-loader fixpoints invariant?? expected atype)
 
-            [(&/$Some etype) (&/$Some atype)]
-            (check* class-loader fixpoints invariant?? etype atype))))
-      
-      [(&/$VarT ?id) _]
-      (fn [state]
-        (|case ((set-var ?id actual) state)
-          (&/$Right state* _)
-          (return* state* (&/T fixpoints nil))
+              [(&/$Some etype) (&/$Some atype)]
+              (check* class-loader fixpoints invariant?? etype atype))))
+        
+        [(&/$VarT ?id) _]
+        (fn [state]
+          (|case ((set-var ?id actual) state)
+            (&/$Right state* _)
+            (return* state* (&/T fixpoints nil))
 
-          (&/$Left _)
-          ((|do [bound (deref ?id)]
-             (check* class-loader fixpoints invariant?? bound actual))
-           state)))
-      
-      [_ (&/$VarT ?id)]
-      (fn [state]
-        (|case ((set-var ?id expected) state)
-          (&/$Right state* _)
-          (return* state* (&/T fixpoints nil))
+            (&/$Left _)
+            ((|do [bound (deref ?id)]
+               (check* class-loader fixpoints invariant?? bound actual))
+             state)))
+        
+        [_ (&/$VarT ?id)]
+        (fn [state]
+          (|case ((set-var ?id expected) state)
+            (&/$Right state* _)
+            (return* state* (&/T fixpoints nil))
 
-          (&/$Left _)
-          ((|do [bound (deref ?id)]
-             (check* class-loader fixpoints invariant?? expected bound))
-           state)))
+            (&/$Left _)
+            ((|do [bound (deref ?id)]
+               (check* class-loader fixpoints invariant?? expected bound))
+             state)))
 
-      [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
-      (if (= eid aid)
-        (check* class-loader fixpoints invariant?? eA aA)
-        (fail (check-error expected actual)))
+        [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
+        (if (= eid aid)
+          (check* class-loader fixpoints invariant?? eA aA)
+          (fail (check-error expected actual)))
 
-      [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
-      (fn [state]
-        (|case ((|do [F1 (deref ?id)]
-                  (check* class-loader fixpoints invariant?? (App$ F1 A1) actual))
-                state)
-          (&/$Right state* output)
-          (return* state* output)
+        [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
+        (fn [state]
+          (|case ((|do [F1 (deref ?id)]
+                    (check* class-loader fixpoints invariant?? (App$ F1 A1) actual))
+                  state)
+            (&/$Right state* output)
+            (return* state* output)
 
-          (&/$Left _)
-          ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? (Var$ ?id) F2)
-                 e* (apply-type F2 A1)
-                 a* (apply-type F2 A2)
-                 [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-             (return (&/T fixpoints** nil)))
-           state)))
-      
-      [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
-      (fn [state]
-        (|case ((|do [F2 (deref ?id)]
-                  (check* class-loader fixpoints invariant?? expected (App$ F2 A2)))
-                state)
-          (&/$Right state* output)
-          (return* state* output)
+            (&/$Left _)
+            ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? (Var$ ?id) F2)
+                   e* (apply-type F2 A1)
+                   a* (apply-type F2 A2)
+                   [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
+               (return (&/T fixpoints** nil)))
+             state)))
+        
+        [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
+        (fn [state]
+          (|case ((|do [F2 (deref ?id)]
+                    (check* class-loader fixpoints invariant?? expected (App$ F2 A2)))
+                  state)
+            (&/$Right state* output)
+            (return* state* output)
 
-          (&/$Left _)
-          ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? F1 (Var$ ?id))
-                 e* (apply-type F1 A1)
-                 a* (apply-type F1 A2)
-                 [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-             (return (&/T fixpoints** nil)))
-           state)))
-      
-      [(&/$AppT F A) _]
-      (let [fp-pair (&/T expected actual)
-            _ (when (> (&/|length fixpoints) 40)
-                (println 'FIXPOINTS (->> (&/|keys fixpoints)
-                                         (&/|map (fn [pair]
-                                                   (|let [[e a] pair]
-                                                     (str (show-type e) ":+:"
-                                                          (show-type a)))))
-                                         (&/|interpose "\n\n")
-                                         (&/fold str "")))
-                (assert false (prn-str 'check* '[(&/$AppT F A) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
-        (|case (fp-get fp-pair fixpoints)
-          (&/$Some ?)
-          (if ?
-            (return (&/T fixpoints nil))
-            (fail (check-error expected actual)))
+            (&/$Left _)
+            ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? F1 (Var$ ?id))
+                   e* (apply-type F1 A1)
+                   a* (apply-type F1 A2)
+                   [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
+               (return (&/T fixpoints** nil)))
+             state)))
+        
+        [(&/$AppT F A) _]
+        (let [fp-pair (&/T expected actual)
+              _ (when (> (&/|length fixpoints) 40)
+                  (println 'FIXPOINTS (->> (&/|keys fixpoints)
+                                           (&/|map (fn [pair]
+                                                     (|let [[e a] pair]
+                                                       (str (show-type e) ":+:"
+                                                            (show-type a)))))
+                                           (&/|interpose "\n\n")
+                                           (&/fold str "")))
+                  (assert false (prn-str 'check* '[(&/$AppT F A) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
+          (|case (fp-get fp-pair fixpoints)
+            (&/$Some ?)
+            (if ?
+              (return (&/T fixpoints nil))
+              (fail (check-error expected actual)))
 
-          (&/$None)
-          (|do [expected* (apply-type F A)]
-            (check* class-loader (fp-put fp-pair true fixpoints) invariant?? expected* actual))))
+            (&/$None)
+            (|do [expected* (apply-type F A)]
+              (check* class-loader (fp-put fp-pair true fixpoints) invariant?? expected* actual))))
 
-      [_ (&/$AppT F A)]
-      (|do [actual* (apply-type F A)]
-        (check* class-loader fixpoints invariant?? expected actual*))
+        [_ (&/$AppT F A)]
+        (|do [actual* (apply-type F A)]
+          (check* class-loader fixpoints invariant?? expected actual*))
 
-      [(&/$UnivQ _) _]
-      (|do [$arg existential
-            expected* (apply-type expected $arg)]
-        (check* class-loader fixpoints invariant?? expected* actual))
-      
-      [_ (&/$UnivQ _)]
-      (with-var
-        (fn [$arg]
-          (|do [actual* (apply-type actual $arg)]
-            (check* class-loader fixpoints invariant?? expected actual*))))
+        [(&/$UnivQ _) _]
+        (|do [$arg existential
+              expected* (apply-type expected $arg)]
+          (check* class-loader fixpoints invariant?? expected* actual))
+        
+        [_ (&/$UnivQ _)]
+        (with-var
+          (fn [$arg]
+            (|do [actual* (apply-type actual $arg)]
+              (check* class-loader fixpoints invariant?? expected actual*))))
 
-      [(&/$ExQ e!env e!def) _]
-      (with-var
-        (fn [$arg]
-          (|let [expected* (beta-reduce (->> e!env
-                                             (&/Cons$ $arg)
-                                             (&/Cons$ expected))
-                                        e!def)]
-            (check* class-loader fixpoints invariant?? expected* actual))))
+        [(&/$ExQ e!env e!def) _]
+        (with-var
+          (fn [$arg]
+            (|let [expected* (beta-reduce (->> e!env
+                                               (&/Cons$ $arg)
+                                               (&/Cons$ expected))
+                                          e!def)]
+              (check* class-loader fixpoints invariant?? expected* actual))))
 
-      [_ (&/$ExQ a!env a!def)]
-      (|do [$arg existential]
-        (|let [actual* (beta-reduce (->> a!env
-                                         (&/Cons$ $arg)
-                                         (&/Cons$ expected))
-                                    a!def)]
-          (check* class-loader fixpoints invariant?? expected actual*)))
+        [_ (&/$ExQ a!env a!def)]
+        (|do [$arg existential]
+          (|let [actual* (beta-reduce (->> a!env
+                                           (&/Cons$ $arg)
+                                           (&/Cons$ expected))
+                                      a!def)]
+            (check* class-loader fixpoints invariant?? expected actual*)))
 
-      [(&/$DataT e!data) (&/$DataT a!data)]
-      (&&host/check-host-types (partial check* class-loader fixpoints true)
-                               check-error
-                               fixpoints
-                               existential
-                               class-loader
-                               invariant??
-                               e!data
-                               a!data)
-
-      [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
-      (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
-        (check* class-loader fixpoints* invariant?? eO aO))
-
-      [(&/$TupleT e!members) (&/$TupleT a!members)]
-      (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                   (|do [[fp* _] (check* class-loader fp invariant?? e a)]
-                                     (return fp*)))
+        [(&/$DataT e!data) (&/$DataT a!data)]
+        (&&host/check-host-types (partial check* class-loader fixpoints true)
+                                 check-error
                                  fixpoints
-                                 e!members a!members)]
-        (return (&/T fixpoints* nil)))
-      
-      [_ (&/$VariantT (&/$Nil))]
-      (return (&/T fixpoints nil))
+                                 existential
+                                 class-loader
+                                 invariant??
+                                 e!data
+                                 a!data)
 
-      [(&/$VariantT e!cases) (&/$VariantT a!cases)]
-      (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                   (|do [[fp* _] (check* class-loader fp invariant?? e a)]
-                                     (return fp*)))
-                                 fixpoints
-                                 e!cases a!cases)]
-        (return (&/T fixpoints* nil)))
+        [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
+        (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
+          (check* class-loader fixpoints* invariant?? eO aO))
 
-      [(&/$ExT e!id) (&/$ExT a!id)]
-      (if (.equals ^Object e!id a!id)
+        [(&/$TupleT e!members) (&/$TupleT a!members)]
+        (|do [fixpoints* (&/fold2% (fn [fp e a]
+                                     (|do [[fp* _] (check* class-loader fp invariant?? e a)]
+                                       (return fp*)))
+                                   fixpoints
+                                   e!members a!members)]
+          (return (&/T fixpoints* nil)))
+        
+        [_ (&/$VariantT (&/$Nil))]
         (return (&/T fixpoints nil))
-        (fail (check-error expected actual)))
 
-      [(&/$NamedT ?ename ?etype) _]
-      (check* class-loader fixpoints invariant?? ?etype actual)
+        [(&/$VariantT e!cases) (&/$VariantT a!cases)]
+        (|do [fixpoints* (&/fold2% (fn [fp e a]
+                                     (|do [[fp* _] (check* class-loader fp invariant?? e a)]
+                                       (return fp*)))
+                                   fixpoints
+                                   e!cases a!cases)]
+          (return (&/T fixpoints* nil)))
 
-      [_ (&/$NamedT ?aname ?atype)]
-      (check* class-loader fixpoints invariant?? expected ?atype)
+        [(&/$ExT e!id) (&/$ExT a!id)]
+        (if (.equals ^Object e!id a!id)
+          (return (&/T fixpoints nil))
+          (fail (check-error expected actual)))
 
-      [_ _]
-      (fail (check-error expected actual))
-      )))
+        [(&/$NamedT ?ename ?etype) _]
+        (check* class-loader fixpoints invariant?? ?etype actual)
+
+        [_ (&/$NamedT ?aname ?atype)]
+        (check* class-loader fixpoints invariant?? expected ?atype)
+
+        [_ _]
+        (fail ""))
+      (fn [err]
+        (fail (check-error expected actual))))))
 
 (defn check [expected actual]
   (|do [class-loader &/loader

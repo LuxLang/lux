@@ -595,6 +595,7 @@
           (try (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
             (catch java.lang.reflect.InvocationTargetException e
               ;; (prn 'InvocationTargetException (.getCause e))
+              ;; (prn 'InvocationTargetException (.getTargetException e))
               ;; (prn 'memory-class-loader/findClass class-name (get @store class-name))
               (throw e)))
           (do ;; (prn 'memory-class-loader/store class-name (keys @store))
@@ -1004,3 +1005,12 @@
   (fn [x]
     (|do [y (g x)]
       (f y))))
+
+(defn with-attempt [m-value on-error]
+  (fn [state]
+    (|case (m-value state)
+      ($Left msg)
+      ((on-error msg) state)
+      
+      output
+      output)))
