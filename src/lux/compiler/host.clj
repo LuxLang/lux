@@ -84,6 +84,9 @@
       (&/$NamedT ?name ?type)
       (prepare-return! *writer* ?type)
 
+      (&/$ExT _)
+      nil
+
       _
       (assert false (str 'prepare-return! " " (&type/show-type *type*))))
     *writer*))

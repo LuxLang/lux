@@ -67,7 +67,8 @@
     _
     (&/T 0 type)))
 
-(let [object-array (str "[" "L" (->class "java.lang.Object") ";")]
+(let [ex-type-class (str "L" (->class "java.lang.Object") ";")
+      object-array (str "[" "L" (->class "java.lang.Object") ";")]
   (defn ->java-sig [^objects type]
     "(-> Type (Lux Text))"
     (|case type
@@ -103,6 +104,9 @@
       (|do [type* (&type/apply-type ?F ?A)]
         (->java-sig type*))
 
+      (&/$ExT _)
+      (return ex-type-class)
+
       _
       (assert false (str '->java-sig " " (&type/show-type type)))
       )))
@@ -122,7 +126,7 @@
   lookup-field        false
   )
 
-(do-template [<name> <static?>]
+(do-template [<name> <static?> <method-type>]
   (defn <name> [class-loader target method-name args]
     (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
       (if-let [^Method method (first (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj target) true class-loader))
@@ -143,10 +147,10 @@
                        parent-gvars
                        gvars
                        gargs)))
-        (fail (str "[Host Error] Method does not exist: " target "." method-name)))))
+        (fail (str "[Host Error] " <method-type> " method does not exist: " target "." method-name)))))
 
-  lookup-static-method  true
-  lookup-virtual-method false
+  lookup-static-method  true  "Static"
+  lookup-virtual-method false "Virtual"
   )
 
 (defn lookup-constructor [class-loader target args]
