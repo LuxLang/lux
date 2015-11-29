@@ -24,6 +24,7 @@
 
 ;; [Utils]
 (def ^:private kilobyte 1024)
+(def ^:private buffer-size (* 10 kilobyte))
 
 (defn ^:private manifest [^String module]
   "(-> Text Manifest)"
@@ -34,7 +35,7 @@
 (defn ^:private write-class! [^String path ^File file ^JarOutputStream out]
   "(-> Text File JarOutputStream Unit)"
   (with-open [in (new BufferedInputStream (new FileInputStream file))]
-    (let [buffer (byte-array (* 10 kilobyte))]
+    (let [buffer (byte-array buffer-size)]
       (doto out
         (.putNextEntry (new JarEntry (str path "/" (.getName file))))
         (-> (.write buffer 0 bytes-read)
@@ -105,9 +106,9 @@
     (doseq [$group (.listFiles (new File &&/output-dir))]
       (write-module! $group out))
     (->> (fetch-available-jars)
-         (filter #(and (not (.endsWith % "luxc.jar"))
-                       (not (.endsWith % "tools.nrepl-0.2.3.jar"))
-                       (not (.endsWith % "clojure-complete-0.2.3.jar"))))
+         (filter #(and (not (.endsWith ^String % "luxc.jar"))
+                       (not (.endsWith ^String % "tools.nrepl-0.2.3.jar"))
+                       (not (.endsWith ^String % "clojure-complete-0.2.3.jar"))))
          (reduce (fn [s ^String j] (add-jar! (new File ^String j) s out))
                  #{}))
     ))

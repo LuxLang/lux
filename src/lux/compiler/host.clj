@@ -482,30 +482,71 @@
       (&/|map (partial compile-annotation =method) (:anns method))
       nil)))
 
+(defn ^:private prepare-ctor-arg [^MethodVisitor writer type]
+  (case type
+    "boolean" (doto writer
+                (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Boolean"))
+                &&/unwrap-boolean)
+    "byte" (doto writer
+             (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Byte"))
+             &&/unwrap-byte)
+    "short" (doto writer
+              (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Short"))
+              &&/unwrap-short)
+    "int" (doto writer
+            (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Integer"))
+            &&/unwrap-int)
+    "long" (doto writer
+             (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Long"))
+             &&/unwrap-long)
+    "float" (doto writer
+              (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Float"))
+              &&/unwrap-float)
+    "double" (doto writer
+               (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Double"))
+               &&/unwrap-double)
+    "char" (doto writer
+             (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Character"))
+             &&/unwrap-char)
+    ;; else
+    (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST (&host/->class type)))))
+
 (let [clo-field-sig (&host/->type-signature "java.lang.Object")
+      init-method "<init>"
       <init>-return "V"]
   (defn ^:private anon-class-<init>-signature [env]
     (str "(" (&/fold str "" (&/|repeat (&/|length env) clo-field-sig)) ")"
          <init>-return))
 
-  (defn ^:private add-anon-class-<init> [^ClassWriter class-writer class-name super-class env]
-    (doto (.visitMethod class-writer Opcodes/ACC_PUBLIC "<init>" (anon-class-<init>-signature env) nil nil)
-      (.visitCode)
-      (.visitVarInsn Opcodes/ALOAD 0)
-      (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class super-class) "<init>" "()V")
-      (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
-            (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
-            (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
-          (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-               (|case ?name+?captured
-                 [?name [_ (&a/$captured _ ?captured-id ?source)]])
-               (doseq [?name+?captured (&/->seq env)])))
-      (.visitInsn Opcodes/RETURN)
-      (.visitMaxs 0 0)
-      (.visitEnd)))
+  (defn ^:private add-anon-class-<init> [^ClassWriter class-writer compile class-name super-class env ctor-args]
+    (let [init-types (->> ctor-args (&/|map (comp &host/->type-signature &/|first)) (&/fold str ""))]
+      (&/with-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC init-method (anon-class-<init>-signature env) nil nil)
+        (|do [^MethodVisitor =method &/get-writer
+              :let [_ (doto =method (.visitCode)
+                            (.visitVarInsn Opcodes/ALOAD 0))]
+              _ (&/map% (fn [type+term]
+                          (|let [[type term] type+term]
+                            (|do [_ (compile term)
+                                  :let [_ (prepare-ctor-arg =method type)]]
+                              (return nil))))
+                        ctor-args)
+              :let [_ (doto =method
+                        (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class super-class) init-method (str "(" init-types ")" <init>-return))
+                        (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
+                              (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
+                              (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
+                            (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
+                                 (|case ?name+?captured
+                                   [?name [_ (&a/$captured _ ?captured-id ?source)]])
+                                 (doseq [?name+?captured (&/->seq env)])))
+                        (.visitInsn Opcodes/RETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))]]
+          (return nil)))))
   )
 
-(defn compile-jvm-class [compile ?name ?super-class ?interfaces ?anns ?fields ?methods env]
+(defn compile-jvm-class [compile ?name ?super-class ?interfaces ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
         [file-name _ _] &/cursor
         :let [full-name (str module "/" ?name)
@@ -518,8 +559,12 @@
               _ (&/|map (partial compile-field =class)
                         ?fields)]
         _ (&/map% (partial compile-method compile =class) ?methods)
-        :let [_ (when env
-                  (add-anon-class-<init> =class full-name ?super-class env))]]
+        _ (|case ??ctor-args
+            (&/$Some ctor-args)
+            (add-anon-class-<init> =class compile full-name ?super-class env ctor-args)
+
+            _
+            (return nil))]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
 (defn compile-jvm-interface [compile ?name ?supers ?anns ?methods]

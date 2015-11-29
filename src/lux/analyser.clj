@@ -49,6 +49,14 @@
     (return text)
 
     _
+    (fail (str "[Analyser Error] Not text: " (&/show-ast ast)))))
+
+(defn ^:private parse-ctor-arg [ast]
+  (|case ast
+    [_ (&/$TupleT (&/$Cons ?class (&/$Cons (&/$TextS ?term) (&/$Nil))))]
+    (return (&/T ?class ?term))
+
+    _
     (fail (str "[Analyser Error] Can't extract text: " (&/show-ast ast)))))
 
 (defn analyse-variant+ [analyser exo-type ident values]
@@ -205,10 +213,12 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anon-class")]
                        (&/$Cons [_ (&/$TextS ?super-class)]
                                 (&/$Cons [_ (&/$TupleS ?interfaces)]
-                                         (&/$Cons [_ (&/$TupleS ?methods)]
-                                                  (&/$Nil))))))
-    (|do [=interfaces (&/map% parse-text ?interfaces)]
-      (&&host/analyse-jvm-anon-class analyse compile-token exo-type ?super-class =interfaces ?methods))
+                                         (&/$Cons [_ (&/$TupleS ?ctor-args)]
+                                                  (&/$Cons [_ (&/$TupleS ?methods)]
+                                                           (&/$Nil)))))))
+    (|do [=interfaces (&/map% parse-text ?interfaces)
+          =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
+      (&&host/analyse-jvm-anon-class analyse compile-token exo-type ?super-class =interfaces =ctor-args ?methods))
 
     ;; Programs
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_program")]

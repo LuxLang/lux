@@ -193,13 +193,50 @@
        ;; else
        0)))
 
-(defn ^:private dummy-return [^MethodVisitor writer super-class name output]
+(defn primitive-jvm-type? [type]
+  (case type
+    ("boolean" "byte" "short" "int" "long" "float" "double" "char")
+    true
+    ;; else
+    false))
+
+(defn dummy-value [^MethodVisitor writer class]
+  (case class
+    "boolean" (doto writer
+                (.visitLdcInsn false))
+    "byte" (doto writer
+             (.visitLdcInsn (byte 0)))
+    "short" (doto writer
+              (.visitLdcInsn (short 0)))
+    "int" (doto writer
+            (.visitLdcInsn (int 0)))
+    "long" (doto writer
+             (.visitLdcInsn (long 0)))
+    "float" (doto writer
+              (.visitLdcInsn (float 0.0)))
+    "double" (doto writer
+               (.visitLdcInsn (double 0.0)))
+    "char" (doto writer
+             (.visitLdcInsn (char 0)))
+    ;; else
+    (doto writer
+      (.visitInsn Opcodes/ACONST_NULL))))
+
+(defn ^:private dummy-return [^MethodVisitor writer super-class ??ctor-args name output]
   (case output
     "void" (if (= "<init>" name)
-             (doto writer
-               (.visitVarInsn Opcodes/ALOAD 0)
-               (.visitMethodInsn Opcodes/INVOKESPECIAL (->class super-class) "<init>" "()V")
-               (.visitInsn Opcodes/RETURN))
+             (|let [(&/$Some ctor-args) ??ctor-args
+                    ctor-arg-types (->> ctor-args (&/|map (comp ->type-signature &/|first)) (&/fold str ""))]
+               (doto writer
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (-> (doto (dummy-value arg-type)
+                       (-> (.visitTypeInsn Opcodes/CHECKCAST (->class arg-type))
+                           (->> (when (not (primitive-jvm-type? arg-type))))))
+                     (->> (doseq [ctor-arg (&/->seq ctor-args)
+                                  :let [;; arg-term (&/|first ctor-arg)
+                                        arg-type (&/|first ctor-arg)]])))
+                 (.visitMethodInsn Opcodes/INVOKESPECIAL (->class super-class) "<init>" (str "(" ctor-arg-types ")V"))
+                 (.visitInsn Opcodes/RETURN)))
              (.visitInsn writer Opcodes/RETURN))
     "boolean" (doto writer
                 (.visitLdcInsn false)
@@ -230,7 +267,7 @@
       (.visitInsn Opcodes/ACONST_NULL)
       (.visitInsn Opcodes/ARETURN))))
 
-(defn use-dummy-class [name super-class interfaces fields methods]
+(defn use-dummy-class [name super-class interfaces ctor-args fields methods]
   (|do [module &/get-module-name
         :let [full-name (str module "/" name)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -250,7 +287,7 @@
                                                 nil
                                                 (->> (:exceptions method) (&/|map ->class) &/->seq (into-array java.lang.String)))
                               .visitCode
-                              (dummy-return super-class (:name method) (:output method))
+                              (dummy-return super-class ctor-args (:name method) (:output method))
                               (.visitMaxs 0 0)
                               (.visitEnd))))
                         methods)

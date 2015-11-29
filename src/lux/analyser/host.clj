@@ -226,7 +226,7 @@
 
 (defn analyse-jvm-getfield [analyse exo-type class field object]
   (|do [class-loader &/loader
-        =object (&&/analyse-1 analyse object)
+        =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
         [gvars gtype] (&host/lookup-field class-loader class field)
         =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
@@ -249,7 +249,7 @@
 
 (defn analyse-jvm-putfield [analyse exo-type class field value object]
   (|do [class-loader &/loader
-        =object (&&/analyse-1 analyse object)
+        =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
         [gvars gtype] (&host/lookup-field class-loader class field)
         =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
@@ -675,7 +675,7 @@
           =fields (&/map% analyse-field fields)
           ;; :let [_ (prn 'analyse-jvm-class/_1)]
           =method-descs (&/map% dummy-method-desc methods)
-          _ (&host/use-dummy-class name super-class interfaces =fields =method-descs)
+          _ (&host/use-dummy-class name super-class interfaces &/None$ =fields =method-descs)
           =methods (&/map% (partial analyse-method analyse full-name) methods)
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
@@ -713,16 +713,21 @@
                       :inputs (&/|list)
                       :output "void"}
       captured-slot-type "java.lang.Object"]
-  (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces methods]
+  (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces ctor-args methods]
     (&/with-closure
       (|do [module &/get-module-name
             scope &/get-scope-name
             :let [name (&host/location (&/|tail scope))
                   anon-class (str module "." name)]
+            =ctor-args (&/map% (fn [ctor-arg]
+                                 (|let [[arg-type arg-term] ctor-arg]
+                                   (|do [=arg-term (&&/analyse-1+ analyse arg-term)]
+                                     (return (&/T arg-type =arg-term)))))
+                               ctor-args)
             =method-descs (&/map% dummy-method-desc methods)
             _ (->> =method-descs
                    (&/Cons$ default-<init>)
-                   (&host/use-dummy-class name super-class interfaces (&/|list)))
+                   (&host/use-dummy-class name super-class interfaces (&/Some$ =ctor-args) (&/|list)))
             =methods (&/map% (partial analyse-method analyse anon-class) methods)
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
             =captured &&env/captured-vars
@@ -733,7 +738,7 @@
                                      :type captured-slot-type})
                                   (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
-            _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces (&/|list) =fields =methods =captured)))
+            _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces (&/|list) =fields =methods =captured (&/Some$ =ctor-args))))
             _cursor &/cursor]
         (return (&/|list (&&/|meta (&type/Data$ anon-class (&/|list)) _cursor
                                    (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources))
