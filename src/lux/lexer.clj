@@ -54,7 +54,7 @@
 
 ;; [Lexers]
 (def ^:private lex-white-space
-  (|do [[meta white-space] (&reader/read-regex #"^(\s+)")]
+  (|do [[meta white-space] (&reader/read-regex #"^(\s+|$)")]
     (return (&/T meta (&/V $White_Space white-space)))))
 
 (def ^:private lex-single-line-comment

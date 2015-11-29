@@ -130,9 +130,6 @@
        (string/split-lines)
        (&/->list)
        (&/enumerate)
-       (&/|filter (fn [line+line-num]
-                    (|let [[line-num line] line+line-num]
-                      (not= "" line))))
        (&/|map (fn [line+line-num]
                  (|let [[line-num line] line+line-num]
                    (&/T (&/T name (inc line-num) 0)
