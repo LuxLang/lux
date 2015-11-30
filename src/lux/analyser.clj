@@ -15,50 +15,10 @@
             (lux.analyser [base :as &&]
                           [lux :as &&lux]
                           [host :as &&host]
-                          [module :as &&module])))
+                          [module :as &&module]
+                          [parser :as &&a-parser])))
 
 ;; [Utils]
-(defn ^:private parse-handler [[catch+ finally+] token]
-  (|case token
-    [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_catch")]
-                             (&/$Cons [_ (&/$TextS ?ex-class)]
-                                      (&/$Cons [_ (&/$SymbolS "" ?ex-arg)]
-                                               (&/$Cons ?catch-body
-                                                        (&/$Nil))))))]
-    (return (&/T (&/|++ catch+ (&/|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+))
-
-    [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_finally")]
-                             (&/$Cons ?finally-body
-                                      (&/$Nil))))]
-    (return (&/T catch+ (&/V &/$Some ?finally-body)))
-
-    _
-    (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token)))))
-
-(defn ^:private parse-tag [ast]
-  (|case ast
-    [_ (&/$TagS "" name)]
-    (return name)
-    
-    _
-    (fail (str "[Analyser Error] Not a tag: " (&/show-ast ast)))))
-
-(defn ^:private parse-text [ast]
-  (|case ast
-    [_ (&/$TextS text)]
-    (return text)
-
-    _
-    (fail (str "[Analyser Error] Not text: " (&/show-ast ast)))))
-
-(defn ^:private parse-ctor-arg [ast]
-  (|case ast
-    [_ (&/$TupleT (&/$Cons ?class (&/$Cons (&/$TextS ?term) (&/$Nil))))]
-    (return (&/T ?class ?term))
-
-    _
-    (fail (str "[Analyser Error] Can't extract text: " (&/show-ast ast)))))
-
 (defn analyse-variant+ [analyser exo-type ident values]
   (|do [[module tag-name] (&/normalize ident)
         idx (&&module/tag-index module tag-name)]
@@ -199,16 +159,17 @@
                                                            (&/$Cons [_ (&/$TupleS ?fields)]
                                                                     (&/$Cons [_ (&/$TupleS ?methods)]
                                                                              (&/$Nil)))))))))
-    (|do [=interfaces (&/map% parse-text ?interfaces)]
+    (|do [=interfaces (&/map% &&a-parser/parse-text ?interfaces)]
       (&&host/analyse-jvm-class analyse compile-token ?name ?super-class =interfaces ?anns ?fields ?methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_interface")]
-                       (&/$Cons [_ (&/$TextS ?name)]
+                       (&/$Cons ?class-decl
                                 (&/$Cons [_ (&/$TupleS ?supers)]
                                          (&/$Cons [_ (&/$TupleS ?anns)]
                                                   ?methods)))))
-    (|do [=supers (&/map% parse-text ?supers)]
-      (&&host/analyse-jvm-interface analyse compile-token ?name =supers ?anns ?methods))
+    (|do [=gclass-decl (&&a-parser/parse-gclass-decl ?class-decl)
+          =supers (&/map% &&a-parser/parse-gclass-super ?supers)]
+      (&&host/analyse-jvm-interface analyse compile-token =gclass-decl =supers ?anns ?methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anon-class")]
                        (&/$Cons [_ (&/$TextS ?super-class)]
@@ -216,8 +177,8 @@
                                          (&/$Cons [_ (&/$TupleS ?ctor-args)]
                                                   (&/$Cons [_ (&/$TupleS ?methods)]
                                                            (&/$Nil)))))))
-    (|do [=interfaces (&/map% parse-text ?interfaces)
-          =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
+    (|do [=interfaces (&/map% &&a-parser/parse-text ?interfaces)
+          =ctor-args (&/map% &&a-parser/parse-ctor-arg ?ctor-args)]
       (&&host/analyse-jvm-anon-class analyse compile-token exo-type ?super-class =interfaces =ctor-args ?methods))
 
     ;; Programs
@@ -345,7 +306,7 @@
                                 (&/$Cons [_ (&/$TupleS ?arg-classes)]
                                          (&/$Cons [_ (&/$TupleS ?args)]
                                                   (&/$Nil))))))
-    (|do [=arg-classes (&/map% parse-text ?arg-classes)]
+    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
       (&&host/analyse-jvm-new analyse exo-type ?class =arg-classes ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_getstatic")]
@@ -382,7 +343,7 @@
                                          (&/$Cons [_ (&/$TupleS ?arg-classes)]
                                                   (&/$Cons [_ (&/$TupleS ?args)]
                                                            (&/$Nil)))))))
-    (|do [=arg-classes (&/map% parse-text ?arg-classes)]
+    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
       (&&host/analyse-jvm-invokestatic analyse exo-type ?class ?method =arg-classes ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokevirtual")]
@@ -392,7 +353,7 @@
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (|do [=arg-classes (&/map% parse-text ?arg-classes)]
+    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
       (&&host/analyse-jvm-invokevirtual analyse exo-type ?class ?method =arg-classes ?object ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokeinterface")]
@@ -402,7 +363,7 @@
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (|do [=arg-classes (&/map% parse-text ?arg-classes)]
+    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
       (&&host/analyse-jvm-invokeinterface analyse exo-type ?class ?method =arg-classes ?object ?args))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokespecial")]
@@ -412,14 +373,14 @@
                                                   (&/$Cons ?object
                                                            (&/$Cons [_ (&/$TupleS ?args)]
                                                                     (&/$Nil))))))))
-    (|do [=arg-classes (&/map% parse-text ?arg-classes)]
+    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
       (&&host/analyse-jvm-invokespecial analyse exo-type ?class ?method =arg-classes ?object ?args))
 
     ;; Exceptions
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
                        (&/$Cons ?body
                                 ?handlers)))
-    (|do [catches+finally (&/fold% parse-handler (&/T &/Nil$ &/None$) ?handlers)]
+    (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T &/Nil$ &/None$) ?handlers)]
       (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_throw")]
@@ -590,7 +551,7 @@
                        (&/$Cons [_ (&/$TupleS tags)]
                                 (&/$Cons [_ (&/$SymbolS "" type-name)]
                                          (&/$Nil)))))
-    (|do [tags* (&/map% parse-tag tags)]
+    (|do [tags* (&/map% &&a-parser/parse-tag tags)]
       (&&lux/analyse-declare-tags tags* type-name))
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_import")]

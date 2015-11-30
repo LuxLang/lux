@@ -96,7 +96,7 @@
           :let [name (&host/location (&/|tail ?scope))
                 class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                         (.visit Opcodes/V1_5 lambda-flags
+                         (.visit &host/bytecode-version lambda-flags
                                  class-name nil "java/lang/Object" (into-array [&&/function-class]))
                          (-> (doto (.visitField datum-flags captured-name clo-field-sig nil nil)
                                (.visitEnd))

@@ -448,7 +448,7 @@
           [file-name _ _] &/cursor
           :let [class-name (str (&host/->module-class module) "/" id)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                         (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                         (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                  class-name nil "java/lang/Object" nil)
                          (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/eval-field "Ljava/lang/Object;" nil nil)
                              (doto (.visitEnd)))
@@ -486,7 +486,7 @@
                     _ (&a-module/enter-module name)
                     _ (&/flag-active-module name)
                     :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                   (.visit Opcodes/V1_6 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                   (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                            (str (&host/->module-class name) "/_") nil "java/lang/Object" nil)
                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/hash-field "I" nil file-hash)
                                        .visitEnd)

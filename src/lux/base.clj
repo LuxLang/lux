@@ -106,6 +106,11 @@
    "eval?"
    "host"])
 
+;; Compiler
+(deftags
+  ["GClass"
+   "GTypeVar"])
+
 ;; [Exports]
 (def datum-field "_datum")
 (def meta-field "_meta")

@@ -16,9 +16,9 @@
                  [analyser :as &analyser]
                  [host :as &host])
             [lux.type.host :as &host-type]
+            [lux.host.generics :as &host-generics]
             [lux.analyser.base :as &a]
-            [lux.compiler.base :as &&]
-            :reload)
+            [lux.compiler.base :as &&])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -479,11 +479,16 @@
         (return nil)))))
 
 (defn ^:private compile-method-decl [^ClassWriter class-writer method]
-  (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
-                        (&host/->type-signature (:output method)))]
-    (let [=method (.visitMethod class-writer (&host/modifiers->int (:modifiers method)) (:name method) signature nil (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))]
-      (&/|map (partial compile-annotation =method) (:anns method))
-      nil)))
+  (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] method
+         simple-signature (str "(" (&/fold str "" (&/|map &host-generics/gclass->simple-signature =inputs)) ")" (&host-generics/gclass->simple-signature =output))
+         generic-signature (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"
+                                "(" (&/fold str "" (&/|map &host-generics/gclass->signature =inputs)) ")"
+                                (&host-generics/gclass->signature =output)
+                                (->> =exceptions (&/|map &host-generics/gclass->signature) (&/|interpose " ") (&/fold str "")))
+         =method (.visitMethod class-writer (&host/modifiers->int =modifiers) =name simple-signature generic-signature (->> =exceptions (&/|map &host-generics/gclass->simple-signature) &/->seq (into-array java.lang.String)))
+         _ (&/|map (partial compile-annotation =method) =anns)
+         _ (.visitEnd =method)]
+    nil))
 
 (defn ^:private prepare-ctor-arg [^MethodVisitor writer type]
   (case type
@@ -555,7 +560,7 @@
         :let [full-name (str module "/" ?name)
               super-class* (&host/->class ?super-class)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                full-name nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String)))
                        (.visitSource file-name nil))
               _ (&/|map (partial compile-annotation =class) ?anns)
@@ -570,17 +575,21 @@
             (return nil))]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
-(defn compile-jvm-interface [compile ?name ?supers ?anns ?methods]
-  (|do [module &/get-module-name
-        [file-name _ _] &/cursor]
-    (let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_INTERFACE)
-                               (str module "/" ?name) nil "java/lang/Object" (->> ?supers (&/|map &host/->class) &/->seq (into-array String)))
-                       (.visitSource file-name nil))
-          _ (&/|map (partial compile-annotation =interface) ?anns)
-          _ (do (&/|map (partial compile-method-decl =interface) ?methods)
-              (.visitEnd =interface))]
-      (&&/save-class! ?name (.toByteArray =interface)))))
+(defn compile-jvm-interface [compile interface-decl ?supers ?anns ?methods]
+  (|do [:let [[interface-name interface-vars] interface-decl]
+        module &/get-module-name
+        [file-name _ _] &/cursor
+        :let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                           (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE)
+                                   (str module "/" interface-name)
+                                   (&host-generics/gclass-decl->signature interface-decl ?supers)
+                                   "java/lang/Object"
+                                   (->> ?supers (&/|map (comp &host/->class &host-generics/super-class-name)) &/->seq (into-array String)))
+                           (.visitSource file-name nil))
+              _ (&/|map (partial compile-annotation =interface) ?anns)
+              _ (do (&/|map (partial compile-method-decl =interface) ?methods)
+                  (.visitEnd =interface))]]
+    (&&/save-class! interface-name (.toByteArray =interface))))
 
 (defn compile-jvm-try [compile ?body ?catches ?finally]
   (|do [^MethodVisitor *writer* &/get-writer

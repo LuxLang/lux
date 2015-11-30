@@ -187,7 +187,7 @@
                 def-name (&/normalize-name ?name)
                 current-class (str (&host/->module-class module-name) "/" def-name)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                         (.visit Opcodes/V1_5 class-flags
+                         (.visit &host/bytecode-version class-flags
                                  current-class nil "java/lang/Object" (into-array [&&/function-class]))
                          (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
                              (doto (.visitEnd)))

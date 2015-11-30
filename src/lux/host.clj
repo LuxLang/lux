@@ -24,6 +24,7 @@
 (def module-separator "/")
 (def class-name-separator ".")
 (def class-separator "/")
+(def bytecode-version Opcodes/V1_6)
 
 ;; [Resources]
 (do-template [<name> <old-sep> <new-sep>]
@@ -271,7 +272,7 @@
   (|do [module &/get-module-name
         :let [full-name (str module "/" name)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit Opcodes/V1_5 (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                       (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                full-name nil (->class super-class) (->> interfaces (&/|map ->class) &/->seq (into-array String))))
               _ (&/|map (fn [field]
                           (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)

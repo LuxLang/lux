@@ -8,25 +8,17 @@
             clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|let |do return fail |case assert!]]
-                 [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
             [lux.type.host :as &host-type]
             (lux.analyser [base :as &&]
                           [lambda :as &&lambda]
-                          [env :as &&env])
+                          [env :as &&env]
+                          [parser :as &&a-parser])
             [lux.compiler.base :as &c!base])
   (:import (java.lang.reflect TypeVariable)))
 
 ;; [Utils]
-(defn ^:private extract-text [ast]
-  (|case ast
-    [_ (&/$TextS text)]
-    (return text)
-
-    _
-    (fail "[Analyser/Host Error] Can't extract text.")))
-
 (defn ^:private ensure-catching [exceptions]
   "(-> (List Text) (Lux (,)))"
   (|do [class-loader &/loader]
@@ -459,69 +451,6 @@
                                (&/V &&/$jvm-arraylength =array)
                                )))))
 
-(defn ^:private analyse-modifiers [modifiers]
-  (&/fold% (fn [so-far modif]
-             (|case modif
-               [_ (&/$TextS "public")]
-               (return (assoc so-far :visibility "public"))
-
-               [_ (&/$TextS "private")]
-               (return (assoc so-far :visibility "private"))
-
-               [_ (&/$TextS "protected")]
-               (return (assoc so-far :visibility "protected"))
-
-               [_ (&/$TextS "static")]
-               (return (assoc so-far :static? true))
-
-               [_ (&/$TextS "final")]
-               (return (assoc so-far :final? true))
-
-               [_ (&/$TextS "abstract")]
-               (return (assoc so-far :abstract? true))
-
-               [_ (&/$TextS "synchronized")]
-               (return (assoc so-far :concurrency "synchronized"))
-
-               [_ (&/$TextS "volatile")]
-               (return (assoc so-far :concurrency "volatile"))
-
-               _
-               (fail (str "[Analyser Error] Unknown modifier: " (&/show-ast modif)))))
-           {:visibility "default"
-            :static? false
-            :final? false
-            :abstract? false
-            :concurrency nil}
-           modifiers))
-
-(let [failure (fail (str "[Analyser Error] Invalid annotation parameter."))]
-  (defn ^:private extract-ann-param [param]
-    (|case param
-      [[_ (&/$TextS param-name)] param-value]
-      (|case param-value
-        [_ (&/$BoolS param-value*)] (return (&/T param-name (boolean param-value*)))
-        [_ (&/$IntS param-value*)]  (return (&/T param-name (int param-value*)))
-        [_ (&/$RealS param-value*)] (return (&/T param-name (float param-value*)))
-        [_ (&/$CharS param-value*)] (return (&/T param-name (char param-value*)))
-        [_ (&/$TextS param-value*)] (return (&/T param-name param-value*))
-
-        _
-        failure)
-
-      _
-      failure)))
-
-(defn ^:private analyse-ann [ann]
-  (|case ann
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS ann-name)] (&/$Cons [_ (&/$RecordS ann-params)] (&/$Nil))))]
-    (|do [=ann-params (&/map% extract-ann-param ann-params)]
-      (return {:name ann-name
-               :params ann-params}))
-
-    _
-    (fail (str "[Analyser Error] Invalid annotation: " (&/show-ast ann)))))
-
 (defn ^:private analyse-field [field]
   (|case field
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
@@ -529,8 +458,8 @@
                                    (&/$Cons [_ (&/$TupleS ?anns)]
                                             (&/$Cons [_ (&/$TextS ?field-type)]
                                                      (&/$Nil))))))]
-    (|do [=field-modifiers (analyse-modifiers ?field-modifiers)
-          =anns (&/map% analyse-ann ?anns)]
+    (|do [=field-modifiers (&&a-parser/parse-modifiers ?field-modifiers)
+          =anns (&/map% &&a-parser/parse-ann ?anns)]
       (return {:name ?field-name
                :modifiers =field-modifiers
                :anns =anns
@@ -549,8 +478,8 @@
                                                               (&/$Cons [_ (&/$TextS method-output)]
                                                                        (&/$Cons method-body
                                                                                 (&/$Nil)))))))))]
-    (|do [=method-modifiers (analyse-modifiers method-modifiers)
-          =method-exs (&/map% extract-text method-exs)
+    (|do [=method-modifiers (&&a-parser/parse-modifiers method-modifiers)
+          =method-exs (&/map% &&a-parser/parse-text method-exs)
           =method-inputs (&/map% (fn [minput]
                                    (|case minput
                                      [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
@@ -581,9 +510,9 @@
                                                               (&/$Cons [_ (&/$TextS method-output)]
                                                                        (&/$Cons method-body
                                                                                 (&/$Nil)))))))))]
-    (|do [=method-modifiers (analyse-modifiers method-modifiers)
-          =anns (&/map% analyse-ann method-anns)
-          =method-exs (&/map% extract-text method-exs)
+    (|do [=method-modifiers (&&a-parser/parse-modifiers method-modifiers)
+          =anns (&/map% &&a-parser/parse-ann method-anns)
+          =method-exs (&/map% &&a-parser/parse-text method-exs)
           =method-inputs (&/map% (fn [minput]
                                    (|case minput
                                      [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
@@ -613,29 +542,6 @@
     
     _
     (fail (str "[Analyser Error] Wrong syntax for method: " (&/show-ast method)))))
-
-(defn ^:private analyse-method-decl [method]
-  (|case method
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                          (&/$Cons [_ (&/$TupleS modifiers)]
-                                   (&/$Cons [_ (&/$TupleS ?anns)]
-                                            (&/$Cons [_ (&/$TupleS method-exs)]
-                                                     (&/$Cons [_ (&/$TupleS inputs)]
-                                                              (&/$Cons [_ (&/$TextS output)]
-                                                                       (&/$Nil))))))))]
-    (|do [=modifiers (analyse-modifiers modifiers)
-          =anns (&/map% analyse-ann ?anns)
-          =inputs (&/map% extract-text inputs)
-          =method-exs (&/map% extract-text method-exs)]
-      (return {:name method-name
-               :modifiers =modifiers
-               :anns =anns
-               :exceptions =method-exs
-               :inputs =inputs
-               :output output}))
-    
-    _
-    (fail (str "[Analyser Error] Invalid method signature: " (&/show-ast method)))))
 
 (defn ^:private mandatory-methods [supers]
   (|do [class-loader &/loader]
@@ -671,7 +577,7 @@
     (|do [module &/get-module-name
           :let [full-name (str module "." name)]
           ;; :let [_ (prn 'analyse-jvm-class/_0)]
-          =anns (&/map% analyse-ann anns)
+          =anns (&/map% &&a-parser/parse-ann anns)
           =fields (&/map% analyse-field fields)
           ;; :let [_ (prn 'analyse-jvm-class/_1)]
           =method-descs (&/map% dummy-method-desc methods)
@@ -684,12 +590,12 @@
           :let [_ (println 'DEF (str module "." name))]]
       (return &/Nil$))))
 
-(defn analyse-jvm-interface [analyse compile-token name supers anns methods]
+(defn analyse-jvm-interface [analyse compile-token interface-decl supers anns methods]
   (|do [module &/get-module-name
-        =anns (&/map% analyse-ann anns)
-        =methods (&/map% analyse-method-decl methods)
-        _ (compile-token (&/V &&/$jvm-interface (&/T name supers =anns =methods)))
-        :let [_ (println 'DEF (str module "." name))]]
+        =anns (&/map% &&a-parser/parse-ann anns)
+        =methods (&/map% &&a-parser/parse-method-decl methods)
+        _ (compile-token (&/V &&/$jvm-interface (&/T interface-decl supers =anns =methods)))
+        :let [_ (println 'DEF (str module "." (&/|first interface-decl)))]]
     (return &/Nil$)))
 
 (defn ^:private captured-source [env-entry]
