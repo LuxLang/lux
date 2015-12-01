@@ -434,32 +434,34 @@
                 ))))))
 
     _
-    (|do [exo-type* (&type/actual-type exo-type)]
-      (|case exo-type
-        (&/$UnivQ _)
-        (|do [$var &type/existential
-              exo-type** (&type/apply-type exo-type* $var)]
-          (analyse-lambda* analyse exo-type** ?self ?arg ?body))
+    (&/with-attempt
+      (|do [exo-type* (&type/actual-type exo-type)]
+        (|case exo-type
+          (&/$UnivQ _)
+          (|do [$var &type/existential
+                exo-type** (&type/apply-type exo-type* $var)]
+            (analyse-lambda* analyse exo-type** ?self ?arg ?body))
 
-        (&/$ExQ _)
-        (&type/with-var
-          (fn [$var]
-            (|do [exo-type** (&type/apply-type exo-type* $var)]
-              (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
-        
-        (&/$LambdaT ?arg-t ?return-t)
-        (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
-                                         ?arg ?arg-t
-                                         (&&/analyse-1 analyse ?return-t ?body))
-              _cursor &/cursor]
-          (return (&&/|meta exo-type* _cursor
-                            (&/V &&/$lambda (&/T =scope =captured =body)))))
+          (&/$ExQ _)
+          (&type/with-var
+            (fn [$var]
+              (|do [exo-type** (&type/apply-type exo-type* $var)]
+                (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
+          
+          (&/$LambdaT ?arg-t ?return-t)
+          (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
+                                           ?arg ?arg-t
+                                           (&&/analyse-1 analyse ?return-t ?body))
+                _cursor &/cursor]
+            (return (&&/|meta exo-type* _cursor
+                              (&/V &&/$lambda (&/T =scope =captured =body)))))
 
-        
-        
-        _
-        (fail (str "[Analyser Error] Functions require function types: "
-                   (&type/show-type exo-type*)))))
+          
+          
+          _
+          (fail "")))
+      (fn [err]
+        (fail (str "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
     ))
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]

@@ -108,8 +108,9 @@
 
 ;; Compiler
 (deftags
-  ["GClass"
-   "GTypeVar"])
+  ["GenericTypeVar"
+   "GenericClass"
+   "GenericArray"])
 
 ;; [Exports]
 (def datum-field "_datum")

@@ -45,12 +45,16 @@
 
 (defn parse-gclass [ast]
   (|case ast
+    [_ (&/$TextS var-name)]
+    (return (&/V &/$GenericTypeVar var-name))
+
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS params)] (&/$Nil))))]
     (|do [=params (&/map% parse-gclass params)]
-      (return (&/V &/$GClass (&/T class-name =params))))
+      (return (&/V &/$GenericClass (&/T class-name =params))))
 
-    [_ (&/$TextS var-name)]
-    (return (&/V &/$GTypeVar var-name))
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "Array")] (&/$Cons param (&/$Nil))))]
+    (|do [=param (parse-gclass param)]
+      (return (&/V &/$GenericArray =param)))
 
     _
     (fail (str "[Analyser Error] Not generic class: " (&/show-ast ast)))))

@@ -184,7 +184,7 @@
               (return (&/T (&/V $TupleTestAC =tests) =kont))))
 
           _
-          (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type*) " -- " (&/show-ast pattern)))))
+          (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type)))))
       
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)]

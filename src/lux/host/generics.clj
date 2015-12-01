@@ -18,12 +18,15 @@
 (defn gclass->signature [super]
   "(-> GenericClass Text)"
   (|case super
-    (&/$GTypeVar name)
+    (&/$GenericTypeVar name)
     (str "T" name ";")
     
-    (&/$GClass name params)
+    (&/$GenericClass name params)
     (|let [params-sigs (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str ""))]
-      (str "L" (&host/->class name) "<" params-sigs ">" ";"))))
+      (str "L" (&host/->class name) "<" params-sigs ">" ";"))
+
+    (&/$GenericArray param)
+    (str "[" (gclass->signature param))))
 
 (defn gsuper-decl->signature [super]
   "(-> GenericSuperClassDecl Text)"
@@ -42,8 +45,11 @@
   (defn gclass->simple-signature [gclass]
     "(-> GenericClass Text)"
     (|case gclass
-      (&/$GTypeVar name)
+      (&/$GenericTypeVar name)
       object-simple-signature
       
-      (&/$GClass name params)
-      (&host/->type-signature name))))
+      (&/$GenericClass name params)
+      (&host/->type-signature name)
+
+      (&/$GenericArray param)
+      (str "[" (gclass->simple-signature param)))))
