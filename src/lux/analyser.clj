@@ -672,13 +672,19 @@
           (analyse-variant+ (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
           
           [meta (&/$FormS (&/$Cons ?fn ?args))]
-          (fn [state]
-            (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
-              (&/$Right state* =fn)
-              ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*)
+          (|case ?fn
+            [_ (&/$SymbolS _)]
+            (fn [state]
+              (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
+                (&/$Right state* =fn)
+                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*)
 
-              _
-              ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
+                _
+                ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
+
+            _
+            (|do [=fn (just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn)]
+              (&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args)))
           
           _
           (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token))))))
