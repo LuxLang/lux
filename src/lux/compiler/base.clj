@@ -13,7 +13,8 @@
                  [type :as &type]
                  [host :as &host])
             (lux.analyser [base :as &a]
-                          [module :as &a-module]))
+                          [module :as &a-module])
+            [lux.host.generics :as &host-generics])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -69,7 +70,7 @@
         module &/get-module-name
         loader &/loader
         !classes &/classes
-        :let [real-name (str (&host/->class-name module) "." name)
+        :let [real-name (str (&host-generics/->class-name module) "." name)
               _ (swap! !classes assoc real-name bytecode)
               _ (when (not eval?)
                   (write-output module name bytecode))
@@ -79,7 +80,7 @@
 (do-template [<wrap-name> <unwrap-name> <class> <unwrap-method> <prim> <dup>]
   (do (defn <wrap-name> [^MethodVisitor writer]
         (doto writer
-          (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str "(" <prim> ")" (&host/->type-signature <class>)))))
+          (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str "(" <prim> ")" (&host-generics/->type-signature <class>)))))
     (defn <unwrap-name> [^MethodVisitor writer]
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST <class>)

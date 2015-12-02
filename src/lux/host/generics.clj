@@ -4,16 +4,50 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.host.generics
-  (:require (clojure [template :refer [do-template]])
+  (:require (clojure [string :as string]
+                     [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
-                 [host :as &host])))
+            (lux [base :as & :refer [|do return* return fail fail* |let |case]]))
+  (:import java.util.regex.Pattern))
+
+(do-template [<name> <old-sep> <new-sep>]
+  (let [regex (-> <old-sep> Pattern/quote re-pattern)]
+    (defn <name> [old]
+      (string/replace old regex <new-sep>)))
+
+  ;; ->class
+  ^String ->bytecode-class-name "." "/"
+  ;; ->class-name
+  ^String ->class-name          "/" "."
+  )
+
+;; ->type-signature
+(defn ->type-signature [class]
+  (case class
+    "void"    "V"
+    "boolean" "Z"
+    "byte"    "B"
+    "short"   "S"
+    "int"     "I"
+    "long"    "J"
+    "float"   "F"
+    "double"  "D"
+    "char"    "C"
+    ;; else
+    (let [class* (->bytecode-class-name class)]
+      (if (.startsWith class* "[")
+        class*
+        (str "L" class* ";")))
+    ))
 
 (defn super-class-name [super]
   "(-> GenericSuperClassDecl Text)"
   (|let [[super-name super-params] super]
     super-name))
+
+(defn class-decl-params->signature [params]
+  (str "<" (->> params (&/|interpose " ") (&/fold str "")) ">"))
 
 (defn gclass->signature [super]
   "(-> GenericClass Text)"
@@ -22,8 +56,8 @@
     (str "T" name ";")
     
     (&/$GenericClass name params)
-    (|let [params-sigs (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str ""))]
-      (str "L" (&host/->class name) "<" params-sigs ">" ";"))
+    (let [params* (str "<" (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">")]
+      (str "L" (->bytecode-class-name name) params* ";"))
 
     (&/$GenericArray param)
     (str "[" (gclass->signature param))))
@@ -31,17 +65,17 @@
 (defn gsuper-decl->signature [super]
   "(-> GenericSuperClassDecl Text)"
   (|let [[super-name super-params] super
-         params-sigs (->> super-params (&/|map gclass->signature) (&/|interpose " ") (&/fold str ""))]
-    (str "L" (&host/->class super-name) "<" params-sigs ">" ";")))
+         params* (str "<" (->> super-params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">")]
+    (str "L" (->bytecode-class-name super-name) params* ";")))
 
 (defn gclass-decl->signature [class-decl supers]
   "(-> GenericClassDecl (List GenericSuperClassDecl) Text)"
   (|let [[class-name class-vars] class-decl
-         vars-section (str "<" (->> class-vars (&/|interpose " ") (&/fold str "")) ">")
+         vars-section (class-decl-params->signature class-vars)
          super-section (->> (&/|map gsuper-decl->signature supers) (&/|interpose " ") (&/fold str ""))]
     (str vars-section super-section)))
 
-(let [object-simple-signature (&host/->type-signature "java.lang.Object")]
+(let [object-simple-signature (->type-signature "java.lang.Object")]
   (defn gclass->simple-signature [gclass]
     "(-> GenericClass Text)"
     (|case gclass
@@ -49,7 +83,29 @@
       object-simple-signature
       
       (&/$GenericClass name params)
-      (&host/->type-signature name)
+      (->type-signature name)
 
       (&/$GenericArray param)
       (str "[" (gclass->simple-signature param)))))
+
+(let [object-bc-name (->bytecode-class-name "java.lang.Object")]
+  (defn gclass->bytecode-class-name [gclass]
+    "(-> GenericClass Text)"
+    (|case gclass
+      (&/$GenericTypeVar name)
+      object-bc-name
+      
+      (&/$GenericClass name params)
+      (->bytecode-class-name name)
+
+      (&/$GenericArray param)
+      (assert false "gclass->bytecode-class-name doesn't work on arrays."))))
+
+(defn method-signatures [method-decl]
+  (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] method-decl
+         simple-signature (str "(" (&/fold str "" (&/|map (comp gclass->simple-signature &/|second) =inputs)) ")" (gclass->simple-signature =output))
+         generic-signature (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"
+                                "(" (&/fold str "" (&/|map (comp gclass->signature &/|second) =inputs)) ")"
+                                (gclass->signature =output)
+                                (->> =exceptions (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")))]
+    (&/T simple-signature generic-signature)))

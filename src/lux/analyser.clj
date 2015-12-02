@@ -152,15 +152,20 @@
   (|case token
     ;; Classes & interfaces
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_class")]
-                       (&/$Cons [_ (&/$TextS ?name)]
-                                (&/$Cons [_ (&/$TextS ?super-class)]
+                       (&/$Cons ?class-decl
+                                (&/$Cons ?super-class
                                          (&/$Cons [_ (&/$TupleS ?interfaces)]
                                                   (&/$Cons [_ (&/$TupleS ?anns)]
                                                            (&/$Cons [_ (&/$TupleS ?fields)]
                                                                     (&/$Cons [_ (&/$TupleS ?methods)]
                                                                              (&/$Nil)))))))))
-    (|do [=interfaces (&/map% &&a-parser/parse-text ?interfaces)]
-      (&&host/analyse-jvm-class analyse compile-token ?name ?super-class =interfaces ?anns ?fields ?methods))
+    (|do [=gclass-decl (&&a-parser/parse-gclass-decl ?class-decl)
+          =super-class (&&a-parser/parse-gclass-super ?super-class)
+          =interfaces (&/map% &&a-parser/parse-gclass-super ?interfaces)
+          =anns (&/map% &&a-parser/parse-ann ?anns)
+          =fields (&/map% &&a-parser/parse-field ?fields)
+          =methods (&/map% &&a-parser/parse-method-def ?methods)]
+      (&&host/analyse-jvm-class analyse compile-token =gclass-decl =super-class =interfaces =anns =fields =methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_interface")]
                        (&/$Cons ?class-decl
@@ -168,18 +173,22 @@
                                          (&/$Cons [_ (&/$TupleS ?anns)]
                                                   ?methods)))))
     (|do [=gclass-decl (&&a-parser/parse-gclass-decl ?class-decl)
-          =supers (&/map% &&a-parser/parse-gclass-super ?supers)]
-      (&&host/analyse-jvm-interface analyse compile-token =gclass-decl =supers ?anns ?methods))
+          =supers (&/map% &&a-parser/parse-gclass-super ?supers)
+          =anns (&/map% &&a-parser/parse-ann ?anns)
+          =methods (&/map% &&a-parser/parse-method-decl ?methods)]
+      (&&host/analyse-jvm-interface analyse compile-token =gclass-decl =supers =anns =methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anon-class")]
-                       (&/$Cons [_ (&/$TextS ?super-class)]
+                       (&/$Cons ?super-class
                                 (&/$Cons [_ (&/$TupleS ?interfaces)]
                                          (&/$Cons [_ (&/$TupleS ?ctor-args)]
                                                   (&/$Cons [_ (&/$TupleS ?methods)]
                                                            (&/$Nil)))))))
-    (|do [=interfaces (&/map% &&a-parser/parse-text ?interfaces)
-          =ctor-args (&/map% &&a-parser/parse-ctor-arg ?ctor-args)]
-      (&&host/analyse-jvm-anon-class analyse compile-token exo-type ?super-class =interfaces =ctor-args ?methods))
+    (|do [=super-class (&&a-parser/parse-gclass-super ?super-class)
+          =interfaces (&/map% &&a-parser/parse-gclass-super ?interfaces)
+          =ctor-args (&/map% &&a-parser/parse-ctor-arg ?ctor-args)
+          =methods (&/map% &&a-parser/parse-method-def ?methods)]
+      (&&host/analyse-jvm-anon-class analyse compile-token exo-type =super-class =interfaces =ctor-args =methods))
 
     ;; Programs
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_program")]

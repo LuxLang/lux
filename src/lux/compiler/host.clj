@@ -26,20 +26,20 @@
                               AnnotationVisitor)))
 
 ;; [Utils]
-(let [class+method+sig {"boolean" [(&host/->class "java.lang.Boolean")   "booleanValue" "()Z"]
-                        "byte"    [(&host/->class "java.lang.Byte")      "byteValue"    "()B"]
-                        "short"   [(&host/->class "java.lang.Short")     "shortValue"   "()S"]
-                        "int"     [(&host/->class "java.lang.Integer")   "intValue"     "()I"]
-                        "long"    [(&host/->class "java.lang.Long")      "longValue"    "()J"]
-                        "float"   [(&host/->class "java.lang.Float")     "floatValue"   "()F"]
-                        "double"  [(&host/->class "java.lang.Double")    "doubleValue"  "()D"]
-                        "char"    [(&host/->class "java.lang.Character") "charValue"    "()C"]}]
+(let [class+method+sig {"boolean" [(&host-generics/->bytecode-class-name "java.lang.Boolean")   "booleanValue" "()Z"]
+                        "byte"    [(&host-generics/->bytecode-class-name "java.lang.Byte")      "byteValue"    "()B"]
+                        "short"   [(&host-generics/->bytecode-class-name "java.lang.Short")     "shortValue"   "()S"]
+                        "int"     [(&host-generics/->bytecode-class-name "java.lang.Integer")   "intValue"     "()I"]
+                        "long"    [(&host-generics/->bytecode-class-name "java.lang.Long")      "longValue"    "()J"]
+                        "float"   [(&host-generics/->bytecode-class-name "java.lang.Float")     "floatValue"   "()F"]
+                        "double"  [(&host-generics/->bytecode-class-name "java.lang.Double")    "doubleValue"  "()D"]
+                        "char"    [(&host-generics/->bytecode-class-name "java.lang.Character") "charValue"    "()C"]}]
   (defn ^:private prepare-arg! [^MethodVisitor *writer* class-name]
     (if-let [[class method sig] (get class+method+sig class-name)]
       (doto *writer*
         (.visitTypeInsn Opcodes/CHECKCAST class)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL class method sig))
-      (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host/->class class-name)))))
+      (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host-generics/->bytecode-class-name class-name)))))
 
 (let [boolean-class "java.lang.Boolean"
       byte-class "java.lang.Byte"
@@ -55,28 +55,28 @@
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
       (&/$DataT "boolean" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class boolean-class) "valueOf" (str "(Z)" (&host/->type-signature boolean-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
       
       (&/$DataT "byte" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class byte-class) "valueOf" (str "(B)" (&host/->type-signature byte-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
       (&/$DataT "short" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class short-class) "valueOf" (str "(S)" (&host/->type-signature short-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
       (&/$DataT "int" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class int-class) "valueOf" (str "(I)" (&host/->type-signature int-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
       (&/$DataT "long" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class long-class) "valueOf" (str "(J)" (&host/->type-signature long-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
       (&/$DataT "float" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class float-class) "valueOf" (str "(F)" (&host/->type-signature float-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
       (&/$DataT "double" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class double-class) "valueOf" (str "(D)" (&host/->type-signature double-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
       (&/$DataT "char" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host/->class char-class) "valueOf" (str "(C)" (&host/->type-signature char-class)))
+      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
       
       (&/$DataT _ _)
       nil
@@ -94,7 +94,7 @@
 ;; [Resources]
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
   (defn <name> [compile ?x ?y]
-    (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
+    (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -136,7 +136,7 @@
 
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
   (defn <name> [compile ?x ?y]
-    (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
+    (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?y)
           :let [_ (doto *writer*
@@ -150,10 +150,10 @@
                 $end (new Label)
                 _ (doto *writer*
                     (.visitJumpInsn <opcode> $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE"  (&host/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
                     (.visitJumpInsn Opcodes/GOTO $end)
                     (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE" (&host/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
                     (.visitLabel $end))]]
       (return nil)))
 
@@ -168,7 +168,7 @@
 
 (do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
   (defn <name> [compile ?x ?y]
-    (|do [:let [+wrapper-class+ (&host/->class <wrapper-class>)]
+    (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?y)
           :let [_ (doto *writer*
@@ -184,10 +184,10 @@
                     (.visitInsn <cmpcode>)
                     (.visitLdcInsn (int <cmp-output>))
                     (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE"  (&host/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
                     (.visitJumpInsn Opcodes/GOTO $end)
                     (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE" (&host/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
                     (.visitLabel $end))]]
       (return nil)))
 
@@ -207,23 +207,23 @@
 (defn compile-jvm-invokestatic [compile ?class ?method ?classes ?args ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
-        :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" =output-type)]
+        :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" =output-type)]
         _ (&/map2% (fn [class-name arg]
                      (|do [ret (compile arg)
                            :let [_ (prepare-arg! *writer* class-name)]]
                        (return ret)))
                    ?classes ?args)
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC (&host/->class (&host-type/as-obj ?class)) ?method method-sig)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?method method-sig)
                   (prepare-return! ?output-type))]]
     (return nil)))
 
 (do-template [<name> <op>]
   (defn <name> [compile ?class ?method ?classes ?object ?args ?output-type]
-    (|do [:let [?class* (&host/->class (&host-type/as-obj ?class))]
+    (|do [:let [?class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
           =output-type (&host/->java-sig ?output-type)
-          :let [method-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")" =output-type)]
+          :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" =output-type)]
           _ (compile ?object)
           :let [_ (when (not= "<init>" ?method)
                     (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*))]
@@ -254,17 +254,17 @@
               $end (new Label)
               _ (doto *writer*
                   (.visitJumpInsn Opcodes/IFNULL $then)
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "FALSE" (&host/->type-signature "java.lang.Boolean"))
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
                   (.visitJumpInsn Opcodes/GOTO $end)
                   (.visitLabel $then)
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class "java.lang.Boolean") "TRUE"  (&host/->type-signature "java.lang.Boolean"))
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
                   (.visitLabel $end))]]
     (return nil)))
 
 (defn compile-jvm-new [compile ?class ?classes ?args]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [init-sig (str "(" (&/fold str "" (&/|map &host/->type-signature ?classes)) ")V")
-              class* (&host/->class ?class)
+        :let [init-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")V")
+              class* (&host-generics/->bytecode-class-name ?class)
               _ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW class*)
                   (.visitInsn Opcodes/DUP))]
@@ -328,7 +328,7 @@
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?length)
         :let [_ (.visitInsn *writer* Opcodes/L2I)]
-        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host/->class ?class))]]
+        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host-generics/->bytecode-class-name ?class))]]
     (return nil)))
 
 (defn compile-jvm-aaload [compile ?array ?idx]
@@ -372,12 +372,12 @@
   (|do [^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host/->class (&host-type/as-obj ?class)) ?field =output-type)
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =output-type)
                   (prepare-return! ?output-type))]]
     (return nil)))
 
 (defn compile-jvm-getfield [compile ?class ?field ?object ?output-type]
-  (|do [:let [class* (&host/->class (&host-type/as-obj ?class))]
+  (|do [:let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         =output-type (&host/->java-sig ?output-type)
@@ -391,12 +391,12 @@
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
         =output-type (&host/->java-sig ?output-type)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host/->class (&host-type/as-obj ?class)) ?field =output-type)]
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =output-type)]
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
 (defn compile-jvm-putfield [compile ?class ?field ?object ?value ?output-type]
-  (|do [:let [class* (&host/->class (&host-type/as-obj ?class))]
+  (|do [:let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
@@ -407,7 +407,7 @@
     (return nil)))
 
 (defn compile-jvm-instanceof [compile class object]
-  (|do [:let [class* (&host/->class class)]
+  (|do [:let [class* (&host-generics/->bytecode-class-name class)]
         ^MethodVisitor *writer* &/get-writer
         _ (compile object)
         :let [_ (doto *writer*
@@ -416,7 +416,7 @@
     (return nil)))
 
 (defn ^:private compile-annotation [writer ann]
-  (doto ^AnnotationVisitor (.visitAnnotation writer (&host/->class (:name ann)) true)
+  (doto ^AnnotationVisitor (.visitAnnotation writer (&host-generics/->bytecode-class-name (:name ann)) true)
         (-> (.visit param-name param-value)
             (->> (|let [[param-name param-value] param])
                  (doseq [param (&/->seq (:params ann))])))
@@ -424,11 +424,12 @@
   nil)
 
 (defn ^:private compile-field [^ClassWriter writer field]
-  (let [=field (.visitField writer (&host/modifiers->int (:modifiers field)) (:name field)
-                            (&host/->type-signature (:type field)) nil nil)]
-    (&/|map (partial compile-annotation =field) (:anns field))
-    (.visitEnd =field)
-    nil))
+  (|let [[=name =modifiers =anns =type] field
+         =field (.visitField writer (&host/modifiers->int =modifiers) =name
+                             (&host-generics/->type-signature =type) nil nil)]
+    (do (&/|map (partial compile-annotation =field) =anns)
+      (.visitEnd =field)
+      nil)))
 
 (defn ^:private compile-method-return [^MethodVisitor writer output]
   (case output
@@ -460,32 +461,34 @@
     ;; else
     (.visitInsn writer Opcodes/ARETURN)))
 
-(defn ^:private compile-method [compile ^ClassWriter class-writer method]
-  (|let [signature (str "(" (&/fold str "" (&/|map &host/->type-signature (:inputs method))) ")"
-                        (&host/->type-signature (:output method)))]
-    (&/with-writer (.visitMethod class-writer (&host/modifiers->int (:modifiers method))
-                                 (:name method)
-                                 signature
-                                 nil
-                                 (->> (:exceptions method) (&/|map &host/->class) &/->seq (into-array java.lang.String)))
+(defn ^:private compile-method-def [compile ^ClassWriter class-writer method-def]
+  (|let [[=method-decl =body] method-def
+         [=name =modifiers =anns =gvars =exceptions =inputs =output] =method-decl
+         [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
+    (&/with-writer (.visitMethod class-writer (&host/modifiers->int =modifiers)
+                                 =name
+                                 simple-signature
+                                 generic-signature
+                                 (->> =exceptions (&/|map &host-generics/->bytecode-class-name) &/->seq (into-array java.lang.String)))
       (|do [^MethodVisitor =method &/get-writer
-            :let [_ (&/|map (partial compile-annotation =method) (:anns method))
+            :let [_ (&/|map (partial compile-annotation =method) =anns)
                   _ (.visitCode =method)]
-            _ (compile (:body method))
+            _ (compile =body)
             :let [_ (doto =method
-                      (compile-method-return (:output method))
+                      (compile-method-return =output)
                       (.visitMaxs 0 0)
                       (.visitEnd))]]
         (return nil)))))
 
-(defn ^:private compile-method-decl [^ClassWriter class-writer method]
-  (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] method
-         simple-signature (str "(" (&/fold str "" (&/|map &host-generics/gclass->simple-signature =inputs)) ")" (&host-generics/gclass->simple-signature =output))
-         generic-signature (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"
-                                "(" (&/fold str "" (&/|map &host-generics/gclass->signature =inputs)) ")"
-                                (&host-generics/gclass->signature =output)
-                                (->> =exceptions (&/|map &host-generics/gclass->signature) (&/|interpose " ") (&/fold str "")))
-         =method (.visitMethod class-writer (&host/modifiers->int =modifiers) =name simple-signature generic-signature (->> =exceptions (&/|map &host-generics/gclass->simple-signature) &/->seq (into-array java.lang.String)))
+(defn ^:private compile-method-decl [^ClassWriter class-writer =method-decl]
+  (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] =method-decl
+         [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)
+         =method (.visitMethod class-writer
+                               (&host/modifiers->int =modifiers)
+                               =name
+                               simple-signature
+                               generic-signature
+                               (->> =exceptions (&/|map &host-generics/gclass->simple-signature) &/->seq (into-array java.lang.String)))
          _ (&/|map (partial compile-annotation =method) =anns)
          _ (.visitEnd =method)]
     nil))
@@ -493,34 +496,34 @@
 (defn ^:private prepare-ctor-arg [^MethodVisitor writer type]
   (case type
     "boolean" (doto writer
-                (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Boolean"))
+                (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Boolean"))
                 &&/unwrap-boolean)
     "byte" (doto writer
-             (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Byte"))
+             (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Byte"))
              &&/unwrap-byte)
     "short" (doto writer
-              (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Short"))
+              (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Short"))
               &&/unwrap-short)
     "int" (doto writer
-            (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Integer"))
+            (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Integer"))
             &&/unwrap-int)
     "long" (doto writer
-             (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Long"))
+             (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Long"))
              &&/unwrap-long)
     "float" (doto writer
-              (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Float"))
+              (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Float"))
               &&/unwrap-float)
     "double" (doto writer
-               (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Double"))
+               (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Double"))
                &&/unwrap-double)
     "char" (doto writer
-             (.visitTypeInsn Opcodes/CHECKCAST (&host/->class "java.lang.Character"))
+             (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Character"))
              &&/unwrap-char)
     ;; else
     (doto writer
-      (.visitTypeInsn Opcodes/CHECKCAST (&host/->class type)))))
+      (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name type)))))
 
-(let [clo-field-sig (&host/->type-signature "java.lang.Object")
+(let [clo-field-sig (&host-generics/->type-signature "java.lang.Object")
       init-method "<init>"
       <init>-return "V"]
   (defn ^:private anon-class-<init>-signature [env]
@@ -528,7 +531,7 @@
          <init>-return))
 
   (defn ^:private add-anon-class-<init> [^ClassWriter class-writer compile class-name super-class env ctor-args]
-    (let [init-types (->> ctor-args (&/|map (comp &host/->type-signature &/|first)) (&/fold str ""))]
+    (let [init-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
       (&/with-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC init-method (anon-class-<init>-signature env) nil nil)
         (|do [^MethodVisitor =method &/get-writer
               :let [_ (doto =method (.visitCode)
@@ -540,7 +543,7 @@
                               (return nil))))
                         ctor-args)
               :let [_ (doto =method
-                        (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class super-class) init-method (str "(" init-types ")" <init>-return))
+                        (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class) init-method (str "(" init-types ")" <init>-return))
                         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                               (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
                               (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
@@ -554,19 +557,23 @@
           (return nil)))))
   )
 
-(defn compile-jvm-class [compile ?name ?super-class ?interfaces ?anns ?fields ?methods env ??ctor-args]
+(defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
         [file-name _ _] &/cursor
-        :let [full-name (str module "/" ?name)
-              super-class* (&host/->class ?super-class)
+        :let [[?name ?params] class-decl
+              _ (prn 'compile-jvm-class/_0 class-decl ?name)
+              class-signature (&host-generics/gclass-decl->signature class-decl (&/Cons$ ?super-class ?interfaces))
+              full-name (str module "/" ?name)
+              _ (prn 'compile-jvm-class/_1 full-name class-signature)
+              super-class* (&host-generics/->bytecode-class-name (&host-generics/super-class-name ?super-class))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                               full-name nil super-class* (->> ?interfaces (&/|map &host/->class) &/->seq (into-array String)))
+                               full-name nil super-class* (->> ?interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String)))
                        (.visitSource file-name nil))
               _ (&/|map (partial compile-annotation =class) ?anns)
               _ (&/|map (partial compile-field =class)
                         ?fields)]
-        _ (&/map% (partial compile-method compile =class) ?methods)
+        _ (&/map% (partial compile-method-def compile =class) ?methods)
         _ (|case ??ctor-args
             (&/$Some ctor-args)
             (add-anon-class-<init> =class compile full-name ?super-class env ctor-args)
@@ -584,7 +591,7 @@
                                    (str module "/" interface-name)
                                    (&host-generics/gclass-decl->signature interface-decl ?supers)
                                    "java/lang/Object"
-                                   (->> ?supers (&/|map (comp &host/->class &host-generics/super-class-name)) &/->seq (into-array String)))
+                                   (->> ?supers (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String)))
                            (.visitSource file-name nil))
               _ (&/|map (partial compile-annotation =interface) ?anns)
               _ (do (&/|map (partial compile-method-decl =interface) ?methods)
@@ -611,7 +618,7 @@
                                        ?catches)
               _ (doseq [[?ex-class $handler-start $handler-end] (&/->seq catch-boundaries)]
                   (doto *writer*
-                    (.visitTryCatchBlock $from $to $handler-start (&host/->class ?ex-class))
+                    (.visitTryCatchBlock $from $to $handler-start (&host-generics/->bytecode-class-name ?ex-class))
                     (.visitTryCatchBlock $handler-start $handler-end $catch-finally nil)))
               _ (.visitTryCatchBlock *writer* $from $to $catch-finally nil)]
         :let [_ (.visitLabel *writer* $from)]
@@ -663,14 +670,14 @@
   (defn <name> [compile ?value]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))
+                    (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
                     (.visitInsn Opcodes/DUP))]
           _ (compile ?value)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host/->class <from-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from-class>) <from-method> <from-sig>)
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from-class>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from-class>) <from-method> <from-sig>)
                     (.visitInsn <op>)
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class <to-class>) "<init>" <to-sig>))]]
+                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) "<init>" <to-sig>))]]
       (return nil)))
 
   compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue" "()D" "java.lang.Float"     "(F)V"
@@ -697,19 +704,19 @@
   (defn <name> [compile ?x ?y]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW (&host/->class <to-class>))
+                    (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
                     (.visitInsn Opcodes/DUP))]
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host/->class <from1-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from1-class>) <from1-method> <from1-sig>))]
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from1-class>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from1-class>) <from1-method> <from1-sig>))]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host/->class <from2-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host/->class <from2-class>) <from2-method> <from2-sig>))]
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from2-class>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from2-class>) <from2-method> <from2-sig>))]
           :let [_ (doto *writer*
                     (.visitInsn <op>)
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host/->class <to-class>) "<init>" <to-sig>))]]
+                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) "<init>" <to-sig>))]]
       (return nil)))
 
   compile-jvm-iand  Opcodes/IAND  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"

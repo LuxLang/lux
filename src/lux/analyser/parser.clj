@@ -148,23 +148,78 @@
     _
     (fail (str "[Analyser Error] Invalid annotation: " (&/show-ast ast)))))
 
-(defn parse-method-decl [ast]
+(defn ^:private parse-arg-decl [ast]
   (|case ast
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                          (&/$Cons [_ (&/$TupleS modifiers)]
-                                   (&/$Cons [_ (&/$TupleS anns)]
-                                            (&/$Cons [_ (&/$TupleS gvars)]
-                                                     (&/$Cons [_ (&/$TupleS method-exs)]
-                                                              (&/$Cons [_ (&/$TupleS inputs)]
-                                                                       (&/$Cons output
-                                                                                (&/$Nil)))))))))]
+    [_ (&/$FormS (&/$Cons [_ (&/$SymbolS ["" arg-name])]
+                          (&/$Cons gclass
+                                   (&/$Nil))))]
+    (|do [=gclass (parse-gclass gclass)]
+      (return (&/T arg-name =gclass)))
+    
+    _
+    (fail (str "[Analyser Error] Invalid argument declaration: " (&/show-ast ast)))))
+
+(defn ^:private parse-method-decl* [asts]
+  (|case asts
+    (&/$Cons [_ (&/$TextS method-name)]
+             (&/$Cons [_ (&/$TupleS modifiers)]
+                      (&/$Cons [_ (&/$TupleS anns)]
+                               (&/$Cons [_ (&/$TupleS gvars)]
+                                        (&/$Cons [_ (&/$TupleS exceptions)]
+                                                 (&/$Cons [_ (&/$TupleS inputs)]
+                                                          (&/$Cons output
+                                                                   *tail*)))))))
     (|do [=modifiers (parse-modifiers modifiers)
           =anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
-          =method-exs (&/map% parse-gclass method-exs)
-          =inputs (&/map% parse-gclass inputs)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/T method-name =modifiers =anns =gvars =method-exs =inputs =output)))
+      (return (&/T (&/T method-name =modifiers =anns =gvars =exceptions =inputs =output)
+                   *tail*)))
+    
+    _
+    (fail (str "[Analyser Error] Invalid method declaration: " (->> asts (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))))
+
+(defn parse-method-decl [ast]
+  (|case ast
+    [_ (&/$FormS tokens)]
+    (|do [[decl *tail*] (parse-method-decl* tokens)]
+      (|case *tail*
+        (&/$Nil)
+        (return decl)
+
+        _
+        (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
     
     _
     (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
+
+(defn parse-method-def [ast]
+  (|case ast
+    [_ (&/$FormS tokens)]
+    (|do [[decl *tail*] (parse-method-decl* tokens)]
+      (|case *tail*
+        (&/$Cons body (&/$Nil))
+        (return (&/T decl body))
+
+        _
+        (fail (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))
+    
+    _
+    (fail (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))
+
+(defn parse-field [ast]
+  (|case ast
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS ?name)]
+                          (&/$Cons [_ (&/$TupleS ?modifiers)]
+                                   (&/$Cons [_ (&/$TupleS ?anns)]
+                                            (&/$Cons [_ (&/$TextS ?type)]
+                                                     (&/$Nil))))))]
+    (|do [=modifiers (parse-modifiers ?modifiers)
+          =anns (&/map% parse-ann ?anns)
+          =type (parse-gclass ?type)]
+      (return (&/T ?name =modifiers =anns =type)))
+    
+    _
+    (fail (str "[Analyser Error] Invalid field declaration: " (&/show-ast ast)))))

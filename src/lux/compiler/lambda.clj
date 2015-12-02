@@ -15,6 +15,7 @@
                  [parser :as &parser]
                  [analyser :as &analyser]
                  [host :as &host])
+            [lux.host.generics :as &host-generics]
             [lux.analyser.base :as &a]
             (lux.compiler [base :as &&]))
   (:import (org.objectweb.asm Opcodes
@@ -23,8 +24,8 @@
                               MethodVisitor)))
 
 ;; [Utils]
-(def ^:private clo-field-sig (&host/->type-signature "java.lang.Object"))
-(def ^:private lambda-return-sig (&host/->type-signature "java.lang.Object"))
+(def ^:private clo-field-sig (&host-generics/->type-signature "java.lang.Object"))
+(def ^:private lambda-return-sig (&host-generics/->type-signature "java.lang.Object"))
 (def ^:private <init>-return "V")
 
 (def ^:private lambda-impl-signature

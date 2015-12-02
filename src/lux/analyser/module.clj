@@ -11,7 +11,8 @@
             clojure.core.match.array
             (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]]
                  [type :as &type]
-                 [host :as &host])))
+                 [host :as &host])
+            [lux.host.generics :as &host-generics]))
 
 ;; [Utils]
 (deftags
@@ -200,7 +201,7 @@
           [exported? (&/$ValueD ?type _)]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
-                 :let [macro (-> (.loadClass loader (str (&host/->class-name module) "." (&/normalize-name name)))
+                 :let [macro (-> (.loadClass loader (str (&host-generics/->class-name module) "." (&/normalize-name name)))
                                  (.getField &/datum-field)
                                  (.get nil))]]
              (fn [state*]

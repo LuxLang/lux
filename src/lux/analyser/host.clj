@@ -451,149 +451,143 @@
                                (&/V &&/$jvm-arraylength =array)
                                )))))
 
-(defn ^:private analyse-field [field]
-  (|case field
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS ?field-name)]
-                          (&/$Cons [_ (&/$TupleS ?field-modifiers)]
-                                   (&/$Cons [_ (&/$TupleS ?anns)]
-                                            (&/$Cons [_ (&/$TextS ?field-type)]
-                                                     (&/$Nil))))))]
-    (|do [=field-modifiers (&&a-parser/parse-modifiers ?field-modifiers)
-          =anns (&/map% &&a-parser/parse-ann ?anns)]
-      (return {:name ?field-name
-               :modifiers =field-modifiers
-               :anns =anns
-               :type ?field-type}))
+(defn generic-class->simple-class [gclass]
+  "(-> GenericClass Text)"
+  (|case gclass
+    (&/$GenericTypeVar var-name)
+    "java.lang.Object"
     
-    _
-    (fail "[Analyser Error] Wrong syntax for field.")))
+    (&/$GenericClass name params)
+    name
 
-(defn ^:private dummy-method-desc [method]
-  (|case method
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                          (&/$Cons [_ (&/$TupleS method-modifiers)]
-                                   (&/$Cons [_ (&/$TupleS method-anns)]
-                                            (&/$Cons [_ (&/$TupleS method-exs)]
-                                                     (&/$Cons [_ (&/$TupleS method-inputs)]
-                                                              (&/$Cons [_ (&/$TextS method-output)]
-                                                                       (&/$Cons method-body
-                                                                                (&/$Nil)))))))))]
-    (|do [=method-modifiers (&&a-parser/parse-modifiers method-modifiers)
-          =method-exs (&/map% &&a-parser/parse-text method-exs)
-          =method-inputs (&/map% (fn [minput]
-                                   (|case minput
-                                     [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
-                                                           (&/$Cons [_ (&/$TextS input-type)]
-                                                                    (&/$Nil))))]
-                                     (return (&/T input-name input-type))
+    (&/$GenericArray param)
+    (|case param
+      (&/$GenericArray _)
+      (str "[" (generic-class->simple-class param))
 
-                                     _
-                                     (fail "[Analyser Error] Wrong syntax for method input.")))
-                                 method-inputs)]
-      (return {:name method-name
-               :modifiers =method-modifiers
-               :anns (&/|list)
-               :exceptions =method-exs
-               :inputs (&/|map &/|second =method-inputs)
-               :output method-output}))
+      (&/$GenericClass "boolean" _)
+      "[Z"
+      
+      (&/$GenericClass "byte" _)
+      "[B"
+      
+      (&/$GenericClass "short" _)
+      "[S"
+      
+      (&/$GenericClass "int" _)
+      "[I"
+      
+      (&/$GenericClass "long" _)
+      "[J"
+      
+      (&/$GenericClass "float" _)
+      "[F"
+      
+      (&/$GenericClass "double" _)
+      "[D"
+      
+      (&/$GenericClass "char" _)
+      "[C"
+
+      (&/$GenericClass name params)
+      (str "[L" name ";")
+
+      (&/$GenericTypeVar var-name)
+      "[Ljava.lang.Object;")
+    ))
+
+(defn generic-class->type [gclass]
+  "(-> GenericClass (Lux Type))"
+  (|case gclass
+    (&/$GenericTypeVar var-name)
+    (return (&type/Data$ "java.lang.Object" &/Nil$))
     
-    _
-    (fail (str "[Analyser Error] Wrong syntax for method: " (&/show-ast method)))))
+    (&/$GenericClass name params)
+    (case name
+      "boolean" (return (&type/Data$ "java.lang.Boolean" (&/|list)))
+      "byte"    (return (&type/Data$ "java.lang.Byte" (&/|list)))
+      "short"   (return (&type/Data$ "java.lang.Short" (&/|list)))
+      "int"     (return (&type/Data$ "java.lang.Integer" (&/|list)))
+      "long"    (return (&type/Data$ "java.lang.Long" (&/|list)))
+      "float"   (return (&type/Data$ "java.lang.Float" (&/|list)))
+      "double"  (return (&type/Data$ "java.lang.Double" (&/|list)))
+      "char"    (return (&type/Data$ "java.lang.Character" (&/|list)))
+      "void"    (return &type/Unit)
+      ;; else
+      (|do [=params (&/map% generic-class->type params)]
+        (return (&type/Data$ name =params))))
 
-(defn ^:private analyse-method [analyse owner-class method]
-  (|case method
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
-                          (&/$Cons [_ (&/$TupleS method-modifiers)]
-                                   (&/$Cons [_ (&/$TupleS method-anns)]
-                                            (&/$Cons [_ (&/$TupleS method-exs)]
-                                                     (&/$Cons [_ (&/$TupleS method-inputs)]
-                                                              (&/$Cons [_ (&/$TextS method-output)]
-                                                                       (&/$Cons method-body
-                                                                                (&/$Nil)))))))))]
-    (|do [=method-modifiers (&&a-parser/parse-modifiers method-modifiers)
-          =anns (&/map% &&a-parser/parse-ann method-anns)
-          =method-exs (&/map% &&a-parser/parse-text method-exs)
-          =method-inputs (&/map% (fn [minput]
-                                   (|case minput
-                                     [_ (&/$FormS (&/$Cons [_ (&/$SymbolS "" input-name)]
-                                                           (&/$Cons [_ (&/$TextS input-type)]
-                                                                    (&/$Nil))))]
-                                     (return (&/T input-name input-type))
+    (&/$GenericArray param)
+    (|do [=param (generic-class->type param)]
+      (return (&type/Data$ &host-type/array-data-tag (&/|list =param))))
+    ))
 
-                                     _
-                                     (fail "[Analyser Error] Wrong syntax for method input.")))
-                                 method-inputs)
-          =method-body (&/fold (fn [body* input*]
-                                 (|let [[iname itype] input*]
-                                   (&&env/with-local iname (&type/Data$ (as-otype itype) &/Nil$)
-                                     body*)))
-                               (if (= "void" method-output)
-                                 (&&/analyse-1+ analyse method-body)
-                                 (&&/analyse-1 analyse (&type/Data$ (as-otype method-output) &/Nil$) method-body))
-                               (&/|reverse (&/Cons$ (&/T &&/jvm-this owner-class)
-                                                    =method-inputs)))]
-      (return {:name method-name
-               :modifiers =method-modifiers
-               :anns =anns
-               :exceptions =method-exs
-               :inputs (&/|map &/|second =method-inputs)
-               :output method-output
-               :body =method-body}))
-    
-    _
-    (fail (str "[Analyser Error] Wrong syntax for method: " (&/show-ast method)))))
+(defn ^:private analyse-method [analyse class-decl method]
+  (|do [:let [[?cname ?cparams] class-decl
+              class-type (&type/Data$ ?cname &/Nil$)
+              [?decl ?body] method
+              [_ _ _ _ _ ?inputs ?output] ?decl]
+        output-type (generic-class->type ?output)
+        =body (&/fold (fn [body* input*]
+                        (|do [:let [[iname itype*] input*]
+                              itype (generic-class->type itype*)]
+                          (&&env/with-local iname itype
+                            body*)))
+                      (&&/analyse-1 analyse output-type ?body)
+                      (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
+                                           ?inputs)))]
+    (return (&/T ?decl =body))))
 
 (defn ^:private mandatory-methods [supers]
   (|do [class-loader &/loader]
     (&/flat-map% (partial &host/abstract-methods class-loader) supers)))
 
 (defn ^:private check-method-completion [supers methods]
-  "(-> (List ClassName) (List MethodDesc) (Lux (,)))"
+  "(-> (List SuperClassDecl) (List (, MethodDecl Analysis)) (Lux (,)))"
   (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
-                                    (assoc mmap (:name mentry) mentry))
+                                    (prn 'methods-map (count mentry) mentry)
+                                    (|let [[[=name =modifiers =anns =gvars =exceptions =inputs =output] _] mentry]
+                                      (assoc mmap =name mentry)))
                                   {}
                                   methods)
               missing-method (&/fold (fn [missing abs-meth]
                                        (|let [[am-name am-inputs] abs-meth]
                                          (or missing
                                              (if-let [meth-struct (get methods-map am-name)]
-                                               (let [meth-inputs (:inputs meth-struct)]
-                                                 (if (and (= (&/|length meth-inputs) (&/|length am-inputs))
-                                                          (&/fold2 (fn [prev mi ai] (and prev (= mi ai)))
+                                               (|let [[[=name =modifiers =anns =gvars =exceptions =inputs =output] _] meth-struct]
+                                                 (if (and (= (&/|length =inputs) (&/|length am-inputs))
+                                                          (&/fold2 (fn [prev mi ai]
+                                                                     (|let [[iname itype] mi]
+                                                                       (and prev (= (generic-class->simple-class itype) ai))))
                                                                    true
-                                                                   meth-inputs am-inputs))
+                                                                   =inputs am-inputs))
                                                    nil
-                                                   am-name))
-                                               am-name))))
+                                                   abs-meth))
+                                               abs-meth))))
                                      nil
                                      abstract-methods)]]
     (if (nil? missing-method)
       (return nil)
-      (fail (str "[Analyser Error] Missing method: " missing-method)))))
+      (|let [[am-name am-inputs] missing-method]
+        (fail (str "[Analyser Error] Missing method: " am-name " " "(" (->> am-inputs (&/|interpose " ") (&/fold str "")) ")"))))))
 
-(defn analyse-jvm-class [analyse compile-token name super-class interfaces anns fields methods]
+(defn analyse-jvm-class [analyse compile-token class-decl super-class interfaces =anns =fields methods]
   (&/with-closure
     (|do [module &/get-module-name
-          :let [full-name (str module "." name)]
-          ;; :let [_ (prn 'analyse-jvm-class/_0)]
-          =anns (&/map% &&a-parser/parse-ann anns)
-          =fields (&/map% analyse-field fields)
-          ;; :let [_ (prn 'analyse-jvm-class/_1)]
-          =method-descs (&/map% dummy-method-desc methods)
-          _ (&host/use-dummy-class name super-class interfaces &/None$ =fields =method-descs)
-          =methods (&/map% (partial analyse-method analyse full-name) methods)
+          :let [[?name ?params] class-decl
+                full-name (str module "." ?name)]
+          _ (&host/use-dummy-class class-decl super-class interfaces &/None$ =fields methods)
+          =methods (&/map% (partial analyse-method analyse class-decl) methods)
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
           ;; :let [_ (prn 'analyse-jvm-class/_3)]
-          _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces =anns =fields =methods nil)))
-          :let [_ (println 'DEF (str module "." name))]]
+          _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces =anns =fields =methods nil)))
+          :let [_ (println 'DEF full-name)]]
       (return &/Nil$))))
 
-(defn analyse-jvm-interface [analyse compile-token interface-decl supers anns methods]
+(defn analyse-jvm-interface [analyse compile-token interface-decl supers =anns =methods]
   (|do [module &/get-module-name
-        =anns (&/map% &&a-parser/parse-ann anns)
-        =methods (&/map% &&a-parser/parse-method-decl methods)
         _ (compile-token (&/V &&/$jvm-interface (&/T interface-decl supers =anns =methods)))
         :let [_ (println 'DEF (str module "." (&/|first interface-decl)))]]
     (return &/Nil$)))
@@ -608,45 +602,50 @@
                               :final? false
                               :abstract? false
                               :concurrency nil}
-      default-<init> {:name "<init>"
-                      :modifiers {:visibility "public"
-                                  :static? false
-                                  :final? false
-                                  :abstract? false
-                                  :concurrency nil}
-                      :anns (&/|list)
-                      :exceptions (&/|list)
-                      :inputs (&/|list)
-                      :output "void"}
+      default-<init> (&/T "<init>"
+                          {:visibility "public"
+                           :static? false
+                           :final? false
+                           :abstract? false
+                           :concurrency nil}
+                          (&/|list)
+                          (&/|list)
+                          (&/|list)
+                          (&/|list)
+                          (&/V &/$GenericClass (&/T "void" (&/|list))))
       captured-slot-type "java.lang.Object"]
   (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces ctor-args methods]
     (&/with-closure
       (|do [module &/get-module-name
             scope &/get-scope-name
             :let [name (&host/location (&/|tail scope))
-                  anon-class (str module "." name)]
+                  class-decl (&/T name (&/|list))
+                  anon-class (str module "." name)
+                  _ (prn 'analyse-jvm-anon-class/_0 anon-class)
+                  _ (prn 'analyse-jvm-anon-class/_1 class-decl)
+                  anon-class-type (&type/Data$ anon-class (&/|list))]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|let [[arg-type arg-term] ctor-arg]
                                    (|do [=arg-term (&&/analyse-1+ analyse arg-term)]
                                      (return (&/T arg-type =arg-term)))))
                                ctor-args)
-            =method-descs (&/map% dummy-method-desc methods)
-            _ (->> =method-descs
+            _ (->> methods
+                   (&/|map &/|first)
                    (&/Cons$ default-<init>)
-                   (&host/use-dummy-class name super-class interfaces (&/Some$ =ctor-args) (&/|list)))
-            =methods (&/map% (partial analyse-method analyse anon-class) methods)
+                   (&host/use-dummy-class class-decl super-class interfaces (&/Some$ =ctor-args) (&/|list)))
+            =methods (&/map% (partial analyse-method analyse class-decl) methods)
             _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
             =captured &&env/captured-vars
             :let [=fields (&/|map (fn [^objects idx+capt]
-                                    {:name (str &c!base/closure-prefix (aget idx+capt 0))
-                                     :modifiers captured-slot-modifier
-                                     :anns (&/|list)
-                                     :type captured-slot-type})
+                                    (&/T (str &c!base/closure-prefix (aget idx+capt 0))
+                                         captured-slot-modifier
+                                         (&/|list)
+                                         captured-slot-type))
                                   (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
-            _ (compile-token (&/V &&/$jvm-class (&/T name super-class interfaces (&/|list) =fields =methods =captured (&/Some$ =ctor-args))))
+            _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces (&/|list) =fields =methods =captured (&/Some$ =ctor-args))))
             _cursor &/cursor]
-        (return (&/|list (&&/|meta (&type/Data$ anon-class (&/|list)) _cursor
+        (return (&/|list (&&/|meta anon-class-type _cursor
                                    (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources))
                                    )))
         ))))

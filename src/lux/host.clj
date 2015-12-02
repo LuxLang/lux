@@ -10,9 +10,9 @@
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [type :as &type])
-            [lux.type.host :as &host-type])
+            [lux.type.host :as &host-type]
+            [lux.host.generics :as &host-generics])
   (:import (java.lang.reflect Field Method Constructor Modifier Type)
-           java.util.regex.Pattern
            (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -27,36 +27,10 @@
 (def bytecode-version Opcodes/V1_6)
 
 ;; [Resources]
-(do-template [<name> <old-sep> <new-sep>]
-  (let [regex (-> <old-sep> Pattern/quote re-pattern)]
-    (defn <name> [old]
-      (string/replace old regex <new-sep>)))
-
-  ^String ->class        class-name-separator class-separator
-  ^String ->class-name   module-separator     class-name-separator
-  ^String ->module-class module-separator     class-separator
-  )
+(defn ^String ->module-class [old]
+  old)
 
 (def ->package ->module-class)
-
-(defn ->type-signature [class]
-  ;; (assert (string? class))
-  (case class
-    "void"    "V"
-    "boolean" "Z"
-    "byte"    "B"
-    "short"   "S"
-    "int"     "I"
-    "long"    "J"
-    "float"   "F"
-    "double"  "D"
-    "char"    "C"
-    ;; else
-    (let [class* (->class class)]
-      (if (.startsWith class* "[")
-        class*
-        (str "L" class* ";")))
-    ))
 
 (defn unfold-array [type]
   "(-> Type (, Int Type))"
@@ -68,8 +42,8 @@
     _
     (&/T 0 type)))
 
-(let [ex-type-class (str "L" (->class "java.lang.Object") ";")
-      object-array (str "[" "L" (->class "java.lang.Object") ";")]
+(let [ex-type-class (str "L" (&host-generics/->bytecode-class-name "java.lang.Object") ";")
+      object-array (str "[" "L" (&host-generics/->bytecode-class-name "java.lang.Object") ";")]
   (defn ->java-sig [^objects type]
     "(-> Type (Lux Text))"
     (|case type
@@ -77,17 +51,17 @@
       (cond (= &host-type/array-data-tag ?name) (|do [:let [[level base] (unfold-array type)]
                                                       base-sig (|case base
                                                                  (&/$DataT base-class _)
-                                                                 (return (->type-signature base-class))
+                                                                 (return (&host-generics/->type-signature base-class))
 
                                                                  _
                                                                  (->java-sig base))]
                                                   (return (str (->> (&/|repeat level "[") (&/fold str ""))
                                                                base-sig)))
-            (= &host-type/null-data-tag ?name)  (return (->type-signature "java.lang.Object"))
-            :else                               (return (->type-signature ?name)))
+            (= &host-type/null-data-tag ?name)  (return (&host-generics/->type-signature "java.lang.Object"))
+            :else                               (return (&host-generics/->type-signature ?name)))
 
       (&/$LambdaT _ _)
-      (return (->type-signature function-class))
+      (return (&host-generics/->type-signature function-class))
 
       (&/$TupleT (&/$Nil))
       (return "V")
@@ -171,10 +145,12 @@
         (return (&/T exs gvars gargs)))
       (fail (str "[Host Error] Constructor does not exist: " target)))))
 
-(defn abstract-methods [class-loader class]
-  (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj class) true class-loader))
-                          :when (Modifier/isAbstract (.getModifiers =method))]
-                      (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method)))))))))
+(defn abstract-methods [class-loader super-class]
+  "(-> ClassLoader SuperClassDecl (Lux (List (, Text (List Text)))))"
+  (|let [[super-name super-params] super-class]
+    (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj super-name) true class-loader))
+                            :when (Modifier/isAbstract (.getModifiers =method))]
+                        (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))))))
 
 (defn location [scope]
   (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))
@@ -227,16 +203,16 @@
   (case output
     "void" (if (= "<init>" name)
              (|let [(&/$Some ctor-args) ??ctor-args
-                    ctor-arg-types (->> ctor-args (&/|map (comp ->type-signature &/|first)) (&/fold str ""))]
+                    ctor-arg-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
                (doto writer
                  (.visitVarInsn Opcodes/ALOAD 0)
                  (-> (doto (dummy-value arg-type)
-                       (-> (.visitTypeInsn Opcodes/CHECKCAST (->class arg-type))
+                       (-> (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name arg-type))
                            (->> (when (not (primitive-jvm-type? arg-type))))))
                      (->> (doseq [ctor-arg (&/->seq ctor-args)
                                   :let [;; arg-term (&/|first ctor-arg)
                                         arg-type (&/|first ctor-arg)]])))
-                 (.visitMethodInsn Opcodes/INVOKESPECIAL (->class super-class) "<init>" (str "(" ctor-arg-types ")V"))
+                 (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class) "<init>" (str "(" ctor-arg-types ")V"))
                  (.visitInsn Opcodes/RETURN)))
              (.visitInsn writer Opcodes/RETURN))
     "boolean" (doto writer
@@ -268,34 +244,42 @@
       (.visitInsn Opcodes/ACONST_NULL)
       (.visitInsn Opcodes/ARETURN))))
 
-(defn use-dummy-class [name super-class interfaces ctor-args fields methods]
+(defn use-dummy-class [class-decl super-class interfaces ctor-args fields methods]
   (|do [module &/get-module-name
-        :let [full-name (str module "/" name)
+        :let [[?name ?params] class-decl
+              full-name (str module "/" ?name)
+              class-signature (&host-generics/gclass-decl->signature class-decl interfaces)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                               full-name nil (->class super-class) (->> interfaces (&/|map ->class) &/->seq (into-array String))))
+                               full-name
+                               class-signature
+                               (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
+                               (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
-                          (doto (.visitField =class (modifiers->int (:modifiers field)) (:name field)
-                                             (->type-signature (:type field)) nil nil)
-                            (.visitEnd)))
+                          (|let [[=name =modifiers =anns =type] field]
+                            (doto (.visitField =class (modifiers->int =modifiers) =name
+                                               (&host-generics/->type-signature =type) nil nil)
+                              (.visitEnd))))
                         fields)
-              _ (&/|map (fn [method]
-                          (|let [signature (str "(" (&/fold str "" (&/|map ->type-signature (:inputs method))) ")"
-                                                (->type-signature (:output method)))]
-                            (doto (.visitMethod =class (modifiers->int (:modifiers method))
-                                                (:name method)
-                                                signature
-                                                nil
-                                                (->> (:exceptions method) (&/|map ->class) &/->seq (into-array java.lang.String)))
+              _ (&/|map (fn [method-decl]
+                          (prn 'use-dummy-class (count method-decl) method-decl)
+                          (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] method-decl
+                                 [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
+                            (doto (.visitMethod =class (modifiers->int =modifiers)
+                                                =name
+                                                simple-signature
+                                                generic-signature
+                                                (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
                               .visitCode
-                              (dummy-return super-class ctor-args (:name method) (:output method))
+                              (dummy-return super-class ctor-args =name =output)
                               (.visitMaxs 0 0)
                               (.visitEnd))))
                         methods)
               bytecode (.toByteArray (doto =class .visitEnd))]
         ^ClassLoader loader &/loader
         !classes &/classes
-        :let [real-name (str (->class-name module) "." name)
+        :let [real-name (str (&host-generics/->class-name module) "." ?name)
+              _ (prn 'use-dummy-class/_0 ?name real-name)
               _ (swap! !classes assoc real-name bytecode)
               _ (.loadClass loader real-name)]]
     (return nil)))

@@ -401,8 +401,9 @@
   (&/Cons$ (&/T k v) fixpoints))
 
 (defn ^:private check-error [expected actual]
-  (str "[Type Checker]\nExpected: " (show-type expected)
-       "\n\nActual: " (show-type actual)
+  (str "[Type Checker]\n"
+       "Expected: " (show-type expected) "\n\n"
+       "Actual:   " (show-type actual)
        "\n"))
 
 (defn beta-reduce [env type]

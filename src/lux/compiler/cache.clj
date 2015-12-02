@@ -12,6 +12,7 @@
             (lux [base :as & :refer [|do return* return fail fail* |case |let]]
                  [type :as &type]
                  [host :as &host])
+            [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler [base :as &&]
@@ -81,7 +82,7 @@
       (if already-loaded?
         (return true)
         (if (cached? module)
-          (let [module* (&host/->class-name module)
+          (let [module* (&host-generics/->class-name module)
                 module-path (str &&/output-dir module)
                 class-name (str module* "._")
                 ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))

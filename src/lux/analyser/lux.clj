@@ -461,7 +461,7 @@
           _
           (fail "")))
       (fn [err]
-        (fail (str "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
+        (fail (str err "\n" "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
     ))
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]

@@ -14,9 +14,7 @@
 (defn -main [& args]
   (|case (&/->list args)
     (&/$Cons "compile" (&/$Cons program-module (&/$Nil)))
-    (if program-module
-      (time (&compiler/compile-program program-module))
-      (println "Please provide a module name to compile."))
+    (time (&compiler/compile-program program-module))
 
     _
     (println "Can't understand command.")))

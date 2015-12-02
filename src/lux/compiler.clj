@@ -18,6 +18,7 @@
                  [analyser :as &analyser]
                  [optimizer :as &optimizer]
                  [host :as &host])
+            [lux.host.generics :as &host-generics]
             [lux.optimizer :as &o]
             [lux.analyser.base :as &a]
             [lux.analyser.module :as &a-module]
@@ -467,7 +468,7 @@
                                          .visitEnd))]
           _ (&&/save-class! (str id) bytecode)
           loader &/loader]
-      (-> (.loadClass ^ClassLoader loader (str (&host/->class-name module) "." id))
+      (-> (.loadClass ^ClassLoader loader (str (&host-generics/->class-name module) "." id))
           (.getField &/eval-field)
           (.get nil)
           return))))

@@ -15,6 +15,7 @@
                  [parser :as &parser]
                  [analyser :as &analyser]
                  [host :as &host])
+            [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler [base :as &&]
@@ -211,7 +212,7 @@
           :let [_ (.visitEnd *writer*)]
           _ (&&/save-class! def-name (.toByteArray =class))
           class-loader &/loader
-          :let [def-class (&&/load-class! class-loader (&host/->class-name current-class))]
+          :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))]
           _ (&a-module/define module-name ?name (-> def-class (.getField &/meta-field) (.get nil)) =value-type)]
       (return nil))))
 
