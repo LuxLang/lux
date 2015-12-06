@@ -496,11 +496,13 @@
       "[Ljava.lang.Object;")
     ))
 
-(defn generic-class->type [gclass]
-  "(-> GenericClass (Lux Type))"
+(defn generic-class->type [env gclass]
+  "(-> (List (, TypeVar Type)) GenericClass (Lux Type))"
   (|case gclass
     (&/$GenericTypeVar var-name)
-    (return (&type/Data$ "java.lang.Object" &/Nil$))
+    (if-let [ex (&/|get var-name env)]
+      (return ex)
+      (fail (str "[Analysis Error] Unknown type var: " var-name)))
     
     (&/$GenericClass name params)
     (case name
@@ -514,23 +516,28 @@
       "char"    (return (&type/Data$ "java.lang.Character" (&/|list)))
       "void"    (return &type/Unit)
       ;; else
-      (|do [=params (&/map% generic-class->type params)]
+      (|do [=params (&/map% (partial generic-class->type env) params)]
         (return (&type/Data$ name =params))))
 
     (&/$GenericArray param)
-    (|do [=param (generic-class->type param)]
+    (|do [=param (generic-class->type env param)]
       (return (&type/Data$ &host-type/array-data-tag (&/|list =param))))
     ))
 
 (defn ^:private analyse-method [analyse class-decl method]
   (|do [:let [[?cname ?cparams] class-decl
-              class-type (&type/Data$ ?cname &/Nil$)
+              class-type (&/V &/$GenericClass (&/T ?cname &/Nil$))
               [?decl ?body] method
-              [_ _ _ _ _ ?inputs ?output] ?decl]
-        output-type (generic-class->type ?output)
+              [_ _ _ ?gvars ?exs ?inputs ?output] ?decl
+              all-gvars (&/|++ ?cparams ?gvars)]
+        gvar-env (&/map% (fn [gvar]
+                           (|do [ex &type/existential]
+                             (return (&/T gvar ex))))
+                         all-gvars)
+        output-type (generic-class->type gvar-env ?output)
         =body (&/fold (fn [body* input*]
                         (|do [:let [[iname itype*] input*]
-                              itype (generic-class->type itype*)]
+                              itype (generic-class->type gvar-env itype*)]
                           (&&env/with-local iname itype
                             body*)))
                       (&&/analyse-1 analyse output-type ?body)
