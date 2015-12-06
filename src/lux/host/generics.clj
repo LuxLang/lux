@@ -102,7 +102,7 @@
       (assert false "gclass->bytecode-class-name doesn't work on arrays."))))
 
 (defn method-signatures [method-decl]
-  (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] method-decl
+  (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl
          simple-signature (str "(" (&/fold str "" (&/|map (comp gclass->simple-signature &/|second) =inputs)) ")" (gclass->simple-signature =output))
          generic-signature (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"
                                 "(" (&/fold str "" (&/|map (comp gclass->signature &/|second) =inputs)) ")"

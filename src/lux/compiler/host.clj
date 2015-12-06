@@ -424,8 +424,8 @@
   nil)
 
 (defn ^:private compile-field [^ClassWriter writer field]
-  (|let [[=name =modifiers =anns =type] field
-         =field (.visitField writer (&host/modifiers->int =modifiers) =name
+  (|let [[=name =anns =type] field
+         =field (.visitField writer Opcodes/ACC_PUBLIC =name
                              (&host-generics/->type-signature =type) nil nil)]
     (do (&/|map (partial compile-annotation =field) =anns)
       (.visitEnd =field)
@@ -463,9 +463,10 @@
 
 (defn ^:private compile-method-def [compile ^ClassWriter class-writer method-def]
   (|let [[=method-decl =body] method-def
-         [=name =modifiers =anns =gvars =exceptions =inputs =output] =method-decl
+         [=name =anns =gvars =exceptions =inputs =output] =method-decl
          [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
-    (&/with-writer (.visitMethod class-writer (&host/modifiers->int =modifiers)
+    (&/with-writer (.visitMethod class-writer
+                                 Opcodes/ACC_PUBLIC
                                  =name
                                  simple-signature
                                  generic-signature
@@ -481,10 +482,10 @@
         (return nil)))))
 
 (defn ^:private compile-method-decl [^ClassWriter class-writer =method-decl]
-  (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] =method-decl
+  (|let [[=name =anns =gvars =exceptions =inputs =output] =method-decl
          [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)
          =method (.visitMethod class-writer
-                               (&host/modifiers->int =modifiers)
+                               (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT)
                                =name
                                simple-signature
                                generic-signature

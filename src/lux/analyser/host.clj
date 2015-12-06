@@ -528,7 +528,7 @@
   (|do [:let [[?cname ?cparams] class-decl
               class-type (&/V &/$GenericClass (&/T ?cname &/Nil$))
               [?decl ?body] method
-              [_ _ _ ?gvars ?exs ?inputs ?output] ?decl
+              [_ _ ?gvars ?exs ?inputs ?output] ?decl
               all-gvars (&/|++ ?cparams ?gvars)]
         gvar-env (&/map% (fn [gvar]
                            (|do [ex &type/existential]
@@ -554,7 +554,7 @@
   (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
                                     (prn 'methods-map (count mentry) mentry)
-                                    (|let [[[=name =modifiers =anns =gvars =exceptions =inputs =output] _] mentry]
+                                    (|let [[[=name =anns =gvars =exceptions =inputs =output] _] mentry]
                                       (assoc mmap =name mentry)))
                                   {}
                                   methods)
@@ -562,7 +562,7 @@
                                        (|let [[am-name am-inputs] abs-meth]
                                          (or missing
                                              (if-let [meth-struct (get methods-map am-name)]
-                                               (|let [[[=name =modifiers =anns =gvars =exceptions =inputs =output] _] meth-struct]
+                                               (|let [[[=name =anns =gvars =exceptions =inputs =output] _] meth-struct]
                                                  (if (and (= (&/|length =inputs) (&/|length am-inputs))
                                                           (&/fold2 (fn [prev mi ai]
                                                                      (|let [[iname itype] mi]
@@ -604,17 +604,7 @@
     [name [_ (&&/$captured _ _ source)]]
     source))
 
-(let [captured-slot-modifier {:visibility "private"
-                              :static? false
-                              :final? false
-                              :abstract? false
-                              :concurrency nil}
-      default-<init> (&/T "<init>"
-                          {:visibility "public"
-                           :static? false
-                           :final? false
-                           :abstract? false
-                           :concurrency nil}
+(let [default-<init> (&/T "<init>"
                           (&/|list)
                           (&/|list)
                           (&/|list)
@@ -645,7 +635,6 @@
             =captured &&env/captured-vars
             :let [=fields (&/|map (fn [^objects idx+capt]
                                     (&/T (str &c!base/closure-prefix (aget idx+capt 0))
-                                         captured-slot-modifier
                                          (&/|list)
                                          captured-slot-type))
                                   (&/enumerate =captured))]

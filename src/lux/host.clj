@@ -12,7 +12,8 @@
                  [type :as &type])
             [lux.type.host :as &host-type]
             [lux.host.generics :as &host-generics])
-  (:import (java.lang.reflect Field Method Constructor Modifier Type)
+  (:import (java.lang.reflect Field Method Constructor Modifier Type
+                              GenericArrayType ParameterizedType TypeVariable)
            (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -155,21 +156,6 @@
 (defn location [scope]
   (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))
 
-(defn modifiers->int [mods]
-  (+ (case (:visibility mods)
-       "default" 0
-       "public" Opcodes/ACC_PUBLIC
-       "private" Opcodes/ACC_PRIVATE
-       "protected" Opcodes/ACC_PROTECTED)
-     (if (:static? mods) Opcodes/ACC_STATIC 0)
-     (if (:final? mods) Opcodes/ACC_FINAL 0)
-     (if (:abstract? mods) Opcodes/ACC_ABSTRACT 0)
-     (case (:concurrency mods)
-       "synchronized" Opcodes/ACC_SYNCHRONIZED
-       "volatile" Opcodes/ACC_VOLATILE
-       ;; else
-       0)))
-
 (defn primitive-jvm-type? [type]
   (case type
     ("boolean" "byte" "short" "int" "long" "float" "double" "char")
@@ -256,16 +242,16 @@
                                (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
                                (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
-                          (|let [[=name =modifiers =anns =type] field]
-                            (doto (.visitField =class (modifiers->int =modifiers) =name
+                          (|let [[=name =anns =type] field]
+                            (doto (.visitField =class Opcodes/ACC_PUBLIC =name
                                                (&host-generics/->type-signature =type) nil nil)
                               (.visitEnd))))
                         fields)
               _ (&/|map (fn [method-decl]
                           (prn 'use-dummy-class (count method-decl) method-decl)
-                          (|let [[=name =modifiers =anns =gvars =exceptions =inputs =output] method-decl
+                          (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl
                                  [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
-                            (doto (.visitMethod =class (modifiers->int =modifiers)
+                            (doto (.visitMethod =class Opcodes/ACC_PUBLIC
                                                 =name
                                                 simple-signature
                                                 generic-signature
