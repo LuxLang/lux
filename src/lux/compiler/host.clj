@@ -599,6 +599,23 @@
                   (.visitEnd =interface))]]
     (&&/save-class! interface-name (.toByteArray =interface))))
 
+(def compile-Function-class
+  (|do [? (&&/class-exists? "lux" "Function")]
+    (if ?
+      (return nil)
+      (&/with-scope "lux"
+        (let [object-class (&/V &/$GenericClass (&/T "java.lang.Object" (&/|list)))
+              interface-decl (&/T "Function" (&/|list))
+              ?supers (&/|list)
+              ?anns (&/|list)
+              ?methods (&/|list (&/T "apply"
+                                     (&/|list)
+                                     (&/|list)
+                                     (&/|list)
+                                     (&/|list (&/T "arg" object-class))
+                                     object-class))]
+          (compile-jvm-interface nil interface-decl ?supers ?anns ?methods))))))
+
 (defn compile-jvm-try [compile ?body ?catches ?finally]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$from (new Label)

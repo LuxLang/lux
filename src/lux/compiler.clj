@@ -545,11 +545,14 @@
 ;; [Resources]
 (defn compile-program [program-module]
   (init!)
-  (|case ((&/map% compile-module (&/|list "lux" program-module)) (&/init-state nil))
-    (&/$Right ?state _)
-    (do (println "Compilation complete!")
-      (&&cache/clean ?state)
-      (&packager-program/package program-module))
+  (let [m-action (|do [_ &&host/compile-Function-class
+                       _ (&/map% compile-module (&/|list "lux" program-module))]
+                   (return nil))]
+    (|case (m-action (&/init-state nil))
+      (&/$Right ?state _)
+      (do (println "Compilation complete!")
+        (&&cache/clean ?state)
+        (&packager-program/package program-module))
 
-    (&/$Left ?message)
-    (assert false ?message)))
+      (&/$Left ?message)
+      (assert false ?message))))

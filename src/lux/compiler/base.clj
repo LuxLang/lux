@@ -27,8 +27,8 @@
 ;; [Constants]
 (def ^String version "0.3.1")
 (def ^String input-dir "source")
-(def ^String output-dir "target/jvm/")
-(def ^String output-package (str output-dir "program.jar"))
+(def ^String output-dir "target/jvm")
+(def ^String output-package (str output-dir "/" "program.jar"))
 (def ^String function-class "lux/Function")
 
 ;; Formats
@@ -56,9 +56,16 @@
 
 (defn ^:private write-output [module name data]
   (let [module* (&host/->module-class module)
-        module-dir (str output-dir module*)]
+        module-dir (str output-dir "/" module*)]
     (.mkdirs (File. module-dir))
     (write-file (str module-dir "/" name ".class") data)))
+
+(defn class-exists? [^String module ^String class-name]
+  "(-> Text Text (IO Bool))"
+  (|do [_ (return nil)
+        :let [full-path (str output-dir "/" module "/" class-name ".class")
+              exists? (.exists (File. full-path))]]
+    (return exists?)))
 
 ;; [Exports]
 (defn ^Class load-class! [^ClassLoader loader name]
