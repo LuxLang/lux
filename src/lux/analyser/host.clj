@@ -524,26 +524,89 @@
       (return (&type/Data$ &host-type/array-data-tag (&/|list =param))))
     ))
 
-(defn ^:private analyse-method [analyse class-decl method]
-  (|do [:let [[?cname ?cparams] class-decl
-              class-type (&/V &/$GenericClass (&/T ?cname &/Nil$))
-              [?decl ?body] method
-              [_ _ ?gvars ?exs ?inputs ?output] ?decl
-              all-gvars (&/|++ ?cparams ?gvars)]
-        gvar-env (&/map% (fn [gvar]
-                           (|do [ex &type/existential]
-                             (return (&/T gvar ex))))
-                         all-gvars)
-        output-type (generic-class->type gvar-env ?output)
-        =body (&/fold (fn [body* input*]
-                        (|do [:let [[iname itype*] input*]
-                              itype (generic-class->type gvar-env itype*)]
-                          (&&env/with-local iname itype
-                            body*)))
-                      (&&/analyse-1 analyse output-type ?body)
-                      (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
-                                           ?inputs)))]
-    (return (&/T ?decl =body))))
+(defn gen-super-env [class-env supers class-decl]
+  "(-> (List (, TypeVar Type)) (List SuperClassDecl) ClassDecl (Lux (List (, Text Type))))"
+  (|let [[class-name class-vars] class-decl]
+    (|case (&/|some (fn [super]
+                      (|let [[super-name super-params] super]
+                        (if (= class-name super-name)
+                          (&/Some$ (&/zip2 class-vars super-params))
+                          &/None$)))
+                    supers)
+      (&/$None)
+      (fail (str "[Analyser Error] Unrecognized super-class: " class-name))
+
+      (&/$Some vars+gtypes)
+      (&/map% (fn [var+gtype]
+                (|do [:let [[var gtype] var+gtype]
+                      =gtype (generic-class->type class-env gtype)]
+                  (return (&/T var =gtype))))
+              vars+gtypes)
+      )))
+
+(defn ^:private analyse-method [analyse class-decl class-env all-supers method]
+  "(-> Analyser ClassDecl (List (, TypeVar Type)) (List SuperClassDecl) MethodSyntax (Lux MethodAnalysis))"
+  (|let [[?cname ?cparams] class-decl
+         class-type (&/V &/$GenericClass (&/T ?cname &/Nil$))]
+    (|case method
+      (&/$ConstructorMethodSyntax ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
+      (|do [:let [all-gvars (&/|++ ?cparams ?gvars)]
+            gvar-env (&/map% (fn [gvar]
+                               (|do [ex &type/existential]
+                                 (return (&/T gvar ex))))
+                             all-gvars)
+            :let [output-type &type/Unit]
+            =ctor-args (&/map% (fn [ctor-arg]
+                                 (|do [:let [[ca-type ca-term] ctor-arg]
+                                       =ca-type (generic-class->type gvar-env ca-type)
+                                       =ca-term (&&/analyse-1 analyse =ca-type ca-term)]
+                                   (return (&/T =ca-type =ca-term))))
+                               ?ctor-args)
+            =body (&/fold (fn [body* input*]
+                            (|do [:let [[iname itype*] input*]
+                                  itype (generic-class->type gvar-env itype*)]
+                              (&&env/with-local iname itype
+                                body*)))
+                          (&&/analyse-1 analyse output-type ?body)
+                          (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
+                                               ?inputs)))]
+        (return (&/V &/$ConstructorMethodAnalysis (&/T ?anns ?gvars ?exceptions ?inputs =ctor-args =body))))
+      
+      (&/$VirtualMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (|do [:let [all-gvars (&/|++ ?cparams ?gvars)]
+            all-env (&/map% (fn [gvar]
+                              (|do [ex &type/existential]
+                                (return (&/T gvar ex))))
+                            all-gvars)
+            output-type (generic-class->type all-env ?output)
+            =body (&/fold (fn [body* input*]
+                            (|do [:let [[iname itype*] input*]
+                                  itype (generic-class->type all-env itype*)]
+                              (&&env/with-local iname itype
+                                body*)))
+                          (&&/analyse-1 analyse output-type ?body)
+                          (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
+                                               ?inputs)))]
+        (return (&/V &/$VirtualMethodAnalysis (&/T ?name ?anns ?gvars ?exceptions ?inputs ?output =body))))
+      
+      (&/$OverridenMethodSyntax ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (|do [super-env (gen-super-env class-env all-supers ?class-decl)
+            gvar-env (&/map% (fn [gvar]
+                               (|do [ex &type/existential]
+                                 (return (&/T gvar ex))))
+                             ?gvars)
+            :let [full-env (&/|++ super-env gvar-env)]
+            output-type (generic-class->type full-env ?output)
+            =body (&/fold (fn [body* input*]
+                            (|do [:let [[iname itype*] input*]
+                                  itype (generic-class->type full-env itype*)]
+                              (&&env/with-local iname itype
+                                body*)))
+                          (&&/analyse-1 analyse output-type ?body)
+                          (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
+                                               ?inputs)))]
+        (return (&/V &/$OverridenMethodAnalysis (&/T ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output =body))))
+      )))
 
 (defn ^:private mandatory-methods [supers]
   (|do [class-loader &/loader]
@@ -554,19 +617,28 @@
   (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
                                     (prn 'methods-map (count mentry) mentry)
-                                    (|let [[[=name =anns =gvars =exceptions =inputs =output] _] mentry]
-                                      (assoc mmap =name mentry)))
+                                    (|case mentry
+                                      (&/$ConstructorMethodAnalysis _)
+                                      mmap
+                                      
+                                      (&/$VirtualMethodAnalysis _)
+                                      mmap
+                                      
+                                      (&/$OverridenMethodAnalysis =class-decl =name =anns =gvars =exceptions =inputs =output body)
+                                      (assoc mmap =name =inputs)
+                                      ))
                                   {}
                                   methods)
               missing-method (&/fold (fn [missing abs-meth]
-                                       (|let [[am-name am-inputs] abs-meth]
-                                         (or missing
+                                       (or missing
+                                           (|let [[am-name am-inputs] abs-meth]
                                              (if-let [meth-struct (get methods-map am-name)]
-                                               (|let [[[=name =anns =gvars =exceptions =inputs =output] _] meth-struct]
+                                               (|let [=inputs meth-struct]
                                                  (if (and (= (&/|length =inputs) (&/|length am-inputs))
                                                           (&/fold2 (fn [prev mi ai]
                                                                      (|let [[iname itype] mi]
-                                                                       (and prev (= (generic-class->simple-class itype) ai))))
+                                                                       (do (prn '[iname itype] [iname itype])
+                                                                         (and prev (= (generic-class->simple-class itype) ai)))))
                                                                    true
                                                                    =inputs am-inputs))
                                                    nil
@@ -583,11 +655,16 @@
   (&/with-closure
     (|do [module &/get-module-name
           :let [[?name ?params] class-decl
-                full-name (str module "." ?name)]
+                full-name (str module "." ?name)
+                all-supers (&/Cons$ super-class interfaces)]
+          class-env (&/map% (fn [gvar]
+                              (|do [ex &type/existential]
+                                (return (&/T gvar ex))))
+                            ?params)
           _ (&host/use-dummy-class class-decl super-class interfaces &/None$ =fields methods)
-          =methods (&/map% (partial analyse-method analyse class-decl) methods)
+          =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
-          _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
+          _ (check-method-completion all-supers =methods)
           ;; :let [_ (prn 'analyse-jvm-class/_3)]
           _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces =anns =fields =methods nil)))
           :let [_ (println 'DEF full-name)]]
@@ -604,12 +681,12 @@
     [name [_ (&&/$captured _ _ source)]]
     source))
 
-(let [default-<init> (&/T "<init>"
-                          (&/|list)
-                          (&/|list)
-                          (&/|list)
-                          (&/|list)
-                          (&/V &/$GenericClass (&/T "void" (&/|list))))
+(let [default-<init> (&/V &/$ConstructorMethodSyntax (&/T (&/|list)
+                                                          (&/|list)
+                                                          (&/|list)
+                                                          (&/|list)
+                                                          (&/|list)
+                                                          (&/V &/$TupleS (&/|list))))
       captured-slot-type "java.lang.Object"]
   (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces ctor-args methods]
     (&/with-closure
@@ -627,11 +704,12 @@
                                      (return (&/T arg-type =arg-term)))))
                                ctor-args)
             _ (->> methods
-                   (&/|map &/|first)
                    (&/Cons$ default-<init>)
                    (&host/use-dummy-class class-decl super-class interfaces (&/Some$ =ctor-args) (&/|list)))
-            =methods (&/map% (partial analyse-method analyse class-decl) methods)
-            _ (check-method-completion (&/Cons$ super-class interfaces) =methods)
+            :let [all-supers (&/Cons$ super-class interfaces)
+                  class-env (&/|list)]
+            =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
+            _ (check-method-completion all-supers =methods)
             =captured &&env/captured-vars
             :let [=fields (&/|map (fn [^objects idx+capt]
                                     (&/T (str &c!base/closure-prefix (aget idx+capt 0))
@@ -667,7 +745,8 @@
 
 (defn analyse-jvm-throw [analyse exo-type ?ex]
   (|do [=ex (&&/analyse-1 analyse (&type/Data$ "java.lang.Throwable" &/Nil$) ?ex)
-        _cursor &/cursor]
+        _cursor &/cursor
+        _ (&type/check exo-type &type/$Void)]
     (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$jvm-throw =ex))))))
 
 (do-template [<name> <tag>]

@@ -112,6 +112,17 @@
    "GenericClass"
    "GenericArray"])
 
+;; Methods
+(deftags
+  ["ConstructorMethodSyntax"
+   "VirtualMethodSyntax"
+   "OverridenMethodSyntax"])
+
+(deftags
+  ["ConstructorMethodAnalysis"
+   "VirtualMethodAnalysis"
+   "OverridenMethodAnalysis"])
+
 ;; [Exports]
 (def datum-field "_datum")
 (def meta-field "_meta")
@@ -323,6 +334,7 @@
     ))
 
 (defn |empty? [xs]
+  "(All [a] (-> (List a) Bool))"
   (|case xs
     ($Nil)
     true
@@ -331,6 +343,7 @@
     false))
 
 (defn |filter [p xs]
+  "(All [a] (-> (-> a Bool) (List a) (List a)))"
   (|case xs
     ($Nil)
     xs
@@ -341,6 +354,7 @@
       (|filter p xs*))))
 
 (defn flat-map [f xs]
+  "(All [a b] (-> (-> a (List b)) (List a) (List b)))"
   (|case xs
     ($Nil)
     xs
@@ -996,6 +1010,7 @@
 
 (do-template [<name> <default> <op>]
   (defn <name> [p xs]
+    "(All [a] (-> (-> a Bool) (List a) Bool))"
     (|case xs
       ($Nil)
       <default>
@@ -1013,6 +1028,7 @@
       (f y))))
 
 (defn with-attempt [m-value on-error]
+  "(All [a] (-> (Lux a) (-> Text (Lux a)) (Lux a)))"
   (fn [state]
     (|case (m-value state)
       ($Left msg)
@@ -1020,3 +1036,15 @@
       
       output
       output)))
+
+(defn |some [f xs]
+  "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
+  (|case xs
+    ($Nil)
+    None$
+
+    ($Cons x xs*)
+    (|case (f x)
+      ($None) (|some f xs*)
+      output  output)
+    ))

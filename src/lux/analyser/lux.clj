@@ -351,38 +351,40 @@
     ))
 
 (defn analyse-apply [analyse exo-type form-cursor =fn ?args]
-  (|do [loader &/loader]
-    (|let [[[=fn-type =fn-cursor] =fn-form] =fn]
-      (|case =fn-form
-        (&&/$var (&/$Global ?module ?name))
-        (|do [[real-name $def] (&&module/find-def ?module ?name)]
-          (|case $def
-            (&/$MacroD macro)
-            (|do [macro-expansion #(-> macro (.apply ?args) (.apply %))
-                  ;; :let [_ (when (or (= "invoke-static$" (aget real-name 1))
-                  ;;                   (= "invoke-virtual$" (aget real-name 1))
-                  ;;                   (= "new$" (aget real-name 1))
-                  ;;                   (= "let%" (aget real-name 1))
-                  ;;                   (= "jvm-import" (aget real-name 1)))
-                  ;;           (->> (&/|map &/show-ast macro-expansion)
-                  ;;                (&/|interpose "\n")
-                  ;;                (&/fold str "")
-                  ;;                (prn (&/ident->text real-name))))]
-                  ]
-              (&/flat-map% (partial analyse exo-type) macro-expansion))
+  (|do [loader &/loader
+        :let [[[=fn-type =fn-cursor] =fn-form] =fn]]
+    (|case =fn-form
+      (&&/$var (&/$Global ?module ?name))
+      (|do [[real-name $def] (&&module/find-def ?module ?name)]
+        (|case $def
+          (&/$MacroD macro)
+          (|do [macro-expansion (fn [state] (-> macro (.apply ?args) (.apply state)))
+                ;; :let [_ (when (or (= "case" (aget real-name 1))
+                ;;                   ;; (= "invoke-static$" (aget real-name 1))
+                ;;                   ;; (= "invoke-virtual$" (aget real-name 1))
+                ;;                   ;; (= "new$" (aget real-name 1))
+                ;;                   ;; (= "let%" (aget real-name 1))
+                ;;                   ;; (= "jvm-import" (aget real-name 1))
+                ;;                   )
+                ;;           (->> (&/|map &/show-ast macro-expansion)
+                ;;                (&/|interpose "\n")
+                ;;                (&/fold str "")
+                ;;                (prn (&/ident->text real-name))))]
+                ]
+            (&/flat-map% (partial analyse exo-type) macro-expansion))
 
-            _
-            (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-              (return (&/|list (&&/|meta =output-t =fn-cursor
-                                         (&/V &&/$apply (&/T =fn =args))
-                                         ))))))
-        
-        _
-        (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-          (return (&/|list (&&/|meta =output-t =fn-cursor
-                                     (&/V &&/$apply (&/T =fn =args))
-                                     )))))
-      )))
+          _
+          (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
+            (return (&/|list (&&/|meta =output-t =fn-cursor
+                                       (&/V &&/$apply (&/T =fn =args))
+                                       ))))))
+      
+      _
+      (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
+        (return (&/|list (&&/|meta =output-t =fn-cursor
+                                   (&/V &&/$apply (&/T =fn =args))
+                                   )))))
+    ))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [:let [num-branches (&/|length ?branches)]

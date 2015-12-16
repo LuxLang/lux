@@ -26,14 +26,6 @@
     _
     (fail (str "[Analyser Error] Not text: " (&/show-ast ast)))))
 
-(defn parse-ctor-arg [ast]
-  (|case ast
-    [_ (&/$TupleS (&/$Cons ?class (&/$Cons [_ (&/$TextS ?term)] (&/$Nil))))]
-    (return (&/T ?class ?term))
-
-    _
-    (fail (str "[Analyser Error] Not constructor argument: " (&/show-ast ast)))))
-
 (defn parse-gclass-decl [ast]
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS args)] (&/$Nil))))]
@@ -67,6 +59,15 @@
 
     _
     (fail (str "[Analyser Error] Not generic super-class: " (&/show-ast ast)))))
+
+(defn parse-ctor-arg [ast]
+  (|case ast
+    [_ (&/$TupleS (&/$Cons ?class (&/$Cons ?term (&/$Nil))))]
+    (|do [=class (parse-gclass ?class)]
+      (return (&/T =class ?term)))
+
+    _
+    (fail (str "[Analyser Error] Not constructor argument: " (&/show-ast ast)))))
 
 (defn parse-handler [[catch+ finally+] token]
   (|case token
@@ -123,7 +124,7 @@
     _
     (fail (str "[Analyser Error] Invalid argument declaration: " (&/show-ast ast)))))
 
-(defn ^:private parse-method-decl* [asts]
+(defn parse-method-decl [asts]
   (|case asts
     (&/$Cons [_ (&/$TextS method-name)]
              (&/$Cons [_ (&/$TupleS anns)]
@@ -135,7 +136,7 @@
     (|do [=anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
-          =inputs (&/map% parse-arg-decl inputs)
+          =inputs (&/map% parse-gclass inputs)
           =output (parse-gclass output)]
       (return (&/T (&/T method-name =anns =gvars =exceptions =inputs =output)
                    *tail*)))
@@ -143,30 +144,53 @@
     _
     (fail (str "[Analyser Error] Invalid method declaration: " (->> asts (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))))
 
-(defn parse-method-decl [ast]
-  (|case ast
-    [_ (&/$FormS tokens)]
-    (|do [[decl *tail*] (parse-method-decl* tokens)]
-      (|case *tail*
-        (&/$Nil)
-        (return decl)
-
-        _
-        (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
-    
-    _
-    (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
-
 (defn parse-method-def [ast]
   (|case ast
-    [_ (&/$FormS tokens)]
-    (|do [[decl *tail*] (parse-method-decl* tokens)]
-      (|case *tail*
-        (&/$Cons body (&/$Nil))
-        (return (&/T decl body))
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "init")]
+                          (&/$Cons [_ (&/$TupleS anns)]
+                                   (&/$Cons [_ (&/$TupleS gvars)]
+                                            (&/$Cons [_ (&/$TupleS exceptions)]
+                                                     (&/$Cons [_ (&/$TupleS inputs)]
+                                                              (&/$Cons ?ctor-args
+                                                                       (&/$Cons body (&/$Nil)))))))))]
+    (|do [=anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
+      (return (&/V &/$ConstructorMethodSyntax (&/T =anns =gvars =exceptions =inputs =ctor-args body))))
 
-        _
-        (fail (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "virtual")]
+                          (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons [_ (&/$TupleS anns)]
+                                            (&/$Cons [_ (&/$TupleS gvars)]
+                                                     (&/$Cons [_ (&/$TupleS exceptions)]
+                                                              (&/$Cons [_ (&/$TupleS inputs)]
+                                                                       (&/$Cons output
+                                                                                (&/$Cons body (&/$Nil))))))))))]
+    (|do [=anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =output (parse-gclass output)]
+      (return (&/V &/$VirtualMethodSyntax (&/T ?name =anns =gvars =exceptions =inputs =output body))))
+
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "override")]
+                          (&/$Cons ?class-decl
+                                   (&/$Cons [_ (&/$TextS ?name)]
+                                            (&/$Cons [_ (&/$TupleS anns)]
+                                                     (&/$Cons [_ (&/$TupleS gvars)]
+                                                              (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                       (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                (&/$Cons output
+                                                                                         (&/$Cons body (&/$Nil)))))))))))]
+    (|do [=class-decl (parse-gclass-decl ?class-decl)
+          =anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =output (parse-gclass output)]
+      (return (&/V &/$OverridenMethodSyntax (&/T =class-decl ?name =anns =gvars =exceptions =inputs =output body))))
     
     _
     (fail (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))

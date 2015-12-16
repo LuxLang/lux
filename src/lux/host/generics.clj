@@ -56,8 +56,18 @@
     (str "T" name ";")
     
     (&/$GenericClass name params)
-    (let [params* (str "<" (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">")]
-      (str "L" (->bytecode-class-name name) params* ";"))
+    (case name
+      "void"    "V"
+      "boolean" "Z"
+      "byte"    "B"
+      "short"   "S"
+      "int"     "I"
+      "long"    "L"
+      "float"   "F"
+      "double"  "D"
+      "char"    "C"
+      (let [params* (str "<" (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">")]
+        (str "L" (->bytecode-class-name name) params* ";")))
 
     (&/$GenericArray param)
     (str "[" (gclass->signature param))))
@@ -86,7 +96,10 @@
       (->type-signature name)
 
       (&/$GenericArray param)
-      (str "[" (gclass->simple-signature param)))))
+      (str "[" (gclass->simple-signature param))
+
+      _
+      (assert false (str 'gclass->simple-signature " " (&/adt->text gclass))))))
 
 (let [object-bc-name (->bytecode-class-name "java.lang.Object")]
   (defn gclass->bytecode-class-name [gclass]
@@ -103,9 +116,9 @@
 
 (defn method-signatures [method-decl]
   (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl
-         simple-signature (str "(" (&/fold str "" (&/|map (comp gclass->simple-signature &/|second) =inputs)) ")" (gclass->simple-signature =output))
+         simple-signature (str "(" (&/fold str "" (&/|map gclass->simple-signature =inputs)) ")" (gclass->simple-signature =output))
          generic-signature (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"
-                                "(" (&/fold str "" (&/|map (comp gclass->signature &/|second) =inputs)) ")"
+                                "(" (&/fold str "" (&/|map gclass->signature =inputs)) ")"
                                 (gclass->signature =output)
                                 (->> =exceptions (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")))]
     (&/T simple-signature generic-signature)))

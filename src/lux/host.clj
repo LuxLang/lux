@@ -185,22 +185,9 @@
     (doto writer
       (.visitInsn Opcodes/ACONST_NULL))))
 
-(defn ^:private dummy-return [^MethodVisitor writer super-class ??ctor-args name output]
+(defn ^:private dummy-return [^MethodVisitor writer output]
   (case output
-    "void" (if (= "<init>" name)
-             (|let [(&/$Some ctor-args) ??ctor-args
-                    ctor-arg-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
-               (doto writer
-                 (.visitVarInsn Opcodes/ALOAD 0)
-                 (-> (doto (dummy-value arg-type)
-                       (-> (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name arg-type))
-                           (->> (when (not (primitive-jvm-type? arg-type))))))
-                     (->> (doseq [ctor-arg (&/->seq ctor-args)
-                                  :let [;; arg-term (&/|first ctor-arg)
-                                        arg-type (&/|first ctor-arg)]])))
-                 (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class) "<init>" (str "(" ctor-arg-types ")V"))
-                 (.visitInsn Opcodes/RETURN)))
-             (.visitInsn writer Opcodes/RETURN))
+    "void" (.visitInsn writer Opcodes/RETURN)
     "boolean" (doto writer
                 (.visitLdcInsn false)
                 (.visitInsn Opcodes/IRETURN))
@@ -230,10 +217,83 @@
       (.visitInsn Opcodes/ACONST_NULL)
       (.visitInsn Opcodes/ARETURN))))
 
+(def init-method-name "<init>")
+
+(defn ^:private dummy-ctor [^MethodVisitor writer super-class ctor-args]
+  (|let [ctor-arg-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
+    (doto writer
+      (.visitVarInsn Opcodes/ALOAD 0)
+      (-> (doto (dummy-value arg-type)
+            (-> (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name arg-type))
+                (->> (when (not (primitive-jvm-type? arg-type))))))
+          (->> (doseq [ctor-arg (&/->seq ctor-args)
+                       :let [;; arg-term (&/|first ctor-arg)
+                             arg-type (&/|first ctor-arg)]])))
+      (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class)) init-method-name (str "(" ctor-arg-types ")V"))
+      (.visitInsn Opcodes/RETURN))))
+
+(defn ^:private compile-dummy-method [^ClassWriter =class super-class method-def]
+  (|case method-def
+    (&/$ConstructorMethodSyntax =anns =gvars =exceptions =inputs =ctor-args body)
+    (|let [=output (&/V &/$GenericClass (&/T "void" (&/|list)))
+           method-decl [init-method-name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
+           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
+      (do (println 'compile-dummy-method
+                   (&/adt->text =exceptions)
+                   (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq)
+                   simple-signature
+                   generic-signature)
+        (doto (.visitMethod =class Opcodes/ACC_PUBLIC
+                            init-method-name
+                            simple-signature
+                            generic-signature
+                            (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
+          .visitCode
+          (dummy-ctor super-class =ctor-args)
+          (.visitMaxs 0 0)
+          (.visitEnd))))
+
+    (&/$VirtualMethodSyntax =name =anns =gvars =exceptions =inputs =output body)
+    (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
+           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
+      (doto (.visitMethod =class Opcodes/ACC_PUBLIC
+                          =name
+                          simple-signature
+                          generic-signature
+                          (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        .visitCode
+        (dummy-return =output)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
+    
+    (&/$OverridenMethodSyntax =class-decl =name =anns =gvars =exceptions =inputs =output body)
+    (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
+           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)
+           _ (prn 'OverridenMethodSyntax =name
+                  simple-signature
+                  generic-signature
+                  (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq))]
+      (doto (.visitMethod =class Opcodes/ACC_PUBLIC
+                          =name
+                          simple-signature
+                          generic-signature
+                          (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        .visitCode
+        (dummy-return =output)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
+
+    _
+    (assert false (println-str 'compile-dummy-method (&/adt->text method-def)))
+    ))
+
 (defn use-dummy-class [class-decl super-class interfaces ctor-args fields methods]
   (|do [module &/get-module-name
         :let [[?name ?params] class-decl
               full-name (str module "/" ?name)
+              _ (println 'use-dummy-class full-name ;; (&/adt->text methods)
+                         (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
+                         (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq))
               class-signature (&host-generics/gclass-decl->signature class-decl interfaces)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
@@ -243,29 +303,19 @@
                                (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
                           (|let [[=name =anns =type] field]
-                            (doto (.visitField =class Opcodes/ACC_PUBLIC =name
-                                               (&host-generics/->type-signature =type) nil nil)
-                              (.visitEnd))))
+                            (do (prn 'use-dummy-class/=name =name (&host-generics/->type-signature =type) (&/adt->text =type))
+                              (doto (.visitField =class Opcodes/ACC_PUBLIC =name
+                                                 (&host-generics/->type-signature =type) nil nil)
+                                (.visitEnd)))))
                         fields)
-              _ (&/|map (fn [method-decl]
-                          (prn 'use-dummy-class (count method-decl) method-decl)
-                          (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl
-                                 [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
-                            (doto (.visitMethod =class Opcodes/ACC_PUBLIC
-                                                =name
-                                                simple-signature
-                                                generic-signature
-                                                (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
-                              .visitCode
-                              (dummy-return super-class ctor-args =name =output)
-                              (.visitMaxs 0 0)
-                              (.visitEnd))))
-                        methods)
+              _ (&/|map (partial compile-dummy-method =class super-class) methods)
               bytecode (.toByteArray (doto =class .visitEnd))]
         ^ClassLoader loader &/loader
         !classes &/classes
         :let [real-name (str (&host-generics/->class-name module) "." ?name)
               _ (prn 'use-dummy-class/_0 ?name real-name)
               _ (swap! !classes assoc real-name bytecode)
+              ;; _ (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str "target/jvm/" full-name ".class")))]
+              ;;     (.write stream bytecode))
               _ (.loadClass loader real-name)]]
     (return nil)))
