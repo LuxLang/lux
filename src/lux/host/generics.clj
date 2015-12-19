@@ -101,6 +101,21 @@
       _
       (assert false (str 'gclass->simple-signature " " (&/adt->text gclass))))))
 
+(defn gclass->class-name [gclass]
+  "(-> GenericClass Text)"
+  (|case gclass
+    (&/$GenericTypeVar name)
+    (gclass->class-name "java.lang.Object")
+    
+    (&/$GenericClass name params)
+    (->bytecode-class-name name)
+
+    (&/$GenericArray param)
+    (str "[" (gclass->class-name param))
+
+    _
+    (assert false (str 'gclass->class-name " " (&/adt->text gclass)))))
+
 (let [object-bc-name (->bytecode-class-name "java.lang.Object")]
   (defn gclass->bytecode-class-name [gclass]
     "(-> GenericClass Text)"

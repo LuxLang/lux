@@ -555,7 +555,7 @@
                                =name
                                simple-signature
                                generic-signature
-                               (->> =exceptions (&/|map &host-generics/gclass->simple-signature) &/->seq (into-array java.lang.String)))
+                               (->> =exceptions (&/|map &host-generics/gclass->class-name) &/->seq (into-array java.lang.String)))
          _ (&/|map (partial compile-annotation =method) =anns)
          _ (.visitEnd =method)]
     nil))
@@ -627,10 +627,8 @@
   (|do [module &/get-module-name
         [file-name _ _] &/cursor
         :let [[?name ?params] class-decl
-              _ (prn 'compile-jvm-class/_0 class-decl ?name)
               class-signature (&host-generics/gclass-decl->signature class-decl (&/Cons$ ?super-class ?interfaces))
               full-name (str module "/" ?name)
-              _ (prn 'compile-jvm-class/_1 full-name class-signature)
               super-class* (&host-generics/->bytecode-class-name (&host-generics/super-class-name ?super-class))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)

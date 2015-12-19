@@ -616,7 +616,6 @@
   "(-> (List SuperClassDecl) (List (, MethodDecl Analysis)) (Lux (,)))"
   (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
-                                    (prn 'methods-map (count mentry) mentry)
                                     (|case mentry
                                       (&/$ConstructorMethodAnalysis _)
                                       mmap
@@ -637,8 +636,7 @@
                                                  (if (and (= (&/|length =inputs) (&/|length am-inputs))
                                                           (&/fold2 (fn [prev mi ai]
                                                                      (|let [[iname itype] mi]
-                                                                       (do (prn '[iname itype] [iname itype])
-                                                                         (and prev (= (generic-class->simple-class itype) ai)))))
+                                                                       (and prev (= (generic-class->simple-class itype) ai))))
                                                                    true
                                                                    =inputs am-inputs))
                                                    nil
@@ -695,8 +693,6 @@
             :let [name (&host/location (&/|tail scope))
                   class-decl (&/T name (&/|list))
                   anon-class (str module "." name)
-                  _ (prn 'analyse-jvm-anon-class/_0 anon-class)
-                  _ (prn 'analyse-jvm-anon-class/_1 class-decl)
                   anon-class-type (&type/Data$ anon-class (&/|list))]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|let [[arg-type arg-term] ctor-arg]

@@ -238,20 +238,15 @@
     (|let [=output (&/V &/$GenericClass (&/T "void" (&/|list)))
            method-decl [init-method-name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
-      (do (println 'compile-dummy-method
-                   (&/adt->text =exceptions)
-                   (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq)
-                   simple-signature
-                   generic-signature)
-        (doto (.visitMethod =class Opcodes/ACC_PUBLIC
-                            init-method-name
-                            simple-signature
-                            generic-signature
-                            (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
-          .visitCode
-          (dummy-ctor super-class =ctor-args)
-          (.visitMaxs 0 0)
-          (.visitEnd))))
+      (doto (.visitMethod =class Opcodes/ACC_PUBLIC
+                          init-method-name
+                          simple-signature
+                          generic-signature
+                          (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        .visitCode
+        (dummy-ctor super-class =ctor-args)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
 
     (&/$VirtualMethodSyntax =name =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
@@ -268,11 +263,7 @@
     
     (&/$OverridenMethodSyntax =class-decl =name =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
-           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)
-           _ (prn 'OverridenMethodSyntax =name
-                  simple-signature
-                  generic-signature
-                  (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq))]
+           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class Opcodes/ACC_PUBLIC
                           =name
                           simple-signature
@@ -291,9 +282,6 @@
   (|do [module &/get-module-name
         :let [[?name ?params] class-decl
               full-name (str module "/" ?name)
-              _ (println 'use-dummy-class full-name ;; (&/adt->text methods)
-                         (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
-                         (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq))
               class-signature (&host-generics/gclass-decl->signature class-decl interfaces)
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
@@ -313,7 +301,6 @@
         ^ClassLoader loader &/loader
         !classes &/classes
         :let [real-name (str (&host-generics/->class-name module) "." ?name)
-              _ (prn 'use-dummy-class/_0 ?name real-name)
               _ (swap! !classes assoc real-name bytecode)
               ;; _ (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str "target/jvm/" full-name ".class")))]
               ;;     (.write stream bytecode))

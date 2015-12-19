@@ -124,25 +124,23 @@
     _
     (fail (str "[Analyser Error] Invalid argument declaration: " (&/show-ast ast)))))
 
-(defn parse-method-decl [asts]
-  (|case asts
-    (&/$Cons [_ (&/$TextS method-name)]
-             (&/$Cons [_ (&/$TupleS anns)]
-                      (&/$Cons [_ (&/$TupleS gvars)]
-                               (&/$Cons [_ (&/$TupleS exceptions)]
-                                        (&/$Cons [_ (&/$TupleS inputs)]
-                                                 (&/$Cons output
-                                                          *tail*))))))
+(defn parse-method-decl [ast]
+  (|case ast
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS method-name)]
+                          (&/$Cons [_ (&/$TupleS anns)]
+                                   (&/$Cons [_ (&/$TupleS gvars)]
+                                            (&/$Cons [_ (&/$TupleS exceptions)]
+                                                     (&/$Cons [_ (&/$TupleS inputs)]
+                                                              (&/$Cons output (&/$Nil))))))))]
     (|do [=anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-gclass inputs)
           =output (parse-gclass output)]
-      (return (&/T (&/T method-name =anns =gvars =exceptions =inputs =output)
-                   *tail*)))
+      (return (&/T method-name =anns =gvars =exceptions =inputs =output)))
     
     _
-    (fail (str "[Analyser Error] Invalid method declaration: " (->> asts (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))))
+    (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
 
 (defn parse-method-def [ast]
   (|case ast
