@@ -46,7 +46,7 @@
         ))
     ))
 
-(let [output-dir-size (.length &&/output-dir)]
+(let [output-dir-size (inc (.length &&/output-dir))]
   (defn ^:private write-module! [^File file ^JarOutputStream out]
     "(-> File JarOutputStream Unit)"
     (let [module-name (.substring (.getPath file) output-dir-size)

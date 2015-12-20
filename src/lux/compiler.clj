@@ -493,7 +493,10 @@
                                        .visitEnd)
                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &&/version)
                                        .visitEnd)
-                                   (.visitSource file-name nil))]]
+                                   (.visitSource file-name nil))]
+                    _ (if (= "lux" name)
+                        &&host/compile-Function-class
+                        (return nil))]
                 (fn [state]
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
@@ -545,9 +548,7 @@
 ;; [Resources]
 (defn compile-program [program-module]
   (init!)
-  (let [m-action (|do [_ &&host/compile-Function-class
-                       _ (&/map% compile-module (&/|list "lux" program-module))]
-                   (return nil))]
+  (let [m-action (&/map% compile-module (&/|list "lux" program-module))]
     (|case (m-action (&/init-state nil))
       (&/$Right ?state _)
       (do (println "Compilation complete!")

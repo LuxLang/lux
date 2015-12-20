@@ -20,8 +20,7 @@
                               MethodVisitor)))
 
 ;; [Constants]
-(def prefix "lux.")
-(def function-class (str prefix "Function"))
+(def function-class "lux.Function")
 (def module-separator "/")
 (def class-name-separator ".")
 (def class-separator "/")

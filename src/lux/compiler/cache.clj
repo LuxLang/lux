@@ -42,14 +42,16 @@
   (-> class ^Field (.getField field-name) (.get nil)))
 
 ;; [Resources]
+(def module-class (str &/module-class-name ".class"))
+
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str &&/output-dir (&host/->module-class module) "/" &/module-class-name ".class"))))
+  (.exists (new File (str &&/output-dir "/" (&host/->module-class module) "/" module-class))))
 
 (defn delete [module]
   "(-> Text (Lux (,)))"
   (fn [state]
-    (do (clean-file (new File (str &&/output-dir (&host/->module-class module))))
+    (do (clean-file (new File (str &&/output-dir "/" (&host/->module-class module))))
       (return* state nil))))
 
 (defn clean [state]
@@ -83,7 +85,7 @@
         (return true)
         (if (cached? module)
           (let [module* (&host-generics/->class-name module)
-                module-path (str &&/output-dir module)
+                module-path (str &&/output-dir "/" module)
                 class-name (str module* "._")
                 ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
                                      (&&/load-class! loader class-name))]
@@ -101,7 +103,7 @@
                     (do (doseq [^File file (seq (.listFiles (File. module-path)))
                                 :when (not (.isDirectory file))
                                 :let [file-name (.getName file)]
-                                :when (not= "_.class" file-name)]
+                                :when (not= module-class file-name)]
                           (let [real-name (second (re-find #"^(.*)\.class$" file-name))
                                 bytecode (read-file file)]
                             (swap! !classes assoc (str module* "." real-name) bytecode)))
