@@ -31,8 +31,7 @@
                                         (.getInterfaces sub-class))]
               (if (= super-class super-interface)
                 (&/Cons$ super-interface stack)
-                (let [super* (.getSuperclass sub-class)]
-                  (recur super* (&/Cons$ super* stack)))))))
+                (recur super-interface (&/Cons$ super-interface stack))))))
 
         (.isInterface super-class)
         (let [class<=interface? #(if (= super-class %) % nil)]

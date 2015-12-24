@@ -597,7 +597,8 @@
          <init>-return))
 
   (defn ^:private add-anon-class-<init> [^ClassWriter class-writer compile class-name super-class env ctor-args]
-    (let [init-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
+    (|let [[super-class-name super-class-params] super-class
+           init-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
       (&/with-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC init-method (anon-class-<init>-signature env) nil nil)
         (|do [^MethodVisitor =method &/get-writer
               :let [_ (doto =method (.visitCode)
@@ -609,7 +610,7 @@
                               (return nil))))
                         ctor-args)
               :let [_ (doto =method
-                        (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class) init-method (str "(" init-types ")" <init>-return))
+                        (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class-name) init-method (str "(" init-types ")" <init>-return))
                         (-> (doto (.visitVarInsn Opcodes/ALOAD 0)
                               (.visitVarInsn Opcodes/ALOAD (inc ?captured-id))
                               (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
