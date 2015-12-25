@@ -1,13 +1,13 @@
-## What is Lux?
-
 [![Join the chat at https://gitter.im/LuxLang/lux](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/LuxLang/lux?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+## What is Lux?
 
 Lux is a new programming language in the making.
 It's meant to be a functional, statically-typed Lisp that will run on several platforms, such as the Java Virtual Machine and JavaScript interpreters.
 
 ### What's the current version?
 
-v0.3
+v0.3.1
 
 ### How far ahead is the project?
 
@@ -19,7 +19,7 @@ However, programs can be written that can interop with the JVM and you can even 
 
 ### How can I use it?
 
-Download the 0.3 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.0/luxc.jar
+Download the 0.3.1 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.1/luxc.jar
 
 Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
 
@@ -37,6 +37,8 @@ Then, you can run the program like this:
 To take a look at a sample Lux project, please take a look at this repository: https://github.com/LuxLang/luxdoc
 
 The program in there was actually used to generate most of the documentation for the standard library in the wiki (located over here: https://github.com/LuxLang/lux/wiki/Standard-Library)
+
+You can also checkout this tutorial, which includes a sample TODO web-app: http://luxlang.blogspot.com/2015/12/lux-tutorial-1-simple-todo-list-using.html
 
 ### Building Lux projects
 
@@ -178,9 +180,21 @@ If you want to communicate with me directly, just email me at luxlisp@gmail.com
 
 Check out the Emacs plugin for it: https://github.com/LuxLang/lux-mode
 
-## Where do I learn Lux?
+### Where do I learn Lux?
 
-Just head to the wiki and check out the documentation for the currently available modules, and the tutorials.
+Head to the wiki and check out the documentation for the currently available modules.
+
+You should also check out the Lux DevLog, where I talk about different topics related to Lux and post tutorials: http://luxlang.blogspot.com/
+
+### How can I contribute?
+
+For starters, you can check out the Trello board for Lux development: https://trello.com/b/VRQhvXjs/lux-jvm-compiler
+
+I'll be putting there tasks that people can contribute to, both in the compiler and outside (like plugins for editors).
+
+Writing libraries in Lux will also help a lot in making this a more practical language for day to day use.
+
+Communication is done over Gitter and the Google group.
 
 ## Caveats
 
