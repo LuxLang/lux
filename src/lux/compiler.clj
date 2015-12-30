@@ -219,11 +219,11 @@
         (&o/$jvm-getfield ?class ?field ?object ?output-type)
         (&&host/compile-jvm-getfield compile-expression ?class ?field ?object ?output-type)
 
-        (&o/$jvm-putstatic ?class ?field ?value ?output-type)
-        (&&host/compile-jvm-putstatic compile-expression ?class ?field ?value)
+        (&o/$jvm-putstatic ?class ?field ?value ?input-type)
+        (&&host/compile-jvm-putstatic compile-expression ?class ?field ?value ?input-type)
 
-        (&o/$jvm-putfield ?class ?field ?value ?object ?output-type)
-        (&&host/compile-jvm-putfield compile-expression ?class ?field ?object ?value)
+        (&o/$jvm-putfield ?class ?field ?value ?object ?input-type)
+        (&&host/compile-jvm-putfield compile-expression ?class ?field ?object ?value ?input-type)
 
         (&o/$jvm-invokestatic ?class ?method ?classes ?args ?output-type)
         (&&host/compile-jvm-invokestatic compile-expression ?class ?method ?classes ?args ?output-type)

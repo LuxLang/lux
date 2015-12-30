@@ -149,7 +149,7 @@
                                    (&/$Cons [_ (&/$TupleS gvars)]
                                             (&/$Cons [_ (&/$TupleS exceptions)]
                                                      (&/$Cons [_ (&/$TupleS inputs)]
-                                                              (&/$Cons ?ctor-args
+                                                              (&/$Cons [_ (&/$TupleS ?ctor-args)]
                                                                        (&/$Cons body (&/$Nil)))))))))]
     (|do [=anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
@@ -197,7 +197,7 @@
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ?name)]
                           (&/$Cons [_ (&/$TupleS ?anns)]
-                                   (&/$Cons [_ (&/$TextS ?type)]
+                                   (&/$Cons ?type
                                             (&/$Nil)))))]
     (|do [=anns (&/map% parse-ann ?anns)
           =type (parse-gclass ?type)]

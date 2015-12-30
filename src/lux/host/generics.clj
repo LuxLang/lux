@@ -47,7 +47,9 @@
     super-name))
 
 (defn class-decl-params->signature [params]
-  (str "<" (->> params (&/|interpose " ") (&/fold str "")) ">"))
+  (if (&/|empty? params)
+    ""
+    (str "<" (->> params (&/|interpose " ") (&/fold str "")) ">")))
 
 (defn gclass->signature [super]
   "(-> GenericClass Text)"
@@ -66,7 +68,9 @@
       "float"   "F"
       "double"  "D"
       "char"    "C"
-      (let [params* (str "<" (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">")]
+      (let [params* (if (&/|empty? params)
+                      ""
+                      (str "<" (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">"))]
         (str "L" (->bytecode-class-name name) params* ";")))
 
     (&/$GenericArray param)
@@ -75,7 +79,9 @@
 (defn gsuper-decl->signature [super]
   "(-> GenericSuperClassDecl Text)"
   (|let [[super-name super-params] super
-         params* (str "<" (->> super-params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">")]
+         params* (if (&/|empty? super-params)
+                   ""
+                   (str "<" (->> super-params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">"))]
     (str "L" (->bytecode-class-name super-name) params* ";")))
 
 (defn gclass-decl->signature [class-decl supers]
@@ -132,7 +138,9 @@
 (defn method-signatures [method-decl]
   (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl
          simple-signature (str "(" (&/fold str "" (&/|map gclass->simple-signature =inputs)) ")" (gclass->simple-signature =output))
-         generic-signature (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"
+         generic-signature (str (if (&/|empty? =gvars)
+                                  ""
+                                  (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"))
                                 "(" (&/fold str "" (&/|map gclass->signature =inputs)) ")"
                                 (gclass->signature =output)
                                 (->> =exceptions (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")))]

@@ -89,7 +89,7 @@
 (do-template [<name> <static?>]
   (defn <name> [class-loader target field]
     (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
-      (if-let [^Type gtype (first (for [^Field =field (.getDeclaredFields target-class)
+      (if-let [^Type gtype (first (for [^Field =field (seq (.getDeclaredFields target-class))
                                         :when (and (.equals ^Object field (.getName =field))
                                                    (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
                                     (.getGenericType =field)))]
@@ -129,7 +129,6 @@
   )
 
 (defn lookup-constructor [class-loader target args]
-  ;; (prn 'lookup-constructor class-loader target (&host-type/as-obj target))
   (let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
     (if-let [^Constructor ctor (first (for [^Constructor =method (.getDeclaredConstructors target-class)
                                             :when (let [param-types (&/->list (seq (.getParameterTypes =method)))]
@@ -163,57 +162,91 @@
     false))
 
 (defn dummy-value [^MethodVisitor writer class]
-  (case class
-    "boolean" (doto writer
-                (.visitLdcInsn false))
-    "byte" (doto writer
-             (.visitLdcInsn (byte 0)))
-    "short" (doto writer
-              (.visitLdcInsn (short 0)))
-    "int" (doto writer
-            (.visitLdcInsn (int 0)))
-    "long" (doto writer
-             (.visitLdcInsn (long 0)))
-    "float" (doto writer
-              (.visitLdcInsn (float 0.0)))
-    "double" (doto writer
-               (.visitLdcInsn (double 0.0)))
-    "char" (doto writer
-             (.visitLdcInsn (char 0)))
-    ;; else
+  (|case class
+    (&/$GenericClass "boolean" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn false))
+    
+    (&/$GenericClass "byte" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (byte 0)))
+    
+    (&/$GenericClass "short" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (short 0)))
+    
+    (&/$GenericClass "int" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (int 0)))
+    
+    (&/$GenericClass "long" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (long 0)))
+    
+    (&/$GenericClass "float" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (float 0.0)))
+    
+    (&/$GenericClass "double" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (double 0.0)))
+    
+    (&/$GenericClass "char" (&/$Nil))
+    (doto writer
+      (.visitLdcInsn (char 0)))
+
+    _
     (doto writer
       (.visitInsn Opcodes/ACONST_NULL))))
 
 (defn ^:private dummy-return [^MethodVisitor writer output]
-  (case output
-    "void" (.visitInsn writer Opcodes/RETURN)
-    "boolean" (doto writer
-                (.visitLdcInsn false)
-                (.visitInsn Opcodes/IRETURN))
-    "byte" (doto writer
-             (.visitLdcInsn (byte 0))
-             (.visitInsn Opcodes/IRETURN))
-    "short" (doto writer
-              (.visitLdcInsn (short 0))
-              (.visitInsn Opcodes/IRETURN))
-    "int" (doto writer
-            (.visitLdcInsn (int 0))
-            (.visitInsn Opcodes/IRETURN))
-    "long" (doto writer
-             (.visitLdcInsn (long 0))
-             (.visitInsn Opcodes/LRETURN))
-    "float" (doto writer
-              (.visitLdcInsn (float 0.0))
-              (.visitInsn Opcodes/FRETURN))
-    "double" (doto writer
-               (.visitLdcInsn (double 0.0))
-               (.visitInsn Opcodes/DRETURN))
-    "char" (doto writer
-             (.visitLdcInsn (char 0))
-             (.visitInsn Opcodes/IRETURN))
-    ;; else
+  (|case output
+    (&/$GenericClass "void" (&/$Nil))
+    (.visitInsn writer Opcodes/RETURN)
+
+    (&/$GenericClass "boolean" (&/$Nil))
     (doto writer
-      (.visitInsn Opcodes/ACONST_NULL)
+      (dummy-value output)
+      (.visitInsn Opcodes/IRETURN))
+    
+    (&/$GenericClass "byte" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/IRETURN))
+    
+    (&/$GenericClass "short" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/IRETURN))
+    
+    (&/$GenericClass "int" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/IRETURN))
+    
+    (&/$GenericClass "long" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/LRETURN))
+    
+    (&/$GenericClass "float" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/FRETURN))
+    
+    (&/$GenericClass "double" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/DRETURN))
+    
+    (&/$GenericClass "char" (&/$Nil))
+    (doto writer
+      (dummy-value output)
+      (.visitInsn Opcodes/IRETURN))
+
+    _
+    (doto writer
+      (dummy-value output)
       (.visitInsn Opcodes/ARETURN))))
 
 (def init-method-name "<init>")
@@ -281,19 +314,20 @@
   (|do [module &/get-module-name
         :let [[?name ?params] class-decl
               full-name (str module "/" ?name)
-              class-signature (&host-generics/gclass-decl->signature class-decl interfaces)
+              class-signature (&host-generics/gclass-decl->signature class-decl (&/Cons$ super-class interfaces))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                full-name
-                               class-signature
+                               (if (= "" class-signature) nil class-signature)
                                (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
                                (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
                           (|let [[=name =anns =type] field]
-                            (do (prn 'use-dummy-class/=name =name (&host-generics/->type-signature =type) (&/adt->text =type))
-                              (doto (.visitField =class Opcodes/ACC_PUBLIC =name
-                                                 (&host-generics/->type-signature =type) nil nil)
-                                (.visitEnd)))))
+                            (doto (.visitField =class Opcodes/ACC_PUBLIC =name
+                                               (&host-generics/gclass->simple-signature =type)
+                                               (&host-generics/gclass->signature =type)
+                                               nil)
+                              (.visitEnd))))
                         fields)
               _ (&/|map (partial compile-dummy-method =class super-class) methods)
               bytecode (.toByteArray (doto =class .visitEnd))]

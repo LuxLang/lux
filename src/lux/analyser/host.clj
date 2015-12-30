@@ -16,7 +16,7 @@
                           [env :as &&env]
                           [parser :as &&a-parser])
             [lux.compiler.base :as &c!base])
-  (:import (java.lang.reflect TypeVariable)))
+  (:import (java.lang.reflect Type TypeVariable)))
 
 ;; [Utils]
 (defn ^:private ensure-catching [exceptions]
@@ -209,7 +209,7 @@
 (defn analyse-jvm-getstatic [analyse exo-type class field]
   (|do [class-loader &/loader
         [gvars gtype] (&host/lookup-static-field class-loader class field)
-        :let [=type (&host-type/class->type (cast Class gtype))]
+        =type (&host-type/instance-param &type/existential (&/|list) gtype)
         :let [output-type =type]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
@@ -231,26 +231,27 @@
 (defn analyse-jvm-putstatic [analyse exo-type class field value]
   (|do [class-loader &/loader
         [gvars gtype] (&host/lookup-static-field class-loader class field)
-        :let [=type (&host-type/class->type (cast Class gtype))]
+        =type (&host-type/instance-param &type/existential (&/|list) gtype)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&/V &&/$jvm-putstatic (&/T class field =value output-type)))))))
+                               (&/V &&/$jvm-putstatic (&/T class field =value =type)))))))
 
 (defn analyse-jvm-putfield [analyse exo-type class field value object]
   (|do [class-loader &/loader
         =object (&&/analyse-1+ analyse object)
-        _ (ensure-object (&&/expr-type* =object))
+        :let [obj-type (&&/expr-type* =object)]
+        _ (ensure-object obj-type)
         [gvars gtype] (&host/lookup-field class-loader class field)
-        =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
+        =type (analyse-field-access-helper obj-type gvars gtype)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&/V &&/$jvm-putfield (&/T class field =value =object (&&/expr-type* =object))))))))
+                               (&/V &&/$jvm-putfield (&/T class field =value =object =type)))))))
 
 (defn analyse-jvm-instanceof [analyse exo-type class object]
   (|do [=object (&&/analyse-1+ analyse object)
@@ -547,64 +548,64 @@
 (defn ^:private analyse-method [analyse class-decl class-env all-supers method]
   "(-> Analyser ClassDecl (List (, TypeVar Type)) (List SuperClassDecl) MethodSyntax (Lux MethodAnalysis))"
   (|let [[?cname ?cparams] class-decl
-         class-type (&/V &/$GenericClass (&/T ?cname &/Nil$))]
+         class-type (&/V &/$DataT (&/T ?cname (&/|map &/|second class-env)))]
     (|case method
       (&/$ConstructorMethodSyntax ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
-      (|do [:let [all-gvars (&/|++ ?cparams ?gvars)]
-            gvar-env (&/map% (fn [gvar]
-                               (|do [ex &type/existential]
-                                 (return (&/T gvar ex))))
-                             all-gvars)
+      (|do [method-env (&/map% (fn [gvar]
+                                 (|do [ex &type/existential]
+                                   (return (&/T gvar ex))))
+                               ?gvars)
+            :let [full-env (&/|++ class-env method-env)]
             :let [output-type &type/Unit]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|do [:let [[ca-type ca-term] ctor-arg]
-                                       =ca-type (generic-class->type gvar-env ca-type)
+                                       =ca-type (generic-class->type full-env ca-type)
                                        =ca-term (&&/analyse-1 analyse =ca-type ca-term)]
                                    (return (&/T =ca-type =ca-term))))
                                ?ctor-args)
-            =body (&/fold (fn [body* input*]
-                            (|do [:let [[iname itype*] input*]
-                                  itype (generic-class->type gvar-env itype*)]
-                              (&&env/with-local iname itype
-                                body*)))
-                          (&&/analyse-1 analyse output-type ?body)
-                          (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
-                                               ?inputs)))]
+            =body (&&env/with-local &&/jvm-this class-type
+                    (&/fold (fn [body* input*]
+                              (|do [:let [[iname itype*] input*]
+                                    itype (generic-class->type full-env itype*)]
+                                (&&env/with-local iname itype
+                                  body*)))
+                            (&&/analyse-1 analyse output-type ?body)
+                            (&/|reverse ?inputs)))]
         (return (&/V &/$ConstructorMethodAnalysis (&/T ?anns ?gvars ?exceptions ?inputs =ctor-args =body))))
       
       (&/$VirtualMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
-      (|do [:let [all-gvars (&/|++ ?cparams ?gvars)]
-            all-env (&/map% (fn [gvar]
-                              (|do [ex &type/existential]
-                                (return (&/T gvar ex))))
-                            all-gvars)
-            output-type (generic-class->type all-env ?output)
-            =body (&/fold (fn [body* input*]
-                            (|do [:let [[iname itype*] input*]
-                                  itype (generic-class->type all-env itype*)]
-                              (&&env/with-local iname itype
-                                body*)))
-                          (&&/analyse-1 analyse output-type ?body)
-                          (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
-                                               ?inputs)))]
+      (|do [method-env (&/map% (fn [gvar]
+                                 (|do [ex &type/existential]
+                                   (return (&/T gvar ex))))
+                               ?gvars)
+            :let [full-env (&/|++ class-env method-env)]
+            output-type (generic-class->type full-env ?output)
+            =body (&&env/with-local &&/jvm-this class-type
+                    (&/fold (fn [body* input*]
+                              (|do [:let [[iname itype*] input*]
+                                    itype (generic-class->type full-env itype*)]
+                                (&&env/with-local iname itype
+                                  body*)))
+                            (&&/analyse-1 analyse output-type ?body)
+                            (&/|reverse ?inputs)))]
         (return (&/V &/$VirtualMethodAnalysis (&/T ?name ?anns ?gvars ?exceptions ?inputs ?output =body))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [super-env (gen-super-env class-env all-supers ?class-decl)
-            gvar-env (&/map% (fn [gvar]
-                               (|do [ex &type/existential]
-                                 (return (&/T gvar ex))))
-                             ?gvars)
-            :let [full-env (&/|++ super-env gvar-env)]
+            method-env (&/map% (fn [gvar]
+                                 (|do [ex &type/existential]
+                                   (return (&/T gvar ex))))
+                               ?gvars)
+            :let [full-env (&/|++ super-env method-env)]
             output-type (generic-class->type full-env ?output)
-            =body (&/fold (fn [body* input*]
-                            (|do [:let [[iname itype*] input*]
-                                  itype (generic-class->type full-env itype*)]
-                              (&&env/with-local iname itype
-                                body*)))
-                          (&&/analyse-1 analyse output-type ?body)
-                          (&/|reverse (&/Cons$ (&/T &&/jvm-this class-type)
-                                               ?inputs)))]
+            =body (&&env/with-local &&/jvm-this class-type
+                    (&/fold (fn [body* input*]
+                              (|do [:let [[iname itype*] input*]
+                                    itype (generic-class->type full-env itype*)]
+                                (&&env/with-local iname itype
+                                  body*)))
+                            (&&/analyse-1 analyse output-type ?body)
+                            (&/|reverse ?inputs)))]
         (return (&/V &/$OverridenMethodAnalysis (&/T ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output =body))))
       )))
 
@@ -664,7 +665,7 @@
           ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion all-supers =methods)
           ;; :let [_ (prn 'analyse-jvm-class/_3)]
-          _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces =anns =fields =methods nil)))
+          _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces =anns =fields =methods (&/|list) &/None$)))
           :let [_ (println 'DEF full-name)]]
       (return &/Nil$))))
 
@@ -685,7 +686,8 @@
                                                           (&/|list)
                                                           (&/|list)
                                                           (&/V &/$TupleS (&/|list))))
-      captured-slot-type "java.lang.Object"]
+      captured-slot-class "java.lang.Object"
+      captured-slot-type (&/V &/$GenericClass (&/T captured-slot-class (&/|list)))]
   (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces ctor-args methods]
     (&/with-closure
       (|do [module &/get-module-name
@@ -716,7 +718,7 @@
             _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces (&/|list) =fields =methods =captured (&/Some$ =ctor-args))))
             _cursor &/cursor]
         (return (&/|list (&&/|meta anon-class-type _cursor
-                                   (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-type) sources))
+                                   (&/V &&/$jvm-new (&/T anon-class (&/|repeat (&/|length sources) captured-slot-class) sources))
                                    )))
         ))))
 

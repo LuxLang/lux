@@ -20,35 +20,35 @@
 (defn ^:private trace-lineage* [^Class super-class ^Class sub-class]
   "(-> Class Class (List Class))"
   ;; Either they're both interfaces, of they're both classes
-  (cond (.isInterface sub-class)
-        (let [interface<=interface? #(if (or (= super-class %)
-                                             (.isAssignableFrom super-class %))
-                                       %
-                                       nil)]
+  (let [valid-sub? #(if (or (= super-class %)
+                            (.isAssignableFrom super-class %))
+                      %
+                      nil)]
+    (cond (.isInterface sub-class)
           (loop [sub-class sub-class
                  stack (&/|list)]
-            (let [super-interface (some interface<=interface?
-                                        (.getInterfaces sub-class))]
+            (let [super-interface (some valid-sub? (.getInterfaces sub-class))]
               (if (= super-class super-interface)
                 (&/Cons$ super-interface stack)
-                (recur super-interface (&/Cons$ super-interface stack))))))
+                (recur super-interface (&/Cons$ super-interface stack)))))
 
-        (.isInterface super-class)
-        (let [class<=interface? #(if (= super-class %) % nil)]
+          (.isInterface super-class)
           (loop [sub-class sub-class
                  stack (&/|list)]
-            (if-let [super-interface (some class<=interface? (.getInterfaces sub-class))]
-              (&/Cons$ super-interface stack)
+            (if-let [super-interface (some valid-sub? (.getInterfaces sub-class))]
+              (if (= super-class super-interface)
+                (&/Cons$ super-interface stack)
+                (recur super-interface (&/Cons$ super-interface stack)))
               (let [super* (.getSuperclass sub-class)]
-                (recur super* (&/Cons$ super* stack))))))
+                (recur super* (&/Cons$ super* stack)))))
 
-        :else
-        (loop [sub-class sub-class
-               stack (&/|list)]
-          (let [super* (.getSuperclass sub-class)]
-            (if (= super* super-class)
-              (&/Cons$ super* stack)
-              (recur super* (&/Cons$ super* stack)))))))
+          :else
+          (loop [sub-class sub-class
+                 stack (&/|list)]
+            (let [super* (.getSuperclass sub-class)]
+              (if (= super* super-class)
+                (&/Cons$ super* stack)
+                (recur super* (&/Cons$ super* stack))))))))
 
 (defn ^:private trace-lineage [^Class sub-class ^Class super-class]
   "(-> Class Class (List Class))"
@@ -236,21 +236,21 @@
 
 (defn class-name->type [class-name]
   (case class-name
-    "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Boolean" (&/|list))))))
-    "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Byte" (&/|list))))))
-    "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Short" (&/|list))))))
-    "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Integer" (&/|list))))))
-    "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Long" (&/|list))))))
-    "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Float" (&/|list))))))
-    "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Double" (&/|list))))))
-    "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Character" (&/|list))))))
-    ;; "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "boolean" (&/|list))))))
-    ;; "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "byte" (&/|list))))))
-    ;; "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "short" (&/|list))))))
-    ;; "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "int" (&/|list))))))
-    ;; "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "long" (&/|list))))))
-    ;; "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "float" (&/|list))))))
-    ;; "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "double" (&/|list))))))
-    ;; "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "char" (&/|list))))))
+    ;; "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Boolean" (&/|list))))))
+    ;; "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Byte" (&/|list))))))
+    ;; "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Short" (&/|list))))))
+    ;; "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Integer" (&/|list))))))
+    ;; "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Long" (&/|list))))))
+    ;; "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Float" (&/|list))))))
+    ;; "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Double" (&/|list))))))
+    ;; "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Character" (&/|list))))))
+    "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "boolean" (&/|list))))))
+    "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "byte" (&/|list))))))
+    "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "short" (&/|list))))))
+    "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "int" (&/|list))))))
+    "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "long" (&/|list))))))
+    "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "float" (&/|list))))))
+    "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "double" (&/|list))))))
+    "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "char" (&/|list))))))
     ;; else
     (&/V &/$DataT (&/T class-name (&/|list)))))

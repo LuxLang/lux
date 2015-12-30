@@ -389,23 +389,23 @@
                   (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn compile-jvm-putstatic [compile ?class ?field ?value ?output-type]
+(defn compile-jvm-putstatic [compile ?class ?field ?value ?input-type]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
-        =output-type (&host/->java-sig ?output-type)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =output-type)]
+        =input-sig (&host/->java-sig ?input-type)
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =input-sig)]
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
-(defn compile-jvm-putfield [compile ?class ?field ?object ?value ?output-type]
+(defn compile-jvm-putfield [compile ?class ?field ?object ?value ?input-type]
   (|do [:let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
         _ (compile ?value)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST class*)]
-        =output-type (&host/->java-sig ?output-type)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field =output-type)]]
+        =input-sig (&host/->java-sig ?input-type)
+        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field =input-sig)]]
     (return nil)))
 
 (defn compile-jvm-instanceof [compile class object]
@@ -428,7 +428,8 @@
 (defn ^:private compile-field [^ClassWriter writer field]
   (|let [[=name =anns =type] field
          =field (.visitField writer Opcodes/ACC_PUBLIC =name
-                             (&host-generics/->type-signature =type) nil nil)]
+                             (&host-generics/gclass->simple-signature =type)
+                             (&host-generics/gclass->signature =type) nil)]
     (do (&/|map (partial compile-annotation =field) =anns)
       (.visitEnd =field)
       nil)))
@@ -633,7 +634,7 @@
               super-class* (&host-generics/->bytecode-class-name (&host-generics/super-class-name ?super-class))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                               full-name nil super-class* (->> ?interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String)))
+                               full-name (if (= "" class-signature) nil class-signature) super-class* (->> ?interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String)))
                        (.visitSource file-name nil))
               _ (&/|map (partial compile-annotation =class) ?anns)
               _ (&/|map (partial compile-field =class)
@@ -651,10 +652,11 @@
   (|do [:let [[interface-name interface-vars] interface-decl]
         module &/get-module-name
         [file-name _ _] &/cursor
-        :let [=interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+        :let [interface-signature (&host-generics/gclass-decl->signature interface-decl ?supers)
+              =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                            (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE)
                                    (str module "/" interface-name)
-                                   (&host-generics/gclass-decl->signature interface-decl ?supers)
+                                   (if (= "" interface-signature) nil interface-signature)
                                    "java/lang/Object"
                                    (->> ?supers (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String)))
                            (.visitSource file-name nil))
