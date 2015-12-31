@@ -297,8 +297,7 @@
             =object (&&/analyse-1+ analyse object)
             [sub-class sub-params] (ensure-object (&&/expr-type* =object))
             (&/$DataT super-class* super-params*) (&host-type/->super-type &type/existential class-loader class sub-class sub-params)
-            :let [;; _ (prn '<name> sub-class '-> super-class* (&/|length parent-gvars) (&/|length super-params*))
-                  gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/Cons$ (&/T (.getName g) t) m))
+            :let [gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/Cons$ (&/T (.getName g) t) m))
                                      (&/|table)
                                      parent-gvars
                                      super-params*)]
@@ -317,11 +316,12 @@
   (|do [class-loader &/loader
         [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader class method classes)
         _ (ensure-catching exceptions)
-        =args (&/map2% (fn [_class _arg]
-                         (&&/analyse-1 analyse (&host-type/class-name->type _class) _arg))
-                       classes
-                       args)
-        output-type (&host-type/instance-param &type/existential (&/|table) gret)
+        gtype-env (&/fold% (fn [m ^TypeVariable g]
+                             (|do [=var-type &type/existential]
+                               (return (&/Cons$ (&/T (.getName g) =var-type) m))))
+                           (&/|table)
+                           parent-gvars)
+        [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
         _ (&type/check exo-type (as-otype+ output-type))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor

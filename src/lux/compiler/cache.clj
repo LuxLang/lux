@@ -123,14 +123,14 @@
                               _ (&/map% (fn [_def]
                                           (let [[_exported? _name _ann] (string/split _def #" ")]
                                             (|do [_ (case _ann
-                                                      "T" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
+                                                      "T" (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
                                                                 def-value (get-field &/datum-field def-class)]
                                                             (&a-module/define module _name (&/V &/$TypeD def-value) &type/Type))
-                                                      "M" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
+                                                      "M" (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
                                                                 def-value (get-field &/datum-field def-class)]
                                                             (|do [_ (&a-module/define module _name (&/V &/$ValueD (&/T &type/Macro def-value)) &type/Macro)]
                                                               (&a-module/declare-macro module _name)))
-                                                      "V" (let [def-class (&&/load-class! loader (str module* "." (&/normalize-name _name)))
+                                                      "V" (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
                                                                 def-meta (get-field &/meta-field def-class)]
                                                             (|case def-meta
                                                               (&/$ValueD def-type _)

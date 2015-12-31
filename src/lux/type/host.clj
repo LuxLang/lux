@@ -234,27 +234,6 @@
         (catch Exception e
           (fail (str "[Type Error] Unknown type: " class)))))))
 
-(defn class-name->type [class-name]
-  (case class-name
-    ;; "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Boolean" (&/|list))))))
-    ;; "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Byte" (&/|list))))))
-    ;; "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Short" (&/|list))))))
-    ;; "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Integer" (&/|list))))))
-    ;; "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Long" (&/|list))))))
-    ;; "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Float" (&/|list))))))
-    ;; "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Double" (&/|list))))))
-    ;; "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "java.lang.Character" (&/|list))))))
-    "[Z" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "boolean" (&/|list))))))
-    "[B" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "byte" (&/|list))))))
-    "[S" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "short" (&/|list))))))
-    "[I" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "int" (&/|list))))))
-    "[J" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "long" (&/|list))))))
-    "[F" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "float" (&/|list))))))
-    "[D" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "double" (&/|list))))))
-    "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "char" (&/|list))))))
-    ;; else
-    (&/V &/$DataT (&/T class-name (&/|list)))))
-
 (defn gtype->gclass [gtype]
   "(-> GenericType GenericClass)"
   (cond (instance? Class gtype)

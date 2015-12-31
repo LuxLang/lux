@@ -104,7 +104,7 @@
 
 (defn compile-global [compile ?owner-class ?name]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str (&host/->module-class ?owner-class) "/" (&/normalize-name ?name)) &/datum-field "Ljava/lang/Object;")]]
+        :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str (&host/->module-class ?owner-class) "/" (&host/def-name ?name)) &/datum-field "Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-apply [compile ?fn ?args]
@@ -185,7 +185,7 @@
           module-name &/get-module-name
           [file-name _ _] &/cursor
           :let [datum-sig "Ljava/lang/Object;"
-                def-name (&/normalize-name ?name)
+                def-name (&host/def-name ?name)
                 current-class (str (&host/->module-class module-name) "/" def-name)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit &host/bytecode-version class-flags

@@ -201,7 +201,7 @@
           [exported? (&/$ValueD ?type _)]
           ((|do [_ (&type/check &type/Macro ?type)
                  ^ClassLoader loader &/loader
-                 :let [macro (-> (.loadClass loader (str (&host-generics/->class-name module) "." (&/normalize-name name)))
+                 :let [macro (-> (.loadClass loader (str (&host-generics/->class-name module) "." (&host/def-name name)))
                                  (.getField &/datum-field)
                                  (.get nil))]]
              (fn [state*]

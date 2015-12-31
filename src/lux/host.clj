@@ -151,8 +151,15 @@
                             :when (Modifier/isAbstract (.getModifiers =method))]
                         (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))))))
 
+(defn def-name [name]
+  (str (&/normalize-name name) "_" (hash name)))
+
 (defn location [scope]
-  (->> scope (&/|map &/normalize-name) (&/|interpose "$") (&/fold str "")))
+  (let [scope (&/Cons$ (def-name (&/|head scope))
+                       (&/|map &/normalize-name (&/|tail scope)))]
+    (->> scope
+         (&/|interpose "$")
+         (&/fold str ""))))
 
 (defn primitive-jvm-type? [type]
   (case type
