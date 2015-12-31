@@ -92,7 +92,7 @@
         (return (class->type refl-type))
 
         (instance? GenericArrayType refl-type)
-        (let [inner-type (instance-param existential matchings (.getGenericComponentType ^GenericArrayType refl-type))]
+        (|do [inner-type (instance-param existential matchings (.getGenericComponentType ^GenericArrayType refl-type))]
           (return (&/V &/$DataT (&/T array-data-tag (&/|list inner-type)))))
         
         (instance? ParameterizedType refl-type)
@@ -254,3 +254,27 @@
     "[C" (&/V &/$DataT (&/T array-data-tag (&/|list (&/V &/$DataT (&/T "char" (&/|list))))))
     ;; else
     (&/V &/$DataT (&/T class-name (&/|list)))))
+
+(defn gtype->gclass [gtype]
+  "(-> GenericType GenericClass)"
+  (cond (instance? Class gtype)
+        (&/V &/$GenericClass (&/T (.getName gtype) &/Nil$))
+
+        (instance? GenericArrayType gtype)
+        (&/V &/$GenericArray (gtype->gclass (.getGenericComponentType ^GenericArrayType gtype)))
+
+        (instance? ParameterizedType gtype)
+        (let [type-name (->> ^ParameterizedType gtype ^Class (.getRawType) .getName)
+              type-params (->> ^ParameterizedType gtype
+                               .getActualTypeArguments
+                               seq &/->list
+                               (&/|map gtype->gclass))]
+          (&/V &/$GenericClass (&/T type-name type-params)))
+
+        (instance? TypeVariable gtype)
+        (&/V &/$GenericTypeVar (.getName ^TypeVariable gtype))
+
+        (instance? WildcardType gtype)
+        (if-let [bound (->> ^WildcardType gtype .getUpperBounds seq first)]
+          (gtype->gclass bound)
+          (&/V &/$GenericClass (&/T "java.lang.Object" &/Nil$)))))

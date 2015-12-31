@@ -231,13 +231,14 @@
 (defn analyse-jvm-putstatic [analyse exo-type class field value]
   (|do [class-loader &/loader
         [gvars gtype] (&host/lookup-static-field class-loader class field)
+        :let [gclass (&host-type/gtype->gclass gtype)]
         =type (&host-type/instance-param &type/existential (&/|list) gtype)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&/V &&/$jvm-putstatic (&/T class field =value =type)))))))
+                               (&/V &&/$jvm-putstatic (&/T class field =value gclass =type)))))))
 
 (defn analyse-jvm-putfield [analyse exo-type class field value object]
   (|do [class-loader &/loader
@@ -245,13 +246,14 @@
         :let [obj-type (&&/expr-type* =object)]
         _ (ensure-object obj-type)
         [gvars gtype] (&host/lookup-field class-loader class field)
+        :let [gclass (&host-type/gtype->gclass gtype)]
         =type (analyse-field-access-helper obj-type gvars gtype)
         =value (&&/analyse-1 analyse =type value)
         :let [output-type &type/Unit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&/V &&/$jvm-putfield (&/T class field =value =object =type)))))))
+                               (&/V &&/$jvm-putfield (&/T class field =value gclass =object =type)))))))
 
 (defn analyse-jvm-instanceof [analyse exo-type class object]
   (|do [=object (&&/analyse-1+ analyse object)
@@ -561,7 +563,7 @@
                                  (|do [:let [[ca-type ca-term] ctor-arg]
                                        =ca-type (generic-class->type full-env ca-type)
                                        =ca-term (&&/analyse-1 analyse =ca-type ca-term)]
-                                   (return (&/T =ca-type =ca-term))))
+                                   (return (&/T ca-type =ca-term))))
                                ?ctor-args)
             =body (&&env/with-local &&/jvm-this class-type
                     (&/fold (fn [body* input*]

@@ -111,7 +111,7 @@
   "(-> GenericClass Text)"
   (|case gclass
     (&/$GenericTypeVar name)
-    (gclass->class-name "java.lang.Object")
+    (->bytecode-class-name "java.lang.Object")
     
     (&/$GenericClass name params)
     (->bytecode-class-name name)

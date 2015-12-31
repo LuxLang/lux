@@ -389,23 +389,27 @@
                   (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn compile-jvm-putstatic [compile ?class ?field ?value ?input-type]
+(defn compile-jvm-putstatic [compile ?class ?field ?value input-gclass ?input-type]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
         =input-sig (&host/->java-sig ?input-type)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =input-sig)]
-        :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
+        :let [_ (doto *writer*
+                  (prepare-arg! (&host-generics/gclass->class-name input-gclass))
+                  (.visitFieldInsn Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =input-sig)
+                  (.visitInsn Opcodes/ACONST_NULL))]]
     (return nil)))
 
-(defn compile-jvm-putfield [compile ?class ?field ?object ?value ?input-type]
+(defn compile-jvm-putfield [compile ?class ?field ?object ?value input-gclass ?input-type]
   (|do [:let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
-        :let [_ (.visitInsn *writer* Opcodes/DUP)]
-        _ (compile ?value)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST class*)]
+        _ (compile ?value)
         =input-sig (&host/->java-sig ?input-type)
-        :let [_ (.visitFieldInsn *writer* Opcodes/PUTFIELD class* ?field =input-sig)]]
+        :let [_ (doto *writer*
+                  (prepare-arg! (&host-generics/gclass->class-name input-gclass))
+                  (.visitFieldInsn Opcodes/PUTFIELD class* ?field =input-sig)
+                  (.visitInsn Opcodes/ACONST_NULL))]]
     (return nil)))
 
 (defn compile-jvm-instanceof [compile class object]
@@ -496,11 +500,14 @@
                                    (->> ?exceptions (&/|map &host-generics/->bytecode-class-name) &/->seq (into-array java.lang.String)))
         (|do [^MethodVisitor =method &/get-writer
               :let [[super-class-name super-class-params] ?super-class
-                    init-types (->> ?ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))
+                    init-types (->> ?ctor-args (&/|map (comp &host-generics/gclass->signature &/|first)) (&/fold str ""))
                     init-sig (str "(" init-types ")" "V")
                     _ (&/|map (partial compile-annotation =method) ?anns)
                     _ (doto =method
                         (.visitCode)
+                        (.visitVarInsn Opcodes/ALOAD 0))]
+              _ (->> ?ctor-args (&/|map &/|second) (&/map% compile))
+              :let [_ (doto =method
                         (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class-name) init-method init-sig))]
               _ (compile ?body)
               :let [_ (doto =method
