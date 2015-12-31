@@ -400,11 +400,27 @@
 (defn ^:private fp-put [k v fixpoints]
   (&/Cons$ (&/T k v) fixpoints))
 
+(defn ^:private show-type+ [type]
+  (|case type
+    (&/$VarT ?id)
+    (fn [state]
+      (|case ((deref ?id) state)
+        (&/$Right state* bound)
+        (return* state (str (show-type type) " = " (show-type bound)))
+
+        (&/$Left _)
+        (return* state (show-type type))))
+
+    _
+    (return (show-type type))))
+
 (defn ^:private check-error [expected actual]
-  (str "[Type Checker]\n"
-       "Expected: " (show-type expected) "\n\n"
-       "Actual:   " (show-type actual)
-       "\n"))
+  (|do [=expected (show-type+ expected)
+        =actual (show-type+ actual)]
+    (return (str "[Type Checker]\n"
+                 "Expected: " =expected "\n\n"
+                 "Actual:   " =actual
+                 "\n"))))
 
 (defn beta-reduce [env type]
   (|case type
@@ -533,7 +549,7 @@
         [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
         (if (= eid aid)
           (check* class-loader fixpoints invariant?? eA aA)
-          (fail (check-error expected actual)))
+          (check-error expected actual))
 
         [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
         (fn [state]
@@ -582,7 +598,7 @@
             (&/$Some ?)
             (if ?
               (return (&/T fixpoints nil))
-              (fail (check-error expected actual)))
+              (check-error expected actual))
 
             (&/$None)
             (|do [expected* (apply-type F A)]
@@ -641,10 +657,10 @@
                                    fixpoints
                                    e!members a!members)]
           (return (&/T fixpoints* nil)))
-        
+
         [_ (&/$VariantT (&/$Nil))]
         (return (&/T fixpoints nil))
-
+        
         [(&/$VariantT e!cases) (&/$VariantT a!cases)]
         (|do [fixpoints* (&/fold2% (fn [fp e a]
                                      (|do [[fp* _] (check* class-loader fp invariant?? e a)]
@@ -656,7 +672,7 @@
         [(&/$ExT e!id) (&/$ExT a!id)]
         (if (.equals ^Object e!id a!id)
           (return (&/T fixpoints nil))
-          (fail (check-error expected actual)))
+          (check-error expected actual))
 
         [(&/$NamedT ?ename ?etype) _]
         (check* class-loader fixpoints invariant?? ?etype actual)
@@ -667,7 +683,7 @@
         [_ _]
         (fail ""))
       (fn [err]
-        (fail (check-error expected actual))))))
+        (check-error expected actual)))))
 
 (defn check [expected actual]
   (|do [class-loader &/loader
