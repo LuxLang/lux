@@ -37,6 +37,9 @@
 
 (defn parse-gclass [ast]
   (|case ast
+    [_ (&/$TextS "*")]
+    (return (&/V &/$GenericWildcard nil))
+
     [_ (&/$TextS var-name)]
     (return (&/V &/$GenericTypeVar var-name))
 

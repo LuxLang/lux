@@ -110,7 +110,8 @@
 (deftags
   ["GenericTypeVar"
    "GenericClass"
-   "GenericArray"])
+   "GenericArray"
+   "GenericWildcard"])
 
 ;; Methods
 (deftags

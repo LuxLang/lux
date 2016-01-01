@@ -256,4 +256,4 @@
         (instance? WildcardType gtype)
         (if-let [bound (->> ^WildcardType gtype .getUpperBounds seq first)]
           (gtype->gclass bound)
-          (&/V &/$GenericClass (&/T "java.lang.Object" &/Nil$)))))
+          (&/V &/$GenericWildcard nil))))

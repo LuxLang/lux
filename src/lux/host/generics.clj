@@ -56,6 +56,9 @@
   (|case super
     (&/$GenericTypeVar name)
     (str "T" name ";")
+
+    (&/$GenericWildcard)
+    "*"
     
     (&/$GenericClass name params)
     (case name
@@ -97,6 +100,9 @@
     (|case gclass
       (&/$GenericTypeVar name)
       object-simple-signature
+
+      (&/$GenericWildcard)
+      object-simple-signature
       
       (&/$GenericClass name params)
       (->type-signature name)
@@ -111,6 +117,9 @@
   "(-> GenericClass Text)"
   (|case gclass
     (&/$GenericTypeVar name)
+    (->bytecode-class-name "java.lang.Object")
+
+    (&/$GenericWildcard)
     (->bytecode-class-name "java.lang.Object")
     
     (&/$GenericClass name params)
@@ -127,6 +136,9 @@
     "(-> GenericClass Text)"
     (|case gclass
       (&/$GenericTypeVar name)
+      object-bc-name
+
+      (&/$GenericWildcard)
       object-bc-name
       
       (&/$GenericClass name params)

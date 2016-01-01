@@ -41,6 +41,8 @@
   (&/V &/$VariantT members))
 (defn Univ$ [env body]
   (&/V &/$UnivQ (&/T env body)))
+(defn Ex$ [env body]
+  (&/V &/$ExQ (&/T env body)))
 (defn Named$ [name type]
   (&/V &/$NamedT (&/T name type)))
 

@@ -459,6 +459,9 @@
   (|case gclass
     (&/$GenericTypeVar var-name)
     "java.lang.Object"
+
+    (&/$GenericWildcard)
+    "java.lang.Object"
     
     (&/$GenericClass name params)
     name
@@ -496,6 +499,9 @@
       (str "[L" name ";")
 
       (&/$GenericTypeVar var-name)
+      "[Ljava.lang.Object;"
+
+      (&/$GenericWildcard)
       "[Ljava.lang.Object;")
     ))
 
@@ -525,6 +531,9 @@
     (&/$GenericArray param)
     (|do [=param (generic-class->type env param)]
       (return (&type/Data$ &host-type/array-data-tag (&/|list =param))))
+
+    (&/$GenericWildcard)
+    (return (&type/Ex$ (&/|list) (&type/Bound$ 1)))
     ))
 
 (defn gen-super-env [class-env supers class-decl]
