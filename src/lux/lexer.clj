@@ -4,7 +4,8 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.lexer
-  (:require [clojure.template :refer [do-template]]
+  (:require (clojure [template :refer [do-template]]
+                     [string :as string])
             (lux [base :as & :refer [deftags |do return* return fail fail*]]
                  [reader :as &reader])
             [lux.analyser.module :as &module]))
@@ -40,13 +41,50 @@
         :else
         (fail (str "[Lexer Error] Unknown escape character: " escaped))))
 
-(defn ^:private lex-text-body [_]
-  (&/try-all% (&/|list (|do [[_ [prefix escaped]] (&reader/read-regex2 #"(?s)^([^\"\\]*)(\\.)")
-                             unescaped (escape-char escaped)
-                             postfix (lex-text-body nil)]
-                         (return (str prefix unescaped postfix)))
-                       (|do [[_ body] (&reader/read-regex #"(?s)^([^\"\\]*)")]
-                         (return body)))))
+(defn ^:private escape-char* [escaped]
+  (cond (.equals ^Object escaped "\\t")  "\t"
+        (.equals ^Object escaped "\\b")  "\b"
+        (.equals ^Object escaped "\\n")  "\n"
+        (.equals ^Object escaped "\\r")  "\r"
+        (.equals ^Object escaped "\\f")  "\f"
+        (.equals ^Object escaped "\\\"") "\""
+        (.equals ^Object escaped "\\\\") "\\"
+        :else
+        (assert false (str "[Lexer Error] Unknown escape character: " escaped))))
+
+(defn ^:private clean-line [raw-line]
+  (string/replace raw-line #"\\." escape-char*))
+
+(def ^:private lex-text-line
+  (&reader/read-regex #"^(.*) \\$"))
+
+(def ^:private lext-text-line-prefix
+  (&reader/read-regex #"^(\s*\\ )"))
+
+(defn ^:private lex-text-next-line [within-multiline? lex-text-body]
+  (&/try-all% (&/|list (if within-multiline?
+                         (|do [[_ blank-line] (&reader/read-regex #"^()$")
+                               next-part (lex-text-next-line within-multiline? lex-text-body)]
+                           (return (str "\n" next-part)))
+                         (fail ""))
+                       (|do [[_ line-prefix] lext-text-line-prefix
+                             next-part lex-text-body]
+                         (return (str "\n" next-part))))))
+
+(defn ^:private lex-text-body [within-multiline?]
+  (&/try-all% (&/|list (|do [[_ ^String this-line*] lex-text-line
+                             :let [this-line (.substring this-line* 0 (- (.length this-line*) 2))]
+                             next-lines (lex-text-next-line true (lex-text-body true))]
+                         (return (str (clean-line this-line)
+                                      next-lines))
+                         )
+                       (|do [[_ ^String pre-quotes] (&reader/read-regex #"^([^\"]*)")
+                             post-quotes (if (.endsWith pre-quotes "\\")
+                                           (|do [_ (&reader/read-regex #"^([\"])")
+                                                 next-part (lex-text-body within-multiline?)]
+                                             (return (str "\"" next-part)))
+                                           (return ""))]
+                         (return (clean-line (str pre-quotes post-quotes)))))))
 
 (def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)"
   ;; #"^([^0-9\[\]\(\)\{\};#\s\"][^\[\]\(\)\{\};#\s\"]*)"
@@ -98,7 +136,7 @@
 
 (def ^:private lex-text
   (|do [[meta _] (&reader/read-text "\"")
-        token (lex-text-body nil)
+        token (lex-text-body false)
         _ (&reader/read-text "\"")]
     (return (&/T meta (&/V $Text token)))))
 

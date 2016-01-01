@@ -160,19 +160,26 @@
 (deftest lex-text
   (let [input1 ""
         input2 "abc"
-        input3 "yolo\\nlol\\tmeme"]
+        input3 "yolo\\nlol\\tmeme"
+        input4 "This is a test \\
+                   \\ of multi-line text. \\
+
+                   \\ I just wanna make sure it works alright..."]
     (|case (&/run-state (|do [[_ output1] &lexer/lex
                               [_ output2] &lexer/lex
-                              [_ output3] &lexer/lex]
-                          (return (&/T output1 output2 output3)))
+                              [_ output3] &lexer/lex
+                              [_ output4] &lexer/lex]
+                          (return (&/T output1 output2 output3 output4)))
                         (make-state (str "\"" input1 "\"" "\n" "\"" input2 "\"" "\n" "\"" input3 "\"")))
       (&/$Right state [(&lexer/$Text output1)
                        (&lexer/$Text output2)
-                       (&lexer/$Text output3)])
+                       (&lexer/$Text output3)
+                       (&lexer/$Text output4)])
       (are [input output] (= input output)
            input1 output1
            input2 output2
-           "yolo\nlol\tmeme" output3)
+           "yolo\nlol\tmeme" output3
+           "This is a test\nof multi-line text.\n\nI just wanna make sure it works alright..." output4)
       
       _
       (is false "Couldn't read.")

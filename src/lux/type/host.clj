@@ -237,7 +237,7 @@
 (defn gtype->gclass [gtype]
   "(-> GenericType GenericClass)"
   (cond (instance? Class gtype)
-        (&/V &/$GenericClass (&/T (.getName gtype) &/Nil$))
+        (&/V &/$GenericClass (&/T (.getName ^Class gtype) &/Nil$))
 
         (instance? GenericArrayType gtype)
         (&/V &/$GenericArray (gtype->gclass (.getGenericComponentType ^GenericArrayType gtype)))
