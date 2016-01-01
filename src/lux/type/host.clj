@@ -117,6 +117,32 @@
           (instance-param existential matchings bound)
           existential)))
 
+;; TODO: CLEAN THIS UP, IT'S DOING A HACK BY TREATING GCLASSES AS GVARS
+(defn instance-gtype [existential matchings gtype]
+  "(-> (Lux Type) (List (, Text Type)) GenericType (Lux Type))"
+  (|case gtype
+    (&/$GenericArray component-type)
+    (|do [inner-type (instance-gtype existential matchings component-type)]
+      (return (&/V &/$DataT (&/T array-data-tag (&/|list inner-type)))))
+    
+    (&/$GenericClass type-name type-params)
+    (if-let [m-type (&/|get type-name matchings)]
+      (return m-type)
+      (|do [params* (&/map% (partial instance-gtype existential matchings)
+                            type-params)]
+        (return (&/V &/$DataT (&/T type-name
+                                   params*)))))
+    
+    (&/$GenericTypeVar var-name)
+    (if-let [m-type (&/|get var-name matchings)]
+      (return m-type)
+      (fail (str "[Type Error] Unknown generic type variable: " var-name " -- " (->> matchings
+                                                                                     (&/|map &/|first)
+                                                                                     &/->seq))))
+    
+    (&/$GenericWildcard)
+    existential))
+
 ;; [Utils]
 (defn ^:private translate-params [existential super-type-params sub-type-params params]
   "(-> (List (^ java.lang.reflect.Type)) (List (^ java.lang.reflect.Type)) (List Type) (Lux (List Type)))"
@@ -223,16 +249,6 @@
       (catch Exception e
         (prn 'check-host-types e [e!name a!name])
         (throw e)))))
-
-(let [Void$ (&/V &/$VariantT (&/|list))
-      gen-type (constantly Void$)]
-  (defn dummy-gtype [class]
-    (|do [class-loader &/loader]
-      (try (|let [=class (Class/forName class true class-loader)
-                  params (->> =class .getTypeParameters seq &/->list (&/|map gen-type))]
-             (return (&/V &/$DataT (&/T class params))))
-        (catch Exception e
-          (fail (str "[Type Error] Unknown type: " class)))))))
 
 (defn gtype->gclass [gtype]
   "(-> GenericType GenericClass)"

@@ -133,8 +133,9 @@
 (defn ^:private aba8 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Arrays
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anewarray")] (&/$Cons [_ (&/$TextS ?class)] (&/$Cons ?length (&/$Nil)))))
-    (&&host/analyse-jvm-anewarray analyse exo-type ?class ?length)
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anewarray")] (&/$Cons gtype (&/$Cons ?length (&/$Nil)))))
+    (|do [=gtype (&&a-parser/parse-gclass gtype)]
+      (&&host/analyse-jvm-anewarray analyse exo-type =gtype ?length))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
     (&&host/analyse-jvm-aastore analyse exo-type ?array ?idx ?elem)

@@ -309,8 +309,8 @@
         (&o/$jvm-caload ?array ?idx)
         (&&host/compile-jvm-caload compile-expression ?array ?idx)
 
-        (&o/$jvm-anewarray ?class ?length)
-        (&&host/compile-jvm-anewarray compile-expression ?class ?length)
+        (&o/$jvm-anewarray ?class ?length gtype-env)
+        (&&host/compile-jvm-anewarray compile-expression ?class ?length gtype-env)
 
         (&o/$jvm-aastore ?array ?idx ?elem)
         (&&host/compile-jvm-aastore compile-expression ?array ?idx ?elem)

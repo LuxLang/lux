@@ -283,7 +283,9 @@
   (do (defn <new-name> [compile ?length]
         (|do [^MethodVisitor *writer* &/get-writer
               _ (compile ?length)
-              :let [_ (.visitInsn *writer* Opcodes/L2I)]
+              :let [_ (doto *writer*
+                        &&/unwrap-long
+                        (.visitInsn Opcodes/L2I))]
               :let [_ (.visitIntInsn *writer* Opcodes/NEWARRAY <prim-type>)]]
           (return nil)))
 
@@ -326,11 +328,13 @@
   Opcodes/T_CHAR    "[C" compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
   )
 
-(defn compile-jvm-anewarray [compile ?class ?length]
+(defn compile-jvm-anewarray [compile ?gclass ?length type-env]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?length)
-        :let [_ (.visitInsn *writer* Opcodes/L2I)]
-        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host-generics/->bytecode-class-name ?class))]]
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host-generics/gclass->bytecode-class-name* ?gclass type-env))]]
     (return nil)))
 
 (defn compile-jvm-aaload [compile ?array ?idx]

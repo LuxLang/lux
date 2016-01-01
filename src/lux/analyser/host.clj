@@ -7,7 +7,7 @@
   (:require (clojure [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail |case assert!]]
+            (lux [base :as & :refer [|let |do return* return fail |case assert!]]
                  [type :as &type]
                  [host :as &host])
             [lux.type.host :as &host-type]
@@ -411,14 +411,15 @@
 
 (let [length-type &type/Int
       idx-type &type/Int]
-  (defn analyse-jvm-anewarray [analyse exo-type class length]
-    (|do [elem-type (&host-type/dummy-gtype class)
-          :let [array-type (&type/Data$ &host-type/array-data-tag (&/|list elem-type))]
+  (defn analyse-jvm-anewarray [analyse exo-type gclass length]
+    (|do [gtype-env &/get-type-env
+          =gclass (&host-type/instance-gtype &type/existential gtype-env gclass)
+          :let [array-type (&type/Data$ &host-type/array-data-tag (&/|list =gclass))]
           =length (&&/analyse-1 analyse length-type length)
           _ (&type/check exo-type array-type)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
-                                 (&/V &&/$jvm-anewarray (&/T class =length)))))))
+                                 (&/V &&/$jvm-anewarray (&/T gclass =length gtype-env)))))))
 
   (defn analyse-jvm-aaload [analyse exo-type array idx]
     (|do [=array (&&/analyse-1+ analyse array)
@@ -574,14 +575,15 @@
                                        =ca-term (&&/analyse-1 analyse =ca-type ca-term)]
                                    (return (&/T ca-type =ca-term))))
                                ?ctor-args)
-            =body (&&env/with-local &&/jvm-this class-type
-                    (&/fold (fn [body* input*]
-                              (|do [:let [[iname itype*] input*]
-                                    itype (generic-class->type full-env itype*)]
-                                (&&env/with-local iname itype
-                                  body*)))
-                            (&&/analyse-1 analyse output-type ?body)
-                            (&/|reverse ?inputs)))]
+            =body (&/with-type-env full-env
+                    (&&env/with-local &&/jvm-this class-type
+                      (&/fold (fn [body* input*]
+                                (|do [:let [[iname itype*] input*]
+                                      itype (generic-class->type full-env itype*)]
+                                  (&&env/with-local iname itype
+                                    body*)))
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/V &/$ConstructorMethodAnalysis (&/T ?anns ?gvars ?exceptions ?inputs =ctor-args =body))))
       
       (&/$VirtualMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -591,14 +593,15 @@
                                ?gvars)
             :let [full-env (&/|++ class-env method-env)]
             output-type (generic-class->type full-env ?output)
-            =body (&&env/with-local &&/jvm-this class-type
-                    (&/fold (fn [body* input*]
-                              (|do [:let [[iname itype*] input*]
-                                    itype (generic-class->type full-env itype*)]
-                                (&&env/with-local iname itype
-                                  body*)))
-                            (&&/analyse-1 analyse output-type ?body)
-                            (&/|reverse ?inputs)))]
+            =body (&/with-type-env full-env
+                    (&&env/with-local &&/jvm-this class-type
+                      (&/fold (fn [body* input*]
+                                (|do [:let [[iname itype*] input*]
+                                      itype (generic-class->type full-env itype*)]
+                                  (&&env/with-local iname itype
+                                    body*)))
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/V &/$VirtualMethodAnalysis (&/T ?name ?anns ?gvars ?exceptions ?inputs ?output =body))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -609,14 +612,15 @@
                                ?gvars)
             :let [full-env (&/|++ super-env method-env)]
             output-type (generic-class->type full-env ?output)
-            =body (&&env/with-local &&/jvm-this class-type
-                    (&/fold (fn [body* input*]
-                              (|do [:let [[iname itype*] input*]
-                                    itype (generic-class->type full-env itype*)]
-                                (&&env/with-local iname itype
-                                  body*)))
-                            (&&/analyse-1 analyse output-type ?body)
-                            (&/|reverse ?inputs)))]
+            =body (&/with-type-env full-env
+                    (&&env/with-local &&/jvm-this class-type
+                      (&/fold (fn [body* input*]
+                                (|do [:let [[iname itype*] input*]
+                                      itype (generic-class->type full-env itype*)]
+                                  (&&env/with-local iname itype
+                                    body*)))
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/V &/$OverridenMethodAnalysis (&/T ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output =body))))
       )))
 

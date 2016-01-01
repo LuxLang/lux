@@ -131,6 +131,25 @@
     _
     (assert false (str 'gclass->class-name " " (&/adt->text gclass)))))
 
+;; TODO: CLEAN THIS UP, IT'S DOING A HACK BY TREATING GCLASSES AS GVARS
+(let [object-bc-name (->bytecode-class-name "java.lang.Object")]
+  (defn gclass->bytecode-class-name* [gclass type-env]
+    "(-> GenericClass Text)"
+    (|case gclass
+      (&/$GenericTypeVar name)
+      object-bc-name
+
+      (&/$GenericWildcard)
+      object-bc-name
+      
+      (&/$GenericClass name params)
+      (if (&/|get name type-env)
+        object-bc-name
+        (->bytecode-class-name name))
+
+      (&/$GenericArray param)
+      (assert false "gclass->bytecode-class-name doesn't work on arrays."))))
+
 (let [object-bc-name (->bytecode-class-name "java.lang.Object")]
   (defn gclass->bytecode-class-name [gclass]
     "(-> GenericClass Text)"

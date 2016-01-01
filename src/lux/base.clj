@@ -92,7 +92,8 @@
    "loader"
    "classes"
    "catching"
-   "module-states"])
+   "module-states"
+   "type-env"])
 
 ;; Compiler
 (deftags
@@ -640,7 +641,8 @@
      Nil$
      ;; "lux;module-states"
      (|table)
-     )))
+     ;; lux;type-env
+     (|table))))
 
 (defn init-state [_]
   (T ;; "lux;source"
@@ -1049,3 +1051,25 @@
       ($None) (|some f xs*)
       output  output)
     ))
+
+(def get-type-env
+  "(Lux TypeEnv)"
+  (fn [state]
+    (return* state (->> state (get$ $host) (get$ $type-env)))))
+
+(defn with-type-env [type-env body]
+  "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
+  (fn [state]
+    (|let [state* (update$ $host #(update$ $type-env (partial |++ type-env) %)
+                           state)]
+      (|case (body state*)
+        ($Right [state** output])
+        (V $Right (T (update$ $host
+                              #(set$ $type-env
+                                     (->> state (get$ $host) (get$ $type-env))
+                                     %)
+                              state**)
+                     output))
+
+        ($Left msg)
+        (V $Left msg)))))
