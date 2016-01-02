@@ -61,6 +61,12 @@
     (&/$DataT class params)
     (variant$ &/$DataT (tuple$ (&/|list (text$ class)
                                         (List$ (&/|map type->analysis params)))))
+
+    (&/$VoidT)
+    (variant$ &/$VoidT (tuple$ (&/|list)))
+
+    (&/$UnitT)
+    (variant$ &/$UnitT (tuple$ (&/|list)))
     
     (&/$TupleT members)
     (variant$ &/$TupleT (List$ (&/|map type->analysis members)))

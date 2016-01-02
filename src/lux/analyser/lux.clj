@@ -43,73 +43,88 @@
     (&type/Lambda$ input output)))
 
 ;; [Exports]
+(defn analyse-unit [analyse ?exo-type]
+  (|do [_cursor &/cursor
+        _ (&type/check ?exo-type &type/Unit)]
+    (return (&/|list (&&/|meta ?exo-type _cursor
+                               (&/V &&/$tuple (&/|list)))))))
+
 (defn analyse-tuple [analyse ?exo-type ?elems]
-  (|case ?exo-type
-    (&/$Left exo-type)
-    (|do [exo-type* (&type/actual-type exo-type)]
-      (|case exo-type*
-        (&/$UnivQ _)
-        (&type/with-var
-          (fn [$var]
-            (|do [exo-type** (&type/apply-type exo-type* $var)
-                  [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left exo-type**) ?elems))
-                  =var (&type/resolve-type $var)
-                  inferred-type (|case =var
-                                  (&/$VarT iid)
-                                  (|do [:let [=var* (next-bound-type tuple-type)]
-                                        _ (&type/set-var iid =var*)
-                                        tuple-type* (&type/clean $var tuple-type)]
-                                    (return (&type/Univ$ &/Nil$ tuple-type*)))
+  (|case ?elems
+    (&/$Nil)
+    (analyse-unit analyse (|case ?exo-type
+                            (&/$Left exo-type) exo-type
+                            (&/$Right exo-type) exo-type))
 
-                                  _
-                                  (&type/clean $var tuple-type))]
-              (return (&/|list (&&/|meta inferred-type tuple-cursor
-                                         tuple-analysis))))))
+    _
+    (|case ?exo-type
+      (&/$Left exo-type)
+      (|do [exo-type* (&type/actual-type exo-type)]
+        (|case exo-type*
+          (&/$UnivQ _)
+          (&type/with-var
+            (fn [$var]
+              (|do [exo-type** (&type/apply-type exo-type* $var)
+                    [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Left exo-type**) ?elems))
+                    =var (&type/resolve-type $var)
+                    inferred-type (|case =var
+                                    (&/$VarT iid)
+                                    (|do [:let [=var* (next-bound-type tuple-type)]
+                                          _ (&type/set-var iid =var*)
+                                          tuple-type* (&type/clean $var tuple-type)]
+                                      (return (&type/Univ$ &/Nil$ tuple-type*)))
 
-        _
-        (analyse-tuple analyse (&/V &/$Right exo-type*) ?elems)))
+                                    _
+                                    (&type/clean $var tuple-type))]
+                (return (&/|list (&&/|meta inferred-type tuple-cursor
+                                           tuple-analysis))))))
 
-    (&/$Right exo-type)
-    (|do [unknown? (&type/unknown? exo-type)]
-      (if unknown?
-        (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
-                                (return =analysis))
-                             ?elems)
-              _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))
-              _cursor &/cursor]
-          (return (&/|list (&&/|meta exo-type _cursor
-                                     (&/V &&/$tuple =elems)
-                                     ))))
-        (|do [exo-type* (&type/actual-type exo-type)]
-          (&/with-attempt
-            (|case exo-type*
-              (&/$TupleT ?members)
-              (|do [=elems (&/map2% (fn [elem-t elem]
-                                      (&&/analyse-1 analyse elem-t elem))
-                                    ?members ?elems)
-                    _cursor &/cursor]
-                (return (&/|list (&&/|meta exo-type _cursor
-                                           (&/V &&/$tuple =elems)
-                                           ))))
+          _
+          (analyse-tuple analyse (&/V &/$Right exo-type*) ?elems)))
 
-              (&/$UnivQ _)
-              (|do [$var &type/existential
-                    exo-type** (&type/apply-type exo-type* $var)
-                    [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
-                (return (&/|list (&&/|meta exo-type tuple-cursor
-                                           tuple-analysis))))
+      (&/$Right exo-type)
+      (|do [unknown? (&type/unknown? exo-type)]
+        (if unknown?
+          (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
+                                  (return =analysis))
+                               ?elems)
+                _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))
+                _cursor &/cursor]
+            (return (&/|list (&&/|meta exo-type _cursor
+                                       (&/V &&/$tuple =elems)
+                                       ))))
+          (|do [exo-type* (&type/actual-type exo-type)]
+            (&/with-attempt
+              (|case exo-type*
+                (&/$TupleT ?members)
+                (|do [=elems (&/map2% (fn [elem-t elem]
+                                        (&&/analyse-1 analyse elem-t elem))
+                                      ?members ?elems)
+                      _cursor &/cursor]
+                  (return (&/|list (&&/|meta exo-type _cursor
+                                             (&/V &&/$tuple =elems)
+                                             ))))
 
-              _
-              (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*)))
-              )
-            (fn [err]
-              (fail (str err "\n" "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type))))))))))
+                (&/$UnivQ _)
+                (|do [$var &type/existential
+                      exo-type** (&type/apply-type exo-type* $var)
+                      [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/V &/$Right exo-type**) ?elems))]
+                  (return (&/|list (&&/|meta exo-type tuple-cursor
+                                             tuple-analysis))))
+
+                _
+                (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*)))
+                )
+              (fn [err]
+                (fail (str err "\n" "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type)))))))))
+    ))
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
-  (|do [output (&/with-attempt
+  (|do [_cursor &/cursor
+        output (&/with-attempt
                  (|case ?values
                    (&/$Nil)
-                   (analyse-tuple analyse (&/V &/$Right exo-type) &/Nil$)
+                   (analyse-unit analyse exo-type)
 
                    (&/$Cons ?value (&/$Nil))
                    (analyse exo-type ?value)
@@ -169,7 +184,8 @@
           (&/$VariantT ?cases)
           (|case (&/|at idx ?cases)
             (&/$Some vtype)
-            (|do [=value (&/with-attempt
+            (|do [_cursor &/cursor
+                  =value (&/with-attempt
                            (analyse-variant-body analyse vtype ?values)
                            (fn [err]
                              (|do [_exo-type (&type/deref+ exo-type)]
@@ -340,14 +356,7 @@
       (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
-          (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
-                ;; :let [_ (when (or (= "import" (aget real-name 1))
-                ;;                   (= "defsig" (aget real-name 1)))
-                ;;           (->> (&/|map &/show-ast macro-expansion)
-                ;;                (&/|interpose "\n")
-                ;;                (&/fold str "")
-                ;;                (prn (&/ident->text real-name))))]
-                ]
+          (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
           _
@@ -359,8 +368,8 @@
 
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [:let [num-branches (&/|length ?branches)]
-        _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case'\" expression.")
-        _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case'\" expression.")
+        _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case\" expression.")
+        _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case\" expression.")
         =value (&&/analyse-1+ analyse ?value)
         :let [var?? (|case =value
                       [_ (&&/$var =var-kind)]

@@ -64,7 +64,7 @@
 
 ;; [Exports]
 (let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))"
-      Unit (&/V &/$TupleT (&/|list))
+      Unit (&/V &/$UnitT nil)
       jprim->lprim (fn [prim]
                      (case prim
                        "Z" "boolean"

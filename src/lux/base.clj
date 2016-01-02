@@ -45,6 +45,8 @@
 ;; Type
 (deftags
   ["DataT"
+   "VoidT"
+   "UnitT"
    "VariantT"
    "TupleT"
    "LambdaT"
@@ -183,7 +185,7 @@
         (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
                          (vec (cons (eval (first pattern))
                                     (list (case (count parts)
-                                            0 '_
+                                            0 nil
                                             1 (first parts)
                                             ;; else
                                             `[~@parts])))))
@@ -660,7 +662,7 @@
    ;; "lux;types"
    +init-bindings+
    ;; "lux;expected"
-   (V $VariantT Nil$)
+   (V $VoidT nil)
    ;; "lux;seed"
    0
    ;; "lux;eval?"

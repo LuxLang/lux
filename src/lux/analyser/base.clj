@@ -6,7 +6,7 @@
 (ns lux.analyser.base
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |let |do return fail |case]]
+            (lux [base :as & :refer [deftags |let |do return* return fail |case]]
                  [type :as &type])))
 
 ;; [Tags]
@@ -185,7 +185,7 @@
                   (return ?module))]
     (return (&/T module* ?name))))
 
-(let [tag-names #{"DataT" "VariantT" "TupleT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
+(let [tag-names #{"DataT" "VoidT" "UnitT" "VariantT" "TupleT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
   (defn type-tag? [module name]
     (and (= "lux" module)
          (contains? tag-names name))))

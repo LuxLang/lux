@@ -53,7 +53,7 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
     (|case *type*
-      (&/$TupleT (&/$Nil))
+      (&/$UnitT)
       (.visitInsn *writer* Opcodes/ACONST_NULL)
 
       (&/$DataT "boolean" (&/$Nil))

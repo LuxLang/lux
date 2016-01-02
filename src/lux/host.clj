@@ -63,7 +63,7 @@
       (&/$LambdaT _ _)
       (return (&host-generics/->type-signature function-class))
 
-      (&/$TupleT (&/$Nil))
+      (&/$UnitT)
       (return "V")
 
       (&/$VariantT _)

@@ -677,9 +677,7 @@
                             ?params)
           _ (&host/use-dummy-class class-decl super-class interfaces &/None$ =fields methods)
           =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
-          ;; :let [_ (prn 'analyse-jvm-class/_2)]
           _ (check-method-completion all-supers =methods)
-          ;; :let [_ (prn 'analyse-jvm-class/_3)]
           _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces =anns =fields =methods (&/|list) &/None$)))
           :let [_ (println 'DEF full-name)]]
       (return &/Nil$))))

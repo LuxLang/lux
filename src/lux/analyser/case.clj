@@ -116,6 +116,9 @@
     (&/$NamedT ?name ?type)
     (adjust-type* up ?type)
 
+    (&/$UnitT)
+    (return type)
+
     _
     (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
     ))
@@ -169,22 +172,29 @@
         (return (&/T (&/V $TextTestAC ?value) =kont)))
 
       (&/$TupleS ?members)
-      (|do [value-type* (adjust-type value-type)]
-        (|case value-type*
-          (&/$TupleT ?member-types)
-          (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-            (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
-            (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                           (|let [[v m] vm]
-                                             (|do [[=test [=tests =kont]] (analyse-pattern &/None$ v m kont*)]
-                                               (return (&/T (&/Cons$ =test =tests) =kont)))))
-                                         (|do [=kont kont]
-                                           (return (&/T &/Nil$ =kont)))
-                                         (&/|reverse (&/zip2 ?member-types ?members)))]
-              (return (&/T (&/V $TupleTestAC =tests) =kont))))
+      (|case ?members
+        (&/$Nil)
+        (|do [_ (&type/check value-type &type/Unit)
+              =kont kont]
+          (return (&/T (&/V $TupleTestAC (&/|list)) =kont)))
 
-          _
-          (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type)))))
+        _
+        (|do [value-type* (adjust-type value-type)]
+          (|case value-type*
+            (&/$TupleT ?member-types)
+            (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
+              (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
+              (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                             (|let [[v m] vm]
+                                               (|do [[=test [=tests =kont]] (analyse-pattern &/None$ v m kont*)]
+                                                 (return (&/T (&/Cons$ =test =tests) =kont)))))
+                                           (|do [=kont kont]
+                                             (return (&/T &/Nil$ =kont)))
+                                           (&/|reverse (&/zip2 ?member-types ?members)))]
+                (return (&/T (&/V $TupleTestAC =tests) =kont))))
+
+            _
+            (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
       
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)]
@@ -340,24 +350,35 @@
       (return ?total))
 
     ($TupleTotal ?total ?structs)
-    (|do [unknown? (&type/unknown? value-type)]
-      (if unknown?
-        (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
-              _ (&type/check value-type (&/V &/$TupleT (&/|map &/|second =structs)))]
-          (return (or ?total
-                      (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
-        (if ?total
+    (|case ?structs
+      (&/$Nil)
+      (|do [value-type* (resolve-type value-type)]
+        (|case value-type*
+          (&/$UnitT)
           (return true)
-          (|do [value-type* (resolve-type value-type)]
-            (|case value-type*
-              (&/$TupleT ?members)
-              (|do [totals (&/map2% (fn [sub-struct ?member]
-                                      (check-totality ?member sub-struct))
-                                    ?structs ?members)]
-                (return (&/fold #(and %1 %2) true totals)))
 
-              _
-              (fail "[Pattern-maching Error] Tuple is not total."))))))
+          _
+          (fail "[Pattern-maching Error] Unit is not total.")))
+      
+      _
+      (|do [unknown? (&type/unknown? value-type)]
+        (if unknown?
+          (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
+                _ (&type/check value-type (&/V &/$TupleT (&/|map &/|second =structs)))]
+            (return (or ?total
+                        (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
+          (if ?total
+            (return true)
+            (|do [value-type* (resolve-type value-type)]
+              (|case value-type*
+                (&/$TupleT ?members)
+                (|do [totals (&/map2% (fn [sub-struct ?member]
+                                        (check-totality ?member sub-struct))
+                                      ?structs ?members)]
+                  (return (&/fold #(and %1 %2) true totals)))
+
+                _
+                (fail "[Pattern-maching Error] Tuple is not total.")))))))
 
     ($VariantTotal ?total ?structs)
     (if ?total

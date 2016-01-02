@@ -36,8 +36,10 @@
 (defn App$ [fun arg]
   (&/V &/$AppT (&/T fun arg)))
 (defn Tuple$ [members]
+  (assert (> (&/|length members) 0))
   (&/V &/$TupleT members))
 (defn Variant$ [members]
+  (assert (> (&/|length members) 0))
   (&/V &/$VariantT members))
 (defn Univ$ [env body]
   (&/V &/$UnivQ (&/T env body)))
@@ -46,14 +48,13 @@
 (defn Named$ [name type]
   (&/V &/$NamedT (&/T name type)))
 
-
+(def $Void (&/V &/$VoidT nil))
+(def Unit (&/V &/$UnitT nil))
 (def Bool (Named$ (&/T "lux" "Bool") (Data$ "java.lang.Boolean" &/Nil$)))
 (def Int (Named$ (&/T "lux" "Int") (Data$ "java.lang.Long" &/Nil$)))
 (def Real (Named$ (&/T "lux" "Real") (Data$ "java.lang.Double" &/Nil$)))
 (def Char (Named$ (&/T "lux" "Char") (Data$ "java.lang.Character" &/Nil$)))
 (def Text (Named$ (&/T "lux" "Text") (Data$ "java.lang.String" &/Nil$)))
-(def Unit (Named$ (&/T "lux" "Unit") (Tuple$ &/Nil$)))
-(def $Void (Named$ (&/T "lux" "Void") (Variant$ &/Nil$)))
 (def Ident (Named$ (&/T "lux" "Ident") (Tuple$ (&/|list Text Text))))
 
 (def IO
@@ -92,6 +93,10 @@
                          (Variant$ (&/|list
                                     ;; DataT
                                     (Tuple$ (&/|list Text TypeList))
+                                    ;; VoidT
+                                    Unit
+                                    ;; UnitT
+                                    Unit
                                     ;; VariantT
                                     TypeList
                                     ;; TupleT
@@ -254,7 +259,10 @@
   (|case type
     (&/$VarT ?id)
     (if (.equals ^Object ?tid ?id)
-      (deref ?id)
+      (|do [? (bound? ?id)]
+        (if ?
+          (deref ?id)
+          (return type)))
       (return type))
     
     (&/$LambdaT ?arg ?return)
@@ -319,6 +327,12 @@
 
       _
       (str "(^ " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+
+    (&/$VoidT)
+    "Void"
+    
+    (&/$UnitT)
+    "Unit"
     
     (&/$TupleT elems)
     (if (&/|empty? elems)
@@ -373,6 +387,12 @@
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
+
+                     [(&/$VoidT) (&/$VoidT)]
+                     true
+                     
+                     [(&/$UnitT) (&/$UnitT)]
+                     true
 
                      [(&/$TupleT xelems) (&/$TupleT yelems)]
                      (&/fold2 (fn [old x y] (and old (type= x y)))
@@ -676,6 +696,12 @@
                                  e!data
                                  a!data)
 
+        [(&/$VoidT) (&/$VoidT)]
+        (return (&/T fixpoints nil))
+        
+        [(&/$UnitT) (&/$UnitT)]
+        (return (&/T fixpoints nil))
+
         [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
         (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
           (check* class-loader fixpoints* invariant?? eO aO))
@@ -688,9 +714,6 @@
                                    e!members a!members)]
           (return (&/T fixpoints* nil)))
 
-        [_ (&/$VariantT (&/$Nil))]
-        (return (&/T fixpoints nil))
-        
         [(&/$VariantT e!cases) (&/$VariantT a!cases)]
         (|do [fixpoints* (&/fold2% (fn [fp e a]
                                      (|do [[fp* _] (check* class-loader fp invariant?? e a)]
