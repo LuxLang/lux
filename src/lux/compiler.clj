@@ -424,11 +424,8 @@
 
 (defn ^:private compile-token [syntax]
   (|case syntax
-    (&o/$def ?name ?body)
-    (&&lux/compile-def compile-expression ?name ?body)
-
-    (&o/$declare-macro ?module ?name)
-    (&&lux/compile-declare-macro compile-expression ?module ?name)
+    (&o/$def ?name ?body ?meta)
+    (&&lux/compile-def compile-expression ?name ?body ?meta)
 
     (&o/$jvm-program ?body)
     (&&host/compile-jvm-program compile-expression ?body)
@@ -509,12 +506,10 @@
                                                  (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/defs-field "Ljava/lang/String;" nil
                                                                   (->> defs
                                                                        (&/|map (fn [_def]
-                                                                                 (|let [[?exported ?name ?ann] _def]
-                                                                                   (str (if ?exported &&/exported-true &&/exported-false)
+                                                                                 (|let [[?name ?alias] _def]
+                                                                                   (str ?name
                                                                                         &&/exported-separator
-                                                                                        ?name
-                                                                                        &&/exported-separator
-                                                                                        ?ann))))
+                                                                                        ?alias))))
                                                                        (&/|interpose &&/def-separator)
                                                                        (&/fold str "")))
                                                      .visitEnd)

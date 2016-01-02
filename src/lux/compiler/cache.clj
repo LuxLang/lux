@@ -14,7 +14,8 @@
                  [host :as &host])
             [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &a]
-                          [module :as &a-module])
+                          [module :as &a-module]
+                          [meta :as &a-meta])
             (lux.compiler [base :as &&]
                           [io :as &&io]))
   (:import (java.io File
@@ -121,27 +122,24 @@
                               _ (&/flag-cached-module module)
                               _ (&a-module/set-imports imports)
                               _ (&/map% (fn [_def]
-                                          (let [[_exported? _name _ann] (string/split _def #" ")]
-                                            (|do [_ (case _ann
-                                                      "T" (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
-                                                                def-value (get-field &/datum-field def-class)]
-                                                            (&a-module/define module _name (&/V &/$TypeD def-value) &type/Type))
-                                                      "M" (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
-                                                                def-value (get-field &/datum-field def-class)]
-                                                            (|do [_ (&a-module/define module _name (&/V &/$ValueD (&/T &type/Macro def-value)) &type/Macro)]
-                                                              (&a-module/declare-macro module _name)))
-                                                      "V" (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
-                                                                def-meta (get-field &/meta-field def-class)]
-                                                            (|case def-meta
-                                                              (&/$ValueD def-type _)
-                                                              (&a-module/define module _name def-meta def-type)))
-                                                      ;; else
-                                                      (let [[_ __module __name] (re-find #"^A(.*);(.*)$" _ann)]
-                                                        (|do [__type (&a-module/def-type __module __name)]
-                                                          (&a-module/def-alias module _name __module __name __type))))]
-                                              (if (= &&/exported-true _exported?)
-                                                (&a-module/export module _name)
-                                                (return nil)))
+                                          (let [[_name _alias] (string/split _def #" ")]
+                                            (if (= nil _alias)
+                                              (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
+                                                    def-meta (get-field &/meta-field def-class)
+                                                    def-type (|case (&a-meta/meta-get &a-meta/type?-tag def-meta)
+                                                               (&/$Some (&/$BoolM true))
+                                                               &type/Type
+
+                                                               _
+                                                               (get-field &/type-field def-class))
+                                                    def-value (get-field &/value-field def-class)]
+                                                (&a-module/define module _name def-type def-meta def-value))
+                                              (let [[_ __module __name] (re-find #"^(.*);(.*)$" _alias)
+                                                    def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
+                                                    def-type (get-field &/type-field def-class)
+                                                    def-meta (&/|list (&/T &a-meta/alias-tag (&/V &/$IdentM (&/T __module __name))))
+                                                    def-value (get-field &/value-field def-class)]
+                                                (&a-module/define module _name def-type def-meta def-value)))
                                             ))
                                         (if (= [""] defs)
                                           &/Nil$
@@ -153,6 +151,5 @@
                                         tag-groups)]
                           (return true))))
                     redo-cache)))
-              redo-cache)
-            )
+              redo-cache))
           redo-cache)))))

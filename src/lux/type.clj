@@ -115,6 +115,34 @@
                                     )))
                   $Void))))
 
+(def DefMetaValue
+  (Named$ (&/T "lux" "DefMetaValue")
+          (let [DefMetaValue (App$ (Bound$ 0) (Bound$ 1))]
+            (App$ (Univ$ empty-env
+                         (Variant$ (&/|list
+                                    ;; BoolM
+                                    Bool
+                                    ;; IntM
+                                    Int
+                                    ;; RealM
+                                    Real
+                                    ;; CharM
+                                    Char
+                                    ;; TextM
+                                    Text
+                                    ;; IdentM
+                                    Ident
+                                    ;; ListM
+                                    (App$ List DefMetaValue)
+                                    ;; DictM
+                                    (App$ List (Tuple$ (&/|list Text DefMetaValue)))
+                                    )))
+                  $Void))))
+
+(def DefMeta
+  (Named$ (&/T "lux" "DefMeta")
+          (App$ List (Tuple$ (&/|list Ident DefMetaValue)))))
+
 (def Macro)
 
 (defn set-macro-type! [type]
@@ -419,10 +447,10 @@
 (defn ^:private check-error [expected actual]
   (|do [=expected (show-type+ expected)
         =actual (show-type+ actual)]
-    (return (str "[Type Checker]\n"
-                 "Expected: " =expected "\n\n"
-                 "Actual:   " =actual
-                 "\n"))))
+    (fail (str "[Type Checker]\n"
+               "Expected: " =expected "\n\n"
+               "Actual:   " =actual
+               "\n"))))
 
 (defn beta-reduce [env type]
   (|case type

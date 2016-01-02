@@ -126,11 +126,12 @@
         (&/V $No (str "[Reader Error] Text failed: " text))))))
 
 (defn from [^String name ^String source-code]
-  (->> source-code
-       (string/split-lines)
-       (&/->list)
-       (&/enumerate)
-       (&/|map (fn [line+line-num]
-                 (|let [[line-num line] line+line-num]
-                   (&/T (&/T name (inc line-num) 0)
-                        line))))))
+  (let [lines (string/split-lines source-code)
+        indexed-lines (map (fn [line line-num]
+                             (&/T (&/T name (inc line-num) 0)
+                                  line))
+                           lines
+                           (range (count lines)))]
+    (reduce (fn [tail head] (&/Cons$ head tail))
+            &/Nil$
+            (reverse indexed-lines))))

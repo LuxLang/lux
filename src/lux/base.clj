@@ -61,13 +61,6 @@
   ["Local"
    "Global"])
 
-;; Definitions
-(deftags
-  ["ValueD"
-   "TypeD"
-   "MacroD"
-   "AliasD"])
-
 ;; Binding
 (deftags
   ["counter"
@@ -125,11 +118,23 @@
    "VirtualMethodAnalysis"
    "OverridenMethodAnalysis"])
 
+;; Meta-data
+(deftags
+  ["BoolM"
+   "IntM"
+   "RealM"
+   "CharM"
+   "TextM"
+   "IdentM"
+   "ListM"
+   "DictM"])
+
 ;; [Exports]
-(def datum-field "_datum")
-(def meta-field "_meta")
 (def name-field "_name")
 (def hash-field "_hash")
+(def type-field "_type")
+(def meta-field "_meta")
+(def value-field "_value")
 (def compiler-field "_compiler")
 (def imports-field "_imports")
 (def defs-field "_defs")
@@ -137,7 +142,6 @@
 (def tags-field "_tags")
 (def module-class-name "_")
 (def +name-separator+ ";")
-(def lib-dir "lib")
 
 (defn T [& elems]
   (to-array elems))

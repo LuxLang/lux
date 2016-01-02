@@ -549,20 +549,10 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_def")]
                        (&/$Cons [_ (&/$SymbolS "" ?name)]
                                 (&/$Cons ?value
-                                         (&/$Nil)))))
-    (&&lux/analyse-def analyse compile-token ?name ?value)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_declare-macro")]
-                       (&/$Cons [_ (&/$SymbolS "" ?name)]
-                                (&/$Nil))))
-    (&&lux/analyse-declare-macro analyse compile-token ?name)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_declare-tags")]
-                       (&/$Cons [_ (&/$TupleS tags)]
-                                (&/$Cons [_ (&/$SymbolS "" type-name)]
-                                         (&/$Nil)))))
-    (|do [tags* (&/map% &&a-parser/parse-tag tags)]
-      (&&lux/analyse-declare-tags tags* type-name))
+                                         (&/$Cons ?meta
+                                                  (&/$Nil))
+                                         ))))
+    (&&lux/analyse-def analyse eval! compile-token ?name ?value ?meta)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_import")]
                        (&/$Cons [_ (&/$TextS ?path)]
@@ -580,11 +570,6 @@
                                 (&/$Cons ?value
                                          (&/$Nil)))))
     (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_export")]
-                       (&/$Cons [_ (&/$SymbolS "" ?ident)]
-                                (&/$Nil))))
-    (&&lux/analyse-export analyse compile-token ?ident)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_alias")]
                        (&/$Cons [_ (&/$TextS ?alias)]
@@ -687,14 +672,14 @@
             (fn [state]
               (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
                 (&/$Right state* =fn)
-                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args) state*)
+                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type =fn ?args) state*)
 
                 _
                 ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
 
             _
             (|do [=fn (just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn)]
-              (&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type meta =fn ?args)))
+              (&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type =fn ?args)))
           
           _
           (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token))))))

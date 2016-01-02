@@ -12,7 +12,8 @@
             (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]]
                  [type :as &type]
                  [host :as &host])
-            [lux.host.generics :as &host-generics]))
+            [lux.host.generics :as &host-generics]
+            (lux.analyser [meta :as &meta])))
 
 ;; [Utils]
 (deftags
@@ -60,10 +61,10 @@
                           state)
                nil))))
 
-(defn define [module name ^objects def-data type]
+(defn define [module name def-type def-meta def-value]
   (fn [state]
     (when (and (= "Macro" name) (= "lux" module))
-      (&type/set-macro-type! (aget def-data 1)))
+      (&type/set-macro-type! def-value))
     (|case (&/get$ &/$envs state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
@@ -72,7 +73,7 @@
                                  (&/|update module
                                             (fn [m]
                                               (&/update$ $defs
-                                                         #(&/|put name (&/T false def-data) %)
+                                                         #(&/|put name (&/T def-type def-meta def-value) %)
                                                          m))
                                             ms))))
                nil)
@@ -85,19 +86,8 @@
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-        (|case $def
-          [_ (&/$TypeD _)]
-          (return* state &type/Type)
-
-          [_ (&/$MacroD _)]
-          (return* state &type/Macro)
-
-          [_ (&/$ValueD _type _)]
-          (return* state _type)
-
-          [_ (&/$AliasD ?r-module ?r-name)]
-          (&/run-state (def-type ?r-module ?r-name)
-                       state))
+        (|let [[?type ?meta ?value] $def]
+          (return* state ?type))
         (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
@@ -106,32 +96,15 @@
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-        (|case $def
-          [_ (&/$TypeD _type)]
-          (return* state _type)
+        (|let [[?type ?meta ?value] $def]
+          (|case (&meta/meta-get &meta/type?-tag ?meta)
+            (&/$Some _)
+            (return* state ?value)
 
-          _
-          (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/T module name)))))
+            _
+            (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/T module name))))))
         (fail* (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T module name)))))
       (fail* (str "[Analyser Error] Unknown module: " module)))))
-
-(defn def-alias [a-module a-name r-module r-name type]
-  (fn [state]
-    (|case (&/get$ &/$envs state)
-      (&/$Cons ?env (&/$Nil))
-      (return* (->> state
-                    (&/update$ &/$modules
-                               (fn [ms]
-                                 (&/|update a-module
-                                            (fn [m]
-                                              (&/update$ $defs
-                                                         #(&/|put a-name (&/T false (&/V &/$AliasD (&/T r-module r-name))) %)
-                                                         m))
-                                            ms))))
-               nil)
-      
-      _
-      (fail* "[Analyser Error] Can't alias a global definition outside of a global environment."))))
 
 (defn exists? [name]
   "(-> Text (Lux Bool))"
@@ -166,108 +139,38 @@
     (fn [state]
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-          (|let [[exported? $$def] $def]
-            (if (or exported? (.equals ^Object current-module module))
-              (|case $$def
-                (&/$AliasD ?r-module ?r-name)
+          (|let [[?type ?meta ?value] $def]
+            (if (.equals ^Object current-module module)
+              (|case (&meta/meta-get &meta/alias-tag ?meta)
+                (&/$Some (&/$IdentM [?r-module ?r-name]))
                 ((find-def ?r-module ?r-name)
                  state)
 
                 _
-                (return* state (&/T (&/T module name) $$def)))
-              (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name)))))
+                (return* state (&/T (&/T module name) $def)))
+              (|case (&meta/meta-get &meta/export?-tag ?meta)
+                (&/$Some (&/$BoolM true))
+                (return* state (&/T (&/T module name) $def))
+
+                _
+                (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
           (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
         (fail* (str "[Analyser Error] Module doesn't exist: " module))))))
 
 (defn ensure-type-def [def-data]
   "(-> DefData (Lux Type))"
-  (|case def-data
-    (&/$TypeD type)
-    (return type)
+  (|let [[?type ?meta ?value] def-data]
+    (|case (&meta/meta-get &meta/type?-tag ?meta)
+      (&/$Some _)
+      (return ?type)
 
-    _
-    (fail (str "[Analyser Error] Not a type definition: " (&/adt->text def-data)))))
+      _
+      (fail (str "[Analyser Error] Not a type definition: " (&/adt->text def-data))))))
 
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def module name)]
                          (return true))
                        (return false))))
-
-(defn declare-macro [module name]
-  (fn [state]
-    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs))]
-      (if-let [$def (&/|get name $module)]
-        (|case $def
-          [exported? (&/$ValueD ?type _)]
-          ((|do [_ (&type/check &type/Macro ?type)
-                 ^ClassLoader loader &/loader
-                 :let [macro (-> (.loadClass loader (str (&host-generics/->class-name module) "." (&host/def-name name)))
-                                 (.getField &/datum-field)
-                                 (.get nil))]]
-             (fn [state*]
-               (return* (&/update$ &/$modules
-                                   (fn [$modules]
-                                     (&/|update module
-                                                (fn [m]
-                                                  (&/update$ $defs
-                                                             #(&/|put name (&/T exported? (&/V &/$MacroD macro)) %)
-                                                             m))
-                                                $modules))
-                                   state*)
-                        nil)))
-           state)
-          
-          [_ (&/$MacroD _)]
-          (fail* (str "[Analyser Error] Can't re-declare a macro: " (str module &/+name-separator+ name)))
-
-          [_ _]
-          (fail* (str "[Analyser Error] Definition does not have macro type: " (str module &/+name-separator+ name))))
-        (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
-      (fail* (str "[Analyser Error] Module does not exist: " module)))))
-
-(defn export [module name]
-  (fn [state]
-    (|case (&/get$ &/$envs state)
-      (&/$Cons ?env (&/$Nil))
-      (if-let [$def (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs) (&/|get name))]
-        (|case $def
-          [true _]
-          (fail* (str "[Analyser Error] Definition has already been exported: " module ";" name))
-
-          [false ?data]
-          (return* (->> state
-                        (&/update$ &/$modules (fn [ms]
-                                                (&/|update module (fn [m]
-                                                                    (&/update$ $defs
-                                                                               #(&/|put name (&/T true ?data) %)
-                                                                               m))
-                                                           ms))))
-                   nil))
-        (fail* (str "[Analyser Error] Can't export an inexistent definition: " (str module &/+name-separator+ name))))
-      
-      _
-      (fail* "[Analyser Error] Can't export a global definition outside of a global environment."))))
-
-(def defs
-  (|do [module &/get-module-name]
-    (fn [state]
-      (return* state
-               (&/|map (fn [kv]
-                         (|let [[k [?exported? ?def]] kv]
-                           (do ;; (prn 'defs k ?exported?)
-                               (|case ?def
-                                 (&/$AliasD ?r-module ?r-name)
-                                 (&/T ?exported? k (str "A" ?r-module ";" ?r-name))
-                                 
-                                 (&/$MacroD _)
-                                 (&/T ?exported? k "M")
-
-                                 (&/$TypeD _)
-                                 (&/T ?exported? k "T")
-
-                                 _
-                                 (&/T ?exported? k "V")))))
-                       (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)))))))
 
 (def imports
   (|do [module &/get-module-name]
@@ -311,7 +214,8 @@
 
 (defn ensure-undeclared-type [module name]
   (|do [types-table (types-by-module module)
-        _ (&/assert! (nil? (&/|get name types-table)) (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T module name))))]
+        _ (&/assert! (nil? (&/|get name types-table))
+                     (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T module name))))]
     (return nil)))
 
 (defn declare-tags [module tag-names type]
@@ -353,4 +257,33 @@
   tag-index 0 "(-> Text Text (Lux Int))"
   tag-group 1 "(-> Text Text (Lux (List Ident)))"
   tag-type  2 "(-> Text Text (Lux Type))"
+  )
+
+(def defs
+  (|do [module &/get-module-name]
+    (fn [state]
+      (return* state
+               (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)
+                    (&/|map (fn [kv]
+                              (|let [[k [?def-type ?def-meta ?def-value]] kv]
+                                (|case (&meta/meta-get &meta/alias-tag ?def-meta)
+                                  (&/$Some (&/$IdentM [?r-module ?r-name]))
+                                  (&/T k (str ?r-module ";" ?r-name))
+                                  
+                                  _
+                                  (&/T k "")
+                                  )))))))))
+
+(do-template [<name> <type> <tag> <desc>]
+  (defn <name> [module name meta type]
+    (|case (&meta/meta-get <tag> meta)
+      (&/$Some (&/$BoolM true))
+      (&/try-all% (&/|list (&type/check <type> type)
+                           (fail (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
+
+      _
+      (return nil)))
+
+  test-type  &type/Type  &meta/type?-tag  "type"
+  test-macro &type/Macro &meta/macro?-tag "macro"
   )

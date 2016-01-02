@@ -16,7 +16,8 @@
                           [case :as &&case]
                           [env :as &&env]
                           [module :as &&module]
-                          [record :as &&record])))
+                          [record :as &&record]
+                          [meta :as &&meta])))
 
 ;; [Utils]
 (defn ^:private count-univq [type]
@@ -223,16 +224,7 @@
       )))
 
 (defn ^:private analyse-global [analyse exo-type module name]
-  (|do [[[r-module r-name] $def] (&&module/find-def module name)
-        endo-type (|case $def
-                    (&/$ValueD ?type _)
-                    (return ?type)
-
-                    (&/$MacroD _)
-                    (return &type/Macro)
-
-                    (&/$TypeD _)
-                    (return &type/Type))
+  (|do [[[r-module r-name] [endo-type ?meta ?value]] (&&module/find-def module name)
         _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
                    (clojure.lang.Util/identical &type/Type exo-type))
             (return nil)
@@ -258,25 +250,8 @@
         (if-let [global (->> ?genv (&/get$ &/$locals) (&/get$ &/$mappings) (&/|get name))]
           (|case global
             [(&/$Global ?module* name*) _]
-            ((|do [[[r-module r-name] $def] (&&module/find-def ?module* name*)
-                   endo-type (|case $def
-                               (&/$ValueD ?type _)
-                               (return ?type)
-
-                               (&/$MacroD _)
-                               (return &type/Macro)
-
-                               (&/$TypeD _)
-                               (return &type/Type))
-                   _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
-                              (clojure.lang.Util/identical &type/Type exo-type))
-                       (return nil)
-                       (&type/check exo-type endo-type))
-                   _cursor &/cursor]
-               (return (&/|list (&&/|meta endo-type _cursor
-                                          (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
-                                          ))))
-             state)
+            (&/run-state (analyse-global analyse exo-type ?module* name*)
+                         state)
 
             _
             (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))
@@ -350,22 +325,24 @@
           (fail (str err "\n" "[Analyser Error] Can't apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
     ))
 
-(defn analyse-apply [analyse exo-type form-cursor =fn ?args]
+(defn ^:private do-analyse-apply [analyse exo-type =fn ?args]
+  (|do [:let [[[=fn-type =fn-cursor] =fn-form] =fn]
+        [=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
+    (return (&/|list (&&/|meta =output-t =fn-cursor
+                               (&/V &&/$apply (&/T =fn =args))
+                               )))))
+
+(defn analyse-apply [analyse exo-type =fn ?args]
   (|do [loader &/loader
         :let [[[=fn-type =fn-cursor] =fn-form] =fn]]
     (|case =fn-form
       (&&/$var (&/$Global ?module ?name))
-      (|do [[real-name $def] (&&module/find-def ?module ?name)]
-        (|case $def
-          (&/$MacroD macro)
-          (|do [macro-expansion (fn [state] (-> macro (.apply ?args) (.apply state)))
-                ;; :let [_ (when (or (= "case" (aget real-name 1))
-                ;;                   ;; (= "invoke-static$" (aget real-name 1))
-                ;;                   ;; (= "invoke-virtual$" (aget real-name 1))
-                ;;                   ;; (= "new$" (aget real-name 1))
-                ;;                   ;; (= "let%" (aget real-name 1))
-                ;;                   ;; (= "jvm-import" (aget real-name 1))
-                ;;                   )
+      (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
+        (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
+          (&/$Some _)
+          (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
+                ;; :let [_ (when (or (= "import" (aget real-name 1))
+                ;;                   (= "defsig" (aget real-name 1)))
                 ;;           (->> (&/|map &/show-ast macro-expansion)
                 ;;                (&/|interpose "\n")
                 ;;                (&/fold str "")
@@ -374,16 +351,10 @@
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
           _
-          (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-            (return (&/|list (&&/|meta =output-t =fn-cursor
-                                       (&/V &&/$apply (&/T =fn =args))
-                                       ))))))
+          (do-analyse-apply analyse exo-type =fn ?args)))
       
       _
-      (|do [[=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
-        (return (&/|list (&&/|meta =output-t =fn-cursor
-                                   (&/V &&/$apply (&/T =fn =args))
-                                   )))))
+      (do-analyse-apply analyse exo-type =fn ?args))
     ))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
@@ -492,37 +463,20 @@
   (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
-(defn analyse-def [analyse compile-token ?name ?value]
+(defn analyse-def [analyse eval! compile-token ?name ?value ?meta]
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
       (fail (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
       (|do [=value (&/with-scope ?name
-                     (&&/analyse-1+ analyse ?value))]
-        (|case =value
-          [_ (&&/$var (&/$Global ?r-module ?r-name))]
-          (|do [_ (&&module/def-alias module-name ?name ?r-module ?r-name (&&/expr-type* =value))]
-            (return &/Nil$))
-
-          _
-          (|do [_ (compile-token (&/V &&/$def (&/T ?name =value)))
-                :let [[[def-type def-cursor] def-analysis] =value
-                      _ (println 'DEF (str module-name ";" ?name) ;; (&type/show-type def-type)
-                                 )]]
-            (return &/Nil$)))
-        ))))
-
-(defn analyse-declare-macro [analyse compile-token ?name]
-  (|do [module-name &/get-module-name
-        _ (compile-token (&/V &&/$declare-macro (&/T module-name ?name)))]
-    (return &/Nil$)))
-
-(defn analyse-declare-tags [tags type-name]
-  (|do [module-name &/get-module-name
-        [_ def-data] (&&module/find-def module-name type-name)
-        def-type (&&module/ensure-type-def def-data)
-        _ (&&module/declare-tags module-name tags def-type)]
-    (return &/Nil$)))
+                     (&&/analyse-1+ analyse ?value))
+            =meta (&&/analyse-1 analyse &type/DefMeta ?meta)
+            ==meta (eval! =meta)
+            _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
+            _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
+            _ (compile-token (&/V &&/$def (&/T ?name =value ==meta)))]
+        (return &/Nil$))
+      )))
 
 (defn analyse-import [analyse compile-module compile-token path]
   (|do [module-name &/get-module-name
@@ -538,11 +492,6 @@
                (compile-module path)
                (return nil))]
        (return &/Nil$)))))
-
-(defn analyse-export [analyse compile-token name]
-  (|do [module-name &/get-module-name
-        _ (&&module/export module-name name)]
-    (return &/Nil$)))
 
 (defn analyse-alias [analyse compile-token ex-alias ex-module]
   (|do [module-name &/get-module-name

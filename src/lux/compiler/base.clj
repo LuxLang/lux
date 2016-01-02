@@ -37,8 +37,6 @@
 (def ^String closure-prefix "c")
 (def ^String apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;")
 
-(def exported-true "1")
-(def exported-false "0")
 (def exported-separator " ")
 (def def-separator "\t")
 (def import-separator "\t")
