@@ -185,7 +185,7 @@
                   (return ?module))]
     (return (&/T module* ?name))))
 
-(let [tag-names #{"DataT" "VoidT" "UnitT" "SumT" "TupleT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
+(let [tag-names #{"DataT" "VoidT" "UnitT" "SumT" "ProdT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
   (defn type-tag? [module name]
     (and (= "lux" module)
          (contains? tag-names name))))

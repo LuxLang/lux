@@ -68,8 +68,8 @@
     (&/$UnitT)
     (variant$ &/$UnitT (tuple$ (&/|list)))
     
-    (&/$TupleT members)
-    (variant$ &/$TupleT (List$ (&/|map type->analysis members)))
+    (&/$ProdT left right)
+    (variant$ &/$ProdT (tuple$ (&/|list (type->analysis left) (type->analysis right))))
 
     (&/$SumT left right)
     (variant$ &/$SumT (tuple$ (&/|list (type->analysis left) (type->analysis right))))

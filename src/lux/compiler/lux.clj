@@ -56,9 +56,15 @@
 (defn compile-tuple [compile ?elems]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [num-elems (&/|length ?elems)]]
-    (if (= 0 num-elems)
+    (|case num-elems
+      0
       (|do [:let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
         (return nil))
+
+      1
+      (compile (&/|head ?elems))
+      
+      _
       (|do [:let [_ (doto *writer*
                       (.visitLdcInsn (int num-elems))
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]

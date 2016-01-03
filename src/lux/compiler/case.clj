@@ -86,10 +86,16 @@
         (.visitJumpInsn Opcodes/GOTO $target))
 
       (&a-case/$TupleTestAC ?members)
-      (if (&/|empty? ?members)
+      (|case ?members
+        (&/$Nil)
         (doto writer
           (.visitInsn Opcodes/POP)
           (.visitJumpInsn Opcodes/GOTO $target))
+
+        (&/$Cons ?member (&/$Nil))
+        (compile-match ?member $target $else)
+
+        _
         (doto writer
           (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
           (-> (doto (.visitInsn Opcodes/DUP)

@@ -5,7 +5,8 @@
 
 (ns lux.type
   (:refer-clojure :exclude [deref apply merge bound?])
-  (:require clojure.core.match
+  (:require [clojure.template :refer [do-template]]
+            clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
             [lux.type.host :as &&host]))
@@ -35,9 +36,8 @@
   (&/V &/$LambdaT (&/T in out)))
 (defn App$ [fun arg]
   (&/V &/$AppT (&/T fun arg)))
-(defn Tuple$ [members]
-  (assert (> (&/|length members) 0))
-  (&/V &/$TupleT members))
+(defn Prod$ [left right]
+  (&/V &/$ProdT (&/T left right)))
 (defn Sum$ [left right]
   (&/V &/$SumT (&/T left right)))
 (defn Univ$ [env body]
@@ -54,7 +54,7 @@
 (def Real (Named$ (&/T "lux" "Real") (Data$ "java.lang.Double" &/Nil$)))
 (def Char (Named$ (&/T "lux" "Char") (Data$ "java.lang.Character" &/Nil$)))
 (def Text (Named$ (&/T "lux" "Text") (Data$ "java.lang.String" &/Nil$)))
-(def Ident (Named$ (&/T "lux" "Ident") (Tuple$ (&/|list Text Text))))
+(def Ident (Named$ (&/T "lux" "Ident") (Prod$ Text Text)))
 
 (def IO
   (Named$ (&/T "lux/data" "IO")
@@ -68,9 +68,9 @@
                   ;; lux;Nil
                   Unit
                   ;; lux;Cons
-                  (Tuple$ (&/|list (Bound$ 1)
-                                   (App$ (Bound$ 0)
-                                         (Bound$ 1))))))))
+                  (Prod$ (Bound$ 1)
+                         (App$ (Bound$ 0)
+                               (Bound$ 1)))))))
 
 (def Maybe
   (Named$ (&/T "lux" "Maybe")
@@ -86,11 +86,11 @@
   (Named$ (&/T "lux" "Type")
           (let [Type (App$ (Bound$ 0) (Bound$ 1))
                 TypeList (App$ List Type)
-                TypePair (Tuple$ (&/|list Type Type))]
+                TypePair (Prod$ Type Type)]
             (App$ (Univ$ empty-env
                          (Sum$
                           ;; DataT
-                          (Tuple$ (&/|list Text TypeList))
+                          (Prod$ Text TypeList)
                           (Sum$
                            ;; VoidT
                            Unit
@@ -101,8 +101,8 @@
                              ;; SumT
                              TypePair
                              (Sum$
-                              ;; TupleT
-                              TypeList
+                              ;; ProdT
+                              TypePair
                               (Sum$
                                ;; LambdaT
                                TypePair
@@ -117,15 +117,15 @@
                                   Int
                                   (Sum$
                                    ;; UnivQ
-                                   (Tuple$ (&/|list TypeList Type))
+                                   (Prod$ TypeList Type)
                                    (Sum$
                                     ;; ExQ
-                                    (Tuple$ (&/|list TypeList Type))
+                                    (Prod$ TypeList Type)
                                     (Sum$
                                      ;; AppT
                                      TypePair
                                      ;; NamedT
-                                     (Tuple$ (&/|list Ident Type))))))))))))))
+                                     (Prod$ Ident Type)))))))))))))
                          )
                   $Void))))
 
@@ -155,13 +155,13 @@
                                 ;; ListM
                                 (App$ List DefMetaValue)
                                 ;; DictM
-                                (App$ List (Tuple$ (&/|list Text DefMetaValue))))))))))
+                                (App$ List (Prod$ Text DefMetaValue)))))))))
                          )
                   $Void))))
 
 (def DefMeta
   (Named$ (&/T "lux" "DefMeta")
-          (App$ List (Tuple$ (&/|list Ident DefMetaValue)))))
+          (App$ List (Prod$ Ident DefMetaValue))))
 
 (def Macro)
 
@@ -209,7 +209,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/V &/$Some type) %)
-                                                             ts))
+                                                            ts))
                             state)
                  nil))
       (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
@@ -290,9 +290,10 @@
           =param (clean* ?tid ?param)]
       (return (App$ =lambda =param)))
 
-    (&/$TupleT ?members)
-    (|do [=members (&/map% (partial clean* ?tid) ?members)]
-      (return (Tuple$ =members)))
+    (&/$ProdT ?left ?right)
+    (|do [=left (clean* ?tid ?left)
+          =right (clean* ?tid ?right)]
+      (return (Prod$ =left =right)))
     
     (&/$SumT ?left ?right)
     (|do [=left (clean* ?tid ?left)
@@ -334,31 +335,36 @@
     _
     (&/T fun-type &/Nil$)))
 
-(defn flatten-sum [type]
-  "(-> Type (List Type))"
-  (|case type
-    (&/$SumT left right)
-    (&/Cons$ left (flatten-sum right))
+(do-template [<tag> <flatten> <at> <desc>]
+  (do (defn <flatten> [type]
+        "(-> Type (List Type))"
+        (|case type
+          (<tag> left right)
+          (&/Cons$ left (<flatten> right))
 
-    _
-    (&/|list type)))
+          _
+          (&/|list type)))
 
-(defn sum-at [tag type]
-  "(-> Int Type (Lux Type))"
-  (|case type
-    (&/$NamedT ?name ?type)
-    (sum-at tag ?type)
-    
-    (&/$SumT ?left ?right)
-    (|case (&/T tag ?right)
-      [0 _]                  (return ?left)
-      [1 (&/$SumT ?left* _)] (return ?left*)
-      [1 _]                  (return ?right)
-      [_ (&/$SumT _ _)]      (sum-at (dec tag) ?right)
-      _                      (fail (str "[Type Error] Variant lacks case: " tag " | " (show-type type))))
+    (defn <at> [tag type]
+      "(-> Int Type (Lux Type))"
+      (|case type
+        (&/$NamedT ?name ?type)
+        (<at> tag ?type)
+        
+        (<tag> ?left ?right)
+        (|case (&/T tag ?right)
+          [0 _]                (return ?left)
+          [1 (<tag> ?left* _)] (return ?left*)
+          [1 _]                (return ?right)
+          [_ (<tag> _ _)]      (<at> (dec tag) ?right)
+          _                    (fail (str "[Type Error] " <desc> " lacks member: " tag " | " (show-type type))))
 
-    _
-    (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
+        _
+        (fail (str "[Type Error] Type is not a " <desc> ": " (show-type type))))))
+
+  &/$SumT  flatten-sum  sum-at "Sum"
+  &/$ProdT flatten-prod prod-at "Product"
+  )
 
 (defn show-type [^objects type]
   (|case type
@@ -376,10 +382,8 @@
     (&/$UnitT)
     "Unit"
     
-    (&/$TupleT elems)
-    (if (&/|empty? elems)
-      "(,)"
-      (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+    (&/$ProdT _)
+    (str "(, " (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
 
     (&/$SumT _)
     (str "(|| " (->> (flatten-sum type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
@@ -431,10 +435,9 @@
                      [(&/$UnitT) (&/$UnitT)]
                      true
 
-                     [(&/$TupleT xelems) (&/$TupleT yelems)]
-                     (&/fold2 (fn [old x y] (and old (type= x y)))
-                              true
-                              xelems yelems)
+                     [(&/$ProdT xL xR) (&/$ProdT yL yR)]
+                     (and (type= xL yL)
+                          (type= xR yR))
 
                      [(&/$SumT xL xR) (&/$SumT yL yR)]
                      (and (type= xL yL)
@@ -519,8 +522,10 @@
           =right (beta-reduce env ?right)]
       (Sum$ =left =right))
 
-    (&/$TupleT ?members)
-    (Tuple$ (&/|map (partial beta-reduce env) ?members))
+    (&/$ProdT ?left ?right)
+    (let [=left (beta-reduce env ?left)
+          =right (beta-reduce env ?right)]
+      (Prod$ =left =right))
 
     (&/$AppT ?type-fn ?type-arg)
     (App$ (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
@@ -745,13 +750,9 @@
         (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
           (check* class-loader fixpoints* invariant?? eO aO))
 
-        [(&/$TupleT e!members) (&/$TupleT a!members)]
-        (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                     (|do [[fp* _] (check* class-loader fp invariant?? e a)]
-                                       (return fp*)))
-                                   fixpoints
-                                   e!members a!members)]
-          (return (&/T fixpoints* nil)))
+        [(&/$ProdT eL eR) (&/$ProdT aL aR)]
+        (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? eL aL)]
+          (check* class-loader fixpoints* invariant?? eR aR))
 
         [(&/$SumT eL eR) (&/$SumT aL aR)]
         (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? eL aL)]
@@ -827,3 +828,18 @@
 
     _
     (return type)))
+
+(defn tuple-types-for [size-members type]
+  "(-> Int Type (Maybe (List Type)))"
+  (|let [?member-types (flatten-prod type)
+         size-types (&/|length ?member-types)]
+    (if (not (>= size-types size-members))
+      &/None$
+      (|let [?member-types* (if (= size-types size-members)
+                              ?member-types
+                              (&/|++ (&/|take (dec size-members) ?member-types)
+                                     (&/|list (|case (->> (&/|drop (dec size-members) ?member-types) (&/|reverse))
+                                                (&/$Cons last prevs)
+                                                (&/fold (fn [right left] (Prod$ left right))
+                                                        last prevs)))))]
+        (&/Some$ ?member-types*)))))

@@ -56,6 +56,12 @@
                             (&/$Left exo-type) exo-type
                             (&/$Right exo-type) exo-type))
 
+    (&/$Cons ?elem (&/$Nil))
+    (analyse (|case ?exo-type
+               (&/$Left exo-type) exo-type
+               (&/$Right exo-type) exo-type)
+             ?elem)
+
     _
     (|case ?exo-type
       (&/$Left exo-type)
@@ -88,7 +94,10 @@
           (|do [=elems (&/map% #(|do [=analysis (&&/analyse-1+ analyse %)]
                                   (return =analysis))
                                ?elems)
-                _ (&type/check exo-type (&/V &/$TupleT (&/|map &&/expr-type* =elems)))
+                _ (&type/check exo-type (|case (->> (&/|map &&/expr-type* =elems) (&/|reverse))
+                                          (&/$Cons last prevs)
+                                          (&/fold (fn [right left] (&type/Prod$ left right))
+                                                  last prevs)))
                 _cursor &/cursor]
             (return (&/|list (&&/|meta exo-type _cursor
                                        (&/V &&/$tuple =elems)
@@ -96,14 +105,20 @@
           (|do [exo-type* (&type/actual-type exo-type)]
             (&/with-attempt
               (|case exo-type*
-                (&/$TupleT ?members)
-                (|do [=elems (&/map2% (fn [elem-t elem]
-                                        (&&/analyse-1 analyse elem-t elem))
-                                      ?members ?elems)
-                      _cursor &/cursor]
-                  (return (&/|list (&&/|meta exo-type _cursor
-                                             (&/V &&/$tuple =elems)
-                                             ))))
+                (&/$ProdT _)
+                (|case (&type/tuple-types-for (&/|length ?elems) exo-type*)
+                  (&/$None)
+                  (fail (str "[Analysis Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod exo-type*)) "]. Given tuple [" (&/|length ?elems) "]" " -- " (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")))
+
+                  (&/$Some ?member-types*)
+                  (|do [=elems (&/map2% (fn [elem-t elem]
+                                          (&&/analyse-1 analyse elem-t elem))
+                                        ?member-types*
+                                        ?elems)
+                        _cursor &/cursor]
+                    (return (&/|list (&&/|meta exo-type _cursor
+                                               (&/V &&/$tuple =elems)
+                                               )))))
 
                 (&/$UnivQ _)
                 (|do [$var &type/existential
@@ -356,7 +371,15 @@
       (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
-          (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))]
+          (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
+                ;; :let [_ (when (or (= "using" (aget real-name 1))
+                ;;                   ;; (= "defsig" (aget real-name 1))
+                ;;                   )
+                ;;           (->> (&/|map &/show-ast macro-expansion)
+                ;;                (&/|interpose "\n")
+                ;;                (&/fold str "")
+                ;;                (prn (&/ident->text real-name))))]
+                ]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
           _

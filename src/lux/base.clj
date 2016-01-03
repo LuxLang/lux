@@ -48,7 +48,7 @@
    "VoidT"
    "UnitT"
    "SumT"
-   "TupleT"
+   "ProdT"
    "LambdaT"
    "BoundT"
    "VarT"
@@ -1082,3 +1082,17 @@
 
         ($Left msg)
         (V $Left msg)))))
+
+(defn |take [n xs]
+  (|case (T n xs)
+    [0 _]             Nil$
+    [_ ($Nil)]        Nil$
+    [_ ($Cons x xs*)] (Cons$ x (|take (dec n) xs*))
+    ))
+
+(defn |drop [n xs]
+  (|case (T n xs)
+    [0 _]             xs
+    [_ ($Nil)]        Nil$
+    [_ ($Cons x xs*)] (|drop (dec n) xs*)
+    ))

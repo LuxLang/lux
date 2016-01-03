@@ -69,7 +69,7 @@
       (&/$SumT _)
       (return object-array)
 
-      (&/$TupleT _)
+      (&/$ProdT _)
       (return object-array)
 
       (&/$NamedT ?name ?type)

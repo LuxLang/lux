@@ -74,20 +74,20 @@
           =type (&type/apply-type type $var)]
       (adjust-type* up =type))
 
-    (&/$TupleT ?members)
-    (|do [(&/$TupleT ?members*) (&/fold% (fn [_abody ena]
-                                           (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
-                                               (&type/clean* _avar _abody))))
-                                         type
-                                         up)]
-      (return (&type/Tuple$ (&/|map (fn [v]
-                                      (&/fold (fn [_abody ena]
-                                                (|let [[_aenv _aidx _avar] ena]
-                                                  (&/V &/$UnivQ (&/T _aenv _abody))))
-                                              v
-                                              up))
-                                    ?members*))))
+    (&/$ProdT ?left ?right)
+    (|do [(&/$ProdT =left =right) (&/fold% (fn [_abody ena]
+                                             (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
+                                                 (&type/clean* _avar _abody))))
+                                           type
+                                           up)
+          :let [distributor (fn [v]
+                              (&/fold (fn [_abody ena]
+                                        (|let [[_aenv _aidx _avar] ena]
+                                          (&/V &/$UnivQ (&/T _aenv _abody))))
+                                      v
+                                      up))]]
+      (return (&type/Prod$ (distributor =left) (distributor =right))))
 
     (&/$SumT ?left ?right)
     (|do [(&/$SumT =left =right) (&/fold% (fn [_abody ena]
@@ -178,19 +178,25 @@
               =kont kont]
           (return (&/T (&/V $TupleTestAC (&/|list)) =kont)))
 
+        (&/$Cons ?member (&/$Nil))
+        (analyse-pattern var?? value-type ?member kont)
+
         _
         (|do [value-type* (adjust-type value-type)]
           (|case value-type*
-            (&/$TupleT ?member-types)
-            (if (not (.equals ^Object (&/|length ?member-types) (&/|length ?members)))
-              (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length ?member-types) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
+            (&/$ProdT _)
+            (|case (&type/tuple-types-for (&/|length ?members) value-type*)
+              (&/$None)
+              (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
+
+              (&/$Some ?member-types*)
               (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                              (|let [[v m] vm]
                                                (|do [[=test [=tests =kont]] (analyse-pattern &/None$ v m kont*)]
                                                  (return (&/T (&/Cons$ =test =tests) =kont)))))
                                            (|do [=kont kont]
                                              (return (&/T &/Nil$ =kont)))
-                                           (&/|reverse (&/zip2 ?member-types ?members)))]
+                                           (&/|reverse (&/zip2 ?member-types* ?members)))]
                 (return (&/T (&/V $TupleTestAC =tests) =kont))))
 
             _
@@ -382,18 +388,26 @@
       (|do [unknown? (&type/unknown? value-type)]
         (if unknown?
           (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
-                _ (&type/check value-type (&/V &/$TupleT (&/|map &/|second =structs)))]
+                _ (&type/check value-type (|case (->> (&/|map &/|second =structs) (&/|reverse))
+                                            (&/$Cons last prevs)
+                                            (&/fold (fn [right left] (&type/Prod$ left right))
+                                                    last prevs)))]
             (return (or ?total
                         (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
           (if ?total
             (return true)
             (|do [value-type* (resolve-type value-type)]
               (|case value-type*
-                (&/$TupleT ?members)
-                (|do [totals (&/map2% (fn [sub-struct ?member]
-                                        (check-totality ?member sub-struct))
-                                      ?structs ?members)]
-                  (return (&/fold #(and %1 %2) true totals)))
+                (&/$ProdT _)
+                (|case (&type/tuple-types-for (&/|length ?structs) value-type*)
+                  (&/$None)
+                  (fail (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]"))
+
+                  (&/$Some ?member-types*)
+                  (|do [totals (&/map2% check-totality
+                                        ?member-types*
+                                        ?structs)]
+                    (return (&/fold #(and %1 %2) true totals))))
 
                 _
                 (fail "[Pattern-maching Error] Tuple is not total.")))))))
@@ -404,8 +418,9 @@
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
           (&/$SumT _)
-          (|do [:let [?members (&type/flatten-sum value-type*)]
-                totals (&/map2% check-totality ?members ?structs)]
+          (|do [totals (&/map2% check-totality
+                                (&type/flatten-sum value-type*)
+                                ?structs)]
             (return (&/fold #(and %1 %2) true totals)))
 
           _
