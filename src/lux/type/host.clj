@@ -220,16 +220,16 @@
                (= null-data-tag a!name)
                (if (not (primitive-type? e!name))
                  (return (&/T fixpoints nil))
-                 (check-error (&/V &/$DataT expected) (&/V &/$DataT actual)))
+                 (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual)))
 
                (= null-data-tag e!name)
                (if (= null-data-tag a!name)
                  (return (&/T fixpoints nil))
-                 (check-error (&/V &/$DataT expected) (&/V &/$DataT actual)))
+                 (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual)))
 
                (and (= array-data-tag e!name)
                     (not= array-data-tag a!name))
-               (check-error (&/V &/$DataT expected) (&/V &/$DataT actual))
+               (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual))
                
                :else
                (let [e!name (as-obj e!name)

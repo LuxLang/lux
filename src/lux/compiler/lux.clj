@@ -75,15 +75,19 @@
 (defn compile-variant [compile ?tag ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
-                  (.visitLdcInsn (int 2))
+                  (.visitLdcInsn (int 3))
                   (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 0))
+                  (.visitFieldInsn Opcodes/GETSTATIC &&/lux-utils-class &&/sum-tag-field "Ljava/lang/String;")
+                  (.visitInsn Opcodes/AASTORE)
+                  (.visitInsn Opcodes/DUP)
+                  (.visitLdcInsn (int 1))
                   (.visitLdcInsn ?tag)
                   (&&/wrap-long)
                   (.visitInsn Opcodes/AASTORE)
                   (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 1)))]
+                  (.visitLdcInsn (int 2)))]
         _ (compile ?value)
         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))

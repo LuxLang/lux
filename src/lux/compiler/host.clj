@@ -613,8 +613,9 @@
            init-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
       (&/with-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC init-method (anon-class-<init>-signature env) nil nil)
         (|do [^MethodVisitor =method &/get-writer
-              :let [_ (doto =method (.visitCode)
-                            (.visitVarInsn Opcodes/ALOAD 0))]
+              :let [_ (doto =method
+                        (.visitCode)
+                        (.visitVarInsn Opcodes/ALOAD 0))]
               _ (&/map% (fn [type+term]
                           (|let [[type term] type+term]
                             (|do [_ (compile term)
@@ -678,7 +679,7 @@
 
 (def compile-Function-class
   (let [object-class (&/V &/$GenericClass (&/T "java.lang.Object" (&/|list)))
-        interface-decl (&/T "Function" (&/|list))
+        interface-decl (&/T (second (string/split &&/function-class #"/")) (&/|list))
         ?supers (&/|list)
         ?anns (&/|list)
         ?methods (&/|list (&/T "apply"
@@ -688,6 +689,28 @@
                                (&/|list object-class)
                                object-class))]
     (compile-jvm-interface nil interface-decl ?supers ?anns ?methods)))
+
+(def compile-LuxUtils-class
+  (|do [_ (return nil)
+        :let [full-name &&/lux-utils-class
+              super-class (&host-generics/->bytecode-class-name "java.lang.Object")
+              tag-sig (&host-generics/->type-signature "java.lang.String")
+              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+                               full-name nil super-class (into-array String [])))
+              =sum-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/sum-tag-field tag-sig nil &/sum-tag)
+                         (.visitEnd))
+              =product-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/product-tag-field tag-sig nil &/product-tag)
+                             (.visitEnd))
+              =init-method (doto (.visitMethod =class Opcodes/ACC_PRIVATE init-method "()V" nil nil)
+                             (.visitCode)
+                             (.visitVarInsn Opcodes/ALOAD 0)
+                             (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
+                             (.visitInsn Opcodes/RETURN)
+                             (.visitMaxs 0 0)
+                             (.visitEnd))]]
+    (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
+                    (.toByteArray (doto =class .visitEnd)))))
 
 (defn compile-jvm-try [compile ?body ?catches ?finally]
   (|do [^MethodVisitor *writer* &/get-writer

@@ -181,24 +181,24 @@
                       (&type/actual-type exo-type))]
       (&/with-attempt
         (|case exo-type*
-          (&/$VariantT ?cases)
-          (|case (&/|at idx ?cases)
-            (&/$Some vtype)
-            (|do [_cursor &/cursor
-                  =value (&/with-attempt
-                           (analyse-variant-body analyse vtype ?values)
-                           (fn [err]
-                             (|do [_exo-type (&type/deref+ exo-type)]
-                               (fail (str err "\n"
-                                          'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
-                                          " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
-                  _cursor &/cursor]
-              (return (&/|list (&&/|meta exo-type _cursor
-                                         (&/V &&/$variant (&/T idx =value))
-                                         ))))
+          (&/$SumT _)
+          (|do [vtype (&type/sum-at idx exo-type*)
+                =value (&/with-attempt
+                         (analyse-variant-body analyse vtype ?values)
+                         (fn [err]
+                           (|do [_exo-type (|case exo-type
+                                             (&/$VarT _id)
+                                             (&type/deref _id)
 
-            (&/$None)
-            (fail (str "[Analyser Error] There is no case " idx " for variant type " (&type/show-type exo-type*))))
+                                             _
+                                             (return exo-type))]
+                             (fail (str err "\n"
+                                        'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
+                                        " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+                _cursor &/cursor]
+            (return (&/|list (&&/|meta exo-type _cursor
+                                       (&/V &&/$variant (&/T idx =value))
+                                       ))))
 
           (&/$UnivQ _)
           (|do [$var &type/existential

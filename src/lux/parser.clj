@@ -16,7 +16,7 @@
     (|do [elems (&/repeat% parse)
           token &lexer/lex]
       (|case token
-        [meta [<close-token> _]]
+        [meta (<close-tag> _)]
         (return (&/V <tag> (&/fold &/|++ &/Nil$ elems)))
         
         _

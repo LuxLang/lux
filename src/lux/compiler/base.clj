@@ -30,6 +30,9 @@
 (def ^String output-dir "target/jvm")
 (def ^String output-package (str output-dir "/" "program.jar"))
 (def ^String function-class "lux/Function")
+(def ^String lux-utils-class "lux/LuxUtils")
+(def ^String sum-tag-field "sum_tag")
+(def ^String product-tag-field "product_tag")
 
 ;; Formats
 (def ^String local-prefix "l")

@@ -45,7 +45,7 @@
   (|case type
     (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail "##9##")))]
+                                     (fail "##1##")))]
       (resolve-type type*))
 
     (&/$UnivQ _)
@@ -89,20 +89,20 @@
                                               up))
                                     ?members*))))
 
-    (&/$VariantT ?members)
-    (|do [(&/$VariantT ?members*) (&/fold% (fn [_abody ena]
-                                             (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
-                                                 (&type/clean* _avar _abody))))
-                                           type
-                                           up)]
-      (return (&/V &/$VariantT (&/|map (fn [v]
-                                         (&/fold (fn [_abody ena]
-                                                   (|let [[_aenv _aidx _avar] ena]
-                                                     (&/V &/$UnivQ (&/T _aenv _abody))))
-                                                 v
-                                                 up))
-                                       ?members*))))
+    (&/$SumT ?left ?right)
+    (|do [(&/$SumT =left =right) (&/fold% (fn [_abody ena]
+                                            (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                              (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
+                                                (&type/clean* _avar _abody))))
+                                          type
+                                          up)
+          :let [distributor (fn [v]
+                              (&/fold (fn [_abody ena]
+                                        (|let [[_aenv _aidx _avar] ena]
+                                          (&/V &/$UnivQ (&/T _aenv _abody))))
+                                      v
+                                      up))]]
+      (return (&type/Sum$ (distributor =left) (distributor =right))))
 
     (&/$AppT ?tfun ?targ)
     (|do [=type (&type/apply-type ?tfun ?targ)]
@@ -110,7 +110,7 @@
 
     (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail "##9##")))]
+                                     (fail "##2##")))]
       (adjust-type* up type*))
 
     (&/$NamedT ?name ?type)
@@ -205,7 +205,7 @@
             value-type* (adjust-type value-type)
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
-            case-type (&type/variant-case idx value-type*)
+            case-type (&type/sum-at idx value-type*)
             [=test =kont] (analyse-pattern &/None$ case-type unit kont)]
         (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
 
@@ -215,7 +215,7 @@
             value-type* (adjust-type value-type)
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
-            case-type (&type/variant-case idx value-type*)
+            case-type (&type/sum-at idx value-type*)
             [=test =kont] (case (int (&/|length ?values))
                             0 (analyse-pattern &/None$ case-type unit kont)
                             1 (analyse-pattern &/None$ case-type (&/|head ?values) kont)
@@ -239,9 +239,27 @@
         [($DefaultTotal total?) ($StoreTestAC ?idx)]
         (return (&/V $DefaultTotal true))
 
-        [[?tag [total? ?values]] ($StoreTestAC ?idx)]
-        (return (&/V ?tag (&/T true ?values)))
-        
+        [($BoolTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $BoolTotal (&/T true ?values)))
+
+        [($IntTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $IntTotal (&/T true ?values)))
+
+        [($RealTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $RealTotal (&/T true ?values)))
+
+        [($CharTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $CharTotal (&/T true ?values)))
+
+        [($TextTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $TextTotal (&/T true ?values)))
+
+        [($TupleTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $TupleTotal (&/T true ?values)))
+
+        [($VariantTotal total? ?values) ($StoreTestAC ?idx)]
+        (return (&/V $VariantTotal (&/T true ?values)))
+
         [($DefaultTotal total?) ($BoolTestAC ?value)]
         (return (&/V $BoolTotal (&/T total? (&/|list ?value))))
 
@@ -385,8 +403,9 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          (&/$VariantT ?members)
-          (|do [totals (&/map2% check-totality ?members ?structs)]
+          (&/$SumT _)
+          (|do [:let [?members (&type/flatten-sum value-type*)]
+                totals (&/map2% check-totality ?members ?structs)]
             (return (&/fold #(and %1 %2) true totals)))
 
           _

@@ -38,9 +38,8 @@
 (defn Tuple$ [members]
   (assert (> (&/|length members) 0))
   (&/V &/$TupleT members))
-(defn Variant$ [members]
-  (assert (> (&/|length members) 0))
-  (&/V &/$VariantT members))
+(defn Sum$ [left right]
+  (&/V &/$SumT (&/T left right)))
 (defn Univ$ [env body]
   (&/V &/$UnivQ (&/T env body)))
 (defn Ex$ [env body]
@@ -65,24 +64,23 @@
 (def List
   (Named$ (&/T "lux" "List")
           (Univ$ empty-env
-                 (Variant$ (&/|list
-                            ;; lux;Nil
-                            Unit
-                            ;; lux;Cons
-                            (Tuple$ (&/|list (Bound$ 1)
-                                             (App$ (Bound$ 0)
-                                                   (Bound$ 1))))
-                            )))))
+                 (Sum$
+                  ;; lux;Nil
+                  Unit
+                  ;; lux;Cons
+                  (Tuple$ (&/|list (Bound$ 1)
+                                   (App$ (Bound$ 0)
+                                         (Bound$ 1))))))))
 
 (def Maybe
   (Named$ (&/T "lux" "Maybe")
           (Univ$ empty-env
-                 (Variant$ (&/|list
-                            ;; lux;None
-                            Unit
-                            ;; lux;Some
-                            (Bound$ 1)
-                            )))))
+                 (Sum$
+                  ;; lux;None
+                  Unit
+                  ;; lux;Some
+                  (Bound$ 1))
+                 )))
 
 (def Type
   (Named$ (&/T "lux" "Type")
@@ -90,58 +88,75 @@
                 TypeList (App$ List Type)
                 TypePair (Tuple$ (&/|list Type Type))]
             (App$ (Univ$ empty-env
-                         (Variant$ (&/|list
-                                    ;; DataT
-                                    (Tuple$ (&/|list Text TypeList))
-                                    ;; VoidT
-                                    Unit
-                                    ;; UnitT
-                                    Unit
-                                    ;; VariantT
-                                    TypeList
-                                    ;; TupleT
-                                    TypeList
-                                    ;; LambdaT
-                                    TypePair
-                                    ;; BoundT
-                                    Int
-                                    ;; VarT
-                                    Int
-                                    ;; ExT
-                                    Int
-                                    ;; UnivQ
-                                    (Tuple$ (&/|list TypeList Type))
+                         (Sum$
+                          ;; DataT
+                          (Tuple$ (&/|list Text TypeList))
+                          (Sum$
+                           ;; VoidT
+                           Unit
+                           (Sum$
+                            ;; UnitT
+                            Unit
+                            (Sum$
+                             ;; SumT
+                             TypePair
+                             (Sum$
+                              ;; TupleT
+                              TypeList
+                              (Sum$
+                               ;; LambdaT
+                               TypePair
+                               (Sum$
+                                ;; BoundT
+                                Int
+                                (Sum$
+                                 ;; VarT
+                                 Int
+                                 (Sum$
+                                  ;; ExT
+                                  Int
+                                  (Sum$
+                                   ;; UnivQ
+                                   (Tuple$ (&/|list TypeList Type))
+                                   (Sum$
                                     ;; ExQ
                                     (Tuple$ (&/|list TypeList Type))
-                                    ;; AppT
-                                    TypePair
-                                    ;; NamedT
-                                    (Tuple$ (&/|list Ident Type))
-                                    )))
+                                    (Sum$
+                                     ;; AppT
+                                     TypePair
+                                     ;; NamedT
+                                     (Tuple$ (&/|list Ident Type))))))))))))))
+                         )
                   $Void))))
 
 (def DefMetaValue
   (Named$ (&/T "lux" "DefMetaValue")
           (let [DefMetaValue (App$ (Bound$ 0) (Bound$ 1))]
             (App$ (Univ$ empty-env
-                         (Variant$ (&/|list
-                                    ;; BoolM
-                                    Bool
-                                    ;; IntM
-                                    Int
-                                    ;; RealM
-                                    Real
-                                    ;; CharM
-                                    Char
-                                    ;; TextM
-                                    Text
-                                    ;; IdentM
-                                    Ident
-                                    ;; ListM
-                                    (App$ List DefMetaValue)
-                                    ;; DictM
-                                    (App$ List (Tuple$ (&/|list Text DefMetaValue)))
-                                    )))
+                         (Sum$
+                          ;; BoolM
+                          Bool
+                          (Sum$
+                           ;; IntM
+                           Int
+                           (Sum$
+                            ;; RealM
+                            Real
+                            (Sum$
+                             ;; CharM
+                             Char
+                             (Sum$
+                              ;; TextM
+                              Text
+                              (Sum$
+                               ;; IdentM
+                               Ident
+                               (Sum$
+                                ;; ListM
+                                (App$ List DefMetaValue)
+                                ;; DictM
+                                (App$ List (Tuple$ (&/|list Text DefMetaValue))))))))))
+                         )
                   $Void))))
 
 (def DefMeta
@@ -194,7 +209,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/V &/$Some type) %)
-                                                            ts))
+                                                             ts))
                             state)
                  nil))
       (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
@@ -279,9 +294,10 @@
     (|do [=members (&/map% (partial clean* ?tid) ?members)]
       (return (Tuple$ =members)))
     
-    (&/$VariantT ?members)
-    (|do [=members (&/map% (partial clean* ?tid) ?members)]
-      (return (Variant$ =members)))
+    (&/$SumT ?left ?right)
+    (|do [=left (clean* ?tid ?left)
+          =right (clean* ?tid ?right)]
+      (return (Sum$ =left =right)))
 
     (&/$UnivQ ?env ?body)
     (|do [=env (&/map% (partial clean* ?tid) ?env)
@@ -318,6 +334,32 @@
     _
     (&/T fun-type &/Nil$)))
 
+(defn flatten-sum [type]
+  "(-> Type (List Type))"
+  (|case type
+    (&/$SumT left right)
+    (&/Cons$ left (flatten-sum right))
+
+    _
+    (&/|list type)))
+
+(defn sum-at [tag type]
+  "(-> Int Type (Lux Type))"
+  (|case type
+    (&/$NamedT ?name ?type)
+    (sum-at tag ?type)
+    
+    (&/$SumT ?left ?right)
+    (|case (&/T tag ?right)
+      [0 _]                  (return ?left)
+      [1 (&/$SumT ?left* _)] (return ?left*)
+      [1 _]                  (return ?right)
+      [_ (&/$SumT _ _)]      (sum-at (dec tag) ?right)
+      _                      (fail (str "[Type Error] Variant lacks case: " tag " | " (show-type type))))
+
+    _
+    (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
+
 (defn show-type [^objects type]
   (|case type
     (&/$DataT name params)
@@ -339,13 +381,8 @@
       "(,)"
       (str "(, " (->> elems (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
-    (&/$VariantT cases)
-    (if (&/|empty? cases)
-      "(|)"
-      (str "(| " (->> cases
-                      (&/|map show-type)
-                      (&/|interpose " ")
-                      (&/fold str "")) ")"))
+    (&/$SumT _)
+    (str "(|| " (->> (flatten-sum type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
     
     (&/$LambdaT input output)
     (|let [[?out ?ins] (unravel-fun type)]
@@ -399,10 +436,9 @@
                               true
                               xelems yelems)
 
-                     [(&/$VariantT xcases) (&/$VariantT ycases)]
-                     (&/fold2 (fn [old x y] (and old (type= x y)))
-                              true
-                              xcases ycases)
+                     [(&/$SumT xL xR) (&/$SumT yL yR)]
+                     (and (type= xL yL)
+                          (type= xR yR))
 
                      [(&/$LambdaT xinput xoutput) (&/$LambdaT yinput youtput)]
                      (and (type= xinput yinput)
@@ -464,10 +500,11 @@
     _
     (return (show-type type))))
 
-(defn ^:private check-error [expected actual]
+(defn ^:private check-error [err expected actual]
   (|do [=expected (show-type+ expected)
         =actual (show-type+ actual)]
-    (fail (str "[Type Checker]\n"
+    (fail (str (if (= "" err) err (str err "\n"))
+               "[Type Checker]\n"
                "Expected: " =expected "\n\n"
                "Actual:   " =actual
                "\n"))))
@@ -477,8 +514,10 @@
     (&/$DataT ?name ?params)
     (Data$ ?name (&/|map (partial beta-reduce env) ?params))
 
-    (&/$VariantT ?members)
-    (Variant$ (&/|map (partial beta-reduce env) ?members))
+    (&/$SumT ?left ?right)
+    (let [=left (beta-reduce env ?left)
+          =right (beta-reduce env ?right)]
+      (Sum$ =left =right))
 
     (&/$TupleT ?members)
     (Tuple$ (&/|map (partial beta-reduce env) ?members))
@@ -599,7 +638,7 @@
         [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
         (if (= eid aid)
           (check* class-loader fixpoints invariant?? eA aA)
-          (check-error expected actual))
+          (check-error "" expected actual))
 
         [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
         (fn [state]
@@ -648,7 +687,7 @@
             (&/$Some ?)
             (if ?
               (return (&/T fixpoints nil))
-              (check-error expected actual))
+              (check-error "" expected actual))
 
             (&/$None)
             (|do [expected* (apply-type F A)]
@@ -714,18 +753,14 @@
                                    e!members a!members)]
           (return (&/T fixpoints* nil)))
 
-        [(&/$VariantT e!cases) (&/$VariantT a!cases)]
-        (|do [fixpoints* (&/fold2% (fn [fp e a]
-                                     (|do [[fp* _] (check* class-loader fp invariant?? e a)]
-                                       (return fp*)))
-                                   fixpoints
-                                   e!cases a!cases)]
-          (return (&/T fixpoints* nil)))
+        [(&/$SumT eL eR) (&/$SumT aL aR)]
+        (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? eL aL)]
+          (check* class-loader fixpoints* invariant?? eR aR))
 
         [(&/$ExT e!id) (&/$ExT a!id)]
         (if (.equals ^Object e!id a!id)
           (return (&/T fixpoints nil))
-          (check-error expected actual))
+          (check-error "" expected actual))
 
         [(&/$NamedT ?ename ?etype) _]
         (check* class-loader fixpoints invariant?? ?etype actual)
@@ -736,7 +771,7 @@
         [_ _]
         (fail ""))
       (fn [err]
-        (check-error expected actual)))))
+        (check-error err expected actual)))))
 
 (defn check [expected actual]
   (|do [class-loader &/loader
@@ -760,22 +795,6 @@
     _
     (return type)
     ))
-
-(defn variant-case [tag type]
-  (|case type
-    (&/$NamedT ?name ?type)
-    (variant-case tag ?type)
-    
-    (&/$VariantT ?cases)
-    (|case (&/|at tag ?cases)
-      (&/$Some case-type)
-      (return case-type)
-
-      (&/$None)
-      (fail (str "[Type Error] Variant lacks case: " tag " | " (show-type type))))
-
-    _
-    (fail (str "[Type Error] Type is not a variant: " (show-type type)))))
 
 (defn type-name [type]
   "(-> Type (Lux Ident))"

@@ -31,7 +31,7 @@
     &/None$))
 
 (do-template [<name> <tag-name>]
-  (def <name> (&/V tag-prefix <tag-name>))
+  (def <name> (&/T tag-prefix <tag-name>))
 
   type?-tag   "type?"
   alias-tag   "alias"

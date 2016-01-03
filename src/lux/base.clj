@@ -47,7 +47,7 @@
   ["DataT"
    "VoidT"
    "UnitT"
-   "VariantT"
+   "SumT"
    "TupleT"
    "LambdaT"
    "BoundT"
@@ -144,12 +144,14 @@
 (def tags-field "_tags")
 (def module-class-name "_")
 (def +name-separator+ ";")
+(def sum-tag (str (char 0) "sum" (char 0)))
+(def product-tag (str (char 0) "product" (char 0)))
 
 (defn T [& elems]
   (to-array elems))
 
 (defn V [^Long tag value]
-  (to-array [tag value]))
+  (to-array [sum-tag tag value]))
 
 ;; Constructors
 (def None$ (V $None nil))
@@ -183,12 +185,13 @@
 (defn transform-pattern [pattern]
   (cond (vector? pattern) (mapv transform-pattern pattern)
         (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
-                         (vec (cons (eval (first pattern))
-                                    (list (case (count parts)
-                                            0 nil
-                                            1 (first parts)
-                                            ;; else
-                                            `[~@parts])))))
+                         ['_
+                          (eval (first pattern))
+                          (case (count parts)
+                            0 nil
+                            1 (first parts)
+                            ;; else
+                            `[~@parts])])
         :else pattern
         ))
 

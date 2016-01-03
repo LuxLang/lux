@@ -71,8 +71,8 @@
     (&/$TupleT members)
     (variant$ &/$TupleT (List$ (&/|map type->analysis members)))
 
-    (&/$VariantT members)
-    (variant$ &/$VariantT (List$ (&/|map type->analysis members)))
+    (&/$SumT left right)
+    (variant$ &/$SumT (tuple$ (&/|list (type->analysis left) (type->analysis right))))
 
     (&/$LambdaT input output)
     (variant$ &/$LambdaT (tuple$ (&/|list (type->analysis input) (type->analysis output))))

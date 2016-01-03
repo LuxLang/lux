@@ -492,7 +492,9 @@
                                        .visitEnd)
                                    (.visitSource file-name nil))]
                     _ (if (= "lux" name)
-                        &&host/compile-Function-class
+                        (|do [_ &&host/compile-Function-class
+                              _ &&host/compile-LuxUtils-class]
+                          (return nil))
                         (return nil))]
                 (fn [state]
                   (|case ((&/with-writer =class

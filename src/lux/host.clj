@@ -66,7 +66,7 @@
       (&/$UnitT)
       (return "V")
 
-      (&/$VariantT _)
+      (&/$SumT _)
       (return object-array)
 
       (&/$TupleT _)
