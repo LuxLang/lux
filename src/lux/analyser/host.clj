@@ -723,9 +723,10 @@
             _ (check-method-completion all-supers =methods)
             =captured &&env/captured-vars
             :let [=fields (&/|map (fn [^objects idx+capt]
-                                    (&/T (str &c!base/closure-prefix (aget idx+capt 0))
-                                         (&/|list)
-                                         captured-slot-type))
+                                    (|let [[idx _] idx+capt]
+                                      (&/T (str &c!base/closure-prefix idx)
+                                           (&/|list)
+                                           captured-slot-type)))
                                   (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
             _ (compile-token (&/V &&/$jvm-class (&/T class-decl super-class interfaces (&/|list) =fields =methods =captured (&/Some$ =ctor-args))))
@@ -737,13 +738,17 @@
 
 (defn analyse-jvm-try [analyse exo-type ?body ?catches+?finally]
   (|do [:let [[?catches ?finally] ?catches+?finally]
-        =catches (&/map% (fn [[?ex-class ?ex-arg ?catch-body]]
-                           (|do [=catch-body (&&env/with-local ?ex-arg (&type/Data$ ?ex-class &/Nil$)
+        =catches (&/map% (fn [_catch_]
+                           (|do [:let [[?ex-class ?ex-arg ?catch-body] _catch_]
+                                 =catch-body (&&env/with-local ?ex-arg (&type/Data$ ?ex-class &/Nil$)
                                                (&&/analyse-1 analyse exo-type ?catch-body))
                                  idx &&env/next-local-idx]
                              (return (&/T ?ex-class idx =catch-body))))
                          ?catches)
-        :let [catched-exceptions (&/|map #(aget ^objects % 0) =catches)]
+        :let [catched-exceptions (&/|map (fn [=catch]
+                                           (|let [[_c-class _ _] =catch]
+                                             _c-class))
+                                         =catches)]
         =body (with-catches catched-exceptions
                 (&&/analyse-1 analyse exo-type ?body))
         =finally (|case ?finally

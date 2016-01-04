@@ -22,120 +22,125 @@
                               MethodVisitor)))
 
 ;; [Utils]
-(let [compare-kv #(.compareTo ^String (aget ^objects %1 0) ^String (aget ^objects %2 0))]
-  (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
-    (|case ?match
-      (&a-case/$StoreTestAC ?idx)
-      (if (< ?idx 0)
-        (doto writer
-          (.visitInsn Opcodes/POP) ;; Basically, a No-Op
-          (.visitJumpInsn Opcodes/GOTO $target))
-        (doto writer
-          (.visitVarInsn Opcodes/ASTORE ?idx)
-          (.visitJumpInsn Opcodes/GOTO $target)))
-
-      (&a-case/$BoolTestAC ?value)
+(defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
+  (|case ?match
+    (&a-case/$StoreTestAC ?idx)
+    (if (< ?idx 0)
       (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Boolean" "booleanValue" "()Z")
-        (.visitLdcInsn ?value)
-        (.visitJumpInsn Opcodes/IF_ICMPNE $else)
+        (.visitInsn Opcodes/POP) ;; Basically, a No-Op
+        (.visitJumpInsn Opcodes/GOTO $target))
+      (doto writer
+        (.visitVarInsn Opcodes/ASTORE ?idx)
+        (.visitJumpInsn Opcodes/GOTO $target)))
+
+    (&a-case/$BoolTestAC ?value)
+    (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Boolean" "booleanValue" "()Z")
+      (.visitLdcInsn ?value)
+      (.visitJumpInsn Opcodes/IF_ICMPNE $else)
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO $target))
+
+    (&a-case/$IntTestAC ?value)
+    (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
+      (.visitLdcInsn (long ?value))
+      (.visitInsn Opcodes/LCMP)
+      (.visitJumpInsn Opcodes/IFNE $else)
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO $target))
+
+    (&a-case/$RealTestAC ?value)
+    (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
+      (.visitLdcInsn (double ?value))
+      (.visitInsn Opcodes/DCMPL)
+      (.visitJumpInsn Opcodes/IFNE $else)
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO $target))
+
+    (&a-case/$CharTestAC ?value)
+    (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Character" "charValue" "()C")
+      (.visitLdcInsn ?value)
+      (.visitJumpInsn Opcodes/IF_ICMPNE $else)
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO $target))
+
+    (&a-case/$TextTestAC ?value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitLdcInsn ?value)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
+      (.visitJumpInsn Opcodes/IFEQ $else)
+      (.visitInsn Opcodes/POP)
+      (.visitJumpInsn Opcodes/GOTO $target))
+
+    (&a-case/$TupleTestAC ?members)
+    (|case ?members
+      (&/$Nil)
+      (doto writer
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target))
 
-      (&a-case/$IntTestAC ?value)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
-        (.visitLdcInsn (long ?value))
-        (.visitInsn Opcodes/LCMP)
-        (.visitJumpInsn Opcodes/IFNE $else)
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
+      (&/$Cons ?member (&/$Nil))
+      (compile-match ?member $target $else)
 
-      (&a-case/$RealTestAC ?value)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
-        (.visitLdcInsn (double ?value))
-        (.visitInsn Opcodes/DCMPL)
-        (.visitJumpInsn Opcodes/IFNE $else)
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
-
-      (&a-case/$CharTestAC ?value)
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Character" "charValue" "()C")
-        (.visitLdcInsn ?value)
-        (.visitJumpInsn Opcodes/IF_ICMPNE $else)
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
-
-      (&a-case/$TextTestAC ?value)
-      (doto writer
-        (.visitInsn Opcodes/DUP)
-        (.visitLdcInsn ?value)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
-        (.visitJumpInsn Opcodes/IFEQ $else)
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
-
-      (&a-case/$TupleTestAC ?members)
-      (|case ?members
-        (&/$Nil)
-        (doto writer
-          (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO $target))
-
-        (&/$Cons ?member (&/$Nil))
-        (compile-match ?member $target $else)
-
-        _
-        (doto writer
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-          (-> (doto (.visitInsn Opcodes/DUP)
-                (.visitLdcInsn (int idx))
-                (.visitInsn Opcodes/AALOAD)
-                (compile-match test $next $sub-else)
-                (.visitLabel $sub-else)
-                (.visitInsn Opcodes/POP)
-                (.visitJumpInsn Opcodes/GOTO $else)
-                (.visitLabel $next))
-              (->> (|let [[idx test] idx+member
-                          $next (new Label)
-                          $sub-else (new Label)])
-                   (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
-          (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO $target)))
-
-      (&a-case/$VariantTestAC ?tag ?count ?test)
+      _
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)
-        (.visitLdcInsn (int 1))
-        (.visitInsn Opcodes/AALOAD)
-        (.visitLdcInsn ?tag)
-        (&&/wrap-long)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
-        (.visitJumpInsn Opcodes/IFEQ $else)
-        (.visitInsn Opcodes/DUP)
         (.visitLdcInsn (int 2))
         (.visitInsn Opcodes/AALOAD)
-        (-> (doto (compile-match ?test $value-then $value-else)
-              (.visitLabel $value-then)
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (-> (doto (.visitInsn Opcodes/DUP)
+              (.visitLdcInsn (int idx))
+              (.visitInsn Opcodes/AALOAD)
+              (compile-match test $next $sub-else)
+              (.visitLabel $sub-else)
               (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $target)
-              (.visitLabel $value-else)
               (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else))
-            (->> (let [$value-then (new Label)
-                       $value-else (new Label)]))))
-      )))
+              (.visitJumpInsn Opcodes/GOTO $else)
+              (.visitLabel $next))
+            (->> (|let [[idx test] idx+member
+                        $next (new Label)
+                        $sub-else (new Label)])
+                 (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
+        (.visitInsn Opcodes/POP)
+        (.visitInsn Opcodes/POP)
+        (.visitJumpInsn Opcodes/GOTO $target)))
+
+    (&a-case/$VariantTestAC ?tag ?count ?test)
+    (doto writer
+      (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+      (.visitInsn Opcodes/DUP)
+      (.visitLdcInsn (int 1))
+      (.visitInsn Opcodes/AALOAD)
+      (.visitLdcInsn ?tag)
+      (&&/wrap-long)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
+      (.visitJumpInsn Opcodes/IFEQ $else)
+      (.visitInsn Opcodes/DUP)
+      (.visitLdcInsn (int 2))
+      (.visitInsn Opcodes/AALOAD)
+      (-> (doto (compile-match ?test $value-then $value-else)
+            (.visitLabel $value-then)
+            (.visitInsn Opcodes/POP)
+            (.visitJumpInsn Opcodes/GOTO $target)
+            (.visitLabel $value-else)
+            (.visitInsn Opcodes/POP)
+            (.visitJumpInsn Opcodes/GOTO $else))
+          (->> (let [$value-then (new Label)
+                     $value-else (new Label)]))))
+    ))
 
 (defn ^:private separate-bodies [patterns]
   (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]

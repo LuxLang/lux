@@ -148,7 +148,15 @@
 (def product-tag (str (char 0) "product" (char 0)))
 
 (defn T [& elems]
-  (to-array elems))
+  (case (count elems)
+    0
+    nil
+
+    1
+    (first elems)
+
+    ;; else
+    (to-array [product-tag (int 0) (to-array elems)])))
 
 (defn V [^Long tag value]
   (to-array [sum-tag tag value]))
@@ -163,13 +171,11 @@
 (def empty-cursor (T "" -1 -1))
 
 (defn get$ [slot ^objects record]
-  (aget record slot))
+  (aget ^objects (aget record 2) slot))
 
 (defn set$ [slot value ^objects record]
-  (let [record* (aclone record)
-        size (alength record)]
-    (aset record* slot value)
-    record*))
+  (to-array [product-tag (int 0) (doto (aclone ^objects (aget record 2))
+                                   (aset slot value))]))
 
 (defmacro update$ [slot f record]
   `(let [record# ~record]
@@ -183,7 +189,15 @@
   (V $Right (T state value)))
 
 (defn transform-pattern [pattern]
-  (cond (vector? pattern) (mapv transform-pattern pattern)
+  (cond (vector? pattern) (case (count pattern)
+                            0
+                            nil
+
+                            1
+                            (first pattern)
+
+                            ;; else
+                            ['_ '_ (mapv transform-pattern pattern)])
         (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
                          ['_
                           (eval (first pattern))
@@ -191,7 +205,7 @@
                             0 nil
                             1 (first parts)
                             ;; else
-                            `[~@parts])])
+                            ['_ '_ parts])])
         :else pattern
         ))
 
@@ -318,6 +332,12 @@
           (reverse (partition 2 steps))))
 
 ;; [Resources/Combinators]
+(let [array-class (class (to-array []))]
+  (defn adt->text [adt]
+    (if (= array-class (class adt))
+      (str "[" (->> adt (map adt->text) (interpose " ") (reduce str "")) "]")
+      (pr-str adt))))
+
 (defn |++ [xs ys]
   (|case xs
     ($Nil)
@@ -326,23 +346,13 @@
     ($Cons x xs*)
     (V $Cons (T x (|++ xs* ys)))))
 
-(let [array-class (class (to-array []))]
-  (defn adt->text [adt]
-    (if (= array-class (class adt))
-      (str "[" (->> adt (map adt->text) (interpose " ") (reduce str "")) "]")
-      (pr-str adt))))
-
 (defn |map [f xs]
   (|case xs
     ($Nil)
     xs
 
     ($Cons x xs*)
-    (V $Cons (T (f x) (|map f xs*)))
-
-    _
-    (assert false (prn-str '|map f (adt->text xs)))
-    ))
+    (V $Cons (T (f x) (|map f xs*)))))
 
 (defn |empty? [xs]
   "(All [a] (-> (List a) Bool))"
@@ -812,17 +822,18 @@
 
 (defn with-cursor [^objects cursor body]
   "(All [a] (-> Cursor (Lux a)))"
-  (if (= "" (aget cursor 0))
-    body
-    (fn [state]
-      (let [output (body (set$ $cursor cursor state))]
-        (|case output
-          ($Right ?state ?value)
-          (return* (set$ $cursor (get$ $cursor state) ?state)
-                   ?value)
+  (|let [[_file-name _line _column] cursor]
+    (if (= "" _file-name)
+      body
+      (fn [state]
+        (let [output (body (set$ $cursor cursor state))]
+          (|case output
+            ($Right ?state ?value)
+            (return* (set$ $cursor (get$ $cursor state) ?state)
+                     ?value)
 
-          _
-          output)))))
+            _
+            output))))))
 
 (def cursor
   ;; (Lux Cursor)
@@ -952,7 +963,6 @@
 
 (defn |at [idx xs]
   "(All [a] (-> Int (List a) (Maybe a)))"
-  ;; (prn '|at idx (aget idx 0))
   (|case xs
     ($Cons x xs*)
     (cond (< idx 0)

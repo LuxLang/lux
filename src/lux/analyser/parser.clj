@@ -72,22 +72,23 @@
     _
     (fail (str "[Analyser Error] Not constructor argument: " (&/show-ast ast)))))
 
-(defn parse-handler [[catch+ finally+] token]
-  (|case token
-    [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_catch")]
-                             (&/$Cons [_ (&/$TextS ?ex-class)]
-                                      (&/$Cons [_ (&/$SymbolS "" ?ex-arg)]
-                                               (&/$Cons ?catch-body
-                                                        (&/$Nil))))))]
-    (return (&/T (&/|++ catch+ (&/|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+))
+(defn parse-handler [catch+&finally+ token]
+  (|let [[catch+ finally+] catch+&finally+]
+    (|case token
+      [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_catch")]
+                               (&/$Cons [_ (&/$TextS ?ex-class)]
+                                        (&/$Cons [_ (&/$SymbolS "" ?ex-arg)]
+                                                 (&/$Cons ?catch-body
+                                                          (&/$Nil))))))]
+      (return (&/T (&/|++ catch+ (&/|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+))
 
-    [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_finally")]
-                             (&/$Cons ?finally-body
-                                      (&/$Nil))))]
-    (return (&/T catch+ (&/V &/$Some ?finally-body)))
+      [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_finally")]
+                               (&/$Cons ?finally-body
+                                        (&/$Nil))))]
+      (return (&/T catch+ (&/V &/$Some ?finally-body)))
 
-    _
-    (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token)))))
+      _
+      (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token))))))
 
 (let [failure (fail (str "[Analyser Error] Invalid annotation parameter."))]
   (defn ^:private parse-ann-param [param]
@@ -145,7 +146,7 @@
     _
     (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
 
-(defn parse-method-def [ast]
+(defn ^:private parse-method-init-def [ast]
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "init")]
                           (&/$Cons [_ (&/$TupleS anns)]
@@ -161,6 +162,11 @@
           =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
       (return (&/V &/$ConstructorMethodSyntax (&/T =anns =gvars =exceptions =inputs =ctor-args body))))
 
+    _
+    (fail "")))
+
+(defn ^:private parse-method-virtual-def [ast]
+  (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "virtual")]
                           (&/$Cons [_ (&/$TextS ?name)]
                                    (&/$Cons [_ (&/$TupleS anns)]
@@ -176,25 +182,38 @@
           =output (parse-gclass output)]
       (return (&/V &/$VirtualMethodSyntax (&/T ?name =anns =gvars =exceptions =inputs =output body))))
 
+    _
+    (fail "")))
+
+(defn ^:private parse-method-override-def [ast]
+  (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "override")]
                           (&/$Cons ?class-decl
-                                   (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons ?name
                                             (&/$Cons [_ (&/$TupleS anns)]
                                                      (&/$Cons [_ (&/$TupleS gvars)]
                                                               (&/$Cons [_ (&/$TupleS exceptions)]
                                                                        (&/$Cons [_ (&/$TupleS inputs)]
                                                                                 (&/$Cons output
                                                                                          (&/$Cons body (&/$Nil)))))))))))]
-    (|do [=class-decl (parse-gclass-decl ?class-decl)
+    (|do [=name (parse-text ?name)
+          =class-decl (parse-gclass-decl ?class-decl)
           =anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$OverridenMethodSyntax (&/T =class-decl ?name =anns =gvars =exceptions =inputs =output body))))
+      (return (&/V &/$OverridenMethodSyntax (&/T =class-decl =name =anns =gvars =exceptions =inputs =output body))))
     
     _
-    (fail (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))
+    (fail "")))
+
+(defn parse-method-def [ast]
+  (&/try-all% (&/|list #((parse-method-init-def ast) %)
+                       #((parse-method-virtual-def ast) %)
+                       #((parse-method-override-def ast) %)
+                       (fn [state]
+                         (fail* (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))))
 
 (defn parse-field [ast]
   (|case ast

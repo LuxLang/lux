@@ -66,6 +66,20 @@
       
       _
       (|do [:let [_ (doto *writer*
+                      (.visitLdcInsn (int 3))
+                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
+                      (.visitInsn Opcodes/DUP)
+                      (.visitLdcInsn (int 0))
+                      (.visitFieldInsn Opcodes/GETSTATIC &&/lux-utils-class &&/product-tag-field "Ljava/lang/String;")
+                      (.visitInsn Opcodes/AASTORE)
+                      (.visitInsn Opcodes/DUP)
+                      (.visitLdcInsn (int 1))
+                      (.visitLdcInsn (int 0))
+                      (&&/wrap-int)
+                      (.visitInsn Opcodes/AASTORE)
+                      (.visitInsn Opcodes/DUP)
+                      (.visitLdcInsn (int 2)))]
+            :let [_ (doto *writer*
                       (.visitLdcInsn (int num-elems))
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
             _ (&/map2% (fn [idx elem]
@@ -75,7 +89,8 @@
                                ret (compile elem)
                                :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                            (return ret)))
-                       (&/|range num-elems) ?elems)]
+                       (&/|range num-elems) ?elems)
+            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
         (return nil)))))
 
 (defn compile-variant [compile ?tag ?value]

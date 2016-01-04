@@ -372,8 +372,9 @@
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
           (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
-                ;; :let [_ (when (or (= "using" (aget real-name 1))
-                ;;                   ;; (= "defsig" (aget real-name 1))
+                ;; :let [[r-prefix r-name] real-name
+                ;;       _ (when (or (= "using" r-prefix)
+                ;;                   ;; (= "defsig" r-prefix)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)
                 ;;                (&/|interpose "\n")

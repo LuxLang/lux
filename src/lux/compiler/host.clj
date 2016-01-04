@@ -270,8 +270,9 @@
               _ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW class*)
                   (.visitInsn Opcodes/DUP))]
-        _ (&/map% (fn [[class-name arg]]
-                    (|do [ret (compile arg)
+        _ (&/map% (fn [class-name+arg]
+                    (|do [:let [[class-name arg] class-name+arg]
+                          ret (compile arg)
                           :let [_ (prepare-arg! *writer* class-name)]]
                       (return ret)))
                   (&/zip2 ?classes ?args))
@@ -728,19 +729,24 @@
                                 (&/$None) (|do [_ (return nil)
                                                 :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
                                             (return nil)))
-              catch-boundaries (&/|map (fn [[?ex-class ?ex-idx ?catch-body]] [?ex-class (new Label) (new Label)])
+              catch-boundaries (&/|map (fn [_catch_]
+                                         (|let [[?ex-class ?ex-idx ?catch-body] _catch_]
+                                           (&/T ?ex-class (new Label) (new Label))))
                                        ?catches)
-              _ (doseq [[?ex-class $handler-start $handler-end] (&/->seq catch-boundaries)]
-                  (doto *writer*
-                    (.visitTryCatchBlock $from $to $handler-start (&host-generics/->bytecode-class-name ?ex-class))
-                    (.visitTryCatchBlock $handler-start $handler-end $catch-finally nil)))
+              _ (doseq [catch-boundary (&/->seq catch-boundaries)]
+                  (|let [[?ex-class $handler-start $handler-end] catch-boundary]
+                    (doto *writer*
+                      (.visitTryCatchBlock $from $to $handler-start (&host-generics/->bytecode-class-name ?ex-class))
+                      (.visitTryCatchBlock $handler-start $handler-end $catch-finally nil))))
               _ (.visitTryCatchBlock *writer* $from $to $catch-finally nil)]
         :let [_ (.visitLabel *writer* $from)]
         _ (compile ?body)
         :let [_ (.visitLabel *writer* $to)]
         _ compile-finally
-        handlers (&/map2% (fn [[?ex-class ?ex-idx ?catch-body] [_ $handler-start $handler-end]]
-                            (|do [:let [_ (doto *writer*
+        handlers (&/map2% (fn [_catch_ _boundary_]
+                            (|do [:let [[?ex-class ?ex-idx ?catch-body] _catch_
+                                        [_ $handler-start $handler-end] _boundary_
+                                        _ (doto *writer*
                                             (.visitLabel $handler-start)
                                             (.visitVarInsn Opcodes/ASTORE ?ex-idx))]
                                   _ (compile ?catch-body)
