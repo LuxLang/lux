@@ -95,7 +95,7 @@
     (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
 
     _
-    (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T (&/T "" -1 -1) token)))))))
+    (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))))
 
 (defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
   (|case token
@@ -390,7 +390,7 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
                        (&/$Cons ?body
                                 ?handlers)))
-    (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T &/Nil$ &/None$) ?handlers)]
+    (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T [&/Nil$ &/None$]) ?handlers)]
       (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_throw")]

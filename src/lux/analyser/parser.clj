@@ -30,7 +30,7 @@
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS args)] (&/$Nil))))]
     (|do [=args (&/map% parse-text args)]
-      (return (&/T class-name =args)))
+      (return (&/T [class-name =args])))
 
     _
     (fail (str "[Analyser Error] Not generic class declaration: " (&/show-ast ast)))))
@@ -45,7 +45,7 @@
 
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS params)] (&/$Nil))))]
     (|do [=params (&/map% parse-gclass params)]
-      (return (&/V &/$GenericClass (&/T class-name =params))))
+      (return (&/V &/$GenericClass (&/T [class-name =params]))))
 
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "Array")] (&/$Cons param (&/$Nil))))]
     (|do [=param (parse-gclass param)]
@@ -58,7 +58,7 @@
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS params)] (&/$Nil))))]
     (|do [=params (&/map% parse-gclass params)]
-      (return (&/T class-name =params)))
+      (return (&/T [class-name =params])))
 
     _
     (fail (str "[Analyser Error] Not generic super-class: " (&/show-ast ast)))))
@@ -67,7 +67,7 @@
   (|case ast
     [_ (&/$TupleS (&/$Cons ?class (&/$Cons ?term (&/$Nil))))]
     (|do [=class (parse-gclass ?class)]
-      (return (&/T =class ?term)))
+      (return (&/T [=class ?term])))
 
     _
     (fail (str "[Analyser Error] Not constructor argument: " (&/show-ast ast)))))
@@ -80,12 +80,12 @@
                                         (&/$Cons [_ (&/$SymbolS "" ?ex-arg)]
                                                  (&/$Cons ?catch-body
                                                           (&/$Nil))))))]
-      (return (&/T (&/|++ catch+ (&/|list (&/T ?ex-class ?ex-arg ?catch-body))) finally+))
+      (return (&/T [(&/|++ catch+ (&/|list (&/T [?ex-class ?ex-arg ?catch-body]))) finally+]))
 
       [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_finally")]
                                (&/$Cons ?finally-body
                                         (&/$Nil))))]
-      (return (&/T catch+ (&/V &/$Some ?finally-body)))
+      (return (&/T [catch+ (&/V &/$Some ?finally-body)]))
 
       _
       (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token))))))
@@ -95,11 +95,11 @@
     (|case param
       [[_ (&/$TextS param-name)] param-value]
       (|case param-value
-        [_ (&/$BoolS param-value*)] (return (&/T param-name (boolean param-value*)))
-        [_ (&/$IntS param-value*)]  (return (&/T param-name (int param-value*)))
-        [_ (&/$RealS param-value*)] (return (&/T param-name (float param-value*)))
-        [_ (&/$CharS param-value*)] (return (&/T param-name (char param-value*)))
-        [_ (&/$TextS param-value*)] (return (&/T param-name param-value*))
+        [_ (&/$BoolS param-value*)] (return (&/T [param-name (boolean param-value*)]))
+        [_ (&/$IntS param-value*)]  (return (&/T [param-name (int param-value*)]))
+        [_ (&/$RealS param-value*)] (return (&/T [param-name (float param-value*)]))
+        [_ (&/$CharS param-value*)] (return (&/T [param-name (char param-value*)]))
+        [_ (&/$TextS param-value*)] (return (&/T [param-name param-value*]))
 
         _
         failure)
@@ -123,7 +123,7 @@
                           (&/$Cons gclass
                                    (&/$Nil))))]
     (|do [=gclass (parse-gclass gclass)]
-      (return (&/T arg-name =gclass)))
+      (return (&/T [arg-name =gclass])))
     
     _
     (fail (str "[Analyser Error] Invalid argument declaration: " (&/show-ast ast)))))
@@ -141,7 +141,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-gclass inputs)
           =output (parse-gclass output)]
-      (return (&/T method-name =anns =gvars =exceptions =inputs =output)))
+      (return (&/T [method-name =anns =gvars =exceptions =inputs =output])))
     
     _
     (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
@@ -160,7 +160,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
-      (return (&/V &/$ConstructorMethodSyntax (&/T =anns =gvars =exceptions =inputs =ctor-args body))))
+      (return (&/V &/$ConstructorMethodSyntax (&/T [=anns =gvars =exceptions =inputs =ctor-args body]))))
 
     _
     (fail "")))
@@ -180,7 +180,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$VirtualMethodSyntax (&/T ?name =anns =gvars =exceptions =inputs =output body))))
+      (return (&/V &/$VirtualMethodSyntax (&/T [?name =anns =gvars =exceptions =inputs =output body]))))
 
     _
     (fail "")))
@@ -203,7 +203,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$OverridenMethodSyntax (&/T =class-decl =name =anns =gvars =exceptions =inputs =output body))))
+      (return (&/V &/$OverridenMethodSyntax (&/T [=class-decl =name =anns =gvars =exceptions =inputs =output body]))))
     
     _
     (fail "")))
@@ -223,7 +223,7 @@
                                             (&/$Nil)))))]
     (|do [=anns (&/map% parse-ann ?anns)
           =type (parse-gclass ?type)]
-      (return (&/T ?name =anns =type)))
+      (return (&/T [?name =anns =type])))
     
     _
     (fail (str "[Analyser Error] Invalid field declaration: " (&/show-ast ast)))))

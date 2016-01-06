@@ -28,10 +28,14 @@
       (meta-get ident dict*))
 
     (&/$Nil)
-    &/None$))
+    &/None$
+
+    _
+    (assert false (prn-str (&/adt->text ident)
+                           (&/adt->text dict)))))
 
 (do-template [<name> <tag-name>]
-  (def <name> (&/T tag-prefix <tag-name>))
+  (def <name> (&/T [tag-prefix <tag-name>]))
 
   type?-tag   "type?"
   alias-tag   "alias"

@@ -494,8 +494,8 @@
 (defn ^:private compile-method-def [compile ^ClassWriter class-writer ?super-class method-def]
   (|case method-def
     (&/$ConstructorMethodAnalysis ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
-    (|let [?output (&/V &/$GenericClass (&/T "void" (&/|list)))
-           =method-decl (&/T init-method ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output)
+    (|let [?output (&/V &/$GenericClass (&/T ["void" (&/|list)]))
+           =method-decl (&/T [init-method ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
                                    Opcodes/ACC_PUBLIC
@@ -522,7 +522,7 @@
           (return nil))))
     
     (&/$VirtualMethodAnalysis ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
-    (|let [=method-decl (&/T ?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output)
+    (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
                                    Opcodes/ACC_PUBLIC
@@ -541,7 +541,7 @@
           (return nil))))
     
     (&/$OverridenMethodAnalysis ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
-    (|let [=method-decl (&/T ?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output)
+    (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
                                    Opcodes/ACC_PUBLIC
@@ -679,16 +679,16 @@
     (&&/save-class! interface-name (.toByteArray =interface))))
 
 (def compile-Function-class
-  (let [object-class (&/V &/$GenericClass (&/T "java.lang.Object" (&/|list)))
-        interface-decl (&/T (second (string/split &&/function-class #"/")) (&/|list))
+  (let [object-class (&/V &/$GenericClass (&/T ["java.lang.Object" (&/|list)]))
+        interface-decl (&/T [(second (string/split &&/function-class #"/")) (&/|list)])
         ?supers (&/|list)
         ?anns (&/|list)
-        ?methods (&/|list (&/T "apply"
-                               (&/|list)
-                               (&/|list)
-                               (&/|list)
-                               (&/|list object-class)
-                               object-class))]
+        ?methods (&/|list (&/T ["apply"
+                                (&/|list)
+                                (&/|list)
+                                (&/|list)
+                                (&/|list object-class)
+                                object-class]))]
     (compile-jvm-interface nil interface-decl ?supers ?anns ?methods)))
 
 (def compile-LuxUtils-class
@@ -731,7 +731,7 @@
                                             (return nil)))
               catch-boundaries (&/|map (fn [_catch_]
                                          (|let [[?ex-class ?ex-idx ?catch-body] _catch_]
-                                           (&/T ?ex-class (new Label) (new Label))))
+                                           (&/T [?ex-class (new Label) (new Label)])))
                                        ?catches)
               _ (doseq [catch-boundary (&/->seq catch-boundaries)]
                   (|let [[?ex-class $handler-start $handler-end] catch-boundary]

@@ -176,14 +176,14 @@
       (|do [=expr (analyse-1 analyse $var ?token)
             :let [[[?type ?cursor] ?item] =expr]
             =type (&type/clean $var ?type)]
-        (return (&/T (&/T =type ?cursor) ?item))))))
+        (return (&/T [(&/T [=type ?cursor]) ?item]))))))
 
 (defn resolved-ident [ident]
   (|do [:let [[?module ?name] ident]
         module* (if (.equals "" ?module)
                   &/get-module-name
                   (return ?module))]
-    (return (&/T module* ?name))))
+    (return (&/T [module* ?name]))))
 
 (let [tag-names #{"DataT" "VoidT" "UnitT" "SumT" "ProdT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
   (defn type-tag? [module name]
@@ -191,4 +191,4 @@
          (contains? tag-names name))))
 
 (defn |meta [type cursor analysis]
-  (&/T (&/T type cursor) analysis))
+  (&/T [(&/T [type cursor]) analysis]))

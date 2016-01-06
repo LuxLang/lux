@@ -72,9 +72,9 @@
         (let [match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/V $Done (&/T (&/T file-name line-num column-num) match))
-            (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) match)
-                           (&/T (&/T file-name line-num column-num*) line)))))
+            (&/V $Done (&/T [(&/T [file-name line-num column-num]) match]))
+            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) match])
+                            (&/T [(&/T [file-name line-num column-num*]) line])]))))
         (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex2 [regex]
@@ -84,9 +84,9 @@
         (let [match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/V $Done (&/T (&/T file-name line-num column-num) (&/T tok1 tok2)))
-            (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) (&/T tok1 tok2))
-                           (&/T (&/T file-name line-num column-num*) line)))))
+            (&/V $Done (&/T [(&/T [file-name line-num column-num]) (&/T [tok1 tok2])]))
+            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) (&/T [tok1 tok2])])
+                            (&/T [(&/T [file-name line-num column-num*]) line])]))))
         (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
 (defn read-regex+ [regex]
@@ -108,9 +108,9 @@
                             (str prefix match))]
               (if (= column-num* (.length line))
                 (recur prefix* reader**)
-                (&/V &/$Right (&/T (&/Cons$ (&/T (&/T file-name line-num column-num*) line)
-                                            reader**)
-                                   (&/T (&/T file-name line-num column-num) prefix*)))))
+                (&/V &/$Right (&/T [(&/Cons$ (&/T [(&/T [file-name line-num column-num*]) line])
+                                             reader**)
+                                    (&/T [(&/T [file-name line-num column-num]) prefix*])]))))
             (&/V &/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]
@@ -120,16 +120,16 @@
         (let [match-length (.length text)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/V $Done (&/T (&/T file-name line-num column-num) text))
-            (&/V $Yes (&/T (&/T (&/T file-name line-num column-num) text)
-                           (&/T (&/T file-name line-num column-num*) line)))))
+            (&/V $Done (&/T [(&/T [file-name line-num column-num]) text]))
+            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) text])
+                            (&/T [(&/T [file-name line-num column-num*]) line])]))))
         (&/V $No (str "[Reader Error] Text failed: " text))))))
 
 (defn from [^String name ^String source-code]
   (let [lines (string/split-lines source-code)
         indexed-lines (map (fn [line line-num]
-                             (&/T (&/T name (inc line-num) 0)
-                                  line))
+                             (&/T [(&/T [name (inc line-num) 0])
+                                   line]))
                            lines
                            (range (count lines)))]
     (reduce (fn [tail head] (&/Cons$ head tail))

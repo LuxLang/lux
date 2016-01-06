@@ -19,15 +19,15 @@
         (&env/with-local arg arg-type
           (|do [=return body
                 =captured &env/captured-vars]
-            (return (&/T scope-name =captured =return))))))))
+            (return (&/T [scope-name =captured =return]))))))))
 
 (defn close-over [scope name register frame]
   (|let [[[register-type register-cursor] _] register
          register* (&&/|meta register-type register-cursor
-                             (&/V &&/$captured (&/T scope
-                                                    (->> frame (&/get$ &/$closure) (&/get$ &/$counter))
-                                                    register)))]
-    (&/T register* (&/update$ &/$closure #(->> %
-                                               (&/update$ &/$counter inc)
-                                               (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))
-                              frame))))
+                             (&/V &&/$captured (&/T [scope
+                                                     (->> frame (&/get$ &/$closure) (&/get$ &/$counter))
+                                                     register])))]
+    (&/T [register* (&/update$ &/$closure #(->> %
+                                                (&/update$ &/$counter inc)
+                                                (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))
+                               frame)])))

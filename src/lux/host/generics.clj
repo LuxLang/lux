@@ -175,4 +175,4 @@
                                 "(" (&/fold str "" (&/|map gclass->signature =inputs)) ")"
                                 (gclass->signature =output)
                                 (->> =exceptions (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")))]
-    (&/T simple-signature generic-signature)))
+    (&/T [simple-signature generic-signature])))

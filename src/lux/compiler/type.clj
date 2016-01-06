@@ -15,7 +15,7 @@
 (defn ^:private variant$ [tag body]
   "(-> Text Analysis Analysis)"
   (&a/|meta &type/$Void &/empty-cursor
-            (&/V &a/$variant (&/T tag body))))
+            (&/V &a/$variant (&/T [tag body]))))
 
 (defn ^:private tuple$ [members]
   "(-> (List Analysis) Analysis)"

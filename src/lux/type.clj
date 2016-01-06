@@ -27,42 +27,42 @@
 
 (def empty-env &/Nil$)
 (defn Data$ [name params]
-  (&/V &/$DataT (&/T name params)))
+  (&/V &/$DataT (&/T [name params])))
 (defn Bound$ [idx]
   (&/V &/$BoundT idx))
 (defn Var$ [id]
   (&/V &/$VarT id))
 (defn Lambda$ [in out]
-  (&/V &/$LambdaT (&/T in out)))
+  (&/V &/$LambdaT (&/T [in out])))
 (defn App$ [fun arg]
-  (&/V &/$AppT (&/T fun arg)))
+  (&/V &/$AppT (&/T [fun arg])))
 (defn Prod$ [left right]
-  (&/V &/$ProdT (&/T left right)))
+  (&/V &/$ProdT (&/T [left right])))
 (defn Sum$ [left right]
-  (&/V &/$SumT (&/T left right)))
+  (&/V &/$SumT (&/T [left right])))
 (defn Univ$ [env body]
-  (&/V &/$UnivQ (&/T env body)))
+  (&/V &/$UnivQ (&/T [env body])))
 (defn Ex$ [env body]
-  (&/V &/$ExQ (&/T env body)))
+  (&/V &/$ExQ (&/T [env body])))
 (defn Named$ [name type]
-  (&/V &/$NamedT (&/T name type)))
+  (&/V &/$NamedT (&/T [name type])))
 
 (def $Void (&/V &/$VoidT nil))
 (def Unit (&/V &/$UnitT nil))
-(def Bool (Named$ (&/T "lux" "Bool") (Data$ "java.lang.Boolean" &/Nil$)))
-(def Int (Named$ (&/T "lux" "Int") (Data$ "java.lang.Long" &/Nil$)))
-(def Real (Named$ (&/T "lux" "Real") (Data$ "java.lang.Double" &/Nil$)))
-(def Char (Named$ (&/T "lux" "Char") (Data$ "java.lang.Character" &/Nil$)))
-(def Text (Named$ (&/T "lux" "Text") (Data$ "java.lang.String" &/Nil$)))
-(def Ident (Named$ (&/T "lux" "Ident") (Prod$ Text Text)))
+(def Bool (Named$ (&/T ["lux" "Bool"]) (Data$ "java.lang.Boolean" &/Nil$)))
+(def Int (Named$ (&/T ["lux" "Int"]) (Data$ "java.lang.Long" &/Nil$)))
+(def Real (Named$ (&/T ["lux" "Real"]) (Data$ "java.lang.Double" &/Nil$)))
+(def Char (Named$ (&/T ["lux" "Char"]) (Data$ "java.lang.Character" &/Nil$)))
+(def Text (Named$ (&/T ["lux" "Text"]) (Data$ "java.lang.String" &/Nil$)))
+(def Ident (Named$ (&/T ["lux" "Ident"]) (Prod$ Text Text)))
 
 (def IO
-  (Named$ (&/T "lux/data" "IO")
+  (Named$ (&/T ["lux/data" "IO"])
           (Univ$ empty-env
                  (Lambda$ Unit (Bound$ 1)))))
 
 (def List
-  (Named$ (&/T "lux" "List")
+  (Named$ (&/T ["lux" "List"])
           (Univ$ empty-env
                  (Sum$
                   ;; lux;Nil
@@ -73,7 +73,7 @@
                                (Bound$ 1)))))))
 
 (def Maybe
-  (Named$ (&/T "lux" "Maybe")
+  (Named$ (&/T ["lux" "Maybe"])
           (Univ$ empty-env
                  (Sum$
                   ;; lux;None
@@ -83,7 +83,7 @@
                  )))
 
 (def Type
-  (Named$ (&/T "lux" "Type")
+  (Named$ (&/T ["lux" "Type"])
           (let [Type (App$ (Bound$ 0) (Bound$ 1))
                 TypeList (App$ List Type)
                 TypePair (Prod$ Type Type)]
@@ -130,7 +130,7 @@
                   $Void))))
 
 (def DefMetaValue
-  (Named$ (&/T "lux" "DefMetaValue")
+  (Named$ (&/T ["lux" "DefMetaValue"])
           (let [DefMetaValue (App$ (Bound$ 0) (Bound$ 1))]
             (App$ (Univ$ empty-env
                          (Sum$
@@ -160,7 +160,7 @@
                   $Void))))
 
 (def DefMeta
-  (Named$ (&/T "lux" "DefMeta")
+  (Named$ (&/T ["lux" "DefMeta"])
           (App$ List (Prod$ Ident DefMetaValue))))
 
 (def Macro)
@@ -250,12 +250,12 @@
                                        (|case ?type*
                                          (&/$VarT ?id*)
                                          (if (.equals ^Object id ?id*)
-                                           (return (&/T ?id &/None$))
+                                           (return (&/T [?id &/None$]))
                                            (return binding))
 
                                          _
                                          (|do [?type** (clean* id ?type*)]
-                                           (return (&/T ?id (&/V &/$Some ?type**)))))
+                                           (return (&/T [?id (&/V &/$Some ?type**)]))))
                                        ))))
                                (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings)))]
          (fn [state]
@@ -321,19 +321,19 @@
   (|case type
     (&/$LambdaT ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
-      (&/T ??out (&/Cons$ ?in ?args)))
+      (&/T [??out (&/Cons$ ?in ?args)]))
 
     _
-    (&/T type &/Nil$)))
+    (&/T [type &/Nil$])))
 
 (defn ^:private unravel-app [fun-type]
   (|case fun-type
     (&/$AppT ?left ?right)
     (|let [[?fun-type ?args] (unravel-app ?left)]
-      (&/T ?fun-type (&/|++ ?args (&/|list ?right))))
+      (&/T [?fun-type (&/|++ ?args (&/|list ?right))]))
 
     _
-    (&/T fun-type &/Nil$)))
+    (&/T [fun-type &/Nil$])))
 
 (do-template [<tag> <flatten> <at> <desc>]
   (do (defn <flatten> [type]
@@ -352,7 +352,7 @@
         (<at> tag ?type)
         
         (<tag> ?left ?right)
-        (|case (&/T tag ?right)
+        (|case (&/T [tag ?right])
           [0 _]                (return ?left)
           [1 (<tag> ?left* _)] (return ?left*)
           [1 _]                (return ?right)
@@ -487,7 +487,7 @@
       )))
 
 (defn ^:private fp-put [k v fixpoints]
-  (&/Cons$ (&/T k v) fixpoints))
+  (&/Cons$ (&/T [k v]) fixpoints))
 
 (defn ^:private show-type+ [type]
   (|case type
@@ -584,12 +584,12 @@
 
 (defn ^:private check* [class-loader fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
-    (return (&/T fixpoints nil))
+    (return (&/T [fixpoints nil]))
     (&/with-attempt
       (|case [expected actual]
         [(&/$VarT ?eid) (&/$VarT ?aid)]
         (if (.equals ^Object ?eid ?aid)
-          (return (&/T fixpoints nil))
+          (return (&/T [fixpoints nil]))
           (|do [ebound (fn [state]
                          (|case ((deref ?eid) state)
                            (&/$Right state* ebound)
@@ -607,7 +607,7 @@
             (|case [ebound abound]
               [(&/$None _) (&/$None _)]
               (|do [_ (set-var ?eid actual)]
-                (return (&/T fixpoints nil)))
+                (return (&/T [fixpoints nil])))
               
               [(&/$Some etype) (&/$None _)]
               (check* class-loader fixpoints invariant?? etype actual)
@@ -622,7 +622,7 @@
         (fn [state]
           (|case ((set-var ?id actual) state)
             (&/$Right state* _)
-            (return* state* (&/T fixpoints nil))
+            (return* state* (&/T [fixpoints nil]))
 
             (&/$Left _)
             ((|do [bound (deref ?id)]
@@ -633,7 +633,7 @@
         (fn [state]
           (|case ((set-var ?id expected) state)
             (&/$Right state* _)
-            (return* state* (&/T fixpoints nil))
+            (return* state* (&/T [fixpoints nil]))
 
             (&/$Left _)
             ((|do [bound (deref ?id)]
@@ -658,7 +658,7 @@
                    e* (apply-type F2 A1)
                    a* (apply-type F2 A2)
                    [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-               (return (&/T fixpoints** nil)))
+               (return (&/T [fixpoints** nil])))
              state)))
         
         [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
@@ -674,11 +674,11 @@
                    e* (apply-type F1 A1)
                    a* (apply-type F1 A2)
                    [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-               (return (&/T fixpoints** nil)))
+               (return (&/T [fixpoints** nil])))
              state)))
         
         [(&/$AppT F A) _]
-        (let [fp-pair (&/T expected actual)
+        (let [fp-pair (&/T [expected actual])
               _ (when (> (&/|length fixpoints) 40)
                   (println 'FIXPOINTS (->> (&/|keys fixpoints)
                                            (&/|map (fn [pair]
@@ -691,7 +691,7 @@
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
             (if ?
-              (return (&/T fixpoints nil))
+              (return (&/T [fixpoints nil]))
               (check-error "" expected actual))
 
             (&/$None)
@@ -741,10 +741,10 @@
                                  a!data)
 
         [(&/$VoidT) (&/$VoidT)]
-        (return (&/T fixpoints nil))
+        (return (&/T [fixpoints nil]))
         
         [(&/$UnitT) (&/$UnitT)]
-        (return (&/T fixpoints nil))
+        (return (&/T [fixpoints nil]))
 
         [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
         (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
@@ -760,7 +760,7 @@
 
         [(&/$ExT e!id) (&/$ExT a!id)]
         (if (.equals ^Object e!id a!id)
-          (return (&/T fixpoints nil))
+          (return (&/T [fixpoints nil]))
           (check-error "" expected actual))
 
         [(&/$NamedT ?ename ?etype) _]

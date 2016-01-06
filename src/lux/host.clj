@@ -37,10 +37,10 @@
   (|case type
     (&/$DataT "#Array" (&/$Cons param (&/$Nil)))
     (|let [[count inner] (unfold-array param)]
-      (&/T (inc count) inner))
+      (&/T [(inc count) inner]))
 
     _
-    (&/T 0 type)))
+    (&/T [0 type])))
 
 (let [ex-type-class (str "L" (&host-generics/->bytecode-class-name "java.lang.Object") ";")
       object-array (str "[" "L" (&host-generics/->bytecode-class-name "java.lang.Object") ";")]
@@ -94,7 +94,7 @@
                                                    (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
                                     (.getGenericType =field)))]
         (|let [gvars (->> target-class .getTypeParameters seq &/->list)]
-          (return (&/T gvars gtype)))
+          (return (&/T [gvars gtype])))
         (fail (str "[Host Error] Field does not exist: " target "." field)))))
 
   lookup-static-field true
@@ -117,11 +117,11 @@
         (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
                gvars (->> method .getTypeParameters seq &/->list)
                gargs (->> method .getGenericParameterTypes seq &/->list)]
-          (return (&/T (.getGenericReturnType method)
-                       (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
-                       parent-gvars
-                       gvars
-                       gargs)))
+          (return (&/T [(.getGenericReturnType method)
+                        (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
+                        parent-gvars
+                        gvars
+                        gargs])))
         (fail (str "[Host Error] " <method-type> " method does not exist: " target "." method-name)))))
 
   lookup-static-method  true  "Static"
@@ -141,7 +141,7 @@
       (|let [gvars (->> target-class .getTypeParameters seq &/->list)
              gargs (->> ctor .getGenericParameterTypes seq &/->list)
              exs (->> ctor .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))]
-        (return (&/T exs gvars gargs)))
+        (return (&/T [exs gvars gargs])))
       (fail (str "[Host Error] Constructor does not exist: " target)))))
 
 (defn abstract-methods [class-loader super-class]
@@ -149,7 +149,7 @@
   (|let [[super-name super-params] super-class]
     (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj super-name) true class-loader))
                             :when (Modifier/isAbstract (.getModifiers =method))]
-                        (&/T (.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))))))))
+                        (&/T [(.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))]))))))
 
 (defn def-name [name]
   (str (&/normalize-name name) "_" (hash name)))
@@ -274,7 +274,7 @@
 (defn ^:private compile-dummy-method [^ClassWriter =class super-class method-def]
   (|case method-def
     (&/$ConstructorMethodSyntax =anns =gvars =exceptions =inputs =ctor-args body)
-    (|let [=output (&/V &/$GenericClass (&/T "void" (&/|list)))
+    (|let [=output (&/V &/$GenericClass (&/T ["void" (&/|list)]))
            method-decl [init-method-name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class Opcodes/ACC_PUBLIC

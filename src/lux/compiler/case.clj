@@ -97,16 +97,11 @@
       _
       (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (.visitInsn Opcodes/DUP)
-        (.visitLdcInsn (int 2))
-        (.visitInsn Opcodes/AALOAD)
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (-> (doto (.visitInsn Opcodes/DUP)
               (.visitLdcInsn (int idx))
               (.visitInsn Opcodes/AALOAD)
               (compile-match test $next $sub-else)
               (.visitLabel $sub-else)
-              (.visitInsn Opcodes/POP)
               (.visitInsn Opcodes/POP)
               (.visitJumpInsn Opcodes/GOTO $else)
               (.visitLabel $next))
@@ -114,7 +109,6 @@
                         $next (new Label)
                         $sub-else (new Label)])
                  (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
-        (.visitInsn Opcodes/POP)
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $target)))
 
@@ -146,17 +140,17 @@
   (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
                                           (|let [[$id mappings =matches] $id+mappings+=matches
                                                  [pattern body] pattern+body]
-                                            (&/T (inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches))))
-                                        (&/T 0 (&/|table) (&/|table))
+                                            (&/T [(inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches)])))
+                                        (&/T [0 (&/|table) (&/|table)])
                                         patterns)]
-    (&/T mappings (&/|reverse patterns*))))
+    (&/T [mappings (&/|reverse patterns*)])))
 
 (defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
   (let [entries (&/|map (fn [?branch+?body]
                           (|let [[?branch ?body] ?branch+?body
                                  label (new Label)]
-                            (&/T (&/T ?branch label)
-                                 (&/T label ?body))))
+                            (&/T [(&/T [?branch label])
+                                  (&/T [label ?body])])))
                         mappings)
         mappings* (&/|map &/|first entries)]
     (doto writer

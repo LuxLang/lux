@@ -16,13 +16,13 @@
   "(-> (List (, Syntax Syntax)) (Lux (List Syntax)))"
   (|do [[tag-group tag-type] (|case pairs
                                (&/$Nil)
-                               (return (&/T &/Nil$ &type/Unit))
+                               (return (&/T [&/Nil$ &type/Unit]))
                                
                                (&/$Cons [[_ (&/$TagS tag1)] _] _)
                                (|do [[module name] (&&/resolved-ident tag1)
                                      tags (&&module/tag-group module name)
                                      type (&&module/tag-type module name)]
-                                 (return (&/T tags type)))
+                                 (return (&/T [tags type])))
 
                                _
                                (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags."))
@@ -30,7 +30,7 @@
                          (|case kv
                            [[_ (&/$TagS k)] v]
                            (|do [=k (&&/resolved-ident k)]
-                             (return (&/T (&/ident->text =k) v)))
+                             (return (&/T [(&/ident->text =k) v])))
 
                            _
                            (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
@@ -40,4 +40,4 @@
                              (return member)
                              (fail (str "[Analyser Error] Unknown tag: " tag))))
                          (&/|map &/ident->text tag-group))]
-    (return (&/T =members tag-type))))
+    (return (&/T [=members tag-type]))))

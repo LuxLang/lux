@@ -66,21 +66,7 @@
       
       _
       (|do [:let [_ (doto *writer*
-                      (.visitLdcInsn (int 3))
-                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
-                      (.visitInsn Opcodes/DUP)
-                      (.visitLdcInsn (int 0))
-                      (.visitFieldInsn Opcodes/GETSTATIC &&/lux-utils-class &&/product-tag-field "Ljava/lang/String;")
-                      (.visitInsn Opcodes/AASTORE)
-                      (.visitInsn Opcodes/DUP)
-                      (.visitLdcInsn (int 1))
-                      (.visitLdcInsn (int 0))
-                      (&&/wrap-int)
-                      (.visitInsn Opcodes/AASTORE)
-                      (.visitInsn Opcodes/DUP)
-                      (.visitLdcInsn (int 2)))]
-            :let [_ (doto *writer*
-                      (.visitLdcInsn (int num-elems))
+                      (.visitLdcInsn (int (inc num-elems)))
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
             _ (&/map2% (fn [idx elem]
                          (|do [:let [_ (doto *writer*
@@ -90,7 +76,11 @@
                                :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                            (return ret)))
                        (&/|range num-elems) ?elems)
-            :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+            :let [_ (doto *writer*
+                      (.visitInsn Opcodes/DUP)
+                      (.visitLdcInsn (int num-elems))
+                      (.visitLdcInsn &/product-tag)
+                      (.visitInsn Opcodes/AASTORE))]]
         (return nil)))))
 
 (defn compile-variant [compile ?tag ?value]
@@ -100,7 +90,7 @@
                   (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 0))
-                  (.visitFieldInsn Opcodes/GETSTATIC &&/lux-utils-class &&/sum-tag-field "Ljava/lang/String;")
+                  (.visitLdcInsn &/sum-tag)
                   (.visitInsn Opcodes/AASTORE)
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 1))
@@ -150,8 +140,8 @@
 
                           [[?def-type ?def-cursor] ?def-value]
                           (if (&type/type= &type/Type ?def-type)
-                            (&/T (&/T ?def-type ?def-cursor)
-                                 (&/V &a/$tuple (&/|list)))
+                            (&/T [(&/T [?def-type ?def-cursor])
+                                  (&/V &a/$tuple (&/|list))])
                             (&&type/type->analysis ?def-type)))]]
     (compile ?def-type)))
 
@@ -217,19 +207,19 @@
               :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
                     [def-type is-type?] (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
                                           (&/$Some (&/$BoolM true))
-                                          (&/T &type/Type
-                                               true)
+                                          (&/T [&type/Type
+                                                true])
 
                                           _
                                           (if (&type/type= &type/Type =value-type)
-                                            (&/T &type/Type
-                                                 false)
-                                            (&/T (-> def-class (.getField &/type-field) (.get nil))
-                                                 false)))
+                                            (&/T [&type/Type
+                                                  false])
+                                            (&/T [(-> def-class (.getField &/type-field) (.get nil))
+                                                  false])))
                     def-meta ?meta
                     def-value (-> def-class (.getField &/value-field) (.get nil))]
               _ (&a-module/define module-name ?name def-type def-meta def-value)
-              _ (|case (&/T is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta))
+              _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
                   [true (&/$Some (&/$ListM tags*))]
                   (|do [tags (&/map% (fn [tag*]
                                        (|case tag*

@@ -51,37 +51,37 @@
       (return &/Nil$)
       
       (&lexer/$Bool ?value)
-      (return (&/|list (&/T meta (&/V &/$BoolS (Boolean/parseBoolean ?value)))))
+      (return (&/|list (&/T [meta (&/V &/$BoolS (Boolean/parseBoolean ?value))])))
 
       (&lexer/$Int ?value)
-      (return (&/|list (&/T meta (&/V &/$IntS (Long/parseLong ?value)))))
+      (return (&/|list (&/T [meta (&/V &/$IntS (Long/parseLong ?value))])))
 
       (&lexer/$Real ?value)
-      (return (&/|list (&/T meta (&/V &/$RealS (Double/parseDouble ?value)))))
+      (return (&/|list (&/T [meta (&/V &/$RealS (Double/parseDouble ?value))])))
 
       (&lexer/$Char ^String ?value)
-      (return (&/|list (&/T meta (&/V &/$CharS (.charAt ?value 0)))))
+      (return (&/|list (&/T [meta (&/V &/$CharS (.charAt ?value 0))])))
 
       (&lexer/$Text ?value)
-      (return (&/|list (&/T meta (&/V &/$TextS ?value))))
+      (return (&/|list (&/T [meta (&/V &/$TextS ?value)])))
 
       (&lexer/$Symbol ?ident)
-      (return (&/|list (&/T meta (&/V &/$SymbolS ?ident))))
+      (return (&/|list (&/T [meta (&/V &/$SymbolS ?ident)])))
 
       (&lexer/$Tag ?ident)
-      (return (&/|list (&/T meta (&/V &/$TagS ?ident))))
+      (return (&/|list (&/T [meta (&/V &/$TagS ?ident)])))
 
       (&lexer/$Open_Paren _)
       (|do [syntax (parse-form parse)]
-        (return (&/|list (&/T meta syntax))))
+        (return (&/|list (&/T [meta syntax]))))
       
       (&lexer/$Open_Bracket _)
       (|do [syntax (parse-tuple parse)]
-        (return (&/|list (&/T meta syntax))))
+        (return (&/|list (&/T [meta syntax]))))
 
       (&lexer/$Open_Brace _)
       (|do [syntax (parse-record parse)]
-        (return (&/|list (&/T meta syntax))))
+        (return (&/|list (&/T [meta syntax]))))
 
       _
       (fail "[Parser Error] Unknown lexer token.")

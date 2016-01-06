@@ -212,7 +212,7 @@
                                         " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
                 _cursor &/cursor]
             (return (&/|list (&&/|meta exo-type _cursor
-                                       (&/V &&/$variant (&/T idx =value))
+                                       (&/V &&/$variant (&/T [idx =value]))
                                        ))))
 
           (&/$UnivQ _)
@@ -262,7 +262,7 @@
             (&type/check exo-type endo-type))
         _cursor &/cursor]
     (return (&/|list (&&/|meta endo-type _cursor
-                               (&/V &&/$var (&/V &/$Global (&/T r-module r-name)))
+                               (&/V &&/$var (&/V &/$Global (&/T [r-module r-name])))
                                )))))
 
 (defn ^:private analyse-local [analyse exo-type name]
@@ -295,10 +295,10 @@
                [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                           (|let [[register new-inner] register+new-inner
                                                  [register* frame*] (&&lambda/close-over (&/|reverse in-scope) name register frame)]
-                                            (&/T register* (&/Cons$ frame* new-inner))))
-                                        (&/T (or (->> top-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
-                                                 (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
-                                             &/Nil$)
+                                            (&/T [register* (&/Cons$ frame* new-inner)])))
+                                        (&/T [(or (->> top-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
+                                                  (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
+                                              &/Nil$])
                                         (&/|reverse inner) scopes)]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
              (return (&/|list =local)))
@@ -316,7 +316,7 @@
   (|case ?args
     (&/$Nil)
     (|do [_ (&type/check exo-type fun-type)]
-      (return (&/T fun-type &/Nil$)))
+      (return (&/T [fun-type &/Nil$])))
     
     (&/$Cons ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
@@ -334,7 +334,7 @@
                                  (&type/clean $var =output-t)
                                  (|do [_ (&type/set-var ?id (&/V &/$BoundT 1))]
                                    (&type/clean $var =output-t)))]
-                    (return (&/T type** =args)))
+                    (return (&/T [type** =args])))
                   ))))
 
           (&/$ExQ _)
@@ -348,7 +348,7 @@
                        (&&/analyse-1 analyse ?input-t ?arg)
                        (fn [err]
                          (fail (str err "\n" "[Analyser Error] Function expected: " (&type/show-type ?input-t)))))]
-            (return (&/T =output-t (&/Cons$ =arg =args))))
+            (return (&/T [=output-t (&/Cons$ =arg =args)])))
 
           _
           (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*))))
@@ -360,7 +360,7 @@
   (|do [:let [[[=fn-type =fn-cursor] =fn-form] =fn]
         [=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
     (return (&/|list (&&/|meta =output-t =fn-cursor
-                               (&/V &&/$apply (&/T =fn =args))
+                               (&/V &&/$apply (&/T [=fn =args]))
                                )))))
 
 (defn analyse-apply [analyse exo-type =fn ?args]
@@ -404,7 +404,7 @@
         =match (&&case/analyse-branches analyse exo-type var?? (&&/expr-type* =value) (&/|as-pairs ?branches))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&/V &&/$case (&/T =value =match))
+                               (&/V &&/$case (&/T [=value =match]))
                                )))))
 
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
@@ -460,7 +460,7 @@
                                            (&&/analyse-1 analyse ?return-t ?body))
                 _cursor &/cursor]
             (return (&&/|meta exo-type* _cursor
-                              (&/V &&/$lambda (&/T =scope =captured =body)))))
+                              (&/V &&/$lambda (&/T [=scope =captured =body])))))
 
           
           
@@ -507,7 +507,7 @@
             ==meta (eval! =meta)
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-token (&/V &&/$def (&/T ?name =value ==meta)))]
+            _ (compile-token (&/V &&/$def (&/T [?name =value ==meta])))]
         (return &/Nil$))
       )))
 
@@ -538,7 +538,7 @@
         =value (&&/analyse-1 analyse ==type ?value)
         _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
-                               (&/V &&/$ann (&/T =value =type ==type))
+                               (&/V &&/$ann (&/T [=value =type ==type]))
                                )))))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
@@ -548,5 +548,5 @@
         =value (&&/analyse-1+ analyse ?value)
         _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
-                               (&/V &&/$coerce (&/T =value =type ==type))
+                               (&/V &&/$coerce (&/T [=value =type ==type]))
                                )))))

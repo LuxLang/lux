@@ -116,7 +116,7 @@
                                                (string/split tag-group-separator-re)
                                                (->> (map (fn [_group]
                                                            (let [[_type _tags] (string/split _group type-separator-re)]
-                                                             (&/T _type (&/->list (string/split (or _tags "") tag-separator-re)))))))
+                                                             (&/T [_type (&/->list (string/split (or _tags "") tag-separator-re))])))))
                                                &/->list)))]
                         (|do [_ (&a-module/enter-module module)
                               _ (&/flag-cached-module module)
@@ -137,7 +137,7 @@
                                               (let [[_ __module __name] (re-find #"^(.*);(.*)$" _alias)
                                                     def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
                                                     def-type (get-field &/type-field def-class)
-                                                    def-meta (&/|list (&/T &a-meta/alias-tag (&/V &/$IdentM (&/T __module __name))))
+                                                    def-meta (&/|list (&/T [&a-meta/alias-tag (&/V &/$IdentM (&/T [__module __name]))]))
                                                     def-value (get-field &/value-field def-class)]
                                                 (&a-module/define module _name def-type def-meta def-value)))
                                             ))

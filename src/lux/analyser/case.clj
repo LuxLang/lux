@@ -39,7 +39,7 @@
 
 ;; [Utils]
 (def ^:private unit
-  (&/T (&/T "" -1 -1) (&/V &/$TupleS &/Nil$)))
+  (&/T [(&/T ["" -1 -1]) (&/V &/$TupleS &/Nil$)]))
 
 (defn ^:private resolve-type [type]
   (|case type
@@ -58,7 +58,7 @@
 
 (defn update-up-frame [frame]
   (|let [[_env _idx _var] frame]
-    (&/T _env (+ 2 _idx) _var)))
+    (&/T [_env (+ 2 _idx) _var])))
 
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
@@ -67,7 +67,7 @@
     (&type/with-var
       (fn [$var]
         (|do [=type (&type/apply-type type $var)]
-          (adjust-type* (&/Cons$ (&/T _aenv 1 $var) (&/|map update-up-frame up)) =type))))
+          (adjust-type* (&/Cons$ (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type))))
 
     (&/$ExQ _aenv _abody)
     (|do [$var &type/existential
@@ -84,7 +84,7 @@
           :let [distributor (fn [v]
                               (&/fold (fn [_abody ena]
                                         (|let [[_aenv _aidx _avar] ena]
-                                          (&/V &/$UnivQ (&/T _aenv _abody))))
+                                          (&/V &/$UnivQ (&/T [_aenv _abody]))))
                                       v
                                       up))]]
       (return (&type/Prod$ (distributor =left) (distributor =right))))
@@ -99,7 +99,7 @@
           :let [distributor (fn [v]
                               (&/fold (fn [_abody ena]
                                         (|let [[_aenv _aidx _avar] ena]
-                                          (&/V &/$UnivQ (&/T _aenv _abody))))
+                                          (&/V &/$UnivQ (&/T [_aenv _abody]))))
                                       v
                                       up))]]
       (return (&type/Sum$ (distributor =left) (distributor =right))))
@@ -135,13 +135,13 @@
         (&/$Some var-analysis)
         (|do [=kont (&env/with-alias name var-analysis
                       kont)]
-          (return (&/T (&/V $StoreTestAC -1) =kont)))
+          (return (&/T [(&/V $StoreTestAC -1) =kont])))
 
         _
         (|do [=kont (&env/with-local name value-type
                       kont)
               idx &env/next-local-idx]
-          (return (&/T (&/V $StoreTestAC idx) =kont))))
+          (return (&/T [(&/V $StoreTestAC idx) =kont]))))
       
       (&/$SymbolS ident)
       (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
@@ -149,34 +149,34 @@
       (&/$BoolS ?value)
       (|do [_ (&type/check value-type &type/Bool)
             =kont kont]
-        (return (&/T (&/V $BoolTestAC ?value) =kont)))
+        (return (&/T [(&/V $BoolTestAC ?value) =kont])))
 
       (&/$IntS ?value)
       (|do [_ (&type/check value-type &type/Int)
             =kont kont]
-        (return (&/T (&/V $IntTestAC ?value) =kont)))
+        (return (&/T [(&/V $IntTestAC ?value) =kont])))
 
       (&/$RealS ?value)
       (|do [_ (&type/check value-type &type/Real)
             =kont kont]
-        (return (&/T (&/V $RealTestAC ?value) =kont)))
+        (return (&/T [(&/V $RealTestAC ?value) =kont])))
 
       (&/$CharS ?value)
       (|do [_ (&type/check value-type &type/Char)
             =kont kont]
-        (return (&/T (&/V $CharTestAC ?value) =kont)))
+        (return (&/T [(&/V $CharTestAC ?value) =kont])))
 
       (&/$TextS ?value)
       (|do [_ (&type/check value-type &type/Text)
             =kont kont]
-        (return (&/T (&/V $TextTestAC ?value) =kont)))
+        (return (&/T [(&/V $TextTestAC ?value) =kont])))
 
       (&/$TupleS ?members)
       (|case ?members
         (&/$Nil)
         (|do [_ (&type/check value-type &type/Unit)
               =kont kont]
-          (return (&/T (&/V $TupleTestAC (&/|list)) =kont)))
+          (return (&/T [(&/V $TupleTestAC (&/|list)) =kont])))
 
         (&/$Cons ?member (&/$Nil))
         (analyse-pattern var?? value-type ?member kont)
@@ -193,18 +193,18 @@
               (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                              (|let [[v m] vm]
                                                (|do [[=test [=tests =kont]] (analyse-pattern &/None$ v m kont*)]
-                                                 (return (&/T (&/Cons$ =test =tests) =kont)))))
+                                                 (return (&/T [(&/Cons$ =test =tests) =kont])))))
                                            (|do [=kont kont]
-                                             (return (&/T &/Nil$ =kont)))
+                                             (return (&/T [&/Nil$ =kont])))
                                            (&/|reverse (&/zip2 ?member-types* ?members)))]
-                (return (&/T (&/V $TupleTestAC =tests) =kont))))
+                (return (&/T [(&/V $TupleTestAC =tests) =kont]))))
 
             _
             (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
       
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)]
-        (analyse-pattern &/None$ value-type (&/T meta (&/V &/$TupleS rec-members)) kont))
+        (analyse-pattern &/None$ value-type (&/T [meta (&/V &/$TupleS rec-members)]) kont))
 
       (&/$TagS ?ident)
       (|do [[=module =name] (&&/resolved-ident ?ident)
@@ -213,7 +213,7 @@
             group (&module/tag-group =module =name)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (analyse-pattern &/None$ case-type unit kont)]
-        (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
+        (return (&/T [(&/V $VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
       (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
                          ?values))
@@ -226,8 +226,8 @@
                             0 (analyse-pattern &/None$ case-type unit kont)
                             1 (analyse-pattern &/None$ case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern &/None$ case-type (&/T (&/T "" -1 -1) (&/V &/$TupleS ?values)) kont))]
-        (return (&/T (&/V $VariantTestAC (&/T idx (&/|length group) =test)) =kont)))
+                            (analyse-pattern &/None$ case-type (&/T [(&/T ["" -1 -1]) (&/V &/$TupleS ?values)]) kont))]
+        (return (&/T [(&/V $VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
       _
       (fail (str "[Pattern-matching Error] Unrecognized pattern syntax: " (&/show-ast pattern)))
@@ -245,80 +245,80 @@
       (return (&/V $DefaultTotal true))
 
       [($BoolTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $BoolTotal (&/T true ?values)))
+      (return (&/V $BoolTotal (&/T [true ?values])))
 
       [($IntTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $IntTotal (&/T true ?values)))
+      (return (&/V $IntTotal (&/T [true ?values])))
 
       [($RealTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $RealTotal (&/T true ?values)))
+      (return (&/V $RealTotal (&/T [true ?values])))
 
       [($CharTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $CharTotal (&/T true ?values)))
+      (return (&/V $CharTotal (&/T [true ?values])))
 
       [($TextTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $TextTotal (&/T true ?values)))
+      (return (&/V $TextTotal (&/T [true ?values])))
 
       [($TupleTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $TupleTotal (&/T true ?values)))
+      (return (&/V $TupleTotal (&/T [true ?values])))
 
       [($VariantTotal total? ?values) ($StoreTestAC ?idx)]
-      (return (&/V $VariantTotal (&/T true ?values)))
+      (return (&/V $VariantTotal (&/T [true ?values])))
 
       [($DefaultTotal total?) ($BoolTestAC ?value)]
-      (return (&/V $BoolTotal (&/T total? (&/|list ?value))))
+      (return (&/V $BoolTotal (&/T [total? (&/|list ?value)])))
 
       [($BoolTotal total? ?values) ($BoolTestAC ?value)]
-      (return (&/V $BoolTotal (&/T total? (&/Cons$ ?value ?values))))
+      (return (&/V $BoolTotal (&/T [total? (&/Cons$ ?value ?values)])))
 
       [($DefaultTotal total?) ($IntTestAC ?value)]
-      (return (&/V $IntTotal (&/T total? (&/|list ?value))))
+      (return (&/V $IntTotal (&/T [total? (&/|list ?value)])))
 
       [($IntTotal total? ?values) ($IntTestAC ?value)]
-      (return (&/V $IntTotal (&/T total? (&/Cons$ ?value ?values))))
+      (return (&/V $IntTotal (&/T [total? (&/Cons$ ?value ?values)])))
 
       [($DefaultTotal total?) ($RealTestAC ?value)]
-      (return (&/V $RealTotal (&/T total? (&/|list ?value))))
+      (return (&/V $RealTotal (&/T [total? (&/|list ?value)])))
 
       [($RealTotal total? ?values) ($RealTestAC ?value)]
-      (return (&/V $RealTotal (&/T total? (&/Cons$ ?value ?values))))
+      (return (&/V $RealTotal (&/T [total? (&/Cons$ ?value ?values)])))
 
       [($DefaultTotal total?) ($CharTestAC ?value)]
-      (return (&/V $CharTotal (&/T total? (&/|list ?value))))
+      (return (&/V $CharTotal (&/T [total? (&/|list ?value)])))
 
       [($CharTotal total? ?values) ($CharTestAC ?value)]
-      (return (&/V $CharTotal (&/T total? (&/Cons$ ?value ?values))))
+      (return (&/V $CharTotal (&/T [total? (&/Cons$ ?value ?values)])))
 
       [($DefaultTotal total?) ($TextTestAC ?value)]
-      (return (&/V $TextTotal (&/T total? (&/|list ?value))))
+      (return (&/V $TextTotal (&/T [total? (&/|list ?value)])))
 
       [($TextTotal total? ?values) ($TextTestAC ?value)]
-      (return (&/V $TextTotal (&/T total? (&/Cons$ ?value ?values))))
+      (return (&/V $TextTotal (&/T [total? (&/Cons$ ?value ?values)])))
 
       [($DefaultTotal total?) ($TupleTestAC ?tests)]
       (|do [structs (&/map% (fn [t]
-                              (merge-total (&/V $DefaultTotal total?) (&/T t ?body)))
+                              (merge-total (&/V $DefaultTotal total?) (&/T [t ?body])))
                             ?tests)]
-        (return (&/V $TupleTotal (&/T total? structs))))
+        (return (&/V $TupleTotal (&/T [total? structs]))))
 
       [($TupleTotal total? ?values) ($TupleTestAC ?tests)]
       (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
         (|do [structs (&/map2% (fn [v t]
-                                 (merge-total v (&/T t ?body)))
+                                 (merge-total v (&/T [t ?body])))
                                ?values ?tests)]
-          (return (&/V $TupleTotal (&/T total? structs))))
+          (return (&/V $TupleTotal (&/T [total? structs]))))
         (fail "[Pattern-matching Error] Inconsistent tuple-size."))
 
       [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
       (|do [sub-struct (merge-total (&/V $DefaultTotal total?)
-                                    (&/T ?test ?body))
+                                    (&/T [?test ?body]))
             structs (|case (&/|list-put ?tag sub-struct (&/|repeat ?count (&/V $DefaultTotal total?)))
                       (&/$Some list)
                       (return list)
 
                       (&/$None)
                       (fail "[Pattern-matching Error] YOLO"))]
-        (return (&/V $VariantTotal (&/T total? structs))))
+        (return (&/V $VariantTotal (&/T [total? structs]))))
 
       [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
       (|do [sub-struct (merge-total (|case (&/|at ?tag ?branches)
@@ -327,14 +327,14 @@
                                       
                                       (&/$None)
                                       (&/V $DefaultTotal total?))
-                                    (&/T ?test ?body))
+                                    (&/T [?test ?body]))
             structs (|case (&/|list-put ?tag sub-struct ?branches)
                       (&/$Some list)
                       (return list)
 
                       (&/$None)
                       (fail "[Pattern-matching Error] YOLO"))]
-        (return (&/V $VariantTotal (&/T total? structs))))
+        (return (&/V $VariantTotal (&/T [total? structs]))))
       )))
 
 (defn check-totality+ [check-totality]
@@ -344,7 +344,7 @@
         (|do [=output (check-totality $var ?token)
               ?type (&type/deref+ $var)
               =type (&type/clean $var ?type)]
-          (return (&/T =output =type)))))))
+          (return (&/T [=output =type])))))))
 
 (defn ^:private check-totality [value-type struct]
   (|case struct

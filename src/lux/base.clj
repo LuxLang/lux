@@ -144,10 +144,10 @@
 (def tags-field "_tags")
 (def module-class-name "_")
 (def +name-separator+ ";")
-(def sum-tag (str (char 0) "sum" (char 0)))
-(def product-tag (str (char 0) "product" (char 0)))
+(def sum-tag (.intern (str (char 0) "sum" (char 0))))
+(def product-tag (.intern (str (char 0) "product" (char 0))))
 
-(defn T [& elems]
+(defn T [elems]
   (case (count elems)
     0
     nil
@@ -156,7 +156,7 @@
     (first elems)
 
     ;; else
-    (to-array [product-tag (int 0) (to-array elems)])))
+    (to-array (conj elems product-tag))))
 
 (defn V [^Long tag value]
   (to-array [sum-tag tag value]))
@@ -166,16 +166,16 @@
 (defn Some$ [x] (V $Some x))
 
 (def Nil$ (V $Nil nil))
-(defn Cons$ [h t] (V $Cons (T h t)))
+(defn Cons$ [h t] (V $Cons (T [h t])))
 
-(def empty-cursor (T "" -1 -1))
+(def empty-cursor (T ["" -1 -1]))
 
 (defn get$ [slot ^objects record]
-  (aget ^objects (aget record 2) slot))
+  (aget record slot))
 
 (defn set$ [slot value ^objects record]
-  (to-array [product-tag (int 0) (doto (aclone ^objects (aget record 2))
-                                   (aset slot value))]))
+  (doto (aclone ^objects record)
+    (aset slot value)))
 
 (defmacro update$ [slot f record]
   `(let [record# ~record]
@@ -186,7 +186,7 @@
   (V $Left message))
 
 (defn return* [state value]
-  (V $Right (T state value)))
+  (V $Right (T [state value])))
 
 (defn transform-pattern [pattern]
   (cond (vector? pattern) (case (count pattern)
@@ -197,7 +197,7 @@
                             (first pattern)
 
                             ;; else
-                            ['_ '_ (mapv transform-pattern pattern)])
+                            (conj (mapv transform-pattern pattern) '_))
         (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
                          ['_
                           (eval (first pattern))
@@ -205,14 +205,14 @@
                             0 nil
                             1 (first parts)
                             ;; else
-                            ['_ '_ parts])])
+                            (conj parts '_))])
         :else pattern
         ))
 
 (defmacro |case [value & branches]
   (assert (= 0 (mod (count branches) 2)))
   (let [value* (if (vector? value)
-                 [`(T ~@value)]
+                 [`(T [~@value])]
                  [value])]
     `(matchv ::M/objects ~value*
        ~@(mapcat (fn [[pattern body]]
@@ -230,7 +230,7 @@
 
 (defmacro |list [& elems]
   (reduce (fn [tail head]
-            `(V $Cons (T ~head ~tail)))
+            `(V $Cons (T [~head ~tail])))
           `Nil$
           (reverse elems)))
 
@@ -253,12 +253,12 @@
 (defn |put [slot value table]
   (|case table
     ($Nil)
-    (V $Cons (T (T slot value) Nil$))
+    (V $Cons (T [(T [slot value]) Nil$]))
     
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
-      (V $Cons (T (T slot value) table*))
-      (V $Cons (T (T k v) (|put slot value table*))))
+      (V $Cons (T [(T [slot value]) table*]))
+      (V $Cons (T [(T [k v]) (|put slot value table*)])))
     ))
 
 (defn |remove [slot table]
@@ -269,7 +269,7 @@
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       table*
-      (V $Cons (T (T k v) (|remove slot table*))))))
+      (V $Cons (T [(T [k v]) (|remove slot table*)])))))
 
 (defn |update [k f table]
   (|case table
@@ -278,8 +278,8 @@
 
     ($Cons [k* v] table*)
     (if (.equals ^Object k k*)
-      (V $Cons (T (T k* (f v)) table*))
-      (V $Cons (T (T k* v) (|update k f table*))))))
+      (V $Cons (T [(T [k* (f v)]) table*]))
+      (V $Cons (T [(T [k* v]) (|update k f table*)])))))
 
 (defn |head [xs]
   (|case xs
@@ -304,7 +304,7 @@
 
 (defn return [value]
   (fn [state]
-    (V $Right (T state value))))
+    (V $Right (T [state value]))))
 
 (defn bind [m-value step]
   (fn [state]
@@ -344,7 +344,7 @@
     ys
 
     ($Cons x xs*)
-    (V $Cons (T x (|++ xs* ys)))))
+    (V $Cons (T [x (|++ xs* ys)]))))
 
 (defn |map [f xs]
   (|case xs
@@ -352,7 +352,7 @@
     xs
 
     ($Cons x xs*)
-    (V $Cons (T (f x) (|map f xs*)))))
+    (V $Cons (T [(f x) (|map f xs*)]))))
 
 (defn |empty? [xs]
   "(All [a] (-> (List a) Bool))"
@@ -371,7 +371,7 @@
 
     ($Cons x xs*)
     (if (p x)
-      (V $Cons (T x (|filter p xs*)))
+      (V $Cons (T [x (|filter p xs*)]))
       (|filter p xs*))))
 
 (defn flat-map [f xs]
@@ -386,13 +386,13 @@
 (defn |split-with [p xs]
   (|case xs
     ($Nil)
-    (T xs xs)
+    (T [xs xs])
 
     ($Cons x xs*)
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
-        (T (Cons$ x pre) post))
-      (T Nil$ xs))))
+        (T [(Cons$ x pre) post]))
+      (T [Nil$ xs]))))
 
 (defn |contains? [k table]
   (|case table
@@ -441,7 +441,7 @@
 
 (let [|range* (fn |range* [from to]
                 (if (< from to)
-                  (V $Cons (T from (|range* (inc from) to)))
+                  (V $Cons (T [from (|range* (inc from) to)]))
                   Nil$))]
   (defn |range [n]
     (|range* 0 n)))
@@ -457,7 +457,7 @@
 (defn zip2 [xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (V $Cons (T (T x y) (zip2 xs* ys*)))
+    (V $Cons (T [(T [x y]) (zip2 xs* ys*)]))
 
     [_ _]
     Nil$))
@@ -487,7 +487,7 @@
     xs
     
     ($Cons x xs*)
-    (V $Cons (T x (V $Cons (T sep (|interpose sep xs*)))))))
+    (V $Cons (T [x (V $Cons (T [sep (|interpose sep xs*)]))]))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
@@ -509,7 +509,7 @@
 (defn |as-pairs [xs]
   (|case xs
     ($Cons x ($Cons y xs*))
-    (V $Cons (T (T x y) (|as-pairs xs*)))
+    (V $Cons (T [(T [x y]) (|as-pairs xs*)]))
 
     _
     Nil$))
@@ -606,21 +606,21 @@
     (return* state (->> state (get$ $host) (get$ $classes)))))
 
 (def +init-bindings+
-  (T ;; "lux;counter"
-   0
-   ;; "lux;mappings"
-   (|table)))
+  (T [;; "lux;counter"
+      0
+      ;; "lux;mappings"
+      (|table)]))
 
 (defn env [name]
-  (T ;; "lux;name"
-   name
-   ;; "lux;inner-closures"
-   0
-   ;; "lux;locals"
-   +init-bindings+
-   ;; "lux;closure"
-   +init-bindings+
-   ))
+  (T [;; "lux;name"
+      name
+      ;; "lux;inner-closures"
+      0
+      ;; "lux;locals"
+      +init-bindings+
+      ;; "lux;closure"
+      +init-bindings+]
+     ))
 
 (let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
                                                                                               (class (byte-array []))
@@ -650,39 +650,39 @@
 ;;      #module-states  (List (, Text ModuleState))))
 (defn host [_]
   (let [store (atom {})]
-    (T ;; "lux;writer"
-     (V $None nil)
-     ;; "lux;loader"
-     (memory-class-loader store)
-     ;; "lux;classes"
-     store
-     ;; "lux;catching"
-     Nil$
-     ;; "lux;module-states"
-     (|table)
-     ;; lux;type-env
-     (|table))))
+    (T [;; "lux;writer"
+        (V $None nil)
+        ;; "lux;loader"
+        (memory-class-loader store)
+        ;; "lux;classes"
+        store
+        ;; "lux;catching"
+        Nil$
+        ;; "lux;module-states"
+        (|table)
+        ;; lux;type-env
+        (|table)])))
 
 (defn init-state [_]
-  (T ;; "lux;source"
-   (V $None nil)
-   ;; "lux;cursor"
-   (T "" -1 -1)
-   ;; "lux;modules"
-   (|table)
-   ;; "lux;envs"
-   Nil$
-   ;; "lux;types"
-   +init-bindings+
-   ;; "lux;expected"
-   (V $VoidT nil)
-   ;; "lux;seed"
-   0
-   ;; "lux;eval?"
-   false
-   ;; "lux;host"
-   (host nil)
-   ))
+  (T [;; "lux;source"
+      (V $None nil)
+      ;; "lux;cursor"
+      (T ["" -1 -1])
+      ;; "lux;modules"
+      (|table)
+      ;; "lux;envs"
+      Nil$
+      ;; "lux;types"
+      +init-bindings+
+      ;; "lux;expected"
+      (V $VoidT nil)
+      ;; "lux;seed"
+      0
+      ;; "lux;eval?"
+      false
+      ;; "lux;host"
+      (host nil)]
+     ))
 
 (defn save-module [body]
   (fn [state]
@@ -939,8 +939,8 @@
   "(All [a] (-> Int (List a) (List (, Int a))))"
   (|case xs
     ($Cons x xs*)
-    (V $Cons (T (T idx x)
-                (enumerate* (inc idx) xs*)))
+    (V $Cons (T [(T [idx x])
+                 (enumerate* (inc idx) xs*)]))
 
     ($Nil)
     xs
@@ -982,7 +982,7 @@
   "(-> Ident (Lux Ident))"
   (|case ident
     ["" name] (|do [module get-module-name]
-                (return (T module name)))
+                (return (T [module name])))
     _ (return ident)))
 
 (defn ident= [x y]
@@ -998,10 +998,10 @@
     
     ($Cons x xs*)
     (if (= idx 0)
-      (V $Some (V $Cons (T val xs*)))
+      (V $Some (V $Cons (T [val xs*])))
       (|case (|list-put (dec idx) val xs*)
         ($None)      (V $None nil)
-        ($Some xs**) (V $Some (V $Cons (T x xs**))))
+        ($Some xs**) (V $Some (V $Cons (T [x xs**]))))
       )))
 
 (do-template [<flagger> <asker> <tag>]
@@ -1014,15 +1014,15 @@
                                                    (|put module (V <tag> nil) module-states))
                                                  host))
                                 state)]
-            (V $Right (T state* nil)))))
+            (V $Right (T [state* nil])))))
     (defn <asker> [module]
       "(-> Text (Lux Bool))"
       (fn [state]
         (if-let [module-state (->> state (get$ $host) (get$ $module-states) (|get module))]
-          (V $Right (T state (|case module-state
-                               (<tag>) true
-                               _       false)))
-          (V $Right (T state false)))
+          (V $Right (T [state (|case module-state
+                                (<tag>) true
+                                _       false)]))
+          (V $Right (T [state false])))
         )))
 
   flag-active-module   active-module?   $Active
@@ -1083,25 +1083,25 @@
                            state)]
       (|case (body state*)
         ($Right [state** output])
-        (V $Right (T (update$ $host
-                              #(set$ $type-env
-                                     (->> state (get$ $host) (get$ $type-env))
-                                     %)
-                              state**)
-                     output))
+        (V $Right (T [(update$ $host
+                               #(set$ $type-env
+                                      (->> state (get$ $host) (get$ $type-env))
+                                      %)
+                               state**)
+                      output]))
 
         ($Left msg)
         (V $Left msg)))))
 
 (defn |take [n xs]
-  (|case (T n xs)
+  (|case (T [n xs])
     [0 _]             Nil$
     [_ ($Nil)]        Nil$
     [_ ($Cons x xs*)] (Cons$ x (|take (dec n) xs*))
     ))
 
 (defn |drop [n xs]
-  (|case (T n xs)
+  (|case (T [n xs])
     [0 _]             xs
     [_ ($Nil)]        Nil$
     [_ ($Cons x xs*)] (|drop (dec n) xs*)
