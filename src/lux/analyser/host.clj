@@ -20,7 +20,7 @@
 
 ;; [Utils]
 (defn ^:private ensure-catching [exceptions]
-  "(-> (List Text) (Lux (,)))"
+  "(-> (List Text) (Lux Null))"
   (|do [class-loader &/loader]
     (fn [state]
       (let [exceptions (&/|map #(Class/forName % true class-loader) exceptions)
@@ -38,7 +38,7 @@
                                     nil
                                     exceptions)]
           (&/fail* (str "[Analyser Error] Unhandled exception: " missing-ex))
-          (&/return* state &/unit-tag)))
+          (&/return* state nil)))
       )))
 
 (defn ^:private with-catches [catches body]
@@ -629,7 +629,7 @@
     (&/flat-map% (partial &host/abstract-methods class-loader) supers)))
 
 (defn ^:private check-method-completion [supers methods]
-  "(-> (List SuperClassDecl) (List (, MethodDecl Analysis)) (Lux (,)))"
+  "(-> (List SuperClassDecl) (List (, MethodDecl Analysis)) (Lux Null))"
   (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
                                     (|case mentry
@@ -661,7 +661,7 @@
                                      nil
                                      abstract-methods)]]
     (if (nil? missing-method)
-      (return &/unit-tag)
+      (return nil)
       (|let [[am-name am-inputs] missing-method]
         (fail (str "[Analyser Error] Missing method: " am-name " " "(" (->> am-inputs (&/|interpose " ") (&/fold str "")) ")"))))))
 

@@ -38,7 +38,7 @@
 
 ;; [Exports]
 (defn add-import [module]
-  "(-> Text (Lux (,)))"
+  "(-> Text (Lux Null))"
   (|do [current-module &/get-module-name]
     (fn [state]
       (return* (&/update$ &/$modules
@@ -47,10 +47,10 @@
                                        (fn [m] (&/update$ $imports (partial &/Cons$ module) m))
                                        ms))
                           state)
-               &/unit-tag))))
+               nil))))
 
 (defn set-imports [imports]
-  "(-> (List Text) (Lux (,)))"
+  "(-> (List Text) (Lux Null))"
   (|do [current-module &/get-module-name]
     (fn [state]
       (return* (&/update$ &/$modules
@@ -59,7 +59,7 @@
                                        (fn [m] (&/set$ $imports imports m))
                                        ms))
                           state)
-               &/unit-tag))))
+               nil))))
 
 (defn define [module name def-type def-meta def-value]
   (fn [state]
@@ -76,7 +76,7 @@
                                                          #(&/|put name (&/T [def-type def-meta def-value]) %)
                                                          m))
                                             ms))))
-               &/unit-tag)
+               nil)
       
       _
       (fail* (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name)))))
@@ -132,7 +132,7 @@
                                                           (&/|put alias reference aliases))
                                                         %)
                                             ms))))
-               &/unit-tag))))
+               nil))))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
@@ -178,17 +178,17 @@
       (return* state (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $imports))))))
 
 (defn create-module [name]
-  "(-> Text (Lux (,)))"
+  "(-> Text (Lux Null))"
   (fn [state]
-    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) &/unit-tag)))
+    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) nil)))
 
 (defn enter-module [name]
-  "(-> Text (Lux (,)))"
+  "(-> Text (Lux Null))"
   (fn [state]
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name +init+ %))
                   (&/set$ &/$envs (&/|list (&/env name))))
-             &/unit-tag)))
+             nil)))
 
 (do-template [<name> <tag> <type>]
   (defn <name> [module]
@@ -208,18 +208,18 @@
         _ (&/map% (fn [tag]
                     (if (&/|get tag tags-table)
                       (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T [module tag]))))
-                      (return &/unit-tag)))
+                      (return nil)))
                   tags)]
-    (return &/unit-tag)))
+    (return nil)))
 
 (defn ensure-undeclared-type [module name]
   (|do [types-table (types-by-module module)
         _ (&/assert! (nil? (&/|get name types-table))
                      (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T [module name]))))]
-    (return &/unit-tag)))
+    (return nil)))
 
 (defn declare-tags [module tag-names type]
-  "(-> Text (List Text) Type (Lux (,)))"
+  "(-> Text (List Text) Type (Lux Null))"
   (|do [_ (ensure-undeclared-tags module tag-names)
         type-name (&type/type-name type)
         :let [[_module _name] type-name]
@@ -241,7 +241,7 @@
                                                  (&/update$ $types (partial &/|put _name (&/T [tags type]))))
                                            =modules))
                               state)
-                   &/unit-tag))
+                   nil))
         (fail* (str "[Lux Error] Unknown module: " module))))))
 
 (do-template [<name> <part> <doc>]
@@ -283,7 +283,7 @@
                            (fail (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
 
       _
-      (return &/unit-tag)))
+      (return nil)))
 
   test-type  &type/Type  &meta/type?-tag  "type"
   test-macro &type/Macro &meta/macro?-tag "macro"

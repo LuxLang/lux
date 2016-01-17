@@ -211,7 +211,7 @@
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/V &/$Some type) %)
                                                             ts))
                             state)
-                 &/unit-tag))
+                 nil))
       (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
 
 ;; [Exports]
@@ -234,7 +234,7 @@
 (defn ^:private delete-var [id]
   (|do [? (bound? id)
         _ (if ?
-            (return &/unit-tag)
+            (return nil)
             (|do [ex existential]
               (set-var id ex)))]
     (fn [state]
@@ -261,7 +261,7 @@
          (fn [state]
            (return* (&/update$ &/$type-vars #(&/set$ &/$mappings (&/|remove id mappings*) %)
                                state)
-                    &/unit-tag)))
+                    nil)))
        state))))
 
 (defn with-var [k]
@@ -584,12 +584,12 @@
 
 (defn ^:private check* [class-loader fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
-    (return (&/T [fixpoints &/unit-tag]))
+    (return (&/T [fixpoints nil]))
     (&/with-attempt
       (|case [expected actual]
         [(&/$VarT ?eid) (&/$VarT ?aid)]
         (if (.equals ^Object ?eid ?aid)
-          (return (&/T [fixpoints &/unit-tag]))
+          (return (&/T [fixpoints nil]))
           (|do [ebound (fn [state]
                          (|case ((deref ?eid) state)
                            (&/$Right state* ebound)
@@ -607,7 +607,7 @@
             (|case [ebound abound]
               [(&/$None _) (&/$None _)]
               (|do [_ (set-var ?eid actual)]
-                (return (&/T [fixpoints &/unit-tag])))
+                (return (&/T [fixpoints nil])))
               
               [(&/$Some etype) (&/$None _)]
               (check* class-loader fixpoints invariant?? etype actual)
@@ -622,7 +622,7 @@
         (fn [state]
           (|case ((set-var ?id actual) state)
             (&/$Right state* _)
-            (return* state* (&/T [fixpoints &/unit-tag]))
+            (return* state* (&/T [fixpoints nil]))
 
             (&/$Left _)
             ((|do [bound (deref ?id)]
@@ -633,7 +633,7 @@
         (fn [state]
           (|case ((set-var ?id expected) state)
             (&/$Right state* _)
-            (return* state* (&/T [fixpoints &/unit-tag]))
+            (return* state* (&/T [fixpoints nil]))
 
             (&/$Left _)
             ((|do [bound (deref ?id)]
@@ -658,7 +658,7 @@
                    e* (apply-type F2 A1)
                    a* (apply-type F2 A2)
                    [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-               (return (&/T [fixpoints** &/unit-tag])))
+               (return (&/T [fixpoints** nil])))
              state)))
         
         [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
@@ -674,7 +674,7 @@
                    e* (apply-type F1 A1)
                    a* (apply-type F1 A2)
                    [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-               (return (&/T [fixpoints** &/unit-tag])))
+               (return (&/T [fixpoints** nil])))
              state)))
         
         [(&/$AppT F A) _]
@@ -691,7 +691,7 @@
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
             (if ?
-              (return (&/T [fixpoints &/unit-tag]))
+              (return (&/T [fixpoints nil]))
               (check-error "" expected actual))
 
             (&/$None)
@@ -741,10 +741,10 @@
                                  a!data)
 
         [(&/$VoidT) (&/$VoidT)]
-        (return (&/T [fixpoints &/unit-tag]))
+        (return (&/T [fixpoints nil]))
         
         [(&/$UnitT) (&/$UnitT)]
-        (return (&/T [fixpoints &/unit-tag]))
+        (return (&/T [fixpoints nil]))
 
         [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
         (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
@@ -760,7 +760,7 @@
 
         [(&/$ExT e!id) (&/$ExT a!id)]
         (if (.equals ^Object e!id a!id)
-          (return (&/T [fixpoints &/unit-tag]))
+          (return (&/T [fixpoints nil]))
           (check-error "" expected actual))
 
         [(&/$NamedT ?ename ?etype) _]
@@ -777,7 +777,7 @@
 (defn check [expected actual]
   (|do [class-loader &/loader
         _ (check* class-loader init-fixpoints false expected actual)]
-    (return &/unit-tag)))
+    (return nil)))
 
 (defn actual-type [type]
   "(-> Type (Lux Type))"

@@ -50,13 +50,13 @@
   (.exists (new File (str &&/output-dir "/" (&host/->module-class module) "/" module-class))))
 
 (defn delete [module]
-  "(-> Text (Lux Unit))"
+  "(-> Text (Lux Null))"
   (fn [state]
     (do (clean-file (new File (str &&/output-dir "/" (&host/->module-class module))))
-      (return* state &/unit-tag))))
+      (return* state nil))))
 
 (defn clean [state]
-  "(-> Compiler Unit)"
+  "(-> Compiler Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
         outdated? #(-> ^File % .getName (string/replace &host/module-separator "/") (->> (contains? needed-modules)) not)
         outdate-files (->> &&/output-dir (new File) .listFiles seq (filter outdated?))
@@ -65,7 +65,7 @@
       (.delete program-file))
     (doseq [f outdate-files]
       (clean-file f))
-    &/unit-tag))
+    nil))
 
 (let [->regex (fn [text] (re-pattern (java.util.regex.Pattern/quote text)))
       import-separator-re (->regex &&/import-separator)

@@ -460,7 +460,7 @@
                               (.visitInsn Opcodes/RETURN)
                               (.visitMaxs 0 0)
                               (.visitEnd))]]
-                (return &/unit-tag)))
+                (return nil)))
           :let [bytecode (.toByteArray (doto =class
                                          .visitEnd))]
           _ (&&/save-class! (str id) bytecode)
@@ -494,8 +494,8 @@
                     _ (if (= "lux" name)
                         (|do [_ &&host/compile-Function-class
                               _ &&host/compile-LuxUtils-class]
-                          (return &/unit-tag))
-                        (return &/unit-tag))]
+                          (return nil))
+                        (return nil))]
                 (fn [state]
                   (|case ((&/with-writer =class
                             (&/exhaust% compiler-step))
