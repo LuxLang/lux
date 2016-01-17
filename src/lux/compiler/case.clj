@@ -95,22 +95,24 @@
       (compile-match ?member $target $else)
 
       _
-      (doto writer
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (-> (doto (.visitInsn Opcodes/DUP)
-              (.visitLdcInsn (int idx))
-              (.visitInsn Opcodes/AALOAD)
-              (compile-match test $next $sub-else)
-              (.visitLabel $sub-else)
-              (.visitInsn Opcodes/POP)
-              (.visitJumpInsn Opcodes/GOTO $else)
-              (.visitLabel $next))
-            (->> (|let [[idx test] idx+member
-                        $next (new Label)
-                        $sub-else (new Label)])
-                 (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target)))
+      (let [num-members (&/|length ?members)]
+        (doto writer
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (-> (doto (.visitInsn Opcodes/DUP)
+                (.visitLdcInsn (int idx))
+                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" (if is-tail? "product_getRight" "product_getLeft") "([Ljava/lang/Object;I)Ljava/lang/Object;")
+                (compile-match test $next $sub-else)
+                (.visitLabel $sub-else)
+                (.visitInsn Opcodes/POP)
+                (.visitJumpInsn Opcodes/GOTO $else)
+                (.visitLabel $next))
+              (->> (|let [[idx test] idx+member
+                          $next (new Label)
+                          $sub-else (new Label)
+                          is-tail? (= (dec num-members) idx)])
+                   (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
+          (.visitInsn Opcodes/POP)
+          (.visitJumpInsn Opcodes/GOTO $target))))
 
     (&a-case/$VariantTestAC ?tag ?count ?test)
     (doto writer

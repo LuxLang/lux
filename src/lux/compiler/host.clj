@@ -709,7 +709,66 @@
                              (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
                              (.visitInsn Opcodes/RETURN)
                              (.visitMaxs 0 0)
-                             (.visitEnd))]]
+                             (.visitEnd))
+              =product_getLeft-method (let [$begin (new Label)
+                                            $not-rec (new Label)]
+                                        (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getLeft" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
+                                          (.visitCode)
+                                          (.visitLabel $begin)
+                                          (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
+                                          (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
+                                          (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
+                                          (.visitLdcInsn (int 2)) ;; tuple-size, index, offset-last-elem
+                                          (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
+                                          (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
+                                          (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec)
+                                          ;; tuple-size, index-last-elem
+                                          (.visitInsn Opcodes/ISUB) ;; sub-index
+                                          (.visitVarInsn Opcodes/ALOAD 0) ;; sub-index, tuple
+                                          (.visitInsn Opcodes/DUP) ;; sub-index, tuple, tuple
+                                          (.visitInsn Opcodes/ARRAYLENGTH) ;; sub-index, tuple, tuple-size
+                                          (.visitLdcInsn (int 2)) ;; sub-index, tuple, tuple-size, offset-last-elem
+                                          (.visitInsn Opcodes/ISUB) ;; sub-index, tuple, index-last-elem
+                                          (.visitInsn Opcodes/AALOAD) ;; sub-index, sub-tuple
+                                          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                                          (.visitVarInsn Opcodes/ASTORE 0) ;; sub-index
+                                          (.visitVarInsn Opcodes/ISTORE 1) ;;
+                                          (.visitJumpInsn Opcodes/GOTO $begin)
+                                          (.visitLabel $not-rec) ;; tuple-size, index-last-elem
+                                          (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                          (.visitInsn Opcodes/POP2) ;;
+                                          (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
+                                          (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
+                                          (.visitInsn Opcodes/AALOAD) ;; elem
+                                          (.visitInsn Opcodes/ARETURN)
+                                          (.visitMaxs 0 0)
+                                          (.visitEnd)))
+              =product_getRight-method (let [$is-last (new Label)]
+                                         (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getRight" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
+                                           (.visitCode)
+                                           (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
+                                           (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
+                                           (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
+                                           (.visitLdcInsn (int 2)) ;; tuple-size, index, offset-last-elem
+                                           (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
+                                           (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
+                                           (.visitJumpInsn Opcodes/IF_ICMPEQ $is-last) ;; tuple-size, index-last-elem
+                                           (.visitInsn Opcodes/POP2) ;;
+                                           (.visitVarInsn Opcodes/ALOAD 0)
+                                           (.visitVarInsn Opcodes/ILOAD 1)
+                                           (.visitVarInsn Opcodes/ALOAD 0)
+                                           (.visitInsn Opcodes/ARRAYLENGTH)
+                                           (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)Ljava/lang/Object;")
+                                           (.visitInsn Opcodes/ARETURN)
+                                           (.visitLabel $is-last) ;; tuple-size, index-last-elem
+                                           (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                           (.visitInsn Opcodes/POP2) ;;
+                                           (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
+                                           (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
+                                           (.visitInsn Opcodes/AALOAD) ;; elem
+                                           (.visitInsn Opcodes/ARETURN)
+                                           (.visitMaxs 0 0)
+                                           (.visitEnd)))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
