@@ -66,7 +66,7 @@
       
       _
       (|do [:let [_ (doto *writer*
-                      (.visitLdcInsn (int (inc num-elems)))
+                      (.visitLdcInsn (int num-elems))
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
             _ (&/map2% (fn [idx elem]
                          (|do [:let [_ (doto *writer*
@@ -75,12 +75,7 @@
                                ret (compile elem)
                                :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
                            (return ret)))
-                       (&/|range num-elems) ?elems)
-            :let [_ (doto *writer*
-                      (.visitInsn Opcodes/DUP)
-                      (.visitLdcInsn (int num-elems))
-                      (.visitLdcInsn &/product-tag)
-                      (.visitInsn Opcodes/AASTORE))]]
+                       (&/|range num-elems) ?elems)]
         (return nil)))))
 
 (defn compile-variant [compile tag tail? value]

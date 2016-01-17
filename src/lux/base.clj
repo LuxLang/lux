@@ -145,8 +145,6 @@
 (def module-class-name "_")
 (def +name-separator+ ";")
 (def unit-tag (.intern (str (char 0) "unit" (char 0))))
-(def sum-tag (.intern (str (char 0) "sum" (char 0))))
-(def product-tag (.intern (str (char 0) "product" (char 0))))
 
 (defn T [elems]
   (case (count elems)
@@ -157,10 +155,10 @@
     (first elems)
 
     ;; else
-    (to-array (conj elems product-tag))))
+    (to-array elems)))
 
 (defn V [^Long tag value]
-  (to-array [sum-tag (int tag) nil value]))
+  (to-array [(int tag) nil value]))
 
 ;; Constructors
 (def None$ (V $None unit-tag))
@@ -198,9 +196,8 @@
                             (transform-pattern (first pattern))
 
                             ;; else
-                            (conj (mapv transform-pattern pattern) '_))
-        (seq? pattern) ['_
-                        (eval (first pattern))
+                            (mapv transform-pattern pattern))
+        (seq? pattern) [(eval (first pattern))
                         '_
                         (transform-pattern (vec (rest pattern)))]
         :else pattern

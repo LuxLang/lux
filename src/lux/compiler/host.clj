@@ -701,10 +701,6 @@
                                full-name nil super-class (into-array String [])))
               =unit-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/unit-tag-field tag-sig nil &/unit-tag)
                           (.visitEnd))
-              =sum-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/sum-tag-field tag-sig nil &/sum-tag)
-                         (.visitEnd))
-              =product-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/product-tag-field tag-sig nil &/product-tag)
-                             (.visitEnd))
               =init-method (doto (.visitMethod =class Opcodes/ACC_PRIVATE init-method "()V" nil nil)
                              (.visitCode)
                              (.visitVarInsn Opcodes/ALOAD 0)
@@ -720,7 +716,7 @@
                                           (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                                           (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                                           (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
-                                          (.visitLdcInsn (int 2)) ;; tuple-size, index, offset-last-elem
+                                          (.visitLdcInsn (int 1)) ;; tuple-size, index, offset-last-elem
                                           (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
                                           (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
                                           (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec)
@@ -729,7 +725,7 @@
                                           (.visitVarInsn Opcodes/ALOAD 0) ;; sub-index, tuple
                                           (.visitInsn Opcodes/DUP) ;; sub-index, tuple, tuple
                                           (.visitInsn Opcodes/ARRAYLENGTH) ;; sub-index, tuple, tuple-size
-                                          (.visitLdcInsn (int 2)) ;; sub-index, tuple, tuple-size, offset-last-elem
+                                          (.visitLdcInsn (int 1)) ;; sub-index, tuple, tuple-size, offset-last-elem
                                           (.visitInsn Opcodes/ISUB) ;; sub-index, tuple, index-last-elem
                                           (.visitInsn Opcodes/AALOAD) ;; sub-index, sub-tuple
                                           (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
@@ -751,7 +747,7 @@
                                            (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                                            (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                                            (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
-                                           (.visitLdcInsn (int 2)) ;; tuple-size, index, offset-last-elem
+                                           (.visitLdcInsn (int 1)) ;; tuple-size, index, offset-last-elem
                                            (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
                                            (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
                                            (.visitJumpInsn Opcodes/IF_ICMPEQ $is-last) ;; tuple-size, index-last-elem
@@ -781,7 +777,7 @@
                                   (.visitLabel $begin)
                                   (.visitVarInsn Opcodes/ILOAD 1) ;; tag
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum
-                                  (.visitLdcInsn (int 1)) ;; tag, sum, sum-tag-idx
+                                  (.visitLdcInsn (int 0)) ;; tag, sum, sum-tag-idx
                                   (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag'
                                   &&/unwrap-int ;; tag, sum-tag
                                   (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
@@ -795,18 +791,18 @@
                                   (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                                   (.visitInsn Opcodes/POP2)
                                   (.visitVarInsn Opcodes/ALOAD 0)
-                                  (.visitLdcInsn (int 3))
+                                  (.visitLdcInsn (int 2))
                                   (.visitInsn Opcodes/AALOAD)
                                   (.visitInsn Opcodes/ARETURN)
                                   (.visitLabel $further) ;; tag, sum-tag
                                   (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
-                                  (.visitLdcInsn (int 2)) ;; tag, sum-tag, sum, last-index?
+                                  (.visitLdcInsn (int 1)) ;; tag, sum-tag, sum, last-index?
                                   (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?
                                   (.visitJumpInsn Opcodes/IFNULL $not-right) ;; tag, sum-tag
                                   (.visitInsn Opcodes/ISUB) ;; sub-tag
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; sub-tag, sum
-                                  (.visitLdcInsn (int 3)) ;; sub-tag, sum, sub-sum-idx
+                                  (.visitLdcInsn (int 2)) ;; sub-tag, sum, sub-sum-idx
                                   (.visitInsn Opcodes/AALOAD) ;; sub-tag, sub-sum
                                   (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
                                   (.visitVarInsn Opcodes/ASTORE 0) ;; sub-tag
@@ -824,23 +820,19 @@
                                    (.visitCode)
                                    (.visitVarInsn Opcodes/ALOAD 2)
                                    (.visitJumpInsn Opcodes/IFNULL $is-null)
-                                   (.visitLdcInsn (int 4))
+                                   (.visitLdcInsn (int 3))
                                    (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                                    (.visitInsn Opcodes/DUP)
                                    (.visitLdcInsn (int 0))
-                                   (.visitLdcInsn &/sum-tag)
-                                   (.visitInsn Opcodes/AASTORE)
-                                   (.visitInsn Opcodes/DUP)
-                                   (.visitLdcInsn (int 1))
                                    (.visitVarInsn Opcodes/ILOAD 0)
                                    (&&/wrap-int)
                                    (.visitInsn Opcodes/AASTORE)
                                    (.visitInsn Opcodes/DUP)
-                                   (.visitLdcInsn (int 2))
+                                   (.visitLdcInsn (int 1))
                                    (.visitVarInsn Opcodes/ALOAD 1)
                                    (.visitInsn Opcodes/AASTORE)
                                    (.visitInsn Opcodes/DUP)
-                                   (.visitLdcInsn (int 3))
+                                   (.visitLdcInsn (int 2))
                                    (.visitVarInsn Opcodes/ALOAD 2)
                                    (.visitInsn Opcodes/AASTORE)
                                    (.visitInsn Opcodes/ARETURN)
