@@ -86,25 +86,10 @@
 (defn compile-variant [compile ?tag tail? ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
-                  (.visitLdcInsn (int 4))
-                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
-                  (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 0))
-                  (.visitLdcInsn &/sum-tag)
-                  (.visitInsn Opcodes/AASTORE)
-                  (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 1))
                   (.visitLdcInsn (int ?tag))
-                  (&&/wrap-int)
-                  (.visitInsn Opcodes/AASTORE)
-                  (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 2))
-                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" (if tail? "TRUE" "FALSE") "Ljava/lang/Boolean;")
-                  (.visitInsn Opcodes/AASTORE)
-                  (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 3)))]
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" (if tail? "TRUE" "FALSE") "Ljava/lang/Boolean;"))]
         _ (compile ?value)
-        :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Boolean;Ljava/lang/Object;)[Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-local [compile ?idx]
