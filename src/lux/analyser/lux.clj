@@ -198,8 +198,9 @@
         (|case exo-type*
           (&/$SumT _)
           (|do [vtype (&type/sum-at idx exo-type*)
-                :let [is-last?* (if (nil? is-last?)
-                                  (= idx (dec (&/|length (&type/flatten-sum exo-type*))))
+                :let [num-variant-types (&/|length (&type/flatten-sum exo-type*))
+                      is-last?* (if (nil? is-last?)
+                                  (= idx (dec num-variant-types))
                                   is-last?)]
                 =value (&/with-attempt
                          (analyse-variant-body analyse vtype ?values)
@@ -214,9 +215,10 @@
                                         'analyse-variant " " idx " " is-last? " " is-last?* " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
                                         " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
                 _cursor &/cursor]
-            (return (&/|list (&&/|meta exo-type _cursor
-                                       (&/V &&/$variant (&/T [idx is-last?* =value]))
-                                       ))))
+            (if (= 1 num-variant-types)
+              (return (&/|list =value))
+              (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$variant (&/T [idx is-last?* =value])))))
+              ))
 
           (&/$UnivQ _)
           (|do [$var &type/existential

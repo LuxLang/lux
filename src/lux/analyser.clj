@@ -19,24 +19,28 @@
                           [parser :as &&a-parser])))
 
 ;; [Utils]
-(defn analyse-variant+ [analyser exo-type ident values]
+(defn analyse-variant+ [analyse exo-type ident values]
   (|do [[module tag-name] (&/normalize ident)
         idx (&&module/tag-index module tag-name)
         group (&&module/tag-group module tag-name)
         :let [is-last? (= idx (dec (&/|length group)))]]
-    (|case exo-type
-      (&/$VarT id)
-      (|do [? (&type/bound? id)]
-        (if (or ? (&&/type-tag? module tag-name))
-          (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx is-last? values)
-          (|do [wanted-type (&&module/tag-type module tag-name)
-                [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyser (&/V &/$Left wanted-type) idx is-last? values))
-                _ (&type/check exo-type variant-type)]
-            (return (&/|list (&&/|meta exo-type variant-cursor variant-analysis))))))
+    (if (= 1 (&/|length group))
+      (|do [_cursor &/cursor]
+        (analyse exo-type (&/T [_cursor (&/V &/$TupleS values)])))
+      (|case exo-type
+        (&/$VarT id)
+        (|do [? (&type/bound? id)]
+          (if (or ? (&&/type-tag? module tag-name))
+            (&&lux/analyse-variant analyse (&/V &/$Right exo-type) idx is-last? values)
+            (|do [wanted-type (&&module/tag-type module tag-name)
+                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/V &/$Left wanted-type) idx is-last? values))
+                  _ (&type/check exo-type variant-type)]
+              (return (&/|list (&&/|meta exo-type variant-cursor variant-analysis))))))
 
-      _
-      (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx is-last? values)
-      )))
+        _
+        (&&lux/analyse-variant analyse (&/V &/$Right exo-type) idx is-last? values)
+        ))
+    ))
 
 (defn ^:private add-loc [meta ^String msg]
   (if (.startsWith msg "@")
