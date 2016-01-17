@@ -79,8 +79,8 @@
         (&o/$apply ?fn ?args)
         (&&lux/compile-apply compile-expression ?fn ?args)
 
-        (&o/$variant ?tag ?members)
-        (&&lux/compile-variant compile-expression ?tag ?members)
+        (&o/$variant ?tag ?tail ?members)
+        (&&lux/compile-variant compile-expression ?tag ?tail ?members)
 
         (&o/$case ?value ?match)
         (&&case/compile-case compile-expression ?value ?match)

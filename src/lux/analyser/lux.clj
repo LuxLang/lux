@@ -158,7 +158,7 @@
       _
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
-(defn analyse-variant [analyse ?exo-type idx ?values]
+(defn analyse-variant [analyse ?exo-type idx is-last? ?values]
   (|case ?exo-type
     (&/$Left exo-type)
     (|do [exo-type* (&type/actual-type exo-type)]
@@ -167,7 +167,7 @@
         (&type/with-var
           (fn [$var]
             (|do [exo-type** (&type/apply-type exo-type* $var)
-                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/V &/$Left exo-type**) idx ?values))
+                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/V &/$Left exo-type**) idx is-last? ?values))
                   =var (&type/resolve-type $var)
                   inferred-type (|case =var
                                   (&/$VarT iid)
@@ -182,7 +182,7 @@
                                          variant-analysis))))))
 
         _
-        (analyse-variant analyse (&/V &/$Right exo-type*) idx ?values)))
+        (analyse-variant analyse (&/V &/$Right exo-type*) idx is-last? ?values)))
 
     (&/$Right exo-type)
     (|do [exo-type* (|case exo-type
@@ -198,6 +198,9 @@
         (|case exo-type*
           (&/$SumT _)
           (|do [vtype (&type/sum-at idx exo-type*)
+                :let [is-last?* (if (nil? is-last?)
+                                  (= idx (dec (&/|length (&type/flatten-sum exo-type*))))
+                                  is-last?)]
                 =value (&/with-attempt
                          (analyse-variant-body analyse vtype ?values)
                          (fn [err]
@@ -208,23 +211,23 @@
                                              _
                                              (return exo-type))]
                              (fail (str err "\n"
-                                        'analyse-variant " " idx " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
+                                        'analyse-variant " " idx " " is-last? " " is-last?* " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
                                         " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
                 _cursor &/cursor]
             (return (&/|list (&&/|meta exo-type _cursor
-                                       (&/V &&/$variant (&/T [idx =value]))
+                                       (&/V &&/$variant (&/T [idx is-last?* =value]))
                                        ))))
 
           (&/$UnivQ _)
           (|do [$var &type/existential
                 exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))
+            (analyse-variant analyse (&/V &/$Right exo-type**) idx is-last? ?values))
 
           (&/$ExQ _)
           (&type/with-var
             (fn [$var]
               (|do [exo-type** (&type/apply-type exo-type* $var)]
-                (analyse-variant analyse (&/V &/$Right exo-type**) idx ?values))))
+                (analyse-variant analyse (&/V &/$Right exo-type**) idx is-last? ?values))))
           
           _
           (fail (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*))))

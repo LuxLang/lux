@@ -144,13 +144,14 @@
 (def tags-field "_tags")
 (def module-class-name "_")
 (def +name-separator+ ";")
+(def unit-tag (.intern (str (char 0) "unit" (char 0))))
 (def sum-tag (.intern (str (char 0) "sum" (char 0))))
 (def product-tag (.intern (str (char 0) "product" (char 0))))
 
 (defn T [elems]
   (case (count elems)
     0
-    nil
+    unit-tag
 
     1
     (first elems)
@@ -159,13 +160,13 @@
     (to-array (conj elems product-tag))))
 
 (defn V [^Long tag value]
-  (to-array [sum-tag tag value]))
+  (to-array [sum-tag (int tag) false value]))
 
 ;; Constructors
-(def None$ (V $None nil))
+(def None$ (V $None unit-tag))
 (defn Some$ [x] (V $Some x))
 
-(def Nil$ (V $Nil nil))
+(def Nil$ (V $Nil unit-tag))
 (defn Cons$ [h t] (V $Cons (T [h t])))
 
 (def empty-cursor (T ["" -1 -1]))
@@ -191,21 +192,17 @@
 (defn transform-pattern [pattern]
   (cond (vector? pattern) (case (count pattern)
                             0
-                            nil
+                            unit-tag
 
                             1
-                            (first pattern)
+                            (transform-pattern (first pattern))
 
                             ;; else
                             (conj (mapv transform-pattern pattern) '_))
-        (seq? pattern) (let [parts (mapv transform-pattern (rest pattern))]
-                         ['_
-                          (eval (first pattern))
-                          (case (count parts)
-                            0 nil
-                            1 (first parts)
-                            ;; else
-                            (conj parts '_))])
+        (seq? pattern) ['_
+                        (eval (first pattern))
+                        '_
+                        (transform-pattern (vec (rest pattern)))]
         :else pattern
         ))
 

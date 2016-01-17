@@ -172,7 +172,7 @@
 (do-template [<name> <text> <tag>]
   (def <name>
     (|do [[meta _] (&reader/read-text <text>)]
-      (return (&/T [meta (&/V <tag> nil)]))))
+      (return (&/T [meta (&/V <tag> &/unit-tag)]))))
 
   ^:private lex-open-paren    "(" $Open_Paren
   ^:private lex-close-paren   ")" $Close_Paren

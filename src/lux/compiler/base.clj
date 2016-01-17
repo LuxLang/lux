@@ -31,6 +31,7 @@
 (def ^String output-package (str output-dir "/" "program.jar"))
 (def ^String function-class "lux/Function")
 (def ^String lux-utils-class "lux/LuxUtils")
+(def ^String unit-tag-field "unit_tag")
 (def ^String sum-tag-field "sum_tag")
 (def ^String product-tag-field "product_tag")
 

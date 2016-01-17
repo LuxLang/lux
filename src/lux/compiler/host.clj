@@ -699,6 +699,8 @@
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
                                full-name nil super-class (into-array String [])))
+              =unit-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/unit-tag-field tag-sig nil &/unit-tag)
+                          (.visitEnd))
               =sum-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/sum-tag-field tag-sig nil &/sum-tag)
                          (.visitEnd))
               =product-tag (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) &&/product-tag-field tag-sig nil &/product-tag)
@@ -768,7 +770,55 @@
                                            (.visitInsn Opcodes/AALOAD) ;; elem
                                            (.visitInsn Opcodes/ARETURN)
                                            (.visitMaxs 0 0)
-                                           (.visitEnd)))]]
+                                           (.visitEnd)))
+              =sum-get-method (let [$begin (new Label)
+                                    $then (new Label)
+                                    $further (new Label)
+                                    $not-right (new Label)]
+                                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
+                                  (.visitCode)
+                                  (.visitLabel $begin)
+                                  (.visitVarInsn Opcodes/ILOAD 1) ;; tag
+                                  (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum
+                                  (.visitLdcInsn (int 1)) ;; tag, sum, sum-tag-idx
+                                  (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag'
+                                  &&/unwrap-int ;; tag, sum-tag
+                                  (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
+                                  (.visitJumpInsn Opcodes/IF_ICMPEQ $then) ;; tag, sum-tag
+                                  (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
+                                  (.visitJumpInsn Opcodes/IF_ICMPGT $further) ;; tag, sum-tag
+                                  (.visitInsn Opcodes/POP2)
+                                  (.visitInsn Opcodes/ACONST_NULL)
+                                  (.visitInsn Opcodes/ARETURN)
+                                  (.visitLabel $then) ;; tag, sum-tag
+                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitInsn Opcodes/POP2)
+                                  (.visitVarInsn Opcodes/ALOAD 0)
+                                  (.visitLdcInsn (int 3))
+                                  (.visitInsn Opcodes/AALOAD)
+                                  (.visitInsn Opcodes/ARETURN)
+                                  (.visitLabel $further) ;; tag, sum-tag
+                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
+                                  (.visitLdcInsn (int 2)) ;; tag, sum-tag, sum, last-index?
+                                  (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?'
+                                  &&/unwrap-boolean ;; tag, sum-tag, last?
+                                  (.visitJumpInsn Opcodes/IFEQ $not-right) ;; tag, sum-tag
+                                  (.visitInsn Opcodes/ISUB) ;; sub-tag
+                                  (.visitVarInsn Opcodes/ALOAD 0) ;; sub-tag, sum
+                                  (.visitLdcInsn (int 3)) ;; sub-tag, sum, sub-sum-idx
+                                  (.visitInsn Opcodes/AALOAD) ;; sub-tag, sub-sum
+                                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                                  (.visitVarInsn Opcodes/ASTORE 0) ;; sub-tag
+                                  (.visitVarInsn Opcodes/ISTORE 1) ;;
+                                  (.visitJumpInsn Opcodes/GOTO $begin)
+                                  (.visitLabel $not-right) ;; tag, sum-tag
+                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitInsn Opcodes/POP2)
+                                  (.visitInsn Opcodes/ACONST_NULL)
+                                  (.visitInsn Opcodes/ARETURN)
+                                  (.visitMaxs 0 0)
+                                  (.visitEnd)))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 

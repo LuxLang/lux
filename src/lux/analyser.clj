@@ -21,19 +21,21 @@
 ;; [Utils]
 (defn analyse-variant+ [analyser exo-type ident values]
   (|do [[module tag-name] (&/normalize ident)
-        idx (&&module/tag-index module tag-name)]
+        idx (&&module/tag-index module tag-name)
+        group (&&module/tag-group module tag-name)
+        :let [is-last? (= idx (dec (&/|length group)))]]
     (|case exo-type
       (&/$VarT id)
       (|do [? (&type/bound? id)]
         (if (or ? (&&/type-tag? module tag-name))
-          (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
+          (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx is-last? values)
           (|do [wanted-type (&&module/tag-type module tag-name)
-                [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyser (&/V &/$Left wanted-type) idx values))
+                [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyser (&/V &/$Left wanted-type) idx is-last? values))
                 _ (&type/check exo-type variant-type)]
             (return (&/|list (&&/|meta exo-type variant-cursor variant-analysis))))))
 
       _
-      (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx values)
+      (&&lux/analyse-variant analyser (&/V &/$Right exo-type) idx is-last? values)
       )))
 
 (defn ^:private add-loc [meta ^String msg]
@@ -661,7 +663,7 @@
       (&/with-expected-type exo-type
         (|case token
           [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
-          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) (&/V &/$Right exo-type) idx ?values)
+          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) (&/V &/$Right exo-type) idx nil ?values)
 
           [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
           (analyse-variant+ (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)

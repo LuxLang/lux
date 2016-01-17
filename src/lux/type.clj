@@ -47,8 +47,8 @@
 (defn Named$ [name type]
   (&/V &/$NamedT (&/T [name type])))
 
-(def $Void (&/V &/$VoidT nil))
-(def Unit (&/V &/$UnitT nil))
+(def $Void (&/V &/$VoidT &/unit-tag))
+(def Unit (&/V &/$UnitT &/unit-tag))
 (def Bool (Named$ (&/T ["lux" "Bool"]) (Data$ "java.lang.Boolean" &/Nil$)))
 (def Int (Named$ (&/T ["lux" "Int"]) (Data$ "java.lang.Long" &/Nil$)))
 (def Real (Named$ (&/T ["lux" "Real"]) (Data$ "java.lang.Double" &/Nil$)))

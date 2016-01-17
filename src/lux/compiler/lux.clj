@@ -58,7 +58,7 @@
         :let [num-elems (&/|length ?elems)]]
     (|case num-elems
       0
-      (|do [:let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
+      (|do [:let [_ (.visitLdcInsn *writer* &/unit-tag)]]
         (return nil))
 
       1
@@ -83,10 +83,10 @@
                       (.visitInsn Opcodes/AASTORE))]]
         (return nil)))))
 
-(defn compile-variant [compile ?tag ?value]
+(defn compile-variant [compile ?tag tail? ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
-                  (.visitLdcInsn (int 3))
+                  (.visitLdcInsn (int 4))
                   (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 0))
@@ -94,11 +94,15 @@
                   (.visitInsn Opcodes/AASTORE)
                   (.visitInsn Opcodes/DUP)
                   (.visitLdcInsn (int 1))
-                  (.visitLdcInsn ?tag)
-                  (&&/wrap-long)
+                  (.visitLdcInsn (int ?tag))
+                  (&&/wrap-int)
                   (.visitInsn Opcodes/AASTORE)
                   (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 2)))]
+                  (.visitLdcInsn (int 2))
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" (if tail? "TRUE" "FALSE") "Ljava/lang/Boolean;")
+                  (.visitInsn Opcodes/AASTORE)
+                  (.visitInsn Opcodes/DUP)
+                  (.visitLdcInsn (int 3)))]
         _ (compile ?value)
         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))

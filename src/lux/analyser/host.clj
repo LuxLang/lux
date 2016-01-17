@@ -341,7 +341,7 @@
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta output-type _cursor
-                               (&/V &&/$jvm-null nil))))))
+                               (&/V &&/$jvm-null &/unit-tag))))))
 
 (defn ^:private analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
   (|case gtype-vars

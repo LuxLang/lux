@@ -64,7 +64,7 @@
 
 ;; [Exports]
 (let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))"
-      Unit (&/V &/$UnitT nil)
+      Unit (&/V &/$UnitT &/unit-tag)
       jprim->lprim (fn [prim]
                      (case prim
                        "Z" "boolean"
@@ -272,4 +272,4 @@
         (instance? WildcardType gtype)
         (if-let [bound (->> ^WildcardType gtype .getUpperBounds seq first)]
           (gtype->gclass bound)
-          (&/V &/$GenericWildcard nil))))
+          (&/V &/$GenericWildcard &/unit-tag))))
