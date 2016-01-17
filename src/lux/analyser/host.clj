@@ -38,7 +38,7 @@
                                     nil
                                     exceptions)]
           (&/fail* (str "[Analyser Error] Unhandled exception: " missing-ex))
-          (&/return* state nil)))
+          (&/return* state &/unit-tag)))
       )))
 
 (defn ^:private with-catches [catches body]
@@ -661,7 +661,7 @@
                                      nil
                                      abstract-methods)]]
     (if (nil? missing-method)
-      (return nil)
+      (return &/unit-tag)
       (|let [[am-name am-inputs] missing-method]
         (fail (str "[Analyser Error] Missing method: " am-name " " "(" (->> am-inputs (&/|interpose " ") (&/fold str "")) ")"))))))
 

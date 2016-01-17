@@ -87,7 +87,7 @@
                       (compile ?source)))
                   closed-over)
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" init-signature)]]
-    (return nil)))
+    (return &/unit-tag)))
 
 ;; [Exports]
 (let [lambda-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)

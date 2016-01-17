@@ -519,7 +519,7 @@
 
 (defn assert! [test message]
   (if test
-    (return nil)
+    (return unit-tag)
     (fail message)))
 
 (def get-state
@@ -560,7 +560,7 @@
 
       ($Left msg)
       (if (.equals "[Reader Error] EOF" msg)
-        (return* state nil)
+        (return* state unit-tag)
         (fail* msg)))))
 
 (defn ^:private normalize-char [char]
@@ -648,7 +648,7 @@
 (defn host [_]
   (let [store (atom {})]
     (T [;; "lux;writer"
-        (V $None nil)
+        (V $None unit-tag)
         ;; "lux;loader"
         (memory-class-loader store)
         ;; "lux;classes"
@@ -662,7 +662,7 @@
 
 (defn init-state [_]
   (T [;; "lux;source"
-      (V $None nil)
+      (V $None unit-tag)
       ;; "lux;cursor"
       (T ["" -1 -1])
       ;; "lux;modules"
@@ -672,7 +672,7 @@
       ;; "lux;types"
       +init-bindings+
       ;; "lux;expected"
-      (V $VoidT nil)
+      (V $VoidT unit-tag)
       ;; "lux;seed"
       0
       ;; "lux;eval?"
@@ -953,17 +953,17 @@
     (return* state (|keys (get$ $modules state)))))
 
 (defn when% [test body]
-  "(-> Bool (Lux (,)) (Lux (,)))"
+  "(-> Bool (Lux Unit) (Lux Unit))"
   (if test
     body
-    (return nil)))
+    (return unit-tag)))
 
 (defn |at [idx xs]
   "(All [a] (-> Int (List a) (Maybe a)))"
   (|case xs
     ($Cons x xs*)
     (cond (< idx 0)
-          (V $None nil)
+          (V $None unit-tag)
 
           (= idx 0)
           (V $Some x)
@@ -972,7 +972,7 @@
           (|at (dec idx) xs*))
 
     ($Nil)
-    (V $None nil)
+    (V $None unit-tag)
     ))
 
 (defn normalize [ident]
@@ -991,27 +991,27 @@
 (defn |list-put [idx val xs]
   (|case xs
     ($Nil)
-    (V $None nil)
+    (V $None unit-tag)
     
     ($Cons x xs*)
     (if (= idx 0)
       (V $Some (V $Cons (T [val xs*])))
       (|case (|list-put (dec idx) val xs*)
-        ($None)      (V $None nil)
+        ($None)      (V $None unit-tag)
         ($Some xs**) (V $Some (V $Cons (T [x xs**]))))
       )))
 
 (do-template [<flagger> <asker> <tag>]
   (do (defn <flagger> [module]
-        "(-> Text (Lux (,)))"
+        "(-> Text (Lux Unit))"
         (fn [state]
           (let [state* (update$ $host (fn [host]
                                         (update$ $module-states
                                                  (fn [module-states]
-                                                   (|put module (V <tag> nil) module-states))
+                                                   (|put module (V <tag> unit-tag) module-states))
                                                  host))
                                 state)]
-            (V $Right (T [state* nil])))))
+            (V $Right (T [state* unit-tag])))))
     (defn <asker> [module]
       "(-> Text (Lux Bool))"
       (fn [state]

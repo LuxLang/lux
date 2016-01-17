@@ -215,16 +215,16 @@
   (|let [[e!name e!params] expected
          [a!name a!params] actual]
     (try (cond (= "java.lang.Object" e!name)
-               (return (&/T [fixpoints nil]))
+               (return (&/T [fixpoints &/unit-tag]))
 
                (= null-data-tag a!name)
                (if (not (primitive-type? e!name))
-                 (return (&/T [fixpoints nil]))
+                 (return (&/T [fixpoints &/unit-tag]))
                  (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual)))
 
                (= null-data-tag e!name)
                (if (= null-data-tag a!name)
-                 (return (&/T [fixpoints nil]))
+                 (return (&/T [fixpoints &/unit-tag]))
                  (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual)))
 
                (and (= array-data-tag e!name)
@@ -237,7 +237,7 @@
                  (cond (.equals ^Object e!name a!name)
                        (if (= (&/|length e!params) (&/|length a!params))
                          (|do [_ (&/map2% check e!params a!params)]
-                           (return (&/T [fixpoints nil])))
+                           (return (&/T [fixpoints &/unit-tag])))
                          (fail (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
 
                        (not invariant??)

@@ -31,7 +31,7 @@
 (defn compile-bool [compile ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC "java/lang/Boolean" (if ?value "TRUE" "FALSE") "Ljava/lang/Boolean;")]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (do-template [<name> <class> <sig> <caster>]
   (defn <name> [compile value]
@@ -41,7 +41,7 @@
                     (.visitInsn Opcodes/DUP)
                     (.visitLdcInsn (<caster> value))
                     (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
-      (return nil)))
+      (return &/unit-tag)))
 
   compile-int  "java/lang/Long"      "(J)V" long
   compile-real "java/lang/Double"    "(D)V" double
@@ -51,7 +51,7 @@
 (defn compile-text [compile ?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitLdcInsn *writer* ?value)]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn compile-tuple [compile ?elems]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -59,7 +59,7 @@
     (|case num-elems
       0
       (|do [:let [_ (.visitLdcInsn *writer* &/unit-tag)]]
-        (return nil))
+        (return &/unit-tag))
 
       1
       (compile (&/|head ?elems))
@@ -81,7 +81,7 @@
                       (.visitLdcInsn (int num-elems))
                       (.visitLdcInsn &/product-tag)
                       (.visitInsn Opcodes/AASTORE))]]
-        (return nil)))))
+        (return &/unit-tag)))))
 
 (defn compile-variant [compile ?tag tail? ?value]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -105,12 +105,12 @@
                   (.visitLdcInsn (int 3)))]
         _ (compile ?value)
         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn compile-local [compile ?idx]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitVarInsn *writer* Opcodes/ALOAD (int ?idx))]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn compile-captured [compile ?scope ?captured-id ?source]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -120,12 +120,12 @@
                                    (str (&host/->module-class (&/|head ?scope)) "/" (&host/location (&/|tail ?scope)))
                                    (str &&/closure-prefix ?captured-id)
                                    "Ljava/lang/Object;"))]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn compile-global [compile ?owner-class ?name]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str (&host/->module-class ?owner-class) "/" (&host/def-name ?name)) &/value-field "Ljava/lang/Object;")]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn compile-apply [compile ?fn ?args]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -135,7 +135,7 @@
                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature)]]
                       (return =arg)))
                   ?args)]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
@@ -167,7 +167,7 @@
                       def-meta ?meta
                       def-value (-> def-class (.getField &/value-field) (.get nil))]
                 _ (&a-module/define module-name ?name def-type def-meta def-value)]
-            (return nil))
+            (return &/unit-tag))
           (fail (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name)))
 
         (&/$Some _)
@@ -205,7 +205,7 @@
                                   (.visitInsn Opcodes/RETURN)
                                   (.visitMaxs 0 0)
                                   (.visitEnd))]]
-                    (return nil)))
+                    (return &/unit-tag)))
               :let [_ (.visitEnd *writer*)]
               _ (&&/save-class! def-name (.toByteArray =class))
               :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
@@ -234,7 +234,7 @@
                                          (fail "[Compiler Error] Incorrect format for tags.")))
                                      tags*)
                         _ (&a-module/declare-tags module-name tags def-value)]
-                    (return nil))
+                    (return &/unit-tag))
 
                   [false (&/$Some _)]
                   (fail "[Compiler Error] Can't define tags for non-type.")
@@ -243,9 +243,9 @@
                   (fail "[Compiler Error] Incorrect format for tags.")
 
                   [_ (&/$None)]
-                  (return nil))
+                  (return &/unit-tag))
               :let [_ (println 'DEF (str module-name ";" ?name))]]
-          (return nil))))))
+          (return &/unit-tag))))))
 
 (defn compile-ann [compile ?value-ex ?type-ex ?value-type]
   (compile ?value-ex))

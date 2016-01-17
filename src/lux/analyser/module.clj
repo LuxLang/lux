@@ -47,7 +47,7 @@
                                        (fn [m] (&/update$ $imports (partial &/Cons$ module) m))
                                        ms))
                           state)
-               nil))))
+               &/unit-tag))))
 
 (defn set-imports [imports]
   "(-> (List Text) (Lux (,)))"
@@ -59,7 +59,7 @@
                                        (fn [m] (&/set$ $imports imports m))
                                        ms))
                           state)
-               nil))))
+               &/unit-tag))))
 
 (defn define [module name def-type def-meta def-value]
   (fn [state]
@@ -76,7 +76,7 @@
                                                          #(&/|put name (&/T [def-type def-meta def-value]) %)
                                                          m))
                                             ms))))
-               nil)
+               &/unit-tag)
       
       _
       (fail* (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name)))))
@@ -132,7 +132,7 @@
                                                           (&/|put alias reference aliases))
                                                         %)
                                             ms))))
-               nil))))
+               &/unit-tag))))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
@@ -180,7 +180,7 @@
 (defn create-module [name]
   "(-> Text (Lux (,)))"
   (fn [state]
-    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) nil)))
+    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) &/unit-tag)))
 
 (defn enter-module [name]
   "(-> Text (Lux (,)))"
@@ -188,7 +188,7 @@
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name +init+ %))
                   (&/set$ &/$envs (&/|list (&/env name))))
-             nil)))
+             &/unit-tag)))
 
 (do-template [<name> <tag> <type>]
   (defn <name> [module]
@@ -208,15 +208,15 @@
         _ (&/map% (fn [tag]
                     (if (&/|get tag tags-table)
                       (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T [module tag]))))
-                      (return nil)))
+                      (return &/unit-tag)))
                   tags)]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn ensure-undeclared-type [module name]
   (|do [types-table (types-by-module module)
         _ (&/assert! (nil? (&/|get name types-table))
                      (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T [module name]))))]
-    (return nil)))
+    (return &/unit-tag)))
 
 (defn declare-tags [module tag-names type]
   "(-> Text (List Text) Type (Lux (,)))"
@@ -241,7 +241,7 @@
                                                  (&/update$ $types (partial &/|put _name (&/T [tags type]))))
                                            =modules))
                               state)
-                   nil))
+                   &/unit-tag))
         (fail* (str "[Lux Error] Unknown module: " module))))))
 
 (do-template [<name> <part> <doc>]
@@ -283,7 +283,7 @@
                            (fail (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
 
       _
-      (return nil)))
+      (return &/unit-tag)))
 
   test-type  &type/Type  &meta/type?-tag  "type"
   test-macro &type/Macro &meta/macro?-tag "macro"

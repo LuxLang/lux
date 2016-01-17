@@ -64,7 +64,7 @@
 
 (defn class-exists? [^String module ^String class-name]
   "(-> Text Text (IO Bool))"
-  (|do [_ (return nil)
+  (|do [_ (return &/unit-tag)
         :let [full-path (str output-dir "/" module "/" class-name ".class")
               exists? (.exists (File. full-path))]]
     (return exists?)))
@@ -84,7 +84,7 @@
               _ (when (not eval?)
                   (write-output module name bytecode))
               _ (load-class! loader real-name)]]
-    (return nil)))
+    (return &/unit-tag)))
 
 (do-template [<wrap-name> <unwrap-name> <class> <unwrap-method> <prim> <dup>]
   (do (defn <wrap-name> [^MethodVisitor writer]

@@ -261,7 +261,7 @@
   (|do [[[r-module r-name] [endo-type ?meta ?value]] (&&module/find-def module name)
         _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
                    (clojure.lang.Util/identical &type/Type exo-type))
-            (return nil)
+            (return &/unit-tag)
             (&type/check exo-type endo-type))
         _cursor &/cursor]
     (return (&/|list (&&/|meta endo-type _cursor
@@ -518,7 +518,7 @@
   (|do [module-name &/get-module-name
         _ (if (= module-name path)
             (fail (str "[Analyser Error] Module can't import itself: " path))
-            (return nil))]
+            (return &/unit-tag))]
     (&/save-module
      (|do [already-compiled? (&&module/exists? path)
            active? (&/active-module? path)
@@ -526,7 +526,7 @@
            _ (&&module/add-import path)
            _ (if (not already-compiled?)
                (compile-module path)
-               (return nil))]
+               (return &/unit-tag))]
        (return &/Nil$)))))
 
 (defn analyse-alias [analyse compile-token ex-alias ex-module]
