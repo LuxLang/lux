@@ -83,13 +83,14 @@
                       (.visitInsn Opcodes/AASTORE))]]
         (return nil)))))
 
-(defn compile-variant [compile ?tag tail? ?value]
+(defn compile-variant [compile tag tail? value]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (doto *writer*
-                  (.visitLdcInsn (int ?tag))
-                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" (if tail? "TRUE" "FALSE") "Ljava/lang/Boolean;"))]
-        _ (compile ?value)
-        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Boolean;Ljava/lang/Object;)[Ljava/lang/Object;")]]
+        :let [_ (.visitLdcInsn *writer* (int tag))
+              _ (if tail?
+                  (.visitLdcInsn *writer* "")
+                  (.visitInsn *writer* Opcodes/ACONST_NULL))]
+        _ (compile value)
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-local [compile ?idx]

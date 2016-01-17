@@ -802,9 +802,8 @@
                                   (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
                                   (.visitLdcInsn (int 2)) ;; tag, sum-tag, sum, last-index?
-                                  (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?'
-                                  &&/unwrap-boolean ;; tag, sum-tag, last?
-                                  (.visitJumpInsn Opcodes/IFEQ $not-right) ;; tag, sum-tag
+                                  (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?
+                                  (.visitJumpInsn Opcodes/IFNULL $not-right) ;; tag, sum-tag
                                   (.visitInsn Opcodes/ISUB) ;; sub-tag
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; sub-tag, sum
                                   (.visitLdcInsn (int 3)) ;; sub-tag, sum, sub-sum-idx
@@ -821,7 +820,7 @@
                                   (.visitMaxs 0 0)
                                   (.visitEnd)))
               =sum-make-method (let [$is-null (new Label)]
-                                 (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_make" "(ILjava/lang/Boolean;Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
+                                 (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
                                    (.visitCode)
                                    (.visitVarInsn Opcodes/ALOAD 2)
                                    (.visitJumpInsn Opcodes/IFNULL $is-null)
@@ -845,7 +844,7 @@
                                    (.visitVarInsn Opcodes/ALOAD 2)
                                    (.visitInsn Opcodes/AASTORE)
                                    (.visitInsn Opcodes/ARETURN)
-                                   (.visitFrame Opcodes/F_NEW (int 3) (to-array [Opcodes/INTEGER "java/lang/Boolean" "java/lang/Object"]) (int 0) (to-array []))
+                                   (.visitFrame Opcodes/F_NEW (int 3) (to-array [Opcodes/INTEGER "java/lang/Object" "java/lang/Object"]) (int 0) (to-array []))
                                    (.visitLabel $is-null)
                                    (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
                                    (.visitInsn Opcodes/DUP)

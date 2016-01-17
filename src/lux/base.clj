@@ -160,7 +160,7 @@
     (to-array (conj elems product-tag))))
 
 (defn V [^Long tag value]
-  (to-array [sum-tag (int tag) false value]))
+  (to-array [sum-tag (int tag) nil value]))
 
 ;; Constructors
 (def None$ (V $None unit-tag))
