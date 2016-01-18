@@ -1,4 +1,4 @@
-(defproject lux-jvm "0.3.1"
+(defproject lux-jvm "0.3.2"
   :description "The JVM compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
   :license {:name "Mozilla Public License (Version 2.0)"
