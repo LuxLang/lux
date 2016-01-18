@@ -72,8 +72,8 @@
         (let [match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/V $Done (&/T [(&/T [file-name line-num column-num]) match]))
-            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) match])
+            (&/V $Done (&/T [(&/T [file-name line-num column-num]) true match]))
+            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) false match])
                             (&/T [(&/T [file-name line-num column-num*]) line])]))))
         (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
@@ -84,8 +84,8 @@
         (let [match-length (.length match)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/V $Done (&/T [(&/T [file-name line-num column-num]) (&/T [tok1 tok2])]))
-            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) (&/T [tok1 tok2])])
+            (&/V $Done (&/T [(&/T [file-name line-num column-num]) true (&/T [tok1 tok2])]))
+            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) false (&/T [tok1 tok2])])
                             (&/T [(&/T [file-name line-num column-num*]) line])]))))
         (&/V $No (str "[Reader Error] Pattern failed: " regex))))))
 
@@ -120,8 +120,8 @@
         (let [match-length (.length text)
               column-num* (+ column-num match-length)]
           (if (= column-num* (.length line))
-            (&/V $Done (&/T [(&/T [file-name line-num column-num]) text]))
-            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) text])
+            (&/V $Done (&/T [(&/T [file-name line-num column-num]) true text]))
+            (&/V $Yes (&/T [(&/T [(&/T [file-name line-num column-num]) false text])
                             (&/T [(&/T [file-name line-num column-num*]) line])]))))
         (&/V $No (str "[Reader Error] Text failed: " text))))))
 
