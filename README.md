@@ -7,7 +7,7 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-v0.3.1
+v0.3.2
 
 ### How far ahead is the project?
 
@@ -19,7 +19,7 @@ However, programs can be written that can interop with the JVM and you can even 
 
 ### How can I use it?
 
-Download the 0.3.1 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.1/luxc.jar
+Download the 0.3.2 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.2/luxc.jar
 
 Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
 
@@ -207,5 +207,5 @@ If you want to write variants/records with tags from lux.lux, you must do 1 of t
 * Fully prefix them: #lux;Cons
 * Use the ; short-cut: #;Cons
 
-##### Copyright (c) 2015 Eduardo Julian. All rights reserved.
+##### Copyright (c) 2015-2016 Eduardo Julian. All rights reserved.
 
