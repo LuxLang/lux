@@ -57,9 +57,9 @@
 (def Ident (Named$ (&/T ["lux" "Ident"]) (Prod$ Text Text)))
 
 (def IO
-  (Named$ (&/T ["lux/data" "IO"])
+  (Named$ (&/T ["lux/codata" "IO"])
           (Univ$ empty-env
-                 (Lambda$ Unit (Bound$ 1)))))
+                 (Lambda$ $Void (Bound$ 1)))))
 
 (def List
   (Named$ (&/T ["lux" "List"])
