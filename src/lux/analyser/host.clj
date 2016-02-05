@@ -562,7 +562,7 @@
   (|let [[?cname ?cparams] class-decl
          class-type (&/V &/$DataT (&/T [?cname (&/|map &/|second class-env)]))]
     (|case method
-      (&/$ConstructorMethodSyntax ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
+      (&/$ConstructorMethodSyntax =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
       (|do [method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
                                    (return (&/T [gvar ex]))))
@@ -584,9 +584,9 @@
                                     body*)))
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
-        (return (&/V &/$ConstructorMethodAnalysis (&/T [?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
+        (return (&/V &/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
-      (&/$VirtualMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (&/$VirtualMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
                                    (return (&/T [gvar ex]))))
@@ -602,7 +602,7 @@
                                     body*)))
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
-        (return (&/V &/$VirtualMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+        (return (&/V &/$VirtualMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [super-env (gen-super-env class-env all-supers ?class-decl)
@@ -693,7 +693,8 @@
     [name [_ (&&/$captured _ _ source)]]
     source))
 
-(let [default-<init> (&/V &/$ConstructorMethodSyntax (&/T [(&/|list)
+(let [default-<init> (&/V &/$ConstructorMethodSyntax (&/T [(&/V &/$Public &/unit-tag)
+                                                           (&/|list)
                                                            (&/|list)
                                                            (&/|list)
                                                            (&/|list)
@@ -725,6 +726,7 @@
             :let [=fields (&/|map (fn [^objects idx+capt]
                                     (|let [[idx _] idx+capt]
                                       (&/T [(str &c!base/closure-prefix idx)
+                                            (&/V &/$Public &/unit-tag)
                                             (&/|list)
                                             captured-slot-type])))
                                   (&/enumerate =captured))]

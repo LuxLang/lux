@@ -146,21 +146,40 @@
     _
     (fail (str "[Analyser Error] Invalid method declaration: " (&/show-ast ast)))))
 
+(defn parse-privacy-modifier [ast]
+  (|case ast
+    [_ (&/$TextS "default")]
+    (return (&/V &/$Default &/unit-tag))
+
+    [_ (&/$TextS "public")]
+    (return (&/V &/$Public &/unit-tag))
+
+    [_ (&/$TextS "protected")]
+    (return (&/V &/$Protected &/unit-tag))
+
+    [_ (&/$TextS "private")]
+    (return (&/V &/$Private &/unit-tag))
+    
+    _
+    (fail (str "[Analyser Error] Invalid privacy modifier: " (&/show-ast ast)))))
+
 (defn ^:private parse-method-init-def [ast]
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "init")]
-                          (&/$Cons [_ (&/$TupleS anns)]
-                                   (&/$Cons [_ (&/$TupleS gvars)]
-                                            (&/$Cons [_ (&/$TupleS exceptions)]
-                                                     (&/$Cons [_ (&/$TupleS inputs)]
-                                                              (&/$Cons [_ (&/$TupleS ?ctor-args)]
-                                                                       (&/$Cons body (&/$Nil)))))))))]
-    (|do [=anns (&/map% parse-ann anns)
+                          (&/$Cons ?privacy-modifier
+                                   (&/$Cons [_ (&/$TupleS anns)]
+                                            (&/$Cons [_ (&/$TupleS gvars)]
+                                                     (&/$Cons [_ (&/$TupleS exceptions)]
+                                                              (&/$Cons [_ (&/$TupleS inputs)]
+                                                                       (&/$Cons [_ (&/$TupleS ?ctor-args)]
+                                                                                (&/$Cons body (&/$Nil))))))))))]
+    (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
+          =anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
-      (return (&/V &/$ConstructorMethodSyntax (&/T [=anns =gvars =exceptions =inputs =ctor-args body]))))
+      (return (&/V &/$ConstructorMethodSyntax (&/T [=privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body]))))
 
     _
     (fail "")))
@@ -169,18 +188,20 @@
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "virtual")]
                           (&/$Cons [_ (&/$TextS ?name)]
-                                   (&/$Cons [_ (&/$TupleS anns)]
-                                            (&/$Cons [_ (&/$TupleS gvars)]
-                                                     (&/$Cons [_ (&/$TupleS exceptions)]
-                                                              (&/$Cons [_ (&/$TupleS inputs)]
-                                                                       (&/$Cons output
-                                                                                (&/$Cons body (&/$Nil))))))))))]
-    (|do [=anns (&/map% parse-ann anns)
+                                   (&/$Cons ?privacy-modifier
+                                            (&/$Cons [_ (&/$TupleS anns)]
+                                                     (&/$Cons [_ (&/$TupleS gvars)]
+                                                              (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                       (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                (&/$Cons output
+                                                                                         (&/$Cons body (&/$Nil)))))))))))]
+    (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
+          =anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$VirtualMethodSyntax (&/T [?name =anns =gvars =exceptions =inputs =output body]))))
+      (return (&/V &/$VirtualMethodSyntax (&/T [?name =privacy-modifier =anns =gvars =exceptions =inputs =output body]))))
 
     _
     (fail "")))
@@ -218,12 +239,14 @@
 (defn parse-field [ast]
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ?name)]
-                          (&/$Cons [_ (&/$TupleS ?anns)]
-                                   (&/$Cons ?type
-                                            (&/$Nil)))))]
-    (|do [=anns (&/map% parse-ann ?anns)
+                          (&/$Cons ?privacy-modifier
+                                   (&/$Cons [_ (&/$TupleS ?anns)]
+                                            (&/$Cons ?type
+                                                     (&/$Nil))))))]
+    (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
+          =anns (&/map% parse-ann ?anns)
           =type (parse-gclass ?type)]
-      (return (&/T [?name =anns =type])))
+      (return (&/T [?name =privacy-modifier =anns =type])))
     
     _
     (fail (str "[Analyser Error] Invalid field declaration: " (&/show-ast ast)))))

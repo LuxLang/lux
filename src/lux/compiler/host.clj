@@ -434,9 +434,21 @@
         (.visitEnd))
   nil)
 
+(defn ^:private privacy-modifer->flag [privacy-modifier]
+  "(-> PrivacyModifier Int)"
+  (|case privacy-modifier
+    (&/$Public)    Opcodes/ACC_PUBLIC
+    (&/$Private)   Opcodes/ACC_PRIVATE
+    (&/$Protected) Opcodes/ACC_PROTECTED
+    (&/$Default)   0
+    _ (assert false (println-str (&/adt->text privacy-modifier) (&/adt->text (&/V &/$Public nil))))
+    ))
+
 (defn ^:private compile-field [^ClassWriter writer field]
-  (|let [[=name =anns =type] field
-         =field (.visitField writer Opcodes/ACC_PUBLIC =name
+  (|let [[=name =privacy-modifier =anns =type] field
+         =field (.visitField writer
+                             (privacy-modifer->flag =privacy-modifier)
+                             =name
                              (&host-generics/gclass->simple-signature =type)
                              (&host-generics/gclass->signature =type) nil)]
     (do (&/|map (partial compile-annotation =field) =anns)
@@ -493,12 +505,12 @@
 
 (defn ^:private compile-method-def [compile ^ClassWriter class-writer ?super-class method-def]
   (|case method-def
-    (&/$ConstructorMethodAnalysis ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
+    (&/$ConstructorMethodAnalysis ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
     (|let [?output (&/V &/$GenericClass (&/T ["void" (&/|list)]))
            =method-decl (&/T [init-method ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   Opcodes/ACC_PUBLIC
+                                   (privacy-modifer->flag ?privacy-modifier)
                                    init-method
                                    simple-signature
                                    generic-signature
@@ -521,11 +533,11 @@
                         (.visitEnd))]]
           (return nil))))
     
-    (&/$VirtualMethodAnalysis ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
+    (&/$VirtualMethodAnalysis ?name ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   Opcodes/ACC_PUBLIC
+                                   (privacy-modifer->flag ?privacy-modifier)
                                    ?name
                                    simple-signature
                                    generic-signature
@@ -640,7 +652,7 @@
 
 (defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
-        [file-name _ _] &/cursor
+        [file-name line column] &/cursor
         :let [[?name ?params] class-decl
               class-signature (&host-generics/gclass-decl->signature class-decl (&/Cons$ ?super-class ?interfaces))
               full-name (str module "/" ?name)
@@ -741,9 +753,12 @@
                                           (.visitInsn Opcodes/ARETURN)
                                           (.visitMaxs 0 0)
                                           (.visitEnd)))
-              =product_getRight-method (let [$is-last (new Label)]
+              =product_getRight-method (let [$begin (new Label)
+                                             $is-last (new Label)
+                                             $must-copy (new Label)]
                                          (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getRight" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                                            (.visitCode)
+                                           (.visitLabel $begin)
                                            (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                                            (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                                            (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
@@ -751,12 +766,30 @@
                                            (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
                                            (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
                                            (.visitJumpInsn Opcodes/IF_ICMPEQ $is-last) ;; tuple-size, index-last-elem
-                                           (.visitInsn Opcodes/POP2) ;;
+                                           (.visitJumpInsn Opcodes/IF_ICMPGT $must-copy) ;;
+                                           ;; Must recurse
+                                           (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
+                                           (.visitInsn Opcodes/DUP) ;; tuple, tuple
+                                           (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple, tuple-size
+                                           (.visitLdcInsn (int 1)) ;; tuple, tuple-size, offset-last-elem
+                                           (.visitInsn Opcodes/ISUB) ;; tuple, offset-tuple-last-elem
+                                           (.visitInsn Opcodes/AALOAD) ;; tuple-tail
+                                           (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-tail, index
+                                           (.visitVarInsn Opcodes/ALOAD 0) ;; tuple-tail, index, tuple
+                                           (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-tail, index, tuple-size
+                                           (.visitLdcInsn (int 1)) ;; tuple-tail, index, tuple-size, 1
+                                           (.visitInsn Opcodes/ISUB) ;; tuple-tail, index, tuple-size*
+                                           (.visitInsn Opcodes/ISUB) ;; tuple-tail, index*
+                                           (.visitVarInsn Opcodes/ISTORE 1) ;; tuple-tail
+                                           (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;") ;; tuple-tail
+                                           (.visitVarInsn Opcodes/ASTORE 0) ;;
+                                           (.visitJumpInsn Opcodes/GOTO $begin)
+                                           (.visitLabel $must-copy)
                                            (.visitVarInsn Opcodes/ALOAD 0)
                                            (.visitVarInsn Opcodes/ILOAD 1)
                                            (.visitVarInsn Opcodes/ALOAD 0)
                                            (.visitInsn Opcodes/ARRAYLENGTH)
-                                           (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)Ljava/lang/Object;")
+                                           (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)[Ljava/lang/Object;")
                                            (.visitInsn Opcodes/ARETURN)
                                            (.visitLabel $is-last) ;; tuple-size, index-last-elem
                                            (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))

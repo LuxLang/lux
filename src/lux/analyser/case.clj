@@ -75,34 +75,36 @@
       (adjust-type* up =type))
 
     (&/$ProdT ?left ?right)
-    (|do [(&/$ProdT =left =right) (&/fold% (fn [_abody ena]
-                                             (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                               (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
-                                                 (&type/clean* _avar _abody))))
-                                           type
-                                           up)
+    (|do [=type (&/fold% (fn [_abody ena]
+                           (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
+                               (&type/clean* _avar _abody))))
+                         type
+                         up)
           :let [distributor (fn [v]
                               (&/fold (fn [_abody ena]
                                         (|let [[_aenv _aidx _avar] ena]
                                           (&/V &/$UnivQ (&/T [_aenv _abody]))))
                                       v
-                                      up))]]
-      (return (&type/Prod$ (distributor =left) (distributor =right))))
+                                      up))
+                adjusted-type (&type/Tuple$ (&/|map distributor (&type/flatten-prod =type)))]]
+      (return adjusted-type))
 
     (&/$SumT ?left ?right)
-    (|do [(&/$SumT =left =right) (&/fold% (fn [_abody ena]
-                                            (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                              (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
-                                                (&type/clean* _avar _abody))))
-                                          type
-                                          up)
+    (|do [=type (&/fold% (fn [_abody ena]
+                           (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                             (|do [_ (&type/set-var _avar (&/V &/$BoundT _aidx))]
+                               (&type/clean* _avar _abody))))
+                         type
+                         up)
           :let [distributor (fn [v]
                               (&/fold (fn [_abody ena]
                                         (|let [[_aenv _aidx _avar] ena]
                                           (&/V &/$UnivQ (&/T [_aenv _abody]))))
                                       v
-                                      up))]]
-      (return (&type/Sum$ (distributor =left) (distributor =right))))
+                                      up))
+                adjusted-type (&type/Variant$ (&/|map distributor (&type/flatten-sum =type)))]]
+      (return adjusted-type))
 
     (&/$AppT ?tfun ?targ)
     (|do [=type (&type/apply-type ?tfun ?targ)]
@@ -187,7 +189,9 @@
             (&/$ProdT _)
             (|case (&type/tuple-types-for (&/|length ?members) value-type*)
               (&/$None)
-              (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]" " -- " (&/show-ast pattern)))
+              (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]"
+                         " -- " (&/show-ast pattern)
+                         " " (&type/show-type value-type*) " " (&type/show-type value-type)))
 
               (&/$Some ?member-types*)
               (|do [[=tests =kont] (&/fold (fn [kont* vm]

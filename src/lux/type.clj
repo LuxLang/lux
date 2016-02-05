@@ -366,6 +366,20 @@
   &/$ProdT flatten-prod prod-at "Product"
   )
 
+(do-template [<name> <ctor> <unit>]
+  (defn <name> [types]
+    "(-> (List Type) Type)"
+    (|case (&/|reverse types)
+      (&/$Cons last prevs)
+      (&/fold (fn [right left] (<ctor> left right)) last prevs)
+
+      (&/$Nil)
+      <unit>))
+
+  Variant$ Sum$  $Void
+  Tuple$   Prod$ Unit
+  )
+
 (defn show-type [^objects type]
   (|case type
     (&/$DataT name params)
@@ -383,10 +397,10 @@
     "Unit"
     
     (&/$ProdT _)
-    (str "(, " (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
+    (str "[" (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) "]")
 
     (&/$SumT _)
-    (str "(|| " (->> (flatten-sum type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
+    (str "(| " (->> (flatten-sum type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
     
     (&/$LambdaT input output)
     (|let [[?out ?ins] (unravel-fun type)]

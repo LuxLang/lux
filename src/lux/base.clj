@@ -109,6 +109,13 @@
    "GenericArray"
    "GenericWildcard"])
 
+;; Privacy Modifiers
+(deftags
+  ["Default"
+   "Public"
+   "Private"
+   "Protected"])
+
 ;; Methods
 (deftags
   ["ConstructorMethodSyntax"

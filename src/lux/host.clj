@@ -273,7 +273,7 @@
 
 (defn ^:private compile-dummy-method [^ClassWriter =class super-class method-def]
   (|case method-def
-    (&/$ConstructorMethodSyntax =anns =gvars =exceptions =inputs =ctor-args body)
+    (&/$ConstructorMethodSyntax =privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body)
     (|let [=output (&/V &/$GenericClass (&/T ["void" (&/|list)]))
            method-decl [init-method-name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
@@ -287,7 +287,7 @@
         (.visitMaxs 0 0)
         (.visitEnd)))
 
-    (&/$VirtualMethodSyntax =name =anns =gvars =exceptions =inputs =output body)
+    (&/$VirtualMethodSyntax =name =privacy-modifier =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class Opcodes/ACC_PUBLIC
@@ -329,7 +329,7 @@
                                (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
                                (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
-                          (|let [[=name =anns =type] field]
+                          (|let [[=name =privacy-modifier =anns =type] field]
                             (doto (.visitField =class Opcodes/ACC_PUBLIC =name
                                                (&host-generics/gclass->simple-signature =type)
                                                (&host-generics/gclass->signature =type)

@@ -110,5 +110,5 @@
                        (not (.endsWith ^String % "tools.nrepl-0.2.3.jar"))
                        (not (.endsWith ^String % "clojure-complete-0.2.3.jar"))))
          (reduce (fn [s ^String j] (add-jar! (new File ^String j) s out))
-                 #{}))
+                 #{"META-INF/MANIFEST.MF"}))
     ))
