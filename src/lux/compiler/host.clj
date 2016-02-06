@@ -570,6 +570,26 @@
                         (.visitMaxs 0 0)
                         (.visitEnd))]]
           (return nil))))
+
+    (&/$StaticMethodAnalysis ?name ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
+    (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
+           [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
+      (&/with-writer (.visitMethod class-writer
+                                   (+ (privacy-modifer->flag ?privacy-modifier)
+                                      Opcodes/ACC_STATIC)
+                                   ?name
+                                   simple-signature
+                                   generic-signature
+                                   (->> ?exceptions (&/|map &host-generics/->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        (|do [^MethodVisitor =method &/get-writer
+              :let [_ (&/|map (partial compile-annotation =method) ?anns)
+                    _ (.visitCode =method)]
+              _ (compile ?body)
+              :let [_ (doto =method
+                        (compile-method-return ?output)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))]]
+          (return nil))))
     ))
 
 (defn ^:private compile-method-decl [^ClassWriter class-writer =method-decl]

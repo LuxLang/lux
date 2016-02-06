@@ -229,10 +229,33 @@
     _
     (fail "")))
 
+(defn ^:private parse-method-static-def [ast]
+  (|case ast
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "static")]
+                          (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons ?privacy-modifier
+                                            (&/$Cons [_ (&/$TupleS anns)]
+                                                     (&/$Cons [_ (&/$TupleS gvars)]
+                                                              (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                       (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                (&/$Cons output
+                                                                                         (&/$Cons body (&/$Nil)))))))))))]
+    (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
+          =anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =output (parse-gclass output)]
+      (return (&/V &/$StaticMethodSyntax (&/T [?name =privacy-modifier =anns =gvars =exceptions =inputs =output body]))))
+
+    _
+    (fail "")))
+
 (defn parse-method-def [ast]
   (&/try-all% (&/|list #((parse-method-init-def ast) %)
                        #((parse-method-virtual-def ast) %)
                        #((parse-method-override-def ast) %)
+                       #((parse-method-static-def ast) %)
                        (fn [state]
                          (fail* (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))))
 

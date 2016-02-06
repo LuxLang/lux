@@ -152,9 +152,18 @@
    "jvm-lushr"])
 
 ;; [Exports]
-(defn expr-type* [syntax+]
-  (|let [[[type _] _] syntax+]
+(defn expr-type* [analysis]
+  (|let [[[type _] _] analysis]
     type))
+
+(defn with-type [new-type analysis]
+  (|let [[[type cursor] adt] analysis]
+    (&/T [(&/T [new-type cursor]) adt])))
+
+(defn clean-analysis [$var an]
+  "(-> Type Analysis (Lux Analysis))"
+  (|do [=an-type (&type/clean $var (expr-type* an))]
+    (return (with-type =an-type an))))
 
 (def jvm-this "_jvm_this")
 

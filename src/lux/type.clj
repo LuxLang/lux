@@ -279,6 +279,10 @@
           (deref ?id)
           (return type)))
       (return type))
+
+    (&/$DataT ?name ?params)
+    (|do [=params (&/map% (partial clean* ?tid) ?params)]
+      (return (Data$ ?name =params)))
     
     (&/$LambdaT ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
@@ -503,7 +507,7 @@
 (defn ^:private fp-put [k v fixpoints]
   (&/Cons$ (&/T [k v]) fixpoints))
 
-(defn ^:private show-type+ [type]
+(defn show-type+ [type]
   (|case type
     (&/$VarT ?id)
     (fn [state]

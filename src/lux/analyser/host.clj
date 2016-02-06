@@ -268,6 +268,7 @@
   (|case gtype-vars
     (&/$Nil)
     (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
+          =arg-types (&/map% &type/show-type+ arg-types)
           =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
           =gret (&host-type/instance-param &type/existential gtype-env gret)]
       (return (&/T [=gret =args])))
@@ -275,8 +276,11 @@
     (&/$Cons ^TypeVariable gtv gtype-vars*)
     (&type/with-var
       (fn [$var]
-        (|let [gtype-env* (&/Cons$ (&/T [(.getName gtv) $var]) gtype-env)]
-          (analyse-method-call-helper analyse gret gtype-env* gtype-vars* gtype-args args))))
+        (|do [:let [gtype-env* (&/Cons$ (&/T [(.getName gtv) $var]) gtype-env)]
+              [=gret =args] (analyse-method-call-helper analyse gret gtype-env* gtype-vars* gtype-args args)
+              ==gret (&type/clean $var =gret)
+              ==args (&/map% (partial &&/clean-analysis $var) =args)]
+          (return (&/T [==gret ==args])))))
     ))
 
 (let [dummy-type-param (&type/Data$ "java.lang.Object" (&/|list))]
@@ -316,11 +320,7 @@
   (|do [class-loader &/loader
         [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader class method classes)
         _ (ensure-catching exceptions)
-        gtype-env (&/fold% (fn [m ^TypeVariable g]
-                             (|do [=var-type &type/existential]
-                               (return (&/Cons$ (&/T [(.getName g) =var-type]) m))))
-                           (&/|table)
-                           parent-gvars)
+        :let [gtype-env (&/|table)]
         [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
         _ (&type/check exo-type (as-otype+ output-type))
         _cursor &/cursor]
@@ -622,6 +622,23 @@
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
         (return (&/V &/$OverridenMethodAnalysis (&/T [?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+
+      (&/$StaticMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (|do [method-env (&/map% (fn [gvar]
+                                 (|do [ex &type/existential]
+                                   (return (&/T [gvar ex]))))
+                               ?gvars)
+            :let [full-env method-env]
+            output-type (generic-class->type full-env ?output)
+            =body (&/with-type-env full-env
+                    (&/fold (fn [body* input*]
+                              (|do [:let [[iname itype*] input*]
+                                    itype (generic-class->type full-env itype*)]
+                                (&&env/with-local iname itype
+                                  body*)))
+                            (&&/analyse-1 analyse output-type ?body)
+                            (&/|reverse ?inputs)))]
+        (return (&/V &/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       )))
 
 (defn ^:private mandatory-methods [supers]
@@ -641,6 +658,9 @@
                                       
                                       (&/$OverridenMethodAnalysis =class-decl =name =anns =gvars =exceptions =inputs =output body)
                                       (assoc mmap =name =inputs)
+
+                                      (&/$StaticMethodAnalysis _)
+                                      mmap
                                       ))
                                   {}
                                   methods)

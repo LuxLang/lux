@@ -120,12 +120,14 @@
 (deftags
   ["ConstructorMethodSyntax"
    "VirtualMethodSyntax"
-   "OverridenMethodSyntax"])
+   "OverridenMethodSyntax"
+   "StaticMethodSyntax"])
 
 (deftags
   ["ConstructorMethodAnalysis"
    "VirtualMethodAnalysis"
-   "OverridenMethodAnalysis"])
+   "OverridenMethodAnalysis"
+   "StaticMethodAnalysis"])
 
 ;; Meta-data
 (deftags

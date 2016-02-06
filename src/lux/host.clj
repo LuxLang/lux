@@ -313,6 +313,19 @@
         (.visitMaxs 0 0)
         (.visitEnd)))
 
+    (&/$StaticMethodSyntax =name =privacy-modifier =anns =gvars =exceptions =inputs =output body)
+    (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
+           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
+      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
+                          =name
+                          simple-signature
+                          generic-signature
+                          (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        .visitCode
+        (dummy-return =output)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
+
     _
     (assert false (println-str 'compile-dummy-method (&/adt->text method-def)))
     ))
