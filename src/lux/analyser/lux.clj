@@ -228,8 +228,9 @@
           (&/$ExQ _)
           (&type/with-var
             (fn [$var]
-              (|do [exo-type** (&type/apply-type exo-type* $var)]
-                (analyse-variant analyse (&/V &/$Right exo-type**) idx is-last? ?values))))
+              (|do [exo-type** (&type/apply-type exo-type* $var)
+                    =exprs (analyse-variant analyse (&/V &/$Right exo-type**) idx is-last? ?values)]
+                (&/map% (partial &&/clean-analysis $var) =exprs))))
           
           _
           (fail (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*))))
@@ -331,7 +332,8 @@
           (&type/with-var
             (fn [$var]
               (|do [type* (&type/apply-type ?fun-type* $var)
-                    [=output-t =args] (analyse-apply* analyse exo-type type* ?args)]
+                    [=output-t =args] (analyse-apply* analyse exo-type type* ?args)
+                    ==args (&/map% (partial &&/clean-analysis $var) =args)]
                 (|case $var
                   (&/$VarT ?id)
                   (|do [? (&type/bound? ?id)
@@ -339,7 +341,7 @@
                                  (&type/clean $var =output-t)
                                  (|do [_ (&type/set-var ?id (&/V &/$BoundT 1))]
                                    (&type/clean $var =output-t)))]
-                    (return (&/T [type** =args])))
+                    (return (&/T [type** ==args])))
                   ))))
 
           (&/$ExQ _)
@@ -378,8 +380,8 @@
           (&/$Some _)
           (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "using" r-prefix)
-                ;;                   ;; (= "defsig" r-prefix)
+                ;;       _ (when (or (= "jvm-import" r-name)
+                ;;                   ;; (= "@type" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)
                 ;;                (&/|interpose "\n")
@@ -456,8 +458,9 @@
           (&/$ExQ _)
           (&type/with-var
             (fn [$var]
-              (|do [exo-type** (&type/apply-type exo-type* $var)]
-                (analyse-lambda* analyse exo-type** ?self ?arg ?body))))
+              (|do [exo-type** (&type/apply-type exo-type* $var)
+                    =expr (analyse-lambda* analyse exo-type** ?self ?arg ?body)]
+                (&&/clean-analysis $var =expr))))
           
           (&/$LambdaT ?arg-t ?return-t)
           (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*

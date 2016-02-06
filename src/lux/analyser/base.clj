@@ -182,10 +182,8 @@
 (defn analyse-1+ [analyse ?token]
   (&type/with-var
     (fn [$var]
-      (|do [=expr (analyse-1 analyse $var ?token)
-            :let [[[?type ?cursor] ?item] =expr]
-            =type (&type/clean $var ?type)]
-        (return (&/T [(&/T [=type ?cursor]) ?item]))))))
+      (|do [=expr (analyse-1 analyse $var ?token)]
+        (clean-analysis $var =expr)))))
 
 (defn resolved-ident [ident]
   (|do [:let [[?module ?name] ident]

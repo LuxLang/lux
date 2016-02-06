@@ -66,8 +66,9 @@
     (&/$UnivQ _aenv _abody)
     (&type/with-var
       (fn [$var]
-        (|do [=type (&type/apply-type type $var)]
-          (adjust-type* (&/Cons$ (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type))))
+        (|do [=type (&type/apply-type type $var)
+              ==type (adjust-type* (&/Cons$ (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type)]
+          (&type/clean $var ==type))))
 
     (&/$ExQ _aenv _abody)
     (|do [$var &type/existential

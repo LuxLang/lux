@@ -355,8 +355,11 @@
     (&/$Cons ^TypeVariable gtv gtype-vars*)
     (&type/with-var
       (fn [$var]
-        (|let [gtype-env* (&/Cons$ (&/T [(.getName gtv) $var]) gtype-env)]
-          (analyse-jvm-new-helper analyse gtype gtype-env* gtype-vars* gtype-args args))))
+        (|do [:let [gtype-env* (&/Cons$ (&/T [(.getName gtv) $var]) gtype-env)]
+              [=gret =args] (analyse-jvm-new-helper analyse gtype gtype-env* gtype-vars* gtype-args args)
+              ==gret (&type/clean $var =gret)
+              ==args (&/map% (partial &&/clean-analysis $var) =args)]
+          (return (&/T [==gret ==args])))))
     ))
 
 (defn analyse-jvm-new [analyse exo-type class classes args]
