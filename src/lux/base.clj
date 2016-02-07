@@ -111,10 +111,14 @@
 
 ;; Privacy Modifiers
 (deftags
-  ["Default"
-   "Public"
-   "Private"
-   "Protected"])
+  ["DefaultPM"
+   "PublicPM"
+   "PrivatePM"
+   "ProtectedPM"])
+
+(deftags
+  ["DefaultSM"
+   "VolatileSM"])
 
 ;; Methods
 (deftags

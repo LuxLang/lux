@@ -149,19 +149,30 @@
 (defn parse-privacy-modifier [ast]
   (|case ast
     [_ (&/$TextS "default")]
-    (return (&/V &/$Default &/unit-tag))
+    (return (&/V &/$DefaultPM &/unit-tag))
 
     [_ (&/$TextS "public")]
-    (return (&/V &/$Public &/unit-tag))
+    (return (&/V &/$PublicPM &/unit-tag))
 
     [_ (&/$TextS "protected")]
-    (return (&/V &/$Protected &/unit-tag))
+    (return (&/V &/$ProtectedPM &/unit-tag))
 
     [_ (&/$TextS "private")]
-    (return (&/V &/$Private &/unit-tag))
+    (return (&/V &/$PrivatePM &/unit-tag))
     
     _
     (fail (str "[Analyser Error] Invalid privacy modifier: " (&/show-ast ast)))))
+
+(defn parse-state-modifier [ast]
+  (|case ast
+    [_ (&/$TextS "default")]
+    (return (&/V &/$DefaultSM &/unit-tag))
+
+    [_ (&/$TextS "volatile")]
+    (return (&/V &/$VolatileSM &/unit-tag))
+
+    _
+    (fail (str "[Analyser Error] Invalid state modifier: " (&/show-ast ast)))))
 
 (defn ^:private parse-method-init-def [ast]
   (|case ast
@@ -263,13 +274,15 @@
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ?name)]
                           (&/$Cons ?privacy-modifier
-                                   (&/$Cons [_ (&/$TupleS ?anns)]
-                                            (&/$Cons ?type
-                                                     (&/$Nil))))))]
+                                   (&/$Cons ?state-modifier
+                                            (&/$Cons [_ (&/$TupleS ?anns)]
+                                                     (&/$Cons ?type
+                                                              (&/$Nil)))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
+          =state-modifier (parse-state-modifier ?state-modifier)
           =anns (&/map% parse-ann ?anns)
           =type (parse-gclass ?type)]
-      (return (&/T [?name =privacy-modifier =anns =type])))
+      (return (&/T [?name =privacy-modifier =state-modifier =anns =type])))
     
     _
     (fail (str "[Analyser Error] Invalid field declaration: " (&/show-ast ast)))))

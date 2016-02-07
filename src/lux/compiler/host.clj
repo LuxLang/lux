@@ -434,20 +434,11 @@
         (.visitEnd))
   nil)
 
-(defn ^:private privacy-modifer->flag [privacy-modifier]
-  "(-> PrivacyModifier Int)"
-  (|case privacy-modifier
-    (&/$Public)    Opcodes/ACC_PUBLIC
-    (&/$Private)   Opcodes/ACC_PRIVATE
-    (&/$Protected) Opcodes/ACC_PROTECTED
-    (&/$Default)   0
-    _ (assert false (println-str (&/adt->text privacy-modifier) (&/adt->text (&/V &/$Public nil))))
-    ))
-
 (defn ^:private compile-field [^ClassWriter writer field]
-  (|let [[=name =privacy-modifier =anns =type] field
+  (|let [[=name =privacy-modifier =state-modifier =anns =type] field
          =field (.visitField writer
-                             (privacy-modifer->flag =privacy-modifier)
+                             (+ (&host/privacy-modifier->flag =privacy-modifier)
+                                (&host/state-modifier->flag =state-modifier))
                              =name
                              (&host-generics/gclass->simple-signature =type)
                              (&host-generics/gclass->signature =type) nil)]
@@ -510,7 +501,7 @@
            =method-decl (&/T [init-method ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (privacy-modifer->flag ?privacy-modifier)
+                                   (&host/privacy-modifier->flag ?privacy-modifier)
                                    init-method
                                    simple-signature
                                    generic-signature
@@ -537,7 +528,7 @@
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (privacy-modifer->flag ?privacy-modifier)
+                                   (&host/privacy-modifier->flag ?privacy-modifier)
                                    ?name
                                    simple-signature
                                    generic-signature
@@ -575,7 +566,7 @@
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (+ (privacy-modifer->flag ?privacy-modifier)
+                                   (+ (&host/privacy-modifier->flag ?privacy-modifier)
                                       Opcodes/ACC_STATIC)
                                    ?name
                                    simple-signature

@@ -330,6 +330,21 @@
     (assert false (println-str 'compile-dummy-method (&/adt->text method-def)))
     ))
 
+(defn state-modifier->flag [state-modifier]
+  "(-> State Int)"
+  (|case state-modifier
+    (&/$DefaultSM)  0
+    (&/$VolatileSM) Opcodes/ACC_VOLATILE))
+
+(defn privacy-modifier->flag [privacy-modifier]
+  "(-> PrivacyModifier Int)"
+  (|case privacy-modifier
+    (&/$PublicPM)    Opcodes/ACC_PUBLIC
+    (&/$PrivatePM)   Opcodes/ACC_PRIVATE
+    (&/$ProtectedPM) Opcodes/ACC_PROTECTED
+    (&/$DefaultPM)   0
+    ))
+
 (defn use-dummy-class [class-decl super-class interfaces ctor-args fields methods]
   (|do [module &/get-module-name
         :let [[?name ?params] class-decl
@@ -342,8 +357,8 @@
                                (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
                                (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
-                          (|let [[=name =privacy-modifier =anns =type] field]
-                            (doto (.visitField =class Opcodes/ACC_PUBLIC =name
+                          (|let [[=name =privacy-modifier =state-modifier =anns =type] field]
+                            (doto (.visitField =class (+ Opcodes/ACC_PUBLIC (state-modifier->flag =state-modifier)) =name
                                                (&host-generics/gclass->simple-signature =type)
                                                (&host-generics/gclass->signature =type)
                                                nil)

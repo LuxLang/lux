@@ -716,7 +716,7 @@
     [name [_ (&&/$captured _ _ source)]]
     source))
 
-(let [default-<init> (&/V &/$ConstructorMethodSyntax (&/T [(&/V &/$Public &/unit-tag)
+(let [default-<init> (&/V &/$ConstructorMethodSyntax (&/T [(&/V &/$PublicPM &/unit-tag)
                                                            (&/|list)
                                                            (&/|list)
                                                            (&/|list)
@@ -749,7 +749,8 @@
             :let [=fields (&/|map (fn [^objects idx+capt]
                                     (|let [[idx _] idx+capt]
                                       (&/T [(str &c!base/closure-prefix idx)
-                                            (&/V &/$Public &/unit-tag)
+                                            (&/V &/$PublicPM &/unit-tag)
+                                            (&/V &/$DefaultSM &/unit-tag)
                                             (&/|list)
                                             captured-slot-type])))
                                   (&/enumerate =captured))]
