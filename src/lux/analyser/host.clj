@@ -642,6 +642,9 @@
                             (&&/analyse-1 analyse output-type ?body)
                             (&/|reverse ?inputs)))]
         (return (&/V &/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+
+      (&/$AbstractMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
+      (return (&/V &/$AbstractMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output])))
       )))
 
 (defn ^:private mandatory-methods [supers]
@@ -663,6 +666,9 @@
                                       (assoc mmap =name =inputs)
 
                                       (&/$StaticMethodAnalysis _)
+                                      mmap
+
+                                      (&/$AbstractMethodSyntax _)
                                       mmap
                                       ))
                                   {}

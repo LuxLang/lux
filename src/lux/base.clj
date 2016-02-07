@@ -125,6 +125,7 @@
 ;; Inheritance Modifiers
 (deftags
   ["DefaultIM"
+   "AbstractIM"
    "FinalIM"])
 
 ;; Methods
@@ -132,13 +133,15 @@
   ["ConstructorMethodSyntax"
    "VirtualMethodSyntax"
    "OverridenMethodSyntax"
-   "StaticMethodSyntax"])
+   "StaticMethodSyntax"
+   "AbstractMethodSyntax"])
 
 (deftags
   ["ConstructorMethodAnalysis"
    "VirtualMethodAnalysis"
    "OverridenMethodAnalysis"
-   "StaticMethodAnalysis"])
+   "StaticMethodAnalysis"
+   "AbstractMethodAnalysis"])
 
 ;; Meta-data
 (deftags
