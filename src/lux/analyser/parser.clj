@@ -171,8 +171,22 @@
     [_ (&/$TextS "volatile")]
     (return (&/V &/$VolatileSM &/unit-tag))
 
+    [_ (&/$TextS "final")]
+    (return (&/V &/$FinalSM &/unit-tag))
+
     _
     (fail (str "[Analyser Error] Invalid state modifier: " (&/show-ast ast)))))
+
+(defn parse-inheritance-modifier [ast]
+  (|case ast
+    [_ (&/$TextS "default")]
+    (return (&/V &/$DefaultIM &/unit-tag))
+
+    [_ (&/$TextS "final")]
+    (return (&/V &/$FinalIM &/unit-tag))
+
+    _
+    (fail (str "[Analyser Error] Invalid inheritance modifier: " (&/show-ast ast)))))
 
 (defn ^:private parse-method-init-def [ast]
   (|case ast
@@ -200,19 +214,20 @@
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "virtual")]
                           (&/$Cons [_ (&/$TextS ?name)]
                                    (&/$Cons ?privacy-modifier
-                                            (&/$Cons [_ (&/$TupleS anns)]
-                                                     (&/$Cons [_ (&/$TupleS gvars)]
-                                                              (&/$Cons [_ (&/$TupleS exceptions)]
-                                                                       (&/$Cons [_ (&/$TupleS inputs)]
-                                                                                (&/$Cons output
-                                                                                         (&/$Cons body (&/$Nil)))))))))))]
+                                            (&/$Cons [_ (&/$BoolS =final?)]
+                                                     (&/$Cons [_ (&/$TupleS anns)]
+                                                              (&/$Cons [_ (&/$TupleS gvars)]
+                                                                       (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                                (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                         (&/$Cons output
+                                                                                                  (&/$Cons body (&/$Nil))))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$VirtualMethodSyntax (&/T [?name =privacy-modifier =anns =gvars =exceptions =inputs =output body]))))
+      (return (&/V &/$VirtualMethodSyntax (&/T [?name =privacy-modifier =final? =anns =gvars =exceptions =inputs =output body]))))
 
     _
     (fail "")))

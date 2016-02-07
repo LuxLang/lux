@@ -287,10 +287,11 @@
         (.visitMaxs 0 0)
         (.visitEnd)))
 
-    (&/$VirtualMethodSyntax =name =privacy-modifier =anns =gvars =exceptions =inputs =output body)
+    (&/$VirtualMethodSyntax =name =privacy-modifier =final? =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
-      (doto (.visitMethod =class Opcodes/ACC_PUBLIC
+      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC
+                                    (if =final? Opcodes/ACC_FINAL 0))
                           =name
                           simple-signature
                           generic-signature
@@ -330,12 +331,6 @@
     (assert false (println-str 'compile-dummy-method (&/adt->text method-def)))
     ))
 
-(defn state-modifier->flag [state-modifier]
-  "(-> State Int)"
-  (|case state-modifier
-    (&/$DefaultSM)  0
-    (&/$VolatileSM) Opcodes/ACC_VOLATILE))
-
 (defn privacy-modifier->flag [privacy-modifier]
   "(-> PrivacyModifier Int)"
   (|case privacy-modifier
@@ -344,6 +339,19 @@
     (&/$ProtectedPM) Opcodes/ACC_PROTECTED
     (&/$DefaultPM)   0
     ))
+
+(defn state-modifier->flag [state-modifier]
+  "(-> StateModifier Int)"
+  (|case state-modifier
+    (&/$DefaultSM)  0
+    (&/$VolatileSM) Opcodes/ACC_VOLATILE
+    (&/$FinalSM)    Opcodes/ACC_FINAL))
+
+(defn inheritance-modifier->flag [inheritance-modifier]
+  "(-> InheritanceModifier Int)"
+  (|case inheritance-modifier
+    (&/$DefaultIM)  0
+    (&/$FinalIM)    Opcodes/ACC_FINAL))
 
 (defn use-dummy-class [class-decl super-class interfaces ctor-args fields methods]
   (|do [module &/get-module-name

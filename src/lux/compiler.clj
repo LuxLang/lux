@@ -433,8 +433,8 @@
     (&o/$jvm-interface ?name ?supers ?anns ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?anns ?methods)
 
-    (&o/$jvm-class ?name ?super-class ?interfaces ?anns ?fields ?methods ??env ??ctor-args)
-    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?anns ?fields ?methods ??env ??ctor-args)
+    (&o/$jvm-class ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
+    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
 
     _
     (compile-expression syntax)))

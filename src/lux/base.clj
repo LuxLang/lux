@@ -116,9 +116,16 @@
    "PrivatePM"
    "ProtectedPM"])
 
+;; State Modifiers
 (deftags
   ["DefaultSM"
-   "VolatileSM"])
+   "VolatileSM"
+   "FinalSM"])
+
+;; Inheritance Modifiers
+(deftags
+  ["DefaultIM"
+   "FinalIM"])
 
 ;; Methods
 (deftags

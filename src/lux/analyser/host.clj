@@ -589,7 +589,7 @@
                               (&/|reverse ?inputs))))]
         (return (&/V &/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
-      (&/$VirtualMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
                                    (return (&/T [gvar ex]))))
@@ -605,7 +605,7 @@
                                     body*)))
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
-        (return (&/V &/$VirtualMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+        (return (&/V &/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [super-env (gen-super-env class-env all-supers ?class-decl)
@@ -688,7 +688,7 @@
       (|let [[am-name am-inputs] missing-method]
         (fail (str "[Analyser Error] Missing method: " am-name " " "(" (->> am-inputs (&/|interpose " ") (&/fold str "")) ")"))))))
 
-(defn analyse-jvm-class [analyse compile-token class-decl super-class interfaces =anns =fields methods]
+(defn analyse-jvm-class [analyse compile-token class-decl super-class interfaces =inheritance-modifier =anns =fields methods]
   (&/with-closure
     (|do [module &/get-module-name
           :let [[?name ?params] class-decl
@@ -701,7 +701,7 @@
           _ (&host/use-dummy-class class-decl super-class interfaces &/None$ =fields methods)
           =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
           _ (check-method-completion all-supers =methods)
-          _ (compile-token (&/V &&/$jvm-class (&/T [class-decl super-class interfaces =anns =fields =methods (&/|list) &/None$])))
+          _ (compile-token (&/V &&/$jvm-class (&/T [class-decl super-class interfaces =inheritance-modifier =anns =fields =methods (&/|list) &/None$])))
           :let [_ (println 'DEF full-name)]]
       (return &/Nil$))))
 
@@ -750,12 +750,12 @@
                                     (|let [[idx _] idx+capt]
                                       (&/T [(str &c!base/closure-prefix idx)
                                             (&/V &/$PublicPM &/unit-tag)
-                                            (&/V &/$DefaultSM &/unit-tag)
+                                            (&/V &/$FinalSM &/unit-tag)
                                             (&/|list)
                                             captured-slot-type])))
                                   (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
-            _ (compile-token (&/V &&/$jvm-class (&/T [class-decl super-class interfaces (&/|list) =fields =methods =captured (&/Some$ =ctor-args)])))
+            _ (compile-token (&/V &&/$jvm-class (&/T [class-decl super-class interfaces (&/V &/$DefaultIM &/unit-tag) (&/|list) =fields =methods =captured (&/Some$ =ctor-args)])))
             _cursor &/cursor]
         (return (&/|list (&&/|meta anon-class-type _cursor
                                    (&/V &&/$jvm-new (&/T [anon-class (&/|repeat (&/|length sources) captured-slot-class) sources]))

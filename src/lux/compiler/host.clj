@@ -524,11 +524,12 @@
                         (.visitEnd))]]
           (return nil))))
     
-    (&/$VirtualMethodAnalysis ?name ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
+    (&/$VirtualMethodAnalysis ?name ?privacy-modifier =final? ?anns ?gvars ?exceptions ?inputs ?output ?body)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (&host/privacy-modifier->flag ?privacy-modifier)
+                                   (+ (&host/privacy-modifier->flag ?privacy-modifier)
+                                      (if =final? Opcodes/ACC_FINAL 0))
                                    ?name
                                    simple-signature
                                    generic-signature
@@ -661,7 +662,7 @@
           (return nil)))))
   )
 
-(defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?anns ?fields ?methods env ??ctor-args]
+(defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?inheritance-modifier ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
         [file-name line column] &/cursor
         :let [[?name ?params] class-decl
@@ -669,7 +670,8 @@
               full-name (str module "/" ?name)
               super-class* (&host-generics/->bytecode-class-name (&host-generics/super-class-name ?super-class))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER
+                                                         (&host/inheritance-modifier->flag ?inheritance-modifier))
                                full-name (if (= "" class-signature) nil class-signature) super-class* (->> ?interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String)))
                        (.visitSource file-name nil))
               _ (&/|map (partial compile-annotation =class) ?anns)
