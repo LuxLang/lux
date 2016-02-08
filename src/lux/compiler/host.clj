@@ -612,6 +612,20 @@
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitEnd =method)]]
           (return nil))))
+
+    (&/$NativeMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
+    (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
+           [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
+      (&/with-writer (.visitMethod class-writer
+                                   (+ Opcodes/ACC_PUBLIC Opcodes/ACC_NATIVE)
+                                   ?name
+                                   simple-signature
+                                   generic-signature
+                                   (->> ?exceptions (&/|map &host-generics/->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        (|do [^MethodVisitor =method &/get-writer
+              :let [_ (&/|map (partial compile-annotation =method) ?anns)
+                    _ (.visitEnd =method)]]
+          (return nil))))
     ))
 
 (defn ^:private compile-method-decl [^ClassWriter class-writer =method-decl]

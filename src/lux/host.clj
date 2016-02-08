@@ -337,6 +337,16 @@
                           (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
         (.visitEnd)))
 
+    (&/$NativeMethodSyntax =name =anns =gvars =exceptions =inputs =output)
+    (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
+           [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
+      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_NATIVE)
+                          =name
+                          simple-signature
+                          generic-signature
+                          (->> =exceptions (&/|map &host-generics/gclass->bytecode-class-name) &/->seq (into-array java.lang.String)))
+        (.visitEnd)))
+
     _
     (assert false (println-str 'compile-dummy-method (&/adt->text method-def)))
     ))

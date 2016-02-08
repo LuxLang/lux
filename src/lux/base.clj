@@ -182,14 +182,16 @@
   ("VirtualMethodSyntax" 1)
   ("OverridenMethodSyntax" 1)
   ("StaticMethodSyntax" 1)
-  ("AbstractMethodSyntax" 1))
+  ("AbstractMethodSyntax" 1)
+  ("NativeMethodSyntax" 1))
 
 (defvariant
   ("ConstructorMethodAnalysis" 1)
   ("VirtualMethodAnalysis" 1)
   ("OverridenMethodAnalysis" 1)
   ("StaticMethodAnalysis" 1)
-  ("AbstractMethodAnalysis" 1))
+  ("AbstractMethodAnalysis" 1)
+  ("NativeMethodAnalysis" 1))
 
 ;; Meta-data
 (defvariant

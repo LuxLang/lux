@@ -645,6 +645,9 @@
 
       (&/$AbstractMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
       (return (&/$AbstractMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output])))
+
+      (&/$NativeMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
+      (return (&/$NativeMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output])))
       )))
 
 (defn ^:private mandatory-methods [supers]
@@ -669,6 +672,9 @@
                                       mmap
 
                                       (&/$AbstractMethodSyntax _)
+                                      mmap
+
+                                      (&/$NativeMethodSyntax _)
                                       mmap
                                       ))
                                   {}

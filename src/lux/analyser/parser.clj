@@ -304,12 +304,33 @@
     _
     (fail "")))
 
+(defn ^:private parse-method-native-def [ast]
+  (|case ast
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "native")]
+                          (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons [_ (&/$TupleS anns)]
+                                            (&/$Cons [_ (&/$TupleS gvars)]
+                                                     (&/$Cons [_ (&/$TupleS exceptions)]
+                                                              (&/$Cons [_ (&/$TupleS inputs)]
+                                                                       (&/$Cons output
+                                                                                (&/$Nil)))))))))]
+    (|do [=anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =output (parse-gclass output)]
+      (return (&/$NativeMethodSyntax (&/T [?name =anns =gvars =exceptions =inputs =output]))))
+
+    _
+    (fail "")))
+
 (defn parse-method-def [ast]
   (&/try-all% (&/|list #((parse-method-init-def ast) %)
                        #((parse-method-virtual-def ast) %)
                        #((parse-method-override-def ast) %)
                        #((parse-method-static-def ast) %)
                        #((parse-method-abstract-def ast) %)
+                       #((parse-method-native-def ast) %)
                        (fn [state]
                          (fail* (str "[Analyser Error] Invalid method definition: " (&/show-ast ast)))))))
 
