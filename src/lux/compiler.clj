@@ -219,8 +219,8 @@
         (&o/$jvm-getfield ?class ?field ?object ?output-type)
         (&&host/compile-jvm-getfield compile-expression ?class ?field ?object ?output-type)
 
-        (&o/$jvm-putstatic ?class ?field ?value input-gclass ?input-type)
-        (&&host/compile-jvm-putstatic compile-expression ?class ?field ?value input-gclass ?input-type)
+        (&o/$jvm-putstatic ?class ?field ?value input-gclass)
+        (&&host/compile-jvm-putstatic compile-expression ?class ?field ?value input-gclass)
 
         (&o/$jvm-putfield ?class ?field ?value input-gclass ?object ?input-type)
         (&&host/compile-jvm-putfield compile-expression ?class ?field ?object ?value input-gclass ?input-type)

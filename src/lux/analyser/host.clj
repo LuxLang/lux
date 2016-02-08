@@ -238,7 +238,7 @@
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-putstatic (&/T [class field =value gclass =type])))))))
+                               (&&/$jvm-putstatic (&/T [class field =value gclass])))))))
 
 (defn analyse-jvm-putfield [analyse exo-type class field value object]
   (|do [class-loader &/loader
@@ -694,7 +694,19 @@
       (|let [[am-name am-inputs] missing-method]
         (fail (str "[Analyser Error] Missing method: " am-name " " "(" (->> am-inputs (&/|interpose " ") (&/fold str "")) ")"))))))
 
-(defn analyse-jvm-class [analyse compile-token class-decl super-class interfaces =inheritance-modifier =anns =fields methods]
+(defn ^:private analyse-field [analyse gtype-env field]
+  "(-> Analyser GTypeEnv FieldSyntax (Lux FieldAnalysis))"
+  (|case field
+    (&/$ConstantFieldSyntax ?name ?anns ?gclass ?value)
+    (|do [=gtype (&host-type/instance-gtype &type/existential gtype-env ?gclass)
+          =value (&&/analyse-1 analyse =gtype ?value)]
+      (return (&/$ConstantFieldAnalysis ?name ?anns ?gclass =value)))
+    
+    (&/$VariableFieldSyntax ?name ?privacy-modifier ?state-modifier ?anns ?type)
+    (return (&/$VariableFieldAnalysis ?name ?privacy-modifier ?state-modifier ?anns ?type))
+    ))
+
+(defn analyse-jvm-class [analyse compile-token class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
   (&/with-closure
     (|do [module &/get-module-name
           :let [[?name ?params] class-decl
@@ -704,6 +716,7 @@
                               (|do [ex &type/existential]
                                 (return (&/T [gvar ex]))))
                             ?params)
+          =fields (&/map% (partial analyse-field analyse class-env) ?fields)
           _ (&host/use-dummy-class class-decl super-class interfaces &/$None =fields methods)
           =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
           _ (check-method-completion all-supers =methods)
@@ -755,11 +768,11 @@
             =captured &&env/captured-vars
             :let [=fields (&/|map (fn [^objects idx+capt]
                                     (|let [[idx _] idx+capt]
-                                      (&/T [(str &c!base/closure-prefix idx)
-                                            &/$PublicPM
-                                            &/$FinalSM
-                                            &/$Nil
-                                            captured-slot-type])))
+                                      (&/$VariableFieldAnalysis (str &c!base/closure-prefix idx)
+                                                                &/$PublicPM
+                                                                &/$FinalSM
+                                                                &/$Nil
+                                                                captured-slot-type)))
                                   (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
             _ (compile-token (&&/$jvm-class (&/T [class-decl super-class interfaces &/$DefaultIM &/$Nil =fields =methods =captured (&/$Some =ctor-args)])))

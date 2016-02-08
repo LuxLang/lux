@@ -315,17 +315,28 @@
 
 (defn parse-field [ast]
   (|case ast
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS ?name)]
-                          (&/$Cons ?privacy-modifier
-                                   (&/$Cons ?state-modifier
-                                            (&/$Cons [_ (&/$TupleS ?anns)]
-                                                     (&/$Cons ?type
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "constant")]
+                          (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons [_ (&/$TupleS ?anns)]
+                                            (&/$Cons ?type
+                                                     (&/$Cons ?value
                                                               (&/$Nil)))))))]
+    (|do [=anns (&/map% parse-ann ?anns)
+          =type (parse-gclass ?type)]
+      (return (&/$ConstantFieldSyntax ?name =anns =type ?value)))
+
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "variable")]
+                          (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons ?privacy-modifier
+                                            (&/$Cons ?state-modifier
+                                                     (&/$Cons [_ (&/$TupleS ?anns)]
+                                                              (&/$Cons ?type
+                                                                       (&/$Nil))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =state-modifier (parse-state-modifier ?state-modifier)
           =anns (&/map% parse-ann ?anns)
           =type (parse-gclass ?type)]
-      (return (&/T [?name =privacy-modifier =state-modifier =anns =type])))
+      (return (&/$VariableFieldSyntax ?name =privacy-modifier =state-modifier =anns =type)))
     
     _
     (fail (str "[Analyser Error] Invalid field declaration: " (&/show-ast ast)))))

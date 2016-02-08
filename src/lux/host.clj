@@ -376,12 +376,21 @@
                                (&host-generics/->bytecode-class-name (&host-generics/super-class-name super-class))
                                (->> interfaces (&/|map (comp &host-generics/->bytecode-class-name &host-generics/super-class-name)) &/->seq (into-array String))))
               _ (&/|map (fn [field]
-                          (|let [[=name =privacy-modifier =state-modifier =anns =type] field]
+                          (|case field
+                            (&/$ConstantFieldAnalysis =name =anns =type ?value)
+                            (doto (.visitField =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC Opcodes/ACC_FINAL) =name
+                                               (&host-generics/gclass->simple-signature =type)
+                                               (&host-generics/gclass->signature =type)
+                                               nil)
+                              (.visitEnd))
+                            
+                            (&/$VariableFieldAnalysis =name =privacy-modifier =state-modifier =anns =type)
                             (doto (.visitField =class (+ Opcodes/ACC_PUBLIC (state-modifier->flag =state-modifier)) =name
                                                (&host-generics/gclass->simple-signature =type)
                                                (&host-generics/gclass->signature =type)
                                                nil)
-                              (.visitEnd))))
+                              (.visitEnd))
+                            ))
                         fields)
               _ (&/|map (partial compile-dummy-method =class super-class) methods)
               bytecode (.toByteArray (doto =class .visitEnd))]

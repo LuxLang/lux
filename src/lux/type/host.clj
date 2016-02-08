@@ -271,3 +271,30 @@
         (if-let [bound (->> ^WildcardType gtype .getUpperBounds seq first)]
           (gtype->gclass bound)
           &/$GenericWildcard)))
+
+(let [generic-type-sig "Ljava/lang/Object;"]
+  (defn gclass->sig [gclass]
+    "(-> GenericClass Text)"
+    (|case gclass
+      (&/$GenericClass gclass-name (&/$Nil))
+      (|case gclass-name
+        "void"    "V"
+        "boolean" "Z"
+        "byte"    "B"
+        "short"   "S"
+        "int"     "I"
+        "long"    "J"
+        "float"   "F"
+        "double"  "D"
+        "char"    "C"
+        _ (str "L" (clojure.string/replace gclass-name #"\." "/") ";"))
+
+      (&/$GenericArray inner-gtype)
+      (str "[" (gclass->sig inner-gtype))
+
+      (&/$GenericTypeVar ?vname)
+      generic-type-sig
+
+      (&/$GenericWildcard)
+      generic-type-sig
+      )))

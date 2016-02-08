@@ -167,6 +167,15 @@
   ("AbstractIM" 0)
   ("FinalIM" 0))
 
+;; Fields
+(defvariant
+  ("ConstantFieldSyntax" 4)
+  ("VariableFieldSyntax" 5))
+
+(defvariant
+  ("ConstantFieldAnalysis" 4)
+  ("VariableFieldAnalysis" 5))
+
 ;; Methods
 (defvariant
   ("ConstructorMethodSyntax" 1)

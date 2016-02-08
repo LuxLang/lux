@@ -394,11 +394,11 @@
                   (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn compile-jvm-putstatic [compile ?class ?field ?value input-gclass ?input-type]
+(defn compile-jvm-putstatic [compile ?class ?field ?value input-gclass]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
-        =input-sig (&host/->java-sig ?input-type)
-        :let [_ (doto *writer*
+        :let [=input-sig (&host-type/gclass->sig input-gclass)
+              _ (doto *writer*
                   (prepare-arg! (&host-generics/gclass->class-name input-gclass))
                   (.visitFieldInsn Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =input-sig)
                   (.visitInsn Opcodes/ACONST_NULL))]]
@@ -435,16 +435,28 @@
   nil)
 
 (defn ^:private compile-field [^ClassWriter writer field]
-  (|let [[=name =privacy-modifier =state-modifier =anns =type] field
-         =field (.visitField writer
-                             (+ (&host/privacy-modifier->flag =privacy-modifier)
-                                (&host/state-modifier->flag =state-modifier))
-                             =name
-                             (&host-generics/gclass->simple-signature =type)
-                             (&host-generics/gclass->signature =type) nil)]
-    (do (&/|map (partial compile-annotation =field) =anns)
-      (.visitEnd =field)
-      nil)))
+  (|case field
+    (&/$ConstantFieldSyntax ?name ?anns ?gclass ?value)
+    (|let [=field (.visitField writer
+                               (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC Opcodes/ACC_FINAL)
+                               ?name
+                               (&host-generics/gclass->simple-signature ?gclass)
+                               (&host-generics/gclass->signature ?gclass) nil)]
+      (do (&/|map (partial compile-annotation =field) ?anns)
+        (.visitEnd =field)
+        nil))
+    
+    (&/$VariableFieldSyntax =name =privacy-modifier =state-modifier =anns =type)
+    (|let [=field (.visitField writer
+                               (+ (&host/privacy-modifier->flag =privacy-modifier)
+                                  (&host/state-modifier->flag =state-modifier))
+                               =name
+                               (&host-generics/gclass->simple-signature =type)
+                               (&host-generics/gclass->signature =type) nil)]
+      (do (&/|map (partial compile-annotation =field) =anns)
+        (.visitEnd =field)
+        nil))
+    ))
 
 (defn ^:private compile-method-return [^MethodVisitor writer output]
   (|case output
@@ -680,6 +692,20 @@
           (return nil)))))
   )
 
+(defn ^:private constant-inits [fields]
+  "(-> (List FieldAnalysis) (List [Text GenericClass Analysis]))"
+  (&/fold &/|++
+          &/$Nil
+          (&/|map (fn [field]
+                    (|case field
+                      (&/$ConstantFieldSyntax ?name ?anns ?gclass ?value)
+                      (&/|list (&/T [?name ?gclass ?value]))
+                      
+                      (&/$VariableFieldSyntax _)
+                      (&/|list)
+                      ))
+                  fields)))
+
 (defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?inheritance-modifier ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
         [file-name line column] &/cursor
@@ -701,7 +727,20 @@
             (add-anon-class-<init> =class compile full-name ?super-class env ctor-args)
 
             _
-            (return nil))]
+            (return nil))
+        _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+            (|do [^MethodVisitor =method &/get-writer
+                  :let [_ (doto =method
+                            (.visitCode))]
+                  _ (&/map% (fn [ftriple]
+                              (|let [[fname fgclass fvalue] ftriple]
+                                (compile-jvm-putstatic compile ?name fname fvalue fgclass)))
+                            (constant-inits ?fields))
+                  :let [_ (doto =method
+                            (.visitInsn Opcodes/RETURN)
+                            (.visitMaxs 0 0)
+                            (.visitEnd))]]
+              (return nil)))]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
 (defn compile-jvm-interface [compile interface-decl ?supers ?anns ?methods]
