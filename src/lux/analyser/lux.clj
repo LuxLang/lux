@@ -367,7 +367,7 @@
   (|do [:let [[[=fn-type =fn-cursor] =fn-form] =fn]
         [=output-t =args] (analyse-apply* analyse exo-type =fn-type ?args)]
     (return (&/|list (&&/|meta =output-t =fn-cursor
-                               (&&/$apply (&/T [=fn =args]))
+                               (&&/$apply =fn =args)
                                )))))
 
 (defn analyse-apply [analyse exo-type =fn ?args]
@@ -380,13 +380,14 @@
           (&/$Some _)
           (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
                 :let [[r-prefix r-name] real-name
-                      _ (when (or (= "defclass" r-name)
-                                  ;; (= "@type" r-name)
-                                  )
-                          (->> (&/|map &/show-ast macro-expansion)
-                               (&/|interpose "\n")
-                               (&/fold str "")
-                               (prn (&/ident->text real-name))))]
+                      ;; _ (when (or (= "defclass" r-name)
+                      ;;             ;; (= "@type" r-name)
+                      ;;             )
+                      ;;     (->> (&/|map &/show-ast macro-expansion)
+                      ;;          (&/|interpose "\n")
+                      ;;          (&/fold str "")
+                      ;;          (prn (&/ident->text real-name))))
+                      ]
                 ]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
@@ -411,7 +412,7 @@
         =match (&&case/analyse-branches analyse exo-type var?? (&&/expr-type* =value) (&/|as-pairs ?branches))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$case (&/T [=value =match]))
+                               (&&/$case =value =match)
                                )))))
 
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
@@ -468,7 +469,7 @@
                                            (&&/analyse-1 analyse ?return-t ?body))
                 _cursor &/cursor]
             (return (&&/|meta exo-type* _cursor
-                              (&&/$lambda (&/T [=scope =captured =body])))))
+                              (&&/$lambda =scope =captured =body))))
 
           
           
@@ -515,7 +516,7 @@
             ==meta (eval! =meta)
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-token (&&/$def (&/T [?name =value ==meta])))]
+            _ (compile-token (&&/$def ?name =value ==meta))]
         (return &/$Nil))
       )))
 
@@ -546,7 +547,7 @@
         =value (&&/analyse-1 analyse ==type ?value)
         _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
-                               (&&/$ann (&/T [=value =type ==type]))
+                               (&&/$ann =value =type ==type)
                                )))))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
@@ -556,5 +557,5 @@
         =value (&&/analyse-1+ analyse ?value)
         _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
-                               (&&/$coerce (&/T [=value =type ==type]))
+                               (&&/$coerce =value =type ==type)
                                )))))

@@ -195,19 +195,20 @@
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "init")]
                           (&/$Cons ?privacy-modifier
-                                   (&/$Cons [_ (&/$TupleS anns)]
-                                            (&/$Cons [_ (&/$TupleS gvars)]
-                                                     (&/$Cons [_ (&/$TupleS exceptions)]
-                                                              (&/$Cons [_ (&/$TupleS inputs)]
-                                                                       (&/$Cons [_ (&/$TupleS ?ctor-args)]
-                                                                                (&/$Cons body (&/$Nil))))))))))]
+                                   (&/$Cons [_ (&/$BoolS ?strict)]
+                                            (&/$Cons [_ (&/$TupleS anns)]
+                                                     (&/$Cons [_ (&/$TupleS gvars)]
+                                                              (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                       (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                (&/$Cons [_ (&/$TupleS ?ctor-args)]
+                                                                                         (&/$Cons body (&/$Nil)))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
-      (return (&/$ConstructorMethodSyntax (&/T [=privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body]))))
+      (return (&/$ConstructorMethodSyntax (&/T [=privacy-modifier ?strict =anns =gvars =exceptions =inputs =ctor-args body]))))
 
     _
     (fail "")))
@@ -218,6 +219,54 @@
                           (&/$Cons [_ (&/$TextS ?name)]
                                    (&/$Cons ?privacy-modifier
                                             (&/$Cons [_ (&/$BoolS =final?)]
+                                                     (&/$Cons [_ (&/$BoolS ?strict)]
+                                                              (&/$Cons [_ (&/$TupleS anns)]
+                                                                       (&/$Cons [_ (&/$TupleS gvars)]
+                                                                                (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                                         (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                                  (&/$Cons output
+                                                                                                           (&/$Cons body (&/$Nil)))))))))))))]
+    (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
+          =anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =output (parse-gclass output)]
+      (return (&/$VirtualMethodSyntax (&/T [?name =privacy-modifier =final? ?strict =anns =gvars =exceptions =inputs =output body]))))
+
+    _
+    (fail "")))
+
+(defn ^:private parse-method-override-def [ast]
+  (|case ast
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "override")]
+                          (&/$Cons ?class-decl
+                                   (&/$Cons ?name
+                                            (&/$Cons [_ (&/$BoolS ?strict)]
+                                                     (&/$Cons [_ (&/$TupleS anns)]
+                                                              (&/$Cons [_ (&/$TupleS gvars)]
+                                                                       (&/$Cons [_ (&/$TupleS exceptions)]
+                                                                                (&/$Cons [_ (&/$TupleS inputs)]
+                                                                                         (&/$Cons output
+                                                                                                  (&/$Cons body (&/$Nil))))))))))))]
+    (|do [=name (parse-text ?name)
+          =class-decl (parse-gclass-decl ?class-decl)
+          =anns (&/map% parse-ann anns)
+          =gvars (&/map% parse-text gvars)
+          =exceptions (&/map% parse-gclass exceptions)
+          =inputs (&/map% parse-arg-decl inputs)
+          =output (parse-gclass output)]
+      (return (&/$OverridenMethodSyntax (&/T [=class-decl =name ?strict =anns =gvars =exceptions =inputs =output body]))))
+    
+    _
+    (fail "")))
+
+(defn ^:private parse-method-static-def [ast]
+  (|case ast
+    [_ (&/$FormS (&/$Cons [_ (&/$TextS "static")]
+                          (&/$Cons [_ (&/$TextS ?name)]
+                                   (&/$Cons ?privacy-modifier
+                                            (&/$Cons [_ (&/$BoolS ?strict)]
                                                      (&/$Cons [_ (&/$TupleS anns)]
                                                               (&/$Cons [_ (&/$TupleS gvars)]
                                                                        (&/$Cons [_ (&/$TupleS exceptions)]
@@ -230,52 +279,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/$VirtualMethodSyntax (&/T [?name =privacy-modifier =final? =anns =gvars =exceptions =inputs =output body]))))
-
-    _
-    (fail "")))
-
-(defn ^:private parse-method-override-def [ast]
-  (|case ast
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS "override")]
-                          (&/$Cons ?class-decl
-                                   (&/$Cons ?name
-                                            (&/$Cons [_ (&/$TupleS anns)]
-                                                     (&/$Cons [_ (&/$TupleS gvars)]
-                                                              (&/$Cons [_ (&/$TupleS exceptions)]
-                                                                       (&/$Cons [_ (&/$TupleS inputs)]
-                                                                                (&/$Cons output
-                                                                                         (&/$Cons body (&/$Nil)))))))))))]
-    (|do [=name (parse-text ?name)
-          =class-decl (parse-gclass-decl ?class-decl)
-          =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
-          =exceptions (&/map% parse-gclass exceptions)
-          =inputs (&/map% parse-arg-decl inputs)
-          =output (parse-gclass output)]
-      (return (&/$OverridenMethodSyntax (&/T [=class-decl =name =anns =gvars =exceptions =inputs =output body]))))
-    
-    _
-    (fail "")))
-
-(defn ^:private parse-method-static-def [ast]
-  (|case ast
-    [_ (&/$FormS (&/$Cons [_ (&/$TextS "static")]
-                          (&/$Cons [_ (&/$TextS ?name)]
-                                   (&/$Cons ?privacy-modifier
-                                            (&/$Cons [_ (&/$TupleS anns)]
-                                                     (&/$Cons [_ (&/$TupleS gvars)]
-                                                              (&/$Cons [_ (&/$TupleS exceptions)]
-                                                                       (&/$Cons [_ (&/$TupleS inputs)]
-                                                                                (&/$Cons output
-                                                                                         (&/$Cons body (&/$Nil)))))))))))]
-    (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
-          =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
-          =exceptions (&/map% parse-gclass exceptions)
-          =inputs (&/map% parse-arg-decl inputs)
-          =output (parse-gclass output)]
-      (return (&/$StaticMethodSyntax (&/T [?name =privacy-modifier =anns =gvars =exceptions =inputs =output body]))))
+      (return (&/$StaticMethodSyntax (&/T [?name =privacy-modifier ?strict =anns =gvars =exceptions =inputs =output body]))))
 
     _
     (fail "")))

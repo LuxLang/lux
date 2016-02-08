@@ -273,7 +273,7 @@
 
 (defn ^:private compile-dummy-method [^ClassWriter =class super-class method-def]
   (|case method-def
-    (&/$ConstructorMethodSyntax =privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body)
+    (&/$ConstructorMethodSyntax =privacy-modifier ?strict =anns =gvars =exceptions =inputs =ctor-args body)
     (|let [=output (&/$GenericClass "void" (&/|list))
            method-decl [init-method-name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
@@ -287,7 +287,7 @@
         (.visitMaxs 0 0)
         (.visitEnd)))
 
-    (&/$VirtualMethodSyntax =name =privacy-modifier =final? =anns =gvars =exceptions =inputs =output body)
+    (&/$VirtualMethodSyntax =name =privacy-modifier =final? ?strict =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC
@@ -301,7 +301,7 @@
         (.visitMaxs 0 0)
         (.visitEnd)))
     
-    (&/$OverridenMethodSyntax =class-decl =name =anns =gvars =exceptions =inputs =output body)
+    (&/$OverridenMethodSyntax =class-decl =name ?strict =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class Opcodes/ACC_PUBLIC
@@ -314,7 +314,7 @@
         (.visitMaxs 0 0)
         (.visitEnd)))
 
-    (&/$StaticMethodSyntax =name =privacy-modifier =anns =gvars =exceptions =inputs =output body)
+    (&/$StaticMethodSyntax =name =privacy-modifier ?strict =anns =gvars =exceptions =inputs =output body)
     (|let [method-decl [=name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)

@@ -496,12 +496,13 @@
 
 (defn ^:private compile-method-def [compile ^ClassWriter class-writer ?super-class method-def]
   (|case method-def
-    (&/$ConstructorMethodAnalysis ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
+    (&/$ConstructorMethodAnalysis ?privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
     (|let [?output (&/$GenericClass "void" (&/|list))
            =method-decl (&/T [init-method ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (&host/privacy-modifier->flag ?privacy-modifier)
+                                   (+ (&host/privacy-modifier->flag ?privacy-modifier)
+                                      (if ?strict Opcodes/ACC_STRICT 0))
                                    init-method
                                    simple-signature
                                    generic-signature
@@ -524,12 +525,13 @@
                         (.visitEnd))]]
           (return nil))))
     
-    (&/$VirtualMethodAnalysis ?name ?privacy-modifier =final? ?anns ?gvars ?exceptions ?inputs ?output ?body)
+    (&/$VirtualMethodAnalysis ?name ?privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
                                    (+ (&host/privacy-modifier->flag ?privacy-modifier)
-                                      (if =final? Opcodes/ACC_FINAL 0))
+                                      (if =final? Opcodes/ACC_FINAL 0)
+                                      (if ?strict Opcodes/ACC_STRICT 0))
                                    ?name
                                    simple-signature
                                    generic-signature
@@ -544,11 +546,12 @@
                         (.visitEnd))]]
           (return nil))))
     
-    (&/$OverridenMethodAnalysis ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
+    (&/$OverridenMethodAnalysis ?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   Opcodes/ACC_PUBLIC
+                                   (+ Opcodes/ACC_PUBLIC
+                                      (if ?strict Opcodes/ACC_STRICT 0))
                                    ?name
                                    simple-signature
                                    generic-signature
@@ -563,11 +566,12 @@
                         (.visitEnd))]]
           (return nil))))
 
-    (&/$StaticMethodAnalysis ?name ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
+    (&/$StaticMethodAnalysis ?name ?privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
                                    (+ (&host/privacy-modifier->flag ?privacy-modifier)
+                                      (if ?strict Opcodes/ACC_STRICT 0)
                                       Opcodes/ACC_STATIC)
                                    ?name
                                    simple-signature

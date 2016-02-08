@@ -565,7 +565,7 @@
   (|let [[?cname ?cparams] class-decl
          class-type (&/$DataT ?cname (&/|map &/|second class-env))]
     (|case method
-      (&/$ConstructorMethodSyntax =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
+      (&/$ConstructorMethodSyntax =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
       (|do [method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
                                    (return (&/T [gvar ex]))))
@@ -587,9 +587,9 @@
                                     body*)))
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
-        (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
+        (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
-      (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
                                    (return (&/T [gvar ex]))))
@@ -605,9 +605,9 @@
                                     body*)))
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
-        (return (&/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+        (return (&/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       
-      (&/$OverridenMethodSyntax ?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (&/$OverridenMethodSyntax ?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [super-env (gen-super-env class-env all-supers ?class-decl)
             method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
@@ -624,9 +624,9 @@
                                     body*)))
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
-        (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+        (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
-      (&/$StaticMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output ?body)
+      (&/$StaticMethodSyntax ?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [method-env (&/map% (fn [gvar]
                                  (|do [ex &type/existential]
                                    (return (&/T [gvar ex]))))
@@ -641,7 +641,7 @@
                                   body*)))
                             (&&/analyse-1 analyse output-type ?body)
                             (&/|reverse ?inputs)))]
-        (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output =body]))))
+        (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$AbstractMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
       (return (&/$AbstractMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output])))
@@ -662,7 +662,7 @@
                                       (&/$VirtualMethodAnalysis _)
                                       mmap
                                       
-                                      (&/$OverridenMethodAnalysis =class-decl =name =anns =gvars =exceptions =inputs =output body)
+                                      (&/$OverridenMethodAnalysis =class-decl =name ?strict =anns =gvars =exceptions =inputs =output body)
                                       (assoc mmap =name =inputs)
 
                                       (&/$StaticMethodAnalysis _)
@@ -723,6 +723,7 @@
     source))
 
 (let [default-<init> (&/$ConstructorMethodSyntax (&/T [&/$PublicPM
+                                                       false
                                                        &/$Nil
                                                        &/$Nil
                                                        &/$Nil
