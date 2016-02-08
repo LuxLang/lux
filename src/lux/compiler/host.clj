@@ -599,11 +599,12 @@
                         (.visitEnd))]]
           (return nil))))
 
-    (&/$AbstractMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
+    (&/$AbstractMethodSyntax ?name ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT)
+                                   (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT
+                                      (&host/privacy-modifier->flag ?privacy-modifier))
                                    ?name
                                    simple-signature
                                    generic-signature
@@ -613,11 +614,12 @@
                     _ (.visitEnd =method)]]
           (return nil))))
 
-    (&/$NativeMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
+    (&/$NativeMethodSyntax ?name ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (+ Opcodes/ACC_PUBLIC Opcodes/ACC_NATIVE)
+                                   (+ Opcodes/ACC_PUBLIC Opcodes/ACC_NATIVE
+                                      (&host/privacy-modifier->flag ?privacy-modifier))
                                    ?name
                                    simple-signature
                                    generic-signature

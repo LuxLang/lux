@@ -643,11 +643,11 @@
                             (&/|reverse ?inputs)))]
         (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
-      (&/$AbstractMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
-      (return (&/$AbstractMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output])))
+      (&/$AbstractMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
+      (return (&/$AbstractMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output])))
 
-      (&/$NativeMethodSyntax ?name ?anns ?gvars ?exceptions ?inputs ?output)
-      (return (&/$NativeMethodAnalysis (&/T [?name ?anns ?gvars ?exceptions ?inputs ?output])))
+      (&/$NativeMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
+      (return (&/$NativeMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output])))
       )))
 
 (defn ^:private mandatory-methods [supers]
