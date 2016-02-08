@@ -6,27 +6,27 @@
 (ns lux.lexer
   (:require (clojure [template :refer [do-template]]
                      [string :as string])
-            (lux [base :as & :refer [deftags |do return* return fail fail*]]
+            (lux [base :as & :refer [defvariant |do return* return fail fail*]]
                  [reader :as &reader])
             [lux.analyser.module :as &module]))
 
 ;; [Tags]
-(deftags
-  ["White_Space"
-   "Comment"
-   "Bool"
-   "Int"
-   "Real"
-   "Char"
-   "Text"
-   "Symbol"
-   "Tag"
-   "Open_Paren"
-   "Close_Paren"
-   "Open_Bracket"
-   "Close_Bracket"
-   "Open_Brace"
-   "Close_Brace"]
+(defvariant
+  ("White_Space" 1)
+  ("Comment" 1)
+  ("Bool" 1)
+  ("Int" 1)
+  ("Real" 1)
+  ("Char" 1)
+  ("Text" 1)
+  ("Symbol" 1)
+  ("Tag" 1)
+  ("Open_Paren" 0)
+  ("Close_Paren" 0)
+  ("Open_Bracket" 0)
+  ("Close_Bracket" 0)
+  ("Open_Brace" 0)
+  ("Close_Brace" 0)
   )
 
 ;; [Utils]
@@ -83,7 +83,7 @@
         :let [[_ _ _column] meta]
         token (lex-text-body (inc _column))
         _ (&reader/read-text "\"")]
-    (return (&/T [meta (&/V $Text token)]))))
+    (return (&/T [meta ($Text token)]))))
 
 (def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)"
   ;; #"^([^0-9\[\]\(\)\{\};#\s\"][^\[\]\(\)\{\};#\s\"]*)"
@@ -92,12 +92,12 @@
 ;; [Lexers]
 (def ^:private lex-white-space
   (|do [[meta _ white-space] (&reader/read-regex #"^(\s+|$)")]
-    (return (&/T [meta (&/V $White_Space white-space)]))))
+    (return (&/T [meta ($White_Space white-space)]))))
 
 (def ^:private lex-single-line-comment
   (|do [_ (&reader/read-text "##")
         [meta _ comment] (&reader/read-regex #"^(.*)$")]
-    (return (&/T [meta (&/V $Comment comment)]))))
+    (return (&/T [meta ($Comment comment)]))))
 
 (defn ^:private lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
@@ -108,7 +108,7 @@
                                                   [_ post] (&reader/read-regex+ #"(?is)^((?!\)#).)*")]
                                               (return (&/T [meta (str pre "#(" inner ")#" post)])))))
         _ (&reader/read-text ")#")]
-    (return (&/T [meta (&/V $Comment comment)]))))
+    (return (&/T [meta ($Comment comment)]))))
 
 (def ^:private lex-comment
   (&/try-all% (&/|list lex-single-line-comment
@@ -117,7 +117,7 @@
 (do-template [<name> <tag> <regex>]
   (def <name>
     (|do [[meta _ token] (&reader/read-regex <regex>)]
-      (return (&/T [meta (&/V <tag> token)]))))
+      (return (&/T [meta (<tag> token)]))))
 
   ^:private lex-bool  $Bool  #"^(true|false)"
   ^:private lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
@@ -131,7 +131,7 @@
                                    (|do [[_ _ char] (&reader/read-regex #"^(.)")]
                                      (return char))))
         _ (&reader/read-text "\"")]
-    (return (&/T [meta (&/V $Char token)]))))
+    (return (&/T [meta ($Char token)]))))
 
 (def ^:private lex-ident
   (&/try-all% (&/|list (|do [[meta _ token] (&reader/read-regex +ident-re+)]
@@ -155,17 +155,17 @@
 
 (def ^:private lex-symbol
   (|do [[meta ident] lex-ident]
-    (return (&/T [meta (&/V $Symbol ident)]))))
+    (return (&/T [meta ($Symbol ident)]))))
 
 (def ^:private lex-tag
   (|do [[meta _ _] (&reader/read-text "#")
         [_ ident] lex-ident]
-    (return (&/T [meta (&/V $Tag ident)]))))
+    (return (&/T [meta ($Tag ident)]))))
 
 (do-template [<name> <text> <tag>]
   (def <name>
     (|do [[meta _ _] (&reader/read-text <text>)]
-      (return (&/T [meta (&/V <tag> &/unit-tag)]))))
+      (return (&/T [meta <tag>]))))
 
   ^:private lex-open-paren    "(" $Open_Paren
   ^:private lex-close-paren   ")" $Close_Paren

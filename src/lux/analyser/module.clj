@@ -9,14 +9,14 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]]
+            (lux [base :as & :refer [deftuple |let |do return return* fail fail* |case]]
                  [type :as &type]
                  [host :as &host])
             [lux.host.generics :as &host-generics]
             (lux.analyser [meta :as &meta])))
 
 ;; [Utils]
-(deftags
+(deftuple
   ["module-aliases"
    "defs"
    "imports"
@@ -29,7 +29,7 @@
         ;; "lux;defs"
         (&/|table)
         ;; "lux;imports"
-        &/Nil$
+        &/$Nil
         ;; "lux;tags"
         (&/|table)
         ;; "lux;types"
@@ -44,7 +44,7 @@
       (return* (&/update$ &/$modules
                           (fn [ms]
                             (&/|update current-module
-                                       (fn [m] (&/update$ $imports (partial &/Cons$ module) m))
+                                       (fn [m] (&/update$ $imports (partial &/$Cons module) m))
                                        ms))
                           state)
                nil))))

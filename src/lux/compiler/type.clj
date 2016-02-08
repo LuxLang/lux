@@ -14,19 +14,20 @@
 ;; [Utils]
 (defn ^:private variant$ [tag body]
   "(-> Int Analysis Analysis)"
-  (&a/|meta &type/$Void &/empty-cursor
-            (&/V &a/$variant (&/T [tag false body]))))
+  (let [tag-meta (meta tag)]
+    (&a/|meta &/$VoidT &/empty-cursor
+              (&a/$variant (::&/idx tag-meta) (::&/is-last? tag-meta) body))))
 
 (defn ^:private tuple$ [members]
   "(-> (List Analysis) Analysis)"
-  (&a/|meta &type/$Void &/empty-cursor
-            (&/V &a/$tuple members)))
+  (&a/|meta &/$VoidT &/empty-cursor
+            (&a/$tuple members)))
 
 (do-template [<name> <tag> <doc>]
   (defn <name> [value]
     <doc>
-    (&a/|meta &type/$Void &/empty-cursor
-              (&/V <tag> value)))
+    (&a/|meta &/$VoidT &/empty-cursor
+              (<tag> value)))
 
   ^:private bool$ &a/$bool "(-> Bool Analysis)"
   ^:private int$  &a/$int  "(-> Int Analysis)"
@@ -42,11 +43,11 @@
 
 (def ^:private $Nil
   "Analysis"
-  (variant$ &/$Nil (tuple$ &/Nil$)))
+  (variant$ #'&/$Nil (tuple$ &/$Nil)))
 
 (defn ^:private Cons$ [head tail]
   "(-> Analysis Analysis Analysis)"
-  (variant$ &/$Cons (tuple$ (&/|list head tail))))
+  (variant$ #'&/$Cons (tuple$ (&/|list head tail))))
 
 (defn ^:private List$ [elems]
   (&/fold (fn [tail head]
@@ -59,38 +60,38 @@
   "(-> Type Analysis)"
   (|case type
     (&/$DataT class params)
-    (variant$ &/$DataT (tuple$ (&/|list (text$ class)
-                                        (List$ (&/|map type->analysis params)))))
+    (variant$ #'&/$DataT (tuple$ (&/|list (text$ class)
+                                          (List$ (&/|map type->analysis params)))))
 
     (&/$VoidT)
-    (variant$ &/$VoidT (tuple$ (&/|list)))
+    (variant$ #'&/$VoidT (tuple$ (&/|list)))
 
     (&/$UnitT)
-    (variant$ &/$UnitT (tuple$ (&/|list)))
+    (variant$ #'&/$UnitT (tuple$ (&/|list)))
     
     (&/$ProdT left right)
-    (variant$ &/$ProdT (tuple$ (&/|list (type->analysis left) (type->analysis right))))
+    (variant$ #'&/$ProdT (tuple$ (&/|list (type->analysis left) (type->analysis right))))
 
     (&/$SumT left right)
-    (variant$ &/$SumT (tuple$ (&/|list (type->analysis left) (type->analysis right))))
+    (variant$ #'&/$SumT (tuple$ (&/|list (type->analysis left) (type->analysis right))))
 
     (&/$LambdaT input output)
-    (variant$ &/$LambdaT (tuple$ (&/|list (type->analysis input) (type->analysis output))))
+    (variant$ #'&/$LambdaT (tuple$ (&/|list (type->analysis input) (type->analysis output))))
 
     (&/$UnivQ env body)
-    (variant$ &/$UnivQ
+    (variant$ #'&/$UnivQ
               (tuple$ (&/|list (List$ (&/|map type->analysis env))
                                (type->analysis body))))
 
     (&/$BoundT idx)
-    (variant$ &/$BoundT (int$ idx))
+    (variant$ #'&/$BoundT (int$ idx))
 
     (&/$AppT fun arg)
-    (variant$ &/$AppT (tuple$ (&/|list (type->analysis fun) (type->analysis arg))))
+    (variant$ #'&/$AppT (tuple$ (&/|list (type->analysis fun) (type->analysis arg))))
 
     (&/$NamedT [module name] type*)
-    (variant$ &/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ module) (text$ name)))
-                                         (type->analysis type*))))
+    (variant$ #'&/$NamedT (tuple$ (&/|list (tuple$ (&/|list (text$ module) (text$ name)))
+                                           (type->analysis type*))))
 
     _
     (assert false (prn 'type->analysis (&/adt->text type)))
@@ -100,28 +101,28 @@
   "(-> DefMetaValue Analysis)"
   (|case dmv
     (&/$BoolM value)
-    (variant$ &/$BoolM (bool$ value))
+    (variant$ #'&/$BoolM (bool$ value))
     
     (&/$IntM value)
-    (variant$ &/$IntM (int$ value))
+    (variant$ #'&/$IntM (int$ value))
 
     (&/$RealM value)
-    (variant$ &/$RealM (real$ value))
+    (variant$ #'&/$RealM (real$ value))
 
     (&/$CharM value)
-    (variant$ &/$CharM (char$ value))
+    (variant$ #'&/$CharM (char$ value))
 
     (&/$TextM value)
-    (variant$ &/$TextM (text$ value))
+    (variant$ #'&/$TextM (text$ value))
 
     (&/$IdentM value)
-    (variant$ &/$IdentM (ident$ value))
+    (variant$ #'&/$IdentM (ident$ value))
 
     (&/$ListM xs)
-    (variant$ &/$ListM (List$ (&/|map defmetavalue->analysis xs)))
+    (variant$ #'&/$ListM (List$ (&/|map defmetavalue->analysis xs)))
     
     (&/$DictM kvs)
-    (variant$ &/$DictM
+    (variant$ #'&/$DictM
               (List$ (&/|map (fn [kv]
                                (|let [[k v] kv]
                                  (tuple$ (&/|list (text$ k)

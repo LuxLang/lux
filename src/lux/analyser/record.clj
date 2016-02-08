@@ -6,7 +6,7 @@
 (ns lux.analyser.record
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |let |do return fail |case]]
+            (lux [base :as & :refer [|let |do return fail |case]]
                  [type :as &type])
             (lux.analyser [base :as &&]
                           [module :as &&module])))
@@ -16,7 +16,7 @@
   "(-> (List (, Syntax Syntax)) (Lux (List Syntax)))"
   (|do [[tag-group tag-type] (|case pairs
                                (&/$Nil)
-                               (return (&/T [&/Nil$ &type/Unit]))
+                               (return (&/T [&/$Nil &/$UnitT]))
                                
                                (&/$Cons [[_ (&/$TagS tag1)] _] _)
                                (|do [[module name] (&&/resolved-ident tag1)

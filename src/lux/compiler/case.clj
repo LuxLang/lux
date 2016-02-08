@@ -118,27 +118,33 @@
     (&a-case/$VariantTestAC ?tag ?count ?test)
     (if (= 1 ?count)
       (compile-match ?test $target $else)
-      (let [$variant-else (new Label)]
-        (doto writer
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-          (.visitInsn Opcodes/DUP)
-          (.visitLdcInsn (int ?tag))
-          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_get" "([Ljava/lang/Object;I)Ljava/lang/Object;")
-          (.visitInsn Opcodes/DUP)
-          (.visitInsn Opcodes/ACONST_NULL)
-          (.visitJumpInsn Opcodes/IF_ACMPEQ $variant-else)
-          (-> (doto (compile-match ?test $value-then $value-else)
-                (.visitLabel $value-then)
+      (let [is-last (= ?tag (dec ?count))
+            $variant-else (new Label)
+            _ (doto writer
+                (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                (.visitInsn Opcodes/DUP)
+                (.visitLdcInsn (int ?tag)))
+            _ (if is-last
+                (.visitLdcInsn writer "")
+                (.visitInsn writer Opcodes/ACONST_NULL))
+            _ (doto writer
+                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
+                (.visitInsn Opcodes/DUP)
+                (.visitInsn Opcodes/ACONST_NULL)
+                (.visitJumpInsn Opcodes/IF_ACMPEQ $variant-else)
+                (-> (doto (compile-match ?test $value-then $value-else)
+                      (.visitLabel $value-then)
+                      (.visitInsn Opcodes/POP)
+                      (.visitJumpInsn Opcodes/GOTO $target)
+                      (.visitLabel $value-else)
+                      (.visitInsn Opcodes/POP)
+                      (.visitJumpInsn Opcodes/GOTO $else))
+                    (->> (let [$value-then (new Label)
+                               $value-else (new Label)])))
+                (.visitLabel $variant-else)
                 (.visitInsn Opcodes/POP)
-                (.visitJumpInsn Opcodes/GOTO $target)
-                (.visitLabel $value-else)
-                (.visitInsn Opcodes/POP)
-                (.visitJumpInsn Opcodes/GOTO $else))
-              (->> (let [$value-then (new Label)
-                         $value-else (new Label)])))
-          (.visitLabel $variant-else)
-          (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO $else))))
+                (.visitJumpInsn Opcodes/GOTO $else))]
+        writer))
     ))
 
 (defn ^:private separate-bodies [patterns]
@@ -167,7 +173,8 @@
       (.visitInsn Opcodes/POP)
       (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
       (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "()V")
+      (.visitLdcInsn "Invalid expression for pattern-matching.")
+      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V")
       (.visitInsn Opcodes/ATHROW))
     (&/map% (fn [?label+?body]
               (|let [[?label ?body] ?label+?body]

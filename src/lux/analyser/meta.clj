@@ -7,7 +7,7 @@
   (:require (clojure [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |let |do return return* fail fail* |case]])))
+            (lux [base :as & :refer [|let |do return return* fail fail* |case]])))
 
 ;; [Utils]
 (defn ^:private ident= [x y]
@@ -24,11 +24,11 @@
   (|case dict
     (&/$Cons [k v] dict*)
     (if (ident= k ident)
-      (&/Some$ v)
+      (&/$Some v)
       (meta-get ident dict*))
 
     (&/$Nil)
-    &/None$
+    &/$None
 
     _
     (assert false (prn-str (&/adt->text ident)

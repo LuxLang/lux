@@ -126,7 +126,7 @@
                           [[?def-type ?def-cursor] ?def-value]
                           (if (&type/type= &type/Type ?def-type)
                             (&/T [(&/T [?def-type ?def-cursor])
-                                  (&/V &a/$tuple (&/|list))])
+                                  (&a/$tuple (&/|list))])
                             (&&type/type->analysis ?def-type)))]]
     (compile ?def-type)))
 

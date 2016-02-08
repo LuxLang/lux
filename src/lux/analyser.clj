@@ -26,19 +26,19 @@
         :let [is-last? (= idx (dec (&/|length group)))]]
     (if (= 1 (&/|length group))
       (|do [_cursor &/cursor]
-        (analyse exo-type (&/T [_cursor (&/V &/$TupleS values)])))
+        (analyse exo-type (&/T [_cursor (&/$TupleS values)])))
       (|case exo-type
         (&/$VarT id)
         (|do [? (&type/bound? id)]
           (if (or ? (&&/type-tag? module tag-name))
-            (&&lux/analyse-variant analyse (&/V &/$Right exo-type) idx is-last? values)
+            (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
             (|do [wanted-type (&&module/tag-type module tag-name)
-                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/V &/$Left wanted-type) idx is-last? values))
+                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/$Left wanted-type) idx is-last? values))
                   _ (&type/check exo-type variant-type)]
               (return (&/|list (&&/|meta exo-type variant-cursor variant-analysis))))))
 
         _
-        (&&lux/analyse-variant analyse (&/V &/$Right exo-type) idx is-last? values)
+        (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
         ))
     ))
 
@@ -398,7 +398,7 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
                        (&/$Cons ?body
                                 ?handlers)))
-    (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T [&/Nil$ &/None$]) ?handlers)]
+    (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T [&/$Nil &/$None]) ?handlers)]
       (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_throw")]
@@ -594,36 +594,36 @@
     (&/$BoolS ?value)
     (|do [_ (&type/check exo-type &type/Bool)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$bool ?value)))))
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$bool ?value)))))
 
     (&/$IntS ?value)
     (|do [_ (&type/check exo-type &type/Int)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$int ?value)))))
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$int ?value)))))
 
     (&/$RealS ?value)
     (|do [_ (&type/check exo-type &type/Real)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$real ?value)))))
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$real ?value)))))
 
     (&/$CharS ?value)
     (|do [_ (&type/check exo-type &type/Char)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$char ?value)))))
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$char ?value)))))
 
     (&/$TextS ?value)
     (|do [_ (&type/check exo-type &type/Text)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&/V &&/$text ?value)))))
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$text ?value)))))
 
     (&/$TupleS ?elems)
-    (&&lux/analyse-tuple analyse (&/V &/$Right exo-type) ?elems)
+    (&&lux/analyse-tuple analyse (&/$Right exo-type) ?elems)
 
     (&/$RecordS ?elems)
     (&&lux/analyse-record analyse exo-type ?elems)
 
     (&/$TagS ?ident)
-    (analyse-variant+ analyse exo-type ?ident &/Nil$)
+    (analyse-variant+ analyse exo-type ?ident &/$Nil)
 
     (&/$SymbolS ?ident)
     (&&lux/analyse-symbol analyse exo-type ?ident)
@@ -669,7 +669,7 @@
       (&/with-expected-type exo-type
         (|case token
           [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
-          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) (&/V &/$Right exo-type) idx nil ?values)
+          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) (&/$Right exo-type) idx nil ?values)
 
           [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
           (analyse-variant+ (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
@@ -695,4 +695,4 @@
 ;; [Resources]
 (defn analyse [eval! compile-module compile-token]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast eval! compile-module compile-token &type/$Void) asts)))
+    (&/flat-map% (partial analyse-ast eval! compile-module compile-token &/$VoidT) asts)))

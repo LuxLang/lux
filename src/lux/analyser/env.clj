@@ -19,8 +19,8 @@
     (let [old-mappings (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
           =return (body (&/update$ &/$envs
                                    (fn [stack]
-                                     (let [var-analysis (&&/|meta type &/empty-cursor (&/V &&/$var (&/V &/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
-                                       (&/Cons$ (&/update$ &/$locals #(->> %
+                                     (let [var-analysis (&&/|meta type &/empty-cursor (&&/$var (&/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
+                                       (&/$Cons (&/update$ &/$locals #(->> %
                                                                            (&/update$ &/$counter inc)
                                                                            (&/update$ &/$mappings (fn [m] (&/|put name var-analysis m))))
                                                            (&/|head stack))
@@ -29,7 +29,7 @@
       (|case =return
         (&/$Right ?state ?value)
         (return* (&/update$ &/$envs (fn [stack*]
-                                      (&/Cons$ (&/update$ &/$locals #(->> %
+                                      (&/$Cons (&/update$ &/$locals #(->> %
                                                                           (&/update$ &/$counter dec)
                                                                           (&/set$ &/$mappings old-mappings))
                                                           (&/|head stack*))
@@ -45,7 +45,7 @@
     (let [old-mappings (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
           =return (body (&/update$ &/$envs
                                    (fn [stack]
-                                     (&/Cons$ (&/update$ &/$locals #(->> %
+                                     (&/$Cons (&/update$ &/$locals #(->> %
                                                                          (&/update$ &/$mappings (fn [m] (&/|put name var-analysis m))))
                                                          (&/|head stack))
                                               (&/|tail stack)))
@@ -53,7 +53,7 @@
       (|case =return
         (&/$Right ?state ?value)
         (return* (&/update$ &/$envs (fn [stack*]
-                                      (&/Cons$ (&/update$ &/$locals #(->> %
+                                      (&/$Cons (&/update$ &/$locals #(->> %
                                                                           (&/set$ &/$mappings old-mappings))
                                                           (&/|head stack*))
                                                (&/|tail stack*)))

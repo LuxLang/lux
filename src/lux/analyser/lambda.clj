@@ -24,9 +24,9 @@
 (defn close-over [scope name register frame]
   (|let [[[register-type register-cursor] _] register
          register* (&&/|meta register-type register-cursor
-                             (&/V &&/$captured (&/T [scope
-                                                     (->> frame (&/get$ &/$closure) (&/get$ &/$counter))
-                                                     register])))]
+                             (&&/$captured (&/T [scope
+                                                 (->> frame (&/get$ &/$closure) (&/get$ &/$counter))
+                                                 register])))]
     (&/T [register* (&/update$ &/$closure #(->> %
                                                 (&/update$ &/$counter inc)
                                                 (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))

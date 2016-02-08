@@ -29,26 +29,26 @@
                  stack (&/|list)]
             (let [super-interface (some valid-sub? (.getInterfaces sub-class))]
               (if (= super-class super-interface)
-                (&/Cons$ super-interface stack)
-                (recur super-interface (&/Cons$ super-interface stack)))))
+                (&/$Cons super-interface stack)
+                (recur super-interface (&/$Cons super-interface stack)))))
 
           (.isInterface super-class)
           (loop [sub-class sub-class
                  stack (&/|list)]
             (if-let [super-interface (some valid-sub? (.getInterfaces sub-class))]
               (if (= super-class super-interface)
-                (&/Cons$ super-interface stack)
-                (recur super-interface (&/Cons$ super-interface stack)))
+                (&/$Cons super-interface stack)
+                (recur super-interface (&/$Cons super-interface stack)))
               (let [super* (.getSuperclass sub-class)]
-                (recur super* (&/Cons$ super* stack)))))
+                (recur super* (&/$Cons super* stack)))))
 
           :else
           (loop [sub-class sub-class
                  stack (&/|list)]
             (let [super* (.getSuperclass sub-class)]
               (if (= super* super-class)
-                (&/Cons$ super* stack)
-                (recur super* (&/Cons$ super* stack))))))))
+                (&/$Cons super* stack)
+                (recur super* (&/$Cons super* stack))))))))
 
 (defn ^:private trace-lineage [^Class sub-class ^Class super-class]
   "(-> Class Class (List Class))"
@@ -56,7 +56,7 @@
     (&/|list)
     (&/|reverse (trace-lineage* super-class sub-class))))
 
-(let [matcher (fn [m ^TypeVariable jt lt] (&/Cons$ (&/T [(.getName jt) lt]) m))]
+(let [matcher (fn [m ^TypeVariable jt lt] (&/$Cons (&/T [(.getName jt) lt]) m))]
   (defn ^:private match-params [sub-type-params params]
     (assert (and (= (&/|length sub-type-params) (&/|length params))
                  (&/|every? (partial instance? TypeVariable) sub-type-params)))
@@ -64,7 +64,6 @@
 
 ;; [Exports]
 (let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))"
-      Unit (&/V &/$UnitT &/unit-tag)
       jprim->lprim (fn [prim]
                      (case prim
                        "Z" "boolean"
@@ -80,9 +79,9 @@
     (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re (.getName class))]
       (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
         (if (.equals "void" base)
-          Unit
-          (reduce (fn [inner _] (&/V &/$DataT (&/T [array-data-tag (&/|list inner)])))
-                  (&/V &/$DataT (&/T [base &/Nil$]))
+          &/$UnitT
+          (reduce (fn [inner _] (&/$DataT array-data-tag (&/|list inner)))
+                  (&/$DataT base &/$Nil)
                   (range (count (or arr-obrackets arr-pbrackets "")))))
         ))))
 
@@ -93,7 +92,7 @@
 
         (instance? GenericArrayType refl-type)
         (|do [inner-type (instance-param existential matchings (.getGenericComponentType ^GenericArrayType refl-type))]
-          (return (&/V &/$DataT (&/T [array-data-tag (&/|list inner-type)]))))
+          (return (&/$DataT array-data-tag (&/|list inner-type))))
         
         (instance? ParameterizedType refl-type)
         (|do [:let [refl-type* ^ParameterizedType refl-type]
@@ -101,8 +100,8 @@
                            .getActualTypeArguments
                            seq &/->list
                            (&/map% (partial instance-param existential matchings)))]
-          (return (&/V &/$DataT (&/T [(->> refl-type* ^Class (.getRawType) .getName)
-                                      params*]))))
+          (return (&/$DataT (->> refl-type* ^Class (.getRawType) .getName)
+                            params*)))
         
         (instance? TypeVariable refl-type)
         (let [gvar (.getName ^TypeVariable refl-type)]
@@ -123,15 +122,14 @@
   (|case gtype
     (&/$GenericArray component-type)
     (|do [inner-type (instance-gtype existential matchings component-type)]
-      (return (&/V &/$DataT (&/T [array-data-tag (&/|list inner-type)]))))
+      (return (&/$DataT array-data-tag (&/|list inner-type))))
     
     (&/$GenericClass type-name type-params)
     (if-let [m-type (&/|get type-name matchings)]
       (return m-type)
       (|do [params* (&/map% (partial instance-gtype existential matchings)
                             type-params)]
-        (return (&/V &/$DataT (&/T [type-name
-                                    params*])))))
+        (return (&/$DataT type-name params*))))
     
     (&/$GenericTypeVar var-name)
     (if-let [m-type (&/|get var-name matchings)]
@@ -191,7 +189,7 @@
     (if (.isAssignableFrom super-class+ sub-class+)
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
-          (return (&/V &/$DataT (&/T [(.getName sub-class*) sub-params*])))))
+          (return (&/$DataT (.getName sub-class*) sub-params*))))
       (fail (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </= " super-class)))))
 
 (defn as-obj [class]
@@ -220,16 +218,16 @@
                (= null-data-tag a!name)
                (if (not (primitive-type? e!name))
                  (return (&/T [fixpoints nil]))
-                 (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual)))
+                 (check-error "" (&/$DataT e!name e!params) (&/$DataT a!name a!params)))
 
                (= null-data-tag e!name)
                (if (= null-data-tag a!name)
                  (return (&/T [fixpoints nil]))
-                 (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual)))
+                 (check-error "" (&/$DataT e!name e!params) (&/$DataT a!name a!params)))
 
                (and (= array-data-tag e!name)
                     (not= array-data-tag a!name))
-               (check-error "" (&/V &/$DataT expected) (&/V &/$DataT actual))
+               (check-error "" (&/$DataT e!name e!params) (&/$DataT a!name a!params))
                
                :else
                (let [e!name (as-obj e!name)
@@ -242,7 +240,7 @@
 
                        (not invariant??)
                        (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
-                         (check (&/V &/$DataT expected) actual*))
+                         (check (&/$DataT e!name e!params) actual*))
 
                        :else
                        (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
@@ -253,10 +251,10 @@
 (defn gtype->gclass [gtype]
   "(-> GenericType GenericClass)"
   (cond (instance? Class gtype)
-        (&/V &/$GenericClass (&/T [(.getName ^Class gtype) &/Nil$]))
+        (&/$GenericClass (.getName ^Class gtype) &/$Nil)
 
         (instance? GenericArrayType gtype)
-        (&/V &/$GenericArray (gtype->gclass (.getGenericComponentType ^GenericArrayType gtype)))
+        (&/$GenericArray (gtype->gclass (.getGenericComponentType ^GenericArrayType gtype)))
 
         (instance? ParameterizedType gtype)
         (let [type-name (->> ^ParameterizedType gtype ^Class (.getRawType) .getName)
@@ -264,12 +262,12 @@
                                .getActualTypeArguments
                                seq &/->list
                                (&/|map gtype->gclass))]
-          (&/V &/$GenericClass (&/T [type-name type-params])))
+          (&/$GenericClass type-name type-params))
 
         (instance? TypeVariable gtype)
-        (&/V &/$GenericTypeVar (.getName ^TypeVariable gtype))
+        (&/$GenericTypeVar (.getName ^TypeVariable gtype))
 
         (instance? WildcardType gtype)
         (if-let [bound (->> ^WildcardType gtype .getUpperBounds seq first)]
           (gtype->gclass bound)
-          (&/V &/$GenericWildcard &/unit-tag))))
+          &/$GenericWildcard)))

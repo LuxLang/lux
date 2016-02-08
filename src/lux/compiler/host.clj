@@ -497,7 +497,7 @@
 (defn ^:private compile-method-def [compile ^ClassWriter class-writer ?super-class method-def]
   (|case method-def
     (&/$ConstructorMethodAnalysis ?privacy-modifier ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
-    (|let [?output (&/V &/$GenericClass (&/T ["void" (&/|list)]))
+    (|let [?output (&/$GenericClass "void" (&/|list))
            =method-decl (&/T [init-method ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
@@ -680,7 +680,7 @@
   (|do [module &/get-module-name
         [file-name line column] &/cursor
         :let [[?name ?params] class-decl
-              class-signature (&host-generics/gclass-decl->signature class-decl (&/Cons$ ?super-class ?interfaces))
+              class-signature (&host-generics/gclass-decl->signature class-decl (&/$Cons ?super-class ?interfaces))
               full-name (str module "/" ?name)
               super-class* (&host-generics/->bytecode-class-name (&host-generics/super-class-name ?super-class))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -718,7 +718,7 @@
     (&&/save-class! interface-name (.toByteArray =interface))))
 
 (def compile-Function-class
-  (let [object-class (&/V &/$GenericClass (&/T ["java.lang.Object" (&/|list)]))
+  (let [object-class (&/$GenericClass "java.lang.Object" (&/|list))
         interface-decl (&/T [(second (string/split &&/function-class #"/")) (&/|list)])
         ?supers (&/|list)
         ?anns (&/|list)
@@ -752,6 +752,7 @@
                                         (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getLeft" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                                           (.visitCode)
                                           (.visitLabel $begin)
+                                          (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                                           (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                                           (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                                           (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
@@ -786,6 +787,7 @@
                                          (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getRight" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                                            (.visitCode)
                                            (.visitLabel $begin)
+                                           (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                                            (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                                            (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                                            (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
@@ -812,6 +814,7 @@
                                            (.visitVarInsn Opcodes/ASTORE 0) ;;
                                            (.visitJumpInsn Opcodes/GOTO $begin)
                                            (.visitLabel $must-copy)
+                                           (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                                            (.visitVarInsn Opcodes/ALOAD 0)
                                            (.visitVarInsn Opcodes/ILOAD 1)
                                            (.visitVarInsn Opcodes/ALOAD 0)
@@ -828,13 +831,14 @@
                                            (.visitMaxs 0 0)
                                            (.visitEnd)))
               =sum-get-method (let [$begin (new Label)
+                                    $just-return (new Label)
                                     $then (new Label)
                                     $further (new Label)
                                     $not-right (new Label)]
-                                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
+                                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;" nil nil)
                                   (.visitCode)
-                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                                   (.visitLabel $begin)
+                                  (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 0) (to-array []))
                                   (.visitVarInsn Opcodes/ILOAD 1) ;; tag
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum
                                   (.visitLdcInsn (int 0)) ;; tag, sum, sum-tag-idx
@@ -848,14 +852,22 @@
                                   (.visitInsn Opcodes/ACONST_NULL)
                                   (.visitInsn Opcodes/ARETURN)
                                   (.visitLabel $then) ;; tag, sum-tag
-                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitVarInsn Opcodes/ALOAD 2) ;; tag, sum-tag, wants-last?
+                                  (.visitVarInsn Opcodes/ALOAD 0)
+                                  (.visitLdcInsn (int 1))
+                                  (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, wants-last?, is-last?
+                                  (.visitJumpInsn Opcodes/IF_ACMPEQ $just-return)
+                                  (.visitJumpInsn Opcodes/GOTO $further)
+                                  (.visitLabel $just-return)
+                                  (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                                   (.visitInsn Opcodes/POP2)
                                   (.visitVarInsn Opcodes/ALOAD 0)
                                   (.visitLdcInsn (int 2))
                                   (.visitInsn Opcodes/AALOAD)
                                   (.visitInsn Opcodes/ARETURN)
                                   (.visitLabel $further) ;; tag, sum-tag
-                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                                   (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
                                   (.visitLdcInsn (int 1)) ;; tag, sum-tag, sum, last-index?
                                   (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?
@@ -869,7 +881,7 @@
                                   (.visitVarInsn Opcodes/ISTORE 1) ;;
                                   (.visitJumpInsn Opcodes/GOTO $begin)
                                   (.visitLabel $not-right) ;; tag, sum-tag
-                                  (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
+                                  (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                                   (.visitInsn Opcodes/POP2)
                                   (.visitInsn Opcodes/ACONST_NULL)
                                   (.visitInsn Opcodes/ARETURN)

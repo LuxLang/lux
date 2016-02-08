@@ -98,7 +98,7 @@
                                             _ (load _import (hash content) compile-module)]
                                         (&/cached-module? _import)))
                                     (if (= [""] imports)
-                                      &/Nil$
+                                      &/$Nil
                                       (&/->list imports)))]
                   (if (->> loads &/->seq (every? true?))
                     (do (doseq [^File file (seq (.listFiles (File. module-path)))
@@ -111,7 +111,7 @@
                       (let [defs (string/split (get-field &/defs-field module-meta) def-separator-re)
                             tag-groups (let [all-tags (get-field &/tags-field module-meta)]
                                          (if (= "" all-tags)
-                                           &/Nil$
+                                           &/$Nil
                                            (-> all-tags
                                                (string/split tag-group-separator-re)
                                                (->> (map (fn [_group]
@@ -137,12 +137,12 @@
                                               (let [[_ __module __name] (re-find #"^(.*);(.*)$" _alias)
                                                     def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
                                                     def-type (get-field &/type-field def-class)
-                                                    def-meta (&/|list (&/T [&a-meta/alias-tag (&/V &/$IdentM (&/T [__module __name]))]))
+                                                    def-meta (&/|list (&/T [&a-meta/alias-tag (&/$IdentM (&/T [__module __name]))]))
                                                     def-value (get-field &/value-field def-class)]
                                                 (&a-module/define module _name def-type def-meta def-value)))
                                             ))
                                         (if (= [""] defs)
-                                          &/Nil$
+                                          &/$Nil
                                           (&/->list defs)))
                               _ (&/map% (fn [group]
                                           (|let [[_type _tags] group]

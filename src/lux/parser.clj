@@ -7,7 +7,7 @@
   (:require [clojure.template :refer [do-template]]
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |do return fail |case]]
+            (lux [base :as & :refer [|do return fail |case]]
                  [lexer :as &lexer])))
 
 ;; [Utils]
@@ -17,7 +17,7 @@
           token &lexer/lex]
       (|case token
         [meta (<close-tag> _)]
-        (return (&/V <tag> (&/fold &/|++ &/Nil$ elems)))
+        (return (<tag> (&/fold &/|++ &/$Nil elems)))
         
         _
         (fail (str "[Parser Error] Unbalanced " <description> ".")))))
@@ -29,11 +29,11 @@
 (defn ^:private parse-record [parse]
   (|do [elems* (&/repeat% parse)
         token &lexer/lex
-        :let [elems (&/fold &/|++ &/Nil$ elems*)]]
+        :let [elems (&/fold &/|++ &/$Nil elems*)]]
     (|case token
       [meta (&lexer/$Close_Brace _)]
       (if (even? (&/|length elems))
-        (return (&/V &/$RecordS (&/|as-pairs elems)))
+        (return (&/$RecordS (&/|as-pairs elems)))
         (fail (str "[Parser Error] Records must have an even number of elements.")))
       
       _
@@ -45,31 +45,31 @@
         :let [[meta token*] token]]
     (|case token*
       (&lexer/$White_Space _)
-      (return &/Nil$)
+      (return &/$Nil)
 
       (&lexer/$Comment _)
-      (return &/Nil$)
+      (return &/$Nil)
       
       (&lexer/$Bool ?value)
-      (return (&/|list (&/T [meta (&/V &/$BoolS (Boolean/parseBoolean ?value))])))
+      (return (&/|list (&/T [meta (&/$BoolS (Boolean/parseBoolean ?value))])))
 
       (&lexer/$Int ?value)
-      (return (&/|list (&/T [meta (&/V &/$IntS (Long/parseLong ?value))])))
+      (return (&/|list (&/T [meta (&/$IntS (Long/parseLong ?value))])))
 
       (&lexer/$Real ?value)
-      (return (&/|list (&/T [meta (&/V &/$RealS (Double/parseDouble ?value))])))
+      (return (&/|list (&/T [meta (&/$RealS (Double/parseDouble ?value))])))
 
       (&lexer/$Char ^String ?value)
-      (return (&/|list (&/T [meta (&/V &/$CharS (.charAt ?value 0))])))
+      (return (&/|list (&/T [meta (&/$CharS (.charAt ?value 0))])))
 
       (&lexer/$Text ?value)
-      (return (&/|list (&/T [meta (&/V &/$TextS ?value)])))
+      (return (&/|list (&/T [meta (&/$TextS ?value)])))
 
       (&lexer/$Symbol ?ident)
-      (return (&/|list (&/T [meta (&/V &/$SymbolS ?ident)])))
+      (return (&/|list (&/T [meta (&/$SymbolS ?ident)])))
 
       (&lexer/$Tag ?ident)
-      (return (&/|list (&/T [meta (&/V &/$TagS ?ident)])))
+      (return (&/|list (&/T [meta (&/$TagS ?ident)])))
 
       (&lexer/$Open_Paren _)
       (|do [syntax (parse-form parse)]

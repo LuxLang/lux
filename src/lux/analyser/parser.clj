@@ -38,18 +38,18 @@
 (defn parse-gclass [ast]
   (|case ast
     [_ (&/$TextS "*")]
-    (return (&/V &/$GenericWildcard &/unit-tag))
+    (return (&/$GenericWildcard &/unit-tag))
 
     [_ (&/$TextS var-name)]
-    (return (&/V &/$GenericTypeVar var-name))
+    (return (&/$GenericTypeVar var-name))
 
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS params)] (&/$Nil))))]
     (|do [=params (&/map% parse-gclass params)]
-      (return (&/V &/$GenericClass (&/T [class-name =params]))))
+      (return (&/$GenericClass class-name =params)))
 
     [_ (&/$FormS (&/$Cons [_ (&/$TextS "Array")] (&/$Cons param (&/$Nil))))]
     (|do [=param (parse-gclass param)]
-      (return (&/V &/$GenericArray =param)))
+      (return (&/$GenericArray =param)))
 
     _
     (fail (str "[Analyser Error] Not generic class: " (&/show-ast ast)))))
@@ -85,7 +85,7 @@
       [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_finally")]
                                (&/$Cons ?finally-body
                                         (&/$Nil))))]
-      (return (&/T [catch+ (&/V &/$Some ?finally-body)]))
+      (return (&/T [catch+ (&/$Some ?finally-body)]))
 
       _
       (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token))))))
@@ -149,16 +149,16 @@
 (defn parse-privacy-modifier [ast]
   (|case ast
     [_ (&/$TextS "default")]
-    (return (&/V &/$DefaultPM &/unit-tag))
+    (return &/$DefaultPM)
 
     [_ (&/$TextS "public")]
-    (return (&/V &/$PublicPM &/unit-tag))
+    (return &/$PublicPM)
 
     [_ (&/$TextS "protected")]
-    (return (&/V &/$ProtectedPM &/unit-tag))
+    (return &/$ProtectedPM)
 
     [_ (&/$TextS "private")]
-    (return (&/V &/$PrivatePM &/unit-tag))
+    (return &/$PrivatePM)
     
     _
     (fail (str "[Analyser Error] Invalid privacy modifier: " (&/show-ast ast)))))
@@ -166,13 +166,13 @@
 (defn parse-state-modifier [ast]
   (|case ast
     [_ (&/$TextS "default")]
-    (return (&/V &/$DefaultSM &/unit-tag))
+    (return &/$DefaultSM)
 
     [_ (&/$TextS "volatile")]
-    (return (&/V &/$VolatileSM &/unit-tag))
+    (return &/$VolatileSM)
 
     [_ (&/$TextS "final")]
-    (return (&/V &/$FinalSM &/unit-tag))
+    (return &/$FinalSM)
 
     _
     (fail (str "[Analyser Error] Invalid state modifier: " (&/show-ast ast)))))
@@ -180,13 +180,13 @@
 (defn parse-inheritance-modifier [ast]
   (|case ast
     [_ (&/$TextS "default")]
-    (return (&/V &/$DefaultIM &/unit-tag))
+    (return &/$DefaultIM)
 
     [_ (&/$TextS "abstract")]
-    (return (&/V &/$AbstractIM &/unit-tag))
+    (return &/$AbstractIM)
 
     [_ (&/$TextS "final")]
-    (return (&/V &/$FinalIM &/unit-tag))
+    (return &/$FinalIM)
 
     _
     (fail (str "[Analyser Error] Invalid inheritance modifier: " (&/show-ast ast)))))
@@ -207,7 +207,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
-      (return (&/V &/$ConstructorMethodSyntax (&/T [=privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body]))))
+      (return (&/$ConstructorMethodSyntax (&/T [=privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body]))))
 
     _
     (fail "")))
@@ -230,7 +230,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$VirtualMethodSyntax (&/T [?name =privacy-modifier =final? =anns =gvars =exceptions =inputs =output body]))))
+      (return (&/$VirtualMethodSyntax (&/T [?name =privacy-modifier =final? =anns =gvars =exceptions =inputs =output body]))))
 
     _
     (fail "")))
@@ -253,7 +253,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$OverridenMethodSyntax (&/T [=class-decl =name =anns =gvars =exceptions =inputs =output body]))))
+      (return (&/$OverridenMethodSyntax (&/T [=class-decl =name =anns =gvars =exceptions =inputs =output body]))))
     
     _
     (fail "")))
@@ -275,7 +275,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$StaticMethodSyntax (&/T [?name =privacy-modifier =anns =gvars =exceptions =inputs =output body]))))
+      (return (&/$StaticMethodSyntax (&/T [?name =privacy-modifier =anns =gvars =exceptions =inputs =output body]))))
 
     _
     (fail "")))
@@ -295,7 +295,7 @@
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
-      (return (&/V &/$AbstractMethodSyntax (&/T [?name =anns =gvars =exceptions =inputs =output]))))
+      (return (&/$AbstractMethodSyntax (&/T [?name =anns =gvars =exceptions =inputs =output]))))
 
     _
     (fail "")))

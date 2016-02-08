@@ -155,7 +155,7 @@
   (str (&/normalize-name name) "_" (hash name)))
 
 (defn location [scope]
-  (let [scope (&/Cons$ (def-name (&/|head scope))
+  (let [scope (&/$Cons (def-name (&/|head scope))
                        (&/|map &/normalize-name (&/|tail scope)))]
     (->> scope
          (&/|interpose "$")
@@ -274,7 +274,7 @@
 (defn ^:private compile-dummy-method [^ClassWriter =class super-class method-def]
   (|case method-def
     (&/$ConstructorMethodSyntax =privacy-modifier =anns =gvars =exceptions =inputs =ctor-args body)
-    (|let [=output (&/V &/$GenericClass (&/T ["void" (&/|list)]))
+    (|let [=output (&/$GenericClass "void" (&/|list))
            method-decl [init-method-name =anns =gvars =exceptions (&/|map &/|second =inputs) =output]
            [simple-signature generic-signature] (&host-generics/method-signatures method-decl)]
       (doto (.visitMethod =class Opcodes/ACC_PUBLIC
@@ -368,7 +368,7 @@
   (|do [module &/get-module-name
         :let [[?name ?params] class-decl
               full-name (str module "/" ?name)
-              class-signature (&host-generics/gclass-decl->signature class-decl (&/Cons$ super-class interfaces))
+              class-signature (&host-generics/gclass-decl->signature class-decl (&/$Cons super-class interfaces))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                full-name

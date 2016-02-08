@@ -9,80 +9,119 @@
             clojure.core.match.array))
 
 ;; [Tags]
-(defmacro deftags [names]
+(def unit-tag (.intern (str (char 0) "unit" (char 0))))
+
+(defn T [elems]
+  (case (count elems)
+    0
+    unit-tag
+
+    1
+    (first elems)
+
+    ;; else
+    (to-array elems)))
+
+(defmacro defvariant [& names]
+  (assert (> (count names) 1))
+  `(do ~@(for [[[name num-params] idx] (map vector names (range (count names)))
+               :let [last-idx (dec (count names))
+                     is-last? (if (= idx last-idx)
+                                ""
+                                nil)
+                     def-name (with-meta (symbol (str "$" name))
+                                {::idx idx
+                                 ::is-last? is-last?})]]
+           (cond (= 0 num-params)
+                 `(def ~def-name
+                    (to-array [(int ~idx) ~is-last? unit-tag]))
+
+                 (= 1 num-params)
+                 `(defn ~def-name [arg#]
+                    (to-array [(int ~idx) ~is-last? arg#]))
+
+                 :else
+                 (let [g!args (map (fn [_] (gensym "arg"))
+                                   (range num-params))]
+                   `(defn ~def-name [~@g!args]
+                      (to-array [(int ~idx) ~is-last? (T [~@g!args])])))
+                 ))))
+
+(defmacro deftuple [names]
   (assert (vector? names))
   `(do ~@(for [[name idx] (map vector names (range (count names)))]
-           `(def ~(symbol (str "$" name)) ~idx))))
+           `(def ~(symbol (str "$" name))
+              (int ~idx)))))
 
 ;; List
-(deftags
-  ["Nil"
-   "Cons"])
+(defvariant
+  ("Nil" 0)
+  ("Cons" 2))
 
 ;; Maybe
-(deftags
-  ["None"
-   "Some"])
+(defvariant
+  ("None" 0)
+  ("Some" 1))
 
 ;; Either
-(deftags
-  ["Left"
-   "Right"])
+(defvariant
+  ("Left" 1)
+  ("Right" 1))
 
 ;; AST
-(deftags
-  ["BoolS"
-   "IntS"
-   "RealS"
-   "CharS"
-   "TextS"
-   "SymbolS"
-   "TagS"
-   "FormS"
-   "TupleS"
-   "RecordS"])
+(defvariant
+  ("BoolS" 1)
+  ("IntS" 1)
+  ("RealS" 1)
+  ("CharS" 1)
+  ("TextS" 1)
+  ("SymbolS" 1)
+  ("TagS" 1)
+  ("FormS" 1)
+  ("TupleS" 1)
+  ("RecordS" 1))
 
 ;; Type
-(deftags
-  ["DataT"
-   "VoidT"
-   "UnitT"
-   "SumT"
-   "ProdT"
-   "LambdaT"
-   "BoundT"
-   "VarT"
-   "ExT"
-   "UnivQ"
-   "ExQ"
-   "AppT"
-   "NamedT"])
+(defvariant
+  ("DataT" 2)
+  ("VoidT" 0)
+  ("UnitT" 0)
+  ("SumT" 2)
+  ("ProdT" 2)
+  ("LambdaT" 2)
+  ("BoundT" 1)
+  ("VarT" 1)
+  ("ExT" 1)
+  ("UnivQ" 2)
+  ("ExQ" 2)
+  ("AppT" 2)
+  ("NamedT" 2))
 
 ;; Vars
-(deftags
-  ["Local"
-   "Global"])
+(defvariant
+  ("Local" 1)
+  ("Global" 1))
 
 ;; Binding
-(deftags
+(deftuple
   ["counter"
    "mappings"])
 
 ;; Env
-(deftags
+(deftuple
   ["name"
    "inner-closures"
    "locals"
    "closure"])
 
 ;; ModuleState
-(deftags
-  ["Active"
-   "Compiled"
-   "Cached"])
+(defvariant
+  ("Active" 0)
+  ("Compiled" 0)
+  ("Cached" 0))
 
 ;; Host
-(deftags
+(deftuple
   ["writer"
    "loader"
    "classes"
@@ -91,7 +130,7 @@
    "type-env"])
 
 ;; Compiler
-(deftags
+(deftuple
   ["source"
    "cursor"
    "modules"
@@ -103,56 +142,56 @@
    "host"])
 
 ;; Compiler
-(deftags
-  ["GenericTypeVar"
-   "GenericClass"
-   "GenericArray"
-   "GenericWildcard"])
+(defvariant
+  ("GenericTypeVar" 1)
+  ("GenericClass" 2)
+  ("GenericArray" 1)
+  ("GenericWildcard" 1))
 
 ;; Privacy Modifiers
-(deftags
-  ["DefaultPM"
-   "PublicPM"
-   "PrivatePM"
-   "ProtectedPM"])
+(defvariant
+  ("DefaultPM" 0)
+  ("PublicPM" 0)
+  ("PrivatePM" 0)
+  ("ProtectedPM" 0))
 
 ;; State Modifiers
-(deftags
-  ["DefaultSM"
-   "VolatileSM"
-   "FinalSM"])
+(defvariant
+  ("DefaultSM" 0)
+  ("VolatileSM" 0)
+  ("FinalSM" 0))
 
 ;; Inheritance Modifiers
-(deftags
-  ["DefaultIM"
-   "AbstractIM"
-   "FinalIM"])
+(defvariant
+  ("DefaultIM" 0)
+  ("AbstractIM" 0)
+  ("FinalIM" 0))
 
 ;; Methods
-(deftags
-  ["ConstructorMethodSyntax"
-   "VirtualMethodSyntax"
-   "OverridenMethodSyntax"
-   "StaticMethodSyntax"
-   "AbstractMethodSyntax"])
+(defvariant
+  ("ConstructorMethodSyntax" 1)
+  ("VirtualMethodSyntax" 1)
+  ("OverridenMethodSyntax" 1)
+  ("StaticMethodSyntax" 1)
+  ("AbstractMethodSyntax" 1))
 
-(deftags
-  ["ConstructorMethodAnalysis"
-   "VirtualMethodAnalysis"
-   "OverridenMethodAnalysis"
-   "StaticMethodAnalysis"
-   "AbstractMethodAnalysis"])
+(defvariant
+  ("ConstructorMethodAnalysis" 1)
+  ("VirtualMethodAnalysis" 1)
+  ("OverridenMethodAnalysis" 1)
+  ("StaticMethodAnalysis" 1)
+  ("AbstractMethodAnalysis" 1))
 
 ;; Meta-data
-(deftags
-  ["BoolM"
-   "IntM"
-   "RealM"
-   "CharM"
-   "TextM"
-   "IdentM"
-   "ListM"
-   "DictM"])
+(defvariant
+  ("BoolM" 1)
+  ("IntM" 1)
+  ("RealM" 1)
+  ("CharM" 1)
+  ("TextM" 1)
+  ("IdentM" 1)
+  ("ListM" 1)
+  ("DictM" 1))
 
 ;; [Exports]
 (def name-field "_name")
@@ -167,29 +206,8 @@
 (def tags-field "_tags")
 (def module-class-name "_")
 (def +name-separator+ ";")
-(def unit-tag (.intern (str (char 0) "unit" (char 0))))
-
-(defn T [elems]
-  (case (count elems)
-    0
-    unit-tag
-
-    1
-    (first elems)
-
-    ;; else
-    (to-array elems)))
-
-(defn V [^Long tag value]
-  (to-array [(int tag) nil value]))
 
 ;; Constructors
-(def None$ (V $None unit-tag))
-(defn Some$ [x] (V $Some x))
-
-(def Nil$ (V $Nil unit-tag))
-(defn Cons$ [h t] (V $Cons (T [h t])))
-
 (def empty-cursor (T ["" -1 -1]))
 
 (defn get$ [slot ^objects record]
@@ -205,10 +223,10 @@
            record#)))
 
 (defn fail* [message]
-  (V $Left message))
+  ($Left message))
 
 (defn return* [state value]
-  (V $Right (T [state value])))
+  ($Right (T [state value])))
 
 (defn transform-pattern [pattern]
   (cond (vector? pattern) (case (count pattern)
@@ -220,7 +238,9 @@
 
                             ;; else
                             (mapv transform-pattern pattern))
-        (seq? pattern) [(eval (first pattern))
+        (seq? pattern) [(-> (ns-resolve *ns* (first pattern))
+                            meta
+                            ::idx)
                         '_
                         (transform-pattern (vec (rest pattern)))]
         :else pattern
@@ -247,14 +267,14 @@
 
 (defmacro |list [& elems]
   (reduce (fn [tail head]
-            `(V $Cons (T [~head ~tail])))
-          `Nil$
+            `($Cons ~head ~tail))
+          `$Nil
           (reverse elems)))
 
 (defmacro |table [& elems]
   (reduce (fn [table [k v]]
             `(|put ~k ~v ~table))
-          `Nil$
+          `$Nil
           (reverse (partition 2 elems))))
 
 (defn |get [slot table]
@@ -270,12 +290,12 @@
 (defn |put [slot value table]
   (|case table
     ($Nil)
-    (V $Cons (T [(T [slot value]) Nil$]))
+    ($Cons (T [slot value]) $Nil)
     
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
-      (V $Cons (T [(T [slot value]) table*]))
-      (V $Cons (T [(T [k v]) (|put slot value table*)])))
+      ($Cons (T [slot value]) table*)
+      ($Cons (T [k v]) (|put slot value table*)))
     ))
 
 (defn |remove [slot table]
@@ -286,7 +306,7 @@
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       table*
-      (V $Cons (T [(T [k v]) (|remove slot table*)])))))
+      ($Cons (T [k v]) (|remove slot table*)))))
 
 (defn |update [k f table]
   (|case table
@@ -295,8 +315,8 @@
 
     ($Cons [k* v] table*)
     (if (.equals ^Object k k*)
-      (V $Cons (T [(T [k* (f v)]) table*]))
-      (V $Cons (T [(T [k* v]) (|update k f table*)])))))
+      ($Cons (T [k* (f v)]) table*)
+      ($Cons (T [k* v]) (|update k f table*)))))
 
 (defn |head [xs]
   (|case xs
@@ -317,11 +337,11 @@
 ;; [Resources/Monads]
 (defn fail [message]
   (fn [_]
-    (V $Left message)))
+    ($Left message)))
 
 (defn return [value]
   (fn [state]
-    (V $Right (T [state value]))))
+    ($Right (T [state value]))))
 
 (defn bind [m-value step]
   (fn [state]
@@ -361,7 +381,7 @@
     ys
 
     ($Cons x xs*)
-    (V $Cons (T [x (|++ xs* ys)]))))
+    ($Cons x (|++ xs* ys))))
 
 (defn |map [f xs]
   (|case xs
@@ -369,7 +389,7 @@
     xs
 
     ($Cons x xs*)
-    (V $Cons (T [(f x) (|map f xs*)]))))
+    ($Cons (f x) (|map f xs*))))
 
 (defn |empty? [xs]
   "(All [a] (-> (List a) Bool))"
@@ -388,7 +408,7 @@
 
     ($Cons x xs*)
     (if (p x)
-      (V $Cons (T [x (|filter p xs*)]))
+      ($Cons x (|filter p xs*))
       (|filter p xs*))))
 
 (defn flat-map [f xs]
@@ -408,8 +428,8 @@
     ($Cons x xs*)
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
-        (T [(Cons$ x pre) post]))
-      (T [Nil$ xs]))))
+        (T [($Cons x pre) post]))
+      (T [$Nil xs]))))
 
 (defn |contains? [k table]
   (|case table
@@ -451,15 +471,15 @@
     (|list init)
 
     ($Cons x xs*)
-    (Cons$ init (folds f (f init x) xs*))))
+    ($Cons init (folds f (f init x) xs*))))
 
 (defn |length [xs]
   (fold (fn [acc _] (inc acc)) 0 xs))
 
 (let [|range* (fn |range* [from to]
                 (if (< from to)
-                  (V $Cons (T [from (|range* (inc from) to)]))
-                  Nil$))]
+                  ($Cons from (|range* (inc from) to))
+                  $Nil))]
   (defn |range [n]
     (|range* 0 n)))
 
@@ -474,26 +494,26 @@
 (defn zip2 [xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (V $Cons (T [(T [x y]) (zip2 xs* ys*)]))
+    ($Cons (T [x y]) (zip2 xs* ys*))
 
     [_ _]
-    Nil$))
+    $Nil))
 
 (defn |keys [plist]
   (|case plist
     ($Nil)
-    Nil$
+    $Nil
     
     ($Cons [k v] plist*)
-    (Cons$ k (|keys plist*))))
+    ($Cons k (|keys plist*))))
 
 (defn |vals [plist]
   (|case plist
     ($Nil)
-    Nil$
+    $Nil
     
     ($Cons [k v] plist*)
-    (Cons$ v (|vals plist*))))
+    ($Cons v (|vals plist*))))
 
 (defn |interpose [sep xs]
   (|case xs
@@ -504,7 +524,7 @@
     xs
     
     ($Cons x xs*)
-    (V $Cons (T [x (V $Cons (T [sep (|interpose sep xs*)]))]))))
+    ($Cons x ($Cons sep (|interpose sep xs*)))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
@@ -517,24 +537,24 @@
             ys (<name> f xs*)]
         (return (<joiner> y ys)))))
 
-  map%      Cons$
+  map%      $Cons
   flat-map% |++)
 
 (defn list-join [xss]
-  (fold |++ Nil$ xss))
+  (fold |++ $Nil xss))
 
 (defn |as-pairs [xs]
   (|case xs
     ($Cons x ($Cons y xs*))
-    (V $Cons (T [(T [x y]) (|as-pairs xs*)]))
+    ($Cons (T [x y]) (|as-pairs xs*))
 
     _
-    Nil$))
+    $Nil))
 
 (defn |reverse [xs]
   (fold (fn [tail head]
-          (Cons$ head tail))
-        Nil$
+          ($Cons head tail))
+        $Nil
         xs))
 
 (defn assert! [test message]
@@ -569,8 +589,8 @@
 (defn repeat% [monad]
   (try-all% (|list (|do [head monad
                          tail (repeat% monad)]
-                     (return (Cons$ head tail)))
-                   (return Nil$))))
+                     (return ($Cons head tail)))
+                   (return $Nil))))
 
 (defn exhaust% [step]
   (fn [state]
@@ -668,13 +688,13 @@
 (defn host [_]
   (let [store (atom {})]
     (T [;; "lux;writer"
-        (V $None unit-tag)
+        $None
         ;; "lux;loader"
         (memory-class-loader store)
         ;; "lux;classes"
         store
         ;; "lux;catching"
-        Nil$
+        $Nil
         ;; "lux;module-states"
         (|table)
         ;; lux;type-env
@@ -682,17 +702,17 @@
 
 (defn init-state [_]
   (T [;; "lux;source"
-      (V $None unit-tag)
+      $None
       ;; "lux;cursor"
       (T ["" -1 -1])
       ;; "lux;modules"
       (|table)
       ;; "lux;envs"
-      Nil$
+      $Nil
       ;; "lux;types"
       +init-bindings+
       ;; "lux;expected"
-      (V $VoidT unit-tag)
+      $VoidT
       ;; "lux;seed"
       0
       ;; "lux;eval?"
@@ -758,13 +778,13 @@
 
 (defn ->list [seq]
   (if (empty? seq)
-    Nil$
-    (Cons$ (first seq) (->list (rest seq)))))
+    $Nil
+    ($Cons (first seq) (->list (rest seq)))))
 
 (defn |repeat [n x]
   (if (> n 0)
-    (Cons$ x (|repeat (dec n) x))
-    Nil$))
+    ($Cons x (|repeat (dec n) x))
+    $Nil))
 
 (def get-module-name
   (fn [state]
@@ -789,7 +809,7 @@
 
 (defn with-scope [name body]
   (fn [state]
-    (let [output (body (update$ $envs #(Cons$ (env name) %) state))]
+    (let [output (body (update$ $envs #($Cons (env name) %) state))]
       (|case output
         ($Right state* datum)
         (return* (update$ $envs |tail state*) datum)
@@ -805,7 +825,7 @@
                        (return (->> top (get$ $inner-closures) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $envs #(Cons$ (update$ $inner-closures inc (|head %))
+        (run-state body* (update$ $envs #($Cons (update$ $inner-closures inc (|head %))
                                                 (|tail %))
                                   state))))))
 
@@ -816,7 +836,7 @@
 (defn with-writer [writer body]
   (fn [state]
     (let [old-writer (->> state (get$ $host) (get$ $writer))
-          output (body (update$ $host #(set$ $writer (V $Some writer) %) state))]
+          output (body (update$ $host #(set$ $writer ($Some writer) %) state))]
       (|case output
         ($Right ?state ?value)
         (return* (update$ $host #(set$ $writer old-writer %) ?state)
@@ -922,10 +942,10 @@
     [($Cons x xs*) ($Cons y ys*)]
     (|do [z (f x y)
           zs (map2% f xs* ys*)]
-      (return (Cons$ z zs)))
+      (return ($Cons z zs)))
 
     [($Nil) ($Nil)]
-    (return Nil$)
+    (return $Nil)
 
     [_ _]
     (fail "Lists don't match in size.")))
@@ -933,10 +953,10 @@
 (defn map2 [f xs ys]
   (|case [xs ys]
     [($Cons x xs*) ($Cons y ys*)]
-    (Cons$ (f x y) (map2 f xs* ys*))
+    ($Cons (f x y) (map2 f xs* ys*))
 
     [_ _]
-    Nil$))
+    $Nil))
 
 (defn fold2 [f init xs ys]
   (|case [xs ys]
@@ -956,8 +976,8 @@
   "(All [a] (-> Int (List a) (List (, Int a))))"
   (|case xs
     ($Cons x xs*)
-    (V $Cons (T [(T [idx x])
-                 (enumerate* (inc idx) xs*)]))
+    ($Cons (T [idx x])
+           (enumerate* (inc idx) xs*))
 
     ($Nil)
     xs
@@ -983,16 +1003,16 @@
   (|case xs
     ($Cons x xs*)
     (cond (< idx 0)
-          (V $None unit-tag)
+          $None
 
           (= idx 0)
-          (V $Some x)
+          ($Some x)
 
           :else ;; > 1
           (|at (dec idx) xs*))
 
     ($Nil)
-    (V $None unit-tag)
+    $None
     ))
 
 (defn normalize [ident]
@@ -1011,14 +1031,14 @@
 (defn |list-put [idx val xs]
   (|case xs
     ($Nil)
-    (V $None unit-tag)
+    $None
     
     ($Cons x xs*)
     (if (= idx 0)
-      (V $Some (V $Cons (T [val xs*])))
+      ($Some ($Cons val xs*))
       (|case (|list-put (dec idx) val xs*)
-        ($None)      (V $None unit-tag)
-        ($Some xs**) (V $Some (V $Cons (T [x xs**]))))
+        ($None)      $None
+        ($Some xs**) ($Some ($Cons x xs**)))
       )))
 
 (do-template [<flagger> <asker> <tag>]
@@ -1028,18 +1048,18 @@
           (let [state* (update$ $host (fn [host]
                                         (update$ $module-states
                                                  (fn [module-states]
-                                                   (|put module (V <tag> unit-tag) module-states))
+                                                   (|put module <tag> module-states))
                                                  host))
                                 state)]
-            (V $Right (T [state* unit-tag])))))
+            ($Right (T [state* unit-tag])))))
     (defn <asker> [module]
       "(-> Text (Lux Bool))"
       (fn [state]
         (if-let [module-state (->> state (get$ $host) (get$ $module-states) (|get module))]
-          (V $Right (T [state (|case module-state
-                                (<tag>) true
-                                _       false)]))
-          (V $Right (T [state false])))
+          ($Right (T [state (|case module-state
+                              (<tag>) true
+                              _       false)]))
+          ($Right (T [state false])))
         )))
 
   flag-active-module   active-module?   $Active
@@ -1080,7 +1100,7 @@
   "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
   (|case xs
     ($Nil)
-    None$
+    $None
 
     ($Cons x xs*)
     (|case (f x)
@@ -1100,26 +1120,26 @@
                            state)]
       (|case (body state*)
         ($Right [state** output])
-        (V $Right (T [(update$ $host
-                               #(set$ $type-env
-                                      (->> state (get$ $host) (get$ $type-env))
-                                      %)
-                               state**)
-                      output]))
+        ($Right (T [(update$ $host
+                             #(set$ $type-env
+                                    (->> state (get$ $host) (get$ $type-env))
+                                    %)
+                             state**)
+                    output]))
 
         ($Left msg)
-        (V $Left msg)))))
+        ($Left msg)))))
 
 (defn |take [n xs]
   (|case (T [n xs])
-    [0 _]             Nil$
-    [_ ($Nil)]        Nil$
-    [_ ($Cons x xs*)] (Cons$ x (|take (dec n) xs*))
+    [0 _]             $Nil
+    [_ ($Nil)]        $Nil
+    [_ ($Cons x xs*)] ($Cons x (|take (dec n) xs*))
     ))
 
 (defn |drop [n xs]
   (|case (T [n xs])
     [0 _]             xs
-    [_ ($Nil)]        Nil$
+    [_ ($Nil)]        $Nil
     [_ ($Cons x xs*)] (|drop (dec n) xs*)
     ))

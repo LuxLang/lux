@@ -6,150 +6,149 @@
 (ns lux.analyser.base
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftags |let |do return* return fail |case]]
+            (lux [base :as & :refer [defvariant |let |do return* return fail |case]]
                  [type :as &type])))
 
 ;; [Tags]
-(deftags
-  ["bool"
-   "int"
-   "real"
-   "char"
-   "text"
-   "variant"
-   "tuple"
-   "apply"
-   "case"
-   "lambda"
-   "ann"
-   "coerce"
-   "def"
-   "declare-macro"
-   "var"
-   "captured"
+(defvariant
+  ("bool" 1)
+  ("int" 1)
+  ("real" 1)
+  ("char" 1)
+  ("text" 1)
+  ("variant" 3)
+  ("tuple" 1)
+  ("apply" 1)
+  ("case" 1)
+  ("lambda" 1)
+  ("ann" 1)
+  ("coerce" 1)
+  ("def" 1)
+  ("declare-macro" 1)
+  ("var" 1)
+  ("captured" 1)
 
-   "jvm-getstatic"
-   "jvm-getfield"
-   "jvm-putstatic"
-   "jvm-putfield"
-   "jvm-invokestatic"
-   "jvm-instanceof"
-   "jvm-invokevirtual"
-   "jvm-invokeinterface"
-   "jvm-invokespecial"
-   "jvm-null?"
-   "jvm-null"
-   "jvm-new"
-   "jvm-class"
-   "jvm-interface"
-   "jvm-try"
-   "jvm-throw"
-   "jvm-monitorenter"
-   "jvm-monitorexit"
-   "jvm-program"
+  ("jvm-getstatic" 1)
+  ("jvm-getfield" 1)
+  ("jvm-putstatic" 1)
+  ("jvm-putfield" 1)
+  ("jvm-invokestatic" 1)
+  ("jvm-instanceof" 1)
+  ("jvm-invokevirtual" 1)
+  ("jvm-invokeinterface" 1)
+  ("jvm-invokespecial" 1)
+  ("jvm-null?" 1)
+  ("jvm-null" 0)
+  ("jvm-new" 1)
+  ("jvm-class" 1)
+  ("jvm-interface" 1)
+  ("jvm-try" 1)
+  ("jvm-throw" 1)
+  ("jvm-monitorenter" 1)
+  ("jvm-monitorexit" 1)
+  ("jvm-program" 1)
 
+  ("jvm-znewarray" 1)
+  ("jvm-zastore" 1)
+  ("jvm-zaload" 1)
+  ("jvm-bnewarray" 1)
+  ("jvm-bastore" 1)
+  ("jvm-baload" 1)
+  ("jvm-snewarray" 1)
+  ("jvm-sastore" 1)
+  ("jvm-saload" 1)
+  ("jvm-inewarray" 1)
+  ("jvm-iastore" 1)
+  ("jvm-iaload" 1)
+  ("jvm-lnewarray" 1)
+  ("jvm-lastore" 1)
+  ("jvm-laload" 1)
+  ("jvm-fnewarray" 1)
+  ("jvm-fastore" 1)
+  ("jvm-faload" 1)
+  ("jvm-dnewarray" 1)
+  ("jvm-dastore" 1)
+  ("jvm-daload" 1)
+  ("jvm-cnewarray" 1)
+  ("jvm-castore" 1)
+  ("jvm-caload" 1)
+  ("jvm-anewarray" 1)
+  ("jvm-aastore" 1)
+  ("jvm-aaload" 1)
+  ("jvm-arraylength" 1)
+  
+  ("jvm-iadd" 1)
+  ("jvm-isub" 1)
+  ("jvm-imul" 1)
+  ("jvm-idiv" 1)
+  ("jvm-irem" 1)
+  ("jvm-ieq" 1)
+  ("jvm-ilt" 1)
+  ("jvm-igt" 1)
 
-   "jvm-znewarray"
-   "jvm-zastore"
-   "jvm-zaload"
-   "jvm-bnewarray"
-   "jvm-bastore"
-   "jvm-baload"
-   "jvm-snewarray"
-   "jvm-sastore"
-   "jvm-saload"
-   "jvm-inewarray"
-   "jvm-iastore"
-   "jvm-iaload"
-   "jvm-lnewarray"
-   "jvm-lastore"
-   "jvm-laload"
-   "jvm-fnewarray"
-   "jvm-fastore"
-   "jvm-faload"
-   "jvm-dnewarray"
-   "jvm-dastore"
-   "jvm-daload"
-   "jvm-cnewarray"
-   "jvm-castore"
-   "jvm-caload"
-   "jvm-anewarray"
-   "jvm-aastore"
-   "jvm-aaload"
-   "jvm-arraylength"
-   
-   "jvm-iadd"
-   "jvm-isub"
-   "jvm-imul"
-   "jvm-idiv"
-   "jvm-irem"
-   "jvm-ieq"
-   "jvm-ilt"
-   "jvm-igt"
+  ("jvm-ceq" 1)
+  ("jvm-clt" 1)
+  ("jvm-cgt" 1)
 
-   "jvm-ceq"
-   "jvm-clt"
-   "jvm-cgt"
+  ("jvm-ladd" 1)
+  ("jvm-lsub" 1)
+  ("jvm-lmul" 1)
+  ("jvm-ldiv" 1)
+  ("jvm-lrem" 1)
+  ("jvm-leq" 1)
+  ("jvm-llt" 1)
+  ("jvm-lgt" 1)
 
-   "jvm-ladd"
-   "jvm-lsub"
-   "jvm-lmul"
-   "jvm-ldiv"
-   "jvm-lrem"
-   "jvm-leq"
-   "jvm-llt"
-   "jvm-lgt"
+  ("jvm-fadd" 1)
+  ("jvm-fsub" 1)
+  ("jvm-fmul" 1)
+  ("jvm-fdiv" 1)
+  ("jvm-frem" 1)
+  ("jvm-feq" 1)
+  ("jvm-flt" 1)
+  ("jvm-fgt" 1)
 
-   "jvm-fadd"
-   "jvm-fsub"
-   "jvm-fmul"
-   "jvm-fdiv"
-   "jvm-frem"
-   "jvm-feq"
-   "jvm-flt"
-   "jvm-fgt"
+  ("jvm-dadd" 1)
+  ("jvm-dsub" 1)
+  ("jvm-dmul" 1)
+  ("jvm-ddiv" 1)
+  ("jvm-drem" 1)
+  ("jvm-deq" 1)
+  ("jvm-dlt" 1)
+  ("jvm-dgt" 1)
 
-   "jvm-dadd"
-   "jvm-dsub"
-   "jvm-dmul"
-   "jvm-ddiv"
-   "jvm-drem"
-   "jvm-deq"
-   "jvm-dlt"
-   "jvm-dgt"
+  ("jvm-d2f" 1)
+  ("jvm-d2i" 1)
+  ("jvm-d2l" 1)
 
-   "jvm-d2f"
-   "jvm-d2i"
-   "jvm-d2l"
+  ("jvm-f2d" 1)
+  ("jvm-f2i" 1)
+  ("jvm-f2l" 1)
 
-   "jvm-f2d"
-   "jvm-f2i"
-   "jvm-f2l"
+  ("jvm-i2b" 1)
+  ("jvm-i2c" 1)
+  ("jvm-i2d" 1)
+  ("jvm-i2f" 1)
+  ("jvm-i2l" 1)
+  ("jvm-i2s" 1)
 
-   "jvm-i2b"
-   "jvm-i2c"
-   "jvm-i2d"
-   "jvm-i2f"
-   "jvm-i2l"
-   "jvm-i2s"
+  ("jvm-l2d" 1)
+  ("jvm-l2f" 1)
+  ("jvm-l2i" 1)
 
-   "jvm-l2d"
-   "jvm-l2f"
-   "jvm-l2i"
+  ("jvm-iand" 1)
+  ("jvm-ior" 1)
+  ("jvm-ixor" 1)
+  ("jvm-ishl" 1)
+  ("jvm-ishr" 1)
+  ("jvm-iushr" 1)
 
-   "jvm-iand"
-   "jvm-ior"
-   "jvm-ixor"
-   "jvm-ishl"
-   "jvm-ishr"
-   "jvm-iushr"
-
-   "jvm-land"
-   "jvm-lor"
-   "jvm-lxor"
-   "jvm-lshl"
-   "jvm-lshr"
-   "jvm-lushr"])
+  ("jvm-land" 1)
+  ("jvm-lor" 1)
+  ("jvm-lxor" 1)
+  ("jvm-lshl" 1)
+  ("jvm-lshr" 1)
+  ("jvm-lushr" 1))
 
 ;; [Exports]
 (defn expr-type* [analysis]
