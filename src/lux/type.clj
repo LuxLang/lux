@@ -514,22 +514,26 @@
     (&/$DataT ?name (&/|map (partial beta-reduce env) ?params))
 
     (&/$SumT ?left ?right)
-    (let [=left (beta-reduce env ?left)
-          =right (beta-reduce env ?right)]
-      (&/$SumT =left =right))
+    (&/$SumT (beta-reduce env ?left) (beta-reduce env ?right))
 
     (&/$ProdT ?left ?right)
-    (let [=left (beta-reduce env ?left)
-          =right (beta-reduce env ?right)]
-      (&/$ProdT =left =right))
+    (&/$ProdT (beta-reduce env ?left) (beta-reduce env ?right))
 
     (&/$AppT ?type-fn ?type-arg)
     (&/$AppT (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
-
+    
     (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
       (&/$Nil)
       (&/$UnivQ env ?local-def)
+
+      _
+      type)
+
+    (&/$ExQ ?local-env ?local-def)
+    (|case ?local-env
+      (&/$Nil)
+      (&/$ExQ env ?local-def)
 
       _
       type)

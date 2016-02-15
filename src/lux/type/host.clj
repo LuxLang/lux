@@ -81,7 +81,9 @@
         (if (.equals "void" base)
           &/$UnitT
           (reduce (fn [inner _] (&/$DataT array-data-tag (&/|list inner)))
-                  (&/$DataT base &/$Nil)
+                  (&/$DataT base (-> class .getTypeParameters
+                                     seq count (repeat (&/$DataT "java.lang.Object" &/$Nil))
+                                     &/->list))
                   (range (count (or arr-obrackets arr-pbrackets "")))))
         ))))
 

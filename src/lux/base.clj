@@ -934,7 +934,9 @@
 
 (defn ident->text [ident]
   (|let [[?module ?name] ident]
-    (str ?module ";" ?name)))
+    (if (= "" ?module)
+      ?name
+      (str ?module ";" ?name))))
 
 (defn fold2% [f init xs ys]
   (|case [xs ys]
