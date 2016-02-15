@@ -389,10 +389,10 @@
       (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
 
     (&/$VarT id)
-    (str "⌈" id "⌋")
+    (str "⌈v:" id "⌋")
 
     (&/$ExT ?id)
-    (str "⟨" ?id "⟩")
+    (str "⟨e:" ?id "⟩")
 
     (&/$BoundT idx)
     (str idx)

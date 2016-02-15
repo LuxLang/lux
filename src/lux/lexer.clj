@@ -121,7 +121,7 @@
 
   ^:private lex-bool  $Bool  #"^(true|false)"
   ^:private lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
-  ^:private lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)"
+  ^:private lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)(e-?[1-9][0-9]*)?"
   )
 
 (def ^:private lex-char

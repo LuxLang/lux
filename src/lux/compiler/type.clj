@@ -13,7 +13,7 @@
 
 ;; [Utils]
 (defn ^:private variant$ [tag body]
-  "(-> Int Analysis Analysis)"
+  "(-> clojure.lang.Var Analysis Analysis)"
   (let [tag-meta (meta tag)]
     (&a/|meta &/$VoidT &/empty-cursor
               (&a/$variant (::&/idx tag-meta) (::&/is-last? tag-meta) body))))
@@ -50,6 +50,7 @@
   (variant$ #'&/$Cons (tuple$ (&/|list head tail))))
 
 (defn ^:private List$ [elems]
+  "(-> (List Analysis) Analysis)"
   (&/fold (fn [tail head]
             (Cons$ head tail))
           $Nil
@@ -83,6 +84,11 @@
               (tuple$ (&/|list (List$ (&/|map type->analysis env))
                                (type->analysis body))))
 
+    (&/$ExQ env body)
+    (variant$ #'&/$ExQ
+              (tuple$ (&/|list (List$ (&/|map type->analysis env))
+                               (type->analysis body))))
+
     (&/$BoundT idx)
     (variant$ #'&/$BoundT (int$ idx))
 
@@ -94,7 +100,7 @@
                                            (type->analysis type*))))
 
     _
-    (assert false (prn 'type->analysis (&/adt->text type)))
+    (assert false (prn 'type->analysis (&type/show-type type)))
     ))
 
 (defn ^:private defmetavalue->analysis [dmv]
