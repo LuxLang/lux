@@ -19,7 +19,7 @@
   (|do [module &/get-current-module]
     (return (&/|map (fn [pair]
                       (|case pair
-                        [name [tags _]]
+                        [name [tags exported? _]]
                         (&/T [name (&/|map (fn [tag]
                                              (|let [[t-prefix t-name] tag]
                                                t-name))

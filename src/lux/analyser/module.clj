@@ -92,14 +92,20 @@
       (fail* (str "[Analyser Error] Unknown module: " module)))))
 
 (defn type-def [module name]
-  "(-> Text Text (Lux Type))"
+  "(-> Text Text (Lux [Bool Type]))"
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|let [[?type ?meta ?value] $def]
           (|case (&meta/meta-get &meta/type?-tag ?meta)
             (&/$Some _)
-            (return* state ?value)
+            (return* state (&/T [(|case (&meta/meta-get &meta/export?-tag ?meta)
+                                   (&/$Some _)
+                                   true
+
+                                   _
+                                   false)
+                                 ?value]))
 
             _
             (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))))
@@ -218,8 +224,8 @@
                      (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T [module name]))))]
     (return nil)))
 
-(defn declare-tags [module tag-names type]
-  "(-> Text (List Text) Type (Lux Null))"
+(defn declare-tags [module tag-names was-exported? type]
+  "(-> Text (List Text) Bool Type (Lux Null))"
   (|do [_ (ensure-undeclared-tags module tag-names)
         type-name (&type/type-name type)
         :let [[_module _name] type-name]
@@ -235,22 +241,36 @@
                                            #(->> %
                                                  (&/set$ $tags (&/fold (fn [table idx+tag-name]
                                                                          (|let [[idx tag-name] idx+tag-name]
-                                                                           (&/|put tag-name (&/T [idx tags type]) table)))
+                                                                           (&/|put tag-name (&/T [idx tags was-exported? type]) table)))
                                                                        (&/get$ $tags %)
                                                                        (&/enumerate tag-names)))
-                                                 (&/update$ $types (partial &/|put _name (&/T [tags type]))))
+                                                 (&/update$ $types (partial &/|put _name (&/T [tags was-exported? type]))))
                                            =modules))
                               state)
                    nil))
         (fail* (str "[Lux Error] Unknown module: " module))))))
+
+(defn ensure-can-see-tag [module tag-name]
+  "(-> Text Text (Lux Unit))"
+  (|do [current-module &/get-module-name]
+    (fn [state]
+      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+        (if-let [^objects idx+tags+exported+type (&/|get tag-name (&/get$ $tags =module))]
+          (|let [[?idx ?tags ?exported ?type] idx+tags+exported+type]
+            (if (or ?exported
+                    (= module current-module))
+              (return* state &/unit-tag)
+              (fail* (str "Can't access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))))
+          (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name])))))
+        (fail* (str "[Module Error] Unknown module: " module))))))
 
 (do-template [<name> <part> <doc>]
   (defn <name> [module tag-name]
     <doc>
     (fn [state]
       (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-        (if-let [^objects idx+tags+type (&/|get tag-name (&/get$ $tags =module))]
-          (|let [[?idx ?tags ?type] idx+tags+type]
+        (if-let [^objects idx+tags+exported+type (&/|get tag-name (&/get$ $tags =module))]
+          (|let [[?idx ?tags ?exported ?type] idx+tags+exported+type]
             (return* state <part>))
           (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name])))))
         (fail* (str "[Module Error] Unknown module: " module)))))

@@ -206,7 +206,13 @@
               _ (&a-module/define module-name ?name def-type def-meta def-value)
               _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
                   [true (&/$Some (&/$ListM tags*))]
-                  (|do [tags (&/map% (fn [tag*]
+                  (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
+                                              (&/$Some _)
+                                              true
+
+                                              _
+                                              false)]
+                        tags (&/map% (fn [tag*]
                                        (|case tag*
                                          (&/$TextM tag)
                                          (return tag)
@@ -214,7 +220,7 @@
                                          _
                                          (fail "[Compiler Error] Incorrect format for tags.")))
                                      tags*)
-                        _ (&a-module/declare-tags module-name tags def-value)]
+                        _ (&a-module/declare-tags module-name tags was-exported? def-value)]
                     (return nil))
 
                   [false (&/$Some _)]

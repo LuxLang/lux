@@ -146,8 +146,8 @@
                                           (&/->list defs)))
                               _ (&/map% (fn [group]
                                           (|let [[_type _tags] group]
-                                            (|do [=type (&a-module/type-def module _type)]
-                                              (&a-module/declare-tags module _tags =type))))
+                                            (|do [[was-exported? =type] (&a-module/type-def module _type)]
+                                              (&a-module/declare-tags module _tags was-exported? =type))))
                                         tag-groups)]
                           (return true))))
                     redo-cache)))

@@ -21,6 +21,7 @@
 ;; [Utils]
 (defn analyse-variant+ [analyse exo-type ident values]
   (|do [[module tag-name] (&/normalize ident)
+        _ (&&module/ensure-can-see-tag module tag-name)
         idx (&&module/tag-index module tag-name)
         group (&&module/tag-group module tag-name)
         :let [is-last? (= idx (dec (&/|length group)))]]
