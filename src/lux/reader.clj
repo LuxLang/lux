@@ -55,15 +55,6 @@
     (when (.find matcher)
       (.group matcher 0))))
 
-(defn ^:private re-find3! [^java.util.regex.Pattern regex column ^String line]
-  (let [matcher (doto (.matcher regex line)
-                  (.region column (.length line))
-                  (.useAnchoringBounds true))]
-    (when (.find matcher)
-      (list (.group matcher 0)
-            (.group matcher 1)
-            (.group matcher 2)))))
-
 ;; [Exports]
 (defn read-regex [regex]
   (with-line
@@ -74,18 +65,6 @@
           (if (= column-num* (.length line))
             ($Done (&/T [(&/T [file-name line-num column-num]) true match]))
             ($Yes (&/T [(&/T [file-name line-num column-num]) false match])
-                  (&/T [(&/T [file-name line-num column-num*]) line]))))
-        ($No (str "[Reader Error] Pattern failed: " regex))))))
-
-(defn read-regex2 [regex]
-  (with-line
-    (fn [file-name line-num column-num ^String line]
-      (if-let [[^String match tok1 tok2] (re-find3! regex column-num line)]
-        (let [match-length (.length match)
-              column-num* (+ column-num match-length)]
-          (if (= column-num* (.length line))
-            ($Done (&/T [(&/T [file-name line-num column-num]) true (&/T [tok1 tok2])]))
-            ($Yes (&/T [(&/T [file-name line-num column-num]) false (&/T [tok1 tok2])])
                   (&/T [(&/T [file-name line-num column-num*]) line]))))
         ($No (str "[Reader Error] Pattern failed: " regex))))))
 

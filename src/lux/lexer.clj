@@ -52,8 +52,13 @@
         :else
         (assert false (str "[Lexer Error] Unknown escape character: " escaped))))
 
+(defn ^:private escape-unicode [unicode]
+  (str (char (Integer/valueOf (.substring unicode 2) 16))))
+
 (defn ^:private clean-line [raw-line]
-  (string/replace raw-line #"\\." escape-char*))
+  (-> raw-line
+      (string/replace #"\\u[0-9a-fA-F]{4}" escape-unicode)
+      (string/replace #"\\." escape-char*)))
 
 (defn ^:private lex-text-body [offset]
   (|do [[_ eol? ^String pre-quotes] (&reader/read-regex #"^([^\"]*)")
@@ -85,9 +90,8 @@
         _ (&reader/read-text "\"")]
     (return (&/T [meta ($Text token)]))))
 
-(def ^:private +ident-re+ #"^([a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?][0-9a-zA-Z\-\+\_\=!@$%^&*<>\.,/\\\|'`:\~\?]*)"
-  ;; #"^([^0-9\[\]\(\)\{\};#\s\"][^\[\]\(\)\{\};#\s\"]*)"
-  )
+(def ^:private +ident-re+
+  #"^([^0-9\[\]\{\}\(\)\s\"#;][^\[\]\{\}\(\)\s\"#;]*)")
 
 ;; [Lexers]
 (def ^:private lex-white-space
@@ -128,6 +132,8 @@
   (|do [[meta _ _] (&reader/read-text "#\"")
         token (&/try-all% (&/|list (|do [[_ _ escaped] (&reader/read-regex #"^(\\.)")]
                                      (escape-char escaped))
+                                   (|do [[_ _ ^String unicode] (&reader/read-regex #"^(\\u[0-9a-fA-F]{4})")]
+                                     (return (str (char (Integer/valueOf (.substring unicode 2) 16)))))
                                    (|do [[_ _ char] (&reader/read-regex #"^(.)")]
                                      (return char))))
         _ (&reader/read-text "\"")]
