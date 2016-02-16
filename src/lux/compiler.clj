@@ -435,9 +435,7 @@
 
     (&o/$jvm-class ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
-
-    _
-    (compile-expression syntax)))
+    ))
 
 (defn ^:private eval! [expr]
   (&/with-eval
