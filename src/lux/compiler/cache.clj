@@ -91,7 +91,7 @@
                 ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
                                      (&&/load-class! loader class-name))]
             (if (and (= module-hash (get-field &/hash-field module-meta))
-                     (= &&/version (get-field &/compiler-field module-meta)))
+                     (= &/compiler-version (get-field &/compiler-field module-meta)))
               (let [imports (string/split (get-field &/imports-field module-meta) import-separator-re)]
                 (|do [loads (&/map% (fn [_import]
                                       (|do [content (&&io/read-file (str _import ".lux"))

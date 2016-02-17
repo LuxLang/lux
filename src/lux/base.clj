@@ -130,15 +130,25 @@
    "type-env"])
 
 ;; Compiler
+(defvariant
+  ("Release" 0)
+  ("Debug" 0)
+  ("Eval" 0))
+
 (deftuple
-  ["source"
+  ["compiler-name"
+   "compiler-version"
+   "compiler-mode"])
+
+(deftuple
+  ["info"
+   "source"
    "cursor"
    "modules"
    "envs"
    "type-vars"
    "expected"
    "seed"
-   "eval?"
    "host"])
 
 ;; Compiler
@@ -711,8 +721,22 @@
         ;; lux;type-env
         (|table)])))
 
-(defn init-state [_]
-  (T [;; "lux;source"
+(def ^String compiler-name "Lux/JVM")
+(def ^String compiler-version "0.3.3")
+
+(defn default-compiler-info [mode]
+  (T [;; compiler-name
+      compiler-name
+      ;; compiler-version
+      compiler-version
+      ;; compiler-mode
+      mode]
+     ))
+
+(defn init-state [mode]
+  (T [;; "lux;info"
+      (default-compiler-info mode)
+      ;; "lux;source"
       $None
       ;; "lux;cursor"
       (T ["" -1 -1])
@@ -726,8 +750,6 @@
       $VoidT
       ;; "lux;seed"
       0
-      ;; "lux;eval?"
-      false
       ;; "lux;host"
       (host nil)]
      ))
@@ -744,18 +766,25 @@
       ($Left msg)
       (fail* msg))))
 
+(defn ^:private is-eval? [mode]
+  "(-> CompilerMode Bool)"
+  (|case mode
+    ($Eval) true
+    _       false))
+
 (defn with-eval [body]
   (fn [state]
-    (|case (body (set$ $eval? true state))
-      ($Right state* output)
-      (return* (set$ $eval? (get$ $eval? state) state*) output)
+    (let [old-mode (->> state (get$ $info) (get$ $compiler-mode))]
+      (|case (body (update$ $info #(set$ $compiler-mode $Eval %) state))
+        ($Right state* output)
+        (return* (update$ $info #(set$ $compiler-mode old-mode %) state*) output)
 
-      ($Left msg)
-      (fail* msg))))
+        ($Left msg)
+        (fail* msg)))))
 
 (def get-eval
   (fn [state]
-    (return* state (get$ $eval? state))))
+    (return* state (->> state (get$ $info) (get$ $compiler-mode) is-eval?))))
 
 (def get-writer
   (fn [state]

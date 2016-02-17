@@ -35,9 +35,13 @@
                            _
                            (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
                        pairs)
+        _ (let [num-expected (&/|length tag-group)
+                num-got (&/|length =pairs)]
+            (&/assert! (= num-expected num-got)
+                       (str "[Analyser Error] Wrong number of record members. Expected " num-expected ", but got " num-got ".")))
         =members (&/map% (fn [tag]
                            (if-let [member (&/|get tag =pairs)]
                              (return member)
-                             (fail (str "[Analyser Error] Unknown tag: " tag))))
+                             (fail (str "[Analyser Error] Missing tag: " tag))))
                          (&/|map &/ident->text tag-group))]
     (return (&/T [=members tag-type]))))

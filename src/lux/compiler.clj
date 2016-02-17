@@ -486,7 +486,7 @@
                                            (str (&host/->module-class name) "/_") nil "java/lang/Object" nil)
                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/hash-field "I" nil file-hash)
                                        .visitEnd)
-                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &&/version)
+                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
                                        .visitEnd)
                                    (.visitSource file-name nil))]
                     _ (if (= "lux" name)
@@ -541,10 +541,10 @@
   (.mkdirs (java.io.File. &&/output-dir)))
 
 ;; [Resources]
-(defn compile-program [program-module]
+(defn compile-program [mode program-module]
   (init!)
   (let [m-action (&/map% compile-module (&/|list "lux" program-module))]
-    (|case (m-action (&/init-state nil))
+    (|case (m-action (&/init-state mode))
       (&/$Right ?state _)
       (do (println "Compilation complete!")
         (&&cache/clean ?state)

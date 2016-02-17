@@ -25,7 +25,6 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-(def ^String version "0.3.3")
 (def ^String input-dir "source")
 (def ^String output-dir "target/jvm")
 (def ^String output-package (str output-dir "/" "program.jar"))
@@ -50,11 +49,9 @@
 
 ;; [Utils]
 (defn ^:private write-file [^String file-name ^bytes data]
-  (let [;; file-name (.toLowerCase file-name)
-        ]
-    (do (assert (not (.exists (File. file-name))) (str "Can't overwrite file: " file-name))
-      (with-open [stream (BufferedOutputStream. (FileOutputStream. file-name))]
-        (.write stream data)))))
+  (do (assert (not (.exists (File. file-name))) (str "Can't overwrite file: " file-name))
+    (with-open [stream (BufferedOutputStream. (FileOutputStream. file-name))]
+      (.write stream data))))
 
 (defn ^:private write-output [module name data]
   (let [module* (&host/->module-class module)
