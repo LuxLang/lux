@@ -30,10 +30,11 @@
   "(-> Text Manifest)"
   (doto (new Manifest)
     (-> .getMainAttributes (doto (.put Attributes$Name/MAIN_CLASS (str (&host/->module-class module) "._"))
-                             (.put Attributes$Name/MANIFEST_VERSION "1.0")))))
+                             (.put Attributes$Name/MANIFEST_VERSION "1.0")
+                             (.put Attributes$Name/CLASS_PATH "resources/")))))
 
 (defn ^:private write-class! [^String path ^File file ^JarOutputStream out]
-  "(-> Text File JarOutputStream Unit)"
+  "(-> Text File JarOutputStream Null)"
   (with-open [in (new BufferedInputStream (new FileInputStream file))]
     (let [buffer (byte-array buffer-size)]
       (doto out
@@ -48,7 +49,7 @@
 
 (let [output-dir-size (inc (.length &&/output-dir))]
   (defn ^:private write-module! [^File file ^JarOutputStream out]
-    "(-> File JarOutputStream Unit)"
+    "(-> File JarOutputStream Null)"
     (let [module-name (.substring (.getPath file) output-dir-size)
           inner-files (.listFiles file)
           inner-modules (filter #(.isDirectory ^File %) inner-files)
@@ -57,6 +58,25 @@
         (write-class! module-name $class out))
       (doseq [$module inner-modules]
         (write-module! $module out)))))
+
+(let [resources-path "resources"]
+  (defn ^:private write-resources! [^JarOutputStream out]
+    "(-> JarOutputStream Null)"
+    (let [resources-dir (new File resources-path)]
+      (if (.exists resources-dir)
+        (doseq [res (.listFiles resources-dir)]
+          (with-open [in (->> res (new FileInputStream) (new BufferedInputStream))]
+            (let [buffer (byte-array buffer-size)]
+              (doto out
+                (.putNextEntry (new JarEntry (str resources-path "/" (.getName res))))
+                (-> (.write buffer 0 bytes-read)
+                    (->> (when (not= -1 bytes-read))
+                         (loop [bytes-read (.read in buffer)])))
+                (.flush)
+                (.closeEntry)
+                ))
+            ))
+        nil))))
 
 (defn ^:private fetch-available-jars []
   (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
@@ -101,10 +121,11 @@
 
 ;; [Resources]
 (defn package [module]
-  "(-> Text (,))"
+  "(-> Text Null)"
   (with-open [out (new JarOutputStream (->> &&/output-package (new File) (new FileOutputStream)) (manifest module))]
     (doseq [$group (.listFiles (new File &&/output-dir))]
       (write-module! $group out))
+    (write-resources! out)
     (->> (fetch-available-jars)
          (filter #(and (not (.endsWith ^String % "luxc.jar"))
                        (not (.endsWith ^String % "tools.nrepl-0.2.3.jar"))

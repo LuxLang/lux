@@ -538,7 +538,10 @@
 
 (defn ^:private init! []
   (reset! !source->last-line {})
-  (.mkdirs (java.io.File. &&/output-dir)))
+  (.mkdirs (java.io.File. &&/output-dir))
+  (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
+    (.setAccessible true)
+    (.invoke (ClassLoader/getSystemClassLoader) (to-array [(-> (new java.io.File "./resources") .toURI .toURL)]))))
 
 ;; [Resources]
 (defn compile-program [mode program-module]

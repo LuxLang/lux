@@ -1134,7 +1134,7 @@
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
                       (.visitLdcInsn (int 0)) ;; VVI
-                      (.visitLdcInsn &/$Nil) ;; VVIT
+                      (.visitLdcInsn (->> #'&/$Nil meta ::&/idx)) ;; VVIT
                       (&&/wrap-long)
                       (.visitInsn Opcodes/AASTORE) ;; V
                       (.visitInsn Opcodes/DUP) ;; VV
@@ -1180,7 +1180,7 @@
                       (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; I2V
                       (.visitInsn Opcodes/DUP) ;; I2VV
                       (.visitLdcInsn (int 0)) ;; I2VVI
-                      (.visitLdcInsn &/$Cons) ;; I2VVIT
+                      (.visitLdcInsn (->> #'&/$Cons meta ::&/idx)) ;; I2VVIT
                       (&&/wrap-long)
                       (.visitInsn Opcodes/AASTORE) ;; I2V
                       (.visitInsn Opcodes/DUP_X1) ;; IV2V
