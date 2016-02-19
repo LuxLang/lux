@@ -11,6 +11,8 @@
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]))
   (:import java.util.regex.Pattern))
 
+(declare gclass->signature)
+
 (do-template [<name> <old-sep> <new-sep>]
   (let [regex (-> <old-sep> Pattern/quote re-pattern)]
     (defn <name> [old]
@@ -46,10 +48,23 @@
   (|let [[super-name super-params] super]
     super-name))
 
-(defn class-decl-params->signature [params]
+(defn formal-type-parameter->signature [param]
+  (|let [[pname pbounds] param]
+    (|case pbounds
+      (&/$Nil)
+      pname
+
+      _
+      (->> pbounds
+           (&/|map (fn [pbound] (str ": " (gclass->signature pbound))))
+           (&/|interpose " ")
+           (str pname " "))
+      )))
+
+(defn formal-type-parameters->signature [params]
   (if (&/|empty? params)
     ""
-    (str "<" (->> params (&/|interpose " ") (&/fold str "")) ">")))
+    (str "<" (->> params (&/|map formal-type-parameter->signature) (&/|interpose " ") (&/fold str "")) ">")))
 
 (defn gclass->signature [super]
   "(-> GenericClass Text)"
@@ -57,8 +72,14 @@
     (&/$GenericTypeVar name)
     (str "T" name ";")
 
-    (&/$GenericWildcard)
+    (&/$GenericWildcard (&/$None))
     "*"
+
+    (&/$GenericWildcard (&/$Some [(&/$UpperBound) ?bound]))
+    (str "+" (gclass->signature ?bound))
+
+    (&/$GenericWildcard (&/$Some [(&/$LowerBound) ?bound]))
+    (str "-" (gclass->signature ?bound))
     
     (&/$GenericClass name params)
     (case name
@@ -67,7 +88,7 @@
       "byte"    "B"
       "short"   "S"
       "int"     "I"
-      "long"    "L"
+      "long"    "J"
       "float"   "F"
       "double"  "D"
       "char"    "C"
@@ -90,7 +111,7 @@
 (defn gclass-decl->signature [class-decl supers]
   "(-> GenericClassDecl (List GenericSuperClassDecl) Text)"
   (|let [[class-name class-vars] class-decl
-         vars-section (class-decl-params->signature class-vars)
+         vars-section (formal-type-parameters->signature class-vars)
          super-section (->> (&/|map gsuper-decl->signature supers) (&/|interpose " ") (&/fold str ""))]
     (str vars-section super-section)))
 
@@ -101,7 +122,7 @@
       (&/$GenericTypeVar name)
       object-simple-signature
 
-      (&/$GenericWildcard)
+      (&/$GenericWildcard _)
       object-simple-signature
       
       (&/$GenericClass name params)
@@ -119,7 +140,7 @@
     (&/$GenericTypeVar name)
     (->bytecode-class-name "java.lang.Object")
 
-    (&/$GenericWildcard)
+    (&/$GenericWildcard _)
     (->bytecode-class-name "java.lang.Object")
     
     (&/$GenericClass name params)
@@ -139,7 +160,7 @@
       (&/$GenericTypeVar name)
       object-bc-name
 
-      (&/$GenericWildcard)
+      (&/$GenericWildcard _)
       object-bc-name
       
       (&/$GenericClass name params)
@@ -157,7 +178,7 @@
       (&/$GenericTypeVar name)
       object-bc-name
 
-      (&/$GenericWildcard)
+      (&/$GenericWildcard _)
       object-bc-name
       
       (&/$GenericClass name params)
@@ -169,9 +190,7 @@
 (defn method-signatures [method-decl]
   (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl
          simple-signature (str "(" (&/fold str "" (&/|map gclass->simple-signature =inputs)) ")" (gclass->simple-signature =output))
-         generic-signature (str (if (&/|empty? =gvars)
-                                  ""
-                                  (str "<" (->> =gvars (&/|interpose " ") (&/fold str "")) ">"))
+         generic-signature (str (formal-type-parameters->signature =gvars)
                                 "(" (&/fold str "" (&/|map gclass->signature =inputs)) ")"
                                 (gclass->signature =output)
                                 (->> =exceptions (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")))]

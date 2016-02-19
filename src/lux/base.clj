@@ -153,6 +153,10 @@
 
 ;; Compiler
 (defvariant
+  ("UpperBound" 0)
+  ("LowerBound" 0))
+
+(defvariant
   ("GenericTypeVar" 1)
   ("GenericClass" 2)
   ("GenericArray" 1)

@@ -9,6 +9,8 @@
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]])))
 
+(declare parse-gclass)
+
 ;; [Parsers]
 (defn parse-tag [ast]
   (|case ast
@@ -26,19 +28,44 @@
     _
     (fail (str "[Analyser Error] Not text: " (&/show-ast ast)))))
 
+(defn parse-type-param [ast]
+  (|case ast
+    [_ (&/$TupleS (&/$Cons [_ (&/$TextS tname)] (&/$Cons [_ (&/$TupleS ?bounds)] (&/$Nil))))]
+    (|do [=bounds (&/map% parse-gclass ?bounds)]
+      (return (&/T [tname =bounds])))
+
+    _
+    (fail (str "[Analyser Error] Not a type-param: " (&/show-ast ast)))))
+
 (defn parse-gclass-decl [ast]
   (|case ast
     [_ (&/$FormS (&/$Cons [_ (&/$TextS class-name)] (&/$Cons [_ (&/$TupleS args)] (&/$Nil))))]
-    (|do [=args (&/map% parse-text args)]
+    (|do [=args (&/map% parse-type-param args)]
       (return (&/T [class-name =args])))
 
     _
     (fail (str "[Analyser Error] Not generic class declaration: " (&/show-ast ast)))))
 
+(defn parse-bound-kind [ast]
+  (|case ast
+    [_ (&/$TextS "<")]
+    (return &/$UpperBound)
+
+    [_ (&/$TextS ">")]
+    (return &/$LowerBound)
+
+    _
+    (fail (str "[Analyser Error] Not a bound kind: " (&/show-ast ast)))))
+
 (defn parse-gclass [ast]
   (|case ast
-    [_ (&/$TextS "*")]
-    (return (&/$GenericWildcard &/unit-tag))
+    [_ (&/$TupleS (&/$Cons [_ (&/$TextS "*")] (&/$Nil)))]
+    (return (&/$GenericWildcard &/$None))
+
+    [_ (&/$TupleS (&/$Cons [_ (&/$TextS "*")] (&/$Cons ?bound-kind (&/$Cons ?bound (&/$Nil)))))]
+    (|do [=bound-kind (parse-bound-kind ?bound-kind)
+          =bound (parse-gclass ?bound)]
+      (return (&/$GenericWildcard (&/$Some (&/T [=bound-kind =bound])))))
 
     [_ (&/$TextS var-name)]
     (return (&/$GenericTypeVar var-name))
@@ -135,7 +162,8 @@
                                    (&/$Cons [_ (&/$TupleS gvars)]
                                             (&/$Cons [_ (&/$TupleS exceptions)]
                                                      (&/$Cons [_ (&/$TupleS inputs)]
-                                                              (&/$Cons output (&/$Nil))))))))]
+                                                              (&/$Cons output
+                                                                       (&/$Nil))))))))]
     (|do [=anns (&/map% parse-ann anns)
           =gvars (&/map% parse-text gvars)
           =exceptions (&/map% parse-gclass exceptions)
@@ -201,10 +229,11 @@
                                                               (&/$Cons [_ (&/$TupleS exceptions)]
                                                                        (&/$Cons [_ (&/$TupleS inputs)]
                                                                                 (&/$Cons [_ (&/$TupleS ?ctor-args)]
-                                                                                         (&/$Cons body (&/$Nil)))))))))))]
+                                                                                         (&/$Cons body
+                                                                                                  (&/$Nil)))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
+          =gvars (&/map% parse-type-param gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =ctor-args (&/map% parse-ctor-arg ?ctor-args)]
@@ -225,10 +254,11 @@
                                                                                 (&/$Cons [_ (&/$TupleS exceptions)]
                                                                                          (&/$Cons [_ (&/$TupleS inputs)]
                                                                                                   (&/$Cons output
-                                                                                                           (&/$Cons body (&/$Nil)))))))))))))]
+                                                                                                           (&/$Cons body
+                                                                                                                    (&/$Nil)))))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
+          =gvars (&/map% parse-type-param gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
@@ -248,11 +278,12 @@
                                                                        (&/$Cons [_ (&/$TupleS exceptions)]
                                                                                 (&/$Cons [_ (&/$TupleS inputs)]
                                                                                          (&/$Cons output
-                                                                                                  (&/$Cons body (&/$Nil))))))))))))]
+                                                                                                  (&/$Cons body
+                                                                                                           (&/$Nil))))))))))))]
     (|do [=name (parse-text ?name)
           =class-decl (parse-gclass-decl ?class-decl)
           =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
+          =gvars (&/map% parse-type-param gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
@@ -272,10 +303,11 @@
                                                                        (&/$Cons [_ (&/$TupleS exceptions)]
                                                                                 (&/$Cons [_ (&/$TupleS inputs)]
                                                                                          (&/$Cons output
-                                                                                                  (&/$Cons body (&/$Nil))))))))))))]
+                                                                                                  (&/$Cons body
+                                                                                                           (&/$Nil))))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
+          =gvars (&/map% parse-type-param gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
@@ -297,7 +329,7 @@
                                                                                          (&/$Nil))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
+          =gvars (&/map% parse-type-param gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]
@@ -319,7 +351,7 @@
                                                                                          (&/$Nil))))))))))]
     (|do [=privacy-modifier (parse-privacy-modifier ?privacy-modifier)
           =anns (&/map% parse-ann anns)
-          =gvars (&/map% parse-text gvars)
+          =gvars (&/map% parse-type-param gvars)
           =exceptions (&/map% parse-gclass exceptions)
           =inputs (&/map% parse-arg-decl inputs)
           =output (parse-gclass output)]

@@ -271,8 +271,10 @@
 
         (instance? WildcardType gtype)
         (if-let [bound (->> ^WildcardType gtype .getUpperBounds seq first)]
-          (gtype->gclass bound)
-          &/$GenericWildcard)))
+          (&/$GenericWildcard (&/$Some (&/T &/$UpperBound (gtype->gclass bound))))
+          (if-let [bound (->> ^WildcardType gtype .getLowerBounds seq first)]
+            (&/$GenericWildcard (&/$Some (&/T &/$LowerBound (gtype->gclass bound))))
+            (&/$GenericWildcard &/$None)))))
 
 (let [generic-type-sig "Ljava/lang/Object;"]
   (defn gclass->sig [gclass]
@@ -297,6 +299,6 @@
       (&/$GenericTypeVar ?vname)
       generic-type-sig
 
-      (&/$GenericWildcard)
+      (&/$GenericWildcard _)
       generic-type-sig
       )))

@@ -4,7 +4,8 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.analyser.host
-  (:require (clojure [template :refer [do-template]])
+  (:require (clojure [template :refer [do-template]]
+                     [string :as string])
             clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|let |do return* return fail |case assert!]]
@@ -464,7 +465,7 @@
     (&/$GenericTypeVar var-name)
     "java.lang.Object"
 
-    (&/$GenericWildcard)
+    (&/$GenericWildcard _)
     "java.lang.Object"
     
     (&/$GenericClass name params)
@@ -505,7 +506,7 @@
       (&/$GenericTypeVar var-name)
       "[Ljava.lang.Object;"
 
-      (&/$GenericWildcard)
+      (&/$GenericWildcard _)
       "[Ljava.lang.Object;")
     ))
 
@@ -536,8 +537,8 @@
     (|do [=param (generic-class->type env param)]
       (return (&/$DataT &host-type/array-data-tag (&/|list =param))))
 
-    (&/$GenericWildcard)
-    (return (&/$ExT &/$Nil (&/$BoundT 1)))
+    (&/$GenericWildcard _)
+    (return (&/$ExQ &/$Nil (&/$BoundT 1)))
     ))
 
 (defn gen-super-env [class-env supers class-decl]
@@ -546,7 +547,7 @@
     (|case (&/|some (fn [super]
                       (|let [[super-name super-params] super]
                         (if (= class-name super-name)
-                          (&/$Some (&/zip2 class-vars super-params))
+                          (&/$Some (&/zip2 (&/|map &/|first class-vars) super-params))
                           &/$None)))
                     supers)
       (&/$None)
@@ -560,16 +561,21 @@
               vars+gtypes)
       )))
 
+(defn ^:private make-type-env [type-params]
+  "(-> (List TypeParam) (Lux (List [Text Type])))"
+  (&/map% (fn [gvar]
+            (|do [:let [[gvar-name _] gvar]
+                  ex &type/existential]
+              (return (&/T [gvar-name ex]))))
+          type-params))
+
 (defn ^:private analyse-method [analyse class-decl class-env all-supers method]
   "(-> Analyser ClassDecl (List (, TypeVar Type)) (List SuperClassDecl) MethodSyntax (Lux MethodAnalysis))"
   (|let [[?cname ?cparams] class-decl
          class-type (&/$DataT ?cname (&/|map &/|second class-env))]
     (|case method
       (&/$ConstructorMethodSyntax =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
-      (|do [method-env (&/map% (fn [gvar]
-                                 (|do [ex &type/existential]
-                                   (return (&/T [gvar ex]))))
-                               ?gvars)
+      (|do [method-env (make-type-env ?gvars)
             :let [full-env (&/|++ class-env method-env)]
             :let [output-type &/$UnitT]
             =ctor-args (&/map% (fn [ctor-arg]
@@ -590,10 +596,7 @@
         (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
       (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
-      (|do [method-env (&/map% (fn [gvar]
-                                 (|do [ex &type/existential]
-                                   (return (&/T [gvar ex]))))
-                               ?gvars)
+      (|do [method-env (make-type-env ?gvars)
             :let [full-env (&/|++ class-env method-env)]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
@@ -609,10 +612,7 @@
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
       (|do [super-env (gen-super-env class-env all-supers ?class-decl)
-            method-env (&/map% (fn [gvar]
-                                 (|do [ex &type/existential]
-                                   (return (&/T [gvar ex]))))
-                               ?gvars)
+            method-env (make-type-env ?gvars)
             :let [full-env (&/|++ super-env method-env)]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
@@ -627,10 +627,7 @@
         (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$StaticMethodSyntax ?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
-      (|do [method-env (&/map% (fn [gvar]
-                                 (|do [ex &type/existential]
-                                   (return (&/T [gvar ex]))))
-                               ?gvars)
+      (|do [method-env (make-type-env ?gvars)
             :let [full-env method-env]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
@@ -716,15 +713,13 @@
   (&/with-closure
     (|do [module &/get-module-name
           :let [[?name ?params] class-decl
-                full-name (str module "." ?name)
+                full-name (str (string/replace module "/" ".") "." ?name)
+                class-decl* (&/T [full-name ?params])
                 all-supers (&/$Cons super-class interfaces)]
-          class-env (&/map% (fn [gvar]
-                              (|do [ex &type/existential]
-                                (return (&/T [gvar ex]))))
-                            ?params)
+          class-env (make-type-env ?params)
           =fields (&/map% (partial analyse-field analyse class-env) ?fields)
           _ (&host/use-dummy-class class-decl super-class interfaces &/$None =fields methods)
-          =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
+          =methods (&/map% (partial analyse-method analyse class-decl* class-env all-supers) methods)
           _ (check-method-completion all-supers =methods)
           _ (compile-token (&&/$jvm-class (&/T [class-decl super-class interfaces =inheritance-modifier =anns =fields =methods &/$Nil &/$None])))
           :let [_ (println 'DEF full-name)]]
@@ -757,7 +752,7 @@
             scope &/get-scope-name
             :let [name (&host/location (&/|tail scope))
                   class-decl (&/T [name &/$Nil])
-                  anon-class (str module "." name)
+                  anon-class (str (string/replace module "/" ".") "." name)
                   anon-class-type (&/$DataT anon-class &/$Nil)]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|let [[arg-type arg-term] ctor-arg]
