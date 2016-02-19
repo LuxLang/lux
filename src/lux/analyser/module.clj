@@ -41,13 +41,15 @@
   "(-> Text (Lux Null))"
   (|do [current-module &/get-module-name]
     (fn [state]
-      (return* (&/update$ &/$modules
-                          (fn [ms]
-                            (&/|update current-module
-                                       (fn [m] (&/update$ $imports (partial &/$Cons module) m))
-                                       ms))
-                          state)
-               nil))))
+      (if (&/|member? module (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $imports)))
+        (fail* (str "Can't import module " (pr-str module) " twice @ " current-module))
+        (return* (&/update$ &/$modules
+                            (fn [ms]
+                              (&/|update current-module
+                                         (fn [m] (&/update$ $imports (partial &/$Cons module) m))
+                                         ms))
+                            state)
+                 nil)))))
 
 (defn set-imports [imports]
   "(-> (List Text) (Lux Null))"
