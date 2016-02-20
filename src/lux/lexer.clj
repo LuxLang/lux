@@ -65,9 +65,12 @@
         post-quotes (if (.endsWith pre-quotes "\\")
                       (if eol?
                         (fail "[Lexer Error] Can't leave dangling back-slash \\")
-                        (|do [_ (&reader/read-regex #"^([\"])")
-                              next-part (lex-text-body offset)]
-                          (return (str "\"" next-part))))
+                        (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes)]
+                              (odd? (.length back-slashes)))
+                          (|do [_ (&reader/read-regex #"^([\"])")
+                                next-part (lex-text-body offset)]
+                            (return (str "\"" next-part)))
+                          (lex-text-body offset)))
                       (if eol?
                         (|do [[_ _ ^String line-prefix] (&reader/read-regex #"^( +|$)")
                               :let [empty-line? (= "" line-prefix)]
