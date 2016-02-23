@@ -833,24 +833,29 @@
             _cursor &/cursor]
         (return (&/|list (&&/|meta output-type _cursor (<tag> =value)))))))
 
-  analyse-jvm-d2f &&/$jvm-d2f "java.lang.Double"  "java.lang.Float"
-  analyse-jvm-d2i &&/$jvm-d2i "java.lang.Double"  "java.lang.Integer"
-  analyse-jvm-d2l &&/$jvm-d2l "java.lang.Double"  "java.lang.Long"
+  analyse-jvm-d2f &&/$jvm-d2f "java.lang.Double"    "java.lang.Float"
+  analyse-jvm-d2i &&/$jvm-d2i "java.lang.Double"    "java.lang.Integer"
+  analyse-jvm-d2l &&/$jvm-d2l "java.lang.Double"    "java.lang.Long"
 
-  analyse-jvm-f2d &&/$jvm-f2d "java.lang.Float"   "java.lang.Double"
-  analyse-jvm-f2i &&/$jvm-f2i "java.lang.Float"   "java.lang.Integer"
-  analyse-jvm-f2l &&/$jvm-f2l "java.lang.Float"   "java.lang.Long"
+  analyse-jvm-f2d &&/$jvm-f2d "java.lang.Float"     "java.lang.Double"
+  analyse-jvm-f2i &&/$jvm-f2i "java.lang.Float"     "java.lang.Integer"
+  analyse-jvm-f2l &&/$jvm-f2l "java.lang.Float"     "java.lang.Long"
 
-  analyse-jvm-i2b &&/$jvm-i2b "java.lang.Integer" "java.lang.Byte"
-  analyse-jvm-i2c &&/$jvm-i2c "java.lang.Integer" "java.lang.Character"
-  analyse-jvm-i2d &&/$jvm-i2d "java.lang.Integer" "java.lang.Double"
-  analyse-jvm-i2f &&/$jvm-i2f "java.lang.Integer" "java.lang.Float"
-  analyse-jvm-i2l &&/$jvm-i2l "java.lang.Integer" "java.lang.Long"
-  analyse-jvm-i2s &&/$jvm-i2s "java.lang.Integer" "java.lang.Short"
+  analyse-jvm-i2b &&/$jvm-i2b "java.lang.Integer"   "java.lang.Byte"
+  analyse-jvm-i2c &&/$jvm-i2c "java.lang.Integer"   "java.lang.Character"
+  analyse-jvm-i2d &&/$jvm-i2d "java.lang.Integer"   "java.lang.Double"
+  analyse-jvm-i2f &&/$jvm-i2f "java.lang.Integer"   "java.lang.Float"
+  analyse-jvm-i2l &&/$jvm-i2l "java.lang.Integer"   "java.lang.Long"
+  analyse-jvm-i2s &&/$jvm-i2s "java.lang.Integer"   "java.lang.Short"
 
-  analyse-jvm-l2d &&/$jvm-l2d "java.lang.Long"    "java.lang.Double"
-  analyse-jvm-l2f &&/$jvm-l2f "java.lang.Long"    "java.lang.Float"
-  analyse-jvm-l2i &&/$jvm-l2i "java.lang.Long"    "java.lang.Integer"
+  analyse-jvm-l2d &&/$jvm-l2d "java.lang.Long"      "java.lang.Double"
+  analyse-jvm-l2f &&/$jvm-l2f "java.lang.Long"      "java.lang.Float"
+  analyse-jvm-l2i &&/$jvm-l2i "java.lang.Long"      "java.lang.Integer"
+
+  analyse-jvm-c2b &&/$jvm-c2b "java.lang.Character" "java.lang.Byte"
+  analyse-jvm-c2s &&/$jvm-c2s "java.lang.Character" "java.lang.Short"
+  analyse-jvm-c2i &&/$jvm-c2i "java.lang.Character" "java.lang.Integer"
+  analyse-jvm-c2l &&/$jvm-c2l "java.lang.Character" "java.lang.Long"
   )
 
 (do-template [<name> <tag> <from-class> <to-class>]

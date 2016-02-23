@@ -136,6 +136,11 @@
   ("jvm-l2f" 1)
   ("jvm-l2i" 1)
 
+  ("jvm-c2b" 1)
+  ("jvm-c2s" 1)
+  ("jvm-c2i" 1)
+  ("jvm-c2l" 1)
+
   ("jvm-iand" 1)
   ("jvm-ior" 1)
   ("jvm-ixor" 1)

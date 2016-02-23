@@ -378,6 +378,18 @@
         (&o/$jvm-l2i ?value)
         (&&host/compile-jvm-l2i compile-expression ?value)
 
+        (&o/$jvm-c2b ?value)
+        (&&host/compile-jvm-c2b compile-expression ?value)
+
+        (&o/$jvm-c2s ?value)
+        (&&host/compile-jvm-c2s compile-expression ?value)
+
+        (&o/$jvm-c2i ?value)
+        (&&host/compile-jvm-c2i compile-expression ?value)
+
+        (&o/$jvm-c2l ?value)
+        (&&host/compile-jvm-c2l compile-expression ?value)
+
         (&o/$jvm-iand ?x ?y)
         (&&host/compile-jvm-iand compile-expression ?x ?y)
 

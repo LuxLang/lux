@@ -300,6 +300,18 @@
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_l2i")] (&/$Cons ?value (&/$Nil))))
     (&&host/analyse-jvm-l2i analyse exo-type ?value)
 
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2b")] (&/$Cons ?value (&/$Nil))))
+    (&&host/analyse-jvm-c2b analyse exo-type ?value)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2s")] (&/$Cons ?value (&/$Nil))))
+    (&&host/analyse-jvm-c2s analyse exo-type ?value)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2i")] (&/$Cons ?value (&/$Nil))))
+    (&&host/analyse-jvm-c2i analyse exo-type ?value)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2l")] (&/$Cons ?value (&/$Nil))))
+    (&&host/analyse-jvm-c2l analyse exo-type ?value)
+
     _
     (aba6 analyse eval! compile-module compile-token exo-type token)))
 

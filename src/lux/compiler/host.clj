@@ -140,11 +140,11 @@
   (defn <name> [compile ?x ?y]
     (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
-          _ (compile ?y)
+          _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?x)
+          _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
@@ -152,10 +152,10 @@
                 $end (new Label)
                 _ (doto *writer*
                     (.visitJumpInsn <opcode> $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
                     (.visitJumpInsn Opcodes/GOTO $end)
                     (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
                     (.visitLabel $end))]]
       (return nil)))
 
@@ -172,11 +172,11 @@
   (defn <name> [compile ?x ?y]
     (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
-          _ (compile ?y)
+          _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?x)
+          _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
@@ -194,16 +194,16 @@
       (return nil)))
 
   compile-jvm-leq Opcodes/LCMP  0 "java.lang.Long"   "longValue"   "()J"
-  compile-jvm-llt Opcodes/LCMP  1 "java.lang.Long"   "longValue"   "()J"
-  compile-jvm-lgt Opcodes/LCMP -1 "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-llt Opcodes/LCMP -1 "java.lang.Long"   "longValue"   "()J"
+  compile-jvm-lgt Opcodes/LCMP  1 "java.lang.Long"   "longValue"   "()J"
 
   compile-jvm-feq Opcodes/FCMPG  0 "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-flt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-fgt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-flt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
+  compile-jvm-fgt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
   
   compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()D"
-  compile-jvm-dlt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()D"
-  compile-jvm-dgt Opcodes/FCMPG -1 "java.lang.Double" "doubleValue" "()D"
+  compile-jvm-dlt Opcodes/DCMPG -1 "java.lang.Double" "doubleValue" "()D"
+  compile-jvm-dgt Opcodes/FCMPG  1 "java.lang.Double" "doubleValue" "()D"
   )
 
 (defn compile-jvm-invokestatic [compile ?class ?method ?classes ?args ?output-type]
@@ -1084,6 +1084,11 @@
   compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"   "()J" "java.lang.Double"    "(D)V"
   compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"   "()J" "java.lang.Float"     "(F)V"
   compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"   "()J" "java.lang.Integer"   "(I)V"
+
+  compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue" "()C" "java.lang.Byte"      "(B)V"
+  compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue" "()C" "java.lang.Short"     "(S)V"
+  compile-jvm-c2i Opcodes/NOP "java.lang.Character" "charValue" "()C" "java.lang.Integer"   "(I)V"
+  compile-jvm-c2l Opcodes/I2L "java.lang.Character" "charValue" "()C" "java.lang.Long"      "(J)V"
   )
 
 (do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]

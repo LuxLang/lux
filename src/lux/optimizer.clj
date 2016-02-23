@@ -135,6 +135,11 @@
   ("jvm-l2f" 1)
   ("jvm-l2i" 1)
 
+  ("jvm-c2b" 1)
+  ("jvm-c2s" 1)
+  ("jvm-c2i" 1)
+  ("jvm-c2l" 1)
+
   ("jvm-iand" 1)
   ("jvm-ior" 1)
   ("jvm-ixor" 1)
@@ -490,7 +495,19 @@
     
     (&-base/$jvm-l2i value)
     (return ($jvm-l2i value))
-    
+
+    (&-base/$jvm-c2b value)
+    (return ($jvm-c2b value))
+
+    (&-base/$jvm-c2s value)
+    (return ($jvm-c2s value))
+
+    (&-base/$jvm-c2i value)
+    (return ($jvm-c2i value))
+
+    (&-base/$jvm-c2l value)
+    (return ($jvm-c2l value))
+
     (&-base/$jvm-iand value)
     (return ($jvm-iand value))
     

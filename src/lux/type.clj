@@ -576,6 +576,10 @@
 
     (&/$ExT id)
     (return (&/$AppT type-fn param))
+
+    (&/$VarT id)
+    (|do [=type-fun (deref id)]
+      (apply-type =type-fun param))
     
     _
     (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
