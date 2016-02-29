@@ -62,6 +62,12 @@
     (&/$DataT payload)
     (return payload)
 
+    (&/$VarT id)
+    (return (&/T ["java.lang.Object" (&/|list)]))
+
+    (&/$ExT id)
+    (return (&/T ["java.lang.Object" (&/|list)]))
+
     (&/$NamedT _ type*)
     (ensure-object type*)
 

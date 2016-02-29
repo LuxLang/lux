@@ -310,7 +310,7 @@
     ($Cons [k v] table*)
     (if (.equals ^Object k slot)
       v
-      (|get slot table*))))
+      (recur slot table*))))
 
 (defn |put [slot value table]
   (|case table
@@ -933,7 +933,7 @@
     (pr-str ?value)
 
     [_ ($CharS ?value)]
-    (pr-str ?value)
+    (str "#\"" (pr-str ?value) "\"")
 
     [_ ($TextS ?value)]
     (str "\"" ?value "\"")

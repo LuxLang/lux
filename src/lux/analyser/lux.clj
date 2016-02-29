@@ -212,7 +212,7 @@
                                              _
                                              (return exo-type))]
                              (fail (str err "\n"
-                                        'analyse-variant " " idx " " is-last? " " is-last?* " " (&type/show-type exo-type) " " (&type/show-type _exo-type)
+                                        'analyse-variant " " idx " " is-last? " " is-last?* " " (&type/show-type _exo-type) " " (&type/show-type vtype)
                                         " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
                 _cursor &/cursor]
             (if (= 1 num-variant-types)
@@ -378,16 +378,21 @@
       (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
-          (|do [macro-expansion (fn [state] (-> ?value (.apply ?args) (.apply state)))
-                :let [[r-prefix r-name] real-name
-                      ;; _ (when (or (= "defclass" r-name)
-                      ;;             ;; (= "@type" r-name)
-                      ;;             )
-                      ;;     (->> (&/|map &/show-ast macro-expansion)
-                      ;;          (&/|interpose "\n")
-                      ;;          (&/fold str "")
-                      ;;          (prn (&/ident->text real-name))))
-                      ]
+          (|do [macro-expansion (fn [state] (try (-> ?value (.apply ?args) (.apply state))
+                                             (catch java.lang.StackOverflowError e
+                                               (|let [[r-prefix r-name] real-name]
+                                                 (do (prn 'find-def [r-prefix r-name])
+                                                   (throw e))))))
+                module-name &/get-module-name
+                ;; :let [[r-prefix r-name] real-name
+                ;;       _ (when (or (= "jvm-import" r-name)
+                ;;                   ;; (= "defclass" r-name)
+                ;;                   )
+                ;;           (->> (&/|map &/show-ast macro-expansion)
+                ;;                (&/|interpose "\n")
+                ;;                (&/fold str "")
+                ;;                (prn (&/ident->text real-name) module-name)))
+                ;;       ]
                 ]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 

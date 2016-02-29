@@ -506,6 +506,73 @@
     _
     (.visitInsn writer Opcodes/ARETURN)))
 
+(defn ^:private prepare-method-input [idx input method-visitor]
+  "(-> Int [Text GenericClass] MethodVisitor (Lux FrameTag))"
+  (|case input
+    [_ (&/$GenericClass name params)]
+    (case name
+      "boolean" (do (doto method-visitor
+                      (.visitVarInsn Opcodes/ILOAD idx)
+                      &&/wrap-boolean
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return (&host-generics/gclass->class-name (&/$GenericClass name params))))
+      "byte"    (do (doto method-visitor
+                      (.visitVarInsn Opcodes/ILOAD idx)
+                      &&/wrap-byte
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return (&host-generics/gclass->class-name (&/$GenericClass name params))))
+      "short"   (do (doto method-visitor
+                      (.visitVarInsn Opcodes/ILOAD idx)
+                      &&/wrap-short
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return (&host-generics/gclass->class-name (&/$GenericClass name params))))
+      "int"     (do (doto method-visitor
+                      (.visitVarInsn Opcodes/ILOAD idx)
+                      &&/wrap-int
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return Opcodes/INTEGER))
+      "long"    (do (doto method-visitor
+                      (.visitVarInsn Opcodes/LLOAD idx)
+                      &&/wrap-long
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return Opcodes/LONG))
+      "float"   (do (doto method-visitor
+                      (.visitVarInsn Opcodes/FLOAD idx)
+                      &&/wrap-float
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return Opcodes/FLOAT))
+      "double"  (do (doto method-visitor
+                      (.visitVarInsn Opcodes/DLOAD idx)
+                      &&/wrap-double
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return Opcodes/DOUBLE))
+      "char"    (do (doto method-visitor
+                      (.visitVarInsn Opcodes/ILOAD idx)
+                      &&/wrap-char
+                      (.visitVarInsn Opcodes/ASTORE idx))
+                  (return (&host-generics/gclass->class-name (&/$GenericClass name params))))
+      ;; else
+      (return (&host-generics/gclass->class-name (&/$GenericClass name params))))
+
+    [_ gclass]
+    (return (&host-generics/gclass->class-name gclass))
+    ))
+
+(defn ^:private prepare-method-inputs [idx inputs method-visitor]
+  "(-> Int (List GenericClass) MethodVisitor (Lux (List FrameTag)))"
+  (|case inputs
+    (&/$Nil)
+    (return &/unit-tag)
+    
+    (&/$Cons input inputs*)
+    (let [!idx (atom idx)]
+      (&/map% (fn [input]
+                (|do [output (prepare-method-input @!idx input method-visitor)
+                      :let [_ (swap! !idx inc)]]
+                  (return output)))
+              inputs))
+    ))
+
 (defn ^:private compile-method-def [compile ^ClassWriter class-writer ?super-class method-def]
   (|case method-def
     (&/$ConstructorMethodAnalysis ?privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
@@ -524,12 +591,11 @@
                     init-types (->> ?ctor-args (&/|map (comp &host-generics/gclass->signature &/|first)) (&/fold str ""))
                     init-sig (str "(" init-types ")" "V")
                     _ (&/|map (partial compile-annotation =method) ?anns)
-                    _ (doto =method
-                        (.visitCode)
-                        (.visitVarInsn Opcodes/ALOAD 0))]
+                    _ (.visitCode =method)]
+              =input-tags (prepare-method-inputs 1 ?inputs =method)
+              :let [_ (.visitVarInsn =method Opcodes/ALOAD 0)]
               _ (->> ?ctor-args (&/|map &/|second) (&/map% compile))
-              :let [_ (doto =method
-                        (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class-name) init-method init-sig))]
+              :let [_ (.visitMethodInsn =method Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class-name) init-method init-sig)]
               _ (compile ?body)
               :let [_ (doto =method
                         (compile-method-return ?output)
@@ -551,6 +617,7 @@
         (|do [^MethodVisitor =method &/get-writer
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
+              =input-tags (prepare-method-inputs 1 ?inputs =method)
               _ (compile ?body)
               :let [_ (doto =method
                         (compile-method-return ?output)
@@ -571,6 +638,7 @@
         (|do [^MethodVisitor =method &/get-writer
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
+              =input-tags (prepare-method-inputs 1 ?inputs =method)
               _ (compile ?body)
               :let [_ (doto =method
                         (compile-method-return ?output)
@@ -592,6 +660,7 @@
         (|do [^MethodVisitor =method &/get-writer
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
+              =input-tags (prepare-method-inputs 0 ?inputs =method)
               _ (compile ?body)
               :let [_ (doto =method
                         (compile-method-return ?output)

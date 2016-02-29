@@ -103,12 +103,10 @@
         (let [entry-name (.getName entry)]
           (if (and (not (.isDirectory entry))
                    (not (.startsWith entry-name "META-INF/maven/"))
-                   ;; (.endsWith entry-name ".class")
                    (not (contains? seen entry-name)))
-            (let [;; _ (prn 'entry entry-name)
-                  entry-data (read-stream is)]
+            (let [entry-data (read-stream is)]
               (doto out
-                (.putNextEntry entry)
+                (.putNextEntry (doto entry (.setCompressedSize -1)))
                 (.write entry-data 0 (alength entry-data))
                 (.flush)
                 (.closeEntry))
@@ -123,13 +121,16 @@
 (defn package [module]
   "(-> Text Null)"
   (with-open [out (new JarOutputStream (->> &&/output-package (new File) (new FileOutputStream)) (manifest module))]
-    (doseq [$group (.listFiles (new File &&/output-dir))]
-      (write-module! $group out))
-    (write-resources! out)
-    (->> (fetch-available-jars)
-         (filter #(and (not (.endsWith ^String % "luxc.jar"))
-                       (not (.endsWith ^String % "tools.nrepl-0.2.3.jar"))
-                       (not (.endsWith ^String % "clojure-complete-0.2.3.jar"))))
-         (reduce (fn [s ^String j] (add-jar! (new File ^String j) s out))
-                 #{"META-INF/MANIFEST.MF"}))
+    (do (doseq [$group (.listFiles (new File &&/output-dir))]
+          (write-module! $group out))
+      (write-resources! out)
+      (->> (fetch-available-jars)
+           (filter #(and (not (.endsWith ^String % "luxc.jar"))
+                         (not (.endsWith ^String % "tools.nrepl-0.2.3.jar"))
+                         (not (.endsWith ^String % "clojure-complete-0.2.3.jar"))
+                         (not (.endsWith ^String % "clojure-1.6.0.jar"))
+                         (not (.endsWith ^String % "core.match-0.2.1.jar"))))
+           (reduce (fn [s ^String j] (add-jar! (new File ^String j) s out))
+                   #{"META-INF/MANIFEST.MF"}))
+      nil)
     ))
