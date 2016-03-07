@@ -139,7 +139,7 @@
     [_ (&/$FormS (&/$Cons [_ (&/$TextS ann-name)] (&/$Cons [_ (&/$RecordS ann-params)] (&/$Nil))))]
     (|do [=ann-params (&/map% parse-ann-param ann-params)]
       (return {:name ann-name
-               :params ann-params}))
+               :params =ann-params}))
 
     _
     (fail (str "[Analyser Error] Invalid annotation: " (&/show-ast ast)))))

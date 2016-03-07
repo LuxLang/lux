@@ -427,7 +427,7 @@
     (return nil)))
 
 (defn ^:private compile-annotation [writer ann]
-  (doto ^AnnotationVisitor (.visitAnnotation writer (&host-generics/->bytecode-class-name (:name ann)) true)
+  (doto ^AnnotationVisitor (.visitAnnotation writer (&host-generics/->type-signature (:name ann)) true)
         (-> (.visit param-name param-value)
             (->> (|let [[param-name param-value] param])
                  (doseq [param (&/->seq (:params ann))])))
