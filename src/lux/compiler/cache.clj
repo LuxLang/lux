@@ -108,6 +108,8 @@
                           (let [real-name (second (re-find #"^(.*)\.class$" file-name))
                                 bytecode (read-file file)]
                             (swap! !classes assoc (str module* "." real-name) bytecode)))
+                      ;; (doseq [_class-name_ (keys @!classes)]
+                      ;;   (&&/load-class! loader _class-name_))
                       (let [defs (string/split (get-field &/defs-field module-meta) def-separator-re)
                             tag-groups (let [all-tags (get-field &/tags-field module-meta)]
                                          (if (= "" all-tags)

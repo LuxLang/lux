@@ -575,6 +575,28 @@
               (return (&/T [gvar-name ex]))))
           type-params))
 
+(defn ^:private double-register-gclass? [gclass]
+  (|case gclass
+    (&/$GenericClass name _)
+    (|case name
+      "long"   true
+      "double" true
+      _        false)
+
+    _
+    false))
+
+(defn ^:private method-input-folder [full-env]
+  (fn [body* input*]
+    (|do [:let [[iname itype*] input*]
+          itype (generic-class->type full-env itype*)]
+      (if (double-register-gclass? itype*)
+        (&&env/with-local iname itype
+          (&&env/with-local "" &/$VoidT
+            body*))
+        (&&env/with-local iname itype
+          body*)))))
+
 (defn ^:private analyse-method [analyse class-decl class-env all-supers method]
   "(-> Analyser ClassDecl (List (, TypeVar Type)) (List SuperClassDecl) MethodSyntax (Lux MethodAnalysis))"
   (|let [[?cname ?cparams] class-decl
@@ -592,11 +614,7 @@
                                ?ctor-args)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/fold (fn [body* input*]
-                                (|do [:let [[iname itype*] input*]
-                                      itype (generic-class->type full-env itype*)]
-                                  (&&env/with-local iname itype
-                                    body*)))
+                      (&/fold (method-input-folder full-env)
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
         (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
@@ -607,11 +625,7 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/fold (fn [body* input*]
-                                (|do [:let [[iname itype*] input*]
-                                      itype (generic-class->type full-env itype*)]
-                                  (&&env/with-local iname itype
-                                    body*)))
+                      (&/fold (method-input-folder full-env)
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
         (return (&/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
@@ -623,11 +637,7 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/fold (fn [body* input*]
-                                (|do [:let [[iname itype*] input*]
-                                      itype (generic-class->type full-env itype*)]
-                                  (&&env/with-local iname itype
-                                    body*)))
+                      (&/fold (method-input-folder full-env)
                               (&&/analyse-1 analyse output-type ?body)
                               (&/|reverse ?inputs))))]
         (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
@@ -637,11 +647,7 @@
             :let [full-env method-env]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
-                    (&/fold (fn [body* input*]
-                              (|do [:let [[iname itype*] input*]
-                                    itype (generic-class->type full-env itype*)]
-                                (&&env/with-local iname itype
-                                  body*)))
+                    (&/fold (method-input-folder full-env)
                             (&&/analyse-1 analyse output-type ?body)
                             (&/|reverse ?inputs)))]
         (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))

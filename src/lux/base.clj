@@ -693,16 +693,9 @@
     (proxy [java.lang.ClassLoader]
       []
       (findClass [^String class-name]
-        ;; (prn 'findClass class-name)
         (if-let [^bytes bytecode (get @store class-name)]
-          (try (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
-            (catch java.lang.reflect.InvocationTargetException e
-              ;; (prn 'InvocationTargetException (.getCause e))
-              ;; (prn 'InvocationTargetException (.getTargetException e))
-              ;; (prn 'memory-class-loader/findClass class-name (get @store class-name))
-              (throw e)))
-          (do ;; (prn 'memory-class-loader/store class-name (keys @store))
-              (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name)))))))))
+          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
+          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
 
 ;; (deftype Host
 ;;   (& #writer         (^ org.objectweb.asm.ClassWriter)

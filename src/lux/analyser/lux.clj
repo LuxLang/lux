@@ -339,8 +339,9 @@
                   (|do [? (&type/bound? ?id)
                         type** (if ?
                                  (&type/clean $var =output-t)
-                                 (|do [_ (&type/set-var ?id (&/$BoundT 1))]
-                                   (&type/clean $var =output-t)))]
+                                 (|do [_ (&type/set-var ?id (next-bound-type =output-t))]
+                                   (&type/clean $var =output-t)))
+                        _ (&type/clean $var exo-type)]
                     (return (&/T [type** ==args])))
                   ))))
 
@@ -385,7 +386,7 @@
                                                    (throw e))))))
                 module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "jvm-import" r-name)
+                ;;       _ (when (or (= "get@" r-name)
                 ;;                   ;; (= "defclass" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)

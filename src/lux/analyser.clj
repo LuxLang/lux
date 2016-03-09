@@ -668,12 +668,14 @@
         (|case [?var ?output-type]
           [(&/$VarT ?e-id) (&/$VarT ?a-id)]
           (if (= ?e-id ?a-id)
-            (|do [?output-type* (&type/deref ?e-id)]
-              (return (&&/|meta ?output-type* ?output-cursor ?output-term)))
-            (return (&&/|meta ?output-type ?output-cursor ?output-term)))
+            (|do [=output-type (&type/clean ?var ?output-type)]
+              (return (&&/|meta =output-type ?output-cursor ?output-term)))
+            (|do [=output-type (&type/clean ?var ?var)]
+              (return (&&/|meta =output-type ?output-cursor ?output-term))))
 
           [_ _]
-          (return (&&/|meta ?output-type ?output-cursor ?output-term)))
+          (|do [=output-type (&type/clean ?var ?output-type)]
+            (return (&&/|meta =output-type ?output-cursor ?output-term))))
         ))))
 
 (defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]

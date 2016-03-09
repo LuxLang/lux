@@ -192,6 +192,24 @@
                  nil))
       (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
 
+(defn reset-var [id type]
+  (fn [state]
+    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+      (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
+                                                          ts))
+                          state)
+               nil)
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
+
+(defn unset-var [id]
+  (fn [state]
+    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+      (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id &/$None %)
+                                                          ts))
+                          state)
+               nil)
+      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
+
 ;; [Exports]
 ;; Type vars
 (def ^:private create-var
@@ -256,7 +274,23 @@
         (if ?
           (deref ?id)
           (return type)))
-      (return type))
+      (|do [? (bound? ?id)]
+        (if ?
+          (|do [=type (deref ?id)
+                ==type (clean* ?tid =type)]
+            (|case ==type
+              (&/$VarT =id)
+              (if (.equals ^Object ?tid =id)
+                (|do [_ (unset-var ?id)]
+                  (return type))
+                (|do [_ (reset-var ?id ==type)]
+                  (return type)))
+
+              _
+              (|do [_ (reset-var ?id ==type)]
+                (return type))))
+          (return type)))
+      )
 
     (&/$DataT ?name ?params)
     (|do [=params (&/map% (partial clean* ?tid) ?params)]
@@ -714,17 +748,21 @@
         [_ (&/$UnivQ _)]
         (with-var
           (fn [$arg]
-            (|do [actual* (apply-type actual $arg)]
-              (check* class-loader fixpoints invariant?? expected actual*))))
+            (|do [actual* (apply-type actual $arg)
+                  =output (check* class-loader fixpoints invariant?? expected actual*)
+                  _ (clean $arg expected)]
+              (return =output))))
 
         [(&/$ExQ e!env e!def) _]
         (with-var
           (fn [$arg]
-            (|let [expected* (beta-reduce (->> e!env
-                                               (&/$Cons $arg)
-                                               (&/$Cons expected))
-                                          e!def)]
-              (check* class-loader fixpoints invariant?? expected* actual))))
+            (|do [:let [expected* (beta-reduce (->> e!env
+                                                    (&/$Cons $arg)
+                                                    (&/$Cons expected))
+                                               e!def)]
+                  =output (check* class-loader fixpoints invariant?? expected* actual)
+                  _ (clean $arg actual)]
+              (return =output))))
 
         [_ (&/$ExQ a!env a!def)]
         (|do [$arg existential]
