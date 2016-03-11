@@ -1209,17 +1209,10 @@
                   $end (new Label)
                   _ (doto main-writer
                       ;; Tail: Begin
-                      (.visitLdcInsn (int 2)) ;; S
-                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; V
-                      (.visitInsn Opcodes/DUP) ;; VV
-                      (.visitLdcInsn (int 0)) ;; VVI
-                      (.visitLdcInsn (->> #'&/$Nil meta ::&/idx)) ;; VVIT
-                      (&&/wrap-long)
-                      (.visitInsn Opcodes/AASTORE) ;; V
-                      (.visitInsn Opcodes/DUP) ;; VV
-                      (.visitLdcInsn (int 1)) ;; VVI
-                      (.visitInsn Opcodes/ACONST_NULL) ;; VVIN
-                      (.visitInsn Opcodes/AASTORE) ;; V
+                      (.visitLdcInsn (->> #'&/$Nil meta ::&/idx int)) ;; I
+                      (.visitInsn Opcodes/ACONST_NULL) ;; I?
+                      (.visitLdcInsn &/unit-tag) ;; I?U
+                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
                       ;; Tail: End
                       ;; Size: Begin
                       (.visitVarInsn Opcodes/ALOAD 0) ;; VA
@@ -1255,18 +1248,11 @@
                       (.visitInsn Opcodes/AASTORE) ;; I2
                       ;; Tuple: End
                       ;; Cons: Begin
-                      (.visitLdcInsn (int 2)) ;; I2I
-                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; I2V
-                      (.visitInsn Opcodes/DUP) ;; I2VV
-                      (.visitLdcInsn (int 0)) ;; I2VVI
-                      (.visitLdcInsn (->> #'&/$Cons meta ::&/idx)) ;; I2VVIT
-                      (&&/wrap-long)
-                      (.visitInsn Opcodes/AASTORE) ;; I2V
-                      (.visitInsn Opcodes/DUP_X1) ;; IV2V
-                      (.visitInsn Opcodes/SWAP) ;; IVV2
-                      (.visitLdcInsn (int 1)) ;; IVV2I
-                      (.visitInsn Opcodes/SWAP) ;; IVVI2
-                      (.visitInsn Opcodes/AASTORE) ;; IV
+                      (.visitLdcInsn (->> #'&/$Cons meta ::&/idx int)) ;; I2I
+                      (.visitLdcInsn "") ;; I2I?
+                      (.visitInsn Opcodes/DUP2_X1) ;; II?2I?
+                      (.visitInsn Opcodes/POP2) ;; II?2
+                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
                       ;; Cons: End
                       (.visitInsn Opcodes/SWAP) ;; VI
                       (.visitJumpInsn Opcodes/GOTO $loop)
