@@ -154,7 +154,8 @@
   ("jvm-lshr" 1)
   ("jvm-lushr" 1))
 
-(defn ^:private optimize-token [analysis]
+;; [Exports]
+(defn optimize-token [analysis]
   "(-> Analysis Optimized)"
   (|case analysis
     (&-base/$bool value)
@@ -543,9 +544,11 @@
     
     (&-base/$jvm-lushr value)
     (return ($jvm-lushr value))
+
+    _
+    (assert false (prn-str 'optimize-token (&/adt->text analysis)))
     ))
 
-;; [Exports]
 (defn optimize [eval! compile-module compile-token]
   (|do [analyses (&analyser/analyse eval! compile-module compile-token)]
     (&/map% optimize-token analyses)))

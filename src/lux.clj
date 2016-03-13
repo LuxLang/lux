@@ -8,19 +8,23 @@
   (:require [lux.base :as & :refer [|let |do return fail return* fail* |case]]
             [lux.compiler.base :as &compiler-base]
             [lux.compiler :as &compiler]
+            [lux.repl :as &repl]
             :reload-all)
   (:import (java.io File)))
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Cons "compile" (&/$Cons program-module (&/$Nil)))
+    (&/$Cons program-module (&/$Nil))
     (time (&compiler/compile-program &/$Release program-module))
 
-    (&/$Cons "compile" (&/$Cons "release" (&/$Cons program-module (&/$Nil))))
+    (&/$Cons program-module (&/$Cons "release" (&/$Nil)))
     (time (&compiler/compile-program &/$Release program-module))
 
-    (&/$Cons "compile" (&/$Cons "debug" (&/$Cons program-module (&/$Nil))))
+    (&/$Cons program-module (&/$Cons "debug" (&/$Nil)))
     (time (&compiler/compile-program &/$Debug program-module))
+
+    (&/$Nil)
+    (&repl/repl)
 
     _
     (println "Can't understand command.")))

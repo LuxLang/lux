@@ -156,7 +156,7 @@
         
         _
         (|do [:let [=value-type (&a/expr-type* ?body)]
-              ^ClassWriter *writer* &/get-writer
+              ;; ^ClassWriter *writer* &/get-writer
               [file-name _ _] &/cursor
               :let [datum-sig "Ljava/lang/Object;"
                     def-name (&host/def-name ?name)
@@ -187,7 +187,8 @@
                                   (.visitMaxs 0 0)
                                   (.visitEnd))]]
                     (return nil)))
-              :let [_ (.visitEnd *writer*)]
+              ;; :let [_ (.visitEnd *writer*)]
+              :let [_ (.visitEnd =class)]
               _ (&&/save-class! def-name (.toByteArray =class))
               :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
                     [def-type is-type?] (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)

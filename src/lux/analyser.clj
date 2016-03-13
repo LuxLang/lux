@@ -711,3 +711,15 @@
 (defn analyse [eval! compile-module compile-token]
   (|do [asts &parser/parse]
     (&/flat-map% (partial analyse-ast eval! compile-module compile-token &/$VoidT) asts)))
+
+(defn clean-output [?var analysis]
+  (|do [:let [[[?output-type ?output-cursor] ?output-term] analysis]
+        =output-type (&type/clean ?var ?output-type)]
+    (return (&&/|meta =output-type ?output-cursor ?output-term))))
+
+(defn repl-analyse [eval! compile-module compile-token]
+  (|do [asts &parser/parse]
+    (&type/with-var
+      (fn [?var]
+        (|do [outputs (&/flat-map% (partial analyse-ast eval! compile-module compile-token ?var) asts)]
+          (&/map% (partial clean-output ?var) outputs))))))

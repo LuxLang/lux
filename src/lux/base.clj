@@ -734,7 +734,7 @@
   (T [;; "lux;info"
       (default-compiler-info mode)
       ;; "lux;source"
-      $None
+      $Nil
       ;; "lux;cursor"
       (T ["" -1 -1])
       ;; "lux;modules"

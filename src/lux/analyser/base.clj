@@ -160,6 +160,10 @@
   (|let [[[type _] _] analysis]
     type))
 
+(defn expr-term [analysis]
+  (|let [[[type _] term] analysis]
+    term))
+
 (defn with-type [new-type analysis]
   (|let [[[type cursor] adt] analysis]
     (&/T [(&/T [new-type cursor]) adt])))

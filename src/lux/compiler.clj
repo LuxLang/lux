@@ -36,10 +36,10 @@
                               ClassWriter
                               MethodVisitor)))
 
-;; [Utils/Compilers]
+;; [Resources]
 (def ^:private !source->last-line (atom nil))
 
-(defn ^:private compile-expression [syntax]
+(defn compile-expression [syntax]
   (|let [[[?type [_file-name _line _column]] ?form] syntax]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [debug-label (new Label)
@@ -434,7 +434,7 @@
         ))
     ))
 
-(defn ^:private compile-token [syntax]
+(defn compile-token [syntax]
   (|case syntax
     (&o/$def ?name ?body ?meta)
     (&&lux/compile-def compile-expression ?name ?body ?meta)
@@ -449,7 +449,14 @@
     (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
     ))
 
-(defn ^:private eval! [expr]
+(defn init! []
+  (reset! !source->last-line {})
+  (.mkdirs (java.io.File. &&/output-dir))
+  (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
+    (.setAccessible true)
+    (.invoke (ClassLoader/getSystemClassLoader) (to-array [(-> (new java.io.File "./resources") .toURI .toURL)]))))
+
+(defn eval! [expr]
   (&/with-eval
     (|do [module &/get-module-name
           id &/gen-id
@@ -480,7 +487,7 @@
           (.get nil)
           return))))
 
-(defn ^:private compile-module [name]
+(defn compile-module [name]
   (let [file-name (str name ".lux")]
     (|do [file-content (&&io/read-file file-name)
           :let [file-hash (hash file-content)]]
@@ -548,14 +555,6 @@
         ))
     ))
 
-(defn ^:private init! []
-  (reset! !source->last-line {})
-  (.mkdirs (java.io.File. &&/output-dir))
-  (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
-    (.setAccessible true)
-    (.invoke (ClassLoader/getSystemClassLoader) (to-array [(-> (new java.io.File "./resources") .toURI .toURL)]))))
-
-;; [Resources]
 (defn compile-program [mode program-module]
   (init!)
   (let [m-action (&/map% compile-module (&/|list "lux" program-module))]
