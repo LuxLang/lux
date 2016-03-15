@@ -892,8 +892,8 @@
                                           (.visitLdcInsn (int 1)) ;; tuple-size, index, offset-last-elem
                                           (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
                                           (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
-                                          (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec)
-                                          ;; tuple-size, index-last-elem
+                                          (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec) ;; tuple-size, index-last-elem
+                                          (.visitInsn Opcodes/SWAP) ;; index-last-elem, tuple-size
                                           (.visitInsn Opcodes/ISUB) ;; sub-index
                                           (.visitVarInsn Opcodes/ALOAD 0) ;; sub-index, tuple
                                           (.visitInsn Opcodes/DUP) ;; sub-index, tuple, tuple
