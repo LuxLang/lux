@@ -54,7 +54,7 @@
   (defn prepare-return! [^MethodVisitor *writer* *type*]
     (|case *type*
       (&/$UnitT)
-      (.visitInsn *writer* Opcodes/ACONST_NULL)
+      (.visitLdcInsn *writer* &/unit-tag)
 
       (&/$DataT "boolean" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
