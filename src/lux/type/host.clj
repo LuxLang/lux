@@ -81,9 +81,11 @@
         (if (.equals "void" base)
           &/$UnitT
           (reduce (fn [inner _] (&/$DataT array-data-tag (&/|list inner)))
-                  (&/$DataT base (-> class .getTypeParameters
-                                     seq count (repeat (&/$DataT "java.lang.Object" &/$Nil))
-                                     &/->list))
+                  (&/$DataT base (try (-> (Class/forName base) .getTypeParameters
+                                          seq count (repeat (&/$DataT "java.lang.Object" &/$Nil))
+                                          &/->list)
+                                   (catch Exception e
+                                     (&/|list))))
                   (range (count (or arr-obrackets arr-pbrackets "")))))
         ))))
 
@@ -161,7 +163,7 @@
                                                (->> ^ParameterizedType % .getActualTypeArguments seq &/->list))
                                              nil)))]
             params* (translate-params existential
-                                      super-params
+                                      (or super-params (&/|list))
                                       (->> sub .getTypeParameters seq &/->list)
                                       params)]
         (return (&/T [super params*])))

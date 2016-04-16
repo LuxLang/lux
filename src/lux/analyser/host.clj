@@ -675,7 +675,7 @@
                                       mmap
                                       
                                       (&/$OverridenMethodAnalysis =class-decl =name ?strict =anns =gvars =exceptions =inputs =output body)
-                                      (assoc mmap =name =inputs)
+                                      (update-in mmap [=name] (fn [old-inputs] (if old-inputs (conj old-inputs =inputs) [=inputs])))
 
                                       (&/$StaticMethodAnalysis _)
                                       mmap
@@ -692,15 +692,16 @@
                                        (or missing
                                            (|let [[am-name am-inputs] abs-meth]
                                              (if-let [meth-struct (get methods-map am-name)]
-                                               (|let [=inputs meth-struct]
-                                                 (if (and (= (&/|length =inputs) (&/|length am-inputs))
-                                                          (&/fold2 (fn [prev mi ai]
-                                                                     (|let [[iname itype] mi]
-                                                                       (and prev (= (generic-class->simple-class itype) ai))))
-                                                                   true
-                                                                   =inputs am-inputs))
-                                                   nil
-                                                   abs-meth))
+                                               (if (some (fn [=inputs]
+                                                           (and (= (&/|length =inputs) (&/|length am-inputs))
+                                                                (&/fold2 (fn [prev mi ai]
+                                                                           (|let [[iname itype] mi]
+                                                                             (and prev (= (generic-class->simple-class itype) ai))))
+                                                                         true
+                                                                         =inputs am-inputs)))
+                                                         meth-struct)
+                                                 nil
+                                                 abs-meth)
                                                abs-meth))))
                                      nil
                                      abstract-methods)]]

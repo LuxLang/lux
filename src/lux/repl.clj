@@ -20,13 +20,16 @@
 (def ^:private repl-module "REPL")
 
 (defn ^:private init []
-  (do (println "Welcome to the REPL!")
-    (&compiler/init!)
+  (do (&compiler/init!)
     (|case ((|do [_ (&compiler/compile-module "lux")]
               (&module/enter-module repl-module))
             (&/init-state &/$Debug))
       (&/$Right ?state _)
-      (&/set$ &/$source &/$Nil ?state)
+      (do (println)
+        (println "Welcome to the REPL!")
+        (println "Type \"exit\" to leave.")
+        (println)
+        (&/set$ &/$source &/$Nil ?state))
 
       (&/$Left ?message)
       (assert false ?message))
@@ -41,37 +44,40 @@
     (loop [state (init)
            repl-line 0]
       (let [_ (.print System/out "> ")
-            line (.readLine input)
-            line* (&/|list (&/T [(repl-cursor repl-line) line]))
-            state* (&/update$ &/$source
-                              (fn [_source] (&/|++ _source line*))
-                              state)]
-        (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! &compiler/compile-module &compiler/compile-token)
-                      optimized-tokens (->> analysed-tokens
-                                            (&/|map &a-base/expr-term)
-                                            (&/map% &optimizer/optimize-token))
-                      :let [optimized-tokens* (&/->list (map (fn [analysis optim]
-                                                               (|let [[[_type _cursor] _term] analysis]
-                                                                 (&a-base/|meta _type _cursor optim)))
-                                                             (&/->seq analysed-tokens)
-                                                             (&/->seq optimized-tokens)))]
-                      eval-values (&/map% &compiler/eval! optimized-tokens*)
-                      :let [outputs (map (fn [analysis value]
-                                           (|let [[[_type _cursor] _term] analysis]
-                                             [_type value]))
-                                         (&/->seq analysed-tokens)
-                                         (&/->seq eval-values))]]
-                  (return outputs))
-                state*)
-          (&/$Right state** outputs)
-          (do (doseq [[_type _value] outputs]
-                (.println System/out (str "=> " (&type/show-type _type) "\n" (pr-str _value) "\n")))
-            (recur state** (inc repl-line)))
+            line (.readLine input)]
+        (if (= "exit" line)
+          (println "Till next time...")
+          (let [line* (&/|list (&/T [(repl-cursor repl-line) line]))
+                state* (&/update$ &/$source
+                                  (fn [_source] (&/|++ _source line*))
+                                  state)]
+            (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! &compiler/compile-module &compiler/compile-token)
+                          optimized-tokens (->> analysed-tokens
+                                                (&/|map &a-base/expr-term)
+                                                (&/map% &optimizer/optimize-token))
+                          :let [optimized-tokens* (&/->list (map (fn [analysis optim]
+                                                                   (|let [[[_type _cursor] _term] analysis]
+                                                                     (&a-base/|meta _type _cursor optim)))
+                                                                 (&/->seq analysed-tokens)
+                                                                 (&/->seq optimized-tokens)))]
+                          eval-values (&/map% &compiler/eval! optimized-tokens*)
+                          :let [outputs (map (fn [analysis value]
+                                               (|let [[[_type _cursor] _term] analysis]
+                                                 [_type value]))
+                                             (&/->seq analysed-tokens)
+                                             (&/->seq eval-values))]]
+                      (return outputs))
+                    state*)
+              (&/$Right state** outputs)
+              (do (doseq [[_type _value] outputs]
+                    (.println System/out (str "=> " (&type/show-type _type) "\n" (pr-str _value) "\n")))
+                (recur state** (inc repl-line)))
 
-          (&/$Left ^String ?message)
-          (if (or (= "[Reader Error] EOF" ?message)
-                  (.startsWith ?message "[Parser Error] Unbalanced "))
-            (recur state* (inc repl-line))
-            (assert false ?message))
-          ))
+              (&/$Left ^String ?message)
+              (if (or (= "[Reader Error] EOF" ?message)
+                      (.startsWith ?message "[Parser Error] Unbalanced "))
+                (recur state* (inc repl-line))
+                (do (println ?message)
+                  (recur state (inc repl-line))))
+              ))))
       )))

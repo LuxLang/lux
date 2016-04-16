@@ -41,7 +41,7 @@
            entry (.getNextJarEntry is)]
       (if entry
         (if (.endsWith (.getName entry) ".lux")
-          (recur (assoc lib-data (.substring (.getName entry) 1) (new String (read-stream is)))
+          (recur (assoc lib-data (.getName entry) (new String (read-stream is)))
                  (.getNextJarEntry is))
           (recur lib-data
                  (.getNextJarEntry is)))
