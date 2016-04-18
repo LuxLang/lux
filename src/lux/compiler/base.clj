@@ -25,14 +25,11 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-(def ^String input-dir "source")
 (def ^String output-dir "target/jvm")
 (def ^String output-package (str output-dir "/" "program.jar"))
 (def ^String function-class "lux/Function")
 (def ^String lux-utils-class "lux/LuxUtils")
 (def ^String unit-tag-field "unit_tag")
-(def ^String sum-tag-field "sum_tag")
-(def ^String product-tag-field "product_tag")
 
 ;; Formats
 (def ^String local-prefix "l")

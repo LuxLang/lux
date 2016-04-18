@@ -4,7 +4,7 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.compiler.io
-  (:require (lux [base :as & :refer [|let |do return* return fail fail*]])
+  (:require (lux [base :as & :refer [|case |let |do return* return fail fail*]])
             (lux.compiler [base :as &&])
             [lux.lib.loader :as &lib]))
 
@@ -18,13 +18,19 @@
   (reset! !libs (&lib/load)))
 
 ;; [Resources]
-(defn read-file [^String file-name]
-  (let [file (new java.io.File (str &&/input-dir  "/" file-name))]
-    (if (.exists file)
-      (return (slurp file))
-      (do (when (not (libs-imported?))
-            (init-libs!))
-        (if-let [code (get @!libs file-name)]
-          (return code)
-          (fail (str "[I/O Error] File doesn't exist: " file-name))))
-      )))
+(defn read-file [source-dirs ^String file-name]
+  (|case (&/|some (fn [source-dir]
+                    (let [file (new java.io.File (str source-dir  "/" file-name))]
+                      (if (.exists file)
+                        (&/$Some file)
+                        &/$None)))
+                  source-dirs)
+    (&/$Some file)
+    (return (slurp file))
+
+    (&/$None)
+    (do (when (not (libs-imported?))
+          (init-libs!))
+      (if-let [code (get @!libs file-name)]
+        (return code)
+        (fail (str "[I/O Error] File doesn't exist: " file-name))))))

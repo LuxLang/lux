@@ -14,17 +14,14 @@
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Cons program-module (&/$Nil))
-    (time (&compiler/compile-program &/$Release program-module))
+    (&/$Cons "release" (&/$Cons program-module source-dirs))
+    (time (&compiler/compile-program &/$Release program-module source-dirs))
 
-    (&/$Cons program-module (&/$Cons "release" (&/$Nil)))
-    (time (&compiler/compile-program &/$Release program-module))
+    (&/$Cons "debug" (&/$Cons program-module source-dirs))
+    (time (&compiler/compile-program &/$Debug program-module source-dirs))
 
-    (&/$Cons program-module (&/$Cons "debug" (&/$Nil)))
-    (time (&compiler/compile-program &/$Debug program-module))
-
-    (&/$Nil)
-    (&repl/repl)
+    (&/$Cons "repl" source-dirs)
+    (&repl/repl source-dirs)
 
     _
     (println "Can't understand command.")))

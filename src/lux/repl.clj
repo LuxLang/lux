@@ -39,7 +39,7 @@
   (&/T [repl-module repl-line 0]))
 
 ;; [Values]
-(defn repl []
+(defn repl [source-dirs]
   (with-open [input (->> System/in (new InputStreamReader) (new BufferedReader))]
     (loop [state (init)
            repl-line 0]
@@ -51,7 +51,7 @@
                 state* (&/update$ &/$source
                                   (fn [_source] (&/|++ _source line*))
                                   state)]
-            (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! &compiler/compile-module &compiler/compile-token)
+            (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! (partial &compiler/compile-module source-dirs) &compiler/compile-token)
                           optimized-tokens (->> analysed-tokens
                                                 (&/|map &a-base/expr-term)
                                                 (&/map% &optimizer/optimize-token))

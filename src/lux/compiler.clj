@@ -487,13 +487,13 @@
           (.get nil)
           return))))
 
-(defn compile-module [name]
+(defn compile-module [source-dirs name]
   (let [file-name (str name ".lux")]
-    (|do [file-content (&&io/read-file file-name)
+    (|do [file-content (&&io/read-file source-dirs file-name)
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
-        (&&cache/load name file-hash compile-module)
-        (let [compiler-step (&optimizer/optimize eval! compile-module compile-token)]
+        (&&cache/load source-dirs name file-hash compile-module)
+        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) compile-token)]
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")
@@ -555,9 +555,9 @@
         ))
     ))
 
-(defn compile-program [mode program-module]
+(defn compile-program [mode program-module source-dirs]
   (init!)
-  (let [m-action (&/map% compile-module (&/|list "lux" program-module))]
+  (let [m-action (&/map% (partial compile-module source-dirs) (&/|list "lux" program-module))]
     (|case (m-action (&/init-state mode))
       (&/$Right ?state _)
       (do (println "Compilation complete!")

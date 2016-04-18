@@ -82,14 +82,14 @@
       tag-separator-re (->regex &&/tag-separator)
       def-separator-re (->regex &&/def-separator)
       tag-group-separator-re (->regex &&/tag-group-separator)]
-  (defn load [module module-hash compile-module]
-    "(-> Text Int (-> Text (Lux (,))) (Lux Bool))"
+  (defn load [source-dirs module module-hash compile-module]
+    "(-> (List Text) Text Int (-> Text (Lux (,))) (Lux Bool))"
     (|do [loader &/loader
           !classes &/classes
           already-loaded? (&a-module/exists? module)
           _modules &/modules
           :let [redo-cache (|do [_ (delete module)
-                                 _ (compile-module module)]
+                                 _ (compile-module source-dirs module)]
                              (return false))]]
       (if already-loaded?
         (return true)
@@ -105,8 +105,8 @@
                      (= &/compiler-version (get-field &/compiler-field module-meta)))
               (let [imports (string/split (get-field &/imports-field module-meta) import-separator-re)]
                 (|do [loads (&/map% (fn [_import]
-                                      (|do [content (&&io/read-file (str _import ".lux"))
-                                            _ (load _import (hash content) compile-module)]
+                                      (|do [content (&&io/read-file source-dirs (str _import ".lux"))
+                                            _ (load source-dirs _import (hash content) compile-module)]
                                         (&/cached-module? _import)))
                                     (if (= [""] imports)
                                       &/$Nil
