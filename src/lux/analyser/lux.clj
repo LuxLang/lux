@@ -386,7 +386,7 @@
                                                    (throw e))))))
                 module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "get@" r-name)
+                ;;       _ (when (or (= "jvm-import" r-name)
                 ;;                   ;; (= "defclass" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)
@@ -421,6 +421,48 @@
                                (&&/$case =value =match)
                                )))))
 
+(defn ^:private unravel-inf-appt [type]
+  (|case type
+    (&/$AppT =input+ (&/$VarT _inf-var))
+    (&/$Cons _inf-var (unravel-inf-appt =input+))
+
+    _
+    (&/|list)))
+
+(defn ^:private clean-func-inference [$input $output =input =func]
+  (|case =input
+    (&/$VarT iid)
+    (|do [:let [=input* (next-bound-type =func)]
+          _ (&type/set-var iid =input*)
+          =func* (&type/clean $input =func)
+          =func** (&type/clean $output =func*)]
+      (return (&/$UnivQ &/$Nil =func**)))
+    
+    (&/$AppT =input+ (&/$VarT _inf-var))
+    (&/fold% (fn [_func _inf-var]
+               (|do [:let [$inf-var (&/$VarT _inf-var)]
+                     =inf-var (&type/resolve-type $inf-var)
+                     _func* (clean-func-inference $inf-var $output =inf-var _func)
+                     _ (&type/delete-var _inf-var)]
+                 (return _func*)))
+             =func
+             (unravel-inf-appt =input))
+
+    (&/$ProdT _ _)
+    (&/fold% (fn [_func _inf-var]
+               (|do [:let [$inf-var (&/$VarT _inf-var)]
+                     =inf-var (&type/resolve-type $inf-var)
+                     _func* (clean-func-inference $inf-var $output =inf-var _func)
+                     _ (&type/delete-var _inf-var)]
+                 (return _func*)))
+             =func
+             (&/|reverse (&type/unfold-prod =input)))
+    
+    _
+    (|do [=func* (&type/clean $input =func)
+          =func** (&type/clean $output =func*)]
+      (return =func**))))
+
 (defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
   (|case exo-type
     (&/$VarT id)
@@ -436,18 +478,7 @@
                 (|do [[[lambda-type lambda-cursor] lambda-analysis] (analyse-lambda* analyse (&/$LambdaT $input $output) ?self ?arg ?body)
                       =input (&type/resolve-type $input)
                       =output (&type/resolve-type $output)
-                      inferred-type (|case =input
-                                      (&/$VarT iid)
-                                      (|do [:let [=input* (next-bound-type =output)]
-                                            _ (&type/set-var iid =input*)
-                                            =output* (&type/clean $input =output)
-                                            =output** (&type/clean $output =output*)]
-                                        (return (&/$UnivQ &/$Nil (embed-inferred-input =input* =output**))))
-
-                                      _
-                                      (|do [=output* (&type/clean $input =output)
-                                            =output** (&type/clean $output =output*)]
-                                        (return (embed-inferred-input =input =output**))))
+                      inferred-type (clean-func-inference $input $output =input (embed-inferred-input =input =output))
                       _ (&type/check exo-type inferred-type)]
                   (return (&&/|meta inferred-type lambda-cursor
                                     lambda-analysis)))

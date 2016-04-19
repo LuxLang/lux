@@ -212,7 +212,7 @@
 
 ;; [Exports]
 ;; Type vars
-(def ^:private create-var
+(def create-var
   (fn [state]
     (let [id (->> state (&/get$ &/$type-vars) (&/get$ &/$counter))]
       (return* (&/update$ &/$type-vars #(->> %
@@ -227,7 +227,7 @@
     (return (&/$ExT seed))))
 
 (declare clean*)
-(defn ^:private delete-var [id]
+(defn delete-var [id]
   (|do [? (bound? id)
         _ (if ?
             (return nil)
@@ -885,3 +885,33 @@
                                                 (&/fold (fn [right left] (&/$ProdT left right))
                                                         last prevs)))))]
         (&/$Some ?member-types*)))))
+
+(do-template [<name> <zero> <plus>]
+  (defn <name> [types]
+    (|case (&/|reverse types)
+      (&/$Nil)
+      <zero>
+
+      (&/$Cons type (&/$Nil))
+      type
+
+      (&/$Cons last prevs)
+      (&/fold (fn [r l] (<plus> l r)) last prevs)))
+
+  fold-prod &/$UnitT &/$ProdT
+  fold-sum  &/$VoidT &/$SumT
+  )
+
+
+(do-template [<name> <ctor>]
+  (defn <name> [type]
+    (|case type
+      (<ctor> l r)
+      (&/$Cons l (<name> r))
+
+      _
+      (&/|list type)))
+
+  unfold-prod &/$ProdT
+  unfold-sum  &/$SumT
+  )
