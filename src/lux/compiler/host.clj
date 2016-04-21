@@ -506,7 +506,7 @@
     _
     (.visitInsn writer Opcodes/ARETURN)))
 
-(defn ^:private prepare-method-input [idx input method-visitor]
+(defn ^:private prepare-method-input [idx input ^MethodVisitor method-visitor]
   "(-> Int [Text GenericClass] MethodVisitor (Lux FrameTag))"
   (|case input
     [_ (&/$GenericClass name params)]

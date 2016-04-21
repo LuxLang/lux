@@ -67,7 +67,7 @@
       (clean-file f))
     nil))
 
-(defn ^:private install-all-classes-in-module [!classes module* module-path]
+(defn ^:private install-all-classes-in-module [!classes module* ^String module-path]
   (doseq [^File file (seq (.listFiles (File. module-path)))
           :when (not (.isDirectory file))
           :let [file-name (.getName file)]

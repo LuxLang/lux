@@ -232,6 +232,9 @@
 (def module-class-name "_")
 (def +name-separator+ ";")
 
+(def ^String compiler-name "Lux/JVM")
+(def ^String compiler-version "0.3.3")
+
 ;; Constructors
 (def empty-cursor (T ["" -1 -1]))
 
@@ -717,9 +720,6 @@
         (|table)
         ;; lux;type-env
         (|table)])))
-
-(def ^String compiler-name "Lux/JVM")
-(def ^String compiler-version "0.3.3")
 
 (defn default-compiler-info [mode]
   (T [;; compiler-name

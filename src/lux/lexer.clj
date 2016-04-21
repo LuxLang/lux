@@ -44,17 +44,6 @@
 
 (defn ^:private escape-char* [escaped]
   "(-> Text Text)"
-  ;; (prn 'escape-char*
-  ;;      escaped
-  ;;      (cond (.equals ^Object escaped "\\t")  "\t"
-  ;;            (.equals ^Object escaped "\\b")  "\b"
-  ;;            (.equals ^Object escaped "\\n")  "\n"
-  ;;            (.equals ^Object escaped "\\r")  "\r"
-  ;;            (.equals ^Object escaped "\\f")  "\f"
-  ;;            (.equals ^Object escaped "\\\"") "\""
-  ;;            (.equals ^Object escaped "\\\\") "\\"
-  ;;            :else
-  ;;            (assert false (str "[Lexer Error] Unknown escape character: " escaped))))
   (cond (.equals ^Object escaped "\\t")  "\t"
         (.equals ^Object escaped "\\b")  "\b"
         (.equals ^Object escaped "\\n")  "\n"
@@ -64,10 +53,6 @@
         (.equals ^Object escaped "\\\\") "\\"
         :else
         (assert false (str "[Lexer Error] Unknown escape character: " escaped))))
-
-(defn ^:private escape-unicode [^String unicode]
-  "(-> Text Text)"
-  (str (char (Integer/valueOf (.substring unicode 2) 16))))
 
 (defn ^:private clean-line [^String raw-line]
   "(-> Text Text)"
@@ -100,48 +85,41 @@
                 (assert false (str "[Lexer] Invalid escaping syntax: " raw-line " " idx))))
             (do (.append buffer current-char)
               (recur (+ 1 idx)))))
-        (.toString buffer))))
-  ;; (-> raw-line
-  ;;     (string/replace #"\\u[0-9a-fA-F]{4}" escape-unicode)
-  ;;     (string/replace #"\\." escape-char*))
-  )
+        (.toString buffer)))))
 
-(defn ^:private lex-text-body [offset]
-  (|do [[_ eol? ^String pre-quotes*] (&reader/read-regex #"^([^\"]*)")
+(defn ^:private lex-text-body [multi-line? offset]
+  (|do [[_ eol? ^String pre-quotes**] (&reader/read-regex #"^([^\"]*)")
+        pre-quotes* (if multi-line?
+                      (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
+                            _ (&/assert! (or empty-line?
+                                             (>= (.length pre-quotes**) offset))
+                                         "Each line of a multi-line text must have an appropriate offset!")]
+                        (return (if empty-line?
+                                  "\n"
+                                  (str "\n" (.substring pre-quotes** offset)))))
+                      (return pre-quotes**))
         [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
                                    (if eol?
                                      (fail "[Lexer Error] Can't leave dangling back-slash \\")
                                      (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
                                            (odd? (.length back-slashes)))
-                                       (|do [_ (&reader/read-regex #"^([\"])")
-                                             next-part (lex-text-body offset)]
+                                       (|do [[_ eol?* _] (&reader/read-regex #"^([\"])")
+                                             next-part (lex-text-body eol?* offset)]
                                          (return (&/T [(.substring pre-quotes* 0 (dec (.length pre-quotes*)))
                                                        (str "\"" next-part)])))
-                                       (|do [post-quotes* (lex-text-body offset)]
+                                       (|do [post-quotes* (lex-text-body false offset)]
                                          (return (&/T [pre-quotes* post-quotes*])))))
                                    (if eol?
-                                     (|do [[_ _ ^String line-prefix] (&reader/read-regex #"^( +|$)")
-                                           :let [empty-line? (= "" line-prefix)]
-                                           _ (&/assert! (or empty-line?
-                                                            (>= (.length line-prefix) offset))
-                                                        "Each line of a multi-line text must have an appropriate offset!")
-                                           next-part (lex-text-body offset)]
+                                     (|do [next-part (lex-text-body true offset)]
                                        (return (&/T [pre-quotes*
-                                                     (str "\n"
-                                                          (if empty-line?
-                                                            ""
-                                                            (.substring line-prefix offset))
-                                                          next-part)])))
-                                     (return (&/T [pre-quotes* ""]))))
-        :let [cleaned (str (clean-line pre-quotes) post-quotes)
-              ;; _ (println 'cleaned cleaned)
-              ]]
-    (return cleaned)))
+                                                     next-part])))
+                                     (return (&/T [pre-quotes* ""]))))]
+    (return (str (clean-line pre-quotes) post-quotes))))
 
 (def ^:private lex-text
   (|do [[meta _ _] (&reader/read-text "\"")
         :let [[_ _ _column] meta]
-        token (lex-text-body (inc _column))
+        token (lex-text-body false (inc _column))
         _ (&reader/read-text "\"")]
     (return (&/T [meta ($Text token)]))))
 

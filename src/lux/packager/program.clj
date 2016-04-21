@@ -64,7 +64,7 @@
     "(-> JarOutputStream Null)"
     (let [resources-dir (new File resources-path)]
       (if (.exists resources-dir)
-        (doseq [res (.listFiles resources-dir)]
+        (doseq [^File res (.listFiles resources-dir)]
           (with-open [in (->> res (new FileInputStream) (new BufferedInputStream))]
             (let [buffer (byte-array buffer-size)]
               (doto out

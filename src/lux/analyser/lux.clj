@@ -233,15 +233,15 @@
                 (&/map% (partial &&/clean-analysis $var) =exprs))))
           
           _
-          (fail (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*))))
+          (fail (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
         (fn [err]
           (|case exo-type
             (&/$VarT ?id)
             (|do [=exo-type (&type/deref ?id)]
-              (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type =exo-type))))
+              (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
 
             _
-            (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type))))))
+            (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
       )))
 
 (defn analyse-record [analyse exo-type ?elems]
@@ -382,12 +382,13 @@
           (|do [macro-expansion (fn [state] (try (-> ?value (.apply ?args) (.apply state))
                                              (catch java.lang.StackOverflowError e
                                                (|let [[r-prefix r-name] real-name]
-                                                 (do (prn 'find-def [r-prefix r-name])
+                                                 (do (.printStackTrace e)
                                                    (throw e))))))
                 module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "jvm-import" r-name)
-                ;;                   ;; (= "defclass" r-name)
+                ;;       _ (when (or (= "defsig" r-name)
+                ;;                   (= "deftype" r-name)
+                ;;                   (= "@type" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)
                 ;;                (&/|interpose "\n")
