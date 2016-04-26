@@ -7,30 +7,27 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-v0.3.2
+0.3.3
 
 ### How far ahead is the project?
 
-The Java-bytecode compiler is almost complete.
+The Java-bytecode compiler is feature-complete.
 
-Type-inference is halfway done and the compiler is not as fast as I would like.
-
-However, programs can be written that can interop with the JVM and you can even publish Lux libraries to Clojars or Maven.
+Optimizations and other minor improvements are on the way.
 
 ### How can I use it?
 
-Download the 0.3.2 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.2/luxc.jar
+Download the 0.3.3 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.3/luxc.jar
 
 Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
 
-You can run the compiler like this:
+You should use the Leiningen plugin for Lux to compile your programs and manager your dependencies.
+You can find it here: https://github.com/LuxLang/lux-lein
 
-	java -jar -Xss4m luxc.jar compile <program-module-name>
-
-This will generate a directory named "target" and put all the .class files there.
+After compiling your program, this will generate a directory named "target" and put all the .class files there.
 Then, you can run the program like this:
 
-	cd target/jvm/ && java -jar program.jar
+	java -jar target/jvm/program.jar
 
 ### Sample
 
@@ -39,11 +36,6 @@ To take a look at a sample Lux project, please take a look at this repository: h
 The program in there was actually used to generate most of the documentation for the standard library in the wiki (located over here: https://github.com/LuxLang/lux/wiki/Standard-Library)
 
 You can also checkout this tutorial, which includes a sample TODO web-app: http://luxlang.blogspot.com/2015/12/lux-tutorial-1-simple-todo-list-using.html
-
-### Building Lux projects
-
-To make programming with Lux easier, you might want to checkout the new Leiningen plugin for Lux:
-https://github.com/LuxLang/lux-lein
 
 ### What's the license?
 
@@ -128,15 +120,15 @@ Custom pattern-matching basically means that you can use macros to provide custo
 For instance, the **list** and **list&** macros are used to build lists.
 But you can also use them to destructure them inside pattern-matching:
 
-	(case (: (List Int) (@list 1 2 3))
+	(case (: (List Int) (list 1 2 3))
 	  (#Cons x (#Cons y (#Cons z #Nil)))
 	  (#Some ($ int:* x y z))
 
 	  _
 	  #None)
 
-	(case (: (List Int) (@list 1 2 3))
-	  (\ (@list x y z))
+	(case (: (List Int) (list 1 2 3))
+	  (\ (list x y z))
 	  (#Some ($ int:* x y z))
 
 	  _
@@ -170,8 +162,6 @@ If you want to see how they work, just check out their implementation inside lux
 
 ### Is there a community for this?
 
-Lux was born recently.
-
 Come join the budding community by joining the discussion group at: https://groups.google.com/forum/#!forum/lux-programming-language
 
 If you want to communicate with me directly, just email me at luxlisp@gmail.com
@@ -195,17 +185,6 @@ I'll be putting there tasks that people can contribute to, both in the compiler 
 Writing libraries in Lux will also help a lot in making this a more practical language for day to day use.
 
 Communication is done over Gitter and the Google group.
-
-## Caveats
-
-### Tags
-
-Tags that are unprefixed will just assume the prefix of the current module you're in.
-
-If you want to write variants/records with tags from lux.lux, you must do 1 of the following 2 alternatives:
-
-* Fully prefix them: #lux;Cons
-* Use the ; short-cut: #;Cons
 
 ##### Copyright (c) 2015-2016 Eduardo Julian. All rights reserved.
 
