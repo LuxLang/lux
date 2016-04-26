@@ -111,7 +111,7 @@
 
     (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail "##2##")))]
+                                     (fail (str "##2##: " ?id))))]
       (adjust-type* up type*))
 
     (&/$NamedT ?name ?type)
@@ -123,36 +123,6 @@
     _
     (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
     ))
-
-(defn ^:private push-app [inf-type inf-var]
-  (|case inf-type
-    (&/$AppT inf-type* inf-var*)
-    (&/$AppT (push-app inf-type* inf-var) inf-var*)
-
-    _
-    (&/$AppT inf-type inf-var)))
-
-(defn ^:private push-name [name inf-type]
-  (|case inf-type
-    (&/$AppT inf-type* inf-var*)
-    (&/$AppT (push-name name inf-type*) inf-var*)
-
-    _
-    (&/$NamedT name inf-type)))
-
-(defn ^:private instantiate-inference [type]
-  (|case type
-    (&/$NamedT ?name ?type)
-    (|do [output (instantiate-inference ?type)]
-      (return (push-name ?name output)))
-
-    (&/$UnivQ _aenv _abody)
-    (|do [inf-var &type/create-var
-          output (instantiate-inference _abody)]
-      (return (push-app output inf-var)))
-
-    _
-    (return type)))
 
 (defn adjust-type [type]
   "(-> Type (Lux Type))"
@@ -215,7 +185,7 @@
         _
         (|do [must-infer? (&type/unknown? value-type)
               value-type* (if must-infer?
-                            (|do [member-types (&/map% (fn [_] &type/create-var) (&/|range (&/|length ?members)))]
+                            (|do [member-types (&/map% (fn [_] &type/create-var+) (&/|range (&/|length ?members)))]
                               (return (&type/fold-prod member-types)))
                             (adjust-type value-type))]
           (|case value-type*
@@ -243,22 +213,23 @@
       (|do [[rec-members rec-type] (&&record/order-record pairs)
             must-infer? (&type/unknown? value-type)
             rec-type* (if must-infer?
-                        (instantiate-inference rec-type)
+                        (&type/instantiate-inference rec-type)
                         (return value-type))
             _ (&type/check value-type rec-type*)]
         (analyse-pattern &/$None rec-type* (&/T [meta (&/$TupleS rec-members)]) kont))
 
       (&/$TagS ?ident)
       (|do [[=module =name] (&&/resolved-ident ?ident)
-            value-type* (adjust-type value-type)
+            must-infer? (&type/unknown? value-type)
+            variant-type (if must-infer?
+                           (|do [variant-type (&module/tag-type =module =name)
+                                 variant-type* (&type/instantiate-inference variant-type)
+                                 _ (&type/check value-type variant-type*)]
+                             (return variant-type*))
+                           (return value-type))
+            value-type* (adjust-type variant-type)
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
-            must-infer? (&type/unknown? value-type*)
-            variant-type (if must-infer?
-                           (|do [variant-type (&module/tag-type =module =name)]
-                             (return (instantiate-inference variant-type)))
-                           (return value-type*))
-            _ (&type/check value-type variant-type)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (analyse-pattern &/$None case-type unit kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
@@ -266,7 +237,14 @@
       (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
                          ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
-            value-type* (adjust-type value-type)
+            must-infer? (&type/unknown? value-type)
+            variant-type (if must-infer?
+                           (|do [variant-type (&module/tag-type =module =name)
+                                 variant-type* (&type/instantiate-inference variant-type)
+                                 _ (&type/check value-type variant-type*)]
+                             (return variant-type*))
+                           (return value-type))
+            value-type* (adjust-type variant-type)
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
             case-type (&type/sum-at idx value-type*)

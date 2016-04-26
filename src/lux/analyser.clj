@@ -34,7 +34,8 @@
           (if (or ? (&&/type-tag? module tag-name))
             (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
             (|do [wanted-type (&&module/tag-type module tag-name)
-                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/$Left wanted-type) idx is-last? values))
+                  wanted-type* (&type/instantiate-inference wanted-type)
+                  [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/$Left wanted-type*) idx is-last? values))
                   _ (&type/check exo-type variant-type)]
               (return (&/|list (&&/|meta exo-type variant-cursor variant-analysis))))))
 

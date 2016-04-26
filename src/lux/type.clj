@@ -915,3 +915,45 @@
   unfold-prod &/$ProdT
   unfold-sum  &/$SumT
   )
+
+(def create-var+
+  (|do [id create-var]
+    (return (&/$VarT id))))
+
+(defn ^:private push-app [inf-type inf-var]
+  (|case inf-type
+    (&/$AppT inf-type* inf-var*)
+    (&/$AppT (push-app inf-type* inf-var) inf-var*)
+
+    _
+    (&/$AppT inf-type inf-var)))
+
+(defn ^:private push-name [name inf-type]
+  (|case inf-type
+    (&/$AppT inf-type* inf-var*)
+    (&/$AppT (push-name name inf-type*) inf-var*)
+
+    _
+    (&/$NamedT name inf-type)))
+
+(defn ^:private push-univq [env inf-type]
+  (|case inf-type
+    (&/$AppT inf-type* inf-var*)
+    (&/$AppT (push-univq env inf-type*) inf-var*)
+
+    _
+    (&/$UnivQ env inf-type)))
+
+(defn instantiate-inference [type]
+  (|case type
+    (&/$NamedT ?name ?type)
+    (|do [output (instantiate-inference ?type)]
+      (return (push-name ?name output)))
+
+    (&/$UnivQ _aenv _abody)
+    (|do [inf-var create-var
+          output (instantiate-inference _abody)]
+      (return (push-univq _aenv (push-app output (&/$VarT inf-var)))))
+
+    _
+    (return type)))

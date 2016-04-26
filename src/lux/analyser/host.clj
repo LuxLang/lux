@@ -304,7 +304,6 @@
             [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
                                                          (return (&/T [Void/TYPE &/$Nil &/$Nil &/$Nil &/$Nil]))
                                                          (&host/lookup-virtual-method class-loader class method classes))
-            ;; :let [_ (prn '<name> 0 gret)]
             _ (ensure-catching exceptions)
             =object (&&/analyse-1+ analyse object)
             [sub-class sub-params] (ensure-object (&&/expr-type* =object))
@@ -314,8 +313,6 @@
                                      parent-gvars
                                      super-params*)]
             [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
-            ;; :let [_ (prn '<name> 1 (&type/show-type output-type))]
-            ;; :let [_ (prn '<name> 2 (&type/show-type (as-otype+ output-type)))]
             _ (&type/check exo-type (as-otype+ output-type))
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
