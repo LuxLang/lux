@@ -11,33 +11,51 @@
                  [lexer :as &lexer])))
 
 ;; [Utils]
+(def ^:private base-uneven-record-error
+  "[Parser Error] Records must have an even number of elements.")
+
+(defn ^:private repeat% [action]
+  (fn [state]
+    (|case (action state)
+      (&/$Left ^String error)
+      (if (.contains error base-uneven-record-error)
+        (&/$Left error)
+        (&/$Right (&/T [state &/$Nil])))
+
+      (&/$Right state* head)
+      ((|do [tail (repeat% action)]
+         (return (&/$Cons head tail)))
+       state*))))
+
 (do-template [<name> <close-tag> <description> <tag>]
   (defn <name> [parse]
-    (|do [elems (&/repeat% parse)
+    (|do [elems (repeat% parse)
           token &lexer/lex]
       (|case token
         [meta (<close-tag> _)]
         (return (<tag> (&/fold &/|++ &/$Nil elems)))
         
         _
-        (fail (str "[Parser Error] Unbalanced " <description> ".")))))
+        (fail (str "[Parser Error] Unbalanced " <description> "."))
+        )))
 
   ^:private parse-form  &lexer/$Close_Paren   "parantheses" &/$FormS
   ^:private parse-tuple &lexer/$Close_Bracket "brackets"    &/$TupleS
   )
 
 (defn ^:private parse-record [parse]
-  (|do [elems* (&/repeat% parse)
+  (|do [elems* (repeat% parse)
         token &lexer/lex
         :let [elems (&/fold &/|++ &/$Nil elems*)]]
     (|case token
       [meta (&lexer/$Close_Brace _)]
       (if (even? (&/|length elems))
         (return (&/$RecordS (&/|as-pairs elems)))
-        (fail (str "[Parser Error] Records must have an even number of elements.")))
+        (fail (str base-uneven-record-error)))
       
       _
-      (fail (str "[Parser Error] Unbalanced braces.")))))
+      (fail (str "[Parser Error] Unbalanced braces."))
+      )))
 
 ;; [Interface]
 (def parse

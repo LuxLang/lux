@@ -1,4 +1,4 @@
-(defproject com.github.luxlang/luxc-jvm "0.3.3"
+(defproject com.github.luxlang/luxc-jvm "0.4.0-SNAPSHOT"
   :description "The JVM compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
   :license {:name "Mozilla Public License (Version 2.0)"

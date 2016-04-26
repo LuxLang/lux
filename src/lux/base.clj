@@ -614,12 +614,6 @@
           )))
     ))
 
-(defn repeat% [monad]
-  (try-all% (|list (|do [head monad
-                         tail (repeat% monad)]
-                     (return ($Cons head tail)))
-                   (return $Nil))))
-
 (defn exhaust% [step]
   (fn [state]
     (|case (step state)
