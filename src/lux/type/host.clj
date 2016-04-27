@@ -76,18 +76,23 @@
                        "C" "char"))]
   (defn class->type [^Class class]
     "(-> Class Type)"
-    (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re (.getName class))]
-      (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
-        (if (.equals "void" base)
-          &/$UnitT
-          (reduce (fn [inner _] (&/$DataT array-data-tag (&/|list inner)))
-                  (&/$DataT base (try (-> (Class/forName base) .getTypeParameters
-                                          seq count (repeat (&/$DataT "java.lang.Object" &/$Nil))
-                                          &/->list)
-                                   (catch Exception e
-                                     (&/|list))))
-                  (range (count (or arr-obrackets arr-pbrackets "")))))
-        ))))
+    (let [gclass-name (.getName class)]
+      (case gclass-name
+        ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C")
+        (&/$DataT gclass-name (&/|list))
+        ;; else
+        (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re gclass-name)]
+          (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
+            (if (.equals "void" base)
+              &/$UnitT
+              (reduce (fn [inner _] (&/$DataT array-data-tag (&/|list inner)))
+                      (&/$DataT base (try (-> (Class/forName base) .getTypeParameters
+                                              seq count (repeat (&/$DataT "java.lang.Object" &/$Nil))
+                                              &/->list)
+                                       (catch Exception e
+                                         (&/|list))))
+                      (range (count (or arr-obrackets arr-pbrackets "")))))
+            ))))))
 
 (defn instance-param [existential matchings refl-type]
   "(-> (Lux Type) (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
@@ -283,7 +288,7 @@
     "(-> GenericClass Text)"
     (|case gclass
       (&/$GenericClass gclass-name (&/$Nil))
-      (|case gclass-name
+      (case gclass-name
         "void"    "V"
         "boolean" "Z"
         "byte"    "B"
@@ -293,7 +298,9 @@
         "float"   "F"
         "double"  "D"
         "char"    "C"
-        _ (str "L" (clojure.string/replace gclass-name #"\." "/") ";"))
+        ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C") gclass-name
+        ;; else
+        (str "L" (clojure.string/replace gclass-name #"\." "/") ";"))
 
       (&/$GenericArray inner-gtype)
       (str "[" (gclass->sig inner-gtype))

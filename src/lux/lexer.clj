@@ -89,7 +89,7 @@
 
 (defn ^:private lex-text-body [multi-line? offset]
   (|do [[_ eol? ^String pre-quotes**] (&reader/read-regex #"^([^\"]*)")
-        pre-quotes* (if multi-line?
+        ^String pre-quotes* (if multi-line?
                       (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
                             _ (&/assert! (or empty-line?
                                              (>= (.length pre-quotes**) offset))

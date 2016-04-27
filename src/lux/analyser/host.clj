@@ -381,9 +381,9 @@
 
 (let [length-type &type/Int
       idx-type &type/Int]
-  (do-template [<class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
-    (let [elem-type (&/$DataT <class> &/$Nil)
-          array-type (&/$DataT &host-type/array-data-tag (&/|list elem-type))]
+  (do-template [<elem-class> <array-class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
+    (let [elem-type (&/$DataT <elem-class> &/$Nil)
+          array-type (&/$DataT <array-class> &/$Nil)]
       (defn <new-name> [analyse exo-type length]
         (|do [=length (&&/analyse-1 analyse length-type length)
               _ (&type/check exo-type array-type)
@@ -409,15 +409,22 @@
                                      (<store-tag> (&/T [=array =idx =elem])))))))
       )
 
-    "java.lang.Boolean"   analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
-    "java.lang.Byte"      analyse-jvm-bnewarray &&/$jvm-bnewarray analyse-jvm-baload &&/$jvm-baload analyse-jvm-bastore &&/$jvm-bastore
-    "java.lang.Short"     analyse-jvm-snewarray &&/$jvm-snewarray analyse-jvm-saload &&/$jvm-saload analyse-jvm-sastore &&/$jvm-sastore
-    "java.lang.Integer"   analyse-jvm-inewarray &&/$jvm-inewarray analyse-jvm-iaload &&/$jvm-iaload analyse-jvm-iastore &&/$jvm-iastore
-    "java.lang.Long"      analyse-jvm-lnewarray &&/$jvm-lnewarray analyse-jvm-laload &&/$jvm-laload analyse-jvm-lastore &&/$jvm-lastore
-    "java.lang.Float"     analyse-jvm-fnewarray &&/$jvm-fnewarray analyse-jvm-faload &&/$jvm-faload analyse-jvm-fastore &&/$jvm-fastore
-    "java.lang.Double"    analyse-jvm-dnewarray &&/$jvm-dnewarray analyse-jvm-daload &&/$jvm-daload analyse-jvm-dastore &&/$jvm-dastore
-    "java.lang.Character" analyse-jvm-cnewarray &&/$jvm-cnewarray analyse-jvm-caload &&/$jvm-caload analyse-jvm-castore &&/$jvm-castore
+    "java.lang.Boolean"   "[Z" analyse-jvm-znewarray &&/$jvm-znewarray analyse-jvm-zaload &&/$jvm-zaload analyse-jvm-zastore &&/$jvm-zastore
+    "java.lang.Byte"      "[B" analyse-jvm-bnewarray &&/$jvm-bnewarray analyse-jvm-baload &&/$jvm-baload analyse-jvm-bastore &&/$jvm-bastore
+    "java.lang.Short"     "[S" analyse-jvm-snewarray &&/$jvm-snewarray analyse-jvm-saload &&/$jvm-saload analyse-jvm-sastore &&/$jvm-sastore
+    "java.lang.Integer"   "[I" analyse-jvm-inewarray &&/$jvm-inewarray analyse-jvm-iaload &&/$jvm-iaload analyse-jvm-iastore &&/$jvm-iastore
+    "java.lang.Long"      "[J" analyse-jvm-lnewarray &&/$jvm-lnewarray analyse-jvm-laload &&/$jvm-laload analyse-jvm-lastore &&/$jvm-lastore
+    "java.lang.Float"     "[F" analyse-jvm-fnewarray &&/$jvm-fnewarray analyse-jvm-faload &&/$jvm-faload analyse-jvm-fastore &&/$jvm-fastore
+    "java.lang.Double"    "[D" analyse-jvm-dnewarray &&/$jvm-dnewarray analyse-jvm-daload &&/$jvm-daload analyse-jvm-dastore &&/$jvm-dastore
+    "java.lang.Character" "[C" analyse-jvm-cnewarray &&/$jvm-cnewarray analyse-jvm-caload &&/$jvm-caload analyse-jvm-castore &&/$jvm-castore
     ))
+
+(defn array-class? [class-name]
+  (or (= &host-type/array-data-tag class-name)
+      (case class-name
+        ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C") true
+        ;; else
+        false)))
 
 (let [length-type &type/Int
       idx-type &type/Int]
@@ -458,7 +465,7 @@
 (defn analyse-jvm-arraylength [analyse exo-type array]
   (|do [=array (&&/analyse-1+ analyse array)
         [arr-class arr-params] (ensure-object (&&/expr-type* =array))
-        _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
+        _ (&/assert! (array-class? arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
         _ (&type/check exo-type &type/Int)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
