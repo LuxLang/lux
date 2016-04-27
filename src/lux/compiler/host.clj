@@ -94,118 +94,6 @@
     *writer*))
 
 ;; [Resources]
-(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
-  (defn <name> [compile ?x ?y]
-    (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
-                _ (doto *writer*
-                    (.visitInsn <opcode>)
-                    (<wrap>))]]
-      (return nil)))
-
-  compile-jvm-iadd Opcodes/IADD "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  compile-jvm-isub Opcodes/ISUB "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  compile-jvm-imul Opcodes/IMUL "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  compile-jvm-idiv Opcodes/IDIV "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  compile-jvm-irem Opcodes/IREM "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  
-  compile-jvm-ladd Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  compile-jvm-lsub Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  compile-jvm-lmul Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  compile-jvm-ldiv Opcodes/LDIV "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  compile-jvm-lrem Opcodes/LREM "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-
-  compile-jvm-fadd Opcodes/FADD "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  compile-jvm-fsub Opcodes/FSUB "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  compile-jvm-fmul Opcodes/FMUL "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  compile-jvm-fdiv Opcodes/FDIV "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  compile-jvm-frem Opcodes/FREM "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  
-  compile-jvm-dadd Opcodes/DADD "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  compile-jvm-dsub Opcodes/DSUB "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  compile-jvm-dmul Opcodes/DMUL "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  compile-jvm-ddiv Opcodes/DDIV "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  compile-jvm-drem Opcodes/DREM "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  )
-
-(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
-  (defn <name> [compile ?x ?y]
-    (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
-                $then (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (.visitJumpInsn <opcode> $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitLabel $end))]]
-      (return nil)))
-
-  compile-jvm-ieq Opcodes/IF_ICMPEQ "java.lang.Integer" "intValue" "()I"
-  compile-jvm-ilt Opcodes/IF_ICMPLT "java.lang.Integer" "intValue" "()I"
-  compile-jvm-igt Opcodes/IF_ICMPGT "java.lang.Integer" "intValue" "()I"
-
-  compile-jvm-ceq Opcodes/IF_ICMPEQ "java.lang.Character" "charValue" "()C"
-  compile-jvm-clt Opcodes/IF_ICMPLT "java.lang.Character" "charValue" "()C"
-  compile-jvm-cgt Opcodes/IF_ICMPGT "java.lang.Character" "charValue" "()C"
-  )
-
-(do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
-  (defn <name> [compile ?x ?y]
-    (|do [:let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
-                $then (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (.visitInsn <cmpcode>)
-                    (.visitLdcInsn (int <cmp-output>))
-                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitLabel $end))]]
-      (return nil)))
-
-  compile-jvm-leq Opcodes/LCMP   0 "java.lang.Long"   "longValue"   "()J"
-  compile-jvm-llt Opcodes/LCMP  -1 "java.lang.Long"   "longValue"   "()J"
-  compile-jvm-lgt Opcodes/LCMP   1 "java.lang.Long"   "longValue"   "()J"
-
-  compile-jvm-feq Opcodes/FCMPG  0 "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-flt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
-  compile-jvm-fgt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
-  
-  compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()D"
-  compile-jvm-dlt Opcodes/DCMPG -1 "java.lang.Double" "doubleValue" "()D"
-  compile-jvm-dgt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()D"
-  )
-
 (defn compile-jvm-invokestatic [compile ?class ?method ?classes ?args ?output-type]
   (|do [^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
@@ -278,101 +166,6 @@
                   (&/zip2 ?classes ?args))
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
-    (return nil)))
-
-(do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
-  (do (defn <new-name> [compile ?length]
-        (|do [^MethodVisitor *writer* &/get-writer
-              _ (compile ?length)
-              :let [_ (doto *writer*
-                        &&/unwrap-long
-                        (.visitInsn Opcodes/L2I))]
-              :let [_ (.visitIntInsn *writer* Opcodes/NEWARRAY <prim-type>)]]
-          (return nil)))
-
-    (defn <load-name> [compile ?array ?idx]
-      (|do [^MethodVisitor *writer* &/get-writer
-            _ (compile ?array)
-            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
-            _ (compile ?idx)
-            :let [_ (doto *writer*
-                      &&/unwrap-long
-                      (.visitInsn Opcodes/L2I))]
-            :let [_ (doto *writer*
-                      (.visitInsn <load-op>)
-                      <wrapper>)]]
-        (return nil)))
-
-    (defn <store-name> [compile ?array ?idx ?elem]
-      (|do [^MethodVisitor *writer* &/get-writer
-            _ (compile ?array)
-            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
-            :let [_ (.visitInsn *writer* Opcodes/DUP)]
-            _ (compile ?idx)
-            :let [_ (doto *writer*
-                      &&/unwrap-long
-                      (.visitInsn Opcodes/L2I))]
-            _ (compile ?elem)
-            :let [_ (doto *writer*
-                      <unwrapper>
-                      (.visitInsn <store-op>))]]
-        (return nil)))
-    )
-
-  Opcodes/T_BOOLEAN "[Z" compile-jvm-znewarray compile-jvm-zaload Opcodes/BALOAD compile-jvm-zastore Opcodes/BASTORE &&/wrap-boolean &&/unwrap-boolean
-  Opcodes/T_BYTE    "[B" compile-jvm-bnewarray compile-jvm-baload Opcodes/BALOAD compile-jvm-bastore Opcodes/BASTORE &&/wrap-byte    &&/unwrap-byte
-  Opcodes/T_SHORT   "[S" compile-jvm-snewarray compile-jvm-saload Opcodes/SALOAD compile-jvm-sastore Opcodes/SASTORE &&/wrap-short   &&/unwrap-short
-  Opcodes/T_INT     "[I" compile-jvm-inewarray compile-jvm-iaload Opcodes/IALOAD compile-jvm-iastore Opcodes/IASTORE &&/wrap-int     &&/unwrap-int
-  Opcodes/T_LONG    "[J" compile-jvm-lnewarray compile-jvm-laload Opcodes/LALOAD compile-jvm-lastore Opcodes/LASTORE &&/wrap-long    &&/unwrap-long
-  Opcodes/T_FLOAT   "[F" compile-jvm-fnewarray compile-jvm-faload Opcodes/FALOAD compile-jvm-fastore Opcodes/FASTORE &&/wrap-float   &&/unwrap-float
-  Opcodes/T_DOUBLE  "[D" compile-jvm-dnewarray compile-jvm-daload Opcodes/DALOAD compile-jvm-dastore Opcodes/DASTORE &&/wrap-double  &&/unwrap-double
-  Opcodes/T_CHAR    "[C" compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
-  )
-
-(defn compile-jvm-anewarray [compile ?gclass ?length type-env]
-  (|do [^MethodVisitor *writer* &/get-writer
-        _ (compile ?length)
-        :let [_ (doto *writer*
-                  &&/unwrap-long
-                  (.visitInsn Opcodes/L2I))]
-        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host-generics/gclass->bytecode-class-name* ?gclass type-env))]]
-    (return nil)))
-
-(defn compile-jvm-aaload [compile ?array ?idx]
-  (|do [^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
-        _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
-        _ (compile ?idx)
-        :let [_ (doto *writer*
-                  &&/unwrap-long
-                  (.visitInsn Opcodes/L2I))]
-        :let [_ (.visitInsn *writer* Opcodes/AALOAD)]]
-    (return nil)))
-
-(defn compile-jvm-aastore [compile ?array ?idx ?elem]
-  (|do [^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
-        _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
-        :let [_ (.visitInsn *writer* Opcodes/DUP)]
-        _ (compile ?idx)
-        :let [_ (doto *writer*
-                  &&/unwrap-long
-                  (.visitInsn Opcodes/L2I))]
-        _ (compile ?elem)
-        :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
-    (return nil)))
-
-(defn compile-jvm-arraylength [compile ?array]
-  (|do [^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
-        _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
-        :let [_ (doto *writer*
-                  (.visitInsn Opcodes/ARRAYLENGTH)
-                  (.visitInsn Opcodes/I2L)
-                  &&/wrap-long)]]
     (return nil)))
 
 (defn compile-jvm-getstatic [compile ?class ?field ?output-type]
@@ -1127,8 +920,9 @@
   )
 
 (do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
-  (defn <name> [compile ?value]
-    (|do [^MethodVisitor *writer* &/get-writer
+  (defn <name> [compile _?value]
+    (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
+          ^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
                     (.visitInsn Opcodes/DUP))]
@@ -1140,34 +934,35 @@
                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
       (return nil)))
 
-  compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue" "()D" "java.lang.Float"     "(F)V"
-  compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "doubleValue" "()D" "java.lang.Integer"   "(I)V"
-  compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "doubleValue" "()D" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue" "()D" "java.lang.Float"     "(F)V"
+  ^:private compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "doubleValue" "()D" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "doubleValue" "()D" "java.lang.Long"      "(J)V"
 
-  compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "floatValue"  "()F" "java.lang.Double"    "(D)V"
-  compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "floatValue"  "()F" "java.lang.Integer"   "(I)V"
-  compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "floatValue"  "()F" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "floatValue"  "()F" "java.lang.Double"    "(D)V"
+  ^:private compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "floatValue"  "()F" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "floatValue"  "()F" "java.lang.Long"      "(J)V"
 
-  compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "intValue"    "()I" "java.lang.Byte"      "(B)V"
-  compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "intValue"    "()I" "java.lang.Character" "(C)V"
-  compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "intValue"    "()I" "java.lang.Double"    "(D)V"
-  compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "intValue"    "()I" "java.lang.Float"     "(F)V"
-  compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "intValue"    "()I" "java.lang.Long"      "(J)V"
-  compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "intValue"    "()I" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "intValue"    "()I" "java.lang.Byte"      "(B)V"
+  ^:private compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "intValue"    "()I" "java.lang.Character" "(C)V"
+  ^:private compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "intValue"    "()I" "java.lang.Double"    "(D)V"
+  ^:private compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "intValue"    "()I" "java.lang.Float"     "(F)V"
+  ^:private compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "intValue"    "()I" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "intValue"    "()I" "java.lang.Short"     "(S)V"
 
-  compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"   "()J" "java.lang.Double"    "(D)V"
-  compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"   "()J" "java.lang.Float"     "(F)V"
-  compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"   "()J" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"   "()J" "java.lang.Double"    "(D)V"
+  ^:private compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"   "()J" "java.lang.Float"     "(F)V"
+  ^:private compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"   "()J" "java.lang.Integer"   "(I)V"
 
-  compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue" "()C" "java.lang.Byte"      "(B)V"
-  compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue" "()C" "java.lang.Short"     "(S)V"
-  compile-jvm-c2i Opcodes/NOP "java.lang.Character" "charValue" "()C" "java.lang.Integer"   "(I)V"
-  compile-jvm-c2l Opcodes/I2L "java.lang.Character" "charValue" "()C" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue" "()C" "java.lang.Byte"      "(B)V"
+  ^:private compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue" "()C" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-c2i Opcodes/NOP "java.lang.Character" "charValue" "()C" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-c2l Opcodes/I2L "java.lang.Character" "charValue" "()C" "java.lang.Long"      "(J)V"
   )
 
 (do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
-  (defn <name> [compile ?x ?y]
-    (|do [^MethodVisitor *writer* &/get-writer
+  (defn <name> [compile ?values]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          ^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
                     (.visitInsn Opcodes/DUP))]
@@ -1184,20 +979,325 @@
                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
       (return nil)))
 
-  compile-jvm-iand  Opcodes/IAND  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  compile-jvm-ior   Opcodes/IOR   "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  compile-jvm-ixor  Opcodes/IXOR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  compile-jvm-ishl  Opcodes/ISHL  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  compile-jvm-ishr  Opcodes/ISHR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  compile-jvm-iushr Opcodes/IUSHR "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-iand  Opcodes/IAND  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-ior   Opcodes/IOR   "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-ixor  Opcodes/IXOR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-ishl  Opcodes/ISHL  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-ishr  Opcodes/ISHR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-iushr Opcodes/IUSHR "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
   
-  compile-jvm-land  Opcodes/LAND  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-  compile-jvm-lor   Opcodes/LOR   "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-  compile-jvm-lxor  Opcodes/LXOR  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-  compile-jvm-lshl  Opcodes/LSHL  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
-  compile-jvm-lshr  Opcodes/LSHR  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
-  compile-jvm-lushr Opcodes/LUSHR "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-land  Opcodes/LAND  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-lor   Opcodes/LOR   "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-lxor  Opcodes/LXOR  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-lshl  Opcodes/LSHL  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-lshr  Opcodes/LSHR  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-lushr Opcodes/LUSHR "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
   )
+
+(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
+  (defn <name> [compile ?values]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                _ (doto *writer*
+                    (.visitInsn <opcode>)
+                    (<wrap>))]]
+      (return nil)))
+
+  ^:private compile-jvm-iadd Opcodes/IADD "java.lang.Integer" "intValue"    "()I" &&/wrap-int
+  ^:private compile-jvm-isub Opcodes/ISUB "java.lang.Integer" "intValue"    "()I" &&/wrap-int
+  ^:private compile-jvm-imul Opcodes/IMUL "java.lang.Integer" "intValue"    "()I" &&/wrap-int
+  ^:private compile-jvm-idiv Opcodes/IDIV "java.lang.Integer" "intValue"    "()I" &&/wrap-int
+  ^:private compile-jvm-irem Opcodes/IREM "java.lang.Integer" "intValue"    "()I" &&/wrap-int
+  
+  ^:private compile-jvm-ladd Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-jvm-lsub Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-jvm-lmul Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-jvm-ldiv Opcodes/LDIV "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-jvm-lrem Opcodes/LREM "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+
+  ^:private compile-jvm-fadd Opcodes/FADD "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
+  ^:private compile-jvm-fsub Opcodes/FSUB "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
+  ^:private compile-jvm-fmul Opcodes/FMUL "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
+  ^:private compile-jvm-fdiv Opcodes/FDIV "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
+  ^:private compile-jvm-frem Opcodes/FREM "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
+  
+  ^:private compile-jvm-dadd Opcodes/DADD "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
+  ^:private compile-jvm-dsub Opcodes/DSUB "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
+  ^:private compile-jvm-dmul Opcodes/DMUL "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
+  ^:private compile-jvm-ddiv Opcodes/DDIV "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
+  ^:private compile-jvm-drem Opcodes/DREM "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
+  )
+
+(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
+  (defn <name> [compile ?values]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                $then (new Label)
+                $end (new Label)
+                _ (doto *writer*
+                    (.visitJumpInsn <opcode> $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitLabel $end))]]
+      (return nil)))
+
+  ^:private compile-jvm-ieq Opcodes/IF_ICMPEQ "java.lang.Integer" "intValue" "()I"
+  ^:private compile-jvm-ilt Opcodes/IF_ICMPLT "java.lang.Integer" "intValue" "()I"
+  ^:private compile-jvm-igt Opcodes/IF_ICMPGT "java.lang.Integer" "intValue" "()I"
+
+  ^:private compile-jvm-ceq Opcodes/IF_ICMPEQ "java.lang.Character" "charValue" "()C"
+  ^:private compile-jvm-clt Opcodes/IF_ICMPLT "java.lang.Character" "charValue" "()C"
+  ^:private compile-jvm-cgt Opcodes/IF_ICMPGT "java.lang.Character" "charValue" "()C"
+  )
+
+(do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
+  (defn <name> [compile ?values]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                $then (new Label)
+                $end (new Label)
+                _ (doto *writer*
+                    (.visitInsn <cmpcode>)
+                    (.visitLdcInsn (int <cmp-output>))
+                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitLabel $end))]]
+      (return nil)))
+
+  ^:private compile-jvm-leq Opcodes/LCMP   0 "java.lang.Long"   "longValue"   "()J"
+  ^:private compile-jvm-llt Opcodes/LCMP  -1 "java.lang.Long"   "longValue"   "()J"
+  ^:private compile-jvm-lgt Opcodes/LCMP   1 "java.lang.Long"   "longValue"   "()J"
+
+  ^:private compile-jvm-feq Opcodes/FCMPG  0 "java.lang.Float"  "floatValue"  "()F"
+  ^:private compile-jvm-flt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
+  ^:private compile-jvm-fgt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
+  
+  ^:private compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()D"
+  ^:private compile-jvm-dlt Opcodes/DCMPG -1 "java.lang.Double" "doubleValue" "()D"
+  ^:private compile-jvm-dgt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()D"
+  )
+
+(do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
+  (do (defn <new-name> [compile ?values]
+        (|do [:let [(&/$Cons ?length (&/$Nil)) ?values]
+              ^MethodVisitor *writer* &/get-writer
+              _ (compile ?length)
+              :let [_ (doto *writer*
+                        &&/unwrap-long
+                        (.visitInsn Opcodes/L2I))]
+              :let [_ (.visitIntInsn *writer* Opcodes/NEWARRAY <prim-type>)]]
+          (return nil)))
+
+    (defn <load-name> [compile ?values]
+      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values]
+            ^MethodVisitor *writer* &/get-writer
+            _ (compile ?array)
+            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
+            _ (compile ?idx)
+            :let [_ (doto *writer*
+                      &&/unwrap-long
+                      (.visitInsn Opcodes/L2I))]
+            :let [_ (doto *writer*
+                      (.visitInsn <load-op>)
+                      <wrapper>)]]
+        (return nil)))
+
+    (defn <store-name> [compile ?values]
+      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values]
+            ^MethodVisitor *writer* &/get-writer
+            _ (compile ?array)
+            :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
+            :let [_ (.visitInsn *writer* Opcodes/DUP)]
+            _ (compile ?idx)
+            :let [_ (doto *writer*
+                      &&/unwrap-long
+                      (.visitInsn Opcodes/L2I))]
+            _ (compile ?elem)
+            :let [_ (doto *writer*
+                      <unwrapper>
+                      (.visitInsn <store-op>))]]
+        (return nil)))
+    )
+
+  Opcodes/T_BOOLEAN "[Z" ^:private compile-jvm-znewarray compile-jvm-zaload Opcodes/BALOAD compile-jvm-zastore Opcodes/BASTORE &&/wrap-boolean &&/unwrap-boolean
+  Opcodes/T_BYTE    "[B" ^:private compile-jvm-bnewarray compile-jvm-baload Opcodes/BALOAD compile-jvm-bastore Opcodes/BASTORE &&/wrap-byte    &&/unwrap-byte
+  Opcodes/T_SHORT   "[S" ^:private compile-jvm-snewarray compile-jvm-saload Opcodes/SALOAD compile-jvm-sastore Opcodes/SASTORE &&/wrap-short   &&/unwrap-short
+  Opcodes/T_INT     "[I" ^:private compile-jvm-inewarray compile-jvm-iaload Opcodes/IALOAD compile-jvm-iastore Opcodes/IASTORE &&/wrap-int     &&/unwrap-int
+  Opcodes/T_LONG    "[J" ^:private compile-jvm-lnewarray compile-jvm-laload Opcodes/LALOAD compile-jvm-lastore Opcodes/LASTORE &&/wrap-long    &&/unwrap-long
+  Opcodes/T_FLOAT   "[F" ^:private compile-jvm-fnewarray compile-jvm-faload Opcodes/FALOAD compile-jvm-fastore Opcodes/FASTORE &&/wrap-float   &&/unwrap-float
+  Opcodes/T_DOUBLE  "[D" ^:private compile-jvm-dnewarray compile-jvm-daload Opcodes/DALOAD compile-jvm-dastore Opcodes/DASTORE &&/wrap-double  &&/unwrap-double
+  Opcodes/T_CHAR    "[C" ^:private compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
+  )
+
+(defn ^:private compile-jvm-anewarray [compile ?values]
+  (|do [:let [(&/$Cons ?gclass (&/$Cons ?length (&/$Cons type-env (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?length)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host-generics/gclass->bytecode-class-name* ?gclass type-env))]]
+    (return nil)))
+
+(defn ^:private compile-jvm-aaload [compile ?values]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
+        _ (compile ?array)
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
+        _ (compile ?idx)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (.visitInsn *writer* Opcodes/AALOAD)]]
+    (return nil)))
+
+(defn ^:private compile-jvm-aastore [compile ?values]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
+        _ (compile ?array)
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
+        :let [_ (.visitInsn *writer* Opcodes/DUP)]
+        _ (compile ?idx)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        _ (compile ?elem)
+        :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+    (return nil)))
+
+(defn ^:private compile-jvm-arraylength [compile ?values]
+  (|do [:let [(&/$Cons ?array (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
+        _ (compile ?array)
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/ARRAYLENGTH)
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long)]]
+    (return nil)))
+
+(defn compile-host [compile proc-category proc-name ?values]
+  (case proc-category
+    "jvm"
+    (case proc-name
+      "anewarray"   (compile-jvm-anewarray compile ?values)
+      "aaload"      (compile-jvm-aaload compile ?values)
+      "aastore"     (compile-jvm-aastore compile ?values)
+      "arraylength" (compile-jvm-arraylength compile ?values)
+      "znewarray"   (compile-jvm-znewarray compile ?values)
+      "bnewarray"   (compile-jvm-bnewarray compile ?values)
+      "snewarray"   (compile-jvm-snewarray compile ?values)
+      "inewarray"   (compile-jvm-inewarray compile ?values)
+      "lnewarray"   (compile-jvm-lnewarray compile ?values)
+      "fnewarray"   (compile-jvm-fnewarray compile ?values)
+      "dnewarray"   (compile-jvm-dnewarray compile ?values)
+      "cnewarray"   (compile-jvm-cnewarray compile ?values)
+      "iadd"        (compile-jvm-iadd compile ?values)
+      "isub"        (compile-jvm-isub compile ?values)
+      "imul"        (compile-jvm-imul compile ?values)
+      "idiv"        (compile-jvm-idiv compile ?values)
+      "irem"        (compile-jvm-irem compile ?values)
+      "ieq"         (compile-jvm-ieq compile ?values)
+      "ilt"         (compile-jvm-ilt compile ?values)
+      "igt"         (compile-jvm-igt compile ?values)
+      "ceq"         (compile-jvm-ceq compile ?values)
+      "clt"         (compile-jvm-clt compile ?values)
+      "cgt"         (compile-jvm-cgt compile ?values)
+      "ladd"        (compile-jvm-ladd compile ?values)
+      "lsub"        (compile-jvm-lsub compile ?values)
+      "lmul"        (compile-jvm-lmul compile ?values)
+      "ldiv"        (compile-jvm-ldiv compile ?values)
+      "lrem"        (compile-jvm-lrem compile ?values)
+      "leq"         (compile-jvm-leq compile ?values)
+      "llt"         (compile-jvm-llt compile ?values)
+      "lgt"         (compile-jvm-lgt compile ?values)
+      "fadd"        (compile-jvm-fadd compile ?values)
+      "fsub"        (compile-jvm-fsub compile ?values)
+      "fmul"        (compile-jvm-fmul compile ?values)
+      "fdiv"        (compile-jvm-fdiv compile ?values)
+      "frem"        (compile-jvm-frem compile ?values)
+      "feq"         (compile-jvm-feq compile ?values)
+      "flt"         (compile-jvm-flt compile ?values)
+      "fgt"         (compile-jvm-fgt compile ?values)
+      "dadd"        (compile-jvm-dadd compile ?values)
+      "dsub"        (compile-jvm-dsub compile ?values)
+      "dmul"        (compile-jvm-dmul compile ?values)
+      "ddiv"        (compile-jvm-ddiv compile ?values)
+      "drem"        (compile-jvm-drem compile ?values)
+      "deq"         (compile-jvm-deq compile ?values)
+      "dlt"         (compile-jvm-dlt compile ?values)
+      "dgt"         (compile-jvm-dgt compile ?values)
+      "iand"        (compile-jvm-iand compile ?values)
+      "ior"         (compile-jvm-ior compile ?values)
+      "ixor"        (compile-jvm-ixor compile ?values)
+      "ishl"        (compile-jvm-ishl compile ?values)
+      "ishr"        (compile-jvm-ishr compile ?values)
+      "iushr"       (compile-jvm-iushr compile ?values)
+      "land"        (compile-jvm-land compile ?values)
+      "lor"         (compile-jvm-lor compile ?values)
+      "lxor"        (compile-jvm-lxor compile ?values)
+      "lshl"        (compile-jvm-lshl compile ?values)
+      "lshr"        (compile-jvm-lshr compile ?values)
+      "lushr"       (compile-jvm-lushr compile ?values)
+      "d2f"         (compile-jvm-d2f compile ?values)
+      "d2i"         (compile-jvm-d2i compile ?values)
+      "d2l"         (compile-jvm-d2l compile ?values)
+      "f2d"         (compile-jvm-f2d compile ?values)
+      "f2i"         (compile-jvm-f2i compile ?values)
+      "f2l"         (compile-jvm-f2l compile ?values)
+      "i2b"         (compile-jvm-i2b compile ?values)
+      "i2c"         (compile-jvm-i2c compile ?values)
+      "i2d"         (compile-jvm-i2d compile ?values)
+      "i2f"         (compile-jvm-i2f compile ?values)
+      "i2l"         (compile-jvm-i2l compile ?values)
+      "i2s"         (compile-jvm-i2s compile ?values)
+      "l2d"         (compile-jvm-l2d compile ?values)
+      "l2f"         (compile-jvm-l2f compile ?values)
+      "l2i"         (compile-jvm-l2i compile ?values)
+      "c2b"         (compile-jvm-c2b compile ?values)
+      "c2s"         (compile-jvm-c2s compile ?values)
+      "c2i"         (compile-jvm-c2i compile ?values)
+      "c2l"         (compile-jvm-c2l compile ?values)
+      ;; else
+      (fail (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name])))
+
+    ;; else
+    (fail (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name]))))
 
 (defn compile-jvm-program [compile ?body]
   (|do [module-name &/get-module-name

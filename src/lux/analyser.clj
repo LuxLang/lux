@@ -54,110 +54,7 @@
   (fn [state]
     (fail* (add-loc (&/get$ &/$cursor state) msg))))
 
-(defn ^:private aba10 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Arrays
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_znewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-znewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_zastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-zastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_zaload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-zaload analyse exo-type ?array ?idx)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_bnewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-bnewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_bastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-bastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_baload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-baload analyse exo-type ?array ?idx)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_snewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-snewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_sastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-sastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_saload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-saload analyse exo-type ?array ?idx)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_inewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-inewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-iastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iaload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-iaload analyse exo-type ?array ?idx)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lnewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-lnewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-lastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_laload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-laload analyse exo-type ?array ?idx)
-
-    _
-    (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))))
-
-(defn ^:private aba9 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Arrays
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fnewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-fnewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-fastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_faload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-faload analyse exo-type ?array ?idx)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dnewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-dnewarray analyse exo-type ?length)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-dastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_daload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-daload analyse exo-type ?array ?idx)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_cnewarray")] (&/$Cons ?length (&/$Nil))))
-    (&&host/analyse-jvm-cnewarray analyse exo-type ?length)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_castore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-castore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_caload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-caload analyse exo-type ?array ?idx)
-
-    _
-    (aba10 analyse eval! compile-module compile-token exo-type token)))
-
-(defn ^:private aba8 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Arrays
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anewarray")] (&/$Cons gtype (&/$Cons ?length (&/$Nil)))))
-    (|do [=gtype (&&a-parser/parse-gclass gtype)]
-      (&&host/analyse-jvm-anewarray analyse exo-type =gtype ?length))
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aastore")] (&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil))))))
-    (&&host/analyse-jvm-aastore analyse exo-type ?array ?idx ?elem)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_aaload")] (&/$Cons ?array (&/$Cons ?idx (&/$Nil)))))
-    (&&host/analyse-jvm-aaload analyse exo-type ?array ?idx)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_arraylength")] (&/$Cons ?array (&/$Nil))))
-    (&&host/analyse-jvm-arraylength analyse exo-type ?array)
-
-    _
-    (aba9 analyse eval! compile-module compile-token exo-type token)))
-
-(defn ^:private aba7 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba4 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Classes & interfaces
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_class")]
@@ -209,114 +106,9 @@
     (&&host/analyse-jvm-program analyse compile-token ?args ?body)
     
     _
-    (aba8 analyse eval! compile-module compile-token exo-type token)))
+    (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))))
 
-(defn ^:private aba6 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Bitwise operators
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iand")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-iand analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ior")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ior analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ixor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ixor analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ishl")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ishl analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ishr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ishr analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iushr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-iushr analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_land")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-land analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lor analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lxor")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lxor analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lshl")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lshl analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lshr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lshr analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lushr")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lushr analyse exo-type ?x ?y)
-
-    _
-    (aba7 analyse eval! compile-module compile-token exo-type token)))
-
-(defn ^:private aba5_5 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Primitive conversions
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_d2f")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-d2f analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_d2i")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-d2i analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_d2l")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-d2l analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_f2d")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-f2d analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_f2i")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-f2i analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_f2l")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-f2l analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_i2b")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-i2b analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_i2c")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-i2c analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_i2d")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-i2d analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_i2f")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-i2f analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_i2l")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-i2l analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_i2s")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-i2s analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_l2d")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-l2d analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_l2f")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-l2f analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_l2i")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-l2i analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2b")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-c2b analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2s")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-c2s analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2i")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-c2i analyse exo-type ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_c2l")] (&/$Cons ?value (&/$Nil))))
-    (&&host/analyse-jvm-c2l analyse exo-type ?value)
-
-    _
-    (aba6 analyse eval! compile-module compile-token exo-type token)))
-
-(defn ^:private aba5 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba3 [analyse eval! compile-module compile-token exo-type token]
   (|case token
     ;; Objects
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_null")] (&/$Nil)))
@@ -432,127 +224,6 @@
     (&&host/analyse-jvm-monitorexit analyse exo-type ?monitor)
 
     _
-    (aba5_5 analyse eval! compile-module compile-token exo-type token)))
-
-(defn ^:private aba4 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Float arithmetic
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fadd")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-fadd analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fsub")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-fsub analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fmul")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-fmul analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fdiv")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-fdiv analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_frem")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-frem analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_feq")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-feq analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_flt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-flt analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_fgt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-fgt analyse exo-type ?x ?y)
-
-    ;; Double arithmetic
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dadd")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-dadd analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dsub")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-dsub analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dmul")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-dmul analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ddiv")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ddiv analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_drem")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-drem analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_deq")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-deq analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dlt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-dlt analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_dgt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-dgt analyse exo-type ?x ?y)
-    
-    _
-    (aba5 analyse eval! compile-module compile-token exo-type token)))
-
-(defn ^:private aba3 [analyse eval! compile-module compile-token exo-type token]
-  (|case token
-    ;; Host special forms
-    ;; Characters
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ceq")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ceq analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_clt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-clt analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_cgt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-cgt analyse exo-type ?x ?y)
-    
-    ;; Integer arithmetic
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_iadd")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-iadd analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_isub")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-isub analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_imul")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-imul analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_idiv")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-idiv analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_irem")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-irem analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ieq")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ieq analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ilt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ilt analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_igt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-igt analyse exo-type ?x ?y)
-
-    ;; Long arithmetic
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ladd")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ladd analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lsub")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lsub analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lmul")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lmul analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_ldiv")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-ldiv analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lrem")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lrem analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_leq")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-leq analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_llt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-llt analyse exo-type ?x ?y)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_lgt")] (&/$Cons ?x (&/$Cons ?y (&/$Nil)))))
-    (&&host/analyse-jvm-lgt analyse exo-type ?x ?y)
-
-    _
     (aba4 analyse eval! compile-module compile-token exo-type token)))
 
 (defn ^:private aba2 [analyse eval! compile-module compile-token exo-type token]
@@ -598,6 +269,14 @@
                                 (&/$Cons [_ (&/$TextS ?module)]
                                          (&/$Nil)))))
     (&&lux/analyse-alias analyse compile-token ?alias ?module)
+
+    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_host")]
+                       (&/$Cons [_ (&/$TupleS (&/$Cons [_ (&/$TextS ?category)]
+                                                       (&/$Cons [_ (&/$TextS ?proc)]
+                                                                (&/$Nil))))]
+                                (&/$Cons [_ (&/$TupleS ?args)]
+                                         (&/$Nil)))))
+    (&&host/analyse-host analyse exo-type ?category ?proc ?args)
     
     _
     (aba3 analyse eval! compile-module compile-token exo-type token)))
