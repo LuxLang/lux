@@ -578,22 +578,26 @@
         _ (&&module/alias module-name ex-alias ex-module)]
     (return &/$Nil)))
 
-(defn analyse-check [analyse eval! exo-type ?type ?value]
+(defn analyse-ann [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)
         _cursor &/cursor]
+    ;; (analyse ==type ?value)
     (return (&/|list (&&/|meta ==type _cursor
                                (&&/$ann =value =type ==type)
                                )))))
+
+(defn ^:private coerce [new-type analysis]
+  "(-> Type Analysis Analysis)"
+  (|let [[[_type _cursor] _analysis] analysis]
+    (&&/|meta new-type _cursor
+              _analysis)))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
-        =value (&&/analyse-1+ analyse ?value)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta ==type _cursor
-                               (&&/$coerce =value =type ==type)
-                               )))))
+        =value (&&/analyse-1+ analyse ?value)]
+    (return (&/|list (coerce ==type =value)))))

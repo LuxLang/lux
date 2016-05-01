@@ -237,6 +237,3 @@
 
 (defn compile-ann [compile ?value-ex ?type-ex ?value-type]
   (compile ?value-ex))
-
-(defn compile-coerce [compile ?value-ex ?type-ex ?value-type]
-  (compile ?value-ex))

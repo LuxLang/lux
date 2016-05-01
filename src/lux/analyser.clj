@@ -256,7 +256,7 @@
                        (&/$Cons ?type
                                 (&/$Cons ?value
                                          (&/$Nil)))))
-    (&&lux/analyse-check analyse eval! exo-type ?type ?value)
+    (&&lux/analyse-ann analyse eval! exo-type ?type ?value)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_:!")]
                        (&/$Cons ?type

@@ -21,9 +21,7 @@
   ("case" 1)
   ("lambda" 1)
   ("ann" 1)
-  ("coerce" 1)
   ("def" 1)
-  ("declare-macro" 1)
   ("var" 1)
   ("captured" 1)
   ("host" 2)
@@ -86,14 +84,8 @@
     (&-base/$ann value)
     (return ($ann value))
     
-    (&-base/$coerce value)
-    (return ($coerce value))
-    
     (&-base/$def value)
     (return ($def value))
-    
-    (&-base/$declare-macro value)
-    (return ($declare-macro value))
     
     (&-base/$var value)
     (return ($var value))

@@ -91,9 +91,6 @@
         (&o/$ann ?value-ex ?type-ex ?value-type)
         (&&lux/compile-ann compile-expression ?value-ex ?type-ex ?value-type)
 
-        (&o/$coerce ?value-ex ?type-ex ?value-type)
-        (&&lux/compile-coerce compile-expression ?value-ex ?type-ex ?value-type)
-
         (&o/$host [?proc-category ?proc-name] ?args)
         (&&host/compile-host compile-expression ?proc-category ?proc-name ?args)
         
