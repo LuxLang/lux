@@ -125,15 +125,6 @@
         (&o/$jvm-try ?body ?catches ?finally)
         (&&host/compile-jvm-try compile-expression ?body ?catches ?finally)
 
-        (&o/$jvm-throw ?ex)
-        (&&host/compile-jvm-throw compile-expression ?ex)
-
-        (&o/$jvm-monitorenter ?monitor)
-        (&&host/compile-jvm-monitorenter compile-expression ?monitor)
-
-        (&o/$jvm-monitorexit ?monitor)
-        (&&host/compile-jvm-monitorexit compile-expression ?monitor)
-
         (&o/$jvm-instanceof ?class ?object)
         (&&host/compile-jvm-instanceof compile-expression ?class ?object)
 

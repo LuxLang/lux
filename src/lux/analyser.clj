@@ -199,22 +199,6 @@
     (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T [&/$Nil &/$None]) ?handlers)]
       (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
 
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_throw")]
-                       (&/$Cons ?ex
-                                (&/$Nil))))
-    (&&host/analyse-jvm-throw analyse exo-type ?ex)
-
-    ;; Syncronization/monitos
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_monitorenter")]
-                       (&/$Cons ?monitor
-                                (&/$Nil))))
-    (&&host/analyse-jvm-monitorenter analyse exo-type ?monitor)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_monitorexit")]
-                       (&/$Cons ?monitor
-                                (&/$Nil))))
-    (&&host/analyse-jvm-monitorexit analyse exo-type ?monitor)
-
     _
     (aba4 analyse eval! compile-module compile-statement exo-type token)))
 

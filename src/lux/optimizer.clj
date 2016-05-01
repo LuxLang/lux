@@ -39,9 +39,6 @@
   ("jvm-class" 1)
   ("jvm-interface" 1)
   ("jvm-try" 1)
-  ("jvm-throw" 1)
-  ("jvm-monitorenter" 1)
-  ("jvm-monitorexit" 1)
   ("jvm-program" 1)
   )
 
@@ -132,15 +129,6 @@
     
     (&-base/$jvm-try value)
     (return ($jvm-try value))
-    
-    (&-base/$jvm-throw value)
-    (return ($jvm-throw value))
-    
-    (&-base/$jvm-monitorenter value)
-    (return ($jvm-monitorenter value))
-    
-    (&-base/$jvm-monitorexit value)
-    (return ($jvm-monitorexit value))
     
     (&-base/$jvm-program value)
     (return ($jvm-program value))

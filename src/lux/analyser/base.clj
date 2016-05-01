@@ -40,9 +40,6 @@
   ("jvm-class" 1)
   ("jvm-interface" 1)
   ("jvm-try" 1)
-  ("jvm-throw" 1)
-  ("jvm-monitorenter" 1)
-  ("jvm-monitorexit" 1)
   ("jvm-program" 1)
   )
 
