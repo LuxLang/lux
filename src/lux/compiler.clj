@@ -95,12 +95,6 @@
         (&&host/compile-host compile-expression ?proc-category ?proc-name ?args)
         
         ;; JVM
-        (&o/$jvm-null _)
-        (&&host/compile-jvm-null compile-expression)
-
-        (&o/$jvm-null? ?object)
-        (&&host/compile-jvm-null? compile-expression ?object)
-        
         (&o/$jvm-new ?class ?classes ?args)
         (&&host/compile-jvm-new compile-expression ?class ?classes ?args)
 
@@ -148,7 +142,7 @@
         ))
     ))
 
-(defn compile-token [syntax]
+(defn compile-statement [syntax]
   (|case syntax
     (&o/$def ?name ?body ?meta)
     (&&lux/compile-def compile-expression ?name ?body ?meta)
@@ -207,7 +201,7 @@
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
         (&&cache/load source-dirs name file-hash compile-module)
-        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) compile-token)]
+        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) compile-statement)]
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")

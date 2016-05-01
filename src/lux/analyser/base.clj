@@ -36,8 +36,6 @@
   ("jvm-invokevirtual" 1)
   ("jvm-invokeinterface" 1)
   ("jvm-invokespecial" 1)
-  ("jvm-null?" 1)
-  ("jvm-null" 0)
   ("jvm-new" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)

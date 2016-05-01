@@ -35,8 +35,6 @@
   ("jvm-invokevirtual" 1)
   ("jvm-invokeinterface" 1)
   ("jvm-invokespecial" 1)
-  ("jvm-null?" 1)
-  ("jvm-null" 1)
   ("jvm-new" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)
@@ -122,12 +120,6 @@
     
     (&-base/$jvm-invokespecial value)
     (return ($jvm-invokespecial value))
-    
-    (&-base/$jvm-null? value)
-    (return ($jvm-null? value))
-    
-    (&-base/$jvm-null value)
-    (return ($jvm-null value))
     
     (&-base/$jvm-new value)
     (return ($jvm-new value))

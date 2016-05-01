@@ -568,7 +568,7 @@
     (return (&/$VariableFieldAnalysis ?name ?privacy-modifier ?state-modifier ?anns ?type))
     ))
 
-(defn analyse-jvm-class [analyse compile-token class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
+(defn analyse-jvm-class [analyse compile-statement class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
   (&/with-closure
     (|do [module &/get-module-name
           :let [[?name ?params] class-decl
@@ -580,13 +580,13 @@
           _ (&host/use-dummy-class class-decl super-class interfaces &/$None =fields methods)
           =methods (&/map% (partial analyse-method analyse class-decl* class-env all-supers) methods)
           _ (check-method-completion all-supers =methods)
-          _ (compile-token (&&/$jvm-class (&/T [class-decl super-class interfaces =inheritance-modifier =anns =fields =methods &/$Nil &/$None])))
+          _ (compile-statement (&&/$jvm-class (&/T [class-decl super-class interfaces =inheritance-modifier =anns =fields =methods &/$Nil &/$None])))
           :let [_ (println 'DEF full-name)]]
       (return &/$Nil))))
 
-(defn analyse-jvm-interface [analyse compile-token interface-decl supers =anns =methods]
+(defn analyse-jvm-interface [analyse compile-statement interface-decl supers =anns =methods]
   (|do [module &/get-module-name
-        _ (compile-token (&&/$jvm-interface (&/T [interface-decl supers =anns =methods])))
+        _ (compile-statement (&&/$jvm-interface (&/T [interface-decl supers =anns =methods])))
         :let [_ (println 'DEF (str module "." (&/|first interface-decl)))]]
     (return &/$Nil)))
 
@@ -605,7 +605,7 @@
                                                        (&/$TupleS &/$Nil)]))
       captured-slot-class "java.lang.Object"
       captured-slot-type (&/$GenericClass captured-slot-class &/$Nil)]
-  (defn analyse-jvm-anon-class [analyse compile-token exo-type super-class interfaces ctor-args methods]
+  (defn analyse-jvm-anon-class [analyse compile-statement exo-type super-class interfaces ctor-args methods]
     (&/with-closure
       (|do [module &/get-module-name
             scope &/get-scope-name
@@ -635,7 +635,7 @@
                                                                 captured-slot-type)))
                                   (&/enumerate =captured))]
             :let [sources (&/|map captured-source =captured)]
-            _ (compile-token (&&/$jvm-class (&/T [class-decl super-class interfaces &/$DefaultIM &/$Nil =fields =methods =captured (&/$Some =ctor-args)])))
+            _ (compile-statement (&&/$jvm-class (&/T [class-decl super-class interfaces &/$DefaultIM &/$Nil =fields =methods =captured (&/$Some =ctor-args)])))
             _cursor &/cursor]
         (return (&/|list (&&/|meta anon-class-type _cursor
                                    (&&/$jvm-new (&/T [anon-class (&/|repeat (&/|length sources) captured-slot-class) sources]))
@@ -878,22 +878,6 @@
                                (&&/$host (&/T ["jvm" "arraylength"]) (&/|list =array))
                                )))))
 
-(defn analyse-jvm-null? [analyse exo-type object]
-  (|do [=object (&&/analyse-1+ analyse object)
-        _ (ensure-object (&&/expr-type* =object))
-        :let [output-type &type/Bool]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
-                               (&&/$jvm-null? =object))))))
-
-(defn analyse-jvm-null [analyse exo-type]
-  (|do [:let [output-type (&/$DataT &host-type/null-data-tag &/$Nil)]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
-                               &&/$jvm-null)))))
-
 (defn analyse-jvm-throw [analyse exo-type ?ex]
   (|do [=ex (&&/analyse-1 analyse (&/$DataT "java.lang.Throwable" &/$Nil) ?ex)
         _cursor &/cursor
@@ -913,10 +897,30 @@
   analyse-jvm-monitorexit  &&/$jvm-monitorexit
   )
 
+(defn ^:private analyse-jvm-null? [analyse exo-type ?values]
+  (|do [:let [(&/$Cons object (&/$Nil)) ?values]
+        =object (&&/analyse-1+ analyse object)
+        _ (ensure-object (&&/expr-type* =object))
+        :let [output-type &type/Bool]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "null?"]) (&/|list =object)))))))
+
+(defn ^:private analyse-jvm-null [analyse exo-type ?values]
+  (|do [:let [(&/$Nil) ?values]
+        :let [output-type (&/$DataT &host-type/null-data-tag &/$Nil)]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "null"]) (&/|list)))))))
+
 (defn analyse-host [analyse exo-type category proc ?values]
   (case category
     "jvm"
     (case proc
+      "null?"       (analyse-jvm-null? analyse exo-type ?values)
+      "null"        (analyse-jvm-null analyse exo-type ?values)
       "anewarray"   (analyse-jvm-anewarray analyse exo-type ?values)
       "aaload"      (analyse-jvm-aaload analyse exo-type ?values)
       "aastore"     (analyse-jvm-aastore analyse exo-type ?values)
@@ -1003,9 +1007,9 @@
 
 (let [input-type (&/$AppT &type/List &type/Text)
       output-type (&/$AppT &type/IO &/$UnitT)]
-  (defn analyse-jvm-program [analyse compile-token ?args ?body]
+  (defn analyse-jvm-program [analyse compile-statement ?args ?body]
     (|do [=body (&/with-scope ""
                   (&&env/with-local ?args input-type
                     (&&/analyse-1 analyse output-type ?body)))
-          _ (compile-token (&&/$jvm-program =body))]
+          _ (compile-statement (&&/$jvm-program =body))]
       (return &/$Nil))))

@@ -132,25 +132,6 @@
   compile-jvm-invokespecial   Opcodes/INVOKESPECIAL
   )
 
-(defn compile-jvm-null [compile]
-  (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
-    (return nil)))
-
-(defn compile-jvm-null? [compile ?object]
-  (|do [^MethodVisitor *writer* &/get-writer
-        _ (compile ?object)
-        :let [$then (new Label)
-              $end (new Label)
-              _ (doto *writer*
-                  (.visitJumpInsn Opcodes/IFNULL $then)
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
-                  (.visitJumpInsn Opcodes/GOTO $end)
-                  (.visitLabel $then)
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                  (.visitLabel $end))]]
-    (return nil)))
-
 (defn compile-jvm-new [compile ?class ?classes ?args]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [init-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")V")
@@ -1211,10 +1192,33 @@
                   &&/wrap-long)]]
     (return nil)))
 
+(defn ^:private compile-jvm-null [compile ?values]
+  (|do [:let [(&/$Nil) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
+    (return nil)))
+
+(defn ^:private compile-jvm-null? [compile ?values]
+  (|do [:let [(&/$Cons ?object (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?object)
+        :let [$then (new Label)
+              $end (new Label)
+              _ (doto *writer*
+                  (.visitJumpInsn Opcodes/IFNULL $then)
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $then)
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                  (.visitLabel $end))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values]
   (case proc-category
     "jvm"
     (case proc-name
+      "null?"       (compile-jvm-null? compile ?values)
+      "null"        (compile-jvm-null compile ?values)
       "anewarray"   (compile-jvm-anewarray compile ?values)
       "aaload"      (compile-jvm-aaload compile ?values)
       "aastore"     (compile-jvm-aastore compile ?values)

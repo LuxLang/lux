@@ -51,7 +51,7 @@
                 state* (&/update$ &/$source
                                   (fn [_source] (&/|++ _source line*))
                                   state)]
-            (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! (partial &compiler/compile-module source-dirs) &compiler/compile-token)
+            (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! (partial &compiler/compile-module source-dirs) &compiler/compile-statement)
                           optimized-tokens (->> analysed-tokens
                                                 (&/|map &a-base/expr-term)
                                                 (&/map% &optimizer/optimize-token))

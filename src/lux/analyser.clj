@@ -54,7 +54,7 @@
   (fn [state]
     (fail* (add-loc (&/get$ &/$cursor state) msg))))
 
-(defn ^:private aba4 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba4 [analyse eval! compile-module compile-statement exo-type token]
   (|case token
     ;; Classes & interfaces
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_class")]
@@ -73,7 +73,7 @@
           =anns (&/map% &&a-parser/parse-ann ?anns)
           =fields (&/map% &&a-parser/parse-field ?fields)
           =methods (&/map% &&a-parser/parse-method-def ?methods)]
-      (&&host/analyse-jvm-class analyse compile-token =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods))
+      (&&host/analyse-jvm-class analyse compile-statement =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_interface")]
                        (&/$Cons ?class-decl
@@ -84,7 +84,7 @@
           =supers (&/map% &&a-parser/parse-gclass-super ?supers)
           =anns (&/map% &&a-parser/parse-ann ?anns)
           =methods (&/map% &&a-parser/parse-method-decl ?methods)]
-      (&&host/analyse-jvm-interface analyse compile-token =gclass-decl =supers =anns =methods))
+      (&&host/analyse-jvm-interface analyse compile-statement =gclass-decl =supers =anns =methods))
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anon-class")]
                        (&/$Cons ?super-class
@@ -96,29 +96,21 @@
           =interfaces (&/map% &&a-parser/parse-gclass-super ?interfaces)
           =ctor-args (&/map% &&a-parser/parse-ctor-arg ?ctor-args)
           =methods (&/map% &&a-parser/parse-method-def ?methods)]
-      (&&host/analyse-jvm-anon-class analyse compile-token exo-type =super-class =interfaces =ctor-args =methods))
+      (&&host/analyse-jvm-anon-class analyse compile-statement exo-type =super-class =interfaces =ctor-args =methods))
 
     ;; Programs
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_program")]
                        (&/$Cons [_ (&/$SymbolS "" ?args)]
                                 (&/$Cons ?body
                                          (&/$Nil)))))
-    (&&host/analyse-jvm-program analyse compile-token ?args ?body)
+    (&&host/analyse-jvm-program analyse compile-statement ?args ?body)
     
     _
     (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))))
 
-(defn ^:private aba3 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba3 [analyse eval! compile-module compile-statement exo-type token]
   (|case token
     ;; Objects
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_null")] (&/$Nil)))
-    (&&host/analyse-jvm-null analyse exo-type)
-    
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_null?")]
-                       (&/$Cons ?object
-                                (&/$Nil))))
-    (&&host/analyse-jvm-null? analyse exo-type ?object)
-
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_instanceof")]
                        (&/$Cons [_ (&/$TextS ?class)]
                                 (&/$Cons ?object
@@ -224,9 +216,9 @@
     (&&host/analyse-jvm-monitorexit analyse exo-type ?monitor)
 
     _
-    (aba4 analyse eval! compile-module compile-token exo-type token)))
+    (aba4 analyse eval! compile-module compile-statement exo-type token)))
 
-(defn ^:private aba2 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba2 [analyse eval! compile-module compile-statement exo-type token]
   (|case token
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_case")]
                        (&/$Cons ?value ?branches)))
@@ -245,12 +237,12 @@
                                          (&/$Cons ?meta
                                                   (&/$Nil))
                                          ))))
-    (&&lux/analyse-def analyse eval! compile-token ?name ?value ?meta)
+    (&&lux/analyse-def analyse eval! compile-statement ?name ?value ?meta)
     
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_import")]
                        (&/$Cons [_ (&/$TextS ?path)]
                                 (&/$Nil))))
-    (&&lux/analyse-import analyse compile-module compile-token ?path)
+    (&&lux/analyse-import analyse compile-module compile-statement ?path)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_:")]
                        (&/$Cons ?type
@@ -268,7 +260,7 @@
                        (&/$Cons [_ (&/$TextS ?alias)]
                                 (&/$Cons [_ (&/$TextS ?module)]
                                          (&/$Nil)))))
-    (&&lux/analyse-alias analyse compile-token ?alias ?module)
+    (&&lux/analyse-alias analyse compile-statement ?alias ?module)
 
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_host")]
                        (&/$Cons [_ (&/$TupleS (&/$Cons [_ (&/$TextS ?category)]
@@ -279,9 +271,9 @@
     (&&host/analyse-host analyse exo-type ?category ?proc ?args)
     
     _
-    (aba3 analyse eval! compile-module compile-token exo-type token)))
+    (aba3 analyse eval! compile-module compile-statement exo-type token)))
 
-(defn ^:private aba1 [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private aba1 [analyse eval! compile-module compile-statement exo-type token]
   (|case token
     ;; Standard special forms
     (&/$BoolS ?value)
@@ -322,14 +314,14 @@
     (&&lux/analyse-symbol analyse exo-type ?ident)
     
     _
-    (aba2 analyse eval! compile-module compile-token exo-type token)
+    (aba2 analyse eval! compile-module compile-statement exo-type token)
     ))
 
-(defn ^:private analyse-basic-ast [analyse eval! compile-module compile-token exo-type token]
+(defn ^:private analyse-basic-ast [analyse eval! compile-module compile-statement exo-type token]
   (|case token
     [meta ?token]
     (fn [state]
-      (|case ((aba1 analyse eval! compile-module compile-token exo-type ?token) state)
+      (|case ((aba1 analyse eval! compile-module compile-statement exo-type ?token) state)
         (&/$Right state* output)
         (return* state* output)
 
@@ -358,48 +350,48 @@
             (return (&&/|meta =output-type ?output-cursor ?output-term))))
         ))))
 
-(defn ^:private analyse-ast [eval! compile-module compile-token exo-type token]
+(defn ^:private analyse-ast [eval! compile-module compile-statement exo-type token]
   (|let [[cursor _] token]
     (&/with-cursor cursor
       (&/with-expected-type exo-type
         (|case token
           [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
-          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-token) (&/$Right exo-type) idx nil ?values)
+          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compile-statement) (&/$Right exo-type) idx nil ?values)
 
           [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
-          (analyse-variant+ (partial analyse-ast eval! compile-module compile-token) exo-type ?ident ?values)
+          (analyse-variant+ (partial analyse-ast eval! compile-module compile-statement) exo-type ?ident ?values)
           
           [meta (&/$FormS (&/$Cons ?fn ?args))]
           (|case ?fn
             [_ (&/$SymbolS _)]
             (fn [state]
-              (|case ((just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn) state)
+              (|case ((just-analyse (partial analyse-ast eval! compile-module compile-statement) ?fn) state)
                 (&/$Right state* =fn)
-                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type =fn ?args) state*)
+                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-statement) exo-type =fn ?args) state*)
 
                 _
-                ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token) state)))
+                ((analyse-basic-ast (partial analyse-ast eval! compile-module compile-statement) eval! compile-module compile-statement exo-type token) state)))
 
             _
-            (|do [=fn (just-analyse (partial analyse-ast eval! compile-module compile-token) ?fn)]
-              (&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-token) exo-type =fn ?args)))
+            (|do [=fn (just-analyse (partial analyse-ast eval! compile-module compile-statement) ?fn)]
+              (&&lux/analyse-apply (partial analyse-ast eval! compile-module compile-statement) exo-type =fn ?args)))
           
           _
-          (analyse-basic-ast (partial analyse-ast eval! compile-module compile-token) eval! compile-module compile-token exo-type token))))))
+          (analyse-basic-ast (partial analyse-ast eval! compile-module compile-statement) eval! compile-module compile-statement exo-type token))))))
 
 ;; [Resources]
-(defn analyse [eval! compile-module compile-token]
+(defn analyse [eval! compile-module compile-statement]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast eval! compile-module compile-token &/$VoidT) asts)))
+    (&/flat-map% (partial analyse-ast eval! compile-module compile-statement &/$VoidT) asts)))
 
 (defn clean-output [?var analysis]
   (|do [:let [[[?output-type ?output-cursor] ?output-term] analysis]
         =output-type (&type/clean ?var ?output-type)]
     (return (&&/|meta =output-type ?output-cursor ?output-term))))
 
-(defn repl-analyse [eval! compile-module compile-token]
+(defn repl-analyse [eval! compile-module compile-statement]
   (|do [asts &parser/parse]
     (&type/with-var
       (fn [?var]
-        (|do [outputs (&/flat-map% (partial analyse-ast eval! compile-module compile-token ?var) asts)]
+        (|do [outputs (&/flat-map% (partial analyse-ast eval! compile-module compile-statement ?var) asts)]
           (&/map% (partial clean-output ?var) outputs))))))
