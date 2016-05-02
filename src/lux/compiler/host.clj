@@ -149,48 +149,6 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
-(defn compile-jvm-getstatic [compile ?class ?field ?output-type]
-  (|do [^MethodVisitor *writer* &/get-writer
-        =output-type (&host/->java-sig ?output-type)
-        :let [_ (doto *writer*
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =output-type)
-                  (prepare-return! ?output-type))]]
-    (return nil)))
-
-(defn compile-jvm-getfield [compile ?class ?field ?object ?output-type]
-  (|do [:let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?object)
-        =output-type (&host/->java-sig ?output-type)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST class*)
-                  (.visitFieldInsn Opcodes/GETFIELD class* ?field =output-type)
-                  (prepare-return! ?output-type))]]
-    (return nil)))
-
-(defn compile-jvm-putstatic [compile ?class ?field ?value input-gclass]
-  (|do [^MethodVisitor *writer* &/get-writer
-        _ (compile ?value)
-        :let [=input-sig (&host-type/gclass->sig input-gclass)
-              _ (doto *writer*
-                  (prepare-arg! (&host-generics/gclass->class-name input-gclass))
-                  (.visitFieldInsn Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =input-sig)
-                  (.visitInsn Opcodes/ACONST_NULL))]]
-    (return nil)))
-
-(defn compile-jvm-putfield [compile ?class ?field ?object ?value input-gclass ?input-type]
-  (|do [:let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?object)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST class*)]
-        _ (compile ?value)
-        =input-sig (&host/->java-sig ?input-type)
-        :let [_ (doto *writer*
-                  (prepare-arg! (&host-generics/gclass->class-name input-gclass))
-                  (.visitFieldInsn Opcodes/PUTFIELD class* ?field =input-sig)
-                  (.visitInsn Opcodes/ACONST_NULL))]]
-    (return nil)))
-
 (defn compile-jvm-instanceof [compile class object]
   (|do [:let [class* (&host-generics/->bytecode-class-name class)]
         ^MethodVisitor *writer* &/get-writer
@@ -570,6 +528,7 @@
                       ))
                   fields)))
 
+(declare compile-jvm-putstatic)
 (defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?inheritance-modifier ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
         [file-name line column] &/cursor
@@ -598,7 +557,7 @@
                             (.visitCode))]
                   _ (&/map% (fn [ftriple]
                               (|let [[fname fgclass fvalue] ftriple]
-                                (compile-jvm-putstatic compile ?name fname fvalue fgclass)))
+                                (compile-jvm-putstatic compile (&/|list ?name fname fvalue fgclass))))
                             (constant-inits ?fields))
                   :let [_ (doto =method
                             (.visitInsn Opcodes/RETURN)
@@ -1215,10 +1174,60 @@
         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
     (return nil)))
 
+(defn ^:private compile-jvm-getstatic [compile ?values]
+  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        =output-type (&host/->java-sig ?output-type)
+        :let [_ (doto *writer*
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =output-type)
+                  (prepare-return! ?output-type))]]
+    (return nil)))
+
+(defn ^:private compile-jvm-getfield [compile ?values]
+  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?object (&/$Cons ?output-type (&/$Nil))))) ?values]
+        :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?object)
+        =output-type (&host/->java-sig ?output-type)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST class*)
+                  (.visitFieldInsn Opcodes/GETFIELD class* ?field =output-type)
+                  (prepare-return! ?output-type))]]
+    (return nil)))
+
+(defn ^:private compile-jvm-putstatic [compile ?values]
+  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?value (&/$Cons input-gclass (&/$Nil))))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?value)
+        :let [=input-sig (&host-type/gclass->sig input-gclass)
+              _ (doto *writer*
+                  (prepare-arg! (&host-generics/gclass->class-name input-gclass))
+                  (.visitFieldInsn Opcodes/PUTSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =input-sig)
+                  (.visitInsn Opcodes/ACONST_NULL))]]
+    (return nil)))
+
+(defn ^:private compile-jvm-putfield [compile ?values]
+  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?object (&/$Cons ?value (&/$Cons input-gclass (&/$Cons ?input-type (&/$Nil))))))) ?values]
+        :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?object)
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST class*)]
+        _ (compile ?value)
+        =input-sig (&host/->java-sig ?input-type)
+        :let [_ (doto *writer*
+                  (prepare-arg! (&host-generics/gclass->class-name input-gclass))
+                  (.visitFieldInsn Opcodes/PUTFIELD class* ?field =input-sig)
+                  (.visitInsn Opcodes/ACONST_NULL))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values]
   (case proc-category
     "jvm"
     (case proc-name
+      "getstatic"    (compile-jvm-getstatic compile ?values)
+      "getfield"     (compile-jvm-getfield compile ?values)
+      "putstatic"    (compile-jvm-putstatic compile ?values)
+      "putfield"     (compile-jvm-putfield compile ?values)
       "throw"        (compile-jvm-throw compile ?values)
       "monitorenter" (compile-jvm-monitorenter compile ?values)
       "monitorexit"  (compile-jvm-monitorexit compile ?values)

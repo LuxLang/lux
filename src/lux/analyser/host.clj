@@ -161,55 +161,6 @@
     _
     (fail (str "[Type Error] Type is not an object type: " (&type/show-type obj-type)))))
 
-(defn analyse-jvm-getstatic [analyse exo-type class field]
-  (|do [class-loader &/loader
-        [gvars gtype] (&host/lookup-static-field class-loader class field)
-        =type (&host-type/instance-param &type/existential &/$Nil gtype)
-        :let [output-type =type]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-getstatic (&/T [class field output-type])))))))
-
-(defn analyse-jvm-getfield [analyse exo-type class field object]
-  (|do [class-loader &/loader
-        =object (&&/analyse-1+ analyse object)
-        _ (ensure-object (&&/expr-type* =object))
-        [gvars gtype] (&host/lookup-field class-loader class field)
-        =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
-        :let [output-type =type]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-getfield (&/T [class field =object output-type])))))))
-
-(defn analyse-jvm-putstatic [analyse exo-type class field value]
-  (|do [class-loader &/loader
-        [gvars gtype] (&host/lookup-static-field class-loader class field)
-        :let [gclass (&host-type/gtype->gclass gtype)]
-        =type (&host-type/instance-param &type/existential &/$Nil gtype)
-        =value (&&/analyse-1 analyse =type value)
-        :let [output-type &/$UnitT]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-putstatic (&/T [class field =value gclass])))))))
-
-(defn analyse-jvm-putfield [analyse exo-type class field value object]
-  (|do [class-loader &/loader
-        =object (&&/analyse-1+ analyse object)
-        :let [obj-type (&&/expr-type* =object)]
-        _ (ensure-object obj-type)
-        [gvars gtype] (&host/lookup-field class-loader class field)
-        :let [gclass (&host-type/gtype->gclass gtype)]
-        =type (analyse-field-access-helper obj-type gvars gtype)
-        =value (&&/analyse-1 analyse =type value)
-        :let [output-type &/$UnitT]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-putfield (&/T [class field =value gclass =object =type])))))))
-
 (defn analyse-jvm-instanceof [analyse exo-type class object]
   (|do [=object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
@@ -919,6 +870,59 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$host (&/T ["jvm" "throw"]) (&/|list =ex)))))))
 
+(defn ^:private analyse-jvm-getstatic [analyse exo-type class field ?values]
+  (|do [:let [(&/$Nil) ?values]
+        class-loader &/loader
+        [gvars gtype] (&host/lookup-static-field class-loader class field)
+        =type (&host-type/instance-param &type/existential &/$Nil gtype)
+        :let [output-type =type]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "getstatic"]) (&/|list class field output-type)))))))
+
+(defn ^:private analyse-jvm-getfield [analyse exo-type class field ?values]
+  (|do [:let [(&/$Cons object (&/$Nil)) ?values]
+        class-loader &/loader
+        =object (&&/analyse-1+ analyse object)
+        _ (ensure-object (&&/expr-type* =object))
+        [gvars gtype] (&host/lookup-field class-loader class field)
+        =type (analyse-field-access-helper (&&/expr-type* =object) gvars gtype)
+        :let [output-type =type]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "getfield"]) (&/|list class field =object output-type)))))))
+
+(defn ^:private analyse-jvm-putstatic [analyse exo-type class field ?values]
+  (|do [:let [(&/$Cons value (&/$Nil)) ?values]
+        class-loader &/loader
+        [gvars gtype] (&host/lookup-static-field class-loader class field)
+        :let [gclass (&host-type/gtype->gclass gtype)]
+        =type (&host-type/instance-param &type/existential &/$Nil gtype)
+        =value (&&/analyse-1 analyse =type value)
+        :let [output-type &/$UnitT]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "putstatic"]) (&/|list class field =value gclass)))))))
+
+(defn ^:private analyse-jvm-putfield [analyse exo-type class field ?values]
+  (|do [:let [(&/$Cons object (&/$Cons value (&/$Nil))) ?values]
+        class-loader &/loader
+        =object (&&/analyse-1+ analyse object)
+        :let [obj-type (&&/expr-type* =object)]
+        _ (ensure-object obj-type)
+        [gvars gtype] (&host/lookup-field class-loader class field)
+        :let [gclass (&host-type/gtype->gclass gtype)]
+        =type (analyse-field-access-helper obj-type gvars gtype)
+        =value (&&/analyse-1 analyse =type value)
+        :let [output-type &/$UnitT]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "putfield"]) (&/|list class field =object =value gclass =type)))))))
+
 (defn analyse-host [analyse exo-type category proc ?values]
   (case category
     "jvm"
@@ -1007,7 +1011,15 @@
       "c2i"          (analyse-jvm-c2i analyse exo-type ?values)
       "c2l"          (analyse-jvm-c2l analyse exo-type ?values)
       ;; else
-      (fail (str "[Analyser Error] Unknown host procedure: " [category proc])))
+      (->> (fail (str "[Analyser Error] Unknown host procedure: " [category proc]))
+           (if-let [[_ _class _field] (re-find #"getstatic:([^:]+):([^:]+)" proc)]
+             (analyse-jvm-getstatic analyse exo-type _class _field ?values))
+           (if-let [[_ _class _field] (re-find #"getfield:([^:]+):([^:]+)" proc)]
+             (analyse-jvm-getfield analyse exo-type _class _field ?values))
+           (if-let [[_ _class _field] (re-find #"putstatic:([^:]+):([^:]+)" proc)]
+             (analyse-jvm-putstatic analyse exo-type _class _field ?values))
+           (if-let [[_ _class _field] (re-find #"putfield:([^:]+):([^:]+)" proc)]
+             (analyse-jvm-putfield analyse exo-type _class _field ?values))))
 
     ;; else
     (fail (str "[Analyser Error] Unknown host procedure: " [category proc]))))

@@ -27,10 +27,6 @@
   ("captured" 1)
   ("host" 2)
 
-  ("jvm-getstatic" 1)
-  ("jvm-getfield" 1)
-  ("jvm-putstatic" 1)
-  ("jvm-putfield" 1)
   ("jvm-invokestatic" 1)
   ("jvm-instanceof" 1)
   ("jvm-invokevirtual" 1)

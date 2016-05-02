@@ -98,18 +98,6 @@
         (&o/$jvm-new ?class ?classes ?args)
         (&&host/compile-jvm-new compile-expression ?class ?classes ?args)
 
-        (&o/$jvm-getstatic ?class ?field ?output-type)
-        (&&host/compile-jvm-getstatic compile-expression ?class ?field ?output-type)
-
-        (&o/$jvm-getfield ?class ?field ?object ?output-type)
-        (&&host/compile-jvm-getfield compile-expression ?class ?field ?object ?output-type)
-
-        (&o/$jvm-putstatic ?class ?field ?value input-gclass)
-        (&&host/compile-jvm-putstatic compile-expression ?class ?field ?value input-gclass)
-
-        (&o/$jvm-putfield ?class ?field ?value input-gclass ?object ?input-type)
-        (&&host/compile-jvm-putfield compile-expression ?class ?field ?object ?value input-gclass ?input-type)
-
         (&o/$jvm-invokestatic ?class ?method ?classes ?args ?output-type)
         (&&host/compile-jvm-invokestatic compile-expression ?class ?method ?classes ?args ?output-type)
 

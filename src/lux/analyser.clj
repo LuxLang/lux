@@ -125,34 +125,6 @@
     (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
       (&&host/analyse-jvm-new analyse exo-type ?class =arg-classes ?args))
 
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_getstatic")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?field)]
-                                         (&/$Nil)))))
-    (&&host/analyse-jvm-getstatic analyse exo-type ?class ?field)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_getfield")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?field)]
-                                         (&/$Cons ?object
-                                                  (&/$Nil))))))
-    (&&host/analyse-jvm-getfield analyse exo-type ?class ?field ?object)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_putstatic")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?field)]
-                                         (&/$Cons ?value
-                                                  (&/$Nil))))))
-    (&&host/analyse-jvm-putstatic analyse exo-type ?class ?field ?value)
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_putfield")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?field)]
-                                         (&/$Cons ?value
-                                                  (&/$Cons ?object
-                                                           (&/$Nil)))))))
-    (&&host/analyse-jvm-putfield analyse exo-type ?class ?field ?value ?object)
-
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokestatic")]
                        (&/$Cons [_ (&/$TextS ?class)]
                                 (&/$Cons [_ (&/$TextS ?method)]

@@ -26,10 +26,6 @@
   ("captured" 1)
   ("host" 2)
 
-  ("jvm-getstatic" 1)
-  ("jvm-getfield" 1)
-  ("jvm-putstatic" 1)
-  ("jvm-putfield" 1)
   ("jvm-invokestatic" 1)
   ("jvm-instanceof" 1)
   ("jvm-invokevirtual" 1)
@@ -90,18 +86,6 @@
 
     (&-base/$host ?proc-ident ?args)
     (return ($host ?proc-ident ?args))
-    
-    (&-base/$jvm-getstatic value)
-    (return ($jvm-getstatic value))
-    
-    (&-base/$jvm-getfield value)
-    (return ($jvm-getfield value))
-    
-    (&-base/$jvm-putstatic value)
-    (return ($jvm-putstatic value))
-    
-    (&-base/$jvm-putfield value)
-    (return ($jvm-putfield value))
     
     (&-base/$jvm-invokestatic value)
     (return ($jvm-invokestatic value))
