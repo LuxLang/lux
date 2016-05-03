@@ -543,7 +543,7 @@
   (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
-(defn analyse-def [analyse eval! compile-token ?name ?value ?meta]
+(defn analyse-def [analyse eval! compile-def ?name ?value ?meta]
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
@@ -554,11 +554,11 @@
             ==meta (eval! =meta)
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-token (&&/$def ?name =value ==meta))]
+            _ (compile-def ?name =value ==meta)]
         (return &/$Nil))
       )))
 
-(defn analyse-import [analyse compile-module compile-token path]
+(defn analyse-import [analyse compile-module path]
   (|do [module-name &/get-module-name
         _ (if (= module-name path)
             (fail (str "[Analyser Error] Module can't import itself: " path))
@@ -573,7 +573,7 @@
                (return nil))]
        (return &/$Nil)))))
 
-(defn analyse-alias [analyse compile-token ex-alias ex-module]
+(defn analyse-alias [analyse ex-alias ex-module]
   (|do [module-name &/get-module-name
         _ (&&module/alias module-name ex-alias ex-module)]
     (return &/$Nil)))
@@ -601,3 +601,12 @@
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))
+
+(let [input-type (&/$AppT &type/List &type/Text)
+      output-type (&/$AppT &type/IO &/$UnitT)]
+  (defn analyse-program [analyse compile-program ?args ?body]
+    (|do [=body (&/with-scope ""
+                  (&&env/with-local ?args input-type
+                    (&&/analyse-1 analyse output-type ?body)))
+          _ (compile-program =body)]
+      (return &/$Nil))))

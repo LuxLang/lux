@@ -22,14 +22,12 @@
   ("case" 2)
   ("lambda" 3)
   ("ann" 3)
-  ("def" 3)
   ("var" 1)
   ("captured" 1)
   ("host" 2)
 
   ("jvm-class" 1)
   ("jvm-interface" 1)
-  ("jvm-program" 1)
   )
 
 ;; [Exports]

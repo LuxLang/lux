@@ -237,3 +237,77 @@
 
 (defn compile-ann [compile ?value-ex ?type-ex ?value-type]
   (compile ?value-ex))
+
+(defn compile-program [compile ?body]
+  (|do [module-name &/get-module-name
+        ^ClassWriter *writer* &/get-writer]
+    (&/with-writer (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "main" "([Ljava/lang/String;)V" nil nil)
+                     (.visitCode))
+      (|do [^MethodVisitor main-writer &/get-writer
+            :let [$loop (new Label)
+                  $end (new Label)
+                  _ (doto main-writer
+                      ;; Tail: Begin
+                      (.visitLdcInsn (->> #'&/$Nil meta ::&/idx int)) ;; I
+                      (.visitInsn Opcodes/ACONST_NULL) ;; I?
+                      (.visitLdcInsn &/unit-tag) ;; I?U
+                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
+                      ;; Tail: End
+                      ;; Size: Begin
+                      (.visitVarInsn Opcodes/ALOAD 0) ;; VA
+                      (.visitInsn Opcodes/ARRAYLENGTH) ;; VI
+                      ;; Size: End
+                      ;; Loop: Begin
+                      (.visitLabel $loop)
+                      (.visitLdcInsn (int 1)) ;; VII
+                      (.visitInsn Opcodes/ISUB) ;; VI
+                      (.visitInsn Opcodes/DUP) ;; VII
+                      (.visitJumpInsn Opcodes/IFLT $end) ;; VI
+                      ;; Head: Begin
+                      (.visitInsn Opcodes/DUP) ;; VII
+                      (.visitVarInsn Opcodes/ALOAD 0) ;; VIIA
+                      (.visitInsn Opcodes/SWAP) ;; VIAI
+                      (.visitInsn Opcodes/AALOAD) ;; VIO
+                      (.visitInsn Opcodes/SWAP) ;; VOI
+                      (.visitInsn Opcodes/DUP_X2) ;; IVOI
+                      (.visitInsn Opcodes/POP) ;; IVO
+                      ;; Head: End
+                      ;; Tuple: Begin
+                      (.visitLdcInsn (int 2)) ;; IVOS
+                      (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object") ;; IVO2
+                      (.visitInsn Opcodes/DUP_X1) ;; IV2O2
+                      (.visitInsn Opcodes/SWAP) ;; IV22O
+                      (.visitLdcInsn (int 0)) ;; IV22OI
+                      (.visitInsn Opcodes/SWAP) ;; IV22IO
+                      (.visitInsn Opcodes/AASTORE) ;; IV2
+                      (.visitInsn Opcodes/DUP_X1) ;; I2V2
+                      (.visitInsn Opcodes/SWAP) ;; I22V
+                      (.visitLdcInsn (int 1)) ;; I22VI
+                      (.visitInsn Opcodes/SWAP) ;; I22IV
+                      (.visitInsn Opcodes/AASTORE) ;; I2
+                      ;; Tuple: End
+                      ;; Cons: Begin
+                      (.visitLdcInsn (->> #'&/$Cons meta ::&/idx int)) ;; I2I
+                      (.visitLdcInsn "") ;; I2I?
+                      (.visitInsn Opcodes/DUP2_X1) ;; II?2I?
+                      (.visitInsn Opcodes/POP2) ;; II?2
+                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
+                      ;; Cons: End
+                      (.visitInsn Opcodes/SWAP) ;; VI
+                      (.visitJumpInsn Opcodes/GOTO $loop)
+                      ;; Loop: End
+                      (.visitLabel $end) ;; VI
+                      (.visitInsn Opcodes/POP) ;; V
+                      (.visitVarInsn Opcodes/ASTORE (int 0)) ;;
+                      )
+                  ]
+            _ (compile ?body)
+            :let [_ (doto main-writer
+                      (.visitInsn Opcodes/ACONST_NULL)
+                      (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))]
+            :let [_ (doto main-writer
+                      (.visitInsn Opcodes/POP)
+                      (.visitInsn Opcodes/RETURN)
+                      (.visitMaxs 0 0)
+                      (.visitEnd))]]
+        (return nil)))))

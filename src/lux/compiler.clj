@@ -101,12 +101,6 @@
 
 (defn compile-statement [syntax]
   (|case syntax
-    (&o/$def ?name ?body ?meta)
-    (&&lux/compile-def compile-expression ?name ?body ?meta)
-
-    (&o/$jvm-program ?body)
-    (&&host/compile-jvm-program compile-expression ?body)
-    
     (&o/$jvm-interface ?name ?supers ?anns ?methods)
     (&&host/compile-jvm-interface compile-expression ?name ?supers ?anns ?methods)
 
@@ -158,7 +152,9 @@
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
         (&&cache/load source-dirs name file-hash compile-module)
-        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) compile-statement)]
+        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) (&/T [compile-statement
+                                                                                                  (partial &&lux/compile-def compile-expression)
+                                                                                                  (partial &&lux/compile-program compile-expression)]))]
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")

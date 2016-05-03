@@ -1031,12 +1031,3 @@
 
     ;; else
     (fail (str "[Analyser Error] Unknown host procedure: " [category proc]))))
-
-(let [input-type (&/$AppT &type/List &type/Text)
-      output-type (&/$AppT &type/IO &/$UnitT)]
-  (defn analyse-jvm-program [analyse compile-statement ?args ?body]
-    (|do [=body (&/with-scope ""
-                  (&&env/with-local ?args input-type
-                    (&&/analyse-1 analyse output-type ?body)))
-          _ (compile-statement (&&/$jvm-program =body))]
-      (return &/$Nil))))

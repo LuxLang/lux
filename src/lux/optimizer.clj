@@ -21,14 +21,12 @@
   ("case" 1)
   ("lambda" 1)
   ("ann" 1)
-  ("def" 1)
   ("var" 1)
   ("captured" 1)
   ("host" 2)
 
   ("jvm-class" 1)
   ("jvm-interface" 1)
-  ("jvm-program" 1)
   )
 
 ;; [Exports]
@@ -68,9 +66,6 @@
     (&-base/$ann value)
     (return ($ann value))
     
-    (&-base/$def value)
-    (return ($def value))
-    
     (&-base/$var value)
     (return ($var value))
     
@@ -86,13 +81,10 @@
     (&-base/$jvm-interface value)
     (return ($jvm-interface value))
     
-    (&-base/$jvm-program value)
-    (return ($jvm-program value))
-    
     _
     (assert false (prn-str 'optimize-token (&/adt->text analysis)))
     ))
 
-(defn optimize [eval! compile-module compile-token]
-  (|do [analyses (&analyser/analyse eval! compile-module compile-token)]
+(defn optimize [eval! compile-module compilers]
+  (|do [analyses (&analyser/analyse eval! compile-module compilers)]
     (&/map% optimize-token analyses)))
