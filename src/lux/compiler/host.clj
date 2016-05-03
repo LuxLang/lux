@@ -731,60 +731,6 @@
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
-(defn compile-jvm-try [compile ?body ?catches ?finally]
-  (|do [^MethodVisitor *writer* &/get-writer
-        :let [$from (new Label)
-              $to (new Label)
-              $end (new Label)
-              $catch-finally (new Label)
-              compile-finally (|case ?finally
-                                (&/$Some ?finally*) (|do [_ (return nil)
-                                                          _ (compile ?finally*)
-                                                          :let [_ (doto *writer*
-                                                                    (.visitInsn Opcodes/POP)
-                                                                    (.visitJumpInsn Opcodes/GOTO $end))]]
-                                                      (return nil))
-                                (&/$None) (|do [_ (return nil)
-                                                :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]]
-                                            (return nil)))
-              catch-boundaries (&/|map (fn [_catch_]
-                                         (|let [[?ex-class ?ex-idx ?catch-body] _catch_]
-                                           (&/T [?ex-class (new Label) (new Label)])))
-                                       ?catches)
-              _ (doseq [catch-boundary (&/->seq catch-boundaries)]
-                  (|let [[?ex-class $handler-start $handler-end] catch-boundary]
-                    (doto *writer*
-                      (.visitTryCatchBlock $from $to $handler-start (&host-generics/->bytecode-class-name ?ex-class))
-                      (.visitTryCatchBlock $handler-start $handler-end $catch-finally nil))))
-              _ (.visitTryCatchBlock *writer* $from $to $catch-finally nil)]
-        :let [_ (.visitLabel *writer* $from)]
-        _ (compile ?body)
-        :let [_ (.visitLabel *writer* $to)]
-        _ compile-finally
-        handlers (&/map2% (fn [_catch_ _boundary_]
-                            (|do [:let [[?ex-class ?ex-idx ?catch-body] _catch_
-                                        [_ $handler-start $handler-end] _boundary_
-                                        _ (doto *writer*
-                                            (.visitLabel $handler-start)
-                                            (.visitVarInsn Opcodes/ASTORE ?ex-idx))]
-                                  _ (compile ?catch-body)
-                                  :let [_ (.visitLabel *writer* $handler-end)]]
-                              compile-finally))
-                          ?catches
-                          catch-boundaries)
-        :let [_ (.visitLabel *writer* $catch-finally)]
-        _ (|case ?finally
-            (&/$Some ?finally*) (|do [_ (compile ?finally*)
-                                      :let [_ (.visitInsn *writer* Opcodes/POP)]
-                                      :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
-                                  (return nil))
-            (&/$None) (|do [_ (return nil)
-                            :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
-                        (return nil)))
-        :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
-        :let [_ (.visitLabel *writer* $end)]]
-    (return nil)))
-
 (do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
   (defn <name> [compile _?value]
     (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
@@ -1223,10 +1169,33 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
+(defn ^:private compile-jvm-try [compile ?values]
+  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [$from (new Label)
+              $to (new Label)
+              $handler (new Label)
+              $end (new Label)]
+        :let [_ (doto *writer*
+                  (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
+                  (.visitLabel $from))]
+        _ (compile ?body)
+        :let [_ (doto *writer*
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $to)
+                  (.visitLabel $handler))]
+        _ (compile ?catch)
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/SWAP)
+                  (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))]
+        :let [_ (.visitLabel *writer* $end)]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values]
   (case proc-category
     "jvm"
     (case proc-name
+      "try"             (compile-jvm-try compile ?values)
       "new"             (compile-jvm-new compile ?values)
       "invokestatic"    (compile-jvm-invokestatic compile ?values)
       "invokevirtual"   (compile-jvm-invokevirtual compile ?values)

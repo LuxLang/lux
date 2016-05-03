@@ -117,13 +117,6 @@
                                          (&/$Nil)))))
     (&&host/analyse-jvm-instanceof analyse exo-type ?class ?object)
     
-    ;; Exceptions
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
-                       (&/$Cons ?body
-                                ?handlers)))
-    (|do [catches+finally (&/fold% &&a-parser/parse-handler (&/T [&/$Nil &/$None]) ?handlers)]
-      (&&host/analyse-jvm-try analyse exo-type ?body catches+finally))
-
     _
     (aba4 analyse eval! compile-module compile-statement exo-type token)))
 

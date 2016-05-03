@@ -30,7 +30,6 @@
   ("jvm-instanceof" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)
-  ("jvm-try" 1)
   ("jvm-program" 1)
   )
 

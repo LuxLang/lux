@@ -12,6 +12,7 @@
                  [type :as &type]
                  [host :as &host])
             [lux.type.host :as &host-type]
+            [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &&]
                           [lambda :as &&lambda]
                           [env :as &&env]
@@ -319,9 +320,10 @@
                                ?ctor-args)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/fold (method-input-folder full-env)
-                              (&&/analyse-1 analyse output-type ?body)
-                              (&/|reverse ?inputs))))]
+                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                        (&/fold (method-input-folder full-env)
+                                (&&/analyse-1 analyse output-type ?body)
+                                (&/|reverse ?inputs)))))]
         (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
       (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -330,9 +332,10 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/fold (method-input-folder full-env)
-                              (&&/analyse-1 analyse output-type ?body)
-                              (&/|reverse ?inputs))))]
+                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                        (&/fold (method-input-folder full-env)
+                                (&&/analyse-1 analyse output-type ?body)
+                                (&/|reverse ?inputs)))))]
         (return (&/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -342,9 +345,10 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/fold (method-input-folder full-env)
-                              (&&/analyse-1 analyse output-type ?body)
-                              (&/|reverse ?inputs))))]
+                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                        (&/fold (method-input-folder full-env)
+                                (&&/analyse-1 analyse output-type ?body)
+                                (&/|reverse ?inputs)))))]
         (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$StaticMethodSyntax ?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -352,9 +356,10 @@
             :let [full-env method-env]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
-                    (&/fold (method-input-folder full-env)
-                            (&&/analyse-1 analyse output-type ?body)
-                            (&/|reverse ?inputs)))]
+                    (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                      (&/fold (method-input-folder full-env)
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$AbstractMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
@@ -500,29 +505,6 @@
                                    (&&/$host (&/T ["jvm" "new"]) (&/|list anon-class (&/|repeat (&/|length sources) captured-slot-class) sources))
                                    )))
         ))))
-
-(defn analyse-jvm-try [analyse exo-type ?body ?catches+?finally]
-  (|do [:let [[?catches ?finally] ?catches+?finally]
-        =catches (&/map% (fn [_catch_]
-                           (|do [:let [[?ex-class ?ex-arg ?catch-body] _catch_]
-                                 =catch-body (&&env/with-local ?ex-arg (&/$DataT ?ex-class &/$Nil)
-                                               (&&/analyse-1 analyse exo-type ?catch-body))
-                                 idx &&env/next-local-idx]
-                             (return (&/T [?ex-class idx =catch-body]))))
-                         ?catches)
-        :let [catched-exceptions (&/|map (fn [=catch]
-                                           (|let [[_c-class _ _] =catch]
-                                             _c-class))
-                                         =catches)]
-        =body (with-catches catched-exceptions
-                (&&/analyse-1 analyse exo-type ?body))
-        =finally (|case ?finally
-                   (&/$None)           (return &/$None)
-                   (&/$Some ?finally*) (|do [=finally (&&/analyse-1+ analyse ?finally*)]
-                                         (return (&/$Some =finally))))
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-try (&/T [=body =catches =finally])))))))
 
 (do-template [<name> <proc> <from-class> <to-class>]
   (let [output-type (&/$DataT <to-class> &/$Nil)]
@@ -926,10 +908,20 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$host (&/T ["jvm" "new"]) (&/|list class classes =args)))))))
 
+(defn ^:private analyse-jvm-try [analyse exo-type ?values]
+  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values]
+        =body (with-catches (&/|list "java.lang.Exception")
+                (&&/analyse-1 analyse exo-type ?body))
+        =catch (&&/analyse-1 analyse (&/$LambdaT (&/$DataT "java.lang.Exception" &/$Nil) exo-type) ?catch)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "try"]) (&/|list =body =catch)))))))
+
 (defn analyse-host [analyse exo-type category proc ?values]
   (case category
     "jvm"
     (case proc
+      "try"          (analyse-jvm-try analyse exo-type ?values)
       "throw"        (analyse-jvm-throw analyse exo-type ?values)
       "monitorenter" (analyse-jvm-monitorenter analyse exo-type ?values)
       "monitorexit"  (analyse-jvm-monitorexit analyse exo-type ?values)

@@ -95,9 +95,6 @@
         (&&host/compile-host compile-expression ?proc-category ?proc-name ?args)
         
         ;; JVM
-        (&o/$jvm-try ?body ?catches ?finally)
-        (&&host/compile-jvm-try compile-expression ?body ?catches ?finally)
-
         (&o/$jvm-instanceof ?class ?object)
         (&&host/compile-jvm-instanceof compile-expression ?class ?object)
 

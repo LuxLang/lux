@@ -99,24 +99,6 @@
     _
     (fail (str "[Analyser Error] Not constructor argument: " (&/show-ast ast)))))
 
-(defn parse-handler [catch+&finally+ token]
-  (|let [[catch+ finally+] catch+&finally+]
-    (|case token
-      [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_catch")]
-                               (&/$Cons [_ (&/$TextS ?ex-class)]
-                                        (&/$Cons [_ (&/$SymbolS "" ?ex-arg)]
-                                                 (&/$Cons ?catch-body
-                                                          (&/$Nil))))))]
-      (return (&/T [(&/|++ catch+ (&/|list (&/T [?ex-class ?ex-arg ?catch-body]))) finally+]))
-
-      [meta (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_finally")]
-                               (&/$Cons ?finally-body
-                                        (&/$Nil))))]
-      (return (&/T [catch+ (&/$Some ?finally-body)]))
-
-      _
-      (fail (str "[Analyser Error] Wrong syntax for exception handler: " (&/show-ast token))))))
-
 (let [failure (fail (str "[Analyser Error] Invalid annotation parameter."))]
   (defn ^:private parse-ann-param [param]
     (|case param

@@ -29,7 +29,6 @@
   ("jvm-instanceof" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)
-  ("jvm-try" 1)
   ("jvm-program" 1)
   )
 
@@ -90,9 +89,6 @@
     
     (&-base/$jvm-interface value)
     (return ($jvm-interface value))
-    
-    (&-base/$jvm-try value)
-    (return ($jvm-try value))
     
     (&-base/$jvm-program value)
     (return ($jvm-program value))
