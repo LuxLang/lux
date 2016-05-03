@@ -42,7 +42,7 @@
   (|do [current-module &/get-module-name]
     (fn [state]
       (if (&/|member? module (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $imports)))
-        (fail* (str "Can't import module " (pr-str module) " twice @ " current-module))
+        (fail* (str "[Analyser Error] Can't import module " (pr-str module) " twice @ " current-module))
         (return* (&/update$ &/$modules
                             (fn [ms]
                               (&/|update current-module
@@ -125,12 +125,12 @@
     (fn [state]
       (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
         (return* state real-name)
-        (fail* (str "Unknown alias: " name))))))
+        (fail* (str "[Analyser Error] Unknown alias: " name))))))
 
 (defn alias [module alias reference]
   (fn [state]
     (if-let [real-name (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $module-aliases) (&/|get alias))]
-      (fail* (str "Can't re-use alias \"" alias "\" @ " module))
+      (fail* (str "[Analyser Error] Can't re-use alias \"" alias "\" @ " module))
       (return* (->> state
                     (&/update$ &/$modules
                                (fn [ms]
@@ -262,7 +262,7 @@
             (if (or ?exported
                     (= module current-module))
               (return* state &/unit-tag)
-              (fail* (str "Can't access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))))
+              (fail* (str "[Analyser Error] Can't access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))))
           (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name])))))
         (fail* (str "[Module Error] Unknown module: " module))))))
 

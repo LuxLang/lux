@@ -614,6 +614,28 @@
           )))
     ))
 
+(defn try-all-% [prefix monads]
+  (|case monads
+    ($Nil)
+    (fail "There are no alternatives to try!")
+
+    ($Cons m monads*)
+    (fn [state]
+      (let [output (m state)]
+        (|case [output monads*]
+          [($Right _) _]
+          output
+
+          [_ ($Nil)]
+          output
+
+          [($Left ^String error) _]
+          (if (.contains error prefix)
+            ((try-all-% prefix monads*) state)
+            output)
+          )))
+    ))
+
 (defn exhaust% [step]
   (fn [state]
     (|case (step state)

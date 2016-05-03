@@ -6,7 +6,7 @@
 (ns lux.lexer
   (:require (clojure [template :refer [do-template]]
                      [string :as string])
-            (lux [base :as & :refer [defvariant |do return* return fail fail*]]
+            (lux [base :as & :refer [defvariant |do return* return fail fail* |case]]
                  [reader :as &reader])
             [lux.analyser.module :as &module]))
 
@@ -62,7 +62,7 @@
       (if (< idx line-length)
         (let [current-char (.charAt raw-line idx)]
           (if (= \\ current-char)
-            (do (assert (< (+ 1 idx) line-length) (str "[Lexer] Text is too short for escaping: " raw-line " " idx))
+            (do (assert (< (+ 1 idx) line-length) (str "[Lexer Error] Text is too short for escaping: " raw-line " " idx))
               (case (.charAt raw-line (+ 1 idx))
                 \t (do (.append buffer "\t")
                      (recur (+ 2 idx)))
@@ -78,11 +78,11 @@
                      (recur (+ 2 idx)))
                 \\ (do (.append buffer "\\")
                      (recur (+ 2 idx)))
-                \u (do (assert (< (+ 5 idx) line-length) (str "[Lexer] Text is too short for unicode-escaping: " raw-line " " idx))
+                \u (do (assert (< (+ 5 idx) line-length) (str "[Lexer Error] Text is too short for unicode-escaping: " raw-line " " idx))
                      (.append buffer (char (Integer/valueOf (.substring raw-line (+ 2 idx) (+ 6 idx)) 16)))
                      (recur (+ 6 idx)))
                 ;; else
-                (assert false (str "[Lexer] Invalid escaping syntax: " raw-line " " idx))))
+                (assert false (str "[Lexer Error] Invalid escaping syntax: " raw-line " " idx))))
             (do (.append buffer current-char)
               (recur (+ 1 idx)))))
         (.toString buffer)))))
@@ -90,14 +90,14 @@
 (defn ^:private lex-text-body [multi-line? offset]
   (|do [[_ eol? ^String pre-quotes**] (&reader/read-regex #"^([^\"]*)")
         ^String pre-quotes* (if multi-line?
-                      (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
-                            _ (&/assert! (or empty-line?
-                                             (>= (.length pre-quotes**) offset))
-                                         "Each line of a multi-line text must have an appropriate offset!")]
-                        (return (if empty-line?
-                                  "\n"
-                                  (str "\n" (.substring pre-quotes** offset)))))
-                      (return pre-quotes**))
+                              (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
+                                    _ (&/assert! (or empty-line?
+                                                     (>= (.length pre-quotes**) offset))
+                                                 "Each line of a multi-line text must have an appropriate offset!")]
+                                (return (if empty-line?
+                                          "\n"
+                                          (str "\n" (.substring pre-quotes** offset)))))
+                              (return pre-quotes**))
         [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
                                    (if eol?
                                      (fail "[Lexer Error] Can't leave dangling back-slash \\")
@@ -173,24 +173,28 @@
     (return (&/T [meta ($Char token)]))))
 
 (def ^:private lex-ident
-  (&/try-all% (&/|list (|do [[meta _ token] (&reader/read-regex +ident-re+)]
-                         (&/try-all% (&/|list (|do [_ (&reader/read-text ";")
-                                                    [_ _ local-token] (&reader/read-regex +ident-re+)
-                                                    ? (&module/exists? token)]
-                                                (if ?
-                                                  (return (&/T [meta (&/T [token local-token])]))
-                                                  (|do [unaliased (&module/dealias token)]
-                                                    (return (&/T [meta (&/T [unaliased local-token])])))))
-                                              (return (&/T [meta (&/T ["" token])]))
-                                              )))
-                       (|do [[meta _ _] (&reader/read-text ";;")
-                             [_ _ token] (&reader/read-regex +ident-re+)
-                             module-name &/get-module-name]
-                         (return (&/T [meta (&/T [module-name token])])))
-                       (|do [[meta _ _] (&reader/read-text ";")
-                             [_ _ token] (&reader/read-regex +ident-re+)]
-                         (return (&/T [meta (&/T ["lux" token])])))
-                       )))
+  (&/try-all-% "[Reader Error]"
+               (&/|list (|do [[meta _ token] (&reader/read-regex +ident-re+)
+                              [_ _ got-it?] (&reader/read-text? ";")]
+                          (|case got-it?
+                            (&/$Some _)
+                            (|do [[_ _ local-token] (&reader/read-regex +ident-re+)
+                                  ? (&module/exists? token)]
+                              (if ?
+                                (return (&/T [meta (&/T [token local-token])]))
+                                (|do [unaliased (&module/dealias token)]
+                                  (return (&/T [meta (&/T [unaliased local-token])])))))
+
+                            (&/$None)
+                            (return (&/T [meta (&/T ["" token])]))))
+                        (|do [[meta _ _] (&reader/read-text ";;")
+                              [_ _ token] (&reader/read-regex +ident-re+)
+                              module-name &/get-module-name]
+                          (return (&/T [meta (&/T [module-name token])])))
+                        (|do [[meta _ _] (&reader/read-text ";")
+                              [_ _ token] (&reader/read-regex +ident-re+)]
+                          (return (&/T [meta (&/T ["lux" token])])))
+                        )))
 
 (def ^:private lex-symbol
   (|do [[meta ident] lex-ident]
@@ -224,13 +228,14 @@
 
 ;; [Exports]
 (def lex
-  (&/try-all% (&/|list lex-white-space
-                       lex-comment
-                       lex-bool
-                       lex-real
-                       lex-int
-                       lex-char
-                       lex-text
-                       lex-symbol
-                       lex-tag
-                       lex-delimiter)))
+  (&/try-all-% "[Reader Error]"
+               (&/|list lex-white-space
+                        lex-comment
+                        lex-bool
+                        lex-real
+                        lex-int
+                        lex-char
+                        lex-text
+                        lex-symbol
+                        lex-tag
+                        lex-delimiter)))

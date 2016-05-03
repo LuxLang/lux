@@ -93,6 +93,7 @@
             (&/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
 (defn read-text [^String text]
+  "(-> Text (Reader Text))"
   (with-line
     (fn [file-name line-num column-num ^String line]
       (if (.startsWith line text column-num)
@@ -103,6 +104,20 @@
             ($Yes (&/T [(&/T [file-name line-num column-num]) false text])
                   (&/T [(&/T [file-name line-num column-num*]) line]))))
         ($No (str "[Reader Error] Text failed: " text))))))
+
+(defn read-text? [^String text]
+  "(-> Text (Reader (Maybe Text)))"
+  (with-line
+    (fn [file-name line-num column-num ^String line]
+      (if (.startsWith line text column-num)
+        (let [match-length (.length text)
+              column-num* (+ column-num match-length)]
+          (if (= column-num* (.length line))
+            ($Done (&/T [(&/T [file-name line-num column-num]) true (&/$Some text)]))
+            ($Yes (&/T [(&/T [file-name line-num column-num]) false (&/$Some text)])
+                  (&/T [(&/T [file-name line-num column-num*]) line]))))
+        ($Yes (&/T [(&/T [file-name line-num column-num]) false &/$None])
+              (&/T [(&/T [file-name line-num column-num]) line]))))))
 
 (defn from [^String name ^String source-code]
   (let [lines (string/split-lines source-code)
