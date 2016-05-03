@@ -94,10 +94,6 @@
         (&o/$host [?proc-category ?proc-name] ?args)
         (&&host/compile-host compile-expression ?proc-category ?proc-name ?args)
         
-        ;; JVM
-        (&o/$jvm-instanceof ?class ?object)
-        (&&host/compile-jvm-instanceof compile-expression ?class ?object)
-
         _
         (assert false (prn-str 'compile-expression (&/adt->text syntax)))
         ))

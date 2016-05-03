@@ -26,7 +26,6 @@
   ("captured" 1)
   ("host" 2)
 
-  ("jvm-instanceof" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)
   ("jvm-program" 1)
@@ -80,9 +79,6 @@
 
     (&-base/$host ?proc-ident ?args)
     (return ($host ?proc-ident ?args))
-    
-    (&-base/$jvm-instanceof value)
-    (return ($jvm-instanceof value))
     
     (&-base/$jvm-class value)
     (return ($jvm-class value))

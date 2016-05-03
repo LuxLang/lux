@@ -54,7 +54,7 @@
   (fn [state]
     (fail* (add-loc (&/get$ &/$cursor state) msg))))
 
-(defn ^:private aba4 [analyse eval! compile-module compile-statement exo-type token]
+(defn ^:private aba2 [analyse eval! compile-module compile-statement exo-type token]
   (|case token
     ;; Classes & interfaces
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_class")]
@@ -104,24 +104,50 @@
                                 (&/$Cons ?body
                                          (&/$Nil)))))
     (&&host/analyse-jvm-program analyse compile-statement ?args ?body)
-    
+
     _
     (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))))
 
-(defn ^:private aba3 [analyse eval! compile-module compile-statement exo-type token]
+(defn ^:private aba1 [analyse eval! compile-module compile-statement exo-type token]
   (|case token
-    ;; Objects
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_instanceof")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons ?object
-                                         (&/$Nil)))))
-    (&&host/analyse-jvm-instanceof analyse exo-type ?class ?object)
-    
-    _
-    (aba4 analyse eval! compile-module compile-statement exo-type token)))
+    ;; Standard special forms
+    (&/$BoolS ?value)
+    (|do [_ (&type/check exo-type &type/Bool)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$bool ?value)))))
 
-(defn ^:private aba2 [analyse eval! compile-module compile-statement exo-type token]
-  (|case token
+    (&/$IntS ?value)
+    (|do [_ (&type/check exo-type &type/Int)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$int ?value)))))
+
+    (&/$RealS ?value)
+    (|do [_ (&type/check exo-type &type/Real)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$real ?value)))))
+
+    (&/$CharS ?value)
+    (|do [_ (&type/check exo-type &type/Char)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$char ?value)))))
+
+    (&/$TextS ?value)
+    (|do [_ (&type/check exo-type &type/Text)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor (&&/$text ?value)))))
+
+    (&/$TupleS ?elems)
+    (&&lux/analyse-tuple analyse (&/$Right exo-type) ?elems)
+
+    (&/$RecordS ?elems)
+    (&&lux/analyse-record analyse exo-type ?elems)
+
+    (&/$TagS ?ident)
+    (analyse-variant+ analyse exo-type ?ident &/$Nil)
+
+    (&/$SymbolS ?ident)
+    (&&lux/analyse-symbol analyse exo-type ?ident)
+
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_case")]
                        (&/$Cons ?value ?branches)))
     (&&lux/analyse-case analyse exo-type ?value ?branches)
@@ -173,49 +199,6 @@
     (&&host/analyse-host analyse exo-type ?category ?proc ?args)
     
     _
-    (aba3 analyse eval! compile-module compile-statement exo-type token)))
-
-(defn ^:private aba1 [analyse eval! compile-module compile-statement exo-type token]
-  (|case token
-    ;; Standard special forms
-    (&/$BoolS ?value)
-    (|do [_ (&type/check exo-type &type/Bool)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&&/$bool ?value)))))
-
-    (&/$IntS ?value)
-    (|do [_ (&type/check exo-type &type/Int)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&&/$int ?value)))))
-
-    (&/$RealS ?value)
-    (|do [_ (&type/check exo-type &type/Real)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&&/$real ?value)))))
-
-    (&/$CharS ?value)
-    (|do [_ (&type/check exo-type &type/Char)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&&/$char ?value)))))
-
-    (&/$TextS ?value)
-    (|do [_ (&type/check exo-type &type/Text)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor (&&/$text ?value)))))
-
-    (&/$TupleS ?elems)
-    (&&lux/analyse-tuple analyse (&/$Right exo-type) ?elems)
-
-    (&/$RecordS ?elems)
-    (&&lux/analyse-record analyse exo-type ?elems)
-
-    (&/$TagS ?ident)
-    (analyse-variant+ analyse exo-type ?ident &/$Nil)
-
-    (&/$SymbolS ?ident)
-    (&&lux/analyse-symbol analyse exo-type ?ident)
-    
-    _
     (aba2 analyse eval! compile-module compile-statement exo-type token)
     ))
 
@@ -227,13 +210,11 @@
         (&/$Right state* output)
         (return* state* output)
 
-        (&/$Left "")
-        (fail* (add-loc (&/get$ &/$cursor state) (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
-
         (&/$Left msg)
-        (fail* (add-loc (&/get$ &/$cursor state) msg))
-        ))
-    ))
+        (if (= "" msg)
+          (fail* (add-loc (&/get$ &/$cursor state) (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
+          (fail* (add-loc (&/get$ &/$cursor state) msg)))
+        ))))
 
 (defn ^:private just-analyse [analyser syntax]
   (&type/with-var

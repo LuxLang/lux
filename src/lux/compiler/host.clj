@@ -94,15 +94,6 @@
     *writer*))
 
 ;; [Resources]
-(defn compile-jvm-instanceof [compile class object]
-  (|do [:let [class* (&host-generics/->bytecode-class-name class)]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile object)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/INSTANCEOF class*)
-                  (&&/wrap-boolean))]]
-    (return nil)))
-
 (defn ^:private compile-annotation [writer ann]
   (doto ^AnnotationVisitor (.visitAnnotation writer (&host-generics/->type-signature (:name ann)) true)
         (-> (.visit param-name param-value)
@@ -1191,10 +1182,21 @@
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
 
+(defn ^:private compile-jvm-instanceof [compile ?values]
+  (|do [:let [(&/$Cons class (&/$Cons object (&/$Nil))) ?values]
+        :let [class* (&host-generics/->bytecode-class-name class)]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile object)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/INSTANCEOF class*)
+                  (&&/wrap-boolean))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values]
   (case proc-category
     "jvm"
     (case proc-name
+      "instanceof"      (compile-jvm-instanceof compile ?values)
       "try"             (compile-jvm-try compile ?values)
       "new"             (compile-jvm-new compile ?values)
       "invokestatic"    (compile-jvm-invokestatic compile ?values)

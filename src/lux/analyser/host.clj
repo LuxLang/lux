@@ -162,15 +162,6 @@
     _
     (fail (str "[Type Error] Type is not an object type: " (&type/show-type obj-type)))))
 
-(defn analyse-jvm-instanceof [analyse exo-type class object]
-  (|do [=object (&&/analyse-1+ analyse object)
-        _ (ensure-object (&&/expr-type* =object))
-        :let [output-type &type/Bool]
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta output-type _cursor
-                               (&&/$jvm-instanceof (&/T [class =object])))))))
-
 (defn generic-class->simple-class [gclass]
   "(-> GenericClass Text)"
   (|case gclass
@@ -917,6 +908,16 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$host (&/T ["jvm" "try"]) (&/|list =body =catch)))))))
 
+(defn ^:private analyse-jvm-instanceof [analyse exo-type class ?values]
+  (|do [:let [(&/$Cons object (&/$Nil)) ?values]
+        =object (&&/analyse-1+ analyse object)
+        _ (ensure-object (&&/expr-type* =object))
+        :let [output-type &type/Bool]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&&/$host (&/T ["jvm" "instanceof"]) (&/|list class =object)))))))
+
 (defn analyse-host [analyse exo-type category proc ?values]
   (case category
     "jvm"
@@ -1007,6 +1008,8 @@
       "c2l"          (analyse-jvm-c2l analyse exo-type ?values)
       ;; else
       (->> (fail (str "[Analyser Error] Unknown host procedure: " [category proc]))
+           (if-let [[_ _class] (re-find #"^instanceof:([^:]+)$" proc)]
+             (analyse-jvm-instanceof analyse exo-type _class ?values))
            (if-let [[_ _class _arg-classes] (re-find #"^new:([^:]+):([^:]*)$" proc)]
              (analyse-jvm-new analyse exo-type _class (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
            (if-let [[_ _class _method _arg-classes] (re-find #"^invokestatic:([^:]+):([^:]+):([^:]*)$" proc)]
