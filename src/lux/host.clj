@@ -35,7 +35,7 @@
 (defn unfold-array [type]
   "(-> Type (, Int Type))"
   (|case type
-    (&/$DataT "#Array" (&/$Cons param (&/$Nil)))
+    (&/$HostT "#Array" (&/$Cons param (&/$Nil)))
     (|let [[count inner] (unfold-array param)]
       (&/T [(inc count) inner]))
 
@@ -47,10 +47,10 @@
   (defn ->java-sig [^objects type]
     "(-> Type (Lux Text))"
     (|case type
-      (&/$DataT ?name params)
+      (&/$HostT ?name params)
       (cond (= &host-type/array-data-tag ?name) (|do [:let [[level base] (unfold-array type)]
                                                       base-sig (|case base
-                                                                 (&/$DataT base-class _)
+                                                                 (&/$HostT base-class _)
                                                                  (return (&host-generics/->type-signature base-class))
 
                                                                  _

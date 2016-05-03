@@ -185,7 +185,7 @@
                                            (&/$Nil)))))
       (&&lux/analyse-alias analyse ?alias ?module)
 
-      (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_host")]
+      (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_proc")]
                          (&/$Cons [_ (&/$TupleS (&/$Cons [_ (&/$TextS ?category)]
                                                          (&/$Cons [_ (&/$TextS ?proc)]
                                                                   (&/$Nil))))]

@@ -79,15 +79,15 @@
     (let [gclass-name (.getName class)]
       (case gclass-name
         ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C")
-        (&/$DataT gclass-name (&/|list))
+        (&/$HostT gclass-name (&/|list))
         ;; else
         (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re gclass-name)]
           (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
             (if (.equals "void" base)
               &/$UnitT
-              (reduce (fn [inner _] (&/$DataT array-data-tag (&/|list inner)))
-                      (&/$DataT base (try (-> (Class/forName base) .getTypeParameters
-                                              seq count (repeat (&/$DataT "java.lang.Object" &/$Nil))
+              (reduce (fn [inner _] (&/$HostT array-data-tag (&/|list inner)))
+                      (&/$HostT base (try (-> (Class/forName base) .getTypeParameters
+                                              seq count (repeat (&/$HostT "java.lang.Object" &/$Nil))
                                               &/->list)
                                        (catch Exception e
                                          (&/|list))))
@@ -101,7 +101,7 @@
 
         (instance? GenericArrayType refl-type)
         (|do [inner-type (instance-param existential matchings (.getGenericComponentType ^GenericArrayType refl-type))]
-          (return (&/$DataT array-data-tag (&/|list inner-type))))
+          (return (&/$HostT array-data-tag (&/|list inner-type))))
         
         (instance? ParameterizedType refl-type)
         (|do [:let [refl-type* ^ParameterizedType refl-type]
@@ -109,7 +109,7 @@
                            .getActualTypeArguments
                            seq &/->list
                            (&/map% (partial instance-param existential matchings)))]
-          (return (&/$DataT (->> refl-type* ^Class (.getRawType) .getName)
+          (return (&/$HostT (->> refl-type* ^Class (.getRawType) .getName)
                             params*)))
         
         (instance? TypeVariable refl-type)
@@ -131,14 +131,14 @@
   (|case gtype
     (&/$GenericArray component-type)
     (|do [inner-type (instance-gtype existential matchings component-type)]
-      (return (&/$DataT array-data-tag (&/|list inner-type))))
+      (return (&/$HostT array-data-tag (&/|list inner-type))))
     
     (&/$GenericClass type-name type-params)
     (if-let [m-type (&/|get type-name matchings)]
       (return m-type)
       (|do [params* (&/map% (partial instance-gtype existential matchings)
                             type-params)]
-        (return (&/$DataT type-name params*))))
+        (return (&/$HostT type-name params*))))
     
     (&/$GenericTypeVar var-name)
     (if-let [m-type (&/|get var-name matchings)]
@@ -198,7 +198,7 @@
     (if (.isAssignableFrom super-class+ sub-class+)
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
-          (return (&/$DataT (.getName sub-class*) sub-params*))))
+          (return (&/$HostT (.getName sub-class*) sub-params*))))
       (fail (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </= " super-class)))))
 
 (defn as-obj [class]
@@ -227,16 +227,16 @@
                (= null-data-tag a!name)
                (if (not (primitive-type? e!name))
                  (return (&/T [fixpoints nil]))
-                 (check-error "" (&/$DataT e!name e!params) (&/$DataT a!name a!params)))
+                 (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params)))
 
                (= null-data-tag e!name)
                (if (= null-data-tag a!name)
                  (return (&/T [fixpoints nil]))
-                 (check-error "" (&/$DataT e!name e!params) (&/$DataT a!name a!params)))
+                 (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params)))
 
                (and (= array-data-tag e!name)
                     (not= array-data-tag a!name))
-               (check-error "" (&/$DataT e!name e!params) (&/$DataT a!name a!params))
+               (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
                
                :else
                (let [e!name (as-obj e!name)
@@ -249,7 +249,7 @@
 
                        (not invariant??)
                        (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
-                         (check (&/$DataT e!name e!params) actual*))
+                         (check (&/$HostT e!name e!params) actual*))
 
                        :else
                        (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))

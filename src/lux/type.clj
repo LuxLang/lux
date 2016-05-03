@@ -27,11 +27,11 @@
 
 (def empty-env &/$Nil)
 
-(def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$DataT "java.lang.Boolean" &/$Nil)))
-(def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$DataT "java.lang.Long" &/$Nil)))
-(def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$DataT "java.lang.Double" &/$Nil)))
-(def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$DataT "java.lang.Character" &/$Nil)))
-(def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$DataT "java.lang.String" &/$Nil)))
+(def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$HostT "java.lang.Boolean" &/$Nil)))
+(def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$HostT "java.lang.Long" &/$Nil)))
+(def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$HostT "java.lang.Double" &/$Nil)))
+(def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$HostT "java.lang.Character" &/$Nil)))
+(def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$HostT "java.lang.String" &/$Nil)))
 (def Ident (&/$NamedT (&/T ["lux" "Ident"]) (&/$ProdT Text Text)))
 
 (def IO
@@ -67,7 +67,7 @@
                    TypePair (&/$ProdT Type Type)]
                (&/$AppT (&/$UnivQ empty-env
                                   (&/$SumT
-                                   ;; DataT
+                                   ;; HostT
                                    (&/$ProdT Text TypeList)
                                    (&/$SumT
                                     ;; VoidT
@@ -292,9 +292,9 @@
           (return type)))
       )
 
-    (&/$DataT ?name ?params)
+    (&/$HostT ?name ?params)
     (|do [=params (&/map% (partial clean* ?tid) ?params)]
-      (return (&/$DataT ?name =params)))
+      (return (&/$HostT ?name =params)))
     
     (&/$LambdaT ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
@@ -398,7 +398,7 @@
 
 (defn show-type [^objects type]
   (|case type
-    (&/$DataT name params)
+    (&/$HostT name params)
     (|case params
       (&/$Nil)
       (str "(^ " name ")")
@@ -454,7 +454,7 @@
                      (and (= ?xmodule ?ymodule)
                           (= ?xname ?yname))
 
-                     [(&/$DataT xname xparams) (&/$DataT yname yparams)]
+                     [(&/$HostT xname xparams) (&/$HostT yname yparams)]
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
@@ -544,8 +544,8 @@
 
 (defn beta-reduce [env type]
   (|case type
-    (&/$DataT ?name ?params)
-    (&/$DataT ?name (&/|map (partial beta-reduce env) ?params))
+    (&/$HostT ?name ?params)
+    (&/$HostT ?name (&/|map (partial beta-reduce env) ?params))
 
     (&/$SumT ?left ?right)
     (&/$SumT (beta-reduce env ?left) (beta-reduce env ?right))
@@ -772,7 +772,7 @@
                                       a!def)]
             (check* class-loader fixpoints invariant?? expected actual*)))
 
-        [(&/$DataT e!data) (&/$DataT a!data)]
+        [(&/$HostT e!data) (&/$HostT a!data)]
         (&&host/check-host-types (partial check* class-loader fixpoints true)
                                  check-error
                                  fixpoints

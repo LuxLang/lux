@@ -21,13 +21,13 @@
   ("apply" 2)
   ("case" 2)
   ("lambda" 3)
-  ("ann" 3)
+  ("ann" 3) ;; Eliminate
   ("var" 1)
   ("captured" 1)
-  ("host" 2)
+  ("proc" 2)
 
-  ("jvm-class" 1)
-  ("jvm-interface" 1)
+  ("jvm-class" 1) ;; Eliminate
+  ("jvm-interface" 1) ;; Eliminate
   )
 
 ;; [Exports]
@@ -75,7 +75,7 @@
                   (return ?module))]
     (return (&/T [module* ?name]))))
 
-(let [tag-names #{"DataT" "VoidT" "UnitT" "SumT" "ProdT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
+(let [tag-names #{"HostT" "VoidT" "UnitT" "SumT" "ProdT" "LambdaT" "BoundT" "VarT" "ExT" "UnivQ" "ExQ" "AppT" "NamedT"}]
   (defn type-tag? [module name]
     (and (= "lux" module)
          (contains? tag-names name))))

@@ -60,8 +60,8 @@
 (defn type->analysis [type]
   "(-> Type Analysis)"
   (|case type
-    (&/$DataT class params)
-    (variant$ #'&/$DataT (tuple$ (&/|list (text$ class)
+    (&/$HostT class params)
+    (variant$ #'&/$HostT (tuple$ (&/|list (text$ class)
                                           (List$ (&/|map type->analysis params)))))
 
     (&/$VoidT)

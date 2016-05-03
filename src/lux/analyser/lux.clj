@@ -578,22 +578,31 @@
         _ (&&module/alias module-name ex-alias ex-module)]
     (return &/$Nil)))
 
-(defn analyse-ann [analyse eval! exo-type ?type ?value]
-  (|do [=type (&&/analyse-1 analyse &type/Type ?type)
-        ==type (eval! =type)
-        _ (&type/check exo-type ==type)
-        =value (&&/analyse-1 analyse ==type ?value)
-        _cursor &/cursor]
-    ;; (analyse ==type ?value)
-    (return (&/|list (&&/|meta ==type _cursor
-                               (&&/$ann =value =type ==type)
-                               )))))
-
 (defn ^:private coerce [new-type analysis]
   "(-> Type Analysis Analysis)"
   (|let [[[_type _cursor] _analysis] analysis]
     (&&/|meta new-type _cursor
               _analysis)))
+
+(defn analyse-ann [analyse eval! exo-type ?type ?value]
+  (|do [=type (&&/analyse-1 analyse &type/Type ?type)
+        ==type (eval! =type)
+        _ (&type/check exo-type ==type)
+        =value (&&/analyse-1 analyse ==type ?value)
+        _cursor &/cursor
+        ;; =value (&&/analyse-1 analyse ==type ?value)
+        ;; :let [_ (prn 0 (&/adt->text =value))
+        ;;       _ (prn 1 (&/adt->text (coerce ==type =value)))
+        ;;       _ (prn 2 (&/adt->text (&&/|meta ==type _cursor
+        ;;                                       (&&/$ann =value =type ==type)
+        ;;                                       )))]
+        ]
+    ;; (return (&/|list (coerce ==type =value)))
+    ;; (analyse ==type ?value)
+    (return (&/|list (&&/|meta ==type _cursor
+                               (&&/$ann =value =type ==type)
+                               )))
+    ))
 
 (defn analyse-coerce [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)

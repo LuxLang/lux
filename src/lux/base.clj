@@ -83,7 +83,7 @@
 
 ;; Type
 (defvariant
-  ("DataT" 2)
+  ("HostT" 2)
   ("VoidT" 0)
   ("UnitT" 0)
   ("SumT" 2)

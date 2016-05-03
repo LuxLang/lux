@@ -23,7 +23,7 @@
   ("ann" 1)
   ("var" 1)
   ("captured" 1)
-  ("host" 2)
+  ("proc" 2)
 
   ("jvm-class" 1)
   ("jvm-interface" 1)
@@ -72,8 +72,8 @@
     (&-base/$captured value)
     (return ($captured value))
 
-    (&-base/$host ?proc-ident ?args)
-    (return ($host ?proc-ident ?args))
+    (&-base/$proc ?proc-ident ?args)
+    (return ($proc ?proc-ident ?args))
     
     (&-base/$jvm-class value)
     (return ($jvm-class value))

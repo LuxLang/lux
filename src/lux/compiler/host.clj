@@ -56,31 +56,31 @@
       (&/$UnitT)
       (.visitLdcInsn *writer* &/unit-tag)
 
-      (&/$DataT "boolean" (&/$Nil))
+      (&/$HostT "boolean" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
       
-      (&/$DataT "byte" (&/$Nil))
+      (&/$HostT "byte" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
-      (&/$DataT "short" (&/$Nil))
+      (&/$HostT "short" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
-      (&/$DataT "int" (&/$Nil))
+      (&/$HostT "int" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
-      (&/$DataT "long" (&/$Nil))
+      (&/$HostT "long" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
-      (&/$DataT "float" (&/$Nil))
+      (&/$HostT "float" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
-      (&/$DataT "double" (&/$Nil))
+      (&/$HostT "double" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
-      (&/$DataT "char" (&/$Nil))
+      (&/$HostT "char" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
       
-      (&/$DataT _ _)
+      (&/$HostT _ _)
       nil
 
       (&/$NamedT ?name ?type)
