@@ -170,98 +170,6 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$jvm-instanceof (&/T [class =object])))))))
 
-(defn ^:private analyse-method-call-helper [analyse gret gtype-env gtype-vars gtype-args args]
-  (|case gtype-vars
-    (&/$Nil)
-    (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
-          =arg-types (&/map% &type/show-type+ arg-types)
-          =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
-          =gret (&host-type/instance-param &type/existential gtype-env gret)]
-      (return (&/T [=gret =args])))
-    
-    (&/$Cons ^TypeVariable gtv gtype-vars*)
-    (&type/with-var
-      (fn [$var]
-        (|do [:let [gtype-env* (&/$Cons (&/T [(.getName gtv) $var]) gtype-env)]
-              [=gret =args] (analyse-method-call-helper analyse gret gtype-env* gtype-vars* gtype-args args)
-              ==gret (&type/clean $var =gret)
-              ==args (&/map% (partial &&/clean-analysis $var) =args)]
-          (return (&/T [==gret ==args])))))
-    ))
-
-(let [dummy-type-param (&/$DataT "java.lang.Object" &/$Nil)]
-  (do-template [<name> <tag> <only-interface?>]
-    (defn <name> [analyse exo-type class method classes object args]
-      (|do [class-loader &/loader
-            _ (try (assert! (let [=class (Class/forName class true class-loader)]
-                              (= <only-interface?> (.isInterface =class)))
-                            (if <only-interface?>
-                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on interface.")
-                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on class.")))
-                (catch Exception e
-                  (fail (str "[Analyser Error] Unknown class: " class))))
-            [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
-                                                         (return (&/T [Void/TYPE &/$Nil &/$Nil &/$Nil &/$Nil]))
-                                                         (&host/lookup-virtual-method class-loader class method classes))
-            _ (ensure-catching exceptions)
-            =object (&&/analyse-1+ analyse object)
-            [sub-class sub-params] (ensure-object (&&/expr-type* =object))
-            (&/$DataT super-class* super-params*) (&host-type/->super-type &type/existential class-loader class sub-class sub-params)
-            :let [gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/$Cons (&/T [(.getName g) t]) m))
-                                     (&/|table)
-                                     parent-gvars
-                                     super-params*)]
-            [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
-            _ (&type/check exo-type (as-otype+ output-type))
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (<tag> (&/T [class method classes =object =args output-type])))))))
-
-    analyse-jvm-invokevirtual   &&/$jvm-invokevirtual   false
-    analyse-jvm-invokespecial   &&/$jvm-invokespecial   false
-    analyse-jvm-invokeinterface &&/$jvm-invokeinterface true
-    ))
-
-(defn analyse-jvm-invokestatic [analyse exo-type class method classes args]
-  (|do [class-loader &/loader
-        [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader class method classes)
-        _ (ensure-catching exceptions)
-        :let [gtype-env (&/|table)]
-        [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
-        _ (&type/check exo-type (as-otype+ output-type))
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-invokestatic (&/T [class method classes =args output-type])))))))
-
-(defn ^:private analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
-  (|case gtype-vars
-    (&/$Nil)
-    (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
-          =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
-          gtype-vars* (->> gtype-env (&/|map &/|second) (clean-gtype-vars))]
-      (return (&/T [(make-gtype gtype gtype-vars*)
-                    =args])))
-    
-    (&/$Cons ^TypeVariable gtv gtype-vars*)
-    (&type/with-var
-      (fn [$var]
-        (|do [:let [gtype-env* (&/$Cons (&/T [(.getName gtv) $var]) gtype-env)]
-              [=gret =args] (analyse-jvm-new-helper analyse gtype gtype-env* gtype-vars* gtype-args args)
-              ==gret (&type/clean $var =gret)
-              ==args (&/map% (partial &&/clean-analysis $var) =args)]
-          (return (&/T [==gret ==args])))))
-    ))
-
-(defn analyse-jvm-new [analyse exo-type class classes args]
-  (|do [class-loader &/loader
-        [exceptions gvars gargs] (&host/lookup-constructor class-loader class classes)
-        _ (ensure-catching exceptions)
-        [output-type =args] (analyse-jvm-new-helper analyse class (&/|table) gvars gargs args)
-        _ (&type/check exo-type output-type)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$jvm-new (&/T [class classes =args])))))))
-
 (defn generic-class->simple-class [gclass]
   "(-> GenericClass Text)"
   (|case gclass
@@ -589,7 +497,7 @@
             _ (compile-statement (&&/$jvm-class (&/T [class-decl super-class interfaces &/$DefaultIM &/$Nil =fields =methods =captured (&/$Some =ctor-args)])))
             _cursor &/cursor]
         (return (&/|list (&&/|meta anon-class-type _cursor
-                                   (&&/$jvm-new (&/T [anon-class (&/|repeat (&/|length sources) captured-slot-class) sources]))
+                                   (&&/$host (&/T ["jvm" "new"]) (&/|list anon-class (&/|repeat (&/|length sources) captured-slot-class) sources))
                                    )))
         ))))
 
@@ -923,6 +831,101 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$host (&/T ["jvm" "putfield"]) (&/|list class field =object =value gclass =type)))))))
 
+(defn ^:private analyse-method-call-helper [analyse gret gtype-env gtype-vars gtype-args args]
+  (|case gtype-vars
+    (&/$Nil)
+    (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
+          =arg-types (&/map% &type/show-type+ arg-types)
+          =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
+          =gret (&host-type/instance-param &type/existential gtype-env gret)]
+      (return (&/T [=gret =args])))
+    
+    (&/$Cons ^TypeVariable gtv gtype-vars*)
+    (&type/with-var
+      (fn [$var]
+        (|do [:let [gtype-env* (&/$Cons (&/T [(.getName gtv) $var]) gtype-env)]
+              [=gret =args] (analyse-method-call-helper analyse gret gtype-env* gtype-vars* gtype-args args)
+              ==gret (&type/clean $var =gret)
+              ==args (&/map% (partial &&/clean-analysis $var) =args)]
+          (return (&/T [==gret ==args])))))
+    ))
+
+(let [dummy-type-param (&/$DataT "java.lang.Object" &/$Nil)]
+  (do-template [<name> <tag> <only-interface?>]
+    (defn <name> [analyse exo-type class method classes ?values]
+      (|do [:let [(&/$Cons object args) ?values]
+            class-loader &/loader
+            _ (try (assert! (let [=class (Class/forName class true class-loader)]
+                              (= <only-interface?> (.isInterface =class)))
+                            (if <only-interface?>
+                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on interface.")
+                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on class.")))
+                (catch Exception e
+                  (fail (str "[Analyser Error] Unknown class: " class))))
+            [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
+                                                         (return (&/T [Void/TYPE &/$Nil &/$Nil &/$Nil &/$Nil]))
+                                                         (&host/lookup-virtual-method class-loader class method classes))
+            _ (ensure-catching exceptions)
+            =object (&&/analyse-1+ analyse object)
+            [sub-class sub-params] (ensure-object (&&/expr-type* =object))
+            (&/$DataT super-class* super-params*) (&host-type/->super-type &type/existential class-loader class sub-class sub-params)
+            :let [gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/$Cons (&/T [(.getName g) t]) m))
+                                     (&/|table)
+                                     parent-gvars
+                                     super-params*)]
+            [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
+            _ (&type/check exo-type (as-otype+ output-type))
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$host (&/T ["jvm" <tag>]) (&/|list class method classes =object =args output-type)))))))
+
+    ^:private analyse-jvm-invokevirtual   "invokevirtual"   false
+    ^:private analyse-jvm-invokespecial   "invokespecial"   false
+    ^:private analyse-jvm-invokeinterface "invokeinterface" true
+    ))
+
+(defn ^:private analyse-jvm-invokestatic [analyse exo-type class method classes ?values]
+  (|do [:let [args ?values]
+        class-loader &/loader
+        [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader class method classes)
+        _ (ensure-catching exceptions)
+        :let [gtype-env (&/|table)]
+        [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
+        _ (&type/check exo-type (as-otype+ output-type))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "invokestatic"]) (&/|list class method classes =args output-type)))))))
+
+(defn ^:private analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
+  (|case gtype-vars
+    (&/$Nil)
+    (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
+          =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
+          gtype-vars* (->> gtype-env (&/|map &/|second) (clean-gtype-vars))]
+      (return (&/T [(make-gtype gtype gtype-vars*)
+                    =args])))
+    
+    (&/$Cons ^TypeVariable gtv gtype-vars*)
+    (&type/with-var
+      (fn [$var]
+        (|do [:let [gtype-env* (&/$Cons (&/T [(.getName gtv) $var]) gtype-env)]
+              [=gret =args] (analyse-jvm-new-helper analyse gtype gtype-env* gtype-vars* gtype-args args)
+              ==gret (&type/clean $var =gret)
+              ==args (&/map% (partial &&/clean-analysis $var) =args)]
+          (return (&/T [==gret ==args])))))
+    ))
+
+(defn ^:private analyse-jvm-new [analyse exo-type class classes ?values]
+  (|do [:let [args ?values]
+        class-loader &/loader
+        [exceptions gvars gargs] (&host/lookup-constructor class-loader class classes)
+        _ (ensure-catching exceptions)
+        [output-type =args] (analyse-jvm-new-helper analyse class (&/|table) gvars gargs args)
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$host (&/T ["jvm" "new"]) (&/|list class classes =args)))))))
+
 (defn analyse-host [analyse exo-type category proc ?values]
   (case category
     "jvm"
@@ -1012,13 +1015,23 @@
       "c2l"          (analyse-jvm-c2l analyse exo-type ?values)
       ;; else
       (->> (fail (str "[Analyser Error] Unknown host procedure: " [category proc]))
-           (if-let [[_ _class _field] (re-find #"getstatic:([^:]+):([^:]+)" proc)]
+           (if-let [[_ _class _arg-classes] (re-find #"^new:([^:]+):([^:]*)$" proc)]
+             (analyse-jvm-new analyse exo-type _class (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+           (if-let [[_ _class _method _arg-classes] (re-find #"^invokestatic:([^:]+):([^:]+):([^:]*)$" proc)]
+             (analyse-jvm-invokestatic analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+           (if-let [[_ _class _method _arg-classes] (re-find #"^invokeinterface:([^:]+):([^:]+):([^:]*)$" proc)]
+             (analyse-jvm-invokeinterface analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+           (if-let [[_ _class _method _arg-classes] (re-find #"^invokevirtual:([^:]+):([^:]+):([^:]*)$" proc)]
+             (analyse-jvm-invokevirtual analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+           (if-let [[_ _class _method _arg-classes] (re-find #"^invokespecial:([^:]+):([^:]+):([^:]*)$" proc)]
+             (analyse-jvm-invokespecial analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+           (if-let [[_ _class _field] (re-find #"^getstatic:([^:]+):([^:]+)$" proc)]
              (analyse-jvm-getstatic analyse exo-type _class _field ?values))
-           (if-let [[_ _class _field] (re-find #"getfield:([^:]+):([^:]+)" proc)]
+           (if-let [[_ _class _field] (re-find #"^getfield:([^:]+):([^:]+)$" proc)]
              (analyse-jvm-getfield analyse exo-type _class _field ?values))
-           (if-let [[_ _class _field] (re-find #"putstatic:([^:]+):([^:]+)" proc)]
+           (if-let [[_ _class _field] (re-find #"^putstatic:([^:]+):([^:]+)$" proc)]
              (analyse-jvm-putstatic analyse exo-type _class _field ?values))
-           (if-let [[_ _class _field] (re-find #"putfield:([^:]+):([^:]+)" proc)]
+           (if-let [[_ _class _field] (re-find #"^putfield:([^:]+):([^:]+)$" proc)]
              (analyse-jvm-putfield analyse exo-type _class _field ?values))))
 
     ;; else

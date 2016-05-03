@@ -95,21 +95,6 @@
         (&&host/compile-host compile-expression ?proc-category ?proc-name ?args)
         
         ;; JVM
-        (&o/$jvm-new ?class ?classes ?args)
-        (&&host/compile-jvm-new compile-expression ?class ?classes ?args)
-
-        (&o/$jvm-invokestatic ?class ?method ?classes ?args ?output-type)
-        (&&host/compile-jvm-invokestatic compile-expression ?class ?method ?classes ?args ?output-type)
-
-        (&o/$jvm-invokevirtual ?class ?method ?classes ?object ?args ?output-type)
-        (&&host/compile-jvm-invokevirtual compile-expression ?class ?method ?classes ?object ?args ?output-type)
-
-        (&o/$jvm-invokeinterface ?class ?method ?classes ?object ?args ?output-type)
-        (&&host/compile-jvm-invokeinterface compile-expression ?class ?method ?classes ?object ?args ?output-type)
-
-        (&o/$jvm-invokespecial ?class ?method ?classes ?object ?args ?output-type)
-        (&&host/compile-jvm-invokespecial compile-expression ?class ?method ?classes ?object ?args ?output-type)
-        
         (&o/$jvm-try ?body ?catches ?finally)
         (&&host/compile-jvm-try compile-expression ?body ?catches ?finally)
 

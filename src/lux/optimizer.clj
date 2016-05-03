@@ -26,12 +26,7 @@
   ("captured" 1)
   ("host" 2)
 
-  ("jvm-invokestatic" 1)
   ("jvm-instanceof" 1)
-  ("jvm-invokevirtual" 1)
-  ("jvm-invokeinterface" 1)
-  ("jvm-invokespecial" 1)
-  ("jvm-new" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)
   ("jvm-try" 1)
@@ -87,23 +82,8 @@
     (&-base/$host ?proc-ident ?args)
     (return ($host ?proc-ident ?args))
     
-    (&-base/$jvm-invokestatic value)
-    (return ($jvm-invokestatic value))
-    
     (&-base/$jvm-instanceof value)
     (return ($jvm-instanceof value))
-    
-    (&-base/$jvm-invokevirtual value)
-    (return ($jvm-invokevirtual value))
-    
-    (&-base/$jvm-invokeinterface value)
-    (return ($jvm-invokeinterface value))
-    
-    (&-base/$jvm-invokespecial value)
-    (return ($jvm-invokespecial value))
-    
-    (&-base/$jvm-new value)
-    (return ($jvm-new value))
     
     (&-base/$jvm-class value)
     (return ($jvm-class value))

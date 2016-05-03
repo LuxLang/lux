@@ -117,53 +117,6 @@
                                          (&/$Nil)))))
     (&&host/analyse-jvm-instanceof analyse exo-type ?class ?object)
     
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_new")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TupleS ?arg-classes)]
-                                         (&/$Cons [_ (&/$TupleS ?args)]
-                                                  (&/$Nil))))))
-    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
-      (&&host/analyse-jvm-new analyse exo-type ?class =arg-classes ?args))
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokestatic")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
-                                                  (&/$Cons [_ (&/$TupleS ?args)]
-                                                           (&/$Nil)))))))
-    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
-      (&&host/analyse-jvm-invokestatic analyse exo-type ?class ?method =arg-classes ?args))
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokevirtual")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
-                                                  (&/$Cons ?object
-                                                           (&/$Cons [_ (&/$TupleS ?args)]
-                                                                    (&/$Nil))))))))
-    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
-      (&&host/analyse-jvm-invokevirtual analyse exo-type ?class ?method =arg-classes ?object ?args))
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokeinterface")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
-                                                  (&/$Cons ?object
-                                                           (&/$Cons [_ (&/$TupleS ?args)]
-                                                                    (&/$Nil))))))))
-    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
-      (&&host/analyse-jvm-invokeinterface analyse exo-type ?class ?method =arg-classes ?object ?args))
-
-    (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_invokespecial")]
-                       (&/$Cons [_ (&/$TextS ?class)]
-                                (&/$Cons [_ (&/$TextS ?method)]
-                                         (&/$Cons [_ (&/$TupleS ?arg-classes)]
-                                                  (&/$Cons ?object
-                                                           (&/$Cons [_ (&/$TupleS ?args)]
-                                                                    (&/$Nil))))))))
-    (|do [=arg-classes (&/map% &&a-parser/parse-text ?arg-classes)]
-      (&&host/analyse-jvm-invokespecial analyse exo-type ?class ?method =arg-classes ?object ?args))
-
     ;; Exceptions
     (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_try")]
                        (&/$Cons ?body

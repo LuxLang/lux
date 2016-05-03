@@ -27,12 +27,7 @@
   ("captured" 1)
   ("host" 2)
 
-  ("jvm-invokestatic" 1)
   ("jvm-instanceof" 1)
-  ("jvm-invokevirtual" 1)
-  ("jvm-invokeinterface" 1)
-  ("jvm-invokespecial" 1)
-  ("jvm-new" 1)
   ("jvm-class" 1)
   ("jvm-interface" 1)
   ("jvm-try" 1)
