@@ -82,7 +82,10 @@
   (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
        (.getURLs)
        (map #(.getFile ^java.net.URL %))
-       (filter #(.endsWith ^String % ".jar"))))
+       (filter #(.endsWith ^String % ".jar"))
+       (filter #(not (or (.contains ^String % "org/ow2/asm/asm-all")
+                         (.contains ^String % "org/clojure/core.match")
+                         (.contains ^String % "org/clojure/clojure"))))))
 
 (let [init-capacity (* 100 1024)
       buffer-size 1024]
