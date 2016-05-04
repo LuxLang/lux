@@ -918,8 +918,56 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "instanceof"]) (&/|list class =object)))))))
 
+(let [length-type &type/Int
+      idx-type &type/Int]
+  (defn ^:private analyse-array-new [analyse exo-type ?values]
+    (|do [:let [(&/$Cons length (&/$Nil)) ?values]
+          :let [gclass (&/$GenericClass "java.lang.Object" (&/|list))
+                array-type (&/$UnivQ (&/|list) (&/$HostT &host-type/array-data-tag (&/|list (&/$BoundT 1))))]
+          gtype-env &/get-type-env
+          =length (&&/analyse-1 analyse length-type length)
+          _ (&type/check exo-type array-type)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["jvm" "anewarray"]) (&/|list gclass =length gtype-env)))))))
+
+  (defn ^:private analyse-array-get [analyse exo-type ?values]
+    (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
+          =array (&&/analyse-1+ analyse array)
+          [arr-class arr-params] (ensure-object (&&/expr-type* =array))
+          _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
+          :let [(&/$Cons inner-arr-type (&/$Nil)) arr-params]
+          =idx (&&/analyse-1 analyse idx-type idx)
+          _ (&type/check exo-type (&/$AppT &type/Maybe inner-arr-type))
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["array" "get"]) (&/|list =array =idx)))))))
+
+  (defn ^:private analyse-array-remove [analyse exo-type ?values]
+    (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
+          =array (&&/analyse-1+ analyse array)
+          :let [array-type (&&/expr-type* =array)]
+          [arr-class arr-params] (ensure-object array-type)
+          _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
+          :let [(&/$Cons inner-arr-type (&/$Nil)) arr-params]
+          =idx (&&/analyse-1 analyse idx-type idx)
+          _cursor &/cursor
+          :let [=elem (&&/|meta inner-arr-type _cursor
+                                (&&/$proc (&/T ["jvm" "null"]) (&/|list)))]
+          _ (&type/check exo-type array-type)]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["jvm" "aastore"]) (&/|list =array =idx =elem))))))))
+
 (defn analyse-host [analyse exo-type category proc ?values]
   (case category
+    "array"
+    (case proc
+      "new"    (analyse-array-new analyse exo-type ?values)
+      "get"    (analyse-array-get analyse exo-type ?values)
+      "put"    (analyse-jvm-aastore analyse exo-type ?values)
+      "remove" (analyse-array-remove analyse exo-type ?values)
+      "size"   (analyse-jvm-arraylength analyse exo-type ?values))
+    
     "jvm"
     (case proc
       "try"          (analyse-jvm-try analyse exo-type ?values)

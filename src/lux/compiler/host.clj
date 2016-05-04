@@ -1192,8 +1192,43 @@
                   (&&/wrap-boolean))]]
     (return nil)))
 
+(defn ^:private compile-array-get [compile ?values]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        array-type (&host/->java-sig (&a/expr-type* ?array))
+        _ (compile ?array)
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
+        _ (compile ?idx)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (.visitInsn *writer* Opcodes/AALOAD)]
+        :let [$then (new Label)
+              $end (new Label)
+              _ (doto *writer*
+                  (.visitInsn Opcodes/DUP)
+                  (.visitJumpInsn Opcodes/IFNULL $then)
+                  (.visitInsn Opcodes/POP)
+                  (.visitLdcInsn (int 0))
+                  (.visitInsn Opcodes/ACONST_NULL)
+                  (.visitLdcInsn &/unit-tag)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $then)
+                  (.visitLdcInsn (int 1))
+                  (.visitLdcInsn "")
+                  (.visitInsn Opcodes/DUP2_X1) ;; I?2I?
+                  (.visitInsn Opcodes/POP2) ;; I?2
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitLabel $end))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values]
   (case proc-category
+    "array"
+    (case proc-name
+      "get" (compile-array-get compile ?values))
+    
     "jvm"
     (case proc-name
       "instanceof"      (compile-jvm-instanceof compile ?values)
