@@ -116,7 +116,7 @@
                                      (return (&/T [pre-quotes* ""]))))]
     (return (str (clean-line pre-quotes) post-quotes))))
 
-(def ^:private lex-text
+(def lex-text
   (|do [[meta _ _] (&reader/read-text "\"")
         :let [[_ _ _column] meta]
         token (lex-text-body false (inc _column))
@@ -156,12 +156,12 @@
     (|do [[meta _ token] (&reader/read-regex <regex>)]
       (return (&/T [meta (<tag> token)]))))
 
-  ^:private lex-bool  $Bool  #"^(true|false)"
-  ^:private lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
-  ^:private lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)(e-?[1-9][0-9]*)?"
+  lex-bool  $Bool  #"^(true|false)"
+  lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
+  lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)(e-?[1-9][0-9]*)?"
   )
 
-(def ^:private lex-char
+(def lex-char
   (|do [[meta _ _] (&reader/read-text "#\"")
         token (&/try-all% (&/|list (|do [[_ _ escaped] (&reader/read-regex #"^(\\.)")]
                                      (escape-char escaped))

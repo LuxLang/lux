@@ -129,3 +129,13 @@
     (reduce (fn [tail head] (&/$Cons head tail))
             &/$Nil
             (reverse indexed-lines))))
+
+(defn with-source [name content body]
+  (fn [state]
+    (|let [old-source (&/get$ &/$source state)]
+      (|case (body (&/set$ &/$source (from name content) state))
+        (&/$Left error)
+        (&/$Left error)
+
+        (&/$Right state* output)
+        (&/$Right (&/T [(&/set$ &/$source old-source state*) output]))))))

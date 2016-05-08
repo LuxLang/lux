@@ -54,56 +54,8 @@
   (fn [state]
     (fail* (add-loc (&/get$ &/$cursor state) msg))))
 
-(defn ^:private aba2 [analyse eval! compile-module compilers exo-type token]
-  (|let [[compile-statement compile-def compile-program] compilers]
-    (|case token
-      ;; Classes & interfaces
-      (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_class")]
-                         (&/$Cons ?class-decl
-                                  (&/$Cons ?super-class
-                                           (&/$Cons [_ (&/$TupleS ?interfaces)]
-                                                    (&/$Cons ?inheritance-modifier
-                                                             (&/$Cons [_ (&/$TupleS ?anns)]
-                                                                      (&/$Cons [_ (&/$TupleS ?fields)]
-                                                                               (&/$Cons [_ (&/$TupleS ?methods)]
-                                                                                        (&/$Nil))))))))))
-      (|do [=gclass-decl (&&a-parser/parse-gclass-decl ?class-decl)
-            =super-class (&&a-parser/parse-gclass-super ?super-class)
-            =interfaces (&/map% &&a-parser/parse-gclass-super ?interfaces)
-            =inheritance-modifier (&&a-parser/parse-inheritance-modifier ?inheritance-modifier)
-            =anns (&/map% &&a-parser/parse-ann ?anns)
-            =fields (&/map% &&a-parser/parse-field ?fields)
-            =methods (&/map% &&a-parser/parse-method-def ?methods)]
-        (&&host/analyse-jvm-class analyse compile-statement =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods))
-
-      (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_interface")]
-                         (&/$Cons ?class-decl
-                                  (&/$Cons [_ (&/$TupleS ?supers)]
-                                           (&/$Cons [_ (&/$TupleS ?anns)]
-                                                    ?methods)))))
-      (|do [=gclass-decl (&&a-parser/parse-gclass-decl ?class-decl)
-            =supers (&/map% &&a-parser/parse-gclass-super ?supers)
-            =anns (&/map% &&a-parser/parse-ann ?anns)
-            =methods (&/map% &&a-parser/parse-method-decl ?methods)]
-        (&&host/analyse-jvm-interface analyse compile-statement =gclass-decl =supers =anns =methods))
-
-      (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_jvm_anon-class")]
-                         (&/$Cons ?super-class
-                                  (&/$Cons [_ (&/$TupleS ?interfaces)]
-                                           (&/$Cons [_ (&/$TupleS ?ctor-args)]
-                                                    (&/$Cons [_ (&/$TupleS ?methods)]
-                                                             (&/$Nil)))))))
-      (|do [=super-class (&&a-parser/parse-gclass-super ?super-class)
-            =interfaces (&/map% &&a-parser/parse-gclass-super ?interfaces)
-            =ctor-args (&/map% &&a-parser/parse-ctor-arg ?ctor-args)
-            =methods (&/map% &&a-parser/parse-method-def ?methods)]
-        (&&host/analyse-jvm-anon-class analyse compile-statement exo-type =super-class =interfaces =ctor-args =methods))
-
-      _
-      (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token]))))))))
-
 (defn ^:private aba1 [analyse eval! compile-module compilers exo-type token]
-  (|let [[compile-statement compile-def compile-program] compilers]
+  (|let [[compile-def compile-program compile-class compile-interface] compilers]
     (|case token
       ;; Standard special forms
       (&/$BoolS ?value)
@@ -191,7 +143,7 @@
                                                                   (&/$Nil))))]
                                   (&/$Cons [_ (&/$TupleS ?args)]
                                            (&/$Nil)))))
-      (&&host/analyse-host analyse exo-type ?category ?proc ?args)
+      (&&host/analyse-host analyse exo-type compilers ?category ?proc ?args)
 
       (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_program")]
                          (&/$Cons [_ (&/$SymbolS "" ?args)]
@@ -200,7 +152,7 @@
       (&&lux/analyse-program analyse compile-program ?args ?body)
       
       _
-      (aba2 analyse eval! compile-module compilers exo-type token)
+      (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
       )))
 
 (defn ^:private analyse-basic-ast [analyse eval! compile-module compilers exo-type token]

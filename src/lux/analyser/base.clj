@@ -25,9 +25,6 @@
   ("var" 1)
   ("captured" 1)
   ("proc" 2)
-
-  ("jvm-class" 1) ;; Eliminate
-  ("jvm-interface" 1) ;; Eliminate
   )
 
 ;; [Exports]

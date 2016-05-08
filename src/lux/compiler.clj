@@ -99,15 +99,6 @@
         ))
     ))
 
-(defn compile-statement [syntax]
-  (|case syntax
-    (&o/$jvm-interface ?name ?supers ?anns ?methods)
-    (&&host/compile-jvm-interface compile-expression ?name ?supers ?anns ?methods)
-
-    (&o/$jvm-class ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
-    (&&host/compile-jvm-class compile-expression ?name ?super-class ?interfaces ?anns ?inheritance-modifier ?fields ?methods ??env ??ctor-args)
-    ))
-
 (defn init! []
   (reset! !source->last-line {})
   (.mkdirs (java.io.File. &&/output-dir))
@@ -146,15 +137,19 @@
           (.get nil)
           return))))
 
+(def all-compilers
+  (&/T [(partial &&lux/compile-def compile-expression)
+        (partial &&lux/compile-program compile-expression)
+        (partial &&host/compile-jvm-class compile-expression)
+        &&host/compile-jvm-interface]))
+
 (defn compile-module [source-dirs name]
   (let [file-name (str name ".lux")]
     (|do [file-content (&&io/read-file source-dirs file-name)
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
         (&&cache/load source-dirs name file-hash compile-module)
-        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) (&/T [compile-statement
-                                                                                                  (partial &&lux/compile-def compile-expression)
-                                                                                                  (partial &&lux/compile-program compile-expression)]))]
+        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")

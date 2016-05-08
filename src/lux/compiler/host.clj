@@ -502,7 +502,7 @@
               (return nil)))]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
-(defn compile-jvm-interface [compile interface-decl ?supers ?anns ?methods]
+(defn compile-jvm-interface [interface-decl ?supers ?anns ?methods]
   (|do [:let [[interface-name interface-vars] interface-decl]
         module &/get-module-name
         [file-name _ _] &/cursor
@@ -530,7 +530,7 @@
                                 (&/|list)
                                 (&/|list object-class)
                                 object-class]))]
-    (compile-jvm-interface nil interface-decl ?supers ?anns ?methods)))
+    (compile-jvm-interface interface-decl ?supers ?anns ?methods)))
 
 (def compile-LuxUtils-class
   (|do [_ (return nil)

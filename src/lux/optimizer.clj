@@ -24,62 +24,53 @@
   ("var" 1)
   ("captured" 1)
   ("proc" 2)
-
-  ("jvm-class" 1)
-  ("jvm-interface" 1)
   )
 
 ;; [Exports]
 (defn optimize-token [analysis]
   "(-> Analysis Optimized)"
   (|case analysis
-    (&-base/$bool value)
-    (return ($bool value))
+    [meta (&-base/$bool value)]
+    (return (&/T [meta ($bool value)]))
     
-    (&-base/$int value)
-    (return ($int value))
+    [meta (&-base/$int value)]
+    (return (&/T [meta ($int value)]))
     
-    (&-base/$real value)
-    (return ($real value))
+    [meta (&-base/$real value)]
+    (return (&/T [meta ($real value)]))
     
-    (&-base/$char value)
-    (return ($char value))
+    [meta (&-base/$char value)]
+    (return (&/T [meta ($char value)]))
     
-    (&-base/$text value)
-    (return ($text value))
+    [meta (&-base/$text value)]
+    (return (&/T [meta ($text value)]))
     
-    (&-base/$variant value)
-    (return ($variant value))
+    [meta (&-base/$variant value)]
+    (return (&/T [meta ($variant value)]))
     
-    (&-base/$tuple value)
-    (return ($tuple value))
+    [meta (&-base/$tuple value)]
+    (return (&/T [meta ($tuple value)]))
     
-    (&-base/$apply value)
-    (return ($apply value))
+    [meta (&-base/$apply value)]
+    (return (&/T [meta ($apply value)]))
     
-    (&-base/$case value)
-    (return ($case value))
+    [meta (&-base/$case value)]
+    (return (&/T [meta ($case value)]))
     
-    (&-base/$lambda value)
-    (return ($lambda value))
+    [meta (&-base/$lambda value)]
+    (return (&/T [meta ($lambda value)]))
     
-    (&-base/$ann value)
-    (return ($ann value))
+    [meta (&-base/$ann value)]
+    (return (&/T [meta ($ann value)]))
     
-    (&-base/$var value)
-    (return ($var value))
+    [meta (&-base/$var value)]
+    (return (&/T [meta ($var value)]))
     
-    (&-base/$captured value)
-    (return ($captured value))
+    [meta (&-base/$captured value)]
+    (return (&/T [meta ($captured value)]))
 
-    (&-base/$proc ?proc-ident ?args)
-    (return ($proc ?proc-ident ?args))
-    
-    (&-base/$jvm-class value)
-    (return ($jvm-class value))
-    
-    (&-base/$jvm-interface value)
-    (return ($jvm-interface value))
+    [meta (&-base/$proc ?proc-ident ?args)]
+    (return (&/T [meta ($proc ?proc-ident ?args)]))
     
     _
     (assert false (prn-str 'optimize-token (&/adt->text analysis)))
