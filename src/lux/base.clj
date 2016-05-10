@@ -1198,3 +1198,17 @@
     [_ ($Nil)]        $Nil
     [_ ($Cons x xs*)] (|drop (dec n) xs*)
     ))
+
+(defn |but-last [xs]
+  (|case xs
+    ($Nil)
+    $Nil
+    
+    ($Cons x ($Nil))
+    $Nil
+
+    ($Cons x xs*)
+    ($Cons x (|but-last xs*))
+
+    _
+    (assert false (adt->text xs))))

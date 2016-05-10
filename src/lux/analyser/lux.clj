@@ -543,7 +543,7 @@
   (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
-(defn analyse-def [analyse eval! compile-def ?name ?value ?meta]
+(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]
   (|do [module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
@@ -551,10 +551,10 @@
       (|do [=value (&/with-scope ?name
                      (&&/analyse-1+ analyse ?value))
             =meta (&&/analyse-1 analyse &type/DefMeta ?meta)
-            ==meta (eval! =meta)
+            ==meta (eval! (optimize =meta))
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-def ?name =value ==meta)]
+            _ (compile-def ?name (optimize =value) ==meta)]
         (return &/$Nil))
       )))
 
@@ -613,9 +613,9 @@
 
 (let [input-type (&/$AppT &type/List &type/Text)
       output-type (&/$AppT &type/IO &/$UnitT)]
-  (defn analyse-program [analyse compile-program ?args ?body]
+  (defn analyse-program [analyse optimize compile-program ?args ?body]
     (|do [=body (&/with-scope ""
                   (&&env/with-local ?args input-type
                     (&&/analyse-1 analyse output-type ?body)))
-          _ (compile-program =body)]
+          _ (compile-program (optimize =body))]
       (return &/$Nil))))

@@ -54,7 +54,7 @@
   (fn [state]
     (fail* (add-loc (&/get$ &/$cursor state) msg))))
 
-(defn ^:private aba1 [analyse eval! compile-module compilers exo-type token]
+(defn ^:private aba1 [analyse optimize eval! compile-module compilers exo-type token]
   (|let [[compile-def compile-program compile-class compile-interface] compilers]
     (|case token
       ;; Standard special forms
@@ -112,7 +112,7 @@
                                            (&/$Cons ?meta
                                                     (&/$Nil))
                                            ))))
-      (&&lux/analyse-def analyse eval! compile-def ?name ?value ?meta)
+      (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)
       
       (&/$FormS (&/$Cons [_ (&/$SymbolS _ "_lux_import")]
                          (&/$Cons [_ (&/$TextS ?path)]
@@ -149,17 +149,17 @@
                          (&/$Cons [_ (&/$SymbolS "" ?args)]
                                   (&/$Cons ?body
                                            (&/$Nil)))))
-      (&&lux/analyse-program analyse compile-program ?args ?body)
+      (&&lux/analyse-program analyse optimize compile-program ?args ?body)
       
       _
       (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
       )))
 
-(defn ^:private analyse-basic-ast [analyse eval! compile-module compilers exo-type token]
+(defn ^:private analyse-basic-ast [analyse optimize eval! compile-module compilers exo-type token]
   (|case token
     [meta ?token]
     (fn [state]
-      (|case ((aba1 analyse eval! compile-module compilers exo-type ?token) state)
+      (|case ((aba1 analyse optimize eval! compile-module compilers exo-type ?token) state)
         (&/$Right state* output)
         (return* state* output)
 
@@ -186,39 +186,40 @@
             (return (&&/|meta =output-type ?output-cursor ?output-term))))
         ))))
 
-(defn ^:private analyse-ast [eval! compile-module compilers exo-type token]
-  (|let [[cursor _] token]
+(defn ^:private analyse-ast [optimize eval! compile-module compilers exo-type token]
+  (|let [[cursor _] token
+         analyser (partial analyse-ast optimize eval! compile-module compilers)]
     (&/with-cursor cursor
       (&/with-expected-type exo-type
         (|case token
           [meta (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))]
-          (&&lux/analyse-variant (partial analyse-ast eval! compile-module compilers) (&/$Right exo-type) idx nil ?values)
+          (&&lux/analyse-variant analyser (&/$Right exo-type) idx nil ?values)
 
           [meta (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))]
-          (analyse-variant+ (partial analyse-ast eval! compile-module compilers) exo-type ?ident ?values)
+          (analyse-variant+ analyser exo-type ?ident ?values)
           
           [meta (&/$FormS (&/$Cons ?fn ?args))]
           (|case ?fn
             [_ (&/$SymbolS _)]
             (fn [state]
-              (|case ((just-analyse (partial analyse-ast eval! compile-module compilers) ?fn) state)
+              (|case ((just-analyse analyser ?fn) state)
                 (&/$Right state* =fn)
-                ((&&lux/analyse-apply (partial analyse-ast eval! compile-module compilers) exo-type =fn ?args) state*)
+                ((&&lux/analyse-apply analyser exo-type =fn ?args) state*)
 
                 _
-                ((analyse-basic-ast (partial analyse-ast eval! compile-module compilers) eval! compile-module compilers exo-type token) state)))
+                ((analyse-basic-ast analyser optimize eval! compile-module compilers exo-type token) state)))
 
             _
-            (|do [=fn (just-analyse (partial analyse-ast eval! compile-module compilers) ?fn)]
-              (&&lux/analyse-apply (partial analyse-ast eval! compile-module compilers) exo-type =fn ?args)))
+            (|do [=fn (just-analyse analyser ?fn)]
+              (&&lux/analyse-apply analyser exo-type =fn ?args)))
           
           _
-          (analyse-basic-ast (partial analyse-ast eval! compile-module compilers) eval! compile-module compilers exo-type token))))))
+          (analyse-basic-ast analyser optimize eval! compile-module compilers exo-type token))))))
 
 ;; [Resources]
-(defn analyse [eval! compile-module compilers]
+(defn analyse [optimize eval! compile-module compilers]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast eval! compile-module compilers &/$VoidT) asts)))
+    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &/$VoidT) asts)))
 
 (defn clean-output [?var analysis]
   (|do [:let [[[?output-type ?output-cursor] ?output-term] analysis]

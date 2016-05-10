@@ -14,6 +14,7 @@
                  [lexer :as &lexer]
                  [parser :as &parser]
                  [analyser :as &analyser]
+                 [optimizer :as &o]
                  [host :as &host])
             [lux.type.host :as &host-type]
             [lux.host.generics :as &host-generics]
@@ -266,7 +267,7 @@
               :let [_ (.visitVarInsn =method Opcodes/ALOAD 0)]
               _ (->> ?ctor-args (&/|map &/|second) (&/map% compile))
               :let [_ (.visitMethodInsn =method Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class-name) init-method init-sig)]
-              _ (compile ?body)
+              _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
                         (.visitMaxs 0 0)
@@ -289,7 +290,7 @@
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 1 ?inputs =method)
               :let [_ (.visitFrame =method Opcodes/F_NEW (int (inc (&/|length =input-tags))) (to-array (&/->seq (&/$Cons bytecode-class-name =input-tags))) (int 0) (to-array []))]
-              _ (compile ?body)
+              _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
                         (.visitMaxs 0 0)
@@ -311,7 +312,7 @@
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 1 ?inputs =method)
               :let [_ (.visitFrame =method Opcodes/F_NEW (int (inc (&/|length =input-tags))) (to-array (&/->seq (&/$Cons bytecode-class-name =input-tags))) (int 0) (to-array []))]
-              _ (compile ?body)
+              _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
                         (.visitMaxs 0 0)
@@ -334,7 +335,7 @@
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 0 ?inputs =method)
               :let [_ (.visitFrame =method Opcodes/F_NEW (int (&/|length =input-tags)) (to-array (&/->seq =input-tags)) (int 0) (to-array []))]
-              _ (compile ?body)
+              _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
                         (.visitMaxs 0 0)
@@ -493,7 +494,7 @@
                             (.visitCode))]
                   _ (&/map% (fn [ftriple]
                               (|let [[fname fgclass fvalue] ftriple]
-                                (compile-jvm-putstatic compile (&/|list ?name fname fvalue fgclass))))
+                                (compile-jvm-putstatic compile (&/|list (&o/optimize fvalue)) (&/|list ?name fname fgclass))))
                             (constant-inits ?fields))
                   :let [_ (doto =method
                             (.visitInsn Opcodes/RETURN)
@@ -723,7 +724,7 @@
                     (.toByteArray (doto =class .visitEnd)))))
 
 (do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
-  (defn <name> [compile _?value]
+  (defn <name> [compile _?value special-args]
     (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
           ^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
@@ -763,7 +764,7 @@
   )
 
 (do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
-  (defn <name> [compile ?values]
+  (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           ^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
@@ -798,7 +799,7 @@
   )
 
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
-  (defn <name> [compile ?values]
+  (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
@@ -841,7 +842,7 @@
   )
 
 (do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
-  (defn <name> [compile ?values]
+  (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
@@ -874,7 +875,7 @@
   )
 
 (do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
-  (defn <name> [compile ?values]
+  (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
@@ -913,8 +914,9 @@
   )
 
 (do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
-  (do (defn <new-name> [compile ?values]
-        (|do [:let [(&/$Cons ?length (&/$Nil)) ?values]
+  (do (defn <new-name> [compile ?values special-args]
+        (|do [:let [(&/$Cons ?length (&/$Nil)) ?values
+                    (&/$Nil) special-args]
               ^MethodVisitor *writer* &/get-writer
               _ (compile ?length)
               :let [_ (doto *writer*
@@ -923,8 +925,9 @@
               :let [_ (.visitIntInsn *writer* Opcodes/NEWARRAY <prim-type>)]]
           (return nil)))
 
-    (defn <load-name> [compile ?values]
-      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values]
+    (defn <load-name> [compile ?values special-args]
+      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
+                  (&/$Nil) special-args]
             ^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
@@ -937,8 +940,9 @@
                       <wrapper>)]]
         (return nil)))
 
-    (defn <store-name> [compile ?values]
-      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values]
+    (defn <store-name> [compile ?values special-args]
+      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
+                  (&/$Nil) special-args]
             ^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
@@ -964,8 +968,9 @@
   Opcodes/T_CHAR    "[C" ^:private compile-jvm-cnewarray compile-jvm-caload Opcodes/CALOAD compile-jvm-castore Opcodes/CASTORE &&/wrap-char    &&/unwrap-char
   )
 
-(defn ^:private compile-jvm-anewarray [compile ?values]
-  (|do [:let [(&/$Cons ?gclass (&/$Cons ?length (&/$Cons type-env (&/$Nil)))) ?values]
+(defn ^:private compile-jvm-anewarray [compile ?values special-args]
+  (|do [:let [(&/$Cons ?length (&/$Nil)) ?values
+              (&/$Cons ?gclass (&/$Cons type-env (&/$Nil))) special-args]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?length)
         :let [_ (doto *writer*
@@ -974,8 +979,9 @@
         :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY (&host-generics/gclass->bytecode-class-name* ?gclass type-env))]]
     (return nil)))
 
-(defn ^:private compile-jvm-aaload [compile ?values]
-  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values]
+(defn ^:private compile-jvm-aaload [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -987,8 +993,9 @@
         :let [_ (.visitInsn *writer* Opcodes/AALOAD)]]
     (return nil)))
 
-(defn ^:private compile-jvm-aastore [compile ?values]
-  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values]
+(defn ^:private compile-jvm-aastore [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -1002,8 +1009,9 @@
         :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
     (return nil)))
 
-(defn ^:private compile-jvm-arraylength [compile ?values]
-  (|do [:let [(&/$Cons ?array (&/$Nil)) ?values]
+(defn ^:private compile-jvm-arraylength [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Nil)) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -1014,14 +1022,16 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(defn ^:private compile-jvm-null [compile ?values]
-  (|do [:let [(&/$Nil) ?values]
+(defn ^:private compile-jvm-null [compile ?values special-args]
+  (|do [:let [(&/$Nil) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
-(defn ^:private compile-jvm-null? [compile ?values]
-  (|do [:let [(&/$Cons ?object (&/$Nil)) ?values]
+(defn ^:private compile-jvm-null? [compile ?values special-args]
+  (|do [:let [(&/$Cons ?object (&/$Nil)) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [$then (new Label)
@@ -1036,8 +1046,9 @@
     (return nil)))
 
 (do-template [<name> <op>]
-  (defn <name> [compile ?values]
-    (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values
+                (&/$Nil) special-args]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?monitor)
           :let [_ (doto *writer*
@@ -1049,15 +1060,17 @@
   ^:private compile-jvm-monitorexit  Opcodes/MONITOREXIT
   )
 
-(defn ^:private compile-jvm-throw [compile ?values]
-  (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values]
+(defn ^:private compile-jvm-throw [compile ?values special-args]
+  (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?ex)
         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
     (return nil)))
 
-(defn ^:private compile-jvm-getstatic [compile ?values]
-  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) ?values]
+(defn ^:private compile-jvm-getstatic [compile ?values special-args]
+  (|do [:let [(&/$Nil) ?values
+              (&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) special-args]
         ^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
@@ -1065,8 +1078,9 @@
                   (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn ^:private compile-jvm-getfield [compile ?values]
-  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?object (&/$Cons ?output-type (&/$Nil))))) ?values]
+(defn ^:private compile-jvm-getfield [compile ?values special-args]
+  (|do [:let [(&/$Cons ?object (&/$Nil)) ?values
+              (&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) special-args]
         :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
@@ -1077,8 +1091,9 @@
                   (prepare-return! ?output-type))]]
     (return nil)))
 
-(defn ^:private compile-jvm-putstatic [compile ?values]
-  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?value (&/$Cons input-gclass (&/$Nil))))) ?values]
+(defn ^:private compile-jvm-putstatic [compile ?values special-args]
+  (|do [:let [(&/$Cons ?value (&/$Nil)) ?values
+              (&/$Cons ?class (&/$Cons ?field (&/$Cons input-gclass (&/$Nil)))) special-args]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
         :let [=input-sig (&host-type/gclass->sig input-gclass)
@@ -1088,8 +1103,9 @@
                   (.visitInsn Opcodes/ACONST_NULL))]]
     (return nil)))
 
-(defn ^:private compile-jvm-putfield [compile ?values]
-  (|do [:let [(&/$Cons ?class (&/$Cons ?field (&/$Cons ?object (&/$Cons ?value (&/$Cons input-gclass (&/$Cons ?input-type (&/$Nil))))))) ?values]
+(defn ^:private compile-jvm-putfield [compile ?values special-args]
+  (|do [:let [(&/$Cons ?object (&/$Cons ?value (&/$Nil))) ?values
+              (&/$Cons ?class (&/$Cons ?field (&/$Cons input-gclass (&/$Cons ?input-type (&/$Nil))))) special-args]
         :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
@@ -1102,8 +1118,9 @@
                   (.visitInsn Opcodes/ACONST_NULL))]]
     (return nil)))
 
-(defn ^:private compile-jvm-invokestatic [compile ?values]
-  (|do [:let [(&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?args (&/$Cons ?output-type (&/$Nil)))))) ?values]
+(defn ^:private compile-jvm-invokestatic [compile ?values special-args]
+  (|do [:let [?args ?values
+              (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Nil))))) special-args]
         ^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
         :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" =output-type)]
@@ -1118,8 +1135,9 @@
     (return nil)))
 
 (do-template [<name> <op>]
-  (defn <name> [compile ?values]
-    (|do [:let [(&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?object (&/$Cons ?args (&/$Cons ?output-type (&/$Nil))))))) ?values]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?object ?args) ?values
+                (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Nil))))) special-args]
           :let [?class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
           =output-type (&host/->java-sig ?output-type)
@@ -1142,8 +1160,9 @@
   ^:private compile-jvm-invokespecial   Opcodes/INVOKESPECIAL
   )
 
-(defn ^:private compile-jvm-new [compile ?values]
-  (|do [:let [(&/$Cons ?class (&/$Cons ?classes (&/$Cons ?args (&/$Nil)))) ?values]
+(defn ^:private compile-jvm-new [compile ?values special-args]
+  (|do [:let [?args ?values
+              (&/$Cons ?class (&/$Cons ?classes (&/$Nil))) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [init-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")V")
               class* (&host-generics/->bytecode-class-name ?class)
@@ -1160,8 +1179,9 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
-(defn ^:private compile-jvm-try [compile ?values]
-  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values]
+(defn ^:private compile-jvm-try [compile ?values special-args]
+  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [$from (new Label)
               $to (new Label)
@@ -1182,8 +1202,9 @@
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
 
-(defn ^:private compile-jvm-instanceof [compile ?values]
-  (|do [:let [(&/$Cons class (&/$Cons object (&/$Nil))) ?values]
+(defn ^:private compile-jvm-instanceof [compile ?values special-args]
+  (|do [:let [(&/$Cons object (&/$Nil)) ?values
+              (&/$Cons class (&/$Nil)) special-args]
         :let [class* (&host-generics/->bytecode-class-name class)]
         ^MethodVisitor *writer* &/get-writer
         _ (compile object)
@@ -1192,8 +1213,9 @@
                   (&&/wrap-boolean))]]
     (return nil)))
 
-(defn ^:private compile-array-get [compile ?values]
-  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values]
+(defn ^:private compile-array-get [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
+              (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -1223,108 +1245,108 @@
                   (.visitLabel $end))]]
     (return nil)))
 
-(defn compile-host [compile proc-category proc-name ?values]
+(defn compile-host [compile proc-category proc-name ?values special-args]
   (case proc-category
     "array"
     (case proc-name
-      "get" (compile-array-get compile ?values))
+      "get" (compile-array-get compile ?values special-args))
     
     "jvm"
     (case proc-name
-      "instanceof"      (compile-jvm-instanceof compile ?values)
-      "try"             (compile-jvm-try compile ?values)
-      "new"             (compile-jvm-new compile ?values)
-      "invokestatic"    (compile-jvm-invokestatic compile ?values)
-      "invokevirtual"   (compile-jvm-invokevirtual compile ?values)
-      "invokeinterface" (compile-jvm-invokeinterface compile ?values)
-      "invokespecial"   (compile-jvm-invokespecial compile ?values)
-      "getstatic"       (compile-jvm-getstatic compile ?values)
-      "getfield"        (compile-jvm-getfield compile ?values)
-      "putstatic"       (compile-jvm-putstatic compile ?values)
-      "putfield"        (compile-jvm-putfield compile ?values)
-      "throw"           (compile-jvm-throw compile ?values)
-      "monitorenter"    (compile-jvm-monitorenter compile ?values)
-      "monitorexit"     (compile-jvm-monitorexit compile ?values)
-      "null?"           (compile-jvm-null? compile ?values)
-      "null"            (compile-jvm-null compile ?values)
-      "anewarray"       (compile-jvm-anewarray compile ?values)
-      "aaload"          (compile-jvm-aaload compile ?values)
-      "aastore"         (compile-jvm-aastore compile ?values)
-      "arraylength"     (compile-jvm-arraylength compile ?values)
-      "znewarray"       (compile-jvm-znewarray compile ?values)
-      "bnewarray"       (compile-jvm-bnewarray compile ?values)
-      "snewarray"       (compile-jvm-snewarray compile ?values)
-      "inewarray"       (compile-jvm-inewarray compile ?values)
-      "lnewarray"       (compile-jvm-lnewarray compile ?values)
-      "fnewarray"       (compile-jvm-fnewarray compile ?values)
-      "dnewarray"       (compile-jvm-dnewarray compile ?values)
-      "cnewarray"       (compile-jvm-cnewarray compile ?values)
-      "iadd"            (compile-jvm-iadd compile ?values)
-      "isub"            (compile-jvm-isub compile ?values)
-      "imul"            (compile-jvm-imul compile ?values)
-      "idiv"            (compile-jvm-idiv compile ?values)
-      "irem"            (compile-jvm-irem compile ?values)
-      "ieq"             (compile-jvm-ieq compile ?values)
-      "ilt"             (compile-jvm-ilt compile ?values)
-      "igt"             (compile-jvm-igt compile ?values)
-      "ceq"             (compile-jvm-ceq compile ?values)
-      "clt"             (compile-jvm-clt compile ?values)
-      "cgt"             (compile-jvm-cgt compile ?values)
-      "ladd"            (compile-jvm-ladd compile ?values)
-      "lsub"            (compile-jvm-lsub compile ?values)
-      "lmul"            (compile-jvm-lmul compile ?values)
-      "ldiv"            (compile-jvm-ldiv compile ?values)
-      "lrem"            (compile-jvm-lrem compile ?values)
-      "leq"             (compile-jvm-leq compile ?values)
-      "llt"             (compile-jvm-llt compile ?values)
-      "lgt"             (compile-jvm-lgt compile ?values)
-      "fadd"            (compile-jvm-fadd compile ?values)
-      "fsub"            (compile-jvm-fsub compile ?values)
-      "fmul"            (compile-jvm-fmul compile ?values)
-      "fdiv"            (compile-jvm-fdiv compile ?values)
-      "frem"            (compile-jvm-frem compile ?values)
-      "feq"             (compile-jvm-feq compile ?values)
-      "flt"             (compile-jvm-flt compile ?values)
-      "fgt"             (compile-jvm-fgt compile ?values)
-      "dadd"            (compile-jvm-dadd compile ?values)
-      "dsub"            (compile-jvm-dsub compile ?values)
-      "dmul"            (compile-jvm-dmul compile ?values)
-      "ddiv"            (compile-jvm-ddiv compile ?values)
-      "drem"            (compile-jvm-drem compile ?values)
-      "deq"             (compile-jvm-deq compile ?values)
-      "dlt"             (compile-jvm-dlt compile ?values)
-      "dgt"             (compile-jvm-dgt compile ?values)
-      "iand"            (compile-jvm-iand compile ?values)
-      "ior"             (compile-jvm-ior compile ?values)
-      "ixor"            (compile-jvm-ixor compile ?values)
-      "ishl"            (compile-jvm-ishl compile ?values)
-      "ishr"            (compile-jvm-ishr compile ?values)
-      "iushr"           (compile-jvm-iushr compile ?values)
-      "land"            (compile-jvm-land compile ?values)
-      "lor"             (compile-jvm-lor compile ?values)
-      "lxor"            (compile-jvm-lxor compile ?values)
-      "lshl"            (compile-jvm-lshl compile ?values)
-      "lshr"            (compile-jvm-lshr compile ?values)
-      "lushr"           (compile-jvm-lushr compile ?values)
-      "d2f"             (compile-jvm-d2f compile ?values)
-      "d2i"             (compile-jvm-d2i compile ?values)
-      "d2l"             (compile-jvm-d2l compile ?values)
-      "f2d"             (compile-jvm-f2d compile ?values)
-      "f2i"             (compile-jvm-f2i compile ?values)
-      "f2l"             (compile-jvm-f2l compile ?values)
-      "i2b"             (compile-jvm-i2b compile ?values)
-      "i2c"             (compile-jvm-i2c compile ?values)
-      "i2d"             (compile-jvm-i2d compile ?values)
-      "i2f"             (compile-jvm-i2f compile ?values)
-      "i2l"             (compile-jvm-i2l compile ?values)
-      "i2s"             (compile-jvm-i2s compile ?values)
-      "l2d"             (compile-jvm-l2d compile ?values)
-      "l2f"             (compile-jvm-l2f compile ?values)
-      "l2i"             (compile-jvm-l2i compile ?values)
-      "c2b"             (compile-jvm-c2b compile ?values)
-      "c2s"             (compile-jvm-c2s compile ?values)
-      "c2i"             (compile-jvm-c2i compile ?values)
-      "c2l"             (compile-jvm-c2l compile ?values)
+      "instanceof"      (compile-jvm-instanceof compile ?values special-args)
+      "try"             (compile-jvm-try compile ?values special-args)
+      "new"             (compile-jvm-new compile ?values special-args)
+      "invokestatic"    (compile-jvm-invokestatic compile ?values special-args)
+      "invokeinterface" (compile-jvm-invokeinterface compile ?values special-args)
+      "invokevirtual"   (compile-jvm-invokevirtual compile ?values special-args)
+      "invokespecial"   (compile-jvm-invokespecial compile ?values special-args)
+      "getstatic"       (compile-jvm-getstatic compile ?values special-args)
+      "getfield"        (compile-jvm-getfield compile ?values special-args)
+      "putstatic"       (compile-jvm-putstatic compile ?values special-args)
+      "putfield"        (compile-jvm-putfield compile ?values special-args)
+      "throw"           (compile-jvm-throw compile ?values special-args)
+      "monitorenter"    (compile-jvm-monitorenter compile ?values special-args)
+      "monitorexit"     (compile-jvm-monitorexit compile ?values special-args)
+      "null?"           (compile-jvm-null? compile ?values special-args)
+      "null"            (compile-jvm-null compile ?values special-args)
+      "anewarray"       (compile-jvm-anewarray compile ?values special-args)
+      "aaload"          (compile-jvm-aaload compile ?values special-args)
+      "aastore"         (compile-jvm-aastore compile ?values special-args)
+      "arraylength"     (compile-jvm-arraylength compile ?values special-args)
+      "znewarray"       (compile-jvm-znewarray compile ?values special-args)
+      "bnewarray"       (compile-jvm-bnewarray compile ?values special-args)
+      "snewarray"       (compile-jvm-snewarray compile ?values special-args)
+      "inewarray"       (compile-jvm-inewarray compile ?values special-args)
+      "lnewarray"       (compile-jvm-lnewarray compile ?values special-args)
+      "fnewarray"       (compile-jvm-fnewarray compile ?values special-args)
+      "dnewarray"       (compile-jvm-dnewarray compile ?values special-args)
+      "cnewarray"       (compile-jvm-cnewarray compile ?values special-args)
+      "iadd"            (compile-jvm-iadd compile ?values special-args)
+      "isub"            (compile-jvm-isub compile ?values special-args)
+      "imul"            (compile-jvm-imul compile ?values special-args)
+      "idiv"            (compile-jvm-idiv compile ?values special-args)
+      "irem"            (compile-jvm-irem compile ?values special-args)
+      "ieq"             (compile-jvm-ieq compile ?values special-args)
+      "ilt"             (compile-jvm-ilt compile ?values special-args)
+      "igt"             (compile-jvm-igt compile ?values special-args)
+      "ceq"             (compile-jvm-ceq compile ?values special-args)
+      "clt"             (compile-jvm-clt compile ?values special-args)
+      "cgt"             (compile-jvm-cgt compile ?values special-args)
+      "ladd"            (compile-jvm-ladd compile ?values special-args)
+      "lsub"            (compile-jvm-lsub compile ?values special-args)
+      "lmul"            (compile-jvm-lmul compile ?values special-args)
+      "ldiv"            (compile-jvm-ldiv compile ?values special-args)
+      "lrem"            (compile-jvm-lrem compile ?values special-args)
+      "leq"             (compile-jvm-leq compile ?values special-args)
+      "llt"             (compile-jvm-llt compile ?values special-args)
+      "lgt"             (compile-jvm-lgt compile ?values special-args)
+      "fadd"            (compile-jvm-fadd compile ?values special-args)
+      "fsub"            (compile-jvm-fsub compile ?values special-args)
+      "fmul"            (compile-jvm-fmul compile ?values special-args)
+      "fdiv"            (compile-jvm-fdiv compile ?values special-args)
+      "frem"            (compile-jvm-frem compile ?values special-args)
+      "feq"             (compile-jvm-feq compile ?values special-args)
+      "flt"             (compile-jvm-flt compile ?values special-args)
+      "fgt"             (compile-jvm-fgt compile ?values special-args)
+      "dadd"            (compile-jvm-dadd compile ?values special-args)
+      "dsub"            (compile-jvm-dsub compile ?values special-args)
+      "dmul"            (compile-jvm-dmul compile ?values special-args)
+      "ddiv"            (compile-jvm-ddiv compile ?values special-args)
+      "drem"            (compile-jvm-drem compile ?values special-args)
+      "deq"             (compile-jvm-deq compile ?values special-args)
+      "dlt"             (compile-jvm-dlt compile ?values special-args)
+      "dgt"             (compile-jvm-dgt compile ?values special-args)
+      "iand"            (compile-jvm-iand compile ?values special-args)
+      "ior"             (compile-jvm-ior compile ?values special-args)
+      "ixor"            (compile-jvm-ixor compile ?values special-args)
+      "ishl"            (compile-jvm-ishl compile ?values special-args)
+      "ishr"            (compile-jvm-ishr compile ?values special-args)
+      "iushr"           (compile-jvm-iushr compile ?values special-args)
+      "land"            (compile-jvm-land compile ?values special-args)
+      "lor"             (compile-jvm-lor compile ?values special-args)
+      "lxor"            (compile-jvm-lxor compile ?values special-args)
+      "lshl"            (compile-jvm-lshl compile ?values special-args)
+      "lshr"            (compile-jvm-lshr compile ?values special-args)
+      "lushr"           (compile-jvm-lushr compile ?values special-args)
+      "d2f"             (compile-jvm-d2f compile ?values special-args)
+      "d2i"             (compile-jvm-d2i compile ?values special-args)
+      "d2l"             (compile-jvm-d2l compile ?values special-args)
+      "f2d"             (compile-jvm-f2d compile ?values special-args)
+      "f2i"             (compile-jvm-f2i compile ?values special-args)
+      "f2l"             (compile-jvm-f2l compile ?values special-args)
+      "i2b"             (compile-jvm-i2b compile ?values special-args)
+      "i2c"             (compile-jvm-i2c compile ?values special-args)
+      "i2d"             (compile-jvm-i2d compile ?values special-args)
+      "i2f"             (compile-jvm-i2f compile ?values special-args)
+      "i2l"             (compile-jvm-i2l compile ?values special-args)
+      "i2s"             (compile-jvm-i2s compile ?values special-args)
+      "l2d"             (compile-jvm-l2d compile ?values special-args)
+      "l2f"             (compile-jvm-l2f compile ?values special-args)
+      "l2i"             (compile-jvm-l2i compile ?values special-args)
+      "c2b"             (compile-jvm-c2b compile ?values special-args)
+      "c2s"             (compile-jvm-c2s compile ?values special-args)
+      "c2i"             (compile-jvm-c2i compile ?values special-args)
+      "c2l"             (compile-jvm-c2l compile ?values special-args)
       ;; else
       (fail (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name])))
 

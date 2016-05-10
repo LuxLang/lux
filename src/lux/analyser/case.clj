@@ -26,6 +26,7 @@
   ("VariantTotal" 2))
 
 (defvariant
+  ("NoTestAC" 0)
   ("StoreTestAC" 1)
   ("BoolTestAC" 1)
   ("IntTestAC" 1)
@@ -136,7 +137,7 @@
         (&/$Some var-analysis)
         (|do [=kont (&env/with-alias name var-analysis
                       kont)]
-          (return (&/T [($StoreTestAC -1) =kont])))
+          (return (&/T [$NoTestAC =kont])))
 
         _
         (|do [=kont (&env/with-local name value-type
@@ -267,6 +268,30 @@
 (defn ^:private merge-total [struct test+body]
   (|let [[test ?body] test+body]
     (|case [struct test]
+      [($DefaultTotal total?) ($NoTestAC)]
+      (return ($DefaultTotal true))
+
+      [($BoolTotal total? ?values) ($NoTestAC)]
+      (return ($BoolTotal true ?values))
+
+      [($IntTotal total? ?values) ($NoTestAC)]
+      (return ($IntTotal true ?values))
+
+      [($RealTotal total? ?values) ($NoTestAC)]
+      (return ($RealTotal true ?values))
+
+      [($CharTotal total? ?values) ($NoTestAC)]
+      (return ($CharTotal true ?values))
+
+      [($TextTotal total? ?values) ($NoTestAC)]
+      (return ($TextTotal true ?values))
+
+      [($TupleTotal total? ?values) ($NoTestAC)]
+      (return ($TupleTotal true ?values))
+
+      [($VariantTotal total? ?values) ($NoTestAC)]
+      (return ($VariantTotal true ?values))
+
       [($DefaultTotal total?) ($StoreTestAC ?idx)]
       (return ($DefaultTotal true))
 

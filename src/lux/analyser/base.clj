@@ -24,7 +24,7 @@
   ("ann" 3) ;; Eliminate
   ("var" 1)
   ("captured" 1)
-  ("proc" 2)
+  ("proc" 3)
   )
 
 ;; [Exports]

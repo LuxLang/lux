@@ -25,14 +25,15 @@
 (defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
   "(-> [MethodVisitor CaseAnalysis Label Label] Unit)"
   (|case ?match
+    (&a-case/$NoTestAC)
+    (doto writer
+      (.visitInsn Opcodes/POP) ;; Basically, a No-Op
+      (.visitJumpInsn Opcodes/GOTO $target))
+    
     (&a-case/$StoreTestAC ?idx)
-    (if (< ?idx 0)
-      (doto writer
-        (.visitInsn Opcodes/POP) ;; Basically, a No-Op
-        (.visitJumpInsn Opcodes/GOTO $target))
-      (doto writer
-        (.visitVarInsn Opcodes/ASTORE ?idx)
-        (.visitJumpInsn Opcodes/GOTO $target)))
+    (doto writer
+      (.visitVarInsn Opcodes/ASTORE ?idx)
+      (.visitJumpInsn Opcodes/GOTO $target))
 
     (&a-case/$BoolTestAC ?value)
     (doto writer

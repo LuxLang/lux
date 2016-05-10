@@ -85,14 +85,15 @@
         (&o/$case ?value ?match)
         (&&case/compile-case compile-expression ?value ?match)
 
-        (&o/$lambda ?scope ?env ?body)
-        (&&lambda/compile-lambda compile-expression ?scope ?env ?body)
+        (&o/$function ?level ?scope ?env ?body)
+        (&&lambda/compile-function compile-expression ?level ?scope ?env ?body)
 
+        ;; Must get rid of this one...
         (&o/$ann ?value-ex ?type-ex ?value-type)
         (&&lux/compile-ann compile-expression ?value-ex ?type-ex ?value-type)
 
-        (&o/$proc [?proc-category ?proc-name] ?args)
-        (&&host/compile-host compile-expression ?proc-category ?proc-name ?args)
+        (&o/$proc [?proc-category ?proc-name] ?args special-args)
+        (&&host/compile-host compile-expression ?proc-category ?proc-name ?args special-args)
         
         _
         (assert false (prn-str 'compile-expression (&/adt->text syntax)))
@@ -149,7 +150,7 @@
           :let [file-hash (hash file-content)]]
       (if (&&cache/cached? name)
         (&&cache/load source-dirs name file-hash compile-module)
-        (let [compiler-step (&optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
+        (let [compiler-step (&analyser/analyse &optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
           (|do [module-exists? (&a-module/exists? name)]
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")

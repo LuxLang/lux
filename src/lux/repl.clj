@@ -54,7 +54,7 @@
             (|case ((|do [analysed-tokens (&analyser/repl-analyse &compiler/eval! (partial &compiler/compile-module source-dirs) &compiler/all-compilers)
                           optimized-tokens (->> analysed-tokens
                                                 (&/|map &a-base/expr-term)
-                                                (&/map% &optimizer/optimize-token))
+                                                (&/map% &optimizer/optimize))
                           :let [optimized-tokens* (&/->list (map (fn [analysis optim]
                                                                    (|let [[[_type _cursor] _term] analysis]
                                                                      (&a-base/|meta _type _cursor optim)))
