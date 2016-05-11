@@ -90,7 +90,7 @@
     ))
 
 (defn ^:private lambda-impl-signature [level]
-  (str "("  (&/fold str "" (&/|repeat level field-sig)) ")" lambda-return-sig))
+  (str "(" (&/fold str "" (&/|repeat level field-sig)) ")" lambda-return-sig))
 
 (defn ^:private lambda-<init>-signature [env level]
   (if (> level 1)
@@ -171,85 +171,90 @@
       (.visitMaxs 0 0)
       (.visitEnd))))
 
-(defn ^:private add-lambda-apply-n [class-writer +degree+ class-name level env]
+(defn ^:private add-lambda-apply-n [class-writer +degree+ class-name level env compile impl-body]
   (if (> level 1)
-    (let [$default (new Label)
-          $labels* (map (fn [_] (new Label)) (repeat (dec level) nil))
+    (let [num-partials (dec level)
+          $default (new Label)
+          $labels* (map (fn [_] (new Label)) (repeat num-partials nil))
           $labels (vec (concat $labels* (list $default)))
           $end (new Label)
           method-writer (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature +degree+) nil nil)
           frame-locals (to-array (list class-name "java/lang/Object" "java/lang/Object"))
           frame-stack (to-array [Opcodes/INTEGER])]
-      (doto method-writer
-        (.visitCode)
-        (get-num-args! class-name)
-        (.visitFrame Opcodes/F_NEW
-                     (int (alength frame-locals)) frame-locals
-                     (int (alength frame-stack))  frame-stack)
-        (.visitTableSwitchInsn 0 (- level 2) $default (into-array Label $labels*))
-        ;; (< stage (- level +degree+))
-        (-> (doto (.visitLabel $label)
-              (.visitFrame Opcodes/F_NEW
-                           (int (alength frame-locals)) frame-locals
-                           (int (alength frame-stack))  frame-stack)
-              (.visitTypeInsn Opcodes/NEW class-name)
-              (.visitInsn Opcodes/DUP)
-              (-> (get-field! class-name (str &&/closure-prefix cidx))
-                  (->> (dotimes [cidx (&/|length env)])))
-              (get-num-args! class-name)
-              (inc-int! +degree+)
-              (-> (get-field! class-name (str &&/partial-prefix idx))
-                  (->> (dotimes [idx stage])))
-              (consecutive-args 1 +degree+)
-              (fill-nulls! (dec (- (- level +degree+) stage)))
-              (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (lambda-<init>-signature env level))
-              (.visitJumpInsn Opcodes/GOTO $end))
-            (->> (cond (= stage (- level +degree+))
-                       (doto method-writer
-                         (.visitLabel $label)
-                         (.visitFrame Opcodes/F_NEW
-                                      (int (alength frame-locals)) frame-locals
-                                      (int (alength frame-stack))  frame-stack)
-                         (.visitVarInsn Opcodes/ALOAD 0)
-                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "reset" (reset-signature class-name))
-                         (-> (get-field! class-name (str &&/partial-prefix idx))
-                             (->> (dotimes [idx stage])))
-                         (consecutive-args 1 +degree+)
-                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature level))
-                         (.visitJumpInsn Opcodes/GOTO $end))
+      (do (doto method-writer
+            (.visitCode)
+            (get-num-args! class-name)
+            (.visitFrame Opcodes/F_NEW
+                         (int (alength frame-locals)) frame-locals
+                         (int (alength frame-stack))  frame-stack)
+            (.visitTableSwitchInsn 0 (dec num-partials) $default (into-array Label $labels*))
+            ;; (< stage (- level +degree+))
+            (-> (doto (.visitLabel $label)
+                  (.visitFrame Opcodes/F_NEW
+                               (int (alength frame-locals)) frame-locals
+                               (int (alength frame-stack))  frame-stack)
+                  (.visitTypeInsn Opcodes/NEW class-name)
+                  (.visitInsn Opcodes/DUP)
+                  (-> (get-field! class-name (str &&/closure-prefix cidx))
+                      (->> (dotimes [cidx (&/|length env)])))
+                  (get-num-args! class-name)
+                  (inc-int! +degree+)
+                  (-> (get-field! class-name (str &&/partial-prefix idx))
+                      (->> (dotimes [idx stage])))
+                  (consecutive-args 1 +degree+)
+                  (fill-nulls! (- (- num-partials +degree+) stage))
+                  (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (lambda-<init>-signature env level))
+                  (.visitJumpInsn Opcodes/GOTO $end))
+                (->> (cond (= stage (- level +degree+))
+                           (doto method-writer
+                             (.visitLabel $label)
+                             (.visitFrame Opcodes/F_NEW
+                                          (int (alength frame-locals)) frame-locals
+                                          (int (alength frame-stack))  frame-stack)
+                             (.visitVarInsn Opcodes/ALOAD 0)
+                             (-> (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "reset" (reset-signature class-name))
+                                 (->> (when (not= 0 stage))))
+                             (-> (get-field! class-name (str &&/partial-prefix idx))
+                                 (->> (dotimes [idx stage])))
+                             (consecutive-args 1 +degree+)
+                             (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature level))
+                             (.visitJumpInsn Opcodes/GOTO $end))
 
-                       (> stage (- level +degree+))
-                       (let [base 1
-                             args-to-completion (- level stage)
-                             args-left (- +degree+ args-to-completion)]
-                         (doto method-writer
-                           (.visitLabel $label)
-                           (.visitFrame Opcodes/F_NEW
-                                        (int (alength frame-locals)) frame-locals
-                                        (int (alength frame-stack))  frame-stack)
-                           (.visitVarInsn Opcodes/ALOAD 0)
-                           (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "reset" (reset-signature class-name))
-                           (-> (get-field! class-name (str &&/partial-prefix idx))
-                               (->> (dotimes [idx stage])))
-                           (consecutive-args base args-to-completion)
-                           (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature level))
-                           (consecutive-applys (+ base args-to-completion) args-left)
-                           (.visitJumpInsn Opcodes/GOTO $end)))
+                           (> stage (- level +degree+))
+                           (let [base 1
+                                 args-to-completion (- level stage)
+                                 args-left (- +degree+ args-to-completion)]
+                             (doto method-writer
+                               (.visitLabel $label)
+                               (.visitFrame Opcodes/F_NEW
+                                            (int (alength frame-locals)) frame-locals
+                                            (int (alength frame-stack))  frame-stack)
+                               (.visitVarInsn Opcodes/ALOAD 0)
+                               (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "reset" (reset-signature class-name))
+                               (-> (get-field! class-name (str &&/partial-prefix idx))
+                                   (->> (dotimes [idx stage])))
+                               (consecutive-args base args-to-completion)
+                               (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature level))
+                               (consecutive-applys (+ base args-to-completion) args-left)
+                               (.visitJumpInsn Opcodes/GOTO $end)))
 
-                       :else)
-                 (doseq [[stage $label] (map vector (range level) $labels)])))
-        (.visitLabel $end)
-        (.visitInsn Opcodes/ARETURN)
-        (.visitMaxs 0 0)
-        (.visitEnd)))
-    (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 1) nil nil)
-      (.visitCode)
-      (.visitVarInsn Opcodes/ALOAD 0)
-      (.visitVarInsn Opcodes/ALOAD 1)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature level))
-      (.visitInsn Opcodes/ARETURN)
-      (.visitMaxs 0 0)
-      (.visitEnd))))
+                           :else)
+                     (doseq [[stage $label] (map vector (range level) $labels)])))
+            (.visitLabel $end)
+            (.visitInsn Opcodes/ARETURN)
+            (.visitMaxs 0 0)
+            (.visitEnd))
+        (return nil)))
+    (&/with-writer (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 1) nil nil)
+                     (.visitCode))
+      (|do [^MethodVisitor *writer* &/get-writer
+            ret (compile impl-body)
+            :let [_ (doto *writer*
+                      (.visitInsn Opcodes/ARETURN)
+                      (.visitMaxs 0 0)
+                      (.visitEnd))]]
+        (return ret)))
+    ))
 
 ;; [Exports]
 (let [lambda-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
@@ -276,15 +281,20 @@
                          (.visitSource file-name nil)
                          (add-lambda-<init> class-name level ?env)
                          (add-lambda-reset class-name level ?env)
-                         (add-lambda-apply-n 1 class-name level ?env)
-                         (-> (add-lambda-apply-n 2 class-name level ?env)
-                             (->> (when (>= level 2))))
-                         (-> (add-lambda-apply-n 3 class-name level ?env)
-                             (->> (when (>= level 3))))
-                         (-> (add-lambda-apply-n 4 class-name level ?env)
-                             (->> (when (>= level 4))))
                          )]
-          _ (add-lambda-impl =class class-name compile level ?body)
+          _ (if (> level 1)
+              (add-lambda-impl =class class-name compile level ?body)
+              (return nil))
+          _ (add-lambda-apply-n =class 1 class-name level ?env compile ?body)
+          _ (if (>= level 2)
+              (add-lambda-apply-n =class 2 class-name level ?env compile ?body)
+              (return nil))
+          _ (if (>= level 3)
+              (add-lambda-apply-n =class 3 class-name level ?env compile ?body)
+              (return nil))
+          _ (if (>= level 4)
+              (add-lambda-apply-n =class 4 class-name level ?env compile ?body)
+              (return nil))
           :let [_ (.visitEnd =class)]
           _ (&&/save-class! name (.toByteArray =class))]
       (instance-closure compile class-name level ?env))))
