@@ -116,7 +116,7 @@
                           _ (&/map% compile ?args)
                           :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature (&/|length ?args)))]]
                       (return nil)))
-                  (&/|partition 4 ?args))]
+                  (&/|partition &&/num-apply-variants ?args))]
     (return nil)))
 
 (defn ^:private compile-def-type [compile ?body]

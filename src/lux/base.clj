@@ -504,6 +504,11 @@
 (defn |length [xs]
   (fold (fn [acc _] (inc acc)) 0 xs))
 
+(defn |range* [from to]
+  (if (<= from to)
+    ($Cons from (|range* (inc from) to))
+    $Nil))
+
 (let [|range* (fn |range* [from to]
                 (if (< from to)
                   ($Cons from (|range* (inc from) to))

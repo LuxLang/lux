@@ -38,6 +38,7 @@
 (def ^String apply-method "apply")
 (defn ^String apply-signature [n]
   (str "(" (apply str (repeat n "Ljava/lang/Object;")) ")Ljava/lang/Object;"))
+(def num-apply-variants 8)
 
 (def exported-separator " ")
 (def def-separator "\t")

@@ -85,8 +85,8 @@
         (&o/$case ?value ?match)
         (&&case/compile-case compile-expression ?value ?match)
 
-        (&o/$function ?level ?scope ?env ?body)
-        (&&lambda/compile-function compile-expression ?level ?scope ?env ?body)
+        (&o/$function ?arity ?scope ?env ?body)
+        (&&lambda/compile-function compile-expression ?arity ?scope ?env ?body)
 
         ;; Must get rid of this one...
         (&o/$ann ?value-ex ?type-ex ?value-type)

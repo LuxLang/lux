@@ -77,8 +77,8 @@
                        (&/T [_pattern (de-meta _body)])))
                    branches))
     
-    [meta ($function level scope captured body*)]
-    ($function level
+    [meta ($function arity scope captured body*)]
+    ($function arity
                scope
                (&/|map (fn [capture]
                          (|let [[_name _captured] capture]
@@ -126,8 +126,8 @@
                                         (shift-function-body own-body? _body)])))
                               branches))])
     
-    [meta ($function level scope captured body*)]
-    (&/T [meta ($function level
+    [meta ($function arity scope captured body*)]
+    (&/T [meta ($function arity
                           (de-scope scope)
                           (&/|map (fn [capture]
                                     (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
@@ -215,8 +215,8 @@
     
     [meta (&-base/$lambda scope captured body)]
     (|case (optimize body)
-      [_ ($function _level _scope _captured _body)]
-      (&/T [meta ($function (inc _level) scope (optimize-closure optimize captured) (shift-function-body true _body))])
+      [_ ($function _arity _scope _captured _body)]
+      (&/T [meta ($function (inc _arity) scope (optimize-closure optimize captured) (shift-function-body true _body))])
 
       =body
       (&/T [meta ($function 1 scope (optimize-closure optimize captured) =body)]))
