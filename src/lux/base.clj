@@ -716,12 +716,6 @@
           (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
           (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
 
-;; (deftype Host
-;;   (& #writer         (^ org.objectweb.asm.ClassWriter)
-;;      #loader         (^ java.net.URLClassLoader)
-;;      #classes        (^ clojure.lang.Atom)
-;;      #catching       (List Text)
-;;      #module-states  (List (, Text ModuleState))))
 (defn host [_]
   (let [store (atom {})]
     (T [;; "lux;writer"
@@ -1212,3 +1206,6 @@
 
     _
     (assert false (adt->text xs))))
+
+(defn |partition [n xs]
+  (->> xs ->seq (partition-all n) (map ->list) ->list))

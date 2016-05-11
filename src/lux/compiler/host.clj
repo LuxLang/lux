@@ -346,7 +346,7 @@
     (|let [=method-decl (&/T [?name ?anns ?gvars ?exceptions (&/|map &/|second ?inputs) ?output])
            [simple-signature generic-signature] (&host-generics/method-signatures =method-decl)]
       (&/with-writer (.visitMethod class-writer
-                                   (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT
+                                   (+ Opcodes/ACC_ABSTRACT
                                       (&host/privacy-modifier->flag ?privacy-modifier))
                                    ?name
                                    simple-signature
@@ -521,17 +521,62 @@
     (&&/save-class! interface-name (.toByteArray =interface))))
 
 (def compile-Function-class
-  (let [object-class (&/$GenericClass "java.lang.Object" (&/|list))
-        interface-decl (&/T [(second (string/split &&/function-class #"/")) (&/|list)])
-        ?supers (&/|list)
-        ?anns (&/|list)
-        ?methods (&/|list (&/T ["apply"
-                                (&/|list)
-                                (&/|list)
-                                (&/|list)
-                                (&/|list object-class)
-                                object-class]))]
-    (compile-jvm-interface interface-decl ?supers ?anns ?methods)))
+  (|do [_ (return nil)
+        :let [super-class "java/lang/Object"
+              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER
+                                                         Opcodes/ACC_ABSTRACT
+                                                         ;; Opcodes/ACC_INTERFACE
+                                                         )
+                               &&/function-class nil super-class (into-array String [])))
+              =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "()V" nil nil)
+                             (.visitCode)
+                             (.visitVarInsn Opcodes/ALOAD 0)
+                             (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
+                             (.visitInsn Opcodes/RETURN)
+                             (.visitMaxs 0 0)
+                             (.visitEnd))
+              =apply1 (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) &&/apply-method (&&/apply-signature 1) nil nil)
+                        (.visitEnd))
+              =apply2 (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 2) nil nil)
+                        (.visitCode)
+                        (.visitVarInsn Opcodes/ALOAD 0)
+                        (.visitVarInsn Opcodes/ALOAD 1)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
+                        (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
+                        (.visitVarInsn Opcodes/ALOAD 2)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
+                        (.visitInsn Opcodes/ARETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))
+              =apply3 (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 3) nil nil)
+                        (.visitCode)
+                        (.visitVarInsn Opcodes/ALOAD 0)
+                        (.visitVarInsn Opcodes/ALOAD 1)
+                        (.visitVarInsn Opcodes/ALOAD 2)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 2))
+                        (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
+                        (.visitVarInsn Opcodes/ALOAD 3)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
+                        (.visitInsn Opcodes/ARETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))
+              =apply4 (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 4) nil nil)
+                        (.visitCode)
+                        (.visitVarInsn Opcodes/ALOAD 0)
+                        (.visitVarInsn Opcodes/ALOAD 1)
+                        (.visitVarInsn Opcodes/ALOAD 2)
+                        (.visitVarInsn Opcodes/ALOAD 3)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 3))
+                        (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
+                        (.visitVarInsn Opcodes/ALOAD 4)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
+                        (.visitInsn Opcodes/ARETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))
+              ]]
+    (&&/save-class! (second (string/split &&/function-class #"/"))
+                    (.toByteArray (doto =class .visitEnd)))))
 
 (def compile-LuxUtils-class
   (|do [_ (return nil)
@@ -916,7 +961,8 @@
 (do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
   (do (defn <new-name> [compile ?values special-args]
         (|do [:let [(&/$Cons ?length (&/$Nil)) ?values
-                    (&/$Nil) special-args]
+                    ;; (&/$Nil) special-args
+                    ]
               ^MethodVisitor *writer* &/get-writer
               _ (compile ?length)
               :let [_ (doto *writer*
@@ -927,7 +973,8 @@
 
     (defn <load-name> [compile ?values special-args]
       (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
-                  (&/$Nil) special-args]
+                  ;; (&/$Nil) special-args
+                  ]
             ^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
@@ -942,7 +989,8 @@
 
     (defn <store-name> [compile ?values special-args]
       (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
-                  (&/$Nil) special-args]
+                  ;; (&/$Nil) special-args
+                  ]
             ^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
             :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST <array-type>)]
@@ -981,7 +1029,8 @@
 
 (defn ^:private compile-jvm-aaload [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -995,7 +1044,8 @@
 
 (defn ^:private compile-jvm-aastore [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -1011,7 +1061,8 @@
 
 (defn ^:private compile-jvm-arraylength [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Nil)) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
@@ -1023,7 +1074,7 @@
     (return nil)))
 
 (defn ^:private compile-jvm-null [compile ?values special-args]
-  (|do [:let [(&/$Nil) ?values
+  (|do [:let [;; (&/$Nil) ?values
               (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
@@ -1031,7 +1082,8 @@
 
 (defn ^:private compile-jvm-null? [compile ?values special-args]
   (|do [:let [(&/$Cons ?object (&/$Nil)) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
         :let [$then (new Label)
@@ -1048,7 +1100,8 @@
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values
-                (&/$Nil) special-args]
+                ;; (&/$Nil) special-args
+                ]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?monitor)
           :let [_ (doto *writer*
@@ -1062,14 +1115,15 @@
 
 (defn ^:private compile-jvm-throw [compile ?values special-args]
   (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?ex)
         :let [_ (.visitInsn *writer* Opcodes/ATHROW)]]
     (return nil)))
 
 (defn ^:private compile-jvm-getstatic [compile ?values special-args]
-  (|do [:let [(&/$Nil) ?values
+  (|do [:let [;; (&/$Nil) ?values
               (&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) special-args]
         ^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
@@ -1181,7 +1235,8 @@
 
 (defn ^:private compile-jvm-try [compile ?values special-args]
   (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         :let [$from (new Label)
               $to (new Label)
@@ -1197,8 +1252,9 @@
                   (.visitLabel $handler))]
         _ (compile ?catch)
         :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
                   (.visitInsn Opcodes/SWAP)
-                  (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))]
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1)))]
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
 
@@ -1215,7 +1271,8 @@
 
 (defn ^:private compile-array-get [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
-              (&/$Nil) special-args]
+              ;; (&/$Nil) special-args
+              ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)

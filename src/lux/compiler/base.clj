@@ -35,7 +35,9 @@
 (def ^String local-prefix "l")
 (def ^String partial-prefix "p")
 (def ^String closure-prefix "c")
-(def ^String apply-signature "(Ljava/lang/Object;)Ljava/lang/Object;")
+(def ^String apply-method "apply")
+(defn ^String apply-signature [n]
+  (str "(" (apply str (repeat n "Ljava/lang/Object;")) ")Ljava/lang/Object;"))
 
 (def exported-separator " ")
 (def def-separator "\t")

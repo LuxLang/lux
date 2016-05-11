@@ -111,11 +111,12 @@
 (defn compile-apply [compile ?fn ?args]
   (|do [^MethodVisitor *writer* &/get-writer
         _ (compile ?fn)
-        _ (&/map% (fn [?arg]
-                    (|do [=arg (compile ?arg)
-                          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature)]]
-                      (return =arg)))
-                  ?args)]
+        _ (&/map% (fn [?args]
+                    (|do [:let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST &&/function-class)]
+                          _ (&/map% compile ?args)
+                          :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature (&/|length ?args)))]]
+                      (return nil)))
+                  (&/|partition 4 ?args))]
     (return nil)))
 
 (defn ^:private compile-def-type [compile ?body]
@@ -163,7 +164,7 @@
                     current-class (str (&host/->module-class module-name) "/" def-name)
                     =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                              (.visit &host/bytecode-version class-flags
-                                     current-class nil "java/lang/Object" (into-array [&&/function-class]))
+                                     current-class nil "java/lang/Object" (into-array String []))
                              (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
                                  (doto (.visitEnd)))
                              (-> (.visitField field-flags &/type-field datum-sig nil nil)
@@ -235,9 +236,6 @@
               :let [_ (println 'DEF (str module-name ";" ?name))]]
           (return nil))))))
 
-(defn compile-ann [compile ?value-ex ?type-ex ?value-type]
-  (compile ?value-ex))
-
 (defn compile-program [compile ?body]
   (|do [module-name &/get-module-name
         ^ClassWriter *writer* &/get-writer]
@@ -303,8 +301,9 @@
                   ]
             _ (compile ?body)
             :let [_ (doto main-writer
+                      (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
                       (.visitInsn Opcodes/ACONST_NULL)
-                      (.visitMethodInsn Opcodes/INVOKEINTERFACE &&/function-class "apply" &&/apply-signature))]
+                      (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1)))]
             :let [_ (doto main-writer
                       (.visitInsn Opcodes/POP)
                       (.visitInsn Opcodes/RETURN)

@@ -90,7 +90,7 @@
 
         ;; Must get rid of this one...
         (&o/$ann ?value-ex ?type-ex ?value-type)
-        (&&lux/compile-ann compile-expression ?value-ex ?type-ex ?value-type)
+        (compile-expression ?value-ex)
 
         (&o/$proc [?proc-category ?proc-name] ?args special-args)
         (&&host/compile-host compile-expression ?proc-category ?proc-name ?args special-args)
