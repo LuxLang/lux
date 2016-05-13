@@ -44,16 +44,6 @@
         ))
     ))
 
-(defn ^:private add-loc [meta ^String msg]
-  (if (.startsWith msg "@")
-    msg
-    (|let [[file line col] meta]
-      (str "@ " file "," line "," col "\n" msg))))
-
-(defn ^:private fail-with-loc [msg]
-  (fn [state]
-    (fail* (add-loc (&/get$ &/$cursor state) msg))))
-
 (defn ^:private aba1 [analyse optimize eval! compile-module compilers exo-type token]
   (|let [[compile-def compile-program compile-class compile-interface] compilers]
     (|case token
@@ -152,7 +142,7 @@
       (&&lux/analyse-program analyse optimize compile-program ?args ?body)
       
       _
-      (fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
+      (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
       )))
 
 (defn ^:private analyse-basic-ast [analyse optimize eval! compile-module compilers exo-type token]
@@ -165,8 +155,8 @@
 
         (&/$Left msg)
         (if (= "" msg)
-          (fail* (add-loc (&/get$ &/$cursor state) (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
-          (fail* (add-loc (&/get$ &/$cursor state) msg)))
+          (fail* (&/add-loc (&/get$ &/$cursor state) (str "[Analyser Error] Unrecognized token: " (&/show-ast token))))
+          (fail* (&/add-loc (&/get$ &/$cursor state) msg)))
         ))))
 
 (defn ^:private just-analyse [analyser syntax]

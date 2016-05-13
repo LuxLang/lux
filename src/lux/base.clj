@@ -1214,3 +1214,13 @@
 
 (defn |partition [n xs]
   (->> xs ->seq (partition-all n) (map ->list) ->list))
+
+(defn add-loc [meta ^String msg]
+  (if (.startsWith msg "@")
+    msg
+    (|let [[file line col] meta]
+      (str "@ " file "," line "," col "\n" msg))))
+
+(defn fail-with-loc [msg]
+  (fn [state]
+    (fail* (add-loc (get$ $cursor state) msg))))

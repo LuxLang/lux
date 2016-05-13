@@ -40,7 +40,7 @@
         (.equals ^Object escaped "\\\"") (return "\"")
         (.equals ^Object escaped "\\\\") (return "\\")
         :else
-        (fail (str "[Lexer Error] Unknown escape character: " escaped))))
+        (&/fail-with-loc (str "[Lexer Error] Unknown escape character: " escaped))))
 
 (defn ^:private escape-char* [escaped]
   "(-> Text Text)"
@@ -100,7 +100,7 @@
                               (return pre-quotes**))
         [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
                                    (if eol?
-                                     (fail "[Lexer Error] Can't leave dangling back-slash \\")
+                                     (&/fail-with-loc "[Lexer Error] Can't leave dangling back-slash \\")
                                      (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
                                            (odd? (.length back-slashes)))
                                        (|do [[_ eol?* _] (&reader/read-regex #"^([\"])")

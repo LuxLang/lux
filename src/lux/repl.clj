@@ -75,7 +75,7 @@
 
               (&/$Left ^String ?message)
               (if (or (= "[Reader Error] EOF" ?message)
-                      (.startsWith ?message "[Parser Error] Unbalanced "))
+                      (.contains ?message "[Parser Error] Unbalanced "))
                 (recur state* (inc repl-line))
                 (do (println ?message)
                   (recur state (inc repl-line))))

@@ -7,7 +7,7 @@
   (:require [clojure.template :refer [do-template]]
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return fail |case]]
+            (lux [base :as & :refer [|do return |case]]
                  [lexer :as &lexer])))
 
 ;; [Utils]
@@ -41,7 +41,7 @@
         (return (<tag> (&/fold &/|++ &/$Nil elems)))
         
         _
-        (fail (str "[Parser Error] Unbalanced " <description> "."))
+        (&/fail-with-loc (str "[Parser Error] Unbalanced " <description> "."))
         )))
 
   ^:private parse-form  &lexer/$Close_Paren   "parantheses" &/$FormS
@@ -56,10 +56,10 @@
       [meta (&lexer/$Close_Brace _)]
       (if (even? (&/|length elems))
         (return (&/$RecordS (&/|as-pairs elems)))
-        (fail (str base-uneven-record-error)))
+        (&/fail-with-loc base-uneven-record-error))
       
       _
-      (fail (str "[Parser Error] Unbalanced braces."))
+      (&/fail-with-loc "[Parser Error] Unbalanced braces.")
       )))
 
 ;; [Interface]
@@ -107,5 +107,5 @@
         (return (&/|list (&/T [meta syntax]))))
 
       _
-      (fail "[Parser Error] Unknown lexer token.")
+      (&/fail-with-loc "[Parser Error] Unknown lexer token.")
       )))

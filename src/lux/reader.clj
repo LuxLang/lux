@@ -7,7 +7,7 @@
   (:require [clojure.string :as string]
             clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [defvariant |do return* return fail fail* |let |case]]))
+            [lux.base :as & :refer [defvariant |do return* return fail* |let |case]]))
 
 ;; [Tags]
 (defvariant
@@ -26,7 +26,7 @@
                more)
       (|case (body file-name line-num column-num line)
         ($No msg)
-        (fail* msg)
+        ((&/fail-with-loc msg) state)
 
         ($Done output)
         (return* (&/set$ &/$source more state)
@@ -45,7 +45,7 @@
                match)
 
       (&/$Left msg)
-      (fail* msg)
+      ((&/fail-with-loc msg) state)
       )))
 
 (defn ^:private re-find! [^java.util.regex.Pattern regex column ^String line]
