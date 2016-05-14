@@ -528,11 +528,16 @@
                                                          Opcodes/ACC_ABSTRACT
                                                          ;; Opcodes/ACC_INTERFACE
                                                          )
-                               &&/function-class nil super-class (into-array String [])))
-              =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "()V" nil nil)
+                               &&/function-class nil super-class (into-array String []))
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) &&/partials-field "I" nil nil)
+                           (doto (.visitEnd))))
+              =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "(I)V" nil nil)
                              (.visitCode)
                              (.visitVarInsn Opcodes/ALOAD 0)
                              (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
+                             (.visitVarInsn Opcodes/ALOAD 0)
+                             (.visitVarInsn Opcodes/ILOAD 1)
+                             (.visitFieldInsn Opcodes/PUTFIELD &&/function-class &&/partials-field "I")
                              (.visitInsn Opcodes/RETURN)
                              (.visitMaxs 0 0)
                              (.visitEnd))

@@ -266,9 +266,11 @@
 
                             ;; else
                             (mapv transform-pattern pattern))
-        (seq? pattern) [(-> (ns-resolve *ns* (first pattern))
-                            meta
-                            ::idx)
+        (seq? pattern) [(if-let [tag-var (ns-resolve *ns* (first pattern))]
+                          (-> tag-var
+                              meta
+                              ::idx)
+                          (assert false (str "Unknown var: " (first pattern))))
                         '_
                         (transform-pattern (vec (rest pattern)))]
         :else pattern

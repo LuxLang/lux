@@ -28,14 +28,14 @@
 (def ^:private field-sig (&host-generics/->type-signature "java.lang.Object"))
 (def ^:private lambda-return-sig (&host-generics/->type-signature "java.lang.Object"))
 (def ^:private <init>-return "V")
-(def ^:private num-args-field "_num_args_")
+
 (defn ^:private ^String reset-signature [function-class]
   (str "()" (&host-generics/->type-signature function-class)))
 
-(defn ^:private ^MethodVisitor get-num-args! [^MethodVisitor method-writer class-name]
+(defn ^:private ^MethodVisitor get-num-partials! [^MethodVisitor method-writer]
   (doto method-writer
     (.visitVarInsn Opcodes/ALOAD 0)
-    (.visitFieldInsn Opcodes/GETFIELD class-name num-args-field "I")))
+    (.visitFieldInsn Opcodes/GETFIELD &&/function-class &&/partials-field "I")))
 
 (defn ^:private ^MethodVisitor inc-int! [^MethodVisitor method-writer by]
   (doto method-writer
@@ -82,23 +82,30 @@
     (str "(" (&/fold str "" (&/|repeat (&/|length env) field-sig)) ")"
          <init>-return)))
 
+(defn ^:private init-function [method-writer arity closure-length]
+  (if (= 1 arity)
+    (doto method-writer
+      (.visitLdcInsn (int 0))
+      (.visitMethodInsn Opcodes/INVOKESPECIAL &&/function-class "<init>" "(I)V"))
+    (doto method-writer
+      (.visitVarInsn Opcodes/ILOAD (inc closure-length))
+      (.visitMethodInsn Opcodes/INVOKESPECIAL &&/function-class "<init>" "(I)V"))))
+
 (defn ^:private add-lambda-<init> [class class-name arity env]
   (let [closure-length (&/|length env)]
     (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "<init>" (lambda-<init>-signature env arity) nil nil)
       (.visitCode)
       ;; Do normal object initialization
       (.visitVarInsn Opcodes/ALOAD 0)
-      (.visitMethodInsn Opcodes/INVOKESPECIAL &&/function-class "<init>" "()V")
+      (init-function arity closure-length)
       ;; Add all of the closure variables
       (-> (put-field! class-name (str &&/closure-prefix ?captured-id) field-sig #(.visitVarInsn % Opcodes/ALOAD (inc ?captured-id)))
           (->> (|let [[?name [_ (&o/$captured _ ?captured-id ?source)]] ?name+?captured])
                (doseq [?name+?captured (&/->seq env)])))
-      (-> (doto (put-field! class-name num-args-field "I" #(.visitVarInsn % Opcodes/ILOAD (inc closure-length))) ;; Add the counter
-            ;; Add all the partial arguments
-            (-> (put-field! class-name (str &&/partial-prefix idx*) field-sig #(.visitVarInsn % Opcodes/ALOAD partial-register))
-                (->> (|let [partial-register (+ (inc idx*) (inc closure-length))])
-                     (dotimes [idx* (dec arity)]))))
-          (->> (when (> arity 1))))
+      ;; Add all the partial arguments
+      (-> (put-field! class-name (str &&/partial-prefix idx*) field-sig #(.visitVarInsn % Opcodes/ALOAD partial-register))
+          (->> (|let [partial-register (+ (inc idx*) (inc closure-length))])
+               (dotimes [idx* (dec arity)])))
       ;; Finish
       (.visitInsn Opcodes/RETURN)
       (.visitMaxs 0 0)
@@ -166,7 +173,7 @@
           frame-stack (to-array [Opcodes/INTEGER])]
       (do (doto method-writer
             (.visitCode)
-            (get-num-args! class-name)
+            get-num-partials!
             (.visitFrame Opcodes/F_NEW
                          (int (alength frame-locals)) frame-locals
                          (int (alength frame-stack))  frame-stack)
@@ -180,7 +187,7 @@
                   (.visitInsn Opcodes/DUP)
                   (-> (get-field! class-name (str &&/closure-prefix cidx))
                       (->> (dotimes [cidx (&/|length env)])))
-                  (get-num-args! class-name)
+                  get-num-partials!
                   (inc-int! +degree+)
                   (-> (get-field! class-name (str &&/partial-prefix idx))
                       (->> (dotimes [idx stage])))
@@ -249,18 +256,17 @@
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit &host/bytecode-version lambda-flags
                                  class-name nil &&/function-class (into-array String []))
+                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC Opcodes/ACC_FINAL) &&/arity-field "I" nil (int arity))
+                             (doto (.visitEnd)))
                          (-> (doto (.visitField datum-flags captured-name field-sig nil nil)
                                (.visitEnd))
                              (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                   (|case ?name+?captured
                                     [?name [_ (&o/$captured _ ?captured-id ?source)]])
                                   (doseq [?name+?captured (&/->seq ?env)])))
-                         (-> (doto (-> (.visitField datum-flags num-args-field "I" nil nil)
-                                       (doto (.visitEnd)))
-                               (-> (.visitField datum-flags (str &&/partial-prefix idx) field-sig nil nil)
-                                   (doto (.visitEnd))
-                                   (->> (dotimes [idx (dec arity)]))))
-                             (->> (when (> arity 1))))
+                         (-> (.visitField datum-flags (str &&/partial-prefix idx) field-sig nil nil)
+                             (doto (.visitEnd))
+                             (->> (dotimes [idx (dec arity)])))
                          (.visitSource file-name nil)
                          (add-lambda-<init> class-name arity ?env)
                          (add-lambda-reset class-name arity ?env)

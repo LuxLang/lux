@@ -39,6 +39,8 @@
 (defn ^String apply-signature [n]
   (str "(" (apply str (repeat n "Ljava/lang/Object;")) ")Ljava/lang/Object;"))
 (def num-apply-variants 8)
+(def arity-field "_arity_")
+(def partials-field "_partials_")
 
 (def exported-separator " ")
 (def def-separator "\t")

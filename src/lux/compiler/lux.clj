@@ -14,7 +14,8 @@
                  [lexer :as &lexer]
                  [parser :as &parser]
                  [analyser :as &analyser]
-                 [host :as &host])
+                 [host :as &host]
+                 [optimizer :as &o])
             [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &a]
                           [module :as &a-module]
@@ -25,7 +26,8 @@
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
-                              MethodVisitor)))
+                              MethodVisitor)
+           java.lang.reflect.Field))
 
 ;; [Exports]
 (defn compile-bool [compile ?value]
@@ -108,9 +110,8 @@
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC (str (&host/->module-class ?owner-class) "/" (&host/def-name ?name)) &/value-field "Ljava/lang/Object;")]]
     (return nil)))
 
-(defn compile-apply [compile ?fn ?args]
+(defn ^:private compile-apply* [compile ?args]
   (|do [^MethodVisitor *writer* &/get-writer
-        _ (compile ?fn)
         _ (&/map% (fn [?args]
                     (|do [:let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST &&/function-class)]
                           _ (&/map% compile ?args)
@@ -118,6 +119,35 @@
                       (return nil)))
                   (&/|partition &&/num-apply-variants ?args))]
     (return nil)))
+
+(defn compile-apply [compile ?fn ?args]
+  (|case ?fn
+    [_ (&o/$var (&/$Global ?module ?name))]
+    (|do [[_ [_ _ func-obj]] (&a-module/find-def ?module ?name)
+          class-loader &/loader
+          :let [func-class (class func-obj)
+                func-arity (.get ^Field (.getDeclaredField func-class &&/arity-field) nil)
+                func-partials (.get ^Field (.getDeclaredField (Class/forName "lux.Function" true class-loader) &&/partials-field) func-obj)
+                num-args (&/|length ?args)
+                func-class-name (->> func-class .getName &host-generics/->bytecode-class-name)]]
+      (if (and (= 0 func-partials)
+               (>= num-args func-arity))
+        (|do [_ (compile ?fn)
+              ^MethodVisitor *writer* &/get-writer
+              :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST func-class-name)]
+              _ (&/map% compile (&/|take func-arity ?args))
+              :let [_ (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL func-class-name (if (= 1 func-arity) &&/apply-method "impl") (&&/apply-signature func-arity))]
+              _ (if (= num-args func-arity)
+                  (return nil)
+                  (compile-apply* compile (&/|drop func-arity ?args)))]
+          (return nil))
+        (|do [_ (compile ?fn)]
+          (compile-apply* compile ?args))))
+    
+    _
+    (|do [_ (compile ?fn)]
+      (compile-apply* compile ?args))
+    ))
 
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
