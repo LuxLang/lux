@@ -57,7 +57,8 @@
       (fail "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn analyse-1 [analyse exo-type elem]
-  (cap-1 (analyse exo-type elem)))
+  (&/with-expected-type exo-type
+    (cap-1 (analyse exo-type elem))))
 
 (defn analyse-1+ [analyse ?token]
   (&type/with-var

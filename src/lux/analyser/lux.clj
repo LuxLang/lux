@@ -399,10 +399,12 @@
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
           _
-          (do-analyse-apply analyse exo-type =fn ?args)))
+          (&/with-analysis-meta cursor exo-type
+            (do-analyse-apply analyse exo-type =fn ?args))))
       
       _
-      (do-analyse-apply analyse exo-type =fn ?args))
+      (&/with-analysis-meta cursor exo-type
+        (do-analyse-apply analyse exo-type =fn ?args)))
     ))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
@@ -544,7 +546,7 @@
     (return (&/|list output))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]
-  (|do [;; _ &/ensure-statement
+  (|do [_ &/ensure-statement
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
@@ -560,7 +562,7 @@
       )))
 
 (defn analyse-import [analyse compile-module path]
-  (|do [;; _ &/ensure-statement
+  (|do [_ &/ensure-statement
         module-name &/get-module-name
         _ (if (= module-name path)
             (fail (str "[Analyser Error] Module can't import itself: " path))
@@ -576,7 +578,7 @@
        (return &/$Nil)))))
 
 (defn analyse-alias [analyse ex-alias ex-module]
-  (|do [;; _ &/ensure-statement
+  (|do [_ &/ensure-statement
         module-name &/get-module-name
         _ (&&module/alias module-name ex-alias ex-module)]
     (return &/$Nil)))
@@ -591,7 +593,8 @@
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
-        =value (&&/analyse-1 analyse ==type ?value)
+        =value (&/with-expected-type ==type
+                 (&&/analyse-1 analyse ==type ?value))
         _cursor &/cursor
         ;; =value (&&/analyse-1 analyse ==type ?value)
         ;; :let [_ (prn 0 (&/adt->text =value))
@@ -617,7 +620,7 @@
 (let [input-type (&/$AppT &type/List &type/Text)
       output-type (&/$AppT &type/IO &/$UnitT)]
   (defn analyse-program [analyse optimize compile-program ?args ?body]
-    (|do [;; _ &/ensure-statement
+    (|do [_ &/ensure-statement
           =body (&/with-scope ""
                   (&&env/with-local ?args input-type
                     (&&/analyse-1 analyse output-type ?body)))

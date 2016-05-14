@@ -173,9 +173,8 @@
               (&&lux/analyse-program analyse optimize compile-program ?args ?body)))
 
           ;; else
-          (&/with-analysis-meta cursor exo-type
-            (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-              (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+          (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
+            (&&lux/analyse-apply analyse cursor exo-type =fn parameters)))
 
         (&/$IntS idx)
         (&/with-analysis-meta cursor exo-type
@@ -186,9 +185,8 @@
           (analyse-variant+ analyse exo-type ?ident parameters))
 
         _
-        (&/with-analysis-meta cursor exo-type
-          (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-            (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+        (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
+          (&&lux/analyse-apply analyse cursor exo-type =fn parameters)))
       
       _
       (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
