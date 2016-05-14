@@ -2,7 +2,6 @@
 ;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
-
 (ns lux.base
   (:require (clojure [template :refer [do-template]])
             [clojure.core.match :as M :refer [matchv]]
@@ -149,6 +148,7 @@
    "type-vars"
    "expected"
    "seed"
+   "scope-type-vars"
    "host"])
 
 ;; Compiler
@@ -592,10 +592,20 @@
         $Nil
         xs))
 
+(defn add-loc [meta ^String msg]
+  (if (.startsWith msg "@")
+    msg
+    (|let [[file line col] meta]
+      (str "@ " file "," line "," col "\n" msg))))
+
+(defn fail-with-loc [msg]
+  (fn [state]
+    (fail* (add-loc (get$ $cursor state) msg))))
+
 (defn assert! [test message]
   (if test
     (return unit-tag)
-    (fail message)))
+    (fail-with-loc message)))
 
 (def get-state
   (fn [state]
@@ -764,6 +774,8 @@
       $None
       ;; "lux;seed"
       0
+      ;; scope-type-vars
+      $Nil
       ;; "lux;host"
       (host nil)]
      ))
@@ -1256,12 +1268,16 @@
 (defn |partition [n xs]
   (->> xs ->seq (partition-all n) (map ->list) ->list))
 
-(defn add-loc [meta ^String msg]
-  (if (.startsWith msg "@")
-    msg
-    (|let [[file line col] meta]
-      (str "@ " file "," line "," col "\n" msg))))
-
-(defn fail-with-loc [msg]
+(defn with-scope-type-var [id body]
   (fn [state]
-    (fail* (add-loc (get$ $cursor state) msg))))
+    (|case (body (set$ $scope-type-vars
+                       ($Cons id (get$ $scope-type-vars state))
+                       state))
+      ($Right [state* output])
+      ($Right (T [(set$ $scope-type-vars
+                        (get$ $scope-type-vars state)
+                        state*)
+                  output]))
+
+      ($Left msg)
+      ($Left msg))))

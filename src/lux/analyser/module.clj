@@ -9,7 +9,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftuple |let |do return return* fail fail* |case]]
+            (lux [base :as & :refer [deftuple |let |do return return* |case]]
                  [type :as &type]
                  [host :as &host])
             [lux.host.generics :as &host-generics]
@@ -42,7 +42,8 @@
   (|do [current-module &/get-module-name]
     (fn [state]
       (if (&/|member? module (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $imports)))
-        (fail* (str "[Analyser Error] Can't import module " (pr-str module) " twice @ " current-module))
+        ((&/fail-with-loc (str "[Analyser Error] Can't import module " (pr-str module) " twice @ " current-module))
+         state)
         (return* (&/update$ &/$modules
                             (fn [ms]
                               (&/|update current-module
@@ -81,7 +82,8 @@
                nil)
       
       _
-      (fail* (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name)))))
+      ((&/fail-with-loc (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name))
+       state))))
 
 (defn def-type [module name]
   "(-> Text Text (Lux Type))"
@@ -90,8 +92,10 @@
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|let [[?type ?meta ?value] $def]
           (return* state ?type))
-        (fail* (str "[Analyser Error] Unknown definition: " (str module ";" name))))
-      (fail* (str "[Analyser Error] Unknown module: " module)))))
+        ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (str module ";" name)))
+         state))
+      ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
+       state))))
 
 (defn type-def [module name]
   "(-> Text Text (Lux [Bool Type]))"
@@ -110,9 +114,12 @@
                                  ?value]))
 
             _
-            (fail* (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))))
-        (fail* (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T [module name])))))
-      (fail* (str "[Analyser Error] Unknown module: " module)))))
+            ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))
+             state)))
+        ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T [module name]))))
+         state))
+      ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
+       state))))
 
 (defn exists? [name]
   "(-> Text (Lux Bool))"
@@ -125,12 +132,14 @@
     (fn [state]
       (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
         (return* state real-name)
-        (fail* (str "[Analyser Error] Unknown alias: " name))))))
+        ((&/fail-with-loc (str "[Analyser Error] Unknown alias: " name))
+         state)))))
 
 (defn alias [module alias reference]
   (fn [state]
     (if-let [real-name (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $module-aliases) (&/|get alias))]
-      (fail* (str "[Analyser Error] Can't re-use alias \"" alias "\" @ " module))
+      ((&/fail-with-loc (str "[Analyser Error] Can't re-use alias \"" alias "\" @ " module))
+       state)
       (return* (->> state
                     (&/update$ &/$modules
                                (fn [ms]
@@ -161,9 +170,12 @@
                 (return* state (&/T [(&/T [module name]) $def]))
 
                 _
-                (fail* (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name))))))
-          (fail* (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name))))
-        (fail* (str "[Analyser Error] Module doesn't exist: " module))))))
+                ((&/fail-with-loc (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name)))
+                 state))))
+          ((&/fail-with-loc (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))
+           state))
+        ((&/fail-with-loc (str "[Analyser Error] Module doesn't exist: " module))
+         state)))))
 
 (defn ensure-type-def [def-data]
   "(-> DefData (Lux Type))"
@@ -173,7 +185,7 @@
       (return ?type)
 
       _
-      (fail (str "[Analyser Error] Not a type definition: " (&/adt->text def-data))))))
+      (&/fail-with-loc (str "[Analyser Error] Not a type definition: " (&/adt->text def-data))))))
 
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def module name)]
@@ -204,7 +216,8 @@
     (fn [state]
       (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
         (return* state (&/get$ <tag> =module))
-        (fail* (str "[Lux Error] Unknown module: " module)))
+        ((&/fail-with-loc (str "[Lux Error] Unknown module: " module))
+         state))
       ))
 
   tags-by-module  $tags  "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
@@ -215,7 +228,7 @@
   (|do [tags-table (tags-by-module module)
         _ (&/map% (fn [tag]
                     (if (&/|get tag tags-table)
-                      (fail (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T [module tag]))))
+                      (&/fail-with-loc (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T [module tag]))))
                       (return nil)))
                   tags)]
     (return nil)))
@@ -250,7 +263,8 @@
                                            =modules))
                               state)
                    nil))
-        (fail* (str "[Lux Error] Unknown module: " module))))))
+        ((&/fail-with-loc (str "[Lux Error] Unknown module: " module))
+         state)))))
 
 (defn ensure-can-see-tag [module tag-name]
   "(-> Text Text (Lux Unit))"
@@ -262,9 +276,12 @@
             (if (or ?exported
                     (= module current-module))
               (return* state &/unit-tag)
-              (fail* (str "[Analyser Error] Can't access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))))
-          (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name])))))
-        (fail* (str "[Module Error] Unknown module: " module))))))
+              ((&/fail-with-loc (str "[Analyser Error] Can't access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))
+               state)))
+          ((&/fail-with-loc (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name]))))
+           state))
+        ((&/fail-with-loc (str "[Module Error] Unknown module: " module))
+         state)))))
 
 (do-template [<name> <part> <doc>]
   (defn <name> [module tag-name]
@@ -274,8 +291,10 @@
         (if-let [^objects idx+tags+exported+type (&/|get tag-name (&/get$ $tags =module))]
           (|let [[?idx ?tags ?exported ?type] idx+tags+exported+type]
             (return* state <part>))
-          (fail* (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name])))))
-        (fail* (str "[Module Error] Unknown module: " module)))))
+          ((&/fail-with-loc (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name]))))
+           state))
+        ((&/fail-with-loc (str "[Module Error] Unknown module: " module))
+         state))))
 
   tag-index ?idx  "(-> Text Text (Lux Int))"
   tag-group ?tags "(-> Text Text (Lux (List Ident)))"
@@ -302,7 +321,7 @@
     (|case (&meta/meta-get <tag> meta)
       (&/$Some (&/$BoolM true))
       (&/try-all% (&/|list (&type/check <type> type)
-                           (fail (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
+                           (&/fail-with-loc (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
 
       _
       (return nil)))

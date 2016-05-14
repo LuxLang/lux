@@ -122,8 +122,10 @@
 
                 (&/$UnivQ _)
                 (|do [$var &type/existential
+                      :let [(&/$ExT $var-id) $var]
                       exo-type** (&type/apply-type exo-type* $var)
-                      [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/$Right exo-type**) ?elems))]
+                      [[tuple-type tuple-cursor] tuple-analysis] (&/with-scope-type-var $var-id
+                                                                   (&&/cap-1 (analyse-tuple analyse (&/$Right exo-type**) ?elems)))]
                   (return (&/|list (&&/|meta exo-type tuple-cursor
                                              tuple-analysis))))
 
@@ -222,8 +224,10 @@
 
           (&/$UnivQ _)
           (|do [$var &type/existential
+                :let [(&/$ExT $var-id) $var]
                 exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-variant analyse (&/$Right exo-type**) idx is-last? ?values))
+            (&/with-scope-type-var $var-id
+              (analyse-variant analyse (&/$Right exo-type**) idx is-last? ?values)))
 
           (&/$ExQ _)
           (&type/with-var
@@ -379,16 +383,18 @@
       (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
-          (|do [macro-expansion (fn [state] (try (-> ?value (.apply ?args) (.apply state))
-                                             (catch java.lang.StackOverflowError e
-                                               (|let [[r-prefix r-name] real-name]
-                                                 (do (.printStackTrace e)
-                                                   (throw e))))))
+          (|do [macro-expansion (fn [state]
+                                  (|case (-> ?value (.apply ?args) (.apply state))
+                                    (&/$Right state* output)
+                                    (&/$Right (&/T [state* output]))
+
+                                    (&/$Left error)
+                                    ((&/fail-with-loc error) state)))
                 module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "defsig" r-name)
-                ;;                   (= "deftype" r-name)
-                ;;                   (= "@type" r-name)
+                ;;       _ (when (or (= "defstruct" r-name)
+                ;;                   (= "struct" r-name)
+                ;;                   ;; (= "@type" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)
                 ;;                (&/|interpose "\n")
@@ -493,8 +499,10 @@
         (|case exo-type
           (&/$UnivQ _)
           (|do [$var &type/existential
+                :let [(&/$ExT $var-id) $var]
                 exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-lambda* analyse exo-type** ?self ?arg ?body))
+            (&/with-scope-type-var $var-id
+              (analyse-lambda* analyse exo-type** ?self ?arg ?body)))
 
           (&/$ExQ _)
           (&type/with-var
@@ -523,8 +531,10 @@
   (|case exo-type
     (&/$UnivQ _)
     (|do [$var &type/existential
+          :let [(&/$ExT $var-id) $var]
           exo-type* (&type/apply-type exo-type $var)
-          [_ _expr] (analyse-lambda** analyse exo-type* ?self ?arg ?body)
+          [_ _expr] (&/with-scope-type-var $var-id
+                      (analyse-lambda** analyse exo-type* ?self ?arg ?body))
           _cursor &/cursor]
       (return (&&/|meta exo-type _cursor _expr)))
     

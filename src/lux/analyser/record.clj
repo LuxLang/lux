@@ -25,7 +25,7 @@
                                  (return (&/T [tags type])))
 
                                _
-                               (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags."))
+                               (&/fail-with-loc "[Analyser Error] Wrong syntax for records. Odd elements must be tags."))
         =pairs (&/map% (fn [kv]
                          (|case kv
                            [[_ (&/$TagS k)] v]
@@ -33,7 +33,7 @@
                              (return (&/T [(&/ident->text =k) v])))
 
                            _
-                           (fail "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
+                           (&/fail-with-loc "[Analyser Error] Wrong syntax for records. Odd elements must be tags.")))
                        pairs)
         _ (let [num-expected (&/|length tag-group)
                 num-got (&/|length =pairs)]
@@ -42,6 +42,6 @@
         =members (&/map% (fn [tag]
                            (if-let [member (&/|get tag =pairs)]
                              (return member)
-                             (fail (str "[Analyser Error] Missing tag: " tag))))
+                             (&/fail-with-loc (str "[Analyser Error] Missing tag: " tag))))
                          (&/|map &/ident->text tag-group))]
     (return (&/T [=members tag-type]))))
