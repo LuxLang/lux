@@ -170,19 +170,14 @@
           $end (new Label)
           method-writer (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature +degree+) nil nil)
           frame-locals (to-array (list class-name "java/lang/Object" "java/lang/Object"))
-          frame-stack (to-array [Opcodes/INTEGER])]
+          frame-stack (to-array [Opcodes/INTEGER])
+          arity-over-extent (- arity +degree+)]
       (do (doto method-writer
             (.visitCode)
             get-num-partials!
-            (.visitFrame Opcodes/F_NEW
-                         (int (alength frame-locals)) frame-locals
-                         (int (alength frame-stack))  frame-stack)
             (.visitTableSwitchInsn 0 (dec num-partials) $default (into-array Label $labels*))
             ;; (< stage (- arity +degree+))
             (-> (doto (.visitLabel $label)
-                  (.visitFrame Opcodes/F_NEW
-                               (int (alength frame-locals)) frame-locals
-                               (int (alength frame-stack))  frame-stack)
                   (.visitTypeInsn Opcodes/NEW class-name)
                   (.visitInsn Opcodes/DUP)
                   (-> (get-field! class-name (str &&/closure-prefix cidx))
@@ -195,12 +190,9 @@
                   (fill-nulls! (- (- num-partials +degree+) stage))
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (lambda-<init>-signature env arity))
                   (.visitJumpInsn Opcodes/GOTO $end))
-                (->> (cond (= stage (- arity +degree+))
+                (->> (cond (= stage arity-over-extent)
                            (doto method-writer
                              (.visitLabel $label)
-                             (.visitFrame Opcodes/F_NEW
-                                          (int (alength frame-locals)) frame-locals
-                                          (int (alength frame-stack))  frame-stack)
                              (.visitVarInsn Opcodes/ALOAD 0)
                              (-> (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "reset" (reset-signature class-name))
                                  (->> (when (not= 0 stage))))
@@ -210,22 +202,18 @@
                              (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature arity))
                              (.visitJumpInsn Opcodes/GOTO $end))
 
-                           (> stage (- arity +degree+))
-                           (let [base 1
-                                 args-to-completion (- arity stage)
+                           (> stage arity-over-extent)
+                           (let [args-to-completion (- arity stage)
                                  args-left (- +degree+ args-to-completion)]
                              (doto method-writer
                                (.visitLabel $label)
-                               (.visitFrame Opcodes/F_NEW
-                                            (int (alength frame-locals)) frame-locals
-                                            (int (alength frame-stack))  frame-stack)
                                (.visitVarInsn Opcodes/ALOAD 0)
                                (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "reset" (reset-signature class-name))
                                (-> (get-field! class-name (str &&/partial-prefix idx))
                                    (->> (dotimes [idx stage])))
-                               (consecutive-args base args-to-completion)
+                               (consecutive-args 1 args-to-completion)
                                (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature arity))
-                               (consecutive-applys (+ base args-to-completion) args-left)
+                               (consecutive-applys (+ 1 args-to-completion) args-left)
                                (.visitJumpInsn Opcodes/GOTO $end)))
 
                            :else)

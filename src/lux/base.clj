@@ -761,7 +761,7 @@
       ;; "lux;types"
       +init-bindings+
       ;; "lux;expected"
-      $VoidT
+      $None
       ;; "lux;seed"
       0
       ;; "lux;host"
@@ -902,7 +902,7 @@
 (defn with-expected-type [type body]
   "(All [a] (-> Type (Lux a)))"
   (fn [state]
-    (let [output (body (set$ $expected type state))]
+    (let [output (body (set$ $expected ($Some type) state))]
       (|case output
         ($Right ?state ?value)
         (return* (set$ $expected (get$ $expected state) ?state)
@@ -913,7 +913,7 @@
 
 (defn with-cursor [^objects cursor body]
   "(All [a] (-> Cursor (Lux a)))"
-  (|let [[_file-name _line _column] cursor]
+  (|let [[_file-name _ _] cursor]
     (if (= "" _file-name)
       body
       (fn [state]
@@ -925,6 +925,45 @@
 
             _
             output))))))
+
+(defn with-analysis-meta [^objects cursor type body]
+  "(All [a] (-> Cursor Type (Lux a)))"
+  (|let [[_file-name _ _] cursor]
+    (if (= "" _file-name)
+      (fn [state]
+        (let [output (body (->> state
+                                (set$ $expected ($Some type))))]
+          (|case output
+            ($Right ?state ?value)
+            (return* (->> ?state
+                          (set$ $expected (get$ $expected state)))
+                     ?value)
+
+            _
+            output)))
+      (fn [state]
+        (let [output (body (->> state
+                                (set$ $cursor cursor)
+                                (set$ $expected ($Some type))))]
+          (|case output
+            ($Right ?state ?value)
+            (return* (->> ?state
+                          (set$ $cursor (get$ $cursor state))
+                          (set$ $expected (get$ $expected state)))
+                     ?value)
+
+            _
+            output))))))
+
+(def ensure-statement
+  "(Lux Unit)"
+  (fn [state]
+    (|case (get$ $expected state)
+      ($None)
+      (return* state unit-tag)
+
+      ($Some _)
+      (fail* "[Error] All statements must be top-level forms."))))
 
 (def cursor
   ;; (Lux Cursor)

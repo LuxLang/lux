@@ -40,7 +40,7 @@
 (def ^:private !source->last-line (atom nil))
 
 (defn compile-expression [syntax]
-  (|let [[[?type [_file-name _line _column]] ?form] syntax]
+  (|let [[[?type [_file-name _line _]] ?form] syntax]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [debug-label (new Label)
                 _ (when (not= _line (get @!source->last-line _file-name))
