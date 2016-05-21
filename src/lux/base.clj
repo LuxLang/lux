@@ -126,7 +126,9 @@
    "classes"
    "catching"
    "module-states"
-   "type-env"])
+   "type-env"
+   "dummy-mappings"
+   ])
 
 ;; Compiler
 (defvariant
@@ -695,10 +697,6 @@
 (defn normalize-name [ident]
   (reduce str "" (map normalize-char ident)))
 
-(def loader
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $loader)))))
-
 (def classes
   (fn [state]
     (return* state (->> state (get$ $host) (get$ $classes)))))
@@ -733,6 +731,10 @@
           (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
           (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
 
+(def loader
+  (fn [state]
+    (return* state (->> state (get$ $host) (get$ $loader)))))
+
 (defn host [_]
   (let [store (atom {})]
     (T [;; "lux;writer"
@@ -746,7 +748,10 @@
         ;; "lux;module-states"
         (|table)
         ;; lux;type-env
-        (|table)])))
+        (|table)
+        ;; lux;dummy-mappings
+        (|table)
+        ])))
 
 (defn default-compiler-info [mode]
   (T [;; compiler-name
@@ -1281,3 +1286,35 @@
 
       ($Left msg)
       ($Left msg))))
+
+(defn push-dummy-name [real-name store-name]
+  (fn [state]
+    ($Right (T [(update$ $host
+                         #(update$ $dummy-mappings
+                                   (partial $Cons (T [real-name store-name]))
+                                   %)
+                         state)
+                nil]))))
+
+(def pop-dummy-name
+  (fn [state]
+    ($Right (T [(update$ $host
+                         #(update$ $dummy-mappings
+                                   |tail
+                                   %)
+                         state)
+                nil]))))
+
+(defn de-alias-class [class-name]
+  (fn [state]
+    ($Right (T [state
+                (|case (|some #(|let [[real-name store-name] %]
+                                 (if (= real-name class-name)
+                                   ($Some store-name)
+                                   $None))
+                              (->> state (get$ $host) (get$ $dummy-mappings)))
+                  ($Some store-name)
+                  store-name
+
+                  _
+                  class-name)]))))

@@ -1156,10 +1156,9 @@
 
 (defn ^:private compile-jvm-invokestatic [compile ?values special-args]
   (|do [:let [?args ?values
-              (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Nil))))) special-args]
+              (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Cons ?gret (&/$Nil)))))) special-args]
         ^MethodVisitor *writer* &/get-writer
-        =output-type (&host/->java-sig ?output-type)
-        :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" =output-type)]
+        :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" (&host-type/principal-class ?gret))]
         _ (&/map2% (fn [class-name arg]
                      (|do [ret (compile arg)
                            :let [_ (prepare-arg! *writer* class-name)]]
@@ -1173,11 +1172,10 @@
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?object ?args) ?values
-                (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Nil))))) special-args]
+                (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Cons ?gret (&/$Nil)))))) special-args]
           :let [?class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
-          =output-type (&host/->java-sig ?output-type)
-          :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" =output-type)]
+          :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" (&host-type/principal-class ?gret))]
           _ (compile ?object)
           :let [_ (when (not= "<init>" ?method)
                     (.visitTypeInsn *writer* Opcodes/CHECKCAST ?class*))]

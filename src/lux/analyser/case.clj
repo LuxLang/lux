@@ -52,6 +52,11 @@
           =type (&type/apply-type type $var)]
       (&type/actual-type =type))
 
+    (&/$ExQ _ _)
+    (|do [$var &type/existential
+          =type (&type/apply-type type $var)]
+      (&type/actual-type =type))
+
     _
     (&type/actual-type type)))
 
@@ -460,7 +465,7 @@
                     (return (&/fold #(and %1 %2) true totals))))
 
                 _
-                (fail "[Pattern-maching Error] Tuple is not total.")))))))
+                (fail (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
 
     ($VariantTotal ?total ?structs)
     (if ?total

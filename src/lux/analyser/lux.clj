@@ -120,6 +120,15 @@
                                                (&&/$tuple =elems)
                                                )))))
 
+                (&/$ExQ _)
+                (&type/with-var
+                  (fn [$var]
+                    (|do [exo-type** (&type/apply-type exo-type* $var)
+                          [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/$Right exo-type**) ?elems))
+                          =tuple-analysis (&&/clean-analysis $var (&&/|meta exo-type tuple-cursor
+                                                                            tuple-analysis))]
+                      (return (&/|list =tuple-analysis)))))
+
                 (&/$UnivQ _)
                 (|do [$var &type/existential
                       :let [(&/$ExT $var-id) $var]
@@ -224,10 +233,8 @@
 
           (&/$UnivQ _)
           (|do [$var &type/existential
-                :let [(&/$ExT $var-id) $var]
                 exo-type** (&type/apply-type exo-type* $var)]
-            (&/with-scope-type-var $var-id
-              (analyse-variant analyse (&/$Right exo-type**) idx is-last? ?values)))
+            (analyse-variant analyse (&/$Right exo-type**) idx is-last? ?values))
 
           (&/$ExQ _)
           (&type/with-var

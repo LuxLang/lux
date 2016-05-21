@@ -6,7 +6,8 @@
 (ns lux.type.host
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]]))
+            (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
+            [lux.host.generics :as &host-generics])
   (:import (java.lang.reflect GenericArrayType
                               ParameterizedType
                               TypeVariable
@@ -63,7 +64,7 @@
     (&/fold2 matcher (&/|table) sub-type-params params)))
 
 ;; [Exports]
-(let [class-name-re #"((\[+)L([\.a-zA-Z0-9]+);|([\.a-zA-Z0-9]+)|(\[+)([ZBSIJFDC]))"
+(let [class-name-re #"((\[+)L([\.a-zA-Z0-9\$]+);|([\.a-zA-Z0-9\$]+)|(\[+)([ZBSIJFDC]))"
       jprim->lprim (fn [prim]
                      (case prim
                        "Z" "boolean"
@@ -124,6 +125,34 @@
         (if-let [bound (->> ^WildcardType refl-type .getUpperBounds seq first)]
           (instance-param existential matchings bound)
           existential)))
+
+(defn principal-class [refl-type]
+  (cond (instance? Class refl-type)
+        (|case (class->type refl-type)
+          (&/$HostT "#Array" (&/$Cons (&/$HostT class-name _) (&/$Nil)))
+          (str "[" (&host-generics/->type-signature class-name))
+
+          (&/$HostT class-name _)
+          (&host-generics/->type-signature class-name)
+
+          (&/$UnitT)
+          "V")
+
+        (instance? GenericArrayType refl-type)
+        (&host-generics/->type-signature (str refl-type))
+        
+        (instance? ParameterizedType refl-type)
+        (&host-generics/->type-signature (->> ^ParameterizedType refl-type ^Class (.getRawType) .getName))
+        
+        (instance? TypeVariable refl-type)
+        (if-let [bound (->> ^TypeVariable refl-type .getBounds seq first)]
+          (principal-class bound)
+          (&host-generics/->type-signature "java.lang.Object"))
+        
+        (instance? WildcardType refl-type)
+        (if-let [bound (->> ^WildcardType refl-type .getUpperBounds seq first)]
+          (principal-class bound)
+          (&host-generics/->type-signature "java.lang.Object"))))
 
 ;; TODO: CLEAN THIS UP, IT'S DOING A HACK BY TREATING GCLASSES AS GVARS
 (defn instance-gtype [existential matchings gtype]
