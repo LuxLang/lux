@@ -45,6 +45,10 @@
   (|do [[_ _ =name] (&reader/read-regex #"^([a-zA-Z0-9_\.]+)")]
     (return =name)))
 
+(def ^:private parse-ident
+  (|do [[_ _ =name] (&reader/read-regex &lexer/+ident-re+)]
+    (return =name)))
+
 (defn ^:private with-parens [body]
   (|do [_ (&reader/read-text "(")
         output body
@@ -161,7 +165,7 @@
 
 (def ^:private parse-arg-decl
   (with-parens
-    (|do [=arg-name parse-name
+    (|do [=arg-name parse-ident
           _ (&reader/read-text " ")
           =gclass parse-gclass]
       (return (&/T [=arg-name =gclass])))))

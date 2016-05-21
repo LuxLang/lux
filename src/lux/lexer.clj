@@ -123,7 +123,7 @@
         _ (&reader/read-text "\"")]
     (return (&/T [meta ($Text token)]))))
 
-(def ^:private +ident-re+
+(def +ident-re+
   #"^([^0-9\[\]\{\}\(\)\s\"#;][^\[\]\{\}\(\)\s\"#;]*)")
 
 ;; [Lexers]
