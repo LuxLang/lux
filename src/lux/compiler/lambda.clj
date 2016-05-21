@@ -237,33 +237,45 @@
 ;; [Exports]
 (let [lambda-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       datum-flags (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL)]
-  (defn compile-function [compile arity ?scope ?env ?body]
+  (defn compile-function [compile ?prev-writer arity ?scope ?env ?body]
     (|do [[file-name _ _] &/cursor
           :let [name (&host/location (&/|tail ?scope))
                 class-name (str (&host/->module-class (&/|head ?scope)) "/" name)
-                =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                         (.visit &host/bytecode-version lambda-flags
-                                 class-name nil &&/function-class (into-array String []))
-                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC Opcodes/ACC_FINAL) &&/arity-field "I" nil (int arity))
-                             (doto (.visitEnd)))
-                         (-> (doto (.visitField datum-flags captured-name field-sig nil nil)
-                               (.visitEnd))
-                             (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
-                                  (|case ?name+?captured
-                                    [?name [_ (&o/$captured _ ?captured-id ?source)]])
-                                  (doseq [?name+?captured (&/->seq ?env)])))
-                         (-> (.visitField datum-flags (str &&/partial-prefix idx) field-sig nil nil)
-                             (doto (.visitEnd))
-                             (->> (dotimes [idx (dec arity)])))
-                         (.visitSource file-name nil)
-                         (add-lambda-<init> class-name arity ?env)
-                         (add-lambda-reset class-name arity ?env)
-                         )]
+                [=class save?] (|case ?prev-writer
+                                 (&/$Some _writer)
+                                 (&/T [_writer false])
+
+                                 (&/$None)
+                                 (&/T [(doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                                         (.visit &host/bytecode-version lambda-flags
+                                                 class-name nil &&/function-class (into-array String [])))
+                                       true]))
+                _ (doto =class
+                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC Opcodes/ACC_FINAL) &&/arity-field "I" nil (int arity))
+                        (doto (.visitEnd)))
+                    (-> (doto (.visitField datum-flags captured-name field-sig nil nil)
+                          (.visitEnd))
+                        (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
+                             (|case ?name+?captured
+                               [?name [_ (&o/$captured _ ?captured-id ?source)]])
+                             (doseq [?name+?captured (&/->seq ?env)])))
+                    (-> (.visitField datum-flags (str &&/partial-prefix idx) field-sig nil nil)
+                        (doto (.visitEnd))
+                        (->> (dotimes [idx (dec arity)])))
+                    (-> (.visitSource file-name nil)
+                        (when save?))
+                    (add-lambda-<init> class-name arity ?env)
+                    (add-lambda-reset class-name arity ?env)
+                    )]
           _ (if (> arity 1)
               (add-lambda-impl =class class-name compile arity ?body)
               (return nil))
           _ (&/map% #(add-lambda-apply-n =class % class-name arity ?env compile ?body)
                     (&/|range* 1 (min arity &&/num-apply-variants)))
           :let [_ (.visitEnd =class)]
-          _ (&&/save-class! name (.toByteArray =class))]
-      (instance-closure compile class-name arity ?env))))
+          _ (if save?
+              (&&/save-class! name (.toByteArray =class))
+              (return nil))]
+      (if save?
+        (instance-closure compile class-name arity ?env)
+        (return (instance-closure compile class-name arity ?env))))))

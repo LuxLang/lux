@@ -57,7 +57,7 @@
     (&/$Cons _module (&/$Cons _def (&/$Cons _level-to-remove _levels-to-keep)))
     (&/$Cons _module (&/$Cons _def _levels-to-keep))))
 
-(defn ^:private shift-function-body [own-body? body]
+(defn shift-function-body [own-body? body]
   "(-> Optimized Optimized)"
   (|let [[meta body-] body]
     (|case body-
@@ -106,9 +106,12 @@
         body)
 
       ($apply [meta-0 ($var (&/$Local 0))] args)
-      (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
-                         (&/$Cons (&/T [meta-0 ($var (&/$Local 1))])
-                                  (&/|map (partial shift-function-body own-body?) args)))])
+      (if own-body?
+        (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
+                           (&/$Cons (&/T [meta-0 ($var (&/$Local 1))])
+                                    (&/|map (partial shift-function-body own-body?) args)))])
+        (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
+                           (&/|map (partial shift-function-body own-body?) args))]))
 
       ($apply func args)
       (&/T [meta ($apply (shift-function-body own-body? func)
