@@ -37,7 +37,7 @@
   ("VariantTestAC" 1))
 
 ;; [Utils]
-(def ^:private unit
+(def ^:private unit-tuple
   (&/T [(&/T ["" -1 -1]) (&/$TupleS &/$Nil)]))
 
 (defn ^:private resolve-type [type]
@@ -237,11 +237,20 @@
             idx (&module/tag-index =module =name)
             group (&module/tag-group =module =name)
             case-type (&type/sum-at idx value-type*)
-            [=test =kont] (analyse-pattern &/$None case-type unit kont)]
+            [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
-      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)]
-                         ?values))
+      (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))
+      (|do [value-type* (adjust-type value-type)
+            case-type (&type/sum-at idx value-type*)
+            [=test =kont] (case (int (&/|length ?values))
+                            0 (analyse-pattern &/$None case-type unit-tuple kont)
+                            1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
+                            ;; 1+
+                            (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$TupleS ?values)]) kont))]
+        (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont])))
+
+      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
             variant-type (if must-infer?
@@ -255,7 +264,7 @@
             group (&module/tag-group =module =name)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (case (int (&/|length ?values))
-                            0 (analyse-pattern &/$None case-type unit kont)
+                            0 (analyse-pattern &/$None case-type unit-tuple kont)
                             1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
                             ;; 1+
                             (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$TupleS ?values)]) kont))]

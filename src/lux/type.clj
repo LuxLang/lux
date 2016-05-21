@@ -902,20 +902,6 @@
   fold-sum  &/$VoidT &/$SumT
   )
 
-
-(do-template [<name> <ctor>]
-  (defn <name> [type]
-    (|case type
-      (<ctor> l r)
-      (&/$Cons l (<name> r))
-
-      _
-      (&/|list type)))
-
-  unfold-prod &/$ProdT
-  unfold-sum  &/$SumT
-  )
-
 (def create-var+
   (|do [id create-var]
     (return (&/$VarT id))))

@@ -472,7 +472,7 @@
                      _ (&type/delete-var _inf-var)]
                  (return _func*)))
              =func
-             (&/|reverse (&type/unfold-prod =input)))
+             (&/|reverse (&type/flatten-prod =input)))
     
     _
     (|do [=func* (&type/clean $input =func)
