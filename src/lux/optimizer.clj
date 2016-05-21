@@ -67,10 +67,6 @@
       ($tuple elems)
       (&/T [meta ($tuple (&/|map (partial shift-function-body own-body?) elems))])
       
-      ($apply func args)
-      (&/T [meta ($apply (shift-function-body own-body? func)
-                         (&/|map (partial shift-function-body own-body?) args))])
-      
       ($case value branches)
       (&/T [meta ($case (shift-function-body own-body? value)
                         (&/|map (fn [branch]
@@ -108,6 +104,15 @@
           (&/$Global ?module ?name)
           body)
         body)
+
+      ($apply [meta-0 ($var (&/$Local 0))] args)
+      (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
+                         (&/$Cons (&/T [meta-0 ($var (&/$Local 1))])
+                                  (&/|map (partial shift-function-body own-body?) args)))])
+
+      ($apply func args)
+      (&/T [meta ($apply (shift-function-body own-body? func)
+                         (&/|map (partial shift-function-body own-body?) args))])
       
       ($captured scope idx source)
       (if own-body?
