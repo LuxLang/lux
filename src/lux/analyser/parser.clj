@@ -238,7 +238,8 @@
         _ _space_
         =privacy-modifier parse-privacy-modifier
         _ _space_
-        [_ (&lexer/$Bool =strict)] &lexer/lex-bool
+        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        :let [=strict (Boolean/parseBoolean =strict*)]
         _ _space_
         =anns (with-brackets
                 (spaced parse-ann))
@@ -265,9 +266,11 @@
         _ _space_
         =privacy-modifier parse-privacy-modifier
         _ _space_
-        [_ (&lexer/$Bool =final?)] &lexer/lex-bool
+        [_ (&lexer/$Bool =final?*)] &lexer/lex-bool
+        :let [=final? (Boolean/parseBoolean =final?*)]
         _ _space_
-        [_ (&lexer/$Bool =strict)] &lexer/lex-bool
+        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        :let [=strict (Boolean/parseBoolean =strict*)]
         _ _space_
         =anns (with-brackets
                 (spaced parse-ann))
@@ -293,7 +296,8 @@
         _ _space_
         =name parse-name
         _ _space_
-        [_ (&lexer/$Bool =strict)] &lexer/lex-bool
+        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        :let [=strict (Boolean/parseBoolean =strict*)]
         _ _space_
         =anns (with-brackets
                 (spaced parse-ann))
@@ -319,7 +323,8 @@
         _ _space_
         =privacy-modifier parse-privacy-modifier
         _ _space_
-        [_ (&lexer/$Bool =strict)] &lexer/lex-bool
+        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        :let [=strict (Boolean/parseBoolean =strict*)]
         _ _space_
         =anns (with-brackets
                 (spaced parse-ann))
