@@ -578,7 +578,7 @@
         (return &/$Nil))
       )))
 
-(defn analyse-import [analyse compile-module path]
+(defn analyse-import [analyse compile-module path ex-alias]
   (|do [_ &/ensure-statement
         module-name &/get-module-name
         _ (if (= module-name path)
@@ -591,14 +591,11 @@
            _ (&&module/add-import path)
            _ (if (not already-compiled?)
                (compile-module path)
-               (return nil))]
+               (return nil))
+           _ (if (= "" ex-alias)
+               (return nil)
+               (&&module/alias module-name ex-alias path))]
        (return &/$Nil)))))
-
-(defn analyse-alias [analyse ex-alias ex-module]
-  (|do [_ &/ensure-statement
-        module-name &/get-module-name
-        _ (&&module/alias module-name ex-alias ex-module)]
-    (return &/$Nil)))
 
 (defn ^:private coerce [new-type analysis]
   "(-> Type Analysis Analysis)"

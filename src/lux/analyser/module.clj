@@ -137,19 +137,24 @@
 
 (defn alias [module alias reference]
   (fn [state]
-    (if-let [real-name (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $module-aliases) (&/|get alias))]
-      ((&/fail-with-loc (str "[Analyser Error] Can't re-use alias \"" alias "\" @ " module))
-       state)
-      (return* (->> state
-                    (&/update$ &/$modules
-                               (fn [ms]
-                                 (&/|update module
-                                            #(&/update$ $module-aliases
-                                                        (fn [aliases]
-                                                          (&/|put alias reference aliases))
-                                                        %)
-                                            ms))))
-               nil))))
+    (let [_module_ (->> state (&/get$ &/$modules) (&/|get module))]
+      (if (&/|member? module (->> _module_ (&/get$ $imports)))
+        ((&/fail-with-loc (str "[Analyser Error] Can't create alias that is the same as a module nameL " (pr-str alias) " for " reference))
+         state)
+        (if-let [real-name (->> _module_ (&/get$ $module-aliases) (&/|get alias))]
+          ((&/fail-with-loc (str "[Analyser Error] Can't re-use alias \"" alias "\" @ " module))
+           state)
+          (return* (->> state
+                        (&/update$ &/$modules
+                                   (fn [ms]
+                                     (&/|update module
+                                                #(&/update$ $module-aliases
+                                                            (fn [aliases]
+                                                              (&/|put alias reference aliases))
+                                                            %)
+                                                ms))))
+                   nil))))
+    ))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
