@@ -39,7 +39,7 @@
 ;; [Resources]
 (def ^:private !source->last-line (atom nil))
 
-(defn compile-expression [syntax]
+(defn compile-expression [$begin syntax]
   (|let [[[?type [_file-name _line _]] ?form] syntax]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [debug-label (new Label)
@@ -50,50 +50,53 @@
                     (swap! !source->last-line assoc _file-name _line))]]
       (|case ?form
         (&o/$bool ?value)
-        (&&lux/compile-bool compile-expression ?value)
+        (&&lux/compile-bool ?value)
 
         (&o/$int ?value)
-        (&&lux/compile-int compile-expression ?value)
+        (&&lux/compile-int ?value)
 
         (&o/$real ?value)
-        (&&lux/compile-real compile-expression ?value)
+        (&&lux/compile-real ?value)
 
         (&o/$char ?value)
-        (&&lux/compile-char compile-expression ?value)
+        (&&lux/compile-char ?value)
 
         (&o/$text ?value)
-        (&&lux/compile-text compile-expression ?value)
+        (&&lux/compile-text ?value)
 
         (&o/$tuple ?elems)
-        (&&lux/compile-tuple compile-expression ?elems)
+        (&&lux/compile-tuple (partial compile-expression $begin) ?elems)
 
         (&o/$var (&/$Local ?idx))
-        (&&lux/compile-local compile-expression ?idx)
+        (&&lux/compile-local (partial compile-expression $begin) ?idx)
 
         (&o/$captured ?scope ?captured-id ?source)
-        (&&lux/compile-captured compile-expression ?scope ?captured-id ?source)
+        (&&lux/compile-captured (partial compile-expression $begin) ?scope ?captured-id ?source)
 
         (&o/$var (&/$Global ?owner-class ?name))
-        (&&lux/compile-global compile-expression ?owner-class ?name)
+        (&&lux/compile-global (partial compile-expression $begin) ?owner-class ?name)
 
         (&o/$apply ?fn ?args)
-        (&&lux/compile-apply compile-expression ?fn ?args)
+        (&&lux/compile-apply (partial compile-expression $begin) ?fn ?args)
+
+        (&o/$loop ?args)
+        (&&lux/compile-loop (partial compile-expression $begin) $begin ?args)
 
         (&o/$variant ?tag ?tail ?members)
-        (&&lux/compile-variant compile-expression ?tag ?tail ?members)
+        (&&lux/compile-variant (partial compile-expression $begin) ?tag ?tail ?members)
 
         (&o/$case ?value ?match)
-        (&&case/compile-case compile-expression ?value ?match)
+        (&&case/compile-case (partial compile-expression $begin) ?value ?match)
 
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
         ;; Must get rid of this one...
         (&o/$ann ?value-ex ?type-ex ?value-type)
-        (compile-expression ?value-ex)
+        (compile-expression $begin ?value-ex)
 
         (&o/$proc [?proc-category ?proc-name] ?args special-args)
-        (&&host/compile-host compile-expression ?proc-category ?proc-name ?args special-args)
+        (&&host/compile-host (partial compile-expression $begin) ?proc-category ?proc-name ?args special-args)
         
         _
         (assert false (prn-str 'compile-expression (&/adt->text syntax)))
@@ -122,7 +125,7 @@
           _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
               (|do [^MethodVisitor *writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
-                    _ (compile-expression expr)
+                    _ (compile-expression nil expr)
                     :let [_ (doto *writer*
                               (.visitFieldInsn Opcodes/PUTSTATIC class-name &/eval-field "Ljava/lang/Object;")
                               (.visitInsn Opcodes/RETURN)
@@ -139,10 +142,11 @@
           return))))
 
 (def all-compilers
-  (&/T [(partial &&lux/compile-def compile-expression)
-        (partial &&lux/compile-program compile-expression)
-        (partial &&host/compile-jvm-class compile-expression)
-        &&host/compile-jvm-interface]))
+  (let [compile-expression* (partial compile-expression nil)]
+    (&/T [(partial &&lux/compile-def compile-expression)
+          (partial &&lux/compile-program compile-expression*)
+          (partial &&host/compile-jvm-class compile-expression*)
+          &&host/compile-jvm-interface])))
 
 (defn compile-module [source-dirs name]
   (let [file-name (str name ".lux")]

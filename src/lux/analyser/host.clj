@@ -902,7 +902,7 @@
 (defn ^:private analyse-jvm-interface [analyse compile-interface interface-decl supers =anns =methods]
   (|do [module &/get-module-name
         _ (compile-interface interface-decl supers =anns =methods)
-        :let [_ (println 'DEF (str module "." (&/|first interface-decl)))]
+        :let [_ (println 'INTERFACE (str module "." (&/|first interface-decl)))]
         _cursor &/cursor]
     (return (&/|list (&&/|meta &/$UnitT _cursor
                                (&&/$tuple (&/|list)))))))
@@ -921,7 +921,7 @@
           _ (check-method-completion all-supers =methods)
           _ (compile-class class-decl super-class interfaces =inheritance-modifier =anns =fields =methods &/$Nil &/$None)
           _ &/pop-dummy-name
-          :let [_ (println 'DEF full-name)]
+          :let [_ (println 'CLASS full-name)]
           _cursor &/cursor]
       (return (&/|list (&&/|meta &/$UnitT _cursor
                                  (&&/$tuple (&/|list))))))))

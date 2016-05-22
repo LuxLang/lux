@@ -30,13 +30,13 @@
            java.lang.reflect.Field))
 
 ;; [Exports]
-(defn compile-bool [compile ?value]
+(defn compile-bool [?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC "java/lang/Boolean" (if ?value "TRUE" "FALSE") "Ljava/lang/Boolean;")]]
     (return nil)))
 
 (do-template [<name> <class> <sig> <caster>]
-  (defn <name> [compile value]
+  (defn <name> [value]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/NEW <class>)
@@ -50,7 +50,7 @@
   compile-char "java/lang/Character" "(C)V" char
   )
 
-(defn compile-text [compile ?value]
+(defn compile-text [?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitLdcInsn *writer* ?value)]]
     (return nil)))
@@ -149,6 +149,27 @@
       (compile-apply* compile ?args))
     ))
 
+(defn compile-loop [compile $begin ?args]
+  (|do [^MethodVisitor *writer* &/get-writer
+        _ (&/map% (fn [idx+?arg]
+                    (|do [:let [[idx ?arg] idx+?arg
+                                already-set? (|case ?arg
+                                               [_ (&o/$var (&/$Local l-idx))]
+                                               (= idx l-idx)
+
+                                               _
+                                               false)]
+                          _ (if already-set?
+                              (return nil)
+                              (compile ?arg))
+                          :let [_ (when (not already-set?)
+                                    (.visitVarInsn *writer* Opcodes/ASTORE idx))]]
+                      (return nil)))
+                  (&/zip2 (&/|range* 1 (&/|length ?args))
+                          ?args))
+        :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $begin)]]
+    (return nil)))
+
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
                           [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr ?def-value-type)]
@@ -159,11 +180,11 @@
                             (&/T [(&/T [?def-type ?def-cursor])
                                   (&a/$tuple (&/|list))])
                             (&&type/type->analysis ?def-type)))]]
-    (compile ?def-type)))
+    (compile nil ?def-type)))
 
 (defn ^:private compile-def-meta [compile ?meta]
   (|let [analysis (&&type/defmeta->analysis ?meta)]
-    (compile analysis)))
+    (compile nil analysis)))
 
 (defn ^:private de-ann [optim]
   (|case optim
@@ -304,7 +325,7 @@
                           :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/type-field datum-sig)]
                           _ (compile-def-meta compile ?meta)
                           :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/meta-field datum-sig)]
-                          _ (compile ?body)
+                          _ (compile nil ?body)
                           :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
                           :let [_ (doto **writer**
                                     (.visitInsn Opcodes/RETURN)

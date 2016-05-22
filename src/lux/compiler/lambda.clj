@@ -113,15 +113,17 @@
 
 (let [impl-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL)]
   (defn ^:private add-lambda-impl [class class-name compile arity impl-body]
-    (&/with-writer (doto (.visitMethod ^ClassWriter class impl-flags "impl" (lambda-impl-signature arity) nil nil)
-                     (.visitCode))
-      (|do [^MethodVisitor *writer* &/get-writer
-            ret (compile impl-body)
-            :let [_ (doto *writer*
-                      (.visitInsn Opcodes/ARETURN)
-                      (.visitMaxs 0 0)
-                      (.visitEnd))]]
-        (return ret)))))
+    (let [$begin (new Label)]
+      (&/with-writer (doto (.visitMethod ^ClassWriter class impl-flags "impl" (lambda-impl-signature arity) nil nil)
+                       (.visitCode)
+                       (.visitLabel $begin))
+        (|do [^MethodVisitor *writer* &/get-writer
+              ret (compile $begin impl-body)
+              :let [_ (doto *writer*
+                        (.visitInsn Opcodes/ARETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))]]
+          (return ret))))))
 
 (defn ^:private instance-closure [compile lambda-class arity closed-over]
   (|do [^MethodVisitor *writer* &/get-writer
@@ -131,7 +133,7 @@
         _ (&/map% (fn [?name+?captured]
                     (|case ?name+?captured
                       [?name [_ (&a/$captured _ _ ?source)]]
-                      (compile ?source)))
+                      (compile nil ?source)))
                   closed-over)
         :let [_ (when (> arity 1)
                   (doto *writer*
@@ -223,15 +225,17 @@
             (.visitMaxs 0 0)
             (.visitEnd))
         (return nil)))
-    (&/with-writer (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 1) nil nil)
-                     (.visitCode))
-      (|do [^MethodVisitor *writer* &/get-writer
-            ret (compile impl-body)
-            :let [_ (doto *writer*
-                      (.visitInsn Opcodes/ARETURN)
-                      (.visitMaxs 0 0)
-                      (.visitEnd))]]
-        (return ret)))
+    (let [$begin (new Label)]
+      (&/with-writer (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 1) nil nil)
+                       (.visitCode)
+                       (.visitLabel $begin))
+        (|do [^MethodVisitor *writer* &/get-writer
+              ret (compile $begin impl-body)
+              :let [_ (doto *writer*
+                        (.visitInsn Opcodes/ARETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd))]]
+          (return ret))))
     ))
 
 ;; [Exports]
