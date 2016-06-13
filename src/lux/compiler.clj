@@ -85,8 +85,8 @@
         (&o/$variant ?tag ?tail ?members)
         (&&lux/compile-variant (partial compile-expression $begin) ?tag ?tail ?members)
 
-        (&o/$case ?value ?match)
-        (&&case/compile-case (partial compile-expression $begin) ?value ?match)
+        (&o/$case ?value [?pm ?bodies])
+        (&&case/compile-case (partial compile-expression $begin) ?value ?pm ?bodies)
 
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)

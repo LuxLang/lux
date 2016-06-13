@@ -3,9 +3,8 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 (ns lux.optimizer
-  (:require (lux [base :as & :refer [|let |do return fail return* fail* |case defvariant]]
-                 [analyser :as &analyser])
-            (lux.analyser [base :as &-base]
+  (:require (lux [base :as & :refer [|let |do return fail return* fail* |case defvariant]])
+            (lux.analyser [base :as &a]
                           [case :as &a-case])))
 
 ;; [Tags]
@@ -29,17 +28,186 @@
   ("loop" 1)
   )
 
+;; For pattern-matching
+(defvariant
+  ("PopPM" 0)
+  ("BindPM" 1)
+  ("BoolPM" 1)
+  ("IntPM" 1)
+  ("RealPM" 1)
+  ("CharPM" 1)
+  ("TextPM" 1)
+  ("VariantPM" 1)
+  ("TuplePM" 1)
+  ("AltPM" 2)
+  ("SeqPM" 2)
+  ("ExecPM" 1))
+
 ;; [Utils]
+(defn ^:private transform-pm* [test]
+  (|case test
+    (&a-case/$NoTestAC)
+    (&/|list $PopPM)
+
+    (&a-case/$StoreTestAC _register)
+    (&/|list ($BindPM _register)
+             $PopPM)
+
+    (&a-case/$BoolTestAC _value)
+    (&/|list ($BoolPM _value)
+             $PopPM)
+
+    (&a-case/$IntTestAC _value)
+    (&/|list ($IntPM _value)
+             $PopPM)
+
+    (&a-case/$RealTestAC _value)
+    (&/|list ($RealPM _value)
+             $PopPM)
+
+    (&a-case/$CharTestAC _value)
+    (&/|list ($CharPM _value)
+             $PopPM)
+
+    (&a-case/$TextTestAC _value)
+    (&/|list ($TextPM _value)
+             $PopPM)
+
+    (&a-case/$VariantTestAC _idx _num-options _sub-test)
+    (&/|++ (&/|list ($VariantPM (if (= _idx (dec _num-options))
+                                  (&/$Right _idx)
+                                  (&/$Left _idx))))
+           (&/|++ (transform-pm* _sub-test)
+                  (&/|list $PopPM)))
+
+    (&a-case/$TupleTestAC _sub-tests)
+    (|case _sub-tests
+      (&/$Nil)
+      (&/|list $PopPM)
+
+      (&/$Cons _only-test (&/$Nil))
+      (transform-pm* _only-test)
+
+      _
+      (|let [tuple-size (&/|length _sub-tests)]
+        (&/|++ (&/flat-map (fn [idx+test*]
+                             (|let [[idx test*] idx+test*]
+                               (&/$Cons ($TuplePM (if (< idx (dec tuple-size))
+                                                    (&/$Left idx)
+                                                    (&/$Right idx)))
+                                        (transform-pm* test*))))
+                           (&/zip2 (&/|range tuple-size)
+                                   _sub-tests))
+               (&/|list $PopPM))))))
+
+(defn ^:private clean-unnecessary-pops [steps]
+  (|case steps
+    (&/$Cons ($PopPM) _steps)
+    (clean-unnecessary-pops _steps)
+
+    _
+    steps))
+
+(defn ^:private transform-pm [test body-id]
+  (&/fold (fn [right left] ($SeqPM left right))
+          ($ExecPM body-id)
+          (clean-unnecessary-pops (&/|reverse (transform-pm* test)))))
+
+(defn ^:private fuse-pms [pre post]
+  (|case (&/T [pre post])
+    [($PopPM) ($PopPM)]
+    $PopPM
+
+    [($BindPM _pre-var-id) ($BindPM _post-var-id)]
+    (if (= _pre-var-id _post-var-id)
+      ($BindPM _pre-var-id)
+      ($AltPM pre post))
+
+    [($BoolPM _pre-value) ($BoolPM _post-value)]
+    (if (= _pre-value _post-value)
+      ($BoolPM _pre-value)
+      ($AltPM pre post))
+
+    [($IntPM _pre-value) ($IntPM _post-value)]
+    (if (= _pre-value _post-value)
+      ($IntPM _pre-value)
+      ($AltPM pre post))
+
+    [($RealPM _pre-value) ($RealPM _post-value)]
+    (if (= _pre-value _post-value)
+      ($RealPM _pre-value)
+      ($AltPM pre post))
+
+    [($CharPM _pre-value) ($CharPM _post-value)]
+    (if (= _pre-value _post-value)
+      ($CharPM _pre-value)
+      ($AltPM pre post))
+
+    [($TextPM _pre-value) ($TextPM _post-value)]
+    (if (= _pre-value _post-value)
+      ($TextPM _pre-value)
+      ($AltPM pre post))
+
+    [($TuplePM (&/$Left _pre-idx)) ($TuplePM (&/$Left _post-idx))]
+    (if (= _pre-idx _post-idx)
+      ($TuplePM (&/$Left _pre-idx))
+      ($AltPM pre post))
+
+    [($TuplePM (&/$Right _pre-idx)) ($TuplePM (&/$Right _post-idx))]
+    (if (= _pre-idx _post-idx)
+      ($TuplePM (&/$Right _pre-idx))
+      ($AltPM pre post))
+
+    [($VariantPM (&/$Left _pre-idx)) ($VariantPM (&/$Left _post-idx))]
+    (if (= _pre-idx _post-idx)
+      ($VariantPM (&/$Left _pre-idx))
+      ($AltPM pre post))
+
+    [($VariantPM (&/$Right _pre-idx)) ($VariantPM (&/$Right _post-idx))]
+    (if (= _pre-idx _post-idx)
+      ($VariantPM (&/$Right _pre-idx))
+      ($AltPM pre post))
+
+    [($SeqPM _pre-pre _pre-post) ($SeqPM _post-pre _post-post)]
+    (|case (fuse-pms _pre-pre _post-pre)
+      ($AltPM _ _)
+      ($AltPM pre post)
+
+      fused-pre
+      ($SeqPM fused-pre (fuse-pms _pre-post _post-post)))
+
+    _
+    ($AltPM pre post)
+    ))
+
+(defn ^:private optimize-pm [branches]
+  (|let [;; branches (&/|reverse branches*)
+         bodies (&/|map &/|second branches)
+         bodies-ids (&/|range (&/|length bodies))
+         pms (&/|map (fn [branch]
+                       (|let [[[_pattern _] _body-id] branch]
+                         (transform-pm _pattern _body-id)))
+                     (&/zip2 branches
+                             bodies-ids))]
+    (|case (&/|reverse pms)
+      (&/$Nil)
+      (assert false)
+
+      (&/$Cons _head-pm _tail-pms)
+      (&/T [(&/fold fuse-pms _head-pm _tail-pms)
+            bodies])
+      )))
+
 (defn ^:private shift-pattern [pattern]
   (|case pattern
-    (&a-case/$StoreTestAC idx)
-    (&a-case/$StoreTestAC (inc idx))
+    ($BindPM _var-id)
+    ($BindPM (inc _var-id))
 
-    (&a-case/$TupleTestAC sub-tests)
-    (&a-case/$TupleTestAC (&/|map shift-pattern sub-tests))
+    ($SeqPM _left-pm _right-pm)
+    ($SeqPM (shift-pattern _left-pm) (shift-pattern _right-pm))
 
-    (&a-case/$VariantTestAC idx num-options sub-test)
-    (&a-case/$VariantTestAC (&/T [idx num-options (shift-pattern sub-test)]))
+    ($AltPM _left-pm _right-pm)
+    ($AltPM (shift-pattern _left-pm) (shift-pattern _right-pm))
 
     _
     pattern
@@ -69,15 +237,12 @@
       ($tuple elems)
       (&/T [meta ($tuple (&/|map (partial shift-function-body own-body?) elems))])
       
-      ($case value branches)
+      ($case value [_pm _bodies])
       (&/T [meta ($case (shift-function-body own-body? value)
-                        (&/|map (fn [branch]
-                                  (|let [[_pattern _body] branch]
-                                    (&/T [(if own-body?
-                                            (shift-pattern _pattern)
-                                            _pattern)
-                                          (shift-function-body own-body? _body)])))
-                                branches))])
+                        (&/T [(if own-body?
+                                (shift-pattern _pm)
+                                _pm)
+                              (&/|map (partial shift-function-body own-body?) _bodies)]))])
       
       ($function arity scope captured body*)
       (&/T [meta ($function arity
@@ -127,8 +292,7 @@
           source
 
           _
-          (&/T [meta ($captured (de-scope scope) idx (shift-function-body own-body? source))]))
-        )
+          (&/T [meta ($captured (de-scope scope) idx (shift-function-body own-body? source))])))
       
       ($proc proc-ident args special-args)
       (&/T [meta ($proc proc-ident (&/|map (partial shift-function-body own-body?) args) special-args)])
@@ -153,12 +317,11 @@
       (&/T [meta ($apply (optimize-loop -1 func)
                          (&/|map (partial optimize-loop -1) args))])
 
-      ($case _value _branches)
+      ($case _value [_pattern _bodies])
       (&/T [meta ($case _value
-                        (&/|map (fn [branch]
-                                  (|let [[_pattern _body] branch]
-                                    (&/T [_pattern (optimize-loop arity _body)])))
-                                _branches))])
+                        (&/T [_pattern
+                              (&/|map (partial optimize-loop arity)
+                                      _bodies)]))])
 
       ($function _arity _scope _captured _body)
       (&/T [meta ($function _arity _scope _captured (optimize-loop _arity _body))])
@@ -185,38 +348,38 @@
     "(-> Analysis Optimized)"
     (|let [[meta analysis-] analysis]
       (|case analysis-
-        (&-base/$bool value)
+        (&a/$bool value)
         (&/T [meta ($bool value)])
         
-        (&-base/$int value)
+        (&a/$int value)
         (&/T [meta ($int value)])
         
-        (&-base/$real value)
+        (&a/$real value)
         (&/T [meta ($real value)])
         
-        (&-base/$char value)
+        (&a/$char value)
         (&/T [meta ($char value)])
         
-        (&-base/$text value)
+        (&a/$text value)
         (&/T [meta ($text value)])
         
-        (&-base/$variant idx is-last? value)
+        (&a/$variant idx is-last? value)
         (&/T [meta ($variant idx is-last? (pass-0 value))])
         
-        (&-base/$tuple elems)
+        (&a/$tuple elems)
         (&/T [meta ($tuple (&/|map pass-0 elems))])
         
-        (&-base/$apply func args)
+        (&a/$apply func args)
         (&/T [meta ($apply (pass-0 func) (&/|map pass-0 args))])
         
-        (&-base/$case value branches)
+        (&a/$case value branches)
         (&/T [meta ($case (pass-0 value)
-                          (&/|map (fn [branch]
-                                    (|let [[_pattern _body] branch]
-                                      (&/T [_pattern (pass-0 _body)])))
-                                  branches))])
+                          (optimize-pm (&/|map (fn [branch]
+                                                 (|let [[_pattern _body] branch]
+                                                   (&/T [_pattern (pass-0 _body)])))
+                                               branches)))])
         
-        (&-base/$lambda scope captured body)
+        (&a/$lambda scope captured body)
         (|case (pass-0 body)
           [_ ($function _arity _scope _captured _body)]
           (&/T [meta ($function (inc _arity) scope (optimize-closure pass-0 captured) (shift-function-body true _body))])
@@ -224,16 +387,16 @@
           =body
           (&/T [meta ($function 1 scope (optimize-closure pass-0 captured) =body)]))
         
-        (&-base/$ann value-expr type-expr type-type)
+        (&a/$ann value-expr type-expr type-type)
         (&/T [meta ($ann (pass-0 value-expr) type-expr type-type)])
         
-        (&-base/$var var-kind)
+        (&a/$var var-kind)
         (&/T [meta ($var var-kind)])
         
-        (&-base/$captured scope idx source)
+        (&a/$captured scope idx source)
         (&/T [meta ($captured scope idx (pass-0 source))])
 
-        (&-base/$proc proc-ident args special-args)
+        (&a/$proc proc-ident args special-args)
         (&/T [meta ($proc proc-ident (&/|map pass-0 args) special-args)])
         
         _

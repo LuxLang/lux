@@ -13,7 +13,8 @@
                  [lexer :as &lexer]
                  [parser :as &parser]
                  [analyser :as &analyser]
-                 [host :as &host])
+                 [host :as &host]
+                 [optimizer :as &o])
             [lux.analyser.case :as &a-case]
             [lux.compiler.base :as &&])
   (:import (org.objectweb.asm Opcodes
@@ -22,176 +23,181 @@
                               MethodVisitor)))
 
 ;; [Utils]
-(defn ^:private compile-match [^MethodVisitor writer ?match $target $else]
-  "(-> [MethodVisitor CaseAnalysis Label Label] Unit)"
-  (|case ?match
-    (&a-case/$NoTestAC)
-    (doto writer
-      (.visitInsn Opcodes/POP) ;; Basically, a No-Op
-      (.visitJumpInsn Opcodes/GOTO $target))
-    
-    (&a-case/$StoreTestAC ?idx)
-    (doto writer
-      (.visitVarInsn Opcodes/ASTORE ?idx)
-      (.visitJumpInsn Opcodes/GOTO $target))
+(defn ^:private pop-alt-stack [^MethodVisitor writer stack-depth]
+  (cond (= 0 stack-depth)
+        writer
 
-    (&a-case/$BoolTestAC ?value)
-    (doto writer
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Boolean" "booleanValue" "()Z")
-      (.visitLdcInsn ?value)
-      (.visitJumpInsn Opcodes/IF_ICMPNE $else)
-      (.visitInsn Opcodes/POP)
-      (.visitJumpInsn Opcodes/GOTO $target))
-
-    (&a-case/$IntTestAC ?value)
-    (doto writer
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
-      (.visitLdcInsn (long ?value))
-      (.visitInsn Opcodes/LCMP)
-      (.visitJumpInsn Opcodes/IFNE $else)
-      (.visitInsn Opcodes/POP)
-      (.visitJumpInsn Opcodes/GOTO $target))
-
-    (&a-case/$RealTestAC ?value)
-    (doto writer
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
-      (.visitLdcInsn (double ?value))
-      (.visitInsn Opcodes/DCMPL)
-      (.visitJumpInsn Opcodes/IFNE $else)
-      (.visitInsn Opcodes/POP)
-      (.visitJumpInsn Opcodes/GOTO $target))
-
-    (&a-case/$CharTestAC ?value)
-    (doto writer
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Character" "charValue" "()C")
-      (.visitLdcInsn ?value)
-      (.visitJumpInsn Opcodes/IF_ICMPNE $else)
-      (.visitInsn Opcodes/POP)
-      (.visitJumpInsn Opcodes/GOTO $target))
-
-    (&a-case/$TextTestAC ?value)
-    (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitLdcInsn ?value)
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
-      (.visitJumpInsn Opcodes/IFEQ $else)
-      (.visitInsn Opcodes/POP)
-      (.visitJumpInsn Opcodes/GOTO $target))
-
-    (&a-case/$TupleTestAC ?members)
-    (|case ?members
-      (&/$Nil)
-      (doto writer
-        (.visitInsn Opcodes/POP)
-        (.visitJumpInsn Opcodes/GOTO $target))
-
-      (&/$Cons ?member (&/$Nil))
-      (compile-match ?member $target $else)
-
-      _
-      (let [num-members (&/|length ?members)]
+        (= 1 stack-depth)
         (doto writer
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-          (-> (doto (.visitInsn Opcodes/DUP)
-                (.visitLdcInsn (int idx))
-                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" (if is-tail? "product_getRight" "product_getLeft") "([Ljava/lang/Object;I)Ljava/lang/Object;")
-                (compile-match test $next $sub-else)
-                (.visitLabel $sub-else)
-                (.visitInsn Opcodes/POP)
-                (.visitJumpInsn Opcodes/GOTO $else)
-                (.visitLabel $next))
-              (->> (|let [[idx test] idx+member
-                          $next (new Label)
-                          $sub-else (new Label)
-                          is-tail? (= (dec num-members) idx)])
-                   (doseq [idx+member (->> ?members &/enumerate &/->seq)])))
-          (.visitInsn Opcodes/POP)
-          (.visitJumpInsn Opcodes/GOTO $target))))
+          (.visitInsn Opcodes/POP))
+        
+        (= 2 stack-depth)
+        (doto writer
+          (.visitInsn Opcodes/POP2))
+        
+        :else ;; > 2
+        (doto writer
+          (.visitInsn Opcodes/POP2)
+          (pop-alt-stack (- stack-depth 2)))))
 
-    (&a-case/$VariantTestAC ?tag ?count ?test)
-    (if (= 1 ?count)
-      (compile-match ?test $target $else)
-      (let [is-last (= ?tag (dec ?count))
-            $variant-else (new Label)
-            _ (doto writer
-                (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                (.visitInsn Opcodes/DUP)
-                (.visitLdcInsn (int ?tag)))
-            _ (if is-last
-                (.visitLdcInsn writer "")
-                (.visitInsn writer Opcodes/ACONST_NULL))
-            _ (doto writer
-                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
-                (.visitInsn Opcodes/DUP)
-                (.visitInsn Opcodes/ACONST_NULL)
-                (.visitJumpInsn Opcodes/IF_ACMPEQ $variant-else)
-                (-> (doto (compile-match ?test $value-then $value-else)
-                      (.visitLabel $value-then)
-                      (.visitInsn Opcodes/POP)
-                      (.visitJumpInsn Opcodes/GOTO $target)
-                      (.visitLabel $value-else)
-                      (.visitInsn Opcodes/POP)
-                      (.visitJumpInsn Opcodes/GOTO $else))
-                    (->> (let [$value-then (new Label)
-                               $value-else (new Label)])))
-                (.visitLabel $variant-else)
-                (.visitInsn Opcodes/POP)
-                (.visitJumpInsn Opcodes/GOTO $else))]
-        writer))
-    ))
+(defn ^:private compile-pattern* [^MethodVisitor writer bodies stack-depth $else pm]
+  "(-> MethodVisitor Case-Pattern (List Label) Int Label MethodVisitor)"
+  (|case pm
+    (&o/$ExecPM _body-idx)
+    (|case (&/|at _body-idx bodies)
+      (&/$Some $body)
+      (doto writer
+        (pop-alt-stack stack-depth)
+        (.visitJumpInsn Opcodes/GOTO $body))
 
-(defn ^:private separate-bodies [patterns]
-  (|let [[_ mappings patterns*] (&/fold (fn [$id+mappings+=matches pattern+body]
-                                          (|let [[$id mappings =matches] $id+mappings+=matches
-                                                 [pattern body] pattern+body]
-                                            (&/T [(inc $id) (&/|put $id body mappings) (&/|put $id pattern =matches)])))
-                                        (&/T [0 (&/|table) (&/|table)])
-                                        patterns)]
-    (&/T [mappings (&/|reverse patterns*)])))
+      (&/$None)
+      (assert false))
 
-(defn ^:private compile-pattern-matching [^MethodVisitor writer compile mappings patterns $end]
-  (let [entries (&/|map (fn [?branch+?body]
-                          (|let [[?branch ?body] ?branch+?body
-                                 label (new Label)]
-                            (&/T [(&/T [?branch label])
-                                  (&/T [label ?body])])))
-                        mappings)
-        mappings* (&/|map &/|first entries)]
+    (&o/$PopPM)
     (doto writer
-      (-> (doto (compile-match ?match (&/|get ?body mappings*) $else)
-            (.visitLabel $else))
-          (->> (|let [[?body ?match] ?body+?match])
-               (doseq [?body+?match (&/->seq patterns)
-                       :let [$else (new Label)]])))
-      (.visitInsn Opcodes/POP)
-      (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
+
+    (&o/$BindPM _var-id)
+    (doto writer
       (.visitInsn Opcodes/DUP)
-      (.visitLdcInsn "Invalid expression for pattern-matching.")
-      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V")
-      (.visitInsn Opcodes/ATHROW))
-    (&/map% (fn [?label+?body]
-              (|let [[?label ?body] ?label+?body]
-                (|do [:let [_ (.visitLabel writer ?label)]
-                      ret (compile ?body)
-                      :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
-                  (return ret))))
-            (&/|map &/|second entries))
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitVarInsn Opcodes/ASTORE _var-id))
+
+    (&o/$BoolPM _value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Boolean" "booleanValue" "()Z")
+      (.visitLdcInsn _value)
+      (.visitJumpInsn Opcodes/IF_ICMPNE $else))
+
+    (&o/$IntPM _value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
+      (.visitLdcInsn (long _value))
+      (.visitInsn Opcodes/LCMP)
+      (.visitJumpInsn Opcodes/IFNE $else))
+
+    (&o/$RealPM _value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
+      (.visitLdcInsn (double _value))
+      (.visitInsn Opcodes/DCMPL)
+      (.visitJumpInsn Opcodes/IFNE $else))
+
+    (&o/$CharPM _value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Character" "charValue" "()C")
+      (.visitLdcInsn _value)
+      (.visitJumpInsn Opcodes/IF_ICMPNE $else))
+
+    (&o/$TextPM _value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitLdcInsn _value)
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
+      (.visitJumpInsn Opcodes/IFEQ $else))
+
+    (&o/$TuplePM _idx+)
+    (|let [[_idx is-tail?] (|case _idx+
+                             (&/$Left _idx)
+                             (&/T [_idx false])
+
+                             (&/$Right _idx)
+                             (&/T [_idx true]))]
+      (doto writer
+        (.visitInsn Opcodes/DUP)
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (.visitLdcInsn (int _idx))
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" (if is-tail? "product_getRight" "product_getLeft") "([Ljava/lang/Object;I)Ljava/lang/Object;")
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+        ))
+
+    (&o/$VariantPM _idx+)
+    (|let [$success (new Label)
+           $fail (new Label)
+           [_idx is-last] (|case _idx+
+                            (&/$Left _idx)
+                            (&/T [_idx false])
+
+                            (&/$Right _idx)
+                            (&/T [_idx true]))
+           _ (doto writer
+               (.visitInsn Opcodes/DUP)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+               (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+               (.visitLdcInsn (int _idx)))
+           _ (if is-last
+               (.visitLdcInsn writer "")
+               (.visitInsn writer Opcodes/ACONST_NULL))]
+      (doto writer
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
+        (.visitInsn Opcodes/DUP)
+        (.visitJumpInsn Opcodes/IFNULL $fail)
+        (.visitJumpInsn Opcodes/GOTO $success)
+        (.visitLabel $fail)
+        (.visitInsn Opcodes/POP)
+        (.visitJumpInsn Opcodes/GOTO $else)
+        (.visitLabel $success)
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))
+
+    (&o/$SeqPM _left-pm _right-pm)
+    (doto writer
+      (compile-pattern* bodies stack-depth $else _left-pm)
+      (compile-pattern* bodies stack-depth $else _right-pm))
+
+    (&o/$AltPM _left-pm _right-pm)
+    (|let [$alt-else (new Label)]
+      (doto writer
+        (.visitInsn Opcodes/DUP)
+        (compile-pattern* bodies (inc stack-depth) $alt-else _left-pm)
+        (.visitLabel $alt-else)
+        (.visitInsn Opcodes/POP)
+        (compile-pattern* bodies stack-depth $else _right-pm)))
     ))
+
+(defn ^:private compile-pattern [^MethodVisitor writer bodies pm $end]
+  (|let [$else (new Label)]
+    (doto writer
+      (compile-pattern* bodies 1 $else pm)
+      (.visitLabel $else)
+      (.visitInsn Opcodes/POP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_fail" "()V")
+      (.visitInsn Opcodes/ACONST_NULL)
+      (.visitJumpInsn Opcodes/GOTO $end))))
+
+(defn ^:private compile-bodies [^MethodVisitor writer compile bodies-labels ?bodies $end]
+  (&/map% (fn [label+body]
+            (|let [[_label _body] label+body]
+              (|do [:let [_ (.visitLabel writer _label)]
+                    _ (compile _body)
+                    :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
+                (return nil))))
+          (&/zip2 bodies-labels ?bodies)))
 
 ;; [Resources]
-(defn compile-case [compile ?value ?matches]
+(defn compile-case [compile ?value ?pm ?bodies]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [$end (new Label)]
+        :let [$end (new Label)
+              bodies-labels (&/|map (fn [_] (new Label)) ?bodies)]
         _ (compile ?value)
-        _ (|let [[mappings patterns] (separate-bodies ?matches)]
-            (compile-pattern-matching *writer* compile mappings patterns $end))
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/ACONST_NULL)
+                  (.visitInsn Opcodes/SWAP)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+              _ (compile-pattern *writer* bodies-labels ?pm $end)]
+        _ (compile-bodies *writer* compile bodies-labels ?bodies $end)
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
