@@ -421,7 +421,10 @@
     xs
 
     ($Cons x xs*)
-    ($Cons (f x) (|map f xs*))))
+    ($Cons (f x) (|map f xs*))
+
+    _
+    (assert false (prn-str '|map f (adt->text xs)))))
 
 (defn |empty? [xs]
   "(All [a] (-> (List a) Bool))"

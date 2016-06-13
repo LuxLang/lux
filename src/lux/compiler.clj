@@ -80,16 +80,13 @@
         (&&lux/compile-apply (partial compile-expression $begin) ?fn ?args)
 
         (&o/$loop ?args)
-        (&&lux/compile-loop (partial compile-expression $begin) (&/|first $begin) ?args)
+        (&&lux/compile-loop (partial compile-expression $begin) $begin ?args)
 
         (&o/$variant ?tag ?tail ?members)
         (&&lux/compile-variant (partial compile-expression $begin) ?tag ?tail ?members)
 
         (&o/$case ?value [?pm ?bodies])
-        (|let [func-class-name+arity (if $begin
-                                       (&/|second $begin)
-                                       (&/T ["" 0]))]
-          (&&case/compile-case (partial compile-expression $begin) func-class-name+arity ?value ?pm ?bodies))
+        (&&case/compile-case (partial compile-expression $begin) ?value ?pm ?bodies)
 
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)

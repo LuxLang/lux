@@ -30,132 +30,144 @@
 
 ;; For pattern-matching
 (defvariant
-  ("ExecPM" 1)
-  ("AltPM" 2)
-  ("BindPM" 2)
-  ("BoolPM" 2)
-  ("IntPM" 2)
-  ("RealPM" 2)
-  ("CharPM" 2)
-  ("TextPM" 2)
-  ("UnitPM" 1)
-  ("VariantPM" 2)
+  ("PopPM" 0)
+  ("BindPM" 1)
+  ("BoolPM" 1)
+  ("IntPM" 1)
+  ("RealPM" 1)
+  ("CharPM" 1)
+  ("TextPM" 1)
+  ("VariantPM" 1)
   ("TuplePM" 1)
+  ("AltPM" 2)
   ("SeqPM" 2)
-  ("InnerPM" 1))
+  ("ExecPM" 1))
 
 ;; [Utils]
-(defn ^:private transform-pm [test next-pm]
+(defn ^:private transform-pm* [test]
   (|case test
     (&a-case/$NoTestAC)
-    ($UnitPM next-pm)
+    (&/|list $PopPM)
 
     (&a-case/$StoreTestAC _register)
-    ($BindPM _register next-pm)
+    (&/|list ($BindPM _register)
+             $PopPM)
 
     (&a-case/$BoolTestAC _value)
-    ($BoolPM _value next-pm)
+    (&/|list ($BoolPM _value)
+             $PopPM)
 
     (&a-case/$IntTestAC _value)
-    ($IntPM _value next-pm)
+    (&/|list ($IntPM _value)
+             $PopPM)
 
     (&a-case/$RealTestAC _value)
-    ($RealPM _value next-pm)
+    (&/|list ($RealPM _value)
+             $PopPM)
 
     (&a-case/$CharTestAC _value)
-    ($CharPM _value next-pm)
+    (&/|list ($CharPM _value)
+             $PopPM)
 
     (&a-case/$TextTestAC _value)
-    ($TextPM _value next-pm)
+    (&/|list ($TextPM _value)
+             $PopPM)
 
     (&a-case/$VariantTestAC _idx _num-options _sub-test)
-    (|let [idx+ (if (= _idx (dec _num-options))
-                  (&/$Right _idx)
-                  (&/$Left _idx))]
-      ($VariantPM idx+ (transform-pm _sub-test next-pm)))
+    (&/|++ (&/|list ($VariantPM (if (= _idx (dec _num-options))
+                                  (&/$Right _idx)
+                                  (&/$Left _idx))))
+           (&/|++ (transform-pm* _sub-test)
+                  (&/|list $PopPM)))
 
     (&a-case/$TupleTestAC _sub-tests)
     (|case _sub-tests
       (&/$Nil)
-      ($UnitPM next-pm)
+      (&/|list $PopPM)
 
       (&/$Cons _only-test (&/$Nil))
-      (transform-pm _only-test next-pm)
+      (transform-pm* _only-test)
 
       _
       (|let [tuple-size (&/|length _sub-tests)]
-        ($TuplePM (&/fold (fn [next-pm* idx+test*]
-                            (|let [[idx test*] idx+test*]
-                              ($SeqPM (if (< idx (dec tuple-size))
-                                        (&/$Left idx)
-                                        (&/$Right idx))
-                                      (transform-pm test* next-pm*))))
-                          ($InnerPM next-pm)
-                          (&/zip2 (&/|reverse (&/|range tuple-size))
-                                  (&/|reverse _sub-tests))))))
-    ))
+        (&/|++ (&/flat-map (fn [idx+test*]
+                             (|let [[idx test*] idx+test*]
+                               (&/$Cons ($TuplePM (if (< idx (dec tuple-size))
+                                                    (&/$Left idx)
+                                                    (&/$Right idx)))
+                                        (transform-pm* test*))))
+                           (&/zip2 (&/|range tuple-size)
+                                   _sub-tests))
+               (&/|list $PopPM))))))
+
+(defn ^:private transform-pm [test body-id]
+  (|case (&/|reverse (&/|++ (transform-pm* test) (&/|list ($ExecPM body-id))))
+    (&/$Cons _last _prevs)
+    (&/fold (fn [right left] ($SeqPM left right)) _last _prevs)))
 
 (defn ^:private fuse-pms [pre post]
   (|case (&/T [pre post])
-    [($UnitPM _pre) ($UnitPM _post)]
-    ($UnitPM (fuse-pms _pre _post))
+    [($PopPM) ($PopPM)]
+    $PopPM
 
-    [($InnerPM _pre) ($InnerPM _post)]
-    ($InnerPM (fuse-pms _pre _post))
-
-    [($BindPM _pre-var-id _pre-next-pm) ($BindPM _post-var-id _post-next-pm)]
+    [($BindPM _pre-var-id) ($BindPM _post-var-id)]
     (if (= _pre-var-id _post-var-id)
-      ($BindPM _pre-var-id (fuse-pms _pre-next-pm _post-next-pm))
+      ($BindPM _pre-var-id)
       ($AltPM pre post))
 
-    [($BoolPM _pre-value _pre-next) ($BoolPM _post-value _post-next)]
+    [($BoolPM _pre-value) ($BoolPM _post-value)]
     (if (= _pre-value _post-value)
-      ($BoolPM _pre-value (fuse-pms _pre-next _post-next))
+      ($BoolPM _pre-value)
       ($AltPM pre post))
 
-    [($IntPM _pre-value _pre-next) ($IntPM _post-value _post-next)]
+    [($IntPM _pre-value) ($IntPM _post-value)]
     (if (= _pre-value _post-value)
-      ($IntPM _pre-value (fuse-pms _pre-next _post-next))
+      ($IntPM _pre-value)
       ($AltPM pre post))
 
-    [($RealPM _pre-value _pre-next) ($RealPM _post-value _post-next)]
+    [($RealPM _pre-value) ($RealPM _post-value)]
     (if (= _pre-value _post-value)
-      ($RealPM _pre-value (fuse-pms _pre-next _post-next))
+      ($RealPM _pre-value)
       ($AltPM pre post))
 
-    [($CharPM _pre-value _pre-next) ($CharPM _post-value _post-next)]
+    [($CharPM _pre-value) ($CharPM _post-value)]
     (if (= _pre-value _post-value)
-      ($CharPM _pre-value (fuse-pms _pre-next _post-next))
+      ($CharPM _pre-value)
       ($AltPM pre post))
 
-    [($TextPM _pre-value _pre-next) ($TextPM _post-value _post-next)]
+    [($TextPM _pre-value) ($TextPM _post-value)]
     (if (= _pre-value _post-value)
-      ($TextPM _pre-value (fuse-pms _pre-next _post-next))
+      ($TextPM _pre-value)
       ($AltPM pre post))
 
-    [($TuplePM _pre-next-pm) ($TuplePM _post-next-pm)]
-    ($TuplePM (fuse-pms _pre-next-pm _post-next-pm))
-    
-    [($SeqPM (&/$Left _pre-idx) _pre-next-pm) ($SeqPM (&/$Left _post-idx) _post-next-pm)]
+    [($TuplePM (&/$Left _pre-idx)) ($TuplePM (&/$Left _post-idx))]
     (if (= _pre-idx _post-idx)
-      ($SeqPM (&/$Left _pre-idx) (fuse-pms _pre-next-pm _post-next-pm))
+      ($TuplePM (&/$Left _pre-idx))
       ($AltPM pre post))
 
-    [($SeqPM (&/$Right _pre-idx) _pre-next-pm) ($SeqPM (&/$Right _post-idx) _post-next-pm)]
+    [($TuplePM (&/$Right _pre-idx)) ($TuplePM (&/$Right _post-idx))]
     (if (= _pre-idx _post-idx)
-      ($SeqPM (&/$Right _pre-idx) (fuse-pms _pre-next-pm _post-next-pm))
+      ($TuplePM (&/$Right _pre-idx))
       ($AltPM pre post))
 
-    [($VariantPM (&/$Left _pre-idx) _pre-next-pm) ($VariantPM (&/$Left _post-idx) _post-next-pm)]
+    [($VariantPM (&/$Left _pre-idx)) ($VariantPM (&/$Left _post-idx))]
     (if (= _pre-idx _post-idx)
-      ($VariantPM (&/$Left _pre-idx) (fuse-pms _pre-next-pm _post-next-pm))
+      ($VariantPM (&/$Left _pre-idx))
       ($AltPM pre post))
 
-    [($VariantPM (&/$Right _pre-idx) _pre-next-pm) ($VariantPM (&/$Right _post-idx) _post-next-pm)]
+    [($VariantPM (&/$Right _pre-idx)) ($VariantPM (&/$Right _post-idx))]
     (if (= _pre-idx _post-idx)
-      ($VariantPM (&/$Right _pre-idx) (fuse-pms _pre-next-pm _post-next-pm))
+      ($VariantPM (&/$Right _pre-idx))
       ($AltPM pre post))
-    
+
+    [($SeqPM _pre-pre _pre-post) ($SeqPM _post-pre _post-post)]
+    (|case (fuse-pms _pre-pre _post-pre)
+      ($AltPM _ _)
+      ($AltPM pre post)
+
+      fused-pre
+      ($SeqPM fused-pre (fuse-pms _pre-post _post-post)))
+
     _
     ($AltPM pre post)
     ))
@@ -166,61 +178,31 @@
          bodies-ids (&/|range (&/|length bodies))
          pms (&/|map (fn [branch]
                        (|let [[[_pattern _] _body-id] branch]
-                         (transform-pm _pattern ($ExecPM _body-id))))
+                         (transform-pm _pattern _body-id)))
                      (&/zip2 branches
-                             bodies-ids))
-         _ (prn 'pms (&/|length bodies) (&/->seq bodies-ids))
-         _ (&/|map (comp prn &/adt->text) pms)]
+                             bodies-ids))]
     (|case (&/|reverse pms)
       (&/$Nil)
       (assert false)
 
       (&/$Cons _head-pm _tail-pms)
-      (do (prn 'pms-FUSED (&/adt->text (&/fold fuse-pms _head-pm _tail-pms)))
-        (&/T [(&/fold fuse-pms _head-pm _tail-pms)
-              bodies]))
-
-      ;; (&/$Cons _last-pm _rev-pms)
-      ;; (do (prn 'pms-FUSED (&/adt->text (&/fold (fn [post pre] (fuse-pms pre post)) _last-pm _rev-pms)))
-      ;;   (&/T [(&/fold (fn [post pre] (fuse-pms pre post)) _last-pm _rev-pms)
-      ;;         bodies]))
+      (&/T [(&/fold fuse-pms _head-pm _tail-pms)
+            bodies])
       )))
 
 (defn ^:private shift-pattern [pattern]
   (|case pattern
-    ($UnitPM _next-pm)
-    ($UnitPM (shift-pattern _next-pm))
+    ($BindPM _var-id)
+    ($BindPM (inc _var-id))
 
-    ($InnerPM _next-pm)
-    ($InnerPM (shift-pattern _next-pm))
+    ($SeqPM _left-pm _right-pm)
+    ($SeqPM (shift-pattern _left-pm) (shift-pattern _right-pm))
 
-    ($BindPM _var-id _next-pm)
-    ($BindPM (inc _var-id) (shift-pattern _next-pm))
-
-    ($BoolPM _value _next-pm)
-    ($BoolPM _value (shift-pattern _next-pm))
-
-    ($IntPM _value _next-pm)
-    ($IntPM _value (shift-pattern _next-pm))
-
-    ($RealPM _value _next-pm)
-    ($RealPM _value (shift-pattern _next-pm))
-
-    ($CharPM _value _next-pm)
-    ($CharPM _value (shift-pattern _next-pm))
-
-    ($TextPM _value _next-pm)
-    ($TextPM _value (shift-pattern _next-pm))
-
-    ($TuplePM _idx+ _next-pm)
-    ($TuplePM _idx+ (shift-pattern _next-pm))
-
-    ($VariantPM _idx+ _next-pm)
-    ($VariantPM _idx+ (shift-pattern _next-pm))
-    
     ($AltPM _left-pm _right-pm)
     ($AltPM (shift-pattern _left-pm) (shift-pattern _right-pm))
-    
+
+    _
+    pattern
     ))
 
 (defn ^:private drop-scope [source]

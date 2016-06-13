@@ -118,7 +118,7 @@
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
-              ret (compile (&/T [$begin (&/T [class-name arity])]) impl-body)
+              ret (compile $begin impl-body)
               :let [_ (doto *writer*
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
@@ -230,7 +230,7 @@
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
-              ret (compile (&/T [$begin (&/T [class-name arity])]) impl-body)
+              ret (compile $begin impl-body)
               :let [_ (doto *writer*
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
