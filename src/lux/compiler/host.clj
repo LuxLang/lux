@@ -263,7 +263,6 @@
                     _ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 1 ?inputs =method)
-              :let [_ (.visitFrame =method Opcodes/F_NEW (int (inc (&/|length =input-tags))) (to-array (&/->seq (&/$Cons Opcodes/UNINITIALIZED_THIS =input-tags))) (int 0) (to-array []))]
               :let [_ (.visitVarInsn =method Opcodes/ALOAD 0)]
               _ (->> ?ctor-args (&/|map &/|second) (&/map% compile))
               :let [_ (.visitMethodInsn =method Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name super-class-name) init-method init-sig)]
@@ -289,7 +288,6 @@
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 1 ?inputs =method)
-              :let [_ (.visitFrame =method Opcodes/F_NEW (int (inc (&/|length =input-tags))) (to-array (&/->seq (&/$Cons bytecode-class-name =input-tags))) (int 0) (to-array []))]
               _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
@@ -311,7 +309,6 @@
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 1 ?inputs =method)
-              :let [_ (.visitFrame =method Opcodes/F_NEW (int (inc (&/|length =input-tags))) (to-array (&/->seq (&/$Cons bytecode-class-name =input-tags))) (int 0) (to-array []))]
               _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
@@ -334,7 +331,6 @@
               :let [_ (&/|map (partial compile-annotation =method) ?anns)
                     _ (.visitCode =method)]
               =input-tags (prepare-method-inputs 0 ?inputs =method)
-              :let [_ (.visitFrame =method Opcodes/F_NEW (int (&/|length =input-tags)) (to-array (&/->seq =input-tags)) (int 0) (to-array []))]
               _ (compile (&o/optimize ?body))
               :let [_ (doto =method
                         (compile-method-return ?output)
@@ -566,7 +562,6 @@
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getLeft" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
-               (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
@@ -587,7 +582,6 @@
                (.visitVarInsn Opcodes/ISTORE 1) ;;
                (.visitJumpInsn Opcodes/GOTO $begin)
                (.visitLabel $not-rec) ;; tuple-size, index-last-elem
-               (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                (.visitInsn Opcodes/POP2) ;;
                (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
@@ -601,7 +595,6 @@
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getRight" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
-               (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
                (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
@@ -628,7 +621,6 @@
                (.visitVarInsn Opcodes/ASTORE 0) ;;
                (.visitJumpInsn Opcodes/GOTO $begin)
                (.visitLabel $must-copy)
-               (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 0) (to-array []))
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitVarInsn Opcodes/ILOAD 1)
                (.visitVarInsn Opcodes/ALOAD 0)
@@ -636,7 +628,6 @@
                (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)[Ljava/lang/Object;")
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $is-last) ;; tuple-size, index-last-elem
-               (.visitFrame Opcodes/F_NEW (int 2) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                (.visitInsn Opcodes/POP2) ;;
                (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
@@ -652,7 +643,6 @@
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
-               (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 0) (to-array []))
                (.visitVarInsn Opcodes/ILOAD 1) ;; tag
                (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum
                (.visitLdcInsn (int 0)) ;; tag, sum, sum-tag-idx
@@ -666,7 +656,6 @@
                (.visitInsn Opcodes/ACONST_NULL)
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $then) ;; tag, sum-tag
-               (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                (.visitVarInsn Opcodes/ALOAD 2) ;; tag, sum-tag, wants-last?
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitLdcInsn (int 1))
@@ -674,14 +663,12 @@
                (.visitJumpInsn Opcodes/IF_ACMPEQ $just-return)
                (.visitJumpInsn Opcodes/GOTO $further)
                (.visitLabel $just-return)
-               (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                (.visitInsn Opcodes/POP2)
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitLdcInsn (int 2))
                (.visitInsn Opcodes/AALOAD)
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $further) ;; tag, sum-tag
-               (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
                (.visitLdcInsn (int 1)) ;; tag, sum-tag, sum, last-index?
                (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?
@@ -695,7 +682,6 @@
                (.visitVarInsn Opcodes/ISTORE 1) ;;
                (.visitJumpInsn Opcodes/GOTO $begin)
                (.visitLabel $not-right) ;; tag, sum-tag
-               (.visitFrame Opcodes/F_NEW (int 3) (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER Opcodes/INTEGER]) (int 2) (to-array [Opcodes/INTEGER Opcodes/INTEGER]))
                (.visitInsn Opcodes/POP2)
                (.visitInsn Opcodes/ACONST_NULL)
                (.visitInsn Opcodes/ARETURN)
@@ -722,7 +708,6 @@
                (.visitVarInsn Opcodes/ALOAD 2)
                (.visitInsn Opcodes/AASTORE)
                (.visitInsn Opcodes/ARETURN)
-               (.visitFrame Opcodes/F_NEW (int 3) (to-array [Opcodes/INTEGER "java/lang/Object" "java/lang/Object"]) (int 0) (to-array []))
                (.visitLabel $is-null)
                (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
                (.visitInsn Opcodes/DUP)
