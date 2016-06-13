@@ -100,10 +100,18 @@
                                    _sub-tests))
                (&/|list $PopPM))))))
 
+(defn ^:private clean-unnecessary-pops [steps]
+  (|case steps
+    (&/$Cons ($PopPM) _steps)
+    (clean-unnecessary-pops _steps)
+
+    _
+    steps))
+
 (defn ^:private transform-pm [test body-id]
-  (|case (&/|reverse (&/|++ (transform-pm* test) (&/|list ($ExecPM body-id))))
-    (&/$Cons _last _prevs)
-    (&/fold (fn [right left] ($SeqPM left right)) _last _prevs)))
+  (&/fold (fn [right left] ($SeqPM left right))
+          ($ExecPM body-id)
+          (clean-unnecessary-pops (&/|reverse (transform-pm* test)))))
 
 (defn ^:private fuse-pms [pre post]
   (|case (&/T [pre post])
