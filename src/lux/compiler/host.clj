@@ -1287,6 +1287,15 @@
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
 
+(defn ^:private compile-jvm-load-class [compile ?values special-args]
+  (|do [:let [(&/$Cons _class-name (&/$Cons ?output-type (&/$Nil))) special-args]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (doto *writer*
+                  (.visitLdcInsn _class-name)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Class" "forName" "(Ljava/lang/String;)Ljava/lang/Class;")
+                  (prepare-return! ?output-type))]]
+    (return nil)))
+
 (defn ^:private compile-jvm-instanceof [compile ?values special-args]
   (|do [:let [(&/$Cons object (&/$Nil)) ?values
               (&/$Cons class (&/$Nil)) special-args]
@@ -1339,6 +1348,7 @@
     
     "jvm"
     (case proc-name
+      "load-class"      (compile-jvm-load-class compile ?values special-args)
       "instanceof"      (compile-jvm-instanceof compile ?values special-args)
       "try"             (compile-jvm-try compile ?values special-args)
       "new"             (compile-jvm-new compile ?values special-args)

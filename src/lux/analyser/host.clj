@@ -858,6 +858,19 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "instanceof"]) (&/|list =object) (&/|list class)))))))
 
+(defn ^:private analyse-jvm-load-class [analyse exo-type ?values]
+  (|do [:let [(&/$Cons [_ (&/$TextS _class-name)] (&/$Nil)) ?values]
+        class-loader &/loader
+        _ (try (do (.loadClass class-loader _class-name)
+                 (return nil))
+            (catch Exception e
+              (&/fail-with-loc (str "[Analyser Error] Unknown class: " _class-name))))
+        :let [output-type (&/$HostT "java.lang.Class" (&/|list (&/$HostT _class-name (&/|list))))]
+        _ (&type/check exo-type output-type)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta output-type _cursor
+                               (&&/$proc (&/T ["jvm" "load-class"]) (&/|list) (&/|list _class-name output-type)))))))
+
 (let [length-type &type/Int
       idx-type &type/Int]
   (defn ^:private analyse-array-new [analyse exo-type ?values]
@@ -991,6 +1004,7 @@
       
       "jvm"
       (case proc
+        "load-class"   (analyse-jvm-load-class analyse exo-type ?values)
         "try"          (analyse-jvm-try analyse exo-type ?values)
         "throw"        (analyse-jvm-throw analyse exo-type ?values)
         "monitorenter" (analyse-jvm-monitorenter analyse exo-type ?values)
