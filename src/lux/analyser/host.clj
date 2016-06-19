@@ -738,20 +738,22 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "putfield"]) (&/|list =object =value) (&/|list class field gclass =type)))))))
 
-(defn ^:private analyse-method-call-helper [analyse gret gtype-env gtype-vars gtype-args args]
+(defn ^:private analyse-method-call-helper [analyse exo-type gret gtype-env gtype-vars gtype-args args]
   (|case gtype-vars
     (&/$Nil)
     (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
           =arg-types (&/map% &type/show-type+ arg-types)
           =args (&/map2% (partial &&/analyse-1 analyse) arg-types args)
-          =gret (&host-type/instance-param &type/existential gtype-env gret)]
+          =gret (&host-type/instance-param &type/existential gtype-env gret)
+          _ (&type/check exo-type (as-otype+ =gret))]
       (return (&/T [=gret =args])))
     
     (&/$Cons ^TypeVariable gtv gtype-vars*)
     (&type/with-var
       (fn [$var]
-        (|do [:let [gtype-env* (&/$Cons (&/T [(.getName gtv) $var]) gtype-env)]
-              [=gret =args] (analyse-method-call-helper analyse gret gtype-env* gtype-vars* gtype-args args)
+        (|do [:let [(&/$VarT _id) $var
+                    gtype-env* (&/$Cons (&/T [(.getName gtv) $var]) gtype-env)]
+              [=gret =args] (analyse-method-call-helper analyse exo-type gret gtype-env* gtype-vars* gtype-args args)
               ==gret (&type/clean $var =gret)
               ==args (&/map% (partial &&/clean-analysis $var) =args)]
           (return (&/T [==gret ==args])))))
@@ -784,8 +786,7 @@
                                      (&/|table)
                                      parent-gvars
                                      super-params*)]
-            [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
-            _ (&type/check exo-type (as-otype+ output-type))
+            [output-type =args] (analyse-method-call-helper analyse exo-type gret gtype-env gvars gargs args)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["jvm" <tag>]) (&/$Cons =object =args) (&/|list class method classes output-type gret)))))))
@@ -802,8 +803,7 @@
         [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader !class! method classes)
         _ (ensure-catching exceptions)
         :let [gtype-env (&/|table)]
-        [output-type =args] (analyse-method-call-helper analyse gret gtype-env gvars gargs args)
-        _ (&type/check exo-type (as-otype+ output-type))
+        [output-type =args] (analyse-method-call-helper analyse exo-type gret gtype-env gvars gargs args)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "invokestatic"]) =args (&/|list class method classes output-type gret)))))))
