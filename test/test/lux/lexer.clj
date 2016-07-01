@@ -5,11 +5,12 @@
 
 (ns test.lux.lexer
   (:use clojure.test)
-  (:require (lux [base :as & :refer [deftags |do return* return fail fail* |let |case]]
+  (:require (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [reader :as &reader]
                  [lexer :as &lexer])
             [lux.analyser.module :as &a-module]
-            :reload-all))
+            :reload-all
+            ))
 
 ;; [Utils]
 (def ^:private module-name "test")
@@ -37,7 +38,7 @@
     (|case (&/run-state (|do [[_ single-line] &lexer/lex
                               [_ multi-line] &lexer/lex
                               [_ multi-line-embedded] &lexer/lex]
-                          (return (&/T single-line multi-line multi-line-embedded)))
+                          (return (&/T [single-line multi-line multi-line-embedded])))
                         (make-state (str "##" input1 "\n" "#(" input2 ")#" "\n" "#(" input3 ")#")))
       (&/$Right state [(&lexer/$Comment output1)
                        (&lexer/$Comment output2)
@@ -56,7 +57,7 @@
         input2 "false"]
     (|case (&/run-state (|do [[_ output1] &lexer/lex
                               [_ output2] &lexer/lex]
-                          (return (&/T output1 output2)))
+                          (return (&/T [output1 output2])))
                         (make-state (str input1 "\n" input2)))
       (&/$Right state [(&lexer/$Bool output1)
                        (&lexer/$Bool output2)])
@@ -75,7 +76,7 @@
     (|case (&/run-state (|do [[_ output1] &lexer/lex
                               [_ output2] &lexer/lex
                               [_ output3] &lexer/lex]
-                          (return (&/T output1 output2 output3)))
+                          (return (&/T [output1 output2 output3])))
                         (make-state (str input1 "\n" input2 "\n" input3)))
       (&/$Right state [(&lexer/$Int output1)
                        (&lexer/$Int output2)
@@ -96,7 +97,7 @@
     (|case (&/run-state (|do [[_ output1] &lexer/lex
                               [_ output2] &lexer/lex
                               [_ output3] &lexer/lex]
-                          (return (&/T output1 output2 output3)))
+                          (return (&/T [output1 output2 output3])))
                         (make-state (str input1 "\n" input2 "\n" input3)))
       (&/$Right state [(&lexer/$Real output1)
                        (&lexer/$Real output2)
@@ -129,7 +130,7 @@
                               [_ output7] &lexer/lex
                               [_ output8] &lexer/lex
                               [_ output9] &lexer/lex]
-                          (return (&/T output1 output2 output3 output4 output5 output6 output7 output8 output9)))
+                          (return (&/T [output1 output2 output3 output4 output5 output6 output7 output8 output9])))
                         (make-state (str "#\"" input1 "\"" "\n" "#\"" input2 "\"" "\n" "#\"" input3 "\""
                                          "\n" "#\"" input4 "\"" "\n" "#\"" input5 "\"" "\n" "#\"" input6 "\""
                                          "\n" "#\"" input7 "\"" "\n" "#\"" input8 "\"" "\n" "#\"" input9 "\"")))
@@ -161,16 +162,13 @@
   (let [input1 ""
         input2 "abc"
         input3 "yolo\\nlol\\tmeme"
-        input4 "This is a test \\
-                   \\ of multi-line text. \\
-
-                   \\ I just wanna make sure it works alright..."]
+        input4 "This is a test\\nof multi-line text.\\n\\nI just wanna make sure it works alright..."]
     (|case (&/run-state (|do [[_ output1] &lexer/lex
                               [_ output2] &lexer/lex
                               [_ output3] &lexer/lex
                               [_ output4] &lexer/lex]
-                          (return (&/T output1 output2 output3 output4)))
-                        (make-state (str "\"" input1 "\"" "\n" "\"" input2 "\"" "\n" "\"" input3 "\"")))
+                          (return (&/T [output1 output2 output3 output4])))
+                        (make-state (str "\"" input1 "\"" "\n" "\"" input2 "\"" "\n" "\"" input3 "\"" "\n" "\"" input4 "\"")))
       (&/$Right state [(&lexer/$Text output1)
                        (&lexer/$Text output2)
                        (&lexer/$Text output3)
@@ -197,22 +195,22 @@
                               [_ output3] &lexer/lex
                               [_ output4] &lexer/lex
                               [_ output5] &lexer/lex]
-                          (return (&/T output1 output2 output3 output4 output5)))
-                        (make-state (str input1 "\n" input2 "\n" input3 "\n" input4 "\n" input5)))
+                          (return (&/T [output1 output2 output3 output4 output5])))
+                        (make-state (str input1 "\n" input2 "\n" input3 "\n" input4 "\n" input5 " ")))
       (&/$Right state [(&lexer/$Symbol output1)
                        (&lexer/$Symbol output2)
                        (&lexer/$Symbol output3)
                        (&lexer/$Symbol output4)
                        (&lexer/$Symbol output5)])
       (are [input output] (&/ident= input output)
-           (&/T "" "foo")                     output1
-           (&/T "test" "bar0123456789")       output2
-           (&/T "lux" "b1a2z3")               output3
-           (&/T "test" "quux")                output4
-           (&/T "" "!_@$%^&*-+=.<>?/|\\~`':") output5)
+           (&/T ["" "foo"])                     output1
+           (&/T ["test" "bar0123456789"])       output2
+           (&/T ["lux" "b1a2z3"])               output3
+           (&/T ["test" "quux"])                output4
+           (&/T ["" "!_@$%^&*-+=.<>?/|\\~`':"]) output5)
       
       _
-      (is false "Couldn't read.")
+      (is false "Couldn't read")
       )))
 
 (deftest lex-tag
@@ -227,19 +225,19 @@
                               [_ output3] &lexer/lex
                               [_ output4] &lexer/lex
                               [_ output5] &lexer/lex]
-                          (return (&/T output1 output2 output3 output4 output5)))
-                        (make-state (str "#" input1 "\n" "#" input2 "\n" "#" input3 "\n" "#" input4 "\n" "#" input5)))
+                          (return (&/T [output1 output2 output3 output4 output5])))
+                        (make-state (str "#" input1 "\n" "#" input2 "\n" "#" input3 "\n" "#" input4 "\n" "#" input5 " ")))
       (&/$Right state [(&lexer/$Tag output1)
                        (&lexer/$Tag output2)
                        (&lexer/$Tag output3)
                        (&lexer/$Tag output4)
                        (&lexer/$Tag output5)])
       (are [input output] (&/ident= input output)
-           (&/T "" "foo")                     output1
-           (&/T "test" "bar0123456789")       output2
-           (&/T "lux" "b1a2z3")               output3
-           (&/T "test" "quux")                output4
-           (&/T "" "!_@$%^&*-+=.<>?/|\\~`':") output5)
+           (&/T ["" "foo"])                     output1
+           (&/T ["test" "bar0123456789"])       output2
+           (&/T ["lux" "b1a2z3"])               output3
+           (&/T ["test" "quux"])                output4
+           (&/T ["" "!_@$%^&*-+=.<>?/|\\~`':"]) output5)
       
       _
       (is false "Couldn't read.")
@@ -259,7 +257,7 @@
                               [_ output4] &lexer/lex
                               [_ output5] &lexer/lex
                               [_ output6] &lexer/lex]
-                          (return (&/T output1 output2 output3 output4 output5 output6)))
+                          (return (&/T [output1 output2 output3 output4 output5 output6])))
                         (make-state (str input1 "\n" input2 "\n" input3 "\n" input4 "\n" input5 "\n" input6)))
       (&/$Right state [(&lexer/$Open_Paren)
                        (&lexer/$Close_Paren)
@@ -273,4 +271,6 @@
       (is false "Couldn't read.")
       )))
 
-;; (run-all-tests)
+(comment
+  (run-all-tests)
+  )

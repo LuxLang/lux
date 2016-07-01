@@ -6,7 +6,7 @@
 (ns test.lux.parser
   (:use (clojure test
                  template))
-  (:require (lux [base :as & :refer [deftags |do return* return fail fail* |let |case]]
+  (:require (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [reader :as &reader]
                  [parser :as &parser])
             [lux.analyser.module :as &a-module]
@@ -147,17 +147,20 @@
 (deftest parse-text
   (let [input1 ""
         input2 "abc"
-        input3 "yolo\\nlol\\tmeme"]
+        input3 "yolo\\nlol\\tmeme"
+        input4 "This is a test\\nof multi-line text.\\n\\nI just wanna make sure it works alright..."]
     (|case (&/run-state (|do [output1 &parser/parse
                               output2 &parser/parse
-                              output3 &parser/parse]
-                          (return (&/|++ output1 (&/|++ output2 output3))))
-                        (make-state (str "\"" input1 "\"" "\n" "\"" input2 "\"" "\n" "\"" input3 "\"")))
-      (&/$Right state (&/$Cons [_ (&/$TextS output1)] (&/$Cons [_ (&/$TextS output2)] (&/$Cons [_ (&/$TextS output3)] (&/$Nil)))))
+                              output3 &parser/parse
+                              output4 &parser/parse]
+                          (return (&/|++ output1 (&/|++ output2 (&/|++ output3 output4)))))
+                        (make-state (str "\"" input1 "\"" "\n" "\"" input2 "\"" "\n" "\"" input3 "\"" "\n" "\"" input4 "\"")))
+      (&/$Right state (&/$Cons [_ (&/$TextS output1)] (&/$Cons [_ (&/$TextS output2)] (&/$Cons [_ (&/$TextS output3)] (&/$Cons [_ (&/$TextS output4)] (&/$Nil))))))
       (are [input output] (= input output)
            input1            output1
            input2            output2
-           "yolo\nlol\tmeme" output3)
+           "yolo\nlol\tmeme" output3
+           "This is a test\nof multi-line text.\n\nI just wanna make sure it works alright..." output4)
       
       _
       (is false "Couldn't read.")
@@ -176,7 +179,7 @@
                               output4 &parser/parse
                               output5 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 (&/|++ output3 (&/|++ output4 output5))))))
-                        (make-state (str input1 "\n" input2 "\n" input3 "\n" input4 "\n" input5)))
+                        (make-state (str input1 "\n" input2 "\n" input3 "\n" input4 "\n" input5 " ")))
       (&/$Right state (&/$Cons [_ (&/$SymbolS output1)]
                                (&/$Cons [_ (&/$SymbolS output2)]
                                         (&/$Cons [_ (&/$SymbolS output3)]
@@ -184,11 +187,11 @@
                                                           (&/$Cons [_ (&/$SymbolS output5)]
                                                                    (&/$Nil)))))))
       (are [input output] (&/ident= input output)
-           (&/T "" "foo")                     output1
-           (&/T "test" "bar0123456789")       output2
-           (&/T "lux" "b1a2z3")               output3
-           (&/T "test" "quux")                output4
-           (&/T "" "!_@$%^&*-+=.<>?/|\\~`':") output5)
+           (&/T ["" "foo"])                     output1
+           (&/T ["test" "bar0123456789"])       output2
+           (&/T ["lux" "b1a2z3"])               output3
+           (&/T ["test" "quux"])                output4
+           (&/T ["" "!_@$%^&*-+=.<>?/|\\~`':"]) output5)
       
       _
       (is false "Couldn't read.")
@@ -207,7 +210,7 @@
                               output4 &parser/parse
                               output5 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 (&/|++ output3 (&/|++ output4 output5))))))
-                        (make-state (str "#" input1 "\n" "#" input2 "\n" "#" input3 "\n" "#" input4 "\n" "#" input5)))
+                        (make-state (str "#" input1 "\n" "#" input2 "\n" "#" input3 "\n" "#" input4 "\n" "#" input5 " ")))
       (&/$Right state (&/$Cons [_ (&/$TagS output1)]
                                (&/$Cons [_ (&/$TagS output2)]
                                         (&/$Cons [_ (&/$TagS output3)]
@@ -215,11 +218,11 @@
                                                           (&/$Cons [_ (&/$TagS output5)]
                                                                    (&/$Nil)))))))
       (are [input output] (&/ident= input output)
-           (&/T "" "foo")                     output1
-           (&/T "test" "bar0123456789")       output2
-           (&/T "lux" "b1a2z3")               output3
-           (&/T "test" "quux")                output4
-           (&/T "" "!_@$%^&*-+=.<>?/|\\~`':") output5)
+           (&/T ["" "foo"])                     output1
+           (&/T ["test" "bar0123456789"])       output2
+           (&/T ["lux" "b1a2z3"])               output3
+           (&/T ["test" "quux"])                output4
+           (&/T ["" "!_@$%^&*-+=.<>?/|\\~`':"]) output5)
       
       _
       (is false "Couldn't read.")
@@ -236,10 +239,10 @@
                                                                       (&/$Cons [_ (&/$TagS tagv)]
                                                                                (&/$Nil))))))]
                                  (&/$Nil)))
-        (do (is (&/ident= (&/T "" "yolo") symv))
+        (do (is (&/ident= (&/T ["" "yolo"]) symv))
           (is (= 123 intv))
           (is (= "lol" textv))
-          (is (&/ident= (&/T "" "meme") tagv)))
+          (is (&/ident= (&/T ["" "meme"]) tagv)))
         
         _
         (is false "Couldn't read.")
@@ -257,13 +260,15 @@
                                                        (&/$Cons [[_ (&/$TextS textv)] [_ (&/$TagS tagv)]]
                                                                 (&/$Nil))))]
                                (&/$Nil)))
-      (do (is (&/ident= (&/T "" "yolo") symv))
+      (do (is (&/ident= (&/T ["" "yolo"]) symv))
         (is (= 123 intv))
         (is (= "lol" textv))
-        (is (&/ident= (&/T "" "meme") tagv)))
+        (is (&/ident= (&/T ["" "meme"]) tagv)))
       
       _
       (is false "Couldn't read.")
       )))
 
-(run-all-tests)
+(comment
+  (run-all-tests)
+  )

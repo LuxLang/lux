@@ -756,21 +756,15 @@
         [(&/$ExQ e!env e!def) _]
         (with-var
           (fn [$arg]
-            (|do [:let [expected* (beta-reduce (->> e!env
-                                                    (&/$Cons $arg)
-                                                    (&/$Cons expected))
-                                               e!def)]
+            (|do [expected* (apply-type expected $arg)
                   =output (check* class-loader fixpoints invariant?? expected* actual)
                   _ (clean $arg actual)]
               (return =output))))
 
         [_ (&/$ExQ a!env a!def)]
-        (|do [$arg existential]
-          (|let [actual* (beta-reduce (->> a!env
-                                           (&/$Cons $arg)
-                                           (&/$Cons expected))
-                                      a!def)]
-            (check* class-loader fixpoints invariant?? expected actual*)))
+        (|do [$arg existential
+              actual* (apply-type actual $arg)]
+          (check* class-loader fixpoints invariant?? expected actual*))
 
         [(&/$HostT e!data) (&/$HostT a!data)]
         (&&host/check-host-types (partial check* class-loader fixpoints true)

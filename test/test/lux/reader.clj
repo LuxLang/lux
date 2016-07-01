@@ -5,7 +5,7 @@
 
 (ns test.lux.reader
   (:use clojure.test)
-  (:require (lux [base :as & :refer [deftags |do return* return fail fail* |let |case]]
+  (:require (lux [base :as & :refer [|do return* return fail fail* |let |case]]
                  [reader :as &reader])
             :reload-all))
 
@@ -15,13 +15,13 @@
 
 ;; [Tests]
 (deftest test-source-code-reading
-  (is (= 4 (&/|length source))))
+  (is (= 5 (&/|length source))))
 
 (deftest test-text-reading
   ;; Should be capable of recognizing literal texts.
   (let [input "lo"]
     (|case (&/run-state (&reader/read-text input) init-state)
-      (&/$Right state [cursor output])
+      (&/$Right state [cursor end-line? output])
       (is (= input output))
 
       _
@@ -31,19 +31,8 @@
 (deftest test-regex-reading
   ;; Should be capable of matching simple, grouping regex-patterns.
   (|case (&/run-state (&reader/read-regex #"l(.)l") init-state)
-    (&/$Right state [cursor output])
-    (is (= "lol" "lol"))
-
-    _
-    (is false "Couldn't read.")
-    ))
-
-(deftest test-regex2-reading
-  ;; Should be capable of matching double, grouping regex-patterns.
-  (|case (&/run-state (&reader/read-regex2 #"(.)(..)") init-state)
-    (&/$Right state [cursor [left right]])
-    (is (and (= "l" left)
-             (= "ol" right)))
+    (&/$Right state [cursor end-line? output])
+    (is (= "lol" output))
 
     _
     (is false "Couldn't read.")
@@ -51,12 +40,14 @@
 
 (deftest test-regex+-reading
   ;; Should be capable of matching multi-line regex-patterns.
-  (|case (&/run-state (&reader/read-regex+ #"(?is)^(.*?)(cat|$)") init-state)
+  (|case (&/run-state (&reader/read-regex+ #"(?is)^((?!cat).)*") init-state)
     (&/$Right state [cursor output])
-    (is (= "lol\nmeme\nnyan " output))
+    (is (= "\nlol\nmeme\nnyan " output))
 
     _
     (is false "Couldn't read.")
     ))
 
-;; (run-all-tests)
+(comment
+  (run-all-tests)
+  )
