@@ -556,7 +556,7 @@
     (&&/save-class! (second (string/split &&/function-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
-(defn ^:private compile-LuxUtils-adt-methods [=class]
+(defn ^:private compile-LuxRT-adt-methods [=class]
   (|let [_ (let [$begin (new Label)
                  $not-rec (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getLeft" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
@@ -718,7 +718,7 @@
                (.visitEnd)))]
     nil))
 
-(defn ^:private compile-LuxUtils-pm-methods [=class]
+(defn ^:private compile-LuxRT-pm-methods [=class]
   (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_fail" "()V" nil nil)
              (.visitCode)
              (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
@@ -762,7 +762,7 @@
              (.visitEnd))]
     nil))
 
-(def compile-LuxUtils-class
+(def compile-LuxRT-class
   (|do [_ (return nil)
         :let [full-name &&/lux-utils-class
               super-class (&host-generics/->bytecode-class-name "java.lang.Object")
@@ -794,8 +794,8 @@
                     (.visitMaxs 0 0)
                     (.visitEnd)))
               _ (doto =class
-                  (compile-LuxUtils-adt-methods)
-                  (compile-LuxUtils-pm-methods))]]
+                  (compile-LuxRT-adt-methods)
+                  (compile-LuxRT-pm-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
@@ -1320,23 +1320,23 @@
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I))]
         :let [_ (.visitInsn *writer* Opcodes/AALOAD)]
-        :let [$then (new Label)
+        :let [$is-null (new Label)
               $end (new Label)
               _ (doto *writer*
                   (.visitInsn Opcodes/DUP)
-                  (.visitJumpInsn Opcodes/IFNULL $then)
-                  (.visitInsn Opcodes/POP)
-                  (.visitLdcInsn (int 0))
-                  (.visitInsn Opcodes/ACONST_NULL)
-                  (.visitLdcInsn &/unit-tag)
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
-                  (.visitJumpInsn Opcodes/GOTO $end)
-                  (.visitLabel $then)
+                  (.visitJumpInsn Opcodes/IFNULL $is-null)
                   (.visitLdcInsn (int 1))
                   (.visitLdcInsn "")
                   (.visitInsn Opcodes/DUP2_X1) ;; I?2I?
                   (.visitInsn Opcodes/POP2) ;; I?2
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxUtils" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $is-null)
+                  (.visitInsn Opcodes/POP)
+                  (.visitLdcInsn (int 0))
+                  (.visitInsn Opcodes/ACONST_NULL)
+                  (.visitLdcInsn &/unit-tag)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitLabel $end))]]
     (return nil)))
 

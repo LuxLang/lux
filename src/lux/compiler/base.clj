@@ -28,7 +28,7 @@
 (def ^String output-dir "target/jvm")
 (def ^String output-package (str output-dir "/" "program.jar"))
 (def ^String function-class "lux/Function")
-(def ^String lux-utils-class "lux/LuxUtils")
+(def ^String lux-utils-class "lux/LuxRT")
 (def ^String unit-tag-field "unit_tag")
 
 ;; Formats
