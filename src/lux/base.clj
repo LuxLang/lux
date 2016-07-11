@@ -756,6 +756,17 @@
         (|table)
         ])))
 
+(defn with-no-catches [body]
+  "(All [a] (-> (Lux a) (Lux a)))"
+  (fn [state]
+    (let [old-catching (->> state (get$ $host) (get$ $catching))]
+      (|case (body (update$ $host #(set$ $catching $Nil %) state))
+        ($Right state* output)
+        (return* (update$ $host #(set$ $catching old-catching %) state*) output)
+
+        ($Left msg)
+        (fail* msg)))))
+
 (defn default-compiler-info [mode]
   (T [;; compiler-name
       compiler-name
@@ -828,14 +839,14 @@
         (return* state datum)
 
         _
-        (fail* "Writer hasn't been set.")))))
+        ((fail-with-loc "Writer hasn't been set.") state)))))
 
 (def get-top-local-env
   (fn [state]
     (try (let [top (|head (get$ $envs state))]
            (return* state top))
       (catch Throwable _
-        (fail* "No local environment.")))))
+        ((fail-with-loc "No local environment.") state)))))
 
 (def gen-id
   (fn [state]
@@ -864,7 +875,7 @@
   (fn [state]
     (|case (|reverse (get$ $envs state))
       ($Nil)
-      (fail* "[Analyser Error] Can't get the module-name without a module.")
+      ((fail-with-loc "[Analyser Error] Can't get the module-name without a module.") state)
 
       ($Cons ?global _)
       (return* state (get$ $name ?global)))))
@@ -874,7 +885,7 @@
   (fn [state]
     (if-let [module (|get name (get$ $modules state))]
       (return* state module)
-      (fail* (str "Unknown module: " name)))))
+      ((fail-with-loc (str "Unknown module: " name)) state))))
 
 (def get-current-module
   "(Lux (Module Compiler))"
@@ -983,7 +994,7 @@
       (return* state unit-tag)
 
       ($Some _)
-      (fail* "[Error] All statements must be top-level forms."))))
+      ((fail-with-loc "[Error] All statements must be top-level forms.") state))))
 
 (def cursor
   ;; (Lux Cursor)

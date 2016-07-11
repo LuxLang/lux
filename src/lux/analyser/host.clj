@@ -23,22 +23,29 @@
   (:import (java.lang.reflect Type TypeVariable)))
 
 ;; [Utils]
-(defn ^:private ensure-catching [exceptions]
+(defn ^:private ensure-catching [exceptions*]
   "(-> (List Text) (Lux Null))"
   (|do [class-loader &/loader]
     (fn [state]
-      (let [exceptions (&/|map #(Class/forName % true class-loader) exceptions)
-            catching (->> state (&/get$ &/$host) (&/get$ &/$catching)
-                          (&/|map #(Class/forName % true class-loader)))]
+      (|let [exceptions (&/|map #(Class/forName % true class-loader) exceptions*)
+             catching (->> state
+                           (&/get$ &/$host)
+                           (&/get$ &/$catching)
+                           (&/|map #(Class/forName % true class-loader)))]
         (if-let [missing-ex (&/fold (fn [prev ^Class now]
                                       (or prev
-                                          (if (&/fold (fn [found? ^Class ex-catch]
-                                                        (or found?
-                                                            (.isAssignableFrom ex-catch now)))
-                                                      false
-                                                      catching)
-                                            nil
-                                            now)))
+                                          (cond (.isAssignableFrom java.lang.RuntimeException now)
+                                                nil
+
+                                                (&/fold (fn [found? ^Class ex-catch]
+                                                          (or found?
+                                                              (.isAssignableFrom ex-catch now)))
+                                                        false
+                                                        catching)
+                                                nil
+
+                                                :else
+                                                now)))
                                     nil
                                     exceptions)]
           ((&/fail-with-loc (str "[Analyser Error] Unhandled exception: " missing-ex))
@@ -314,10 +321,11 @@
                                ?ctor-args)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                        (&/fold (method-input-folder full-env)
-                                (&&/analyse-1 analyse output-type ?body)
-                                (&/|reverse ?inputs)))))]
+                      (&/with-no-catches
+                        (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                          (&/fold (method-input-folder full-env)
+                                  (&&/analyse-1 analyse output-type ?body)
+                                  (&/|reverse ?inputs))))))]
         (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
       (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -326,10 +334,11 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                        (&/fold (method-input-folder full-env)
-                                (&&/analyse-1 analyse output-type ?body)
-                                (&/|reverse ?inputs)))))]
+                      (&/with-no-catches
+                        (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                          (&/fold (method-input-folder full-env)
+                                  (&&/analyse-1 analyse output-type ?body)
+                                  (&/|reverse ?inputs))))))]
         (return (&/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -339,10 +348,11 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                        (&/fold (method-input-folder full-env)
-                                (&&/analyse-1 analyse output-type ?body)
-                                (&/|reverse ?inputs)))))]
+                      (&/with-no-catches
+                        (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                          (&/fold (method-input-folder full-env)
+                                  (&&/analyse-1 analyse output-type ?body)
+                                  (&/|reverse ?inputs))))))]
         (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$StaticMethodSyntax ?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -350,10 +360,11 @@
             :let [full-env method-env]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
-                    (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                      (&/fold (method-input-folder full-env)
-                              (&&/analyse-1 analyse output-type ?body)
-                              (&/|reverse ?inputs))))]
+                    (&/with-no-catches
+                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
+                        (&/fold (method-input-folder full-env)
+                                (&&/analyse-1 analyse output-type ?body)
+                                (&/|reverse ?inputs)))))]
         (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$AbstractMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
@@ -675,9 +686,12 @@
 
 (defn ^:private analyse-jvm-throw [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values]
-        =ex (&&/analyse-1 analyse (&/$HostT "java.lang.Throwable" &/$Nil) ?ex)
+        =ex (&&/analyse-1+ analyse ?ex)
+        _ (&type/check (&/$HostT "java.lang.Throwable" &/$Nil) (&&/expr-type* =ex))
+        [throw-class throw-params] (ensure-object (&&/expr-type* =ex))
+        _ (ensure-catching (&/|list throw-class))
         _cursor &/cursor
-        _ (&type/check exo-type &/$VoidT)]
+        _ (&type/check exo-type &type/Bottom)]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "throw"]) (&/|list =ex) (&/|list)))))))
 

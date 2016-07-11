@@ -399,8 +399,8 @@
                                     ((&/fail-with-loc error) state)))
                 module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "defstruct" r-name)
-                ;;                   (= "struct" r-name)
+                ;;       _ (when (or (and (= "lux/data/maybe" r-prefix)
+                ;;                        (= "?" r-name))
                 ;;                   ;; (= "@type" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)
@@ -559,7 +559,8 @@
     ))
 
 (defn analyse-lambda [analyse exo-type ?self ?arg ?body]
-  (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
+  (|do [output (&/with-no-catches
+                 (analyse-lambda** analyse exo-type ?self ?arg ?body))]
     (return (&/|list output))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]

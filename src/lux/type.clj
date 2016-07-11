@@ -34,6 +34,11 @@
 (def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$HostT "java.lang.String" &/$Nil)))
 (def Ident (&/$NamedT (&/T ["lux" "Ident"]) (&/$ProdT Text Text)))
 
+(def Bottom
+  (&/$NamedT (&/T ["lux" "Bottom"])
+             (&/$UnivQ empty-env
+                       (&/$BoundT 1))))
+
 (def IO
   (&/$NamedT (&/T ["lux/codata" "IO"])
              (&/$UnivQ empty-env
