@@ -1005,9 +1005,48 @@
                                    )))
         ))))
 
+(do-template [<name> <op>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons input (&/$Cons mask (&/$Nil))) ?values]
+          =mask (&&/analyse-1 analyse &type/Int mask)
+          =input (&&/analyse-1 analyse &type/Int input)
+          _ (&type/check exo-type &type/Int)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["bit" <op>]) (&/|list =input =mask) (&/|list)))))))
+
+  ^:private analyse-bit-and "and"
+  ^:private analyse-bit-or  "or"
+  ^:private analyse-bit-xor "xor"
+  )
+
+(do-template [<name> <op>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons input (&/$Cons shift (&/$Nil))) ?values]
+          =shift (&&/analyse-1 analyse &type/Int shift)
+          =input (&&/analyse-1 analyse &type/Int input)
+          _ (&type/check exo-type &type/Int)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["bit" <op>]) (&/|list =input =shift) (&/|list)))))))
+
+  ^:private analyse-bit-shift-left           "shift-left"
+  ^:private analyse-bit-shift-right          "shift-right"
+  ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right"
+  )
+
 (defn analyse-host [analyse exo-type compilers category proc ?values]
   (|let [[_ _ compile-class compile-interface] compilers]
     (case category
+      "bit"
+      (case proc
+        "and"                  (analyse-bit-and analyse exo-type ?values)
+        "or"                   (analyse-bit-or analyse exo-type ?values)
+        "xor"                  (analyse-bit-xor analyse exo-type ?values)
+        "shift-left"           (analyse-bit-shift-left analyse exo-type ?values)
+        "shift-right"          (analyse-bit-shift-right analyse exo-type ?values)
+        "unsigned-shift-right" (analyse-bit-unsigned-shift-right analyse exo-type ?values))
+      
       "array"
       (case proc
         "new"    (analyse-array-new analyse exo-type ?values)

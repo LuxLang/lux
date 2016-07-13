@@ -1340,8 +1340,55 @@
                   (.visitLabel $end))]]
     (return nil)))
 
+(do-template [<name> <op>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Cons ?mask (&/$Nil))) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?input)
+          :let [_ (&&/unwrap-long *writer*)]
+          _ (compile ?mask)
+          :let [_ (&&/unwrap-long *writer*)]
+          :let [_ (doto *writer*
+                    (.visitInsn <op>)
+                    &&/wrap-long)]]
+      (return nil)))
+
+  ^:private compile-bit-and Opcodes/LAND
+  ^:private compile-bit-or  Opcodes/LOR
+  ^:private compile-bit-xor Opcodes/LXOR
+  )
+
+(do-template [<name> <op>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Cons ?shift (&/$Nil))) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?input)
+          :let [_ (&&/unwrap-long *writer*)]
+          _ (compile ?shift)
+          :let [_ (doto *writer*
+                    &&/unwrap-long
+                    (.visitInsn Opcodes/L2I))]
+          :let [_ (doto *writer*
+                    (.visitInsn <op>)
+                    &&/wrap-long)]]
+      (return nil)))
+
+  ^:private compile-bit-shift-left           Opcodes/LSHL
+  ^:private compile-bit-shift-right          Opcodes/LSHR
+  ^:private compile-bit-unsigned-shift-right Opcodes/LUSHR
+  )
+
 (defn compile-host [compile proc-category proc-name ?values special-args]
   (case proc-category
+    "bit"
+    (case proc-name
+      "and"                  (compile-bit-and compile ?values special-args)
+      "or"                   (compile-bit-or compile ?values special-args)
+      "xor"                  (compile-bit-xor compile ?values special-args)
+      "shift-left"           (compile-bit-shift-left compile ?values special-args)
+      "shift-right"          (compile-bit-shift-right compile ?values special-args)
+      "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
+    
     "array"
     (case proc-name
       "get" (compile-array-get compile ?values special-args))
