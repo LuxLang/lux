@@ -627,12 +627,12 @@
 
 (defn ^:private check* [class-loader fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
-    (return (&/T [fixpoints nil]))
+    (return fixpoints)
     (&/with-attempt
       (|case [expected actual]
         [(&/$VarT ?eid) (&/$VarT ?aid)]
         (if (.equals ^Object ?eid ?aid)
-          (return (&/T [fixpoints nil]))
+          (return fixpoints)
           (|do [ebound (fn [state]
                          (|case ((deref ?eid) state)
                            (&/$Right state* ebound)
@@ -650,7 +650,7 @@
             (|case [ebound abound]
               [(&/$None _) (&/$None _)]
               (|do [_ (set-var ?eid actual)]
-                (return (&/T [fixpoints nil])))
+                (return fixpoints))
               
               [(&/$Some etype) (&/$None _)]
               (check* class-loader fixpoints invariant?? etype actual)
@@ -665,7 +665,7 @@
         (fn [state]
           (|case ((set-var ?id actual) state)
             (&/$Right state* _)
-            (return* state* (&/T [fixpoints nil]))
+            (return* state* fixpoints)
 
             (&/$Left _)
             ((|do [bound (deref ?id)]
@@ -676,7 +676,7 @@
         (fn [state]
           (|case ((set-var ?id expected) state)
             (&/$Right state* _)
-            (return* state* (&/T [fixpoints nil]))
+            (return* state* fixpoints)
 
             (&/$Left _)
             ((|do [bound (deref ?id)]
@@ -697,11 +697,10 @@
             (return* state* output)
 
             (&/$Left _)
-            ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? (&/$VarT ?id) F2)
+            ((|do [fixpoints* (check* class-loader fixpoints invariant?? (&/$VarT ?id) F2)
                    e* (apply-type F2 A1)
-                   a* (apply-type F2 A2)
-                   [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-               (return (&/T [fixpoints** nil])))
+                   a* (apply-type F2 A2)]
+               (check* class-loader fixpoints* invariant?? e* a*))
              state)))
         
         [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
@@ -713,11 +712,10 @@
             (return* state* output)
 
             (&/$Left _)
-            ((|do [[fixpoints* _] (check* class-loader fixpoints invariant?? F1 (&/$VarT ?id))
+            ((|do [fixpoints* (check* class-loader fixpoints invariant?? F1 (&/$VarT ?id))
                    e* (apply-type F1 A1)
-                   a* (apply-type F1 A2)
-                   [fixpoints** _] (check* class-loader fixpoints* invariant?? e* a*)]
-               (return (&/T [fixpoints** nil])))
+                   a* (apply-type F1 A2)]
+               (check* class-loader fixpoints* invariant?? e* a*))
              state)))
         
         [(&/$AppT F A) _]
@@ -734,7 +732,7 @@
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
             (if ?
-              (return (&/T [fixpoints nil]))
+              (return fixpoints)
               (check-error "" expected actual))
 
             (&/$None)
@@ -782,26 +780,26 @@
                                  a!data)
 
         [(&/$VoidT) (&/$VoidT)]
-        (return (&/T [fixpoints nil]))
+        (return fixpoints)
         
         [(&/$UnitT) (&/$UnitT)]
-        (return (&/T [fixpoints nil]))
+        (return fixpoints)
 
         [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
-        (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? aI eI)]
+        (|do [fixpoints* (check* class-loader fixpoints invariant?? aI eI)]
           (check* class-loader fixpoints* invariant?? eO aO))
 
         [(&/$ProdT eL eR) (&/$ProdT aL aR)]
-        (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? eL aL)]
+        (|do [fixpoints* (check* class-loader fixpoints invariant?? eL aL)]
           (check* class-loader fixpoints* invariant?? eR aR))
 
         [(&/$SumT eL eR) (&/$SumT aL aR)]
-        (|do [[fixpoints* _] (check* class-loader fixpoints invariant?? eL aL)]
+        (|do [fixpoints* (check* class-loader fixpoints invariant?? eL aL)]
           (check* class-loader fixpoints* invariant?? eR aR))
 
         [(&/$ExT e!id) (&/$ExT a!id)]
         (if (.equals ^Object e!id a!id)
-          (return (&/T [fixpoints nil]))
+          (return fixpoints)
           (check-error "" expected actual))
 
         [(&/$NamedT ?ename ?etype) _]
