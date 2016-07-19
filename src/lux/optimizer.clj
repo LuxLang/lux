@@ -213,48 +213,70 @@
     pattern
     ))
 
-(defn ^:private drop-scope [source]
-  (|case source
-    [meta ($captured scope idx source*)]
-    (&/T [meta ($captured (&/|but-last scope) idx (drop-scope source*))])
+(defn ^:private de-scope [old-scope new-scope scope]
+  "(-> Scope Scope Scope Scope)"
+  (if (or (and (identical? new-scope scope)
+               ;; (do (prn 'SIMPLE-WAS-ENOUGH) true)
+               )
+          (do ;; (prn 'LONG-TEST!)
+              (and (= (&/|length new-scope)
+                      (&/|length scope))
+                   (do ;; (prn 'FULL-TEST! (&/->seq new-scope) (&/->seq scope))
+                       (loop [new-scope* new-scope
+                              scope* scope]
+                         (|case new-scope*
+                           (&/$Nil)
+                           (|case scope*
+                             (&/$Nil) true
+                             _        false)
 
-    _
-    source))
+                           (&/$Cons _new new-scope**)
+                           (|case scope*
+                             (&/$Cons _current scope**)
+                             (if (= _new _current)
+                               (recur new-scope** scope**)
+                               false)
+                             
+                             _
+                             false)))
+                     ;; (&/|every? (fn [nc]
+                     ;;              (|let [[_new _current] nc]
+                     ;;                (= _new _current)))
+                     ;;            (&/zip2 new-scope scope))
+                     ))
+            ))
+    old-scope
+    scope))
 
-(defn ^:private de-scope [scope]
-  "(-> Scope Scope)"
-  (|case scope
-    (&/$Cons _module (&/$Cons _def (&/$Cons _level-to-remove _levels-to-keep)))
-    (&/$Cons _module (&/$Cons _def _levels-to-keep))))
-
-(defn shift-function-body [own-body? body]
-  "(-> Optimized Optimized)"
+(defn shift-function-body [old-scope new-scope own-body? body]
+  "(-> Scope Scope Bool Optimized Optimized)"
   (|let [[meta body-] body]
     (|case body-
       ($variant idx is-last? value)
-      (&/T [meta ($variant idx is-last? (shift-function-body own-body? value))])
+      (&/T [meta ($variant idx is-last? (shift-function-body old-scope new-scope own-body? value))])
       
       ($tuple elems)
-      (&/T [meta ($tuple (&/|map (partial shift-function-body own-body?) elems))])
+      (&/T [meta ($tuple (&/|map (partial shift-function-body old-scope new-scope own-body?) elems))])
       
       ($case value [_pm _bodies])
-      (&/T [meta ($case (shift-function-body own-body? value)
+      (&/T [meta ($case (shift-function-body old-scope new-scope own-body? value)
                         (&/T [(if own-body?
                                 (shift-pattern _pm)
                                 _pm)
-                              (&/|map (partial shift-function-body own-body?) _bodies)]))])
+                              (&/|map (partial shift-function-body old-scope new-scope own-body?) _bodies)]))])
       
       ($function arity scope captured body*)
-      (&/T [meta ($function arity
-                            (de-scope scope)
-                            (&/|map (fn [capture]
-                                      (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
-                                        (&/T [_name (&/T [_meta ($captured (de-scope _scope) _idx (shift-function-body own-body? _source))])])))
-                                    captured)
-                            (shift-function-body false body*))])
+      (|let [scope* (de-scope old-scope new-scope scope)]
+        (&/T [meta ($function arity
+                              scope*
+                              (&/|map (fn [capture]
+                                        (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
+                                          (&/T [_name (&/T [_meta ($captured scope* _idx (shift-function-body old-scope new-scope own-body? _source))])])))
+                                      captured)
+                              (shift-function-body old-scope new-scope false body*))]))
       
       ($ann value-expr type-expr type-type)
-      (&/T [meta ($ann (shift-function-body own-body? value-expr)
+      (&/T [meta ($ann (shift-function-body old-scope new-scope own-body? value-expr)
                        type-expr
                        type-type)])
       
@@ -276,13 +298,13 @@
       (if own-body?
         (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
                            (&/$Cons (&/T [meta-0 ($var (&/$Local 1))])
-                                    (&/|map (partial shift-function-body own-body?) args)))])
+                                    (&/|map (partial shift-function-body old-scope new-scope own-body?) args)))])
         (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
-                           (&/|map (partial shift-function-body own-body?) args))]))
+                           (&/|map (partial shift-function-body old-scope new-scope own-body?) args))]))
 
       ($apply func args)
-      (&/T [meta ($apply (shift-function-body own-body? func)
-                         (&/|map (partial shift-function-body own-body?) args))])
+      (&/T [meta ($apply (shift-function-body old-scope new-scope own-body? func)
+                         (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
       
       ($captured scope idx source)
       (if own-body?
@@ -292,13 +314,13 @@
           source
 
           _
-          (&/T [meta ($captured (de-scope scope) idx (shift-function-body own-body? source))])))
+          (&/T [meta ($captured (de-scope old-scope new-scope scope) idx (shift-function-body old-scope new-scope own-body? source))])))
       
       ($proc proc-ident args special-args)
-      (&/T [meta ($proc proc-ident (&/|map (partial shift-function-body own-body?) args) special-args)])
+      (&/T [meta ($proc proc-ident (&/|map (partial shift-function-body old-scope new-scope own-body?) args) special-args)])
 
       ($loop args)
-      (&/T [meta ($loop (&/|map (partial shift-function-body own-body?) args))])
+      (&/T [meta ($loop (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
       
       _
       body
@@ -382,7 +404,7 @@
         (&a/$lambda scope captured body)
         (|case (pass-0 body)
           [_ ($function _arity _scope _captured _body)]
-          (&/T [meta ($function (inc _arity) scope (optimize-closure pass-0 captured) (shift-function-body true _body))])
+          (&/T [meta ($function (inc _arity) scope (optimize-closure pass-0 captured) (shift-function-body scope _scope true _body))])
 
           =body
           (&/T [meta ($function 1 scope (optimize-closure pass-0 captured) =body)]))

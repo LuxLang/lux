@@ -216,8 +216,10 @@
         
         _
         (|case (de-ann ?body)
-          [_ (&o/$function _ _ _ _)]
-          (|let [[_ (&o/$function _arity _scope _captured ?body+)] (&o/shift-function-body false (de-ann ?body))]
+          [_ (&o/$function _ __scope _ _)]
+          (|let [[_ (&o/$function _arity _scope _captured ?body+)] (&o/shift-function-body (&/|but-last __scope) __scope
+                                                                                           false
+                                                                                           (de-ann ?body))]
             (|do [:let [=value-type (&a/expr-type* ?body)]
                   ;; ^ClassWriter *writer* &/get-writer
                   [file-name _ _] &/cursor
