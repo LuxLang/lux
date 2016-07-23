@@ -1035,9 +1035,24 @@
   ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right"
   )
 
+(defn ^:private analyse-lux-== [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons left (&/$Cons right (&/$Nil))) ?values]
+            =left (&&/analyse-1 analyse $var left)
+            =right (&&/analyse-1 analyse $var right)
+            _ (&type/check exo-type &type/Bool)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["lux" "=="]) (&/|list =left =right) (&/|list)))))))))
+
 (defn analyse-host [analyse exo-type compilers category proc ?values]
   (|let [[_ _ compile-class compile-interface] compilers]
     (case category
+      "lux"
+      (case proc
+        "=="                   (analyse-lux-== analyse exo-type ?values))
+      
       "bit"
       (case proc
         "and"                  (analyse-bit-and analyse exo-type ?values)

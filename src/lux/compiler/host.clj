@@ -1378,8 +1378,29 @@
   ^:private compile-bit-unsigned-shift-right Opcodes/LUSHR
   )
 
+(defn ^:private compile-lux-== [compile ?values special-args]
+  (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?left)
+        _ (compile ?right)
+        :let [$then (new Label)
+              $end (new Label)
+              _ (doto *writer*
+                  (.visitJumpInsn Opcodes/IF_ACMPEQ $then)
+                  ;; else
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" "FALSE" "Ljava/lang/Boolean;")
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $then)
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" "TRUE" "Ljava/lang/Boolean;")
+                  (.visitLabel $end))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values special-args]
   (case proc-category
+    "lux"
+    (case proc-name
+      "=="                   (compile-lux-== compile ?values special-args))
+    
     "bit"
     (case proc-name
       "and"                  (compile-bit-and compile ?values special-args)
