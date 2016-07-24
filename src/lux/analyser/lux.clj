@@ -108,7 +108,7 @@
                 (&/$ProdT _)
                 (|case (&type/tuple-types-for (&/|length ?elems) exo-type*)
                   (&/$None)
-                  (fail (str "[Analysis Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod exo-type*)) "]. Given tuple [" (&/|length ?elems) "]" " -- " (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")))
+                  (&/fail-with-loc (str "[Analysis Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod exo-type*)) "]. Given tuple [" (&/|length ?elems) "]" " -- " (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")))
 
                   (&/$Some ?member-types*)
                   (|do [=elems (&/map2% (fn [elem-t elem]
@@ -139,35 +139,29 @@
                                              tuple-analysis))))
 
                 _
-                (fail (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*)))
+                (&/fail-with-loc (str "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type*)))
                 )
               (fn [err]
-                (fail (str err "\n" "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type)))))))))
+                (&/fail-with-loc (str err "\n" "[Analyser Error] Tuples require tuple-types: " (&type/show-type exo-type)))))))))
     ))
 
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
   (|do [_cursor &/cursor
-        output (&/with-attempt
-                 (|case ?values
-                   (&/$Nil)
-                   (analyse-unit analyse exo-type)
+        output (|case ?values
+                 (&/$Nil)
+                 (analyse-unit analyse exo-type)
 
-                   (&/$Cons ?value (&/$Nil))
-                   (analyse exo-type ?value)
+                 (&/$Cons ?value (&/$Nil))
+                 (analyse exo-type ?value)
 
-                   _
-                   (analyse-tuple analyse (&/$Right exo-type) ?values))
-                 (fn [err]
-                   (fail (str err "\n"
-                              'analyse-variant-body " " (&type/show-type exo-type)
-                              " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str ""))))
-                   ))]
+                 _
+                 (analyse-tuple analyse (&/$Right exo-type) ?values))]
     (|case output
       (&/$Cons x (&/$Nil))
       (return x)
 
       _
-      (fail "[Analyser Error] Can't expand to other than 1 element."))))
+      (&/fail-with-loc "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn analyse-variant [analyse ?exo-type idx is-last? ?values]
   (|case ?exo-type
@@ -213,18 +207,7 @@
                       is-last?* (if (nil? is-last?)
                                   (= idx (dec num-variant-types))
                                   is-last?)]
-                =value (&/with-attempt
-                         (analyse-variant-body analyse vtype ?values)
-                         (fn [err]
-                           (|do [_exo-type (|case exo-type
-                                             (&/$VarT _id)
-                                             (&type/deref _id)
-
-                                             _
-                                             (return exo-type))]
-                             (fail (str err "\n"
-                                        'analyse-variant " " idx " " is-last? " " is-last?* " " (&type/show-type _exo-type) " " (&type/show-type vtype)
-                                        " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+                =value (analyse-variant-body analyse vtype ?values)
                 _cursor &/cursor]
             (if (= 1 num-variant-types)
               (return (&/|list =value))
@@ -244,15 +227,15 @@
                 (&/map% (partial &&/clean-analysis $var) =exprs))))
           
           _
-          (fail (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
+          (&/fail-with-loc (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
         (fn [err]
           (|case exo-type
             (&/$VarT ?id)
             (|do [=exo-type (&type/deref ?id)]
-              (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
+              (&/fail-with-loc (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
 
             _
-            (fail (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+            (&/fail-with-loc (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
       )))
 
 (defn analyse-record [analyse exo-type ?elems]
@@ -366,13 +349,13 @@
                 =arg (&/with-attempt
                        (&&/analyse-1 analyse ?input-t ?arg)
                        (fn [err]
-                         (fail (str err "\n" "[Analyser Error] Function expected: " (&type/show-type ?input-t)))))]
+                         (&/fail-with-loc (str err "\n" "[Analyser Error] Function expected: " (&type/show-type ?input-t)))))]
             (return (&/T [=output-t (&/$Cons =arg =args)])))
 
           _
-          (fail (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*))))
+          (&/fail-with-loc (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*))))
         (fn [err]
-          (fail (str err "\n" "[Analyser Error] Can't apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+          (&/fail-with-loc (str err "\n" "[Analyser Error] Can't apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
     ))
 
 (defn ^:private do-analyse-apply [analyse exo-type =fn ?args]
@@ -531,7 +514,7 @@
           _
           (fail "")))
       (fn [err]
-        (fail (str err "\n" "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
+        (&/fail-with-loc (str err "\n" "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
     ))
 
 (defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
@@ -568,7 +551,7 @@
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
-      (fail (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
+      (&/fail-with-loc (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
       (|do [=value (&/with-scope ?name
                      (&&/analyse-1+ analyse ?value))
             =meta (&&/analyse-1 analyse &type/DefMeta ?meta)
@@ -583,7 +566,7 @@
   (|do [_ &/ensure-statement
         module-name &/get-module-name
         _ (if (= module-name path)
-            (fail (str "[Analyser Error] Module can't import itself: " path))
+            (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
             (return nil))]
     (&/save-module
      (|do [already-compiled? (&&module/exists? path)
