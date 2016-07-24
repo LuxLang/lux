@@ -1020,6 +1020,14 @@
   ^:private analyse-bit-xor "xor"
   )
 
+(defn ^:private analyse-bit-count [analyse exo-type ?values]
+  (|do [:let [(&/$Cons input (&/$Nil)) ?values]
+        =input (&&/analyse-1 analyse &type/Int input)
+        _ (&type/check exo-type &type/Int)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["bit" "count"]) (&/|list =input) (&/|list)))))))
+
 (do-template [<name> <op>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons input (&/$Cons shift (&/$Nil))) ?values]
@@ -1052,9 +1060,10 @@
       "lux"
       (case proc
         "=="                   (analyse-lux-== analyse exo-type ?values))
-      
+
       "bit"
       (case proc
+        "count"                (analyse-bit-count analyse exo-type ?values)
         "and"                  (analyse-bit-and analyse exo-type ?values)
         "or"                   (analyse-bit-or analyse exo-type ?values)
         "xor"                  (analyse-bit-xor analyse exo-type ?values)
