@@ -97,7 +97,7 @@
         name
         (let [params* (if (&/|empty? params)
                         ""
-                        (str "<" (->> params (&/|map gclass->signature) (&/|interpose " ") (&/fold str "")) ">"))]
+                        (str "<" (->> params (&/|map gclass->signature) (&/|interpose "") (&/fold str "")) ">"))]
           (str "L" (->bytecode-class-name name) params* ";"))))
 
     (&/$GenericArray param)

@@ -541,11 +541,11 @@
 (defn ^:private check-error [err expected actual]
   (|do [=expected (show-type+ expected)
         =actual (show-type+ actual)]
-    (fail (str (if (= "" err) err (str err "\n"))
-               "[Type Checker]\n"
-               "Expected: " =expected "\n\n"
-               "Actual:   " =actual
-               "\n"))))
+    (&/fail-with-loc (str (if (= "" err) err (str err "\n"))
+                          "[Type Checker]\n"
+                          "Expected: " =expected "\n\n"
+                          "Actual:   " =actual
+                          "\n"))))
 
 (defn beta-reduce [env type]
   (|case type
