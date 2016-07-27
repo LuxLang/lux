@@ -22,7 +22,7 @@
 (defn ^:private init []
   (do (&compiler/init!)
     (|case ((|do [_ (&compiler/compile-module "lux")]
-              (&module/enter-module repl-module))
+              (&module/create-module repl-module 0))
             (&/init-state &/$Debug))
       (&/$Right ?state _)
       (do (println)

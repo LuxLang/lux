@@ -159,7 +159,7 @@
             (if module-exists?
               (fail "[Compiler Error] Can't redefine a module!")
               (|do [_ (&&cache/delete name)
-                    _ (&a-module/enter-module name)
+                    _ (&a-module/create-module name file-hash)
                     _ (&/flag-active-module name)
                     :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                    (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
@@ -194,7 +194,12 @@
                                                                        (&/fold str "")))
                                                      .visitEnd)
                                                  (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
-                                                                  (->> imports (&/|interpose &&/import-separator) (&/fold str "")))
+                                                                  (->> imports
+                                                                       (&/|map (fn [import]
+                                                                                 (|let [[_module _hash] import]
+                                                                                   (str _module &&/field-separator _hash))))
+                                                                       (&/|interpose &&/entry-separator)
+                                                                       (&/fold str "")))
                                                      .visitEnd)
                                                  (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/tags-field "Ljava/lang/String;" nil
                                                                   (->> tag-groups
@@ -205,10 +210,10 @@
                                                                        (&/|interpose &&/tag-group-separator)
                                                                        (&/fold str "")))
                                                      .visitEnd)
-                                                 (.visitEnd))
-                                             ]
-                                       _ (&/flag-compiled-module name)]
-                                   (&&/save-class! &/module-class-name (.toByteArray =class)))
+                                                 (.visitEnd))]
+                                       _ (&/flag-compiled-module name)
+                                       _ (&&/save-class! &/module-class-name (.toByteArray =class))]
+                                   (return file-hash))
                                  ?state)
                     
                     (&/$Left ?message)

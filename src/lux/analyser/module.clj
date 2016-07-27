@@ -17,14 +17,17 @@
 
 ;; [Utils]
 (deftuple
-  ["module-aliases"
+  ["module-hash"
+   "module-aliases"
    "defs"
    "imports"
    "tags"
    "types"])
 
-(def ^:private +init+
-  (&/T [;; "lux;module-aliases"
+(defn ^:private new-module [hash]
+  (&/T [;; lux;module-hash
+        hash
+        ;; "lux;module-aliases"
         (&/|table)
         ;; "lux;defs"
         (&/|table)
@@ -197,21 +200,11 @@
                          (return true))
                        (return false))))
 
-(def imports
-  (|do [module &/get-module-name]
-    (fn [state]
-      (return* state (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $imports))))))
-
-(defn create-module [name]
-  "(-> Text (Lux Null))"
-  (fn [state]
-    (return* (&/update$ &/$modules #(&/|put name +init+ %) state) nil)))
-
-(defn enter-module [name]
-  "(-> Text (Lux Null))"
+(defn create-module [name hash]
+  "(-> Text Hash-Code (Lux Null))"
   (fn [state]
     (return* (->> state
-                  (&/update$ &/$modules #(&/|put name +init+ %))
+                  (&/update$ &/$modules #(&/|put name (new-module hash) %))
                   (&/set$ &/$envs (&/|list (&/env name))))
              nil)))
 
@@ -225,9 +218,19 @@
          state))
       ))
 
-  tags-by-module  $tags  "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
-  types-by-module $types "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
+  tags-by-module  $tags         "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
+  types-by-module $types       "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
+  module-hash     $module-hash "(-> Text (Lux Int))"
   )
+
+(def imports
+  (|do [module &/get-module-name
+        _imports (fn [state]
+                   (return* state (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $imports))))]
+    (&/map% (fn [_module]
+              (|do [_hash (module-hash _module)]
+                (return (&/T [_module _hash]))))
+            _imports)))
 
 (defn ensure-undeclared-tags [module tags]
   (|do [tags-table (tags-by-module module)

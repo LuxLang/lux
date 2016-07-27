@@ -44,10 +44,12 @@
 
 (def exported-separator " ")
 (def def-separator "\t")
-(def import-separator "\t")
 (def tag-separator " ")
 (def type-separator "\t")
 (def tag-group-separator "\n")
+
+(def field-separator "\t")
+(def entry-separator "\n")
 
 ;; [Utils]
 (defn ^:private write-file [^String file-name ^bytes data]
