@@ -151,6 +151,20 @@
 
 (defn compile-loop [compile $begin ?args]
   (|do [^MethodVisitor *writer* &/get-writer
+        :let [idxs+args (&/zip2 (&/|range* 1 (&/|length ?args))
+                                ?args)]
+        _ (&/map% (fn [idx+?arg]
+                    (|do [:let [[idx ?arg] idx+?arg
+                                already-set? (|case ?arg
+                                               [_ (&o/$var (&/$Local l-idx))]
+                                               (= idx l-idx)
+
+                                               _
+                                               false)]]
+                      (if already-set?
+                        (return nil)
+                        (compile ?arg))))
+                  idxs+args)
         _ (&/map% (fn [idx+?arg]
                     (|do [:let [[idx ?arg] idx+?arg
                                 already-set? (|case ?arg
@@ -159,14 +173,10 @@
 
                                                _
                                                false)]
-                          _ (if already-set?
-                              (return nil)
-                              (compile ?arg))
                           :let [_ (when (not already-set?)
                                     (.visitVarInsn *writer* Opcodes/ASTORE idx))]]
                       (return nil)))
-                  (&/zip2 (&/|range* 1 (&/|length ?args))
-                          ?args))
+                  (&/|reverse idxs+args))
         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $begin)]]
     (return nil)))
 

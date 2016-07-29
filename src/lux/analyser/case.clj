@@ -64,71 +64,188 @@
   (|let [[_env _idx _var] frame]
     (&/T [_env (+ 2 _idx) _var])))
 
-(defn adjust-type* [up type]
-  "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
+(defn clean! [level ?tid bound-idx type]
   (|case type
-    (&/$UnivQ _aenv _abody)
-    (&type/with-var
-      (fn [$var]
-        (|do [=type (&type/apply-type type $var)
-              ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type)]
-          (&type/clean $var ==type))))
+    (&/$VarT ?id)
+    (if (= ?tid ?id)
+      (let [new-bound (&/$BoundT (+ (* 2 level) bound-idx))]
+        (do ;; (prn 'CLEANED level ?tid bound-idx (&type/show-type new-bound))
+          new-bound))
+      type)
 
-    (&/$ExQ _aenv _abody)
-    (|do [$var &type/existential
-          =type (&type/apply-type type $var)]
-      (adjust-type* up =type))
+    (&/$HostT ?name ?params)
+    (&/$HostT ?name (&/|map (partial clean! level ?tid bound-idx)
+                            ?params))
+    
+    (&/$LambdaT ?arg ?return)
+    (&/$LambdaT (clean! level ?tid bound-idx ?arg)
+                (clean! level ?tid bound-idx ?return))
+
+    (&/$AppT ?lambda ?param)
+    (&/$AppT (clean! level ?tid bound-idx ?lambda)
+             (clean! level ?tid bound-idx ?param))
 
     (&/$ProdT ?left ?right)
-    (|do [=type (&/fold% (fn [_abody ena]
-                           (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                             (|do [_ (&type/set-var _avar (&/$BoundT _aidx))]
-                               (&type/clean* _avar _abody))))
-                         type
-                         up)
-          :let [distributor (fn [v]
-                              (&/fold (fn [_abody ena]
-                                        (|let [[_aenv _aidx _avar] ena]
-                                          (&/$UnivQ _aenv _abody)))
-                                      v
-                                      up))
-                adjusted-type (&type/Tuple$ (&/|map distributor (&type/flatten-prod =type)))]]
-      (return adjusted-type))
-
+    (&/$ProdT (clean! level ?tid bound-idx ?left)
+              (clean! level ?tid bound-idx ?right))
+    
     (&/$SumT ?left ?right)
-    (|do [=type (&/fold% (fn [_abody ena]
-                           (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                             (|do [_ (&type/set-var _avar (&/$BoundT _aidx))]
-                               (&type/clean* _avar _abody))))
-                         type
-                         up)
-          :let [distributor (fn [v]
-                              (&/fold (fn [_abody ena]
-                                        (|let [[_aenv _aidx _avar] ena]
-                                          (&/$UnivQ _aenv _abody)))
-                                      v
-                                      up))
-                adjusted-type (&type/Variant$ (&/|map distributor (&type/flatten-sum =type)))]]
-      (return adjusted-type))
+    (&/$SumT (clean! level ?tid bound-idx ?left)
+             (clean! level ?tid bound-idx ?right))
 
-    (&/$AppT ?tfun ?targ)
-    (|do [=type (&type/apply-type ?tfun ?targ)]
-      (adjust-type* up =type))
+    (&/$UnivQ ?env ?body)
+    (&/$UnivQ (&/|map (partial clean! level ?tid bound-idx) ?env)
+              (clean! (inc level) ?tid bound-idx ?body))
 
-    (&/$VarT ?id)
-    (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail (str "##2##: " ?id))))]
-      (adjust-type* up type*))
-
-    (&/$NamedT ?name ?type)
-    (adjust-type* up ?type)
-
-    (&/$UnitT)
-    (return type)
+    (&/$ExQ ?env ?body)
+    (&/$ExQ (&/|map (partial clean! level ?tid bound-idx) ?env)
+            (clean! (inc level) ?tid bound-idx ?body))
 
     _
-    (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
+    type
     ))
+
+(defn beta-reduce! [level env type]
+  (do ;; (prn 0 'beta-reduce! level (&type/show-type type) (&/|length env))
+    (|case type
+      (&/$HostT ?name ?params)
+      (&/$HostT ?name (&/|map (partial beta-reduce! level env) ?params))
+
+      (&/$SumT ?left ?right)
+      (&/$SumT (beta-reduce! level env ?left)
+               (beta-reduce! level env ?right))
+
+      (&/$ProdT ?left ?right)
+      (&/$ProdT (beta-reduce! level env ?left)
+                (beta-reduce! level env ?right))
+
+      (&/$AppT ?type-fn ?type-arg)
+      (do ;; (prn 'beta-reduce! level 'APP (show-type ?type-fn) (show-type ?type-arg))
+          (&/$AppT (beta-reduce! level env ?type-fn)
+                   (beta-reduce! level env ?type-arg)))
+      
+      (&/$UnivQ ?local-env ?local-def)
+      (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
+
+      (&/$ExQ ?local-env ?local-def)
+      (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
+
+      (&/$LambdaT ?input ?output)
+      (&/$LambdaT (beta-reduce! level env ?input)
+                  (beta-reduce! level env ?output))
+
+      (&/$BoundT ?idx)
+      (do ;; (prn 1 'beta-reduce! level [?idx (- ?idx (* 2 level))] (&/|length env))
+        (|case (&/|at (- ?idx (* 2 level)) env)
+          (&/$Some bound)
+          (do ;; (prn 'beta-reduce! level 'BOUND ?idx (&type/show-type bound))
+            (beta-reduce! level env bound))
+
+          _
+          type))
+
+      _
+      type
+      )))
+
+(defn apply-type! [type-fn param]
+  (|case type-fn
+    (&/$UnivQ local-env local-def)
+    (return (beta-reduce! 0 (->> local-env
+                                 (&/$Cons param)
+                                 (&/$Cons type-fn))
+                          local-def))
+
+    (&/$ExQ local-env local-def)
+    (return (beta-reduce! 0 (->> local-env
+                                 (&/$Cons param)
+                                 (&/$Cons type-fn))
+                          local-def))
+
+    (&/$AppT F A)
+    (|do [type-fn* (apply-type! F A)]
+      (apply-type! type-fn* param))
+
+    (&/$NamedT ?name ?type)
+    (apply-type! ?type param)
+
+    (&/$ExT id)
+    (return (&/$AppT type-fn param))
+
+    (&/$VarT id)
+    (|do [=type-fun (deref id)]
+      (apply-type! =type-fun param))
+    
+    _
+    (fail (str "[Type System] Not a type function:\n" (&type/show-type type-fn) "\n"))))
+
+(defn adjust-type* [up type]
+  "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
+  (do ;; (prn 'adjust-type* 0 (&type/show-type type))
+    (|case type
+      (&/$UnivQ _aenv _abody)
+      (&type/with-var
+        (fn [$var]
+          (|do [=type (apply-type! type $var)
+                ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type)]
+            (&type/clean $var ==type))))
+
+      (&/$ExQ _aenv _abody)
+      (|do [$var &type/existential
+            =type (apply-type! type $var)]
+        (adjust-type* up =type))
+
+      (&/$ProdT ?left ?right)
+      (|do [:let [=type (&/fold (fn [_abody ena]
+                                  (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                    (clean! 0 _avar _aidx _abody)))
+                                type
+                                up)]
+            ;; :let [_ (prn 'adjust-type* 1 (&type/show-type =type))]
+            :let [distributor (fn [v]
+                                (&/fold (fn [_abody ena]
+                                          (|let [[_aenv _aidx _avar] ena]
+                                            (&/$UnivQ _aenv _abody)))
+                                        v
+                                        up))
+                  adjusted-type (&type/Tuple$ (&/|map distributor (&type/flatten-prod =type)))]
+            ;; :let [_ (prn 'adjust-type* 2 (&type/show-type adjusted-type))]
+            ]
+        (return adjusted-type))
+
+      (&/$SumT ?left ?right)
+      (|do [:let [=type (&/fold (fn [_abody ena]
+                                  (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                    (clean! 0 _avar _aidx _abody)))
+                                type
+                                up)]
+            :let [distributor (fn [v]
+                                (&/fold (fn [_abody ena]
+                                          (|let [[_aenv _aidx _avar] ena]
+                                            (&/$UnivQ _aenv _abody)))
+                                        v
+                                        up))
+                  adjusted-type (&type/Variant$ (&/|map distributor (&type/flatten-sum =type)))]]
+        (return adjusted-type))
+
+      (&/$AppT ?tfun ?targ)
+      (|do [=type (apply-type! ?tfun ?targ)]
+        (adjust-type* up =type))
+
+      (&/$VarT ?id)
+      (|do [type* (&/try-all% (&/|list (&type/deref ?id)
+                                       (fail (str "##2##: " ?id))))]
+        (adjust-type* up type*))
+
+      (&/$NamedT ?name ?type)
+      (adjust-type* up ?type)
+
+      (&/$UnitT)
+      (return type)
+
+      _
+      (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
+      )))
 
 (defn adjust-type [type]
   "(-> Type (Lux Type))"

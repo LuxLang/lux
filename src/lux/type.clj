@@ -323,8 +323,13 @@
 
     (&/$UnivQ ?env ?body)
     (|do [=env (&/map% (partial clean* ?tid) ?env)
-          body* (clean* ?tid ?body)]
+          body* (clean* ?tid ?body)] ;; TODO: DON'T CLEAN THE BODY
       (return (&/$UnivQ =env body*)))
+
+    (&/$ExQ ?env ?body)
+    (|do [=env (&/map% (partial clean* ?tid) ?env)
+          body* (clean* ?tid ?body)] ;; TODO: DON'T CLEAN THE BODY
+      (return (&/$ExQ =env body*)))
 
     _
     (return type)

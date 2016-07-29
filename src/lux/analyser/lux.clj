@@ -20,6 +20,8 @@
                           [meta :as &&meta])))
 
 ;; [Utils]
+;; TODO: Walk the type to set up the bound-type, instead of doing a
+;; rough calculation like this one.
 (defn ^:private count-univq [type]
   "(-> Type Int)"
   (|case type
@@ -29,6 +31,8 @@
     _
     0))
 
+;; TODO: This technique won't work if the body of the type contains
+;; nested quantifications that are cannot be directly counted.
 (defn ^:private next-bound-type [type]
   "(-> Type Type)"
   (&/$BoundT (->> (count-univq type) (* 2) (+ 1))))
@@ -333,8 +337,10 @@
                   (|do [? (&type/bound? ?id)
                         type** (if ?
                                  (&type/clean $var =output-t)
-                                 (|do [_ (&type/set-var ?id (next-bound-type =output-t))]
-                                   (&type/clean $var =output-t)))
+                                 (|do [_ (&type/set-var ?id (next-bound-type =output-t))
+                                       cleaned-output* (&type/clean $var =output-t)
+                                       :let [cleaned-output (&/$UnivQ &/$Nil cleaned-output*)]]
+                                   (return cleaned-output)))
                         _ (&type/clean $var exo-type)]
                     (return (&/T [type** ==args])))
                   ))))
@@ -486,7 +492,7 @@
     _
     (&/with-attempt
       (|do [exo-type* (&type/actual-type exo-type)]
-        (|case exo-type
+        (|case exo-type*
           (&/$UnivQ _)
           (|do [$var &type/existential
                 :let [(&/$ExT $var-id) $var]
@@ -564,21 +570,22 @@
 
 (defn analyse-import [analyse compile-module path ex-alias]
   (|do [_ &/ensure-statement
-        module-name &/get-module-name
-        _ (if (= module-name path)
+        current-module &/get-module-name
+        _ (if (= current-module path)
             (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
             (return nil))]
     (&/save-module
      (|do [already-compiled? (&&module/exists? path)
            active? (&/active-module? path)
-           _ (&/assert! (not active?) (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " module-name))
+           _ (&/assert! (not active?)
+                        (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
            _ (&&module/add-import path)
-           _ (if (not already-compiled?)
-               (compile-module path)
-               (return nil))
+           ?module-hash (if (not already-compiled?)
+                          (compile-module path)
+                          (&&module/module-hash path))
            _ (if (= "" ex-alias)
                (return nil)
-               (&&module/alias module-name ex-alias path))]
+               (&&module/alias current-module ex-alias path))]
        (return &/$Nil)))))
 
 (defn ^:private coerce [new-type analysis]
