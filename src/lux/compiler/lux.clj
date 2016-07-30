@@ -235,7 +235,7 @@
         _
         (|case (de-ann ?body)
           [_ (&o/$function _ __scope _ _)]
-          (|let [[_ (&o/$function _arity _scope _captured ?body+)] (&o/shift-function-body (&/get-cached-scope-name (&/|tail __scope)) __scope
+          (|let [[_ (&o/$function _arity _scope _captured ?body+)] (&o/shift-function-body (&/|tail __scope) __scope
                                                                                            false
                                                                                            (de-ann ?body))]
             (|do [:let [=value-type (&a/expr-type* ?body)]

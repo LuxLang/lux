@@ -205,7 +205,7 @@
   (fn [state]
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name (new-module hash) %))
-                  (&/set$ &/$envs (&/|list (&/env name))))
+                  (&/set$ &/$envs (&/|list (&/env name &/$Nil))))
              nil)))
 
 (do-template [<name> <tag> <type>]
@@ -218,7 +218,7 @@
          state))
       ))
 
-  tags-by-module  $tags         "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
+  tags-by-module  $tags        "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
   types-by-module $types       "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
   module-hash     $module-hash "(-> Text (Lux Int))"
   )

@@ -293,12 +293,10 @@
           (fail* (str "[Analyser Error] Unknown global definition: " name)))
         
         (&/$Cons bottom-outer _)
-        (|let [scopes (&/|tail (&/folds #(&/$Cons (&/get$ &/$name %2) %1)
-                                        (&/|map #(&/get$ &/$name %) outer)
-                                        (&/|reverse inner)))
+        (|let [scopes (&/|map #(&/get$ &/$name %) (&/|reverse inner))
                [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                           (|let [[register new-inner] register+new-inner
-                                                 [register* frame*] (&&lambda/close-over (&/get-cached-scope-name in-scope) name register frame)]
+                                                 [register* frame*] (&&lambda/close-over in-scope name register frame)]
                                             (&/T [register* (&/$Cons frame* new-inner)])))
                                         (&/T [(or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
                                                   (->> bottom-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))

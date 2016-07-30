@@ -710,9 +710,9 @@
       ;; "lux;mappings"
       (|table)]))
 
-(defn env [name]
+(defn env [name old-name]
   (T [;; "lux;name"
-      name
+      ($Cons name old-name)
       ;; "lux;inner-closures"
       0
       ;; "lux;locals"
@@ -878,7 +878,7 @@
       ((fail-with-loc "[Analyser Error] Can't get the module-name without a module.") state)
 
       ($Cons ?global _)
-      (return* state (get$ $name ?global)))))
+      (return* state (|head (get$ $name ?global))))))
 
 (defn find-module [name]
   "(-> Text (Lux (Module Compiler)))"
@@ -894,7 +894,8 @@
 
 (defn with-scope [name body]
   (fn [state]
-    (let [output (body (update$ $envs #($Cons (env name) %) state))]
+    (let [old-name (->> state (get$ $envs) |head (get$ $name))
+          output (body (update$ $envs #($Cons (env name old-name) %) state))]
       (|case output
         ($Right state* datum)
         (return* (update$ $envs |tail state*) datum)
@@ -914,18 +915,9 @@
                                                 (|tail %))
                                   state))))))
 
-(let [cache (atom {})]
-  (defn get-cached-scope-name [raw]
-    (let [signature (fold (fn [tail head] (str head "\t" tail))
-                          ""
-                          raw)]
-      (or (get @cache signature)
-          (do (swap! cache assoc signature raw)
-            raw)))))
-
 (def get-scope-name
   (fn [state]
-    (return* state (get-cached-scope-name (->> state (get$ $envs) (|map #(get$ $name %)))))))
+    (return* state (->> state (get$ $envs) |head (get$ $name)))))
 
 (defn with-writer [writer body]
   (fn [state]
