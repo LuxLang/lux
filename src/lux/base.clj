@@ -1061,7 +1061,7 @@
     (return init)
 
     [_ _]
-    (fail "Lists don't match in size.")))
+    (assert false "Lists don't match in size.")))
 
 (defn map2% [f xs ys]
   (|case [xs ys]
@@ -1074,7 +1074,7 @@
     (return $Nil)
 
     [_ _]
-    (fail "Lists don't match in size.")))
+    (assert false "Lists don't match in size.")))
 
 (defn map2 [f xs ys]
   (|case [xs ys]

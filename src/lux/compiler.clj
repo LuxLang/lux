@@ -88,6 +88,9 @@
         (&o/$case ?value [?pm ?bodies])
         (&&case/compile-case (partial compile-expression $begin) ?value ?pm ?bodies)
 
+        (&o/$let _value _register _body)
+        (&&lux/compile-let (partial compile-expression $begin) _value _register _body)
+
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 

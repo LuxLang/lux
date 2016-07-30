@@ -180,6 +180,13 @@
         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $begin)]]
     (return nil)))
 
+(defn compile-let [compile _value _register _body]
+  (|do [^MethodVisitor *writer* &/get-writer
+        _ (compile _value)
+        :let [_ (.visitVarInsn *writer* Opcodes/ASTORE _register)]
+        _ (compile _body)]
+    (return nil)))
+
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
                           [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr ?def-value-type)]

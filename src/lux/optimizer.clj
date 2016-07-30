@@ -26,6 +26,7 @@
 
   ;; Purely for optimizations
   ("loop" 1)
+  ("let" 3)
   )
 
 ;; For pattern-matching
@@ -321,6 +322,13 @@
 
       ($loop args)
       (&/T [meta ($loop (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
+
+      ($let _value _register _body)
+      (&/T [meta ($let (shift-function-body old-scope new-scope own-body? _value)
+                       (if own-body?
+                         (inc _register)
+                         _register)
+                       (shift-function-body old-scope new-scope own-body? _body))])
       
       _
       body
@@ -395,11 +403,16 @@
         (&/T [meta ($apply (pass-0 func) (&/|map pass-0 args))])
         
         (&a/$case value branches)
-        (&/T [meta ($case (pass-0 value)
-                          (optimize-pm (&/|map (fn [branch]
-                                                 (|let [[_pattern _body] branch]
-                                                   (&/T [_pattern (pass-0 _body)])))
-                                               branches)))])
+        (|case branches
+          (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
+          (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
+
+          _
+          (&/T [meta ($case (pass-0 value)
+                            (optimize-pm (&/|map (fn [branch]
+                                                   (|let [[_pattern _body] branch]
+                                                     (&/T [_pattern (pass-0 _body)])))
+                                                 branches)))]))
         
         (&a/$lambda scope captured body)
         (|case (pass-0 body)
