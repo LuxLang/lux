@@ -216,36 +216,7 @@
 
 (defn ^:private de-scope [old-scope new-scope scope]
   "(-> Scope Scope Scope Scope)"
-  (if (or (and (identical? new-scope scope)
-               ;; (do (prn 'SIMPLE-WAS-ENOUGH) true)
-               )
-          (do ;; (prn 'LONG-TEST!)
-              (and (= (&/|length new-scope)
-                      (&/|length scope))
-                   (do ;; (prn 'FULL-TEST! (&/->seq new-scope) (&/->seq scope))
-                       (loop [new-scope* new-scope
-                              scope* scope]
-                         (|case new-scope*
-                           (&/$Nil)
-                           (|case scope*
-                             (&/$Nil) true
-                             _        false)
-
-                           (&/$Cons _new new-scope**)
-                           (|case scope*
-                             (&/$Cons _current scope**)
-                             (if (= _new _current)
-                               (recur new-scope** scope**)
-                               false)
-                             
-                             _
-                             false)))
-                     ;; (&/|every? (fn [nc]
-                     ;;              (|let [[_new _current] nc]
-                     ;;                (= _new _current)))
-                     ;;            (&/zip2 new-scope scope))
-                     ))
-            ))
+  (if (identical? new-scope scope)
     old-scope
     scope))
 
@@ -335,17 +306,13 @@
       )))
 
 (defn ^:private optimize-loop [arity optim]
-  "(-> Int Optimized [Optimized Bool])"
+  "(-> Int Optimized Optimized)"
   (|let [[meta optim-] optim]
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
       (if (= arity (&/|length _args))
         (&/T [meta-0 ($loop (&/|map (partial optimize-loop -1) _args))])
         optim)
-
-      ($apply func args)
-      (&/T [meta ($apply (optimize-loop -1 func)
-                         (&/|map (partial optimize-loop -1) args))])
 
       ($case _value [_pattern _bodies])
       (&/T [meta ($case _value
@@ -359,12 +326,6 @@
       ($ann _value-expr _type-expr _type-type)
       (&/T [meta ($ann (optimize-loop arity _value-expr) _type-expr _type-type)])
 
-      ($variant idx is-last? value)
-      (&/T [meta ($variant idx is-last? (optimize-loop -1 value))])
-
-      ($tuple elems)
-      (&/T [meta ($tuple (&/|map (partial optimize-loop -1) elems))])
-      
       _
       optim
       )))

@@ -292,16 +292,16 @@
             (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))
           (fail* (str "[Analyser Error] Unknown global definition: " name)))
         
-        (&/$Cons top-outer _)
+        (&/$Cons bottom-outer _)
         (|let [scopes (&/|tail (&/folds #(&/$Cons (&/get$ &/$name %2) %1)
                                         (&/|map #(&/get$ &/$name %) outer)
                                         (&/|reverse inner)))
                [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                           (|let [[register new-inner] register+new-inner
-                                                 [register* frame*] (&&lambda/close-over (&/|reverse in-scope) name register frame)]
+                                                 [register* frame*] (&&lambda/close-over (&/get-cached-scope-name in-scope) name register frame)]
                                             (&/T [register* (&/$Cons frame* new-inner)])))
-                                        (&/T [(or (->> top-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
-                                                  (->> top-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
+                                        (&/T [(or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
+                                                  (->> bottom-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
                                               &/$Nil])
                                         (&/|reverse inner) scopes)]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
@@ -388,8 +388,8 @@
                                     ((&/fail-with-loc error) state)))
                 module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (and (= "lux/data/maybe" r-prefix)
-                ;;                        (= "?" r-name))
+                ;;       _ (when (or (and (= "lux" r-prefix)
+                ;;                        (= "do" r-name))
                 ;;                   ;; (= "@type" r-name)
                 ;;                   )
                 ;;           (->> (&/|map &/show-ast macro-expansion)

@@ -96,11 +96,12 @@
     (return nil)))
 
 (defn compile-captured [compile ?scope ?captured-id ?source]
-  (|do [^MethodVisitor *writer* &/get-writer
+  (|do [:let [??scope (&/|reverse ?scope)]
+        ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitVarInsn Opcodes/ALOAD 0)
                   (.visitFieldInsn Opcodes/GETFIELD
-                                   (str (&host/->module-class (&/|head ?scope)) "/" (&host/location (&/|tail ?scope)))
+                                   (str (&host/->module-class (&/|head ??scope)) "/" (&host/location (&/|tail ??scope)))
                                    (str &&/closure-prefix ?captured-id)
                                    "Ljava/lang/Object;"))]]
     (return nil)))
@@ -234,7 +235,7 @@
         _
         (|case (de-ann ?body)
           [_ (&o/$function _ __scope _ _)]
-          (|let [[_ (&o/$function _arity _scope _captured ?body+)] (&o/shift-function-body (&/|but-last __scope) __scope
+          (|let [[_ (&o/$function _arity _scope _captured ?body+)] (&o/shift-function-body (&/get-cached-scope-name (&/|tail __scope)) __scope
                                                                                            false
                                                                                            (de-ann ?body))]
             (|do [:let [=value-type (&a/expr-type* ?body)]

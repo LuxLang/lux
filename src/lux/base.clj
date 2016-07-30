@@ -914,9 +914,18 @@
                                                 (|tail %))
                                   state))))))
 
+(let [cache (atom {})]
+  (defn get-cached-scope-name [raw]
+    (let [signature (fold (fn [tail head] (str head "\t" tail))
+                          ""
+                          raw)]
+      (or (get @cache signature)
+          (do (swap! cache assoc signature raw)
+            raw)))))
+
 (def get-scope-name
   (fn [state]
-    (return* state (->> state (get$ $envs) (|map #(get$ $name %)) |reverse))))
+    (return* state (get-cached-scope-name (->> state (get$ $envs) (|map #(get$ $name %)))))))
 
 (defn with-writer [writer body]
   (fn [state]

@@ -971,7 +971,7 @@
     (&/with-closure
       (|do [module &/get-module-name
             scope &/get-scope-name
-            :let [name (&host/location (&/|tail scope))
+            :let [name (->> scope &/|reverse &/|tail &host/location)
                   class-decl (&/T [name &/$Nil])
                   anon-class (str (string/replace module "/" ".") "." name)
                   anon-class-type (&/$HostT anon-class &/$Nil)]
