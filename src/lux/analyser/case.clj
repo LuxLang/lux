@@ -68,9 +68,7 @@
   (|case type
     (&/$VarT ?id)
     (if (= ?tid ?id)
-      (let [new-bound (&/$BoundT (+ (* 2 level) bound-idx))]
-        (do ;; (prn 'CLEANED level ?tid bound-idx (&type/show-type new-bound))
-          new-bound))
+      (&/$BoundT (+ (* 2 level) bound-idx))
       type)
 
     (&/$HostT ?name ?params)
@@ -106,47 +104,43 @@
     ))
 
 (defn beta-reduce! [level env type]
-  (do ;; (prn 0 'beta-reduce! level (&type/show-type type) (&/|length env))
-    (|case type
-      (&/$HostT ?name ?params)
-      (&/$HostT ?name (&/|map (partial beta-reduce! level env) ?params))
+  (|case type
+    (&/$HostT ?name ?params)
+    (&/$HostT ?name (&/|map (partial beta-reduce! level env) ?params))
 
-      (&/$SumT ?left ?right)
-      (&/$SumT (beta-reduce! level env ?left)
-               (beta-reduce! level env ?right))
+    (&/$SumT ?left ?right)
+    (&/$SumT (beta-reduce! level env ?left)
+             (beta-reduce! level env ?right))
 
-      (&/$ProdT ?left ?right)
-      (&/$ProdT (beta-reduce! level env ?left)
-                (beta-reduce! level env ?right))
+    (&/$ProdT ?left ?right)
+    (&/$ProdT (beta-reduce! level env ?left)
+              (beta-reduce! level env ?right))
 
-      (&/$AppT ?type-fn ?type-arg)
-      (do ;; (prn 'beta-reduce! level 'APP (show-type ?type-fn) (show-type ?type-arg))
-          (&/$AppT (beta-reduce! level env ?type-fn)
-                   (beta-reduce! level env ?type-arg)))
-      
-      (&/$UnivQ ?local-env ?local-def)
-      (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
+    (&/$AppT ?type-fn ?type-arg)
+    (&/$AppT (beta-reduce! level env ?type-fn)
+             (beta-reduce! level env ?type-arg))
+    
+    (&/$UnivQ ?local-env ?local-def)
+    (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
 
-      (&/$ExQ ?local-env ?local-def)
-      (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
+    (&/$ExQ ?local-env ?local-def)
+    (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
 
-      (&/$LambdaT ?input ?output)
-      (&/$LambdaT (beta-reduce! level env ?input)
-                  (beta-reduce! level env ?output))
+    (&/$LambdaT ?input ?output)
+    (&/$LambdaT (beta-reduce! level env ?input)
+                (beta-reduce! level env ?output))
 
-      (&/$BoundT ?idx)
-      (do ;; (prn 1 'beta-reduce! level [?idx (- ?idx (* 2 level))] (&/|length env))
-        (|case (&/|at (- ?idx (* 2 level)) env)
-          (&/$Some bound)
-          (do ;; (prn 'beta-reduce! level 'BOUND ?idx (&type/show-type bound))
-            (beta-reduce! level env bound))
-
-          _
-          type))
+    (&/$BoundT ?idx)
+    (|case (&/|at (- ?idx (* 2 level)) env)
+      (&/$Some bound)
+      (beta-reduce! level env bound)
 
       _
-      type
-      )))
+      type)
+
+    _
+    type
+    ))
 
 (defn apply-type! [type-fn param]
   (|case type-fn
@@ -181,71 +175,67 @@
 
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
-  (do ;; (prn 'adjust-type* 0 (&type/show-type type))
-    (|case type
-      (&/$UnivQ _aenv _abody)
-      (&type/with-var
-        (fn [$var]
-          (|do [=type (apply-type! type $var)
-                ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type)]
-            (&type/clean $var ==type))))
+  (|case type
+    (&/$UnivQ _aenv _abody)
+    (&type/with-var
+      (fn [$var]
+        (|do [=type (apply-type! type $var)
+              ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type)]
+          (&type/clean $var ==type))))
 
-      (&/$ExQ _aenv _abody)
-      (|do [$var &type/existential
-            =type (apply-type! type $var)]
-        (adjust-type* up =type))
+    (&/$ExQ _aenv _abody)
+    (|do [$var &type/existential
+          =type (apply-type! type $var)]
+      (adjust-type* up =type))
 
-      (&/$ProdT ?left ?right)
-      (|do [:let [=type (&/fold (fn [_abody ena]
-                                  (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                    (clean! 0 _avar _aidx _abody)))
-                                type
-                                up)]
-            ;; :let [_ (prn 'adjust-type* 1 (&type/show-type =type))]
-            :let [distributor (fn [v]
-                                (&/fold (fn [_abody ena]
-                                          (|let [[_aenv _aidx _avar] ena]
-                                            (&/$UnivQ _aenv _abody)))
-                                        v
-                                        up))
-                  adjusted-type (&type/Tuple$ (&/|map distributor (&type/flatten-prod =type)))]
-            ;; :let [_ (prn 'adjust-type* 2 (&type/show-type adjusted-type))]
-            ]
-        (return adjusted-type))
+    (&/$ProdT ?left ?right)
+    (|do [:let [=type (&/fold (fn [_abody ena]
+                                (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                  (clean! 0 _avar _aidx _abody)))
+                              type
+                              up)]
+          :let [distributor (fn [v]
+                              (&/fold (fn [_abody ena]
+                                        (|let [[_aenv _aidx _avar] ena]
+                                          (&/$UnivQ _aenv _abody)))
+                                      v
+                                      up))
+                adjusted-type (&type/Tuple$ (&/|map distributor (&type/flatten-prod =type)))]]
+      (return adjusted-type))
 
-      (&/$SumT ?left ?right)
-      (|do [:let [=type (&/fold (fn [_abody ena]
-                                  (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                    (clean! 0 _avar _aidx _abody)))
-                                type
-                                up)]
-            :let [distributor (fn [v]
-                                (&/fold (fn [_abody ena]
-                                          (|let [[_aenv _aidx _avar] ena]
-                                            (&/$UnivQ _aenv _abody)))
-                                        v
-                                        up))
-                  adjusted-type (&type/Variant$ (&/|map distributor (&type/flatten-sum =type)))]]
-        (return adjusted-type))
+    (&/$SumT ?left ?right)
+    (|do [:let [=type (&/fold (fn [_abody ena]
+                                (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                                  (clean! 0 _avar _aidx _abody)))
+                              type
+                              up)]
+          :let [distributor (fn [v]
+                              (&/fold (fn [_abody ena]
+                                        (|let [[_aenv _aidx _avar] ena]
+                                          (&/$UnivQ _aenv _abody)))
+                                      v
+                                      up))
+                adjusted-type (&type/Variant$ (&/|map distributor (&type/flatten-sum =type)))]]
+      (return adjusted-type))
 
-      (&/$AppT ?tfun ?targ)
-      (|do [=type (apply-type! ?tfun ?targ)]
-        (adjust-type* up =type))
+    (&/$AppT ?tfun ?targ)
+    (|do [=type (apply-type! ?tfun ?targ)]
+      (adjust-type* up =type))
 
-      (&/$VarT ?id)
-      (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                       (fail (str "##2##: " ?id))))]
-        (adjust-type* up type*))
+    (&/$VarT ?id)
+    (|do [type* (&/try-all% (&/|list (&type/deref ?id)
+                                     (fail (str "##2##: " ?id))))]
+      (adjust-type* up type*))
 
-      (&/$NamedT ?name ?type)
-      (adjust-type* up ?type)
+    (&/$NamedT ?name ?type)
+    (adjust-type* up ?type)
 
-      (&/$UnitT)
-      (return type)
+    (&/$UnitT)
+    (return type)
 
-      _
-      (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
-      )))
+    _
+    (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
+    ))
 
 (defn adjust-type [type]
   "(-> Type (Lux Type))"
@@ -313,21 +303,20 @@
                             (adjust-type value-type))]
           (|case value-type*
             (&/$ProdT _)
-            (|case (&type/tuple-types-for (&/|length ?members) value-type*)
-              (&/$None)
-              (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]"
-                         " -- " (&/show-ast pattern)
-                         " " (&type/show-type value-type*) " " (&type/show-type value-type)))
-
-              (&/$Some ?member-types*)
-              (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                             (|let [[v m] vm]
-                                               (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
-                                                 (return (&/T [(&/$Cons =test =tests) =kont])))))
-                                           (|do [=kont kont]
-                                             (return (&/T [&/$Nil =kont])))
-                                           (&/|reverse (&/zip2 ?member-types* ?members)))]
-                (return (&/T [($TupleTestAC =tests) =kont]))))
+            (|let [num-elems (&/|length ?members)
+                   [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?members) value-type*)]
+              (if (= num-elems _shorter)
+                (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                               (|let [[v m] vm]
+                                                 (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
+                                                   (return (&/T [(&/$Cons =test =tests) =kont])))))
+                                             (|do [=kont kont]
+                                               (return (&/T [&/$Nil =kont])))
+                                             (&/|reverse (&/zip2 _tuple-types ?members)))]
+                  (return (&/T [($TupleTestAC =tests) =kont])))
+                (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]"
+                           " -- " (&/show-ast pattern)
+                           " " (&type/show-type value-type*) " " (&type/show-type value-type)))))
 
             _
             (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
@@ -580,16 +569,13 @@
             (|do [value-type* (resolve-type value-type)]
               (|case value-type*
                 (&/$ProdT _)
-                (|case (&type/tuple-types-for (&/|length ?structs) value-type*)
-                  (&/$None)
-                  (fail (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]"))
-
-                  (&/$Some ?member-types*)
-                  (|do [totals (&/map2% check-totality
-                                        ?member-types*
-                                        ?structs)]
-                    (return (&/fold #(and %1 %2) true totals))))
-
+                (|let [num-elems (&/|length ?structs)
+                       [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?structs) value-type*)]
+                  (if (= num-elems _shorter)
+                    (|do [totals (&/map2% check-totality _tuple-types ?structs)]
+                      (return (&/fold #(and %1 %2) true totals)))
+                    (fail (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]"))))
+                
                 _
                 (fail (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
 

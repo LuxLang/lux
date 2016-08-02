@@ -110,19 +110,27 @@
             (&/with-attempt
               (|case exo-type*
                 (&/$ProdT _)
-                (|case (&type/tuple-types-for (&/|length ?elems) exo-type*)
-                  (&/$None)
-                  (&/fail-with-loc (str "[Analysis Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod exo-type*)) "]. Given tuple [" (&/|length ?elems) "]" " -- " (str "[" (->> ?elems (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")) "]")))
-
-                  (&/$Some ?member-types*)
-                  (|do [=elems (&/map2% (fn [elem-t elem]
-                                          (&&/analyse-1 analyse elem-t elem))
-                                        ?member-types*
-                                        ?elems)
-                        _cursor &/cursor]
-                    (return (&/|list (&&/|meta exo-type _cursor
-                                               (&&/$tuple =elems)
-                                               )))))
+                (|let [num-elems (&/|length ?elems)
+                       [_shorter _tuple-types] (&type/tuple-types-for num-elems exo-type*)]
+                  (if (= num-elems _shorter)
+                    (|do [=elems (&/map2% (fn [elem-t elem]
+                                            (&&/analyse-1 analyse elem-t elem))
+                                          _tuple-types
+                                          ?elems)
+                          _cursor &/cursor]
+                      (return (&/|list (&&/|meta exo-type _cursor
+                                                 (&&/$tuple =elems)
+                                                 ))))
+                    (|do [=direct-elems (&/map2% (fn [elem-t elem] (&&/analyse-1 analyse elem-t elem))
+                                                 (&/|take (dec _shorter) _tuple-types)
+                                                 (&/|take (dec _shorter) ?elems))
+                          =indirect-elems (analyse-tuple analyse
+                                                         (&/$Right (&/|last _tuple-types))
+                                                         (&/|drop (dec _shorter) ?elems))
+                          _cursor &/cursor]
+                      (return (&/|list (&&/|meta exo-type _cursor
+                                                 (&&/$tuple (&/|++ =direct-elems =indirect-elems))
+                                                 ))))))
 
                 (&/$ExQ _)
                 (&type/with-var
@@ -385,16 +393,13 @@
                                     (&/$Left error)
                                     ((&/fail-with-loc error) state)))
                 module-name &/get-module-name
-                ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (and (= "lux" r-prefix)
-                ;;                        (= "do" r-name))
-                ;;                   ;; (= "@type" r-name)
-                ;;                   )
-                ;;           (->> (&/|map &/show-ast macro-expansion)
-                ;;                (&/|interpose "\n")
-                ;;                (&/fold str "")
-                ;;                (prn (&/ident->text real-name) module-name)))
-                ;;       ]
+                :let [[r-prefix r-name] real-name
+                      _ (when (= "regex" r-name)
+                          (->> (&/|map &/show-ast macro-expansion)
+                               (&/|interpose "\n")
+                               (&/fold str "")
+                               (prn (&/ident->text real-name) module-name)))
+                      ]
                 ]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 

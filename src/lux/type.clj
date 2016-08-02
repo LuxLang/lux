@@ -874,19 +874,17 @@
     (return type)))
 
 (defn tuple-types-for [size-members type]
-  "(-> Int Type (Maybe (List Type)))"
+  "(-> Int Type [Int (List Type)])"
   (|let [?member-types (flatten-prod type)
          size-types (&/|length ?member-types)]
-    (if (not (>= size-types size-members))
-      &/$None
-      (|let [?member-types* (if (= size-types size-members)
-                              ?member-types
-                              (&/|++ (&/|take (dec size-members) ?member-types)
-                                     (&/|list (|case (->> (&/|drop (dec size-members) ?member-types) (&/|reverse))
-                                                (&/$Cons last prevs)
-                                                (&/fold (fn [right left] (&/$ProdT left right))
-                                                        last prevs)))))]
-        (&/$Some ?member-types*)))))
+    (if (>= size-types size-members)
+      (&/T [size-members (&/|++ (&/|take (dec size-members) ?member-types)
+                                (&/|list (|case (->> ?member-types (&/|drop (dec size-members)) (&/|reverse))
+                                           (&/$Cons last prevs)
+                                           (&/fold (fn [right left] (&/$ProdT left right))
+                                                   last prevs))))])
+      (&/T [size-types ?member-types])
+      )))
 
 (do-template [<name> <zero> <plus>]
   (defn <name> [types]

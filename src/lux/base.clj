@@ -1285,6 +1285,17 @@
     _
     (assert false (adt->text xs))))
 
+(defn |last [xs]
+  (|case xs
+    ($Cons x ($Nil))
+    x
+
+    ($Cons x xs*)
+    (|last xs*)
+
+    _
+    (assert false (adt->text xs))))
+
 (defn |partition [n xs]
   (->> xs ->seq (partition-all n) (map ->list) ->list))
 
