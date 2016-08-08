@@ -134,7 +134,8 @@
 (defvariant
   ("Release" 0)
   ("Debug" 0)
-  ("Eval" 0))
+  ("Eval" 0)
+  ("REPL" 0))
 
 (deftuple
   ["compiler-name"
@@ -811,10 +812,16 @@
       ($Left msg)
       (fail* msg))))
 
-(defn ^:private is-eval? [mode]
+(defn in-eval? [mode]
   "(-> CompilerMode Bool)"
   (|case mode
     ($Eval) true
+    _       false))
+
+(defn in-repl? [mode]
+  "(-> CompilerMode Bool)"
+  (|case mode
+    ($REPL) true
     _       false))
 
 (defn with-eval [body]
@@ -829,7 +836,11 @@
 
 (def get-eval
   (fn [state]
-    (return* state (->> state (get$ $info) (get$ $compiler-mode) is-eval?))))
+    (return* state (->> state (get$ $info) (get$ $compiler-mode) in-eval?))))
+
+(def get-mode
+  (fn [state]
+    (return* state (->> state (get$ $info) (get$ $compiler-mode)))))
 
 (def get-writer
   (fn [state]
@@ -914,6 +925,32 @@
         (run-state body* (update$ $envs #($Cons (update$ $inner-closures inc (|head %))
                                                 (|tail %))
                                   state))))))
+
+(defn without-repl-closure [body]
+  (|do [_mode get-mode]
+    (fn [state]
+      (let [output (body (if (in-repl? _mode)
+                           (update$ $envs |tail state)
+                           state))]
+        (|case output
+          ($Right state* datum)
+          (return* (set$ $envs (get$ $envs state) state*) datum)
+          
+          _
+          output)))))
+
+(defn without-repl [body]
+  (|do [_mode get-mode]
+    (fn [state]
+      (let [output (body (if (in-repl? _mode)
+                           (update$ $info #(set$ $compiler-mode $Debug %) state)
+                           state))]
+        (|case output
+          ($Right state* datum)
+          (return* (update$ $info #(set$ $compiler-mode _mode %) state*) datum)
+          
+          _
+          output)))))
 
 (def get-scope-name
   (fn [state]

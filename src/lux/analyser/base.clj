@@ -28,6 +28,10 @@
   )
 
 ;; [Exports]
+(defn expr-meta [analysis]
+  (|let [[meta _] analysis]
+    meta))
+
 (defn expr-type* [analysis]
   (|let [[[type _] _] analysis]
     type))

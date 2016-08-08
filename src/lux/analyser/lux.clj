@@ -393,13 +393,18 @@
                                     (&/$Left error)
                                     ((&/fail-with-loc error) state)))
                 module-name &/get-module-name
-                :let [[r-prefix r-name] real-name
-                      _ (when (= "regex" r-name)
-                          (->> (&/|map &/show-ast macro-expansion)
-                               (&/|interpose "\n")
-                               (&/fold str "")
-                               (prn (&/ident->text real-name) module-name)))
-                      ]
+                ;; :let [[r-prefix r-name] real-name
+                ;;       _ (when (or (= "actor:" r-name)
+                ;;                   ;; (= "|Codec@Json|" r-name)
+                ;;                   ;; (= "|Codec@Json//encode|" r-name)
+                ;;                   ;; (= "|Codec@Json//decode|" r-name)
+                ;;                   ;; (= "derived:" r-name)
+                ;;                   )
+                ;;           (->> (&/|map &/show-ast macro-expansion)
+                ;;                (&/|interpose "\n")
+                ;;                (&/fold str "")
+                ;;                (prn (&/ident->text real-name) module-name)))
+                ;;       ]
                 ]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
@@ -561,8 +566,9 @@
         ? (&&module/defined? module-name ?name)]
     (if ?
       (&/fail-with-loc (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
-      (|do [=value (&/with-scope ?name
-                     (&&/analyse-1+ analyse ?value))
+      (|do [=value (&/without-repl-closure
+                    (&/with-scope ?name
+                      (&&/analyse-1+ analyse ?value)))
             =meta (&&/analyse-1 analyse &type/DefMeta ?meta)
             ==meta (eval! (optimize =meta))
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
@@ -577,19 +583,20 @@
         _ (if (= current-module path)
             (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
             (return nil))]
-    (&/save-module
-     (|do [already-compiled? (&&module/exists? path)
-           active? (&/active-module? path)
-           _ (&/assert! (not active?)
-                        (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
-           _ (&&module/add-import path)
-           ?module-hash (if (not already-compiled?)
-                          (compile-module path)
-                          (&&module/module-hash path))
-           _ (if (= "" ex-alias)
-               (return nil)
-               (&&module/alias current-module ex-alias path))]
-       (return &/$Nil)))))
+    (&/without-repl
+     (&/save-module
+      (|do [already-compiled? (&&module/exists? path)
+            active? (&/active-module? path)
+            _ (&/assert! (not active?)
+                         (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
+            _ (&&module/add-import path)
+            ?module-hash (if (not already-compiled?)
+                           (compile-module path)
+                           (&&module/module-hash path))
+            _ (if (= "" ex-alias)
+                (return nil)
+                (&&module/alias current-module ex-alias path))]
+        (return &/$Nil))))))
 
 (defn ^:private coerce [new-type analysis]
   "(-> Type Analysis Analysis)"

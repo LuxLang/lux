@@ -196,9 +196,12 @@
         =output-type (&type/clean ?var ?output-type)]
     (return (&&/|meta =output-type ?output-cursor ?output-term))))
 
-(defn repl-analyse [eval! compile-module compilers]
+(defn repl-analyse [optimize eval! compile-module compilers]
   (|do [asts &parser/parse]
-    (&type/with-var
-      (fn [?var]
-        (|do [outputs (&/flat-map% (partial analyse-ast eval! compile-module compilers ?var) asts)]
-          (&/map% (partial clean-output ?var) outputs))))))
+    (&/flat-map% (fn [ast]
+                   (&type/with-var
+                     (fn [?var]
+                       (|do [=outputs (&/with-closure
+                                        (analyse-ast optimize eval! compile-module compilers ?var ast))]
+                         (&/map% (partial clean-output ?var) =outputs)))))
+                 asts)))

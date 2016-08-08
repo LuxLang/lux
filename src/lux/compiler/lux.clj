@@ -225,7 +225,8 @@
                       def-type (-> def-class (.getField &/type-field) (.get nil))
                       def-meta ?meta
                       def-value (-> def-class (.getField &/value-field) (.get nil))]
-                _ (&a-module/define module-name ?name def-type def-meta def-value)]
+                _ (&/without-repl-closure
+                   (&a-module/define module-name ?name def-type def-meta def-value))]
             (return nil))
           (fail (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name)))
 
@@ -288,7 +289,8 @@
                                                       false])))
                         def-meta ?meta
                         def-value (-> def-class (.getField &/value-field) (.get nil))]
-                  _ (&a-module/define module-name ?name def-type def-meta def-value)
+                  _ (&/without-repl-closure
+                     (&a-module/define module-name ?name def-type def-meta def-value))
                   _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
                       [true (&/$Some (&/$ListM tags*))]
                       (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
@@ -369,7 +371,8 @@
                                                     false])))
                       def-meta ?meta
                       def-value (-> def-class (.getField &/value-field) (.get nil))]
-                _ (&a-module/define module-name ?name def-type def-meta def-value)
+                _ (&/without-repl-closure
+                   (&a-module/define module-name ?name def-type def-meta def-value))
                 _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
                     [true (&/$Some (&/$ListM tags*))]
                     (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
