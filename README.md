@@ -7,19 +7,13 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-0.3.3
+0.4.0
 
 ### How far ahead is the project?
 
-The Java-bytecode compiler is feature-complete.
-
-Optimizations and other minor improvements are on the way.
+Lux is finally in the **beta** stage. The JVM compiler is pretty stable and the standard library has grown to a respectable size.
 
 ### How can I use it?
-
-Download the 0.3.3 compiler from here: https://github.com/LuxLang/lux/releases/download/0.3.3/luxc.jar
-
-Once you download the compiler, you'll want to create a directory named "source" in the same directory where the compiler is located.
 
 You should use the Leiningen plugin for Lux to compile your programs and manager your dependencies.
 You can find it here: https://github.com/LuxLang/lux-lein
@@ -34,8 +28,6 @@ Then, you can run the program like this:
 To take a look at a sample Lux project, please take a look at this repository: https://github.com/LuxLang/luxdoc
 
 The program in there was actually used to generate most of the documentation for the standard library in the wiki (located over here: https://github.com/LuxLang/lux/wiki/Standard-Library)
-
-You can also checkout this tutorial, which includes a sample TODO web-app: http://luxlang.blogspot.com/2015/12/lux-tutorial-1-simple-todo-list-using.html
 
 ### What's the license?
 
@@ -87,8 +79,7 @@ Functions are curried and partial application is as simple as just applying a fu
 
 e.g.
 
-	(let [inc (i+ 1)]
-	  (map inc (list 1 2 3 4 5)))
+	(map (+ 1) (list 1 2 3 4 5))
 
 ### Code portability
 
@@ -122,21 +113,21 @@ But you can also use them to destructure them inside pattern-matching:
 
 	(case (: (List Int) (list 1 2 3))
 	  (#Cons x (#Cons y (#Cons z #Nil)))
-	  (#Some ($ int:* x y z))
+	  (#Some ($_ * x y z))
 
 	  _
 	  #None)
 
 	(case (: (List Int) (list 1 2 3))
 	  (\ (list x y z))
-	  (#Some ($ int:* x y z))
+	  (#Some ($_ * x y z))
 
 	  _
 	  #None)
 
 There is also the special **\or** macro, which introduces *or patterns*:
 
-	(deftype Weekday
+	(type: Weekday
 	  (| #Monday
 		 #Tuesday
 		 #Wednesday
@@ -145,7 +136,7 @@ There is also the special **\or** macro, which introduces *or patterns*:
 		 #Saturday
 		 #Sunday))
 
-	(def (weekend? day)
+	(def: (weekend? day)
 	  (-> Weekday Bool)
 	  (case day
 		(\or #Saturday #Sunday)
