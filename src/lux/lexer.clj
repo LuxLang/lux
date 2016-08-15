@@ -15,6 +15,7 @@
   ("White_Space" 1)
   ("Comment" 1)
   ("Bool" 1)
+  ("Nat" 1)
   ("Int" 1)
   ("Real" 1)
   ("Char" 1)
@@ -157,6 +158,7 @@
       (return (&/T [meta (<tag> token)]))))
 
   lex-bool  $Bool  #"^(true|false)"
+  lex-nat   $Nat   #"^\+(0|[1-9][0-9]*)"
   lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
   lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)(e-?[1-9][0-9]*)?"
   )
@@ -233,6 +235,7 @@
                         lex-comment
                         lex-bool
                         lex-real
+                        lex-nat
                         lex-int
                         lex-char
                         lex-text

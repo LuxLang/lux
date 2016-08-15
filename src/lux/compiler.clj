@@ -52,6 +52,9 @@
         (&o/$bool ?value)
         (&&lux/compile-bool ?value)
 
+        (&o/$nat ?value)
+        (&&lux/compile-nat ?value)
+
         (&o/$int ?value)
         (&&lux/compile-int ?value)
 

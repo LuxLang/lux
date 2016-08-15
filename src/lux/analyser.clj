@@ -71,6 +71,10 @@
       (|do [_ (&type/check exo-type &type/Bool)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$bool ?value)))))
 
+      (&/$NatS ?value)
+      (|do [_ (&type/check exo-type &type/Nat)]
+        (return (&/|list (&&/|meta exo-type cursor (&&/$nat ?value)))))
+
       (&/$IntS ?value)
       (|do [_ (&type/check exo-type &type/Int)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$int ?value)))))

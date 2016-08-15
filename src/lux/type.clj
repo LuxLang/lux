@@ -28,6 +28,7 @@
 (def empty-env &/$Nil)
 
 (def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$HostT "java.lang.Boolean" &/$Nil)))
+(def Nat (&/$NamedT (&/T ["lux" "Nat"]) (&/$HostT "#Nat" &/$Nil)))
 (def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$HostT "java.lang.Long" &/$Nil)))
 (def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$HostT "java.lang.Double" &/$Nil)))
 (def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$HostT "java.lang.Character" &/$Nil)))
@@ -120,25 +121,28 @@
                                    ;; BoolM
                                    Bool
                                    (&/$SumT
-                                    ;; IntM
-                                    Int
+                                    ;; NatM
+                                    Nat
                                     (&/$SumT
-                                     ;; RealM
-                                     Real
+                                     ;; IntM
+                                     Int
                                      (&/$SumT
-                                      ;; CharM
-                                      Char
+                                      ;; RealM
+                                      Real
                                       (&/$SumT
-                                       ;; TextM
-                                       Text
+                                       ;; CharM
+                                       Char
                                        (&/$SumT
-                                        ;; IdentM
-                                        Ident
+                                        ;; TextM
+                                        Text
                                         (&/$SumT
-                                         ;; ListM
-                                         (&/$AppT List DefMetaValue)
-                                         ;; DictM
-                                         (&/$AppT List (&/$ProdT Text DefMetaValue)))))))))
+                                         ;; IdentM
+                                         Ident
+                                         (&/$SumT
+                                          ;; ListM
+                                          (&/$AppT List DefMetaValue)
+                                          ;; DictM
+                                          (&/$AppT List (&/$ProdT Text DefMetaValue))))))))))
                                   )
                         &/$VoidT))))
 

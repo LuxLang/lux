@@ -10,6 +10,7 @@
 ;; [Tags]
 (defvariant
   ("bool" 1)
+  ("nat" 1)
   ("int" 1)
   ("real" 1)
   ("char" 1)
@@ -34,6 +35,7 @@
   ("PopPM" 0)
   ("BindPM" 1)
   ("BoolPM" 1)
+  ("NatPM" 1)
   ("IntPM" 1)
   ("RealPM" 1)
   ("CharPM" 1)
@@ -56,6 +58,10 @@
 
     (&a-case/$BoolTestAC _value)
     (&/|list ($BoolPM _value)
+             $PopPM)
+
+    (&a-case/$NatTestAC _value)
+    (&/|list ($NatPM _value)
              $PopPM)
 
     (&a-case/$IntTestAC _value)
@@ -127,6 +133,11 @@
     [($BoolPM _pre-value) ($BoolPM _post-value)]
     (if (= _pre-value _post-value)
       ($BoolPM _pre-value)
+      ($AltPM pre post))
+
+    [($NatPM _pre-value) ($NatPM _post-value)]
+    (if (= _pre-value _post-value)
+      ($NatPM _pre-value)
       ($AltPM pre post))
 
     [($IntPM _pre-value) ($IntPM _post-value)]
@@ -342,6 +353,9 @@
         (&a/$bool value)
         (&/T [meta ($bool value)])
         
+        (&a/$nat value)
+        (&/T [meta ($nat value)])
+
         (&a/$int value)
         (&/T [meta ($int value)])
         

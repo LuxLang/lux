@@ -76,6 +76,9 @@
       (&lexer/$Bool ?value)
       (return (&/|list (&/T [meta (&/$BoolS (Boolean/parseBoolean ?value))])))
 
+      (&lexer/$Nat ?value)
+      (return (&/|list (&/T [meta (&/$NatS (Long/parseUnsignedLong ?value))])))
+
       (&lexer/$Int ?value)
       (return (&/|list (&/T [meta (&/$IntS (Long/parseLong ?value))])))
 

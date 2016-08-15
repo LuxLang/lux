@@ -45,6 +45,7 @@
                     (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
       (return nil)))
 
+  compile-nat  "java/lang/Long"      "(J)V" long
   compile-int  "java/lang/Long"      "(J)V" long
   compile-real "java/lang/Double"    "(D)V" double
   compile-char "java/lang/Character" "(C)V" char

@@ -70,6 +70,7 @@
 ;; AST
 (defvariant
   ("BoolS" 1)
+  ("NatS" 1)
   ("IntS" 1)
   ("RealS" 1)
   ("CharS" 1)
@@ -213,6 +214,7 @@
 ;; Meta-data
 (defvariant
   ("BoolM" 1)
+  ("NatM" 1)
   ("IntM" 1)
   ("RealM" 1)
   ("CharM" 1)
@@ -1043,6 +1045,9 @@
   (|case ast
     [_ ($BoolS ?value)]
     (pr-str ?value)
+
+    [_ ($NatS ?value)]
+    (Long/toUnsignedString ?value)
 
     [_ ($IntS ?value)]
     (pr-str ?value)

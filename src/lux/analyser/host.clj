@@ -1054,6 +1054,53 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["lux" "=="]) (&/|list =left =right) (&/|list)))))))))
 
+(do-template [<name> <proc> <input-type> <output-type>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
+          =x (&&/analyse-1 analyse <input-type> x)
+          =y (&&/analyse-1 analyse <input-type> y)
+          _ (&type/check exo-type <output-type>)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta <output-type> _cursor
+                                 (&&/$proc (&/T ["nat" <proc>]) (&/|list =x =y) (&/|list)))))))
+
+  ^:private analyse-nat-add "add" &type/Nat &type/Nat
+  ^:private analyse-nat-sub "sub" &type/Nat &type/Nat
+  ^:private analyse-nat-mul "mul" &type/Nat &type/Nat
+  ^:private analyse-nat-div "div" &type/Nat &type/Nat
+  ^:private analyse-nat-rem "rem" &type/Nat &type/Nat
+  ^:private analyse-nat-eq  "eq"  &type/Nat &type/Bool
+  ^:private analyse-nat-lt  "lt"  &type/Nat &type/Bool
+  )
+
+(defn ^:private analyse-nat-encode [analyse exo-type ?values]
+  (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+        =x (&&/analyse-1 analyse &type/Nat x)
+        _ (&type/check exo-type &type/Text)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta &type/Text _cursor
+                               (&&/$proc (&/T ["nat" "encode"]) (&/|list =x) (&/|list)))))))
+
+(defn ^:private analyse-nat-decode [analyse exo-type ?values]
+  (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+        =x (&&/analyse-1 analyse &type/Text x)
+        _ (&type/check exo-type (&/$AppT &type/Maybe &type/Nat))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta (&/$AppT &type/Maybe &type/Nat) _cursor
+                               (&&/$proc (&/T ["nat" "decode"]) (&/|list =x) (&/|list)))))))
+
+(do-template [<name> <type> <op>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Nil) ?values]
+          _ (&type/check exo-type <type>)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta <type> _cursor
+                                 (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
+
+  ^:private analyse-nat-min-value &type/Nat ["nat" "min-value"]
+  ^:private analyse-nat-max-value &type/Nat ["nat" "max-value"]
+  )
+
 (defn analyse-host [analyse exo-type compilers category proc ?values]
   (|let [[_ _ compile-class compile-interface] compilers]
     (case category
@@ -1078,6 +1125,21 @@
         "put"    (analyse-jvm-aastore analyse exo-type ?values)
         "remove" (analyse-array-remove analyse exo-type ?values)
         "size"   (analyse-jvm-arraylength analyse exo-type ?values))
+
+      "nat"
+      (case proc
+        "+" (analyse-nat-add analyse exo-type ?values)
+        "-" (analyse-nat-sub analyse exo-type ?values)
+        "*" (analyse-nat-mul analyse exo-type ?values)
+        "/" (analyse-nat-div analyse exo-type ?values)
+        "%" (analyse-nat-rem analyse exo-type ?values)
+        "=" (analyse-nat-eq analyse exo-type ?values)
+        "<" (analyse-nat-lt analyse exo-type ?values)
+        "encode" (analyse-nat-encode analyse exo-type ?values)
+        "decode" (analyse-nat-decode analyse exo-type ?values)
+        "min-value" (analyse-nat-min-value analyse exo-type ?values)
+        "max-value" (analyse-nat-max-value analyse exo-type ?values)
+        )
       
       "jvm"
       (case proc

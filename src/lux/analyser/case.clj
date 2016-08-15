@@ -18,6 +18,7 @@
 (defvariant
   ("DefaultTotal" 1)
   ("BoolTotal" 2)
+  ("NatTotal" 2)
   ("IntTotal" 2)
   ("RealTotal" 2)
   ("CharTotal" 2)
@@ -29,6 +30,7 @@
   ("NoTestAC" 0)
   ("StoreTestAC" 1)
   ("BoolTestAC" 1)
+  ("NatTestAC" 1)
   ("IntTestAC" 1)
   ("RealTestAC" 1)
   ("CharTestAC" 1)
@@ -265,6 +267,11 @@
             =kont kont]
         (return (&/T [($BoolTestAC ?value) =kont])))
 
+      (&/$NatS ?value)
+      (|do [_ (&type/check value-type &type/Nat)
+            =kont kont]
+        (return (&/T [($NatTestAC ?value) =kont])))
+
       (&/$IntS ?value)
       (|do [_ (&type/check value-type &type/Int)
             =kont kont]
@@ -394,6 +401,9 @@
       [($BoolTotal total? ?values) ($NoTestAC)]
       (return ($BoolTotal true ?values))
 
+      [($NatTotal total? ?values) ($NoTestAC)]
+      (return ($NatTotal true ?values))
+
       [($IntTotal total? ?values) ($NoTestAC)]
       (return ($IntTotal true ?values))
 
@@ -418,6 +428,9 @@
       [($BoolTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($BoolTotal true ?values))
 
+      [($NatTotal total? ?values) ($StoreTestAC ?idx)]
+      (return ($NatTotal true ?values))
+
       [($IntTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($IntTotal true ?values))
 
@@ -441,6 +454,12 @@
 
       [($BoolTotal total? ?values) ($BoolTestAC ?value)]
       (return ($BoolTotal total? (&/$Cons ?value ?values)))
+
+      [($DefaultTotal total?) ($NatTestAC ?value)]
+      (return ($NatTotal total? (&/|list ?value)))
+
+      [($NatTotal total? ?values) ($NatTestAC ?value)]
+      (return ($NatTotal total? (&/$Cons ?value ?values)))
 
       [($DefaultTotal total?) ($IntTestAC ?value)]
       (return ($IntTotal total? (&/|list ?value)))
@@ -526,6 +545,10 @@
     (|do [_ (&type/check value-type &type/Bool)]
       (return (or ?total
                   (= #{true false} (set (&/->seq ?values))))))
+
+    ($NatTotal ?total _)
+    (|do [_ (&type/check value-type &type/Nat)]
+      (return ?total))
 
     ($IntTotal ?total _)
     (|do [_ (&type/check value-type &type/Int)]

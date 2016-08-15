@@ -12,6 +12,7 @@
 ;; [Tags]
 (defvariant
   ("bool" 1)
+  ("nat" 1)
   ("int" 1)
   ("real" 1)
   ("char" 1)

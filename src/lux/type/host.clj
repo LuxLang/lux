@@ -16,6 +16,7 @@
 ;; [Exports]
 (def array-data-tag "#Array")
 (def null-data-tag "#Null")
+(def nat-data-tag "#Nat")
 
 ;; [Utils]
 (defn ^:private trace-lineage* [^Class super-class ^Class sub-class]
@@ -267,7 +268,12 @@
                (and (= array-data-tag e!name)
                     (not= array-data-tag a!name))
                (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
-               
+
+               (and (or (= nat-data-tag e!name)
+                        (= "java.lang.Long" e!name))
+                    (= nat-data-tag a!name))
+               (return fixpoints)
+
                :else
                (let [e!name (as-obj e!name)
                      a!name (as-obj a!name)]

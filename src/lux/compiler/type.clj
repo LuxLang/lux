@@ -30,6 +30,7 @@
               (<tag> value)))
 
   ^:private bool$ &a/$bool "(-> Bool Analysis)"
+  ^:private nat$  &a/$nat  "(-> Nat Analysis)"
   ^:private int$  &a/$int  "(-> Int Analysis)"
   ^:private real$ &a/$real "(-> Real Analysis)"
   ^:private char$ &a/$char "(-> Char Analysis)"
@@ -109,6 +110,9 @@
     (&/$BoolM value)
     (variant$ #'&/$BoolM (bool$ value))
     
+    (&/$NatM value)
+    (variant$ #'&/$NatM (nat$ value))
+
     (&/$IntM value)
     (variant$ #'&/$IntM (int$ value))
 

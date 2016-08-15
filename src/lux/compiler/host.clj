@@ -779,25 +779,105 @@
                              (.visitInsn Opcodes/RETURN)
                              (.visitMaxs 0 0)
                              (.visitEnd))
+              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "log" "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
+                  (.visitCode)
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;")
+                  (.visitLdcInsn "LOG: ")
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "print" "(Ljava/lang/Object;)V")
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;")
+                  (.visitVarInsn Opcodes/ALOAD 0)
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "println" "(Ljava/lang/Object;)V")
+                  (.visitVarInsn Opcodes/ALOAD 0)
+                  (.visitInsn Opcodes/ARETURN)
+                  (.visitMaxs 0 0)
+                  (.visitEnd))
+              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_none" "()Ljava/lang/Object;" nil nil)
+                  (.visitCode)
+                  (.visitLdcInsn (->> #'&/$None meta ::&/idx int)) ;; I
+                  (.visitInsn Opcodes/ACONST_NULL) ;; I?
+                  (.visitLdcInsn &/unit-tag) ;; I?U
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitInsn Opcodes/ARETURN)
+                  (.visitMaxs 0 0)
+                  (.visitEnd))
+              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
+                  (.visitCode)
+                  (.visitLdcInsn (->> #'&/$Some meta ::&/idx int)) ;; I
+                  (.visitInsn Opcodes/ACONST_NULL) ;; I?
+                  (.visitVarInsn Opcodes/ALOAD 0) ;; I?O
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitInsn Opcodes/ARETURN)
+                  (.visitMaxs 0 0)
+                  (.visitEnd))
               _ (let [$end (new Label)
-                      $else (new Label)]
-                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "log" "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
+                      ;; $then (new Label)
+                      $else (new Label)
+                      $from (new Label)
+                      $to (new Label)
+                      $handler (new Label)]
+                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_nat" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
                     (.visitCode)
-                    (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;")
-                    (.visitLdcInsn "LOG: ")
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "print" "(Ljava/lang/Object;)V")
-                    (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;")
                     (.visitVarInsn Opcodes/ALOAD 0)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "println" "(Ljava/lang/Object;)V")
+                    (.visitLdcInsn "+")
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "startsWith" "(Ljava/lang/String;)Z")
+                    (.visitJumpInsn Opcodes/IFEQ $else)
                     (.visitVarInsn Opcodes/ALOAD 0)
+                    (.visitLdcInsn (int 1))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(I)Ljava/lang/String;")
+                    (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
+                    (.visitLabel $from)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseUnsignedLong" "(Ljava/lang/String;)J")
+                    (.visitLabel $to)
+                    ;; (.visitJumpInsn Opcodes/GOTO $then)
+                    ;; (.visitLabel $then)
+                    (&&/wrap-long)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+                    (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $handler)
+                    (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Exception"]))
+                    (.visitInsn Opcodes/POP)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                    (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $else)
+                    (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 0 (to-array []))
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                    (.visitLabel $end)
+                    (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
                     (.visitInsn Opcodes/ARETURN)
                     (.visitMaxs 0 0)
                     (.visitEnd)))
               _ (doto =class
-                  (compile-LuxRT-adt-methods)
-                  (compile-LuxRT-pm-methods))]]
+                  (compile-LuxRT-pm-methods)
+                  (compile-LuxRT-adt-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
+
+(defn ^:private compile-jvm-try [compile ?values special-args]
+  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        :let [$from (new Label)
+              $to (new Label)
+              $handler (new Label)
+              $end (new Label)]
+        :let [_ (doto *writer*
+                  (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
+                  (.visitLabel $from))]
+        _ (compile ?body)
+        :let [_ (doto *writer*
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $to)
+                  (.visitLabel $handler))]
+        _ (compile ?catch)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
+                  (.visitInsn Opcodes/SWAP)
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1)))]
+        :let [_ (.visitLabel *writer* $end)]]
+    (return nil)))
 
 (do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
   (defn <name> [compile _?value special-args]
@@ -1406,6 +1486,117 @@
                   (.visitLabel $end))]]
     (return nil)))
 
+(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                _ (doto *writer*
+                    (.visitInsn <opcode>)
+                    (<wrap>))]]
+      (return nil)))
+
+  ^:private compile-nat-add Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-nat-sub Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-nat-mul Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  )
+
+(do-template [<name> <wrapper-class> <value-method> <value-method-sig> <wrap> <comp-method> <comp-sig>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                _ (doto *writer*
+                    (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ <comp-method> <comp-sig>)
+                    (&&/wrap-long))]]
+      (return nil)))
+
+  ^:private compile-nat-div "java.lang.Long" "longValue" "()J" &&/wrap-long "divideUnsigned"    "(JJ)J"
+  ^:private compile-nat-rem "java.lang.Long" "longValue" "()J" &&/wrap-long "remainderUnsigned" "(JJ)J"
+  )
+
+(do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig> <comp-method> <comp-sig>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                $then (new Label)
+                $end (new Label)
+                _ (doto *writer*
+                    (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ "compareUnsigned" "(JJ)I")
+                    (.visitLdcInsn (int <cmp-output>))
+                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitLabel $end))]]
+      (return nil)))
+
+  ^:private compile-nat-eq Opcodes/LCMP   0 "java.lang.Long"   "longValue"   "()J" "compareUnsigned" "(JJ)I"
+  ^:private compile-nat-lt Opcodes/LCMP  -1 "java.lang.Long"   "longValue"   "()J" "compareUnsigned" "(JJ)I"
+  )
+
+(defn ^:private compile-nat-encode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ "toUnsignedString" "(J)Ljava/lang/String;"))]]
+    (return nil)))
+
+(defn ^:private compile-nat-decode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.String")]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "decode_nat" "(Ljava/lang/String;)Ljava/lang/Object;"))]]
+    (return nil)))
+
+(do-template [<name> <instr> <wrapper>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Nil) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          :let [_ (doto *writer*
+                    <instr>
+                    <wrapper>)]]
+      (return nil)))
+
+  ^:private compile-nat-min-value (.visitLdcInsn 0)  &&/wrap-long
+  ^:private compile-nat-max-value (.visitLdcInsn -1) &&/wrap-long
+  )
+
 (defn compile-host [compile proc-category proc-name ?values special-args]
   (case proc-category
     "lux"
@@ -1425,6 +1616,21 @@
     "array"
     (case proc-name
       "get" (compile-array-get compile ?values special-args))
+
+    "nat"
+    (case proc-name
+      "add"       (compile-nat-add compile ?values special-args)
+      "sub"       (compile-nat-sub compile ?values special-args)
+      "mul"       (compile-nat-mul compile ?values special-args)
+      "div"       (compile-nat-div compile ?values special-args)
+      "rem"       (compile-nat-rem compile ?values special-args)
+      "eq"        (compile-nat-eq compile ?values special-args)
+      "lt"        (compile-nat-lt compile ?values special-args)
+      "encode"    (compile-nat-encode compile ?values special-args)
+      "decode"    (compile-nat-decode compile ?values special-args)
+      "max-value" (compile-nat-max-value compile ?values special-args)
+      "min-value" (compile-nat-min-value compile ?values special-args)
+      )
     
     "jvm"
     (case proc-name
