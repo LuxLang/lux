@@ -1047,7 +1047,7 @@
     (pr-str ?value)
 
     [_ ($NatS ?value)]
-    (Long/toUnsignedString ?value)
+    (str "+" (Long/toUnsignedString ?value))
 
     [_ ($IntS ?value)]
     (pr-str ?value)

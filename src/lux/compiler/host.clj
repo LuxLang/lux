@@ -1570,7 +1570,10 @@
                   (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ "toUnsignedString" "(J)Ljava/lang/String;"))]]
+                  (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ "toUnsignedString" "(J)Ljava/lang/String;")
+                  (.visitLdcInsn "+")
+                  (.visitInsn Opcodes/SWAP)
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;"))]]
     (return nil)))
 
 (defn ^:private compile-nat-decode [compile ?values special-args]
@@ -1595,6 +1598,17 @@
 
   ^:private compile-nat-min-value (.visitLdcInsn 0)  &&/wrap-long
   ^:private compile-nat-max-value (.visitLdcInsn -1) &&/wrap-long
+  )
+
+(do-template [<name>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)]
+      (return nil)))
+
+  ^:private compile-nat-to-int
+  ^:private compile-int-to-nat
   )
 
 (defn compile-host [compile proc-category proc-name ?values special-args]
@@ -1630,6 +1644,12 @@
       "decode"    (compile-nat-decode compile ?values special-args)
       "max-value" (compile-nat-max-value compile ?values special-args)
       "min-value" (compile-nat-min-value compile ?values special-args)
+      "to-int"    (compile-nat-to-int compile ?values special-args)
+      )
+
+    "int"
+    (case proc-name
+      "to-nat"    (compile-int-to-nat compile ?values special-args)
       )
     
     "jvm"

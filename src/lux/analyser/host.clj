@@ -549,8 +549,8 @@
   ^:private analyse-jvm-dgt  "dgt"  "java.lang.Double"  "java.lang.Boolean"
   )
 
-(let [length-type &type/Int
-      idx-type &type/Int]
+(let [length-type &type/Nat
+      idx-type &type/Nat]
   (do-template [<elem-class> <array-class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
     (let [elem-type (&/$HostT <elem-class> &/$Nil)
           array-type (&/$HostT <array-class> &/$Nil)]
@@ -599,8 +599,8 @@
         ;; else
         false)))
 
-(let [length-type &type/Int
-      idx-type &type/Int]
+(let [length-type &type/Nat
+      idx-type &type/Nat]
   (defn ^:private analyse-jvm-anewarray [analyse exo-type ?values]
     (|do [:let [(&/$Cons [_ (&/$TextS _gclass)] (&/$Cons length (&/$Nil))) ?values]
           gclass (&reader/with-source "jvm-anewarray" _gclass
@@ -645,7 +645,7 @@
         =array (&&/analyse-1+ analyse array)
         [arr-class arr-params] (ensure-object (&&/expr-type* =array))
         _ (&/assert! (array-class? arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
-        _ (&type/check exo-type &type/Int)
+        _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "arraylength"]) (&/|list =array) (&/|list))
@@ -885,8 +885,8 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "load-class"]) (&/|list) (&/|list _class-name output-type)))))))
 
-(let [length-type &type/Int
-      idx-type &type/Int]
+(let [length-type &type/Nat
+      idx-type &type/Nat]
   (defn ^:private analyse-array-new [analyse exo-type ?values]
     (|do [:let [(&/$Cons length (&/$Nil)) ?values]
           :let [gclass (&/$GenericClass "java.lang.Object" (&/|list))
@@ -1008,9 +1008,9 @@
 (do-template [<name> <op>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons input (&/$Cons mask (&/$Nil))) ?values]
-          =mask (&&/analyse-1 analyse &type/Int mask)
-          =input (&&/analyse-1 analyse &type/Int input)
-          _ (&type/check exo-type &type/Int)
+          =mask (&&/analyse-1 analyse &type/Nat mask)
+          =input (&&/analyse-1 analyse &type/Nat input)
+          _ (&type/check exo-type &type/Nat)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["bit" <op>]) (&/|list =input =mask) (&/|list)))))))
@@ -1022,25 +1022,25 @@
 
 (defn ^:private analyse-bit-count [analyse exo-type ?values]
   (|do [:let [(&/$Cons input (&/$Nil)) ?values]
-        =input (&&/analyse-1 analyse &type/Int input)
-        _ (&type/check exo-type &type/Int)
+        =input (&&/analyse-1 analyse &type/Nat input)
+        _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["bit" "count"]) (&/|list =input) (&/|list)))))))
 
-(do-template [<name> <op>]
+(do-template [<name> <op> <type>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons input (&/$Cons shift (&/$Nil))) ?values]
-          =shift (&&/analyse-1 analyse &type/Int shift)
-          =input (&&/analyse-1 analyse &type/Int input)
-          _ (&type/check exo-type &type/Int)
+          =shift (&&/analyse-1 analyse &type/Nat shift)
+          =input (&&/analyse-1 analyse <type> input)
+          _ (&type/check exo-type <type>)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["bit" <op>]) (&/|list =input =shift) (&/|list)))))))
 
-  ^:private analyse-bit-shift-left           "shift-left"
-  ^:private analyse-bit-shift-right          "shift-right"
-  ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right"
+  ^:private analyse-bit-shift-left           "shift-left" &type/Nat
+  ^:private analyse-bit-shift-right          "shift-right" &type/Int
+  ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right" &type/Nat
   )
 
 (defn ^:private analyse-lux-== [analyse exo-type ?values]
@@ -1101,6 +1101,19 @@
   ^:private analyse-nat-max-value &type/Nat ["nat" "max-value"]
   )
 
+(do-template [<name> <from-type> <to-type> <op>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+          =x (&&/analyse-1 analyse <from-type> x)
+          _ (&type/check exo-type <to-type>)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta <to-type> _cursor
+                                 (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
+
+  ^:private analyse-nat-to-int &type/Nat &type/Int ["nat" "to-int"]
+  ^:private analyse-int-to-nat &type/Int &type/Nat ["int" "to-nat"]
+  )
+
 (defn analyse-host [analyse exo-type compilers category proc ?values]
   (|let [[_ _ compile-class compile-interface] compilers]
     (case category
@@ -1139,6 +1152,12 @@
         "decode" (analyse-nat-decode analyse exo-type ?values)
         "min-value" (analyse-nat-min-value analyse exo-type ?values)
         "max-value" (analyse-nat-max-value analyse exo-type ?values)
+        "to-int" (analyse-nat-to-int analyse exo-type ?values)
+        )
+
+      "int"
+      (case proc
+        "to-nat" (analyse-int-to-nat analyse exo-type ?values)
         )
       
       "jvm"

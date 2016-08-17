@@ -72,6 +72,16 @@
       (.visitLdcInsn _value)
       (.visitJumpInsn Opcodes/IF_ICMPNE $else))
 
+    (&o/$NatPM _value)
+    (doto writer
+      (.visitInsn Opcodes/DUP)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
+      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
+      (.visitLdcInsn (long _value))
+      (.visitInsn Opcodes/LCMP)
+      (.visitJumpInsn Opcodes/IFNE $else))
+
     (&o/$IntPM _value)
     (doto writer
       (.visitInsn Opcodes/DUP)

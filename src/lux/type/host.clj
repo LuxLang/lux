@@ -269,10 +269,13 @@
                     (not= array-data-tag a!name))
                (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
 
-               (and (or (= nat-data-tag e!name)
-                        (= "java.lang.Long" e!name))
+               (and (= nat-data-tag e!name)
                     (= nat-data-tag a!name))
                (return fixpoints)
+
+               (or (= nat-data-tag e!name)
+                   (= nat-data-tag a!name))
+               (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
 
                :else
                (let [e!name (as-obj e!name)

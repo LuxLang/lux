@@ -92,7 +92,7 @@
                                         TypePair
                                         (&/$SumT
                                          ;; BoundT
-                                         Int
+                                         Nat
                                          (&/$SumT
                                           ;; VarT
                                           Int
