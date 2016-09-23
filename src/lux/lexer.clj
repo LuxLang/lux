@@ -158,9 +158,16 @@
       (return (&/T [meta (<tag> token)]))))
 
   lex-bool  $Bool  #"^(true|false)"
-  lex-nat   $Nat   #"^\+(0|[1-9][0-9]*)"
-  lex-int   $Int   #"^-?(0|[1-9][0-9]*)"
-  lex-real  $Real  #"^-?(0\.[0-9]+|[1-9][0-9]*\.[0-9]+)(e-?[1-9][0-9]*)?"
+  )
+
+(do-template [<name> <tag> <regex>]
+  (def <name>
+    (|do [[meta _ token] (&reader/read-regex <regex>)]
+      (return (&/T [meta (<tag> (string/replace token #",|_" ""))]))))
+
+  lex-nat   $Nat   #"^\+(0|[1-9][0-9,_]*)"
+  lex-int   $Int   #"^-?(0|[1-9][0-9,_]*)"
+  lex-real  $Real  #"^-?(0\.[0-9,_]+|[1-9][0-9,_]*\.[0-9,_]+)(e-?[1-9][0-9,_]*)?"
   )
 
 (def lex-char
