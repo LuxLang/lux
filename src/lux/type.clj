@@ -95,10 +95,10 @@
                                          Nat
                                          (&/$SumT
                                           ;; VarT
-                                          Int
+                                          Nat
                                           (&/$SumT
                                            ;; ExT
-                                           Int
+                                           Nat
                                            (&/$SumT
                                             ;; UnivQ
                                             (&/$ProdT TypeList Type)
