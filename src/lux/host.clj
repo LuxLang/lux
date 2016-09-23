@@ -95,7 +95,7 @@
                                     (.getGenericType =field)))]
         (|let [gvars (->> target-class .getTypeParameters seq &/->list)]
           (return (&/T [gvars gtype])))
-        (fail (str "[Host Error] Field does not exist: " target "." field)))))
+        (&/fail-with-loc (str "[Host Error] Field does not exist: " target "." field)))))
 
   lookup-static-field true
   lookup-field        false
@@ -116,13 +116,15 @@
                                        =method))]
         (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
                gvars (->> method .getTypeParameters seq &/->list)
-               gargs (->> method .getGenericParameterTypes seq &/->list)]
+               gargs (->> method .getGenericParameterTypes seq &/->list)
+               _ (when (.getAnnotation method java.lang.Deprecated)
+                   (println (str "[Host Warning] Deprecated method: " target "." method-name " " (->> args &/->seq print-str))))]
           (return (&/T [(.getGenericReturnType method)
                         (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
                         parent-gvars
                         gvars
                         gargs])))
-        (fail (str "[Host Error] " <method-type> " method does not exist: " target "." method-name)))))
+        (&/fail-with-loc (str "[Host Error] " <method-type> " method does not exist: " target "." method-name " " (->> args &/->seq print-str))))))
 
   lookup-static-method  true  "Static"
   lookup-virtual-method false "Virtual"
@@ -140,9 +142,11 @@
                                         =method))]
       (|let [gvars (->> target-class .getTypeParameters seq &/->list)
              gargs (->> ctor .getGenericParameterTypes seq &/->list)
-             exs (->> ctor .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))]
+             exs (->> ctor .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
+             _ (when (.getAnnotation ctor java.lang.Deprecated)
+                 (println (str "[Host Warning] Deprecated constructor: " target " " (->> args &/->seq print-str))))]
         (return (&/T [exs gvars gargs])))
-      (&/fail-with-loc (str "[Host Error] Constructor does not exist: " target)))))
+      (&/fail-with-loc (str "[Host Error] Constructor does not exist: " target " " (->> args &/->seq print-str))))))
 
 (defn abstract-methods [class-loader super-class]
   "(-> ClassLoader SuperClassDecl (Lux (List (, Text (List Text)))))"
