@@ -465,11 +465,17 @@
   ^:private analyse-jvm-l2d "l2d" "java.lang.Long"      "java.lang.Double"
   ^:private analyse-jvm-l2f "l2f" "java.lang.Long"      "java.lang.Float"
   ^:private analyse-jvm-l2i "l2i" "java.lang.Long"      "java.lang.Integer"
+  ^:private analyse-jvm-l2s "l2i" "java.lang.Long"      "java.lang.Short"
+  ^:private analyse-jvm-l2b "l2i" "java.lang.Long"      "java.lang.Byte"
 
   ^:private analyse-jvm-c2b "c2b" "java.lang.Character" "java.lang.Byte"
   ^:private analyse-jvm-c2s "c2s" "java.lang.Character" "java.lang.Short"
   ^:private analyse-jvm-c2i "c2i" "java.lang.Character" "java.lang.Integer"
   ^:private analyse-jvm-c2l "c2l" "java.lang.Character" "java.lang.Long"
+
+  ^:private analyse-jvm-s2l "s2l" "java.lang.Short"     "java.lang.Long"
+
+  ^:private analyse-jvm-b2l "b2l" "java.lang.Byte"      "java.lang.Long"
   )
 
 (do-template [<name> <proc> <v1-class> <v2-class> <to-class>]
@@ -1111,8 +1117,10 @@
       (return (&/|list (&&/|meta <to-type> _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  ^:private analyse-nat-to-int &type/Nat &type/Int ["nat" "to-int"]
-  ^:private analyse-int-to-nat &type/Int &type/Nat ["int" "to-nat"]
+  ^:private analyse-nat-to-int  &type/Nat  &type/Int  ["nat" "to-int"]
+  ^:private analyse-nat-to-char &type/Nat  &type/Char ["nat" "to-char"]
+  ^:private analyse-int-to-nat  &type/Int  &type/Nat  ["int" "to-nat"]
+  ^:private analyse-char-to-nat &type/Char &type/Nat  ["char" "to-nat"]
   )
 
 (defn analyse-host [analyse exo-type compilers category proc ?values]
@@ -1154,11 +1162,17 @@
         "min-value" (analyse-nat-min-value analyse exo-type ?values)
         "max-value" (analyse-nat-max-value analyse exo-type ?values)
         "to-int" (analyse-nat-to-int analyse exo-type ?values)
+        "to-char" (analyse-nat-to-char analyse exo-type ?values)
         )
 
       "int"
       (case proc
         "to-nat" (analyse-int-to-nat analyse exo-type ?values)
+        )
+
+      "char"
+      (case proc
+        "to-nat" (analyse-char-to-nat analyse exo-type ?values)
         )
       
       "jvm"
@@ -1244,10 +1258,14 @@
         "l2d"          (analyse-jvm-l2d analyse exo-type ?values)
         "l2f"          (analyse-jvm-l2f analyse exo-type ?values)
         "l2i"          (analyse-jvm-l2i analyse exo-type ?values)
+        "l2s"          (analyse-jvm-l2s analyse exo-type ?values)
+        "l2b"          (analyse-jvm-l2b analyse exo-type ?values)
         "c2b"          (analyse-jvm-c2b analyse exo-type ?values)
         "c2s"          (analyse-jvm-c2s analyse exo-type ?values)
         "c2i"          (analyse-jvm-c2i analyse exo-type ?values)
         "c2l"          (analyse-jvm-c2l analyse exo-type ?values)
+        "b2l"          (analyse-jvm-b2l analyse exo-type ?values)
+        "s2l"          (analyse-jvm-s2l analyse exo-type ?values)
         ;; else
         (->> (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " [category proc]))
              (if-let [[_ _def-code] (re-find #"^interface:(.*)$" proc)]

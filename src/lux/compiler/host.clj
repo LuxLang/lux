@@ -894,29 +894,35 @@
                     (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
       (return nil)))
 
-  ^:private compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue" "()D" "java.lang.Float"     "(F)V"
-  ^:private compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "doubleValue" "()D" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "doubleValue" "()D" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue"  "()D" "java.lang.Float"     "(F)V"
+  ^:private compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "doubleValue"  "()D" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "doubleValue"  "()D" "java.lang.Long"      "(J)V"
 
-  ^:private compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "floatValue"  "()F" "java.lang.Double"    "(D)V"
-  ^:private compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "floatValue"  "()F" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "floatValue"  "()F" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "floatValue"   "()F" "java.lang.Double"    "(D)V"
+  ^:private compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "floatValue"   "()F" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "floatValue"   "()F" "java.lang.Long"      "(J)V"
 
-  ^:private compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "intValue"    "()I" "java.lang.Byte"      "(B)V"
-  ^:private compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "intValue"    "()I" "java.lang.Character" "(C)V"
-  ^:private compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "intValue"    "()I" "java.lang.Double"    "(D)V"
-  ^:private compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "intValue"    "()I" "java.lang.Float"     "(F)V"
-  ^:private compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "intValue"    "()I" "java.lang.Long"      "(J)V"
-  ^:private compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "intValue"    "()I" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "intValue"     "()I" "java.lang.Byte"      "(B)V"
+  ^:private compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "intValue"     "()I" "java.lang.Character" "(C)V"
+  ^:private compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "intValue"     "()I" "java.lang.Double"    "(D)V"
+  ^:private compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "intValue"     "()I" "java.lang.Float"     "(F)V"
+  ^:private compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "intValue"     "()I" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "intValue"     "()I" "java.lang.Short"     "(S)V"
 
-  ^:private compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"   "()J" "java.lang.Double"    "(D)V"
-  ^:private compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"   "()J" "java.lang.Float"     "(F)V"
-  ^:private compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"   "()J" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"    "()J" "java.lang.Double"    "(D)V"
+  ^:private compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"    "()J" "java.lang.Float"     "(F)V"
+  ^:private compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-l2s Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-l2b Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Byte"      "(B)V"
 
-  ^:private compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue" "()C" "java.lang.Byte"      "(B)V"
-  ^:private compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue" "()C" "java.lang.Short"     "(S)V"
-  ^:private compile-jvm-c2i Opcodes/NOP "java.lang.Character" "charValue" "()C" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-c2l Opcodes/I2L "java.lang.Character" "charValue" "()C" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue"  "()C" "java.lang.Byte"      "(B)V"
+  ^:private compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue"  "()C" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-c2i Opcodes/NOP "java.lang.Character" "charValue"  "()C" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-c2l Opcodes/I2L "java.lang.Character" "charValue"  "()C" "java.lang.Long"      "(J)V"
+
+  ^:private compile-jvm-s2l Opcodes/I2L "java.lang.Short"     "shortValue" "()S" "java.lang.Long"      "(J)V"
+  
+  ^:private compile-jvm-b2l Opcodes/I2L "java.lang.Byte"      "byteValue"  "()B" "java.lang.Long"      "(J)V"
   )
 
 (do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
@@ -1609,6 +1615,8 @@
 
   ^:private compile-nat-to-int
   ^:private compile-int-to-nat
+  ^:private compile-nat-to-char
+  ^:private compile-char-to-nat
   )
 
 (defn compile-host [compile proc-category proc-name ?values special-args]
@@ -1645,11 +1653,17 @@
       "max-value" (compile-nat-max-value compile ?values special-args)
       "min-value" (compile-nat-min-value compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)
+      "to-char"   (compile-nat-to-char compile ?values special-args)
       )
 
     "int"
     (case proc-name
       "to-nat"    (compile-int-to-nat compile ?values special-args)
+      )
+
+    "char"
+    (case proc-name
+      "to-nat"    (compile-char-to-nat compile ?values special-args)
       )
     
     "jvm"
@@ -1745,10 +1759,14 @@
       "l2d"             (compile-jvm-l2d compile ?values special-args)
       "l2f"             (compile-jvm-l2f compile ?values special-args)
       "l2i"             (compile-jvm-l2i compile ?values special-args)
+      "l2s"             (compile-jvm-l2s compile ?values special-args)
+      "l2b"             (compile-jvm-l2b compile ?values special-args)
       "c2b"             (compile-jvm-c2b compile ?values special-args)
       "c2s"             (compile-jvm-c2s compile ?values special-args)
       "c2i"             (compile-jvm-c2i compile ?values special-args)
       "c2l"             (compile-jvm-c2l compile ?values special-args)
+      "s2l"             (compile-jvm-s2l compile ?values special-args)
+      "b2l"             (compile-jvm-b2l compile ?values special-args)
       ;; else
       (fail (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name])))
 
