@@ -34,7 +34,8 @@
                            (&/|map #(Class/forName % true class-loader)))]
         (if-let [missing-ex (&/fold (fn [prev ^Class now]
                                       (or prev
-                                          (cond (.isAssignableFrom java.lang.RuntimeException now)
+                                          (cond (or (.isAssignableFrom java.lang.RuntimeException now)
+                                                    (.isAssignableFrom java.lang.Error now))
                                                 nil
 
                                                 (&/fold (fn [found? ^Class ex-catch]
