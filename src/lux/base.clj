@@ -1244,7 +1244,7 @@
       <default>
 
       ($Cons x xs*)
-      (<op> (p x) (|every? p xs*))))
+      (<op> (p x) (<name> p xs*))))
 
   |every? true  and
   |any?   false or)
