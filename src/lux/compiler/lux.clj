@@ -189,6 +189,20 @@
         _ (compile _body)]
     (return nil)))
 
+(defn compile-record-get [compile _value _path]
+  (|do [^MethodVisitor *writer* &/get-writer
+        _ (compile _value)
+        :let [_ (&/|map (fn [step]
+                          (|let [[idx tail?] step]
+                            (doto *writer*
+                              (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                              (.visitLdcInsn (int idx))
+                              (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT"
+                                                (if tail? "product_getRight" "product_getLeft")
+                                                "([Ljava/lang/Object;I)Ljava/lang/Object;"))))
+                        _path)]]
+    (return nil)))
+
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
                           [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr ?def-value-type)]

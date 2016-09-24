@@ -28,6 +28,7 @@
   ;; Purely for optimizations
   ("loop" 1)
   ("let" 3)
+  ("record-get" 2)
   )
 
 ;; For pattern-matching
@@ -311,9 +312,45 @@
                          (inc _register)
                          _register)
                        (shift-function-body old-scope new-scope own-body? _body))])
+
+      ($record-get _value _path)
+      (&/T [meta ($record-get (shift-function-body old-scope new-scope own-body? _value)
+                              _path)])
       
       _
       body
+      )))
+
+(defn ^:private record-read-path [pms member-idx]
+  "(-> (List PM) Idx (List Idx))"
+  (loop [current-idx 0
+         pms pms]
+    (|case pms
+      (&/$Nil)
+      &/$None
+      
+      (&/$Cons _pm _pms)
+      (|case _pm
+        (&a-case/$NoTestAC)
+        (recur (inc current-idx)
+               _pms)
+        
+        (&a-case/$StoreTestAC _register)
+        (if (= member-idx _register)
+          (&/|list (&/T [current-idx (&/|empty? _pms)]))
+          (recur (inc current-idx)
+                 _pms))
+
+        (&a-case/$TupleTestAC _sub-tests)
+        (let [sub-path (record-read-path _sub-tests member-idx)]
+          (if (not (&/|empty? sub-path))
+            (&/$Cons (&/T [current-idx (&/|empty? _pms)]) sub-path)
+            (recur (inc current-idx)
+                   _pms)
+            ))
+        
+        _
+        (&/|list))
       )))
 
 (defn ^:private optimize-loop [arity optim]
@@ -381,6 +418,16 @@
         (|case branches
           (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
           (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
+
+          (&/$Cons [(&a-case/$TupleTestAC _sub-tests) [_ (&a/$var (&/$Local _member-idx))]] (&/$Nil))
+          (|let [_path (record-read-path _sub-tests _member-idx)]
+            (if (&/|empty? _path)
+              (&/T [meta ($case (pass-0 value)
+                                (optimize-pm (&/|map (fn [branch]
+                                                       (|let [[_pattern _body] branch]
+                                                         (&/T [_pattern (pass-0 _body)])))
+                                                     branches)))])
+              (&/T [meta ($record-get (pass-0 value) _path)])))
 
           _
           (&/T [meta ($case (pass-0 value)

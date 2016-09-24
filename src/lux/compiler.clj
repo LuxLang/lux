@@ -94,6 +94,9 @@
         (&o/$let _value _register _body)
         (&&lux/compile-let (partial compile-expression $begin) _value _register _body)
 
+        (&o/$record-get _value _path)
+        (&&lux/compile-record-get (partial compile-expression $begin) _value _path)
+
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
