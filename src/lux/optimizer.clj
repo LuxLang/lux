@@ -9,6 +9,7 @@
 
 ;; [Tags]
 (defvariant
+  ;; These tags just have a one-to-one correspondence with Analysis data-structures.
   ("bool" 1)
   ("nat" 1)
   ("int" 1)
@@ -25,29 +26,80 @@
   ("captured" 3)
   ("proc" 3)
 
-  ;; Purely for optimizations
+  ;; These other tags represent higher-order constructs that manifest
+  ;; themselves as patterns in the code.
+  ;; Lux doesn't formally provide these features, but some macros
+  ;; expose ways to implement them in terms of the other (primitive)
+  ;; features.
+  ;; The optimizer looks for those usage patterns and transforms them
+  ;; into explicit constructs, which are then subject to specialized optimizations.
+
+  ;; This is a loop, as expected in imperative programming.
   ("loop" 1)
+  ;; This is a simple let-expression, as opposed to the more general pattern-matching.
   ("let" 3)
+  ;; This is an access to a record's member. It can be multiple level:
+  ;; e.g. record.l1.l2.l3
+  ;; The record-get token stores the path, for simpler compilation.
   ("record-get" 2)
   )
 
-;; For pattern-matching
+;; [Utils]
+
+;; [[Pattern-Matching Traversal Optimization]]
+
+;; This represents an alternative way to view pattern-matching.
+;; The PM that Lux provides has declarative semantics, with the user
+;; specifying how his data is shaped, but not how to traverse it.
+;; The optimizer's PM is operational in nature, and relies on
+;; specifying a path of traversal, with a variety of operations that
+;; can be done along the way.
+;; The algorithm relies on looking at pattern-matching as traversing a
+;; (possibly) branching path, where each step along the path
+;; corresponds to a value, the ends of the path are the jumping-off
+;; points for the bodies of branches, and branching decisions can be
+;; backtracked, if they don't result in a valid jump.
 (defvariant
+  ;; Throw away the current data-node (CDN). It's useless.
   ("PopPM" 0)
+  ;; Store the CDN in a register.
   ("BindPM" 1)
+  ;; Compare the CDN with a boolean value.
   ("BoolPM" 1)
+  ;; Compare the CDN with a natural value.
   ("NatPM" 1)
+  ;; Compare the CDN with an integer value.
   ("IntPM" 1)
+  ;; Compare the CDN with a real value.
   ("RealPM" 1)
+  ;; Compare the CDN with a character value.
   ("CharPM" 1)
+  ;; Compare the CDN with a text value.
   ("TextPM" 1)
+  ;; Compare the CDN with a variant value. If valid, proceed to test
+  ;; the variant's inner value.
   ("VariantPM" 1)
+  ;; Access a tuple value at a given index, for further examination.
   ("TuplePM" 1)
+  ;; Creates an instance of the backtracking info, as a preparatory
+  ;; step to exploring one of the branching paths.
   ("AltPM" 2)
+  ;; Allows to test the CDN, while keeping a copy of it for more
+  ;; tasting later on.
+  ;; If necessary when doing multiple tests on a single value, like
+  ;; when testing multiple parts of a tuple.
   ("SeqPM" 2)
+  ;; This is the jumping-off point for the PM part, where the PM
+  ;; data-structure is thrown away and the program jumps to the
+  ;; branch's body.
   ("ExecPM" 1))
 
-;; [Utils]
+;; This function does a simple transformation from the declarative
+;; model of PM of the analyser, to the operational model of PM of the
+;; optimizer.
+;; You may notice that all branches end in PopPM.
+;; The reason is that testing does not immediately imply throwing away
+;; the data to be tested, which is why a popping step must immediately follow.
 (defn ^:private transform-pm* [test]
   (|case test
     (&a-case/$NoTestAC)
@@ -90,12 +142,22 @@
 
     (&a-case/$TupleTestAC _sub-tests)
     (|case _sub-tests
+      ;; An empty tuple corresponds to unit, which can't be tested in
+      ;; any meaningful way, so it's just popped.
       (&/$Nil)
       (&/|list $PopPM)
 
+      ;; A tuple of a single element is equivalent to the element
+      ;; itself, to the element's PM is generated.
       (&/$Cons _only-test (&/$Nil))
       (transform-pm* _only-test)
 
+      ;; Single tuple PM features the tests of each tuple member
+      ;; inlined, it's operational equivalent is interleaving the
+      ;; access to each tuple member, followed by the testing of said
+      ;; member.
+      ;; That is way each sequence of access+subtesting gets generated
+      ;; and later they all get concatenated.
       _
       (|let [tuple-size (&/|length _sub-tests)]
         (&/|++ (&/flat-map (fn [idx+test*]
@@ -108,6 +170,15 @@
                                    _sub-tests))
                (&/|list $PopPM))))))
 
+;; It will be common for pattern-matching on a very nested
+;; data-structure to require popping all the intermediate
+;; data-structures that were visited once it's all done.
+;; However, the PM infrastructure employs a single data-stack to keep
+;; all data nodes in the trajectory, and that data-stack can just be
+;; thrown again entirely, in just one step.
+;; Because of that, any ending POPs prior to throwing away the
+;; data-stack would be completely useless.
+;; This function cleans them all up, to avoid wasteful computation later.
 (defn ^:private clean-unnecessary-pops [steps]
   (|case steps
     (&/$Cons ($PopPM) _steps)
@@ -116,11 +187,19 @@
     _
     steps))
 
+;; This transforms a single branch of a PM tree into it's operational
+;; equivalent, while also associating the PM of the branch with the
+;; jump to the branch's body.
 (defn ^:private transform-pm [test body-id]
   (&/fold (fn [right left] ($SeqPM left right))
           ($ExecPM body-id)
           (clean-unnecessary-pops (&/|reverse (transform-pm* test)))))
 
+;; This function fuses together the paths of the PM traversal, adding
+;; branching AltPMs where necessary, and fusing similar paths together
+;; as much as possible, when early parts of them coincide.
+;; The goal is to minimize rework as much as possible by sharing as
+;; much of each path as possible.
 (defn ^:private fuse-pms [pre post]
   (|case (&/T [pre post])
     [($PopPM) ($PopPM)]
@@ -193,6 +272,8 @@
     ($AltPM pre post)
     ))
 
+;; This is the top-level function for optimizing PM, which transforms
+;; each branch and then fuses them together.
 (defn ^:private optimize-pm [branches]
   (|let [;; branches (&/|reverse branches*)
          bodies (&/|map &/|second branches)
@@ -211,6 +292,36 @@
             bodies])
       )))
 
+;; [[Function-Folding Optimization]]
+
+;; The semantics of Lux establish that all functions are of a single
+;; argument and the multi-argument functions are actually nested
+;; functions being generated and then applied.
+;; This, of course, would generate a lot of waste.
+;; To avoid it, Lux actually folds function definitions together,
+;; thereby creating functions that can be used both
+;; one-argument-at-a-time, and also being called with all, or just a
+;; partial amount of their arguments.
+;; This avoids generating too many artifacts during compilation, since
+;; they get "compressed", and it can also lead to faster execution, by
+;; enabling optimized function calls later.
+
+;; Functions and captured variables have "scopes", which tell which
+;; function they are, or to which function they belong.
+;; During the folding, inner functions dissapear, since their bodies
+;; are merged into their outer "parent" functions.
+;; Their scopes must change accordingy.
+(defn ^:private de-scope [old-scope new-scope scope]
+  "(-> Scope Scope Scope Scope)"
+  (if (identical? new-scope scope)
+    old-scope
+    scope))
+
+;; Also, it must be noted that when folding functions, the indexes of
+;; the registers have to be changed accodingly.
+;; That is what the following "shifting" functions are for.
+
+;; Shifts the registers for PM operations.
 (defn ^:private shift-pattern [pattern]
   (|case pattern
     ($BindPM _var-id)
@@ -226,12 +337,7 @@
     pattern
     ))
 
-(defn ^:private de-scope [old-scope new-scope scope]
-  "(-> Scope Scope Scope Scope)"
-  (if (identical? new-scope scope)
-    old-scope
-    scope))
-
+;; Shifts the body of a function after a folding is performed.
 (defn shift-function-body [old-scope new-scope own-body? body]
   "(-> Scope Scope Bool Optimized Optimized)"
   (|let [[meta body-] body]
@@ -278,6 +384,7 @@
           body)
         body)
 
+      ;; This special "apply" rule is for handling better recursive calls.
       ($apply [meta-0 ($var (&/$Local 0))] args)
       (if own-body?
         (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
@@ -321,6 +428,15 @@
       body
       )))
 
+;; [[Record-Manipulation Optimizations]]
+
+;; If a pattern-matching tree with a single branch is found, and that
+;; branch corresponds to a tuple PM, and the body corresponds to a
+;; local variable, it's likely that the local refers to some member of
+;; the tuple that is being extracted.
+;; That is the pattern that is to be expected of record read-access,
+;; so this function tries to extract the (possibly nested) path
+;; necessary, ending in the data-node of the wanted member.
 (defn ^:private record-read-path [pms member-idx]
   "(-> (List PM) Idx (List Idx))"
   (loop [current-idx 0
@@ -353,6 +469,15 @@
         (&/|list))
       )))
 
+;; [[Loop Optimizations]]
+
+;; Lux doesn't offer any looping constructs, relying instead on
+;; recursion.
+;; Some common usages of recursion can be written more efficiently
+;; just using regular loops/iteration.
+;; This optimization looks for tail-calls in the function body,
+;; rewriting them as jumps to the beginning of the function, while
+;; they also updated the necessary local variables for the next iteration.
 (defn ^:private optimize-loop [arity optim]
   "(-> Int Optimized Optimized)"
   (|let [[meta optim-] optim]
@@ -378,6 +503,12 @@
       optim
       )))
 
+;; [[Initial Optimization]]
+
+;; Before any big optimization can be done, the incoming Analysis nodes
+;; must be transformed into Optimized nodes, amenable to further transformations.
+;; This function does the job, while also detecting (and optimizing)
+;; some simple surface patterns it may encounter.
 (let [optimize-closure (fn [optimize closure]
                          (&/|map (fn [capture]
                                    (|let [[_name _analysis] capture]
@@ -416,19 +547,29 @@
         
         (&a/$case value branches)
         (|case branches
+          ;; The pattern for a let-expression is a single branch,
+          ;; tying the value to a register.
           (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
           (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
 
+          ;; The pattern for a record-get is a single branch, with a
+          ;; tuple pattern and a body corresponding to a
+          ;; local-variable extracted from the tuple.
           (&/$Cons [(&a-case/$TupleTestAC _sub-tests) [_ (&a/$var (&/$Local _member-idx))]] (&/$Nil))
           (|let [_path (record-read-path _sub-tests _member-idx)]
             (if (&/|empty? _path)
+              ;; If the path is empty, that means it was a
+              ;; false-positive and normal PM optimization should be
+              ;; done instead.
               (&/T [meta ($case (pass-0 value)
                                 (optimize-pm (&/|map (fn [branch]
                                                        (|let [[_pattern _body] branch]
                                                          (&/T [_pattern (pass-0 _body)])))
                                                      branches)))])
+              ;; Otherwise, we've got ourselves a record-get expression.
               (&/T [meta ($record-get (pass-0 value) _path)])))
 
+          ;; If no special patterns are found, just do normal PM optimization.
           _
           (&/T [meta ($case (pass-0 value)
                             (optimize-pm (&/|map (fn [branch]
@@ -438,9 +579,14 @@
         
         (&a/$lambda scope captured body)
         (|case (pass-0 body)
+          ;; If the body of a function is another function, that means
+          ;; no work was done in-between and both layers can be folded
+          ;; into one.
           [_ ($function _arity _scope _captured _body)]
           (&/T [meta ($function (inc _arity) scope (optimize-closure pass-0 captured) (shift-function-body scope _scope true _body))])
 
+          ;; Otherwise, they're nothing to be done and we've got a
+          ;; 1-arity function.
           =body
           (&/T [meta ($function 1 scope (optimize-closure pass-0 captured) =body)]))
         
