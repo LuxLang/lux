@@ -42,6 +42,8 @@
   ;; e.g. record.l1.l2.l3
   ;; The record-get token stores the path, for simpler compilation.
   ("record-get" 2)
+  ;; Regular, run-of-the-mill if expressions.
+  ("if" 3)
   )
 
 ;; [Utils]
@@ -423,6 +425,11 @@
       ($record-get _value _path)
       (&/T [meta ($record-get (shift-function-body old-scope new-scope own-body? _value)
                               _path)])
+
+      ($if _test _then _else)
+      (&/T [meta ($if (shift-function-body old-scope new-scope own-body? _test)
+                      (shift-function-body old-scope new-scope own-body? _then)
+                      (shift-function-body old-scope new-scope own-body? _else))])
       
       _
       body
@@ -552,6 +559,11 @@
           (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
           (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
 
+          (&/$Cons [(&a-case/$BoolTestAC false) _else]
+                   (&/$Cons [(&a-case/$BoolTestAC true) _then]
+                            (&/$Nil)))
+          (&/T [meta ($if (pass-0 value) (pass-0 _then) (pass-0 _else))])
+          
           ;; The pattern for a record-get is a single branch, with a
           ;; tuple pattern and a body corresponding to a
           ;; local-variable extracted from the tuple.

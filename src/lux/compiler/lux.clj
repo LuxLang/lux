@@ -203,6 +203,22 @@
                         _path)]]
     (return nil)))
 
+(defn compile-if [compile _test _then _else]
+  (|do [^MethodVisitor *writer* &/get-writer
+        _ (compile _test)
+        :let [$else (new Label)
+              $end (new Label)
+              _ (doto *writer*
+                  &&/unwrap-boolean
+                  (.visitJumpInsn Opcodes/IFEQ $else))]
+        _ (compile _then)
+        :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
+        :let [_ (.visitLabel *writer* $else)]
+        _ (compile _else)
+        :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)
+              _ (.visitLabel *writer* $end)]]
+    (return nil)))
+
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
                           [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr ?def-value-type)]

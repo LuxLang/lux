@@ -97,6 +97,9 @@
         (&o/$record-get _value _path)
         (&&lux/compile-record-get (partial compile-expression $begin) _value _path)
 
+        (&o/$if _test _then _else)
+        (&&lux/compile-if (partial compile-expression $begin) _test _then _else)
+        
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
