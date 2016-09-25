@@ -88,7 +88,7 @@
 
 (do-template [<name> <static?>]
   (defn <name> [class-loader target field]
-    (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
+    (|let [target-class (Class/forName target true class-loader)]
       (if-let [^Type gtype (first (for [^Field =field (seq (.getDeclaredFields target-class))
                                         :when (and (.equals ^Object field (.getName =field))
                                                    (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =field))))]
@@ -103,35 +103,38 @@
 
 (do-template [<name> <static?> <method-type>]
   (defn <name> [class-loader target method-name args]
-    (|let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
-      (if-let [^Method method (first (for [^Method =method (.getDeclaredMethods target-class)
-                                           :when (and (.equals ^Object method-name (.getName =method))
-                                                      (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
-                                                      (let [param-types (&/->list (seq (.getParameterTypes =method)))]
-                                                        (and (= (&/|length args) (&/|length param-types))
-                                                             (&/fold2 #(and %1 (.equals ^Object %2 %3))
-                                                                      true
-                                                                      args
-                                                                      (&/|map #(.getName ^Class %) param-types)))))]
-                                       =method))]
-        (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
-               gvars (->> method .getTypeParameters seq &/->list)
-               gargs (->> method .getGenericParameterTypes seq &/->list)
-               _ (when (.getAnnotation method java.lang.Deprecated)
-                   (println (str "[Host Warning] Deprecated method: " target "." method-name " " (->> args &/->seq print-str))))]
-          (return (&/T [(.getGenericReturnType method)
-                        (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
-                        parent-gvars
-                        gvars
-                        gargs])))
-        (&/fail-with-loc (str "[Host Error] " <method-type> " method does not exist: " target "." method-name " " (->> args &/->seq print-str))))))
+    (|let [target-class (Class/forName target true class-loader)]
+      (if-let [[^Method method ^Class declarer] (first (for [^Method =method (.getMethods target-class)
+                                                             :when (and (.equals ^Object method-name (.getName =method))
+                                                                        (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
+                                                                        (let [param-types (&/->list (seq (.getParameterTypes =method)))]
+                                                                          (and (= (&/|length args) (&/|length param-types))
+                                                                               (&/fold2 #(and %1 (.equals ^Object %2 %3))
+                                                                                        true
+                                                                                        args
+                                                                                        (&/|map #(.getName ^Class %) param-types)))))]
+                                                         [=method
+                                                          (.getDeclaringClass =method)]))]
+        (if (= target-class declarer)
+          (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
+                 gvars (->> method .getTypeParameters seq &/->list)
+                 gargs (->> method .getGenericParameterTypes seq &/->list)
+                 _ (when (.getAnnotation method java.lang.Deprecated)
+                     (println (str "[Host Warning] Deprecated method: " target "." method-name " " (->> args &/->seq print-str))))]
+            (return (&/T [(.getGenericReturnType method)
+                          (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
+                          parent-gvars
+                          gvars
+                          gargs])))
+          (&/fail-with-loc (str "[Host Error] " <method-type> " method " (pr-str method-name) " for " "(" (->> args (&/|interpose ", ") (&/fold str "")) ")" " belongs to parent " (.getName declarer) " instead of " target)))
+        (&/fail-with-loc (str "[Host Error] " <method-type> " method does not exist: " target "." method-name " " "(" (->> args (&/|interpose ", ") (&/fold str "")) ")")))))
 
   lookup-static-method  true  "Static"
   lookup-virtual-method false "Virtual"
   )
 
 (defn lookup-constructor [class-loader target args]
-  (let [target-class (Class/forName (&host-type/as-obj target) true class-loader)]
+  (let [target-class (Class/forName target true class-loader)]
     (if-let [^Constructor ctor (first (for [^Constructor =method (.getDeclaredConstructors target-class)
                                             :when (let [param-types (&/->list (seq (.getParameterTypes =method)))]
                                                     (and (= (&/|length args) (&/|length param-types))
@@ -151,7 +154,7 @@
 (defn abstract-methods [class-loader super-class]
   "(-> ClassLoader SuperClassDecl (Lux (List (, Text (List Text)))))"
   (|let [[super-name super-params] super-class]
-    (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName (&host-type/as-obj super-name) true class-loader))
+    (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName super-name true class-loader))
                             :when (Modifier/isAbstract (.getModifiers =method))]
                         (&/T [(.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))]))))))
 
