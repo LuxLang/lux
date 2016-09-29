@@ -65,7 +65,7 @@
     (&/fold2 matcher (&/|table) sub-type-params params)))
 
 ;; [Exports]
-(let [class-name-re #"((\[+)L([\.a-zA-Z0-9\$]+);|([\.a-zA-Z0-9\$]+)|(\[+)([ZBSIJFDC]))"
+(let [class-name-re #"((\[+)L([^\s]+);|([^\s]+)|(\[+)([ZBSIJFDC]))"
       jprim->lprim (fn [prim]
                      (case prim
                        "Z" "boolean"
