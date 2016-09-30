@@ -72,6 +72,7 @@
   ("BoolS" 1)
   ("NatS" 1)
   ("IntS" 1)
+  ("FracS" 1)
   ("RealS" 1)
   ("CharS" 1)
   ("TextS" 1)
