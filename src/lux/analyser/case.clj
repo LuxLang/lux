@@ -20,6 +20,7 @@
   ("BoolTotal" 2)
   ("NatTotal" 2)
   ("IntTotal" 2)
+  ("FracTotal" 2)
   ("RealTotal" 2)
   ("CharTotal" 2)
   ("TextTotal" 2)
@@ -32,6 +33,7 @@
   ("BoolTestAC" 1)
   ("NatTestAC" 1)
   ("IntTestAC" 1)
+  ("FracTestAC" 1)
   ("RealTestAC" 1)
   ("CharTestAC" 1)
   ("TextTestAC" 1)
@@ -277,6 +279,11 @@
             =kont kont]
         (return (&/T [($IntTestAC ?value) =kont])))
 
+      (&/$FracS ?value)
+      (|do [_ (&type/check value-type &type/Frac)
+            =kont kont]
+        (return (&/T [($FracTestAC ?value) =kont])))
+      
       (&/$RealS ?value)
       (|do [_ (&type/check value-type &type/Real)
             =kont kont]
@@ -407,6 +414,9 @@
       [($IntTotal total? ?values) ($NoTestAC)]
       (return ($IntTotal true ?values))
 
+      [($FracTotal total? ?values) ($NoTestAC)]
+      (return ($FracTotal true ?values))
+
       [($RealTotal total? ?values) ($NoTestAC)]
       (return ($RealTotal true ?values))
 
@@ -433,6 +443,9 @@
 
       [($IntTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($IntTotal true ?values))
+
+      [($FracTotal total? ?values) ($StoreTestAC ?idx)]
+      (return ($FracTotal true ?values))
 
       [($RealTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($RealTotal true ?values))
@@ -466,6 +479,12 @@
 
       [($IntTotal total? ?values) ($IntTestAC ?value)]
       (return ($IntTotal total? (&/$Cons ?value ?values)))
+
+      [($DefaultTotal total?) ($FracTestAC ?value)]
+      (return ($FracTotal total? (&/|list ?value)))
+
+      [($FracTotal total? ?values) ($FracTestAC ?value)]
+      (return ($FracTotal total? (&/$Cons ?value ?values)))
 
       [($DefaultTotal total?) ($RealTestAC ?value)]
       (return ($RealTotal total? (&/|list ?value)))
@@ -554,6 +573,10 @@
     (|do [_ (&type/check value-type &type/Int)]
       (return ?total))
 
+    ($FracTotal ?total _)
+    (|do [_ (&type/check value-type &type/Frac)]
+      (return ?total))
+    
     ($RealTotal ?total _)
     (|do [_ (&type/check value-type &type/Real)]
       (return ?total))

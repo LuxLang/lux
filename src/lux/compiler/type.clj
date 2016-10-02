@@ -32,6 +32,7 @@
   ^:private bool$ &a/$bool "(-> Bool Analysis)"
   ^:private nat$  &a/$nat  "(-> Nat Analysis)"
   ^:private int$  &a/$int  "(-> Int Analysis)"
+  ^:private frac$ &a/$frac "(-> Nat Analysis)"
   ^:private real$ &a/$real "(-> Real Analysis)"
   ^:private char$ &a/$char "(-> Char Analysis)"
   ^:private text$ &a/$text "(-> Text Analysis)"
@@ -115,6 +116,9 @@
 
     (&/$IntM value)
     (variant$ #'&/$IntM (int$ value))
+
+    (&/$FracM value)
+    (variant$ #'&/$FracM (frac$ value))
 
     (&/$RealM value)
     (variant$ #'&/$RealM (real$ value))

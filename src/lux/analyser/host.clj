@@ -1045,8 +1045,8 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["bit" <op>]) (&/|list =input =shift) (&/|list)))))))
 
-  ^:private analyse-bit-shift-left           "shift-left" &type/Nat
-  ^:private analyse-bit-shift-right          "shift-right" &type/Int
+  ^:private analyse-bit-shift-left           "shift-left"           &type/Nat
+  ^:private analyse-bit-shift-right          "shift-right"          &type/Int
   ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right" &type/Nat
   )
 
@@ -1069,32 +1069,55 @@
           _ (&type/check exo-type <output-type>)
           _cursor &/cursor]
       (return (&/|list (&&/|meta <output-type> _cursor
-                                 (&&/$proc (&/T ["nat" <proc>]) (&/|list =x =y) (&/|list)))))))
+                                 (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
-  ^:private analyse-nat-add "add" &type/Nat &type/Nat
-  ^:private analyse-nat-sub "sub" &type/Nat &type/Nat
-  ^:private analyse-nat-mul "mul" &type/Nat &type/Nat
-  ^:private analyse-nat-div "div" &type/Nat &type/Nat
-  ^:private analyse-nat-rem "rem" &type/Nat &type/Nat
-  ^:private analyse-nat-eq  "eq"  &type/Nat &type/Bool
-  ^:private analyse-nat-lt  "lt"  &type/Nat &type/Bool
+  ^:private analyse-nat-add  ["nat" "+"]  &type/Nat  &type/Nat
+  ^:private analyse-nat-sub  ["nat" "-"]  &type/Nat  &type/Nat
+  ^:private analyse-nat-mul  ["nat" "*"]  &type/Nat  &type/Nat
+  ^:private analyse-nat-div  ["nat" "/"]  &type/Nat  &type/Nat
+  ^:private analyse-nat-rem  ["nat" "%"]  &type/Nat  &type/Nat
+  ^:private analyse-nat-eq   ["nat" "="]  &type/Nat  &type/Bool
+  ^:private analyse-nat-lt   ["nat" "<"]  &type/Nat  &type/Bool
+
+  ^:private analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
+  ^:private analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
+  ^:private analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
+  ^:private analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
+  ^:private analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
+  ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bool
+  ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bool
   )
 
-(defn ^:private analyse-nat-encode [analyse exo-type ?values]
-  (|do [:let [(&/$Cons x (&/$Nil)) ?values]
-        =x (&&/analyse-1 analyse &type/Nat x)
-        _ (&type/check exo-type &type/Text)
+(defn ^:private analyse-frac-scale [analyse exo-type ?values]
+  (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
+        =x (&&/analyse-1 analyse &type/Frac x)
+        =y (&&/analyse-1 analyse &type/Nat y)
+        _ (&type/check exo-type &type/Frac)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta &type/Text _cursor
-                               (&&/$proc (&/T ["nat" "encode"]) (&/|list =x) (&/|list)))))))
+    (return (&/|list (&&/|meta &type/Frac _cursor
+                               (&&/$proc (&/T ["frac" "scale"]) (&/|list =x =y) (&/|list)))))))
 
-(defn ^:private analyse-nat-decode [analyse exo-type ?values]
-  (|do [:let [(&/$Cons x (&/$Nil)) ?values]
-        =x (&&/analyse-1 analyse &type/Text x)
-        _ (&type/check exo-type (&/$AppT &type/Maybe &type/Nat))
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta (&/$AppT &type/Maybe &type/Nat) _cursor
-                               (&&/$proc (&/T ["nat" "decode"]) (&/|list =x) (&/|list)))))))
+(do-template [<encode> <encode-op> <decode> <decode-op> <type>]
+  (do (defn <encode> [analyse exo-type ?values]
+        (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+              =x (&&/analyse-1 analyse <type> x)
+              _ (&type/check exo-type &type/Text)
+              _cursor &/cursor]
+          (return (&/|list (&&/|meta &type/Text _cursor
+                                     (&&/$proc (&/T <encode-op>) (&/|list =x) (&/|list)))))))
+
+    (let [decode-type (&/$AppT &type/Maybe <type>)]
+      (defn <decode> [analyse exo-type ?values]
+        (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+              =x (&&/analyse-1 analyse &type/Text x)
+              _ (&type/check exo-type decode-type)
+              _cursor &/cursor]
+          (return (&/|list (&&/|meta decode-type _cursor
+                                     (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
+
+  ^:private analyse-nat-encode  ["nat"  "encode"] ^:private analyse-nat-decode  ["nat"  "decode"] &type/Nat
+  ^:private analyse-frac-encode ["frac" "encode"] ^:private analyse-frac-decode ["frac" "decode"] &type/Frac
+  )
 
 (do-template [<name> <type> <op>]
   (defn <name> [analyse exo-type ?values]
@@ -1104,8 +1127,11 @@
       (return (&/|list (&&/|meta <type> _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
-  ^:private analyse-nat-min-value &type/Nat ["nat" "min-value"]
-  ^:private analyse-nat-max-value &type/Nat ["nat" "max-value"]
+  ^:private analyse-nat-min-value  &type/Nat  ["nat"  "min-value"]
+  ^:private analyse-nat-max-value  &type/Nat  ["nat"  "max-value"]
+
+  ^:private analyse-frac-min-value &type/Frac ["frac" "min-value"]
+  ^:private analyse-frac-max-value &type/Frac ["frac" "max-value"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -1117,10 +1143,13 @@
       (return (&/|list (&&/|meta <to-type> _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  ^:private analyse-nat-to-int  &type/Nat  &type/Int  ["nat" "to-int"]
-  ^:private analyse-nat-to-char &type/Nat  &type/Char ["nat" "to-char"]
-  ^:private analyse-int-to-nat  &type/Int  &type/Nat  ["int" "to-nat"]
-  ^:private analyse-char-to-nat &type/Char &type/Nat  ["char" "to-nat"]
+  ^:private analyse-nat-to-int   &type/Nat  &type/Int  ["nat" "to-int"]
+  ^:private analyse-nat-to-char  &type/Nat  &type/Char ["nat" "to-char"]
+  ^:private analyse-int-to-nat   &type/Int  &type/Nat  ["int" "to-nat"]
+  ^:private analyse-char-to-nat  &type/Char &type/Nat  ["char" "to-nat"]
+
+  ^:private analyse-frac-to-real &type/Frac &type/Real ["frac" "to-real"]
+  ^:private analyse-real-to-frac &type/Real &type/Frac ["real" "to-frac"]
   )
 
 (defn analyse-host [analyse exo-type compilers category proc ?values]
@@ -1165,9 +1194,31 @@
         "to-char" (analyse-nat-to-char analyse exo-type ?values)
         )
 
+      "frac"
+      (case proc
+        "+" (analyse-frac-add analyse exo-type ?values)
+        "-" (analyse-frac-sub analyse exo-type ?values)
+        "*" (analyse-frac-mul analyse exo-type ?values)
+        "/" (analyse-frac-div analyse exo-type ?values)
+        "%" (analyse-frac-rem analyse exo-type ?values)
+        "=" (analyse-frac-eq analyse exo-type ?values)
+        "<" (analyse-frac-lt analyse exo-type ?values)
+        "encode" (analyse-frac-encode analyse exo-type ?values)
+        "decode" (analyse-frac-decode analyse exo-type ?values)
+        "min-value" (analyse-frac-min-value analyse exo-type ?values)
+        "max-value" (analyse-frac-max-value analyse exo-type ?values)
+        "to-real" (analyse-frac-to-real analyse exo-type ?values)
+        "scale" (analyse-frac-scale analyse exo-type ?values)
+        )
+
       "int"
       (case proc
         "to-nat" (analyse-int-to-nat analyse exo-type ?values)
+        )
+
+      "real"
+      (case proc
+        "to-frac" (analyse-real-to-frac analyse exo-type ?values)
         )
 
       "char"

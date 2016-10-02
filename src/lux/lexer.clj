@@ -17,6 +17,7 @@
   ("Bool" 1)
   ("Nat" 1)
   ("Int" 1)
+  ("Frac" 1)
   ("Real" 1)
   ("Char" 1)
   ("Text" 1)
@@ -167,6 +168,7 @@
 
   lex-nat   $Nat   #"^\+(0|[1-9][0-9,_]*)"
   lex-int   $Int   #"^-?(0|[1-9][0-9,_]*)"
+  lex-frac  $Frac  #"^(\.[0-9,_]+)"
   lex-real  $Real  #"^-?(0\.[0-9,_]+|[1-9][0-9,_]*\.[0-9,_]+)(e-?[1-9][0-9,_]*)?"
   )
 
@@ -241,8 +243,9 @@
                (&/|list lex-white-space
                         lex-comment
                         lex-bool
-                        lex-real
                         lex-nat
+                        lex-real
+                        lex-frac
                         lex-int
                         lex-char
                         lex-text
