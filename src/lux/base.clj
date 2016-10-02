@@ -3,7 +3,8 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 (ns lux.base
-  (:require (clojure [template :refer [do-template]])
+  (:require (clojure [template :refer [do-template]]
+                     [string :as string])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
@@ -217,6 +218,7 @@
   ("BoolM" 1)
   ("NatM" 1)
   ("IntM" 1)
+  ("FracM" 1)
   ("RealM" 1)
   ("CharM" 1)
   ("TextM" 1)
@@ -1042,6 +1044,58 @@
   (fn [state]
     (return* state (get$ $cursor state))))
 
+(let [remove-trailing-0s (fn [^String input]
+                           (-> input
+                               (.split "0*$")
+                               (aget 0)))
+      make-text-start-0 (fn [input]
+                          (loop [accum ""
+                                 range 10]
+                            (if (< input range)
+                              (recur (.concat accum "0")
+                                     (* 10 range))
+                              accum)))
+      count-bin-start-0 (fn [input]
+                          (loop [counter 0
+                                 idx 63]
+                            (if (and (> idx -1)
+                                     (not (bit-test input idx)))
+                              (recur (inc counter)
+                                     (dec idx))
+                              counter)))
+      read-frac-text (fn [^String input]
+                       (let [output* (.split input "0*$")]
+                         (if (= 0 (alength output*))
+                           (Long/parseUnsignedLong (aget output* 0))
+                           (Long/parseUnsignedLong input))))
+      count-leading-0s (fn [^String input]
+                         (let [parts (.split input "^0*")]
+                           (if (= 2 (alength parts))
+                             (.length (aget parts 0))
+                             0)))]
+  (defn encode-frac [input]
+    (if (= 0 input)
+      ".0"
+      (->> input
+           (Long/toUnsignedString)
+           remove-trailing-0s
+           (.concat (->> (count-bin-start-0 input)
+                         (bit-shift-left 1)
+                         (make-text-start-0))))))
+
+  (defn decode-frac [input]
+    (if-let [[_ frac-text] (re-find #"^\.(.+)$" input)]
+      (let [output* (-> frac-text
+                        (string/replace #",_" "")
+                        read-frac-text)
+            rows-to-move-forward (count-bin-start-0 output*)
+            scaling-factor (long (Math/pow 10.0 (double (count-leading-0s input))))]
+        (-> output*
+            (bit-shift-left rows-to-move-forward)
+            (/ scaling-factor)))
+      (assert false (str "Invalid Frac syntax: " input))))
+  )
+
 (defn show-ast [ast]
   (|case ast
     [_ ($BoolS ?value)]
@@ -1052,6 +1106,9 @@
 
     [_ ($IntS ?value)]
     (pr-str ?value)
+
+    [_ ($FracS ?value)]
+    (encode-frac ?value)
 
     [_ ($RealS ?value)]
     (pr-str ?value)

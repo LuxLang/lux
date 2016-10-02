@@ -47,6 +47,7 @@
 
   compile-nat  "java/lang/Long"      "(J)V" long
   compile-int  "java/lang/Long"      "(J)V" long
+  compile-frac "java/lang/Long"      "(J)V" long
   compile-real "java/lang/Double"    "(D)V" double
   compile-char "java/lang/Character" "(C)V" char
   )

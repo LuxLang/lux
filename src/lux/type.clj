@@ -128,22 +128,25 @@
                                      ;; IntM
                                      Int
                                      (&/$SumT
-                                      ;; RealM
-                                      Real
+                                      ;; FracM
+                                      Frac
                                       (&/$SumT
-                                       ;; CharM
-                                       Char
+                                       ;; RealM
+                                       Real
                                        (&/$SumT
-                                        ;; TextM
-                                        Text
+                                        ;; CharM
+                                        Char
                                         (&/$SumT
-                                         ;; IdentM
-                                         Ident
+                                         ;; TextM
+                                         Text
                                          (&/$SumT
-                                          ;; ListM
-                                          (&/$AppT List DefMetaValue)
-                                          ;; DictM
-                                          (&/$AppT List (&/$ProdT Text DefMetaValue))))))))))
+                                          ;; IdentM
+                                          Ident
+                                          (&/$SumT
+                                           ;; ListM
+                                           (&/$AppT List DefMetaValue)
+                                           ;; DictM
+                                           (&/$AppT List (&/$ProdT Text DefMetaValue)))))))))))
                                   )
                         &/$VoidT))))
 
