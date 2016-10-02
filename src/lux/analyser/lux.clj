@@ -409,12 +409,10 @@
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
           _
-          (&/with-analysis-meta cursor exo-type
-            (do-analyse-apply analyse exo-type =fn ?args))))
+          (do-analyse-apply analyse exo-type =fn ?args)))
       
       _
-      (&/with-analysis-meta cursor exo-type
-        (do-analyse-apply analyse exo-type =fn ?args)))
+      (do-analyse-apply analyse exo-type =fn ?args))
     ))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
