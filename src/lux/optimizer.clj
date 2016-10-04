@@ -22,7 +22,7 @@
   ("apply" 2)
   ("case" 2)
   ("function" 4)
-  ("ann" 3)
+  ("ann" 3) ;; TODO: Eliminate
   ("var" 1)
   ("captured" 3)
   ("proc" 3)
@@ -35,11 +35,11 @@
   ;; The optimizer looks for those usage patterns and transforms them
   ;; into explicit constructs, which are then subject to specialized optimizations.
 
-  ;; This is a loop, as expected in imperative programming.
-  ("loop" 1)
+  ;; This is loop iteration, as expected in imperative programming.
+  ("iter" 1)
   ;; This is a simple let-expression, as opposed to the more general pattern-matching.
   ("let" 3)
-  ;; This is an access to a record's member. It can be multiple level:
+  ;; This is an access to a record's member. It can be multi-level:
   ;; e.g. record.l1.l2.l3
   ;; The record-get token stores the path, for simpler compilation.
   ("record-get" 2)
@@ -378,7 +378,8 @@
                                           (&/T [_name (&/T [_meta ($captured scope* _idx (shift-function-body old-scope new-scope own-body? _source))])])))
                                       captured)
                               (shift-function-body old-scope new-scope false body*))]))
-      
+
+      ;; TODO: Must get rid of this one...
       ($ann value-expr type-expr type-type)
       (&/T [meta ($ann (shift-function-body old-scope new-scope own-body? value-expr)
                        type-expr
@@ -398,7 +399,7 @@
           body)
         body)
 
-      ;; This special "apply" rule is for handling better recursive calls.
+      ;; This special "apply" rule is for handling recursive calls better.
       ($apply [meta-0 ($var (&/$Local 0))] args)
       (if own-body?
         (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
@@ -424,8 +425,8 @@
       ($proc proc-ident args special-args)
       (&/T [meta ($proc proc-ident (&/|map (partial shift-function-body old-scope new-scope own-body?) args) special-args)])
 
-      ($loop args)
-      (&/T [meta ($loop (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
+      ($iter args)
+      (&/T [meta ($iter (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
 
       ($let _value _register _body)
       (&/T [meta ($let (shift-function-body old-scope new-scope own-body? _value)
@@ -503,7 +504,7 @@
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
       (if (= arity (&/|length _args))
-        (&/T [meta-0 ($loop (&/|map (partial optimize-loop -1) _args))])
+        (&/T [meta-0 ($iter (&/|map (partial optimize-loop -1) _args))])
         optim)
 
       ($case _value [_pattern _bodies])
@@ -568,41 +569,39 @@
         (&/T [meta ($apply (pass-0 func) (&/|map pass-0 args))])
         
         (&a/$case value branches)
-        (|case branches
-          ;; The pattern for a let-expression is a single branch,
-          ;; tying the value to a register.
-          (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
-          (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
+        (let [normal-case-optim (fn []
+                                  (&/T [meta ($case (pass-0 value)
+                                                    (optimize-pm (&/|map (fn [branch]
+                                                                           (|let [[_pattern _body] branch]
+                                                                             (&/T [_pattern (pass-0 _body)])))
+                                                                         branches)))]))]
+          (|case branches
+            ;; The pattern for a let-expression is a single branch,
+            ;; tying the value to a register.
+            (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
+            (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
 
-          (&/$Cons [(&a-case/$BoolTestAC false) _else]
-                   (&/$Cons [(&a-case/$BoolTestAC true) _then]
-                            (&/$Nil)))
-          (&/T [meta ($if (pass-0 value) (pass-0 _then) (pass-0 _else))])
-          
-          ;; The pattern for a record-get is a single branch, with a
-          ;; tuple pattern and a body corresponding to a
-          ;; local-variable extracted from the tuple.
-          (&/$Cons [(&a-case/$TupleTestAC _sub-tests) [_ (&a/$var (&/$Local _member-idx))]] (&/$Nil))
-          (|let [_path (record-read-path _sub-tests _member-idx)]
-            (if (&/|empty? _path)
-              ;; If the path is empty, that means it was a
-              ;; false-positive and normal PM optimization should be
-              ;; done instead.
-              (&/T [meta ($case (pass-0 value)
-                                (optimize-pm (&/|map (fn [branch]
-                                                       (|let [[_pattern _body] branch]
-                                                         (&/T [_pattern (pass-0 _body)])))
-                                                     branches)))])
-              ;; Otherwise, we've got ourselves a record-get expression.
-              (&/T [meta ($record-get (pass-0 value) _path)])))
+            (&/$Cons [(&a-case/$BoolTestAC false) _else]
+                     (&/$Cons [(&a-case/$BoolTestAC true) _then]
+                              (&/$Nil)))
+            (&/T [meta ($if (pass-0 value) (pass-0 _then) (pass-0 _else))])
+            
+            ;; The pattern for a record-get is a single branch, with a
+            ;; tuple pattern and a body corresponding to a
+            ;; local-variable extracted from the tuple.
+            (&/$Cons [(&a-case/$TupleTestAC _sub-tests) [_ (&a/$var (&/$Local _member-idx))]] (&/$Nil))
+            (|let [_path (record-read-path _sub-tests _member-idx)]
+              (if (&/|empty? _path)
+                ;; If the path is empty, that means it was a
+                ;; false-positive and normal PM optimization should be
+                ;; done instead.
+                (normal-case-optim)
+                ;; Otherwise, we've got ourselves a record-get expression.
+                (&/T [meta ($record-get (pass-0 value) _path)])))
 
-          ;; If no special patterns are found, just do normal PM optimization.
-          _
-          (&/T [meta ($case (pass-0 value)
-                            (optimize-pm (&/|map (fn [branch]
-                                                   (|let [[_pattern _body] branch]
-                                                     (&/T [_pattern (pass-0 _body)])))
-                                                 branches)))]))
+            ;; If no special patterns are found, just do normal PM optimization.
+            _
+            (normal-case-optim)))
         
         (&a/$lambda scope captured body)
         (|case (pass-0 body)
@@ -616,7 +615,8 @@
           ;; 1-arity function.
           =body
           (&/T [meta ($function 1 scope (optimize-closure pass-0 captured) =body)]))
-        
+
+        ;; TODO: Must get rid of this one...
         (&a/$ann value-expr type-expr type-type)
         (&/T [meta ($ann (pass-0 value-expr) type-expr type-type)])
         
@@ -636,4 +636,6 @@
 ;; [Exports]
 (defn optimize [analysis]
   "(-> Analysis Optimized)"
-  (->> analysis pass-0 (optimize-loop -1)))
+  (->> analysis
+       pass-0
+       (optimize-loop -1)))

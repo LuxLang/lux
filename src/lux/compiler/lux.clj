@@ -152,7 +152,7 @@
       (compile-apply* compile ?args))
     ))
 
-(defn compile-loop [compile $begin ?args]
+(defn compile-iter [compile $begin ?args]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [idxs+args (&/zip2 (&/|range* 1 (&/|length ?args))
                                 ?args)]

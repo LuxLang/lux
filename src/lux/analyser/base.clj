@@ -23,7 +23,7 @@
   ("apply" 2)
   ("case" 2)
   ("lambda" 3)
-  ("ann" 3) ;; Eliminate
+  ("ann" 3) ;; TODO: Eliminate
   ("var" 1)
   ("captured" 1)
   ("proc" 3)

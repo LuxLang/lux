@@ -85,8 +85,8 @@
         (&o/$apply ?fn ?args)
         (&&lux/compile-apply (partial compile-expression $begin) ?fn ?args)
 
-        (&o/$loop ?args)
-        (&&lux/compile-loop (partial compile-expression $begin) $begin ?args)
+        (&o/$iter ?args)
+        (&&lux/compile-iter (partial compile-expression $begin) $begin ?args)
 
         (&o/$variant ?tag ?tail ?members)
         (&&lux/compile-variant (partial compile-expression $begin) ?tag ?tail ?members)
@@ -106,7 +106,7 @@
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
-        ;; Must get rid of this one...
+        ;; TODO: Must get rid of this one...
         (&o/$ann ?value-ex ?type-ex ?value-type)
         (compile-expression $begin ?value-ex)
 
