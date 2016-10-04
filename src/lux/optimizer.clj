@@ -22,7 +22,7 @@
   ("apply" 2)
   ("case" 2)
   ("function" 4)
-  ("ann" 3) ;; TODO: Eliminate
+  ("ann" 2)
   ("var" 1)
   ("captured" 3)
   ("proc" 3)
@@ -379,11 +379,9 @@
                                       captured)
                               (shift-function-body old-scope new-scope false body*))]))
 
-      ;; TODO: Must get rid of this one...
-      ($ann value-expr type-expr type-type)
+      ($ann value-expr type-expr)
       (&/T [meta ($ann (shift-function-body old-scope new-scope own-body? value-expr)
-                       type-expr
-                       type-type)])
+                       type-expr)])
       
       ($var var-kind)
       (if own-body?
@@ -516,8 +514,8 @@
       ($function _arity _scope _captured _body)
       (&/T [meta ($function _arity _scope _captured (optimize-loop _arity _body))])
       
-      ($ann _value-expr _type-expr _type-type)
-      (&/T [meta ($ann (optimize-loop arity _value-expr) _type-expr _type-type)])
+      ($ann _value-expr _type-expr)
+      (&/T [meta ($ann (optimize-loop arity _value-expr) _type-expr)])
 
       _
       optim
@@ -616,9 +614,8 @@
           =body
           (&/T [meta ($function 1 scope (optimize-closure pass-0 captured) =body)]))
 
-        ;; TODO: Must get rid of this one...
-        (&a/$ann value-expr type-expr type-type)
-        (&/T [meta ($ann (pass-0 value-expr) type-expr type-type)])
+        (&a/$ann value-expr type-expr)
+        (&/T [meta ($ann (pass-0 value-expr) type-expr)])
         
         (&a/$var var-kind)
         (&/T [meta ($var var-kind)])

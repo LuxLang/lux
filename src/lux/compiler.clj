@@ -107,7 +107,7 @@
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
         ;; TODO: Must get rid of this one...
-        (&o/$ann ?value-ex ?type-ex ?value-type)
+        (&o/$ann ?value-ex ?type-ex)
         (compile-expression $begin ?value-ex)
 
         (&o/$proc [?proc-category ?proc-name] ?args special-args)

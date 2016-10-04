@@ -222,8 +222,8 @@
 
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
-                          [[?def-type ?def-cursor] (&o/$ann ?def-value ?type-expr ?def-value-type)]
-                          ?type-expr
+                          [[?def-type ?def-cursor] (&o/$ann ?def-value ?type-expr)]
+                          (&o/optimize ?type-expr)
 
                           [[?def-type ?def-cursor] ?def-value]
                           (if (&type/type= &type/Type ?def-type)
@@ -238,7 +238,7 @@
 
 (defn ^:private de-ann [optim]
   (|case optim
-    [_ (&o/$ann value-expr _ _)]
+    [_ (&o/$ann value-expr _)]
     value-expr
 
     _
