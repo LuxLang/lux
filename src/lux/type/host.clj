@@ -156,7 +156,6 @@
           (principal-class bound)
           (&host-generics/->type-signature "java.lang.Object"))))
 
-;; TODO: CLEAN THIS UP, IT'S DOING A HACK BY TREATING GCLASSES AS GVARS
 (defn instance-gtype [existential matchings gtype]
   "(-> (Lux Type) (List (, Text Type)) GenericType (Lux Type))"
   (|case gtype
@@ -165,6 +164,13 @@
       (return (&/$HostT array-data-tag (&/|list inner-type))))
     
     (&/$GenericClass type-name type-params)
+    ;; When referring to type-parameters during class or method
+    ;; definition, a type-environment is set for storing the names
+    ;; of such parameters.
+    ;; When a "class" shows up with the name of one of those
+    ;; parameters, it must be detected, and the bytecode class-name
+    ;; must correspond to Object's.
+    
     (if-let [m-type (&/|get type-name matchings)]
       (return m-type)
       (|do [params* (&/map% (partial instance-gtype existential matchings)
@@ -253,39 +259,28 @@
   (|let [[e!name e!params] expected
          [a!name a!params] actual]
     ;; TODO: Delete first branch. It smells like a hack...
-    (try (cond (= "java.lang.Object" e!name)
-               (return fixpoints)
-
-               (= null-data-tag a!name)
-               (if (not (primitive-type? e!name))
-                 (return fixpoints)
-                 (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params)))
-
-               (= null-data-tag e!name)
-               (if (= null-data-tag a!name)
-                 (return fixpoints)
-                 (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params)))
-
-               (and (= array-data-tag e!name)
-                    (not= array-data-tag a!name))
-               (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
-
-               (or (and (= nat-data-tag e!name)
+    (try (cond (or (= "java.lang.Object" e!name)
+                   (and (= nat-data-tag e!name)
                         (= nat-data-tag a!name))
                    (and (= frac-data-tag e!name)
-                        (= frac-data-tag a!name)))
+                        (= frac-data-tag a!name))
+                   (and (= null-data-tag e!name)
+                        (= null-data-tag a!name))
+                   (and (not (primitive-type? e!name))
+                        (= null-data-tag a!name)))
                (return fixpoints)
 
-               (or (= nat-data-tag e!name)
-                   (= nat-data-tag a!name)
-                   (= frac-data-tag e!name)
-                   (= frac-data-tag a!name))
+               (or (and (= array-data-tag e!name)
+                        (not= array-data-tag a!name))
+                   (= nat-data-tag  e!name) (= nat-data-tag  a!name)
+                   (= frac-data-tag e!name) (= frac-data-tag a!name)
+                   (= null-data-tag e!name) (= null-data-tag a!name))
                (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
 
                :else
                (let [e!name (as-obj e!name)
                      a!name (as-obj a!name)]
-                 (cond (.equals ^Object e!name a!name)
+                 (cond (= e!name a!name)
                        (if (= (&/|length e!params) (&/|length a!params))
                          (|do [_ (&/map2% check e!params a!params)]
                            (return fixpoints))

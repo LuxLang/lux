@@ -106,7 +106,6 @@
         (&o/$function ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
-        ;; TODO: Must get rid of this one...
         (&o/$ann ?value-ex ?type-ex)
         (compile-expression $begin ?value-ex)
 
