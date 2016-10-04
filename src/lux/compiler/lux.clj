@@ -222,13 +222,13 @@
 
 (defn ^:private compile-def-type [compile ?body]
   (|do [:let [?def-type (|case ?body
-                          [[?def-type ?def-cursor] (&a/$ann ?def-value ?type-expr ?def-value-type)]
+                          [[?def-type ?def-cursor] (&o/$ann ?def-value ?type-expr ?def-value-type)]
                           ?type-expr
 
                           [[?def-type ?def-cursor] ?def-value]
                           (if (&type/type= &type/Type ?def-type)
                             (&/T [(&/T [?def-type ?def-cursor])
-                                  (&a/$tuple (&/|list))])
+                                  (&o/$tuple (&/|list))])
                             (&&type/type->analysis ?def-type)))]]
     (compile nil ?def-type)))
 

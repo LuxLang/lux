@@ -8,7 +8,8 @@
             clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|do return* return fail fail* |let |case]]
-                 [type :as &type])
+                 [type :as &type]
+                 [optimizer :as &o])
             [lux.analyser.base :as &a]))
 
 ;; [Utils]
@@ -16,12 +17,12 @@
   "(-> clojure.lang.Var Analysis Analysis)"
   (let [tag-meta (meta tag)]
     (&a/|meta &/$VoidT &/empty-cursor
-              (&a/$variant (::&/idx tag-meta) (::&/is-last? tag-meta) body))))
+              (&o/$variant (::&/idx tag-meta) (::&/is-last? tag-meta) body))))
 
 (defn ^:private tuple$ [members]
   "(-> (List Analysis) Analysis)"
   (&a/|meta &/$VoidT &/empty-cursor
-            (&a/$tuple members)))
+            (&o/$tuple members)))
 
 (do-template [<name> <tag> <doc>]
   (defn <name> [value]
@@ -29,13 +30,13 @@
     (&a/|meta &/$VoidT &/empty-cursor
               (<tag> value)))
 
-  ^:private bool$ &a/$bool "(-> Bool Analysis)"
-  ^:private nat$  &a/$nat  "(-> Nat Analysis)"
-  ^:private int$  &a/$int  "(-> Int Analysis)"
-  ^:private frac$ &a/$frac "(-> Nat Analysis)"
-  ^:private real$ &a/$real "(-> Real Analysis)"
-  ^:private char$ &a/$char "(-> Char Analysis)"
-  ^:private text$ &a/$text "(-> Text Analysis)"
+  ^:private bool$ &o/$bool "(-> Bool Analysis)"
+  ^:private nat$  &o/$nat  "(-> Nat Analysis)"
+  ^:private int$  &o/$int  "(-> Int Analysis)"
+  ^:private frac$ &o/$frac "(-> Nat Analysis)"
+  ^:private real$ &o/$real "(-> Real Analysis)"
+  ^:private char$ &o/$char "(-> Char Analysis)"
+  ^:private text$ &o/$text "(-> Text Analysis)"
   )
 
 (defn ^:private ident$ [value]

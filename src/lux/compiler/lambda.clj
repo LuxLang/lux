@@ -132,7 +132,7 @@
                   (.visitInsn Opcodes/DUP))]
         _ (&/map% (fn [?name+?captured]
                     (|case ?name+?captured
-                      [?name [_ (&a/$captured _ _ ?source)]]
+                      [?name [_ (&o/$captured _ _ ?source)]]
                       (compile nil ?source)))
                   closed-over)
         :let [_ (when (> arity 1)

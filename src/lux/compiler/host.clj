@@ -439,7 +439,7 @@
                               (.visitFieldInsn Opcodes/PUTFIELD class-name captured-name clo-field-sig))
                             (->> (let [captured-name (str &&/closure-prefix ?captured-id)])
                                  (|case ?name+?captured
-                                   [?name [_ (&a/$captured _ ?captured-id ?source)]])
+                                   [?name [_ (&o/$captured _ ?captured-id ?source)]])
                                  (doseq [?name+?captured (&/->seq env)])))
                         (.visitInsn Opcodes/RETURN)
                         (.visitMaxs 0 0)
