@@ -13,7 +13,8 @@
                               [:url "https://github.com/eduardoejp"]]]
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
-                 [org.ow2.asm/asm-all "5.0.3"]]
+                 [org.ow2.asm/asm-all "5.0.3"]
+                 [org.clojure/core.async "0.2.391"]]
   :warn-on-reflection true
   :main lux
   :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]

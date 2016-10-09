@@ -85,7 +85,8 @@
        (filter #(.endsWith ^String % ".jar"))
        (filter #(not (or (.contains ^String % "org/ow2/asm/asm-all")
                          (.contains ^String % "org/clojure/core.match")
-                         (.contains ^String % "org/clojure/clojure"))))))
+                         (.contains ^String % "org/clojure/clojure")
+                         (.contains ^String % "org/clojure/core.async"))))))
 
 (let [init-capacity (* 100 1024)
       buffer-size 1024]
@@ -132,7 +133,8 @@
                          (not (.endsWith ^String % "tools.nrepl-0.2.3.jar"))
                          (not (.endsWith ^String % "clojure-complete-0.2.3.jar"))
                          (not (.endsWith ^String % "clojure-1.6.0.jar"))
-                         (not (.endsWith ^String % "core.match-0.2.1.jar"))))
+                         (not (.endsWith ^String % "core.match-0.2.1.jar"))
+                         (not (.endsWith ^String % "core.async-0.2.391.jar"))))
            (reduce (fn [s ^String j] (add-jar! (new File ^String j) s out))
                    #{"META-INF/MANIFEST.MF"}))
       nil)

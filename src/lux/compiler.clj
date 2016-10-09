@@ -29,7 +29,8 @@
                           [case :as &&case]
                           [lambda :as &&lambda]
                           [module :as &&module]
-                          [io :as &&io])
+                          [io :as &&io]
+                          [parallel :as &&parallel])
             [lux.packager.program :as &packager-program])
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -118,6 +119,7 @@
     ))
 
 (defn init! []
+  (&&parallel/setup!)
   (reset! !source->last-line {})
   (.mkdirs (java.io.File. &&/output-dir))
   (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
@@ -170,7 +172,10 @@
             :let [file-hash (hash file-content)]]
         (if (&&cache/cached? name)
           (&&cache/load source-dirs name file-hash compile-module)
-          (let [compiler-step (&analyser/analyse &optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
+          (let [compiler-step (&analyser/analyse &optimizer/optimize
+                                                 eval!
+                                                 (&&parallel/parallel-compilation (partial compile-module source-dirs))
+                                                 all-compilers)]
             (|do [module-exists? (&a-module/exists? name)]
               (if module-exists?
                 (fail "[Compiler Error] Can't redefine a module!")
@@ -253,7 +258,8 @@
 
 (defn compile-program [mode program-module source-dirs]
   (init!)
-  (let [m-action (&/map% (partial compile-module source-dirs) (&/|list "lux" program-module))]
+  (let [m-action (&/map% (&&parallel/parallel-compilation (partial compile-module source-dirs))
+                         (&/|list "lux" program-module))]
     (|case (m-action (&/init-state mode))
       (&/$Right ?state _)
       (do (println "Compilation complete!")
