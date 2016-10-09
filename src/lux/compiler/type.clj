@@ -107,7 +107,7 @@
     ))
 
 (defn ^:private defmetavalue->analysis [dmv]
-  "(-> DefMetaValue Analysis)"
+  "(-> Ann-Value Analysis)"
   (|case dmv
     (&/$BoolM value)
     (variant$ #'&/$BoolM (bool$ value))
@@ -149,7 +149,7 @@
     ))
 
 (defn defmeta->analysis [xs]
-  "(-> DefMeta Analysis)"
+  "(-> Anns Analysis)"
   (List$ (&/|map (fn [kv]
                    (|let [[k v] kv]
                      (tuple$ (&/|list (ident$ k)

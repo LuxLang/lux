@@ -567,7 +567,7 @@
       (|do [=value (&/without-repl-closure
                     (&/with-scope ?name
                       (&&/analyse-1+ analyse ?value)))
-            =meta (&&/analyse-1 analyse &type/DefMeta ?meta)
+            =meta (&&/analyse-1 analyse &type/Anns ?meta)
             ==meta (eval! (optimize =meta))
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
@@ -575,26 +575,34 @@
         (return &/$Nil))
       )))
 
-(defn analyse-import [analyse compile-module path ex-alias]
+(defn analyse-module [analyse optimize eval! compile-module ?meta]
   (|do [_ &/ensure-statement
-        current-module &/get-module-name
-        _ (if (= current-module path)
-            (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
-            (return nil))]
-    (&/without-repl
-     (&/save-module
-      (|do [already-compiled? (&&module/exists? path)
-            active? (&/active-module? path)
-            _ (&/assert! (not active?)
-                         (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
-            _ (&&module/add-import path)
-            ?module-hash (if (not already-compiled?)
-                           (compile-module path)
-                           (&&module/module-hash path))
-            _ (if (= "" ex-alias)
-                (return nil)
-                (&&module/alias current-module ex-alias path))]
-        (return &/$Nil))))))
+        =anns (&&/analyse-1 analyse &type/Anns ?meta)
+        ==anns (eval! (optimize =anns))
+        module-name &/get-module-name
+        _ (&&module/set-anns ==anns module-name)
+        _imports (&&module/fetch-imports ==anns)
+        current-module &/get-module-name]
+    (&/map% (fn [_import]
+              (|let [[path alias] _import]
+                (&/without-repl
+                 (&/save-module
+                  (|do [_ (if (= current-module path)
+                            (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
+                            (return nil))
+                        already-compiled? (&&module/exists? path)
+                        active? (&/active-module? path)
+                        _ (&/assert! (not active?)
+                                     (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
+                        _ (&&module/add-import path)
+                        ?module-hash (if (not already-compiled?)
+                                       (compile-module path)
+                                       (&&module/module-hash path))
+                        _ (if (= "" alias)
+                            (return nil)
+                            (&&module/alias current-module alias path))]
+                    (return &/$Nil))))))
+            _imports)))
 
 (defn ^:private coerce [new-type analysis]
   "(-> Type Analysis Analysis)"

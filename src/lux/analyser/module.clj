@@ -22,7 +22,8 @@
    "defs"
    "imports"
    "tags"
-   "types"])
+   "types"
+   "module-anns"])
 
 (defn ^:private new-module [hash]
   (&/T [;; lux;module-hash
@@ -36,7 +37,9 @@
         ;; "lux;tags"
         (&/|table)
         ;; "lux;types"
-        (&/|table)]
+        (&/|table)
+        ;; module-anns
+        (&/|list)]
        ))
 
 ;; [Exports]
@@ -165,6 +168,25 @@
        (&/|get source-module)
        (&/get$ $imports)
        (&/|any? (partial = imported-module))))
+
+(defn get-anns [module-name]
+  (fn [state]
+    (if-let [module (->> state
+                         (&/get$ &/$modules)
+                         (&/|get module-name))]
+      (return* state (&/get$ $module-anns module))
+      ((&/fail-with-loc (str "[Analyser Error] Module does not exist: " module-name))
+       state))))
+
+(defn set-anns [anns module-name]
+  (fn [state]
+    (return* (->> state
+                  (&/update$ &/$modules
+                             (fn [ms]
+                               (&/|update module-name
+                                          #(&/set$ $module-anns anns %)
+                                          ms))))
+             nil)))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
@@ -350,3 +372,20 @@
   test-type  &type/Type  &meta/type?-tag  "type"
   test-macro &type/Macro &meta/macro?-tag "macro"
   )
+
+(defn fetch-imports [meta]
+  (|case (&meta/meta-get &meta/imports-tag meta)
+    (&/$Some (&/$ListM _parts))
+    (&/map% (fn [_part]
+              (|case _part
+                (&/$ListM (&/$Cons [(&/$TextM _module)
+                                    (&/$Cons [(&/$TextM _alias)
+                                              (&/$Nil)])]))
+                (return (&/T [_module _alias]))
+
+                _
+                (&/fail-with-loc "[Analyser Error] Wrong import syntax.")))
+            _parts)
+
+    _
+    (&/fail-with-loc "[Analyser Error] No import meta-data.")))

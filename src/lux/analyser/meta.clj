@@ -20,7 +20,7 @@
 
 ;; [Values]
 (defn meta-get [ident dict]
-  "(-> Ident DefMeta (Maybe DefMetaValue))"
+  "(-> Ident Anns (Maybe Ann-Value))"
   (|case dict
     (&/$Cons [k v] dict*)
     (if (ident= k ident)
@@ -42,4 +42,5 @@
   macro?-tag  "macro?"
   export?-tag "export?"
   tags-tag    "tags"
+  imports-tag "imports"
   )

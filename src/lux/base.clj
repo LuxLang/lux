@@ -230,7 +230,7 @@
 (def name-field "_name")
 (def hash-field "_hash")
 (def type-field "_type")
-(def meta-field "_meta")
+(def anns-field "_anns")
 (def value-field "_value")
 (def compiler-field "_compiler")
 (def imports-field "_imports")

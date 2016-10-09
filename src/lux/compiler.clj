@@ -162,78 +162,94 @@
           (partial &&host/compile-jvm-class compile-expression*)
           &&host/compile-jvm-interface])))
 
-(defn compile-module [source-dirs name]
-  (let [file-name (str name ".lux")]
-    (|do [file-content (&&io/read-file source-dirs file-name)
-          :let [file-hash (hash file-content)]]
-      (if (&&cache/cached? name)
-        (&&cache/load source-dirs name file-hash compile-module)
-        (let [compiler-step (&analyser/analyse &optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
-          (|do [module-exists? (&a-module/exists? name)]
-            (if module-exists?
-              (fail "[Compiler Error] Can't redefine a module!")
-              (|do [_ (&&cache/delete name)
-                    _ (&a-module/create-module name file-hash)
-                    _ (&/flag-active-module name)
-                    :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                   (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                           (str (&host/->module-class name) "/_") nil "java/lang/Object" nil)
-                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/hash-field "I" nil file-hash)
-                                       .visitEnd)
-                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
-                                       .visitEnd)
-                                   (.visitSource file-name nil))]
-                    _ (if (= "lux" name)
-                        (|do [_ &&host/compile-Function-class
-                              _ &&host/compile-LuxRT-class]
-                          (return nil))
-                        (return nil))]
-                (fn [state]
-                  (|case ((&/with-writer =class
-                            (&/exhaust% compiler-step))
-                          (&/set$ &/$source (&reader/from name file-content) state))
-                    (&/$Right ?state _)
-                    (&/run-state (|do [defs &a-module/defs
-                                       imports &a-module/imports
-                                       tag-groups &&module/tag-groups
-                                       :let [_ (doto =class
-                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/defs-field "Ljava/lang/String;" nil
-                                                                  (->> defs
-                                                                       (&/|map (fn [_def]
-                                                                                 (|let [[?name ?alias] _def]
-                                                                                   (str ?name
-                                                                                        &&/exported-separator
-                                                                                        ?alias))))
-                                                                       (&/|interpose &&/def-separator)
-                                                                       (&/fold str "")))
-                                                     .visitEnd)
-                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
-                                                                  (->> imports
-                                                                       (&/|map (fn [import]
-                                                                                 (|let [[_module _hash] import]
-                                                                                   (str _module &&/field-separator _hash))))
-                                                                       (&/|interpose &&/entry-separator)
-                                                                       (&/fold str "")))
-                                                     .visitEnd)
-                                                 (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/tags-field "Ljava/lang/String;" nil
-                                                                  (->> tag-groups
-                                                                       (&/|map (fn [group]
-                                                                                 (|let [[type tags] group]
-                                                                                   (->> tags (&/|interpose &&/tag-separator) (&/fold str "")
-                                                                                        (str type &&/type-separator)))))
-                                                                       (&/|interpose &&/tag-group-separator)
-                                                                       (&/fold str "")))
-                                                     .visitEnd)
-                                                 (.visitEnd))]
-                                       _ (&/flag-compiled-module name)
-                                       _ (&&/save-class! &/module-class-name (.toByteArray =class))]
-                                   (return file-hash))
-                                 ?state)
-                    
-                    (&/$Left ?message)
-                    (fail* ?message)))))))
-        ))
-    ))
+(let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
+      +datum-sig+ "Ljava/lang/Object;"]
+  (defn compile-module [source-dirs name]
+    (let [file-name (str name ".lux")]
+      (|do [file-content (&&io/read-file source-dirs file-name)
+            :let [file-hash (hash file-content)]]
+        (if (&&cache/cached? name)
+          (&&cache/load source-dirs name file-hash compile-module)
+          (let [compiler-step (&analyser/analyse &optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
+            (|do [module-exists? (&a-module/exists? name)]
+              (if module-exists?
+                (fail "[Compiler Error] Can't redefine a module!")
+                (|do [_ (&&cache/delete name)
+                      _ (&a-module/create-module name file-hash)
+                      _ (&/flag-active-module name)
+                      :let [module-class-name (str (&host/->module-class name) "/_")
+                            =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                                     (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                             module-class-name nil "java/lang/Object" nil)
+                                     (-> (.visitField +field-flags+ &/hash-field "I" nil file-hash)
+                                         .visitEnd)
+                                     (-> (.visitField +field-flags+ &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
+                                         .visitEnd)
+                                     (-> (.visitField +field-flags+ &/anns-field +datum-sig+ nil nil)
+                                         (doto (.visitEnd)))
+                                     (.visitSource file-name nil))]
+                      _ (if (= "lux" name)
+                          (|do [_ &&host/compile-Function-class
+                                _ &&host/compile-LuxRT-class]
+                            (return nil))
+                          (return nil))]
+                  (fn [state]
+                    (|case ((&/with-writer =class
+                              (&/exhaust% compiler-step))
+                            (&/set$ &/$source (&reader/from name file-content) state))
+                      (&/$Right ?state _)
+                      (&/run-state (|do [==anns (&a-module/get-anns name)
+                                         defs &a-module/defs
+                                         imports &a-module/imports
+                                         tag-groups &&module/tag-groups
+                                         :let [_ (doto =class
+                                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/defs-field "Ljava/lang/String;" nil
+                                                                    (->> defs
+                                                                         (&/|map (fn [_def]
+                                                                                   (|let [[?name ?alias] _def]
+                                                                                     (str ?name
+                                                                                          &&/exported-separator
+                                                                                          ?alias))))
+                                                                         (&/|interpose &&/def-separator)
+                                                                         (&/fold str "")))
+                                                       .visitEnd)
+                                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
+                                                                    (->> imports
+                                                                         (&/|map (fn [import]
+                                                                                   (|let [[_module _hash] import]
+                                                                                     (str _module &&/field-separator _hash))))
+                                                                         (&/|interpose &&/entry-separator)
+                                                                         (&/fold str "")))
+                                                       .visitEnd)
+                                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/tags-field "Ljava/lang/String;" nil
+                                                                    (->> tag-groups
+                                                                         (&/|map (fn [group]
+                                                                                   (|let [[type tags] group]
+                                                                                     (->> tags (&/|interpose &&/tag-separator) (&/fold str "")
+                                                                                          (str type &&/type-separator)))))
+                                                                         (&/|interpose &&/tag-group-separator)
+                                                                         (&/fold str "")))
+                                                       .visitEnd))]
+                                         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+                                             (|do [^MethodVisitor **writer** &/get-writer
+                                                   :let [_ (.visitCode **writer**)]
+                                                   _ (&&/compile-meta compile-expression ==anns)
+                                                   :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC module-class-name &/anns-field +datum-sig+)]
+                                                   :let [_ (doto **writer**
+                                                             (.visitInsn Opcodes/RETURN)
+                                                             (.visitMaxs 0 0)
+                                                             (.visitEnd))]]
+                                               (return nil)))
+                                         :let [_ (.visitEnd =class)]
+                                         _ (&/flag-compiled-module name)
+                                         _ (&&/save-class! &/module-class-name (.toByteArray =class))]
+                                     (return file-hash))
+                                   ?state)
+                      
+                      (&/$Left ?message)
+                      (fail* ?message)))))))
+          ))
+      )))
 
 (defn compile-program [mode program-module source-dirs]
   (init!)

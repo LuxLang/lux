@@ -156,12 +156,10 @@
             (&/with-cursor cursor
               (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)))
 
-          "_lux_import"
-          (|let [(&/$Cons [_ (&/$TextS ?path)]
-                          (&/$Cons [_ (&/$TextS ?alias)]
-                                   (&/$Nil))) parameters]
+          "_lux_module"
+          (|let [(&/$Cons ?meta (&/$Nil)) parameters]
             (&/with-cursor cursor
-              (&&lux/analyse-import analyse compile-module ?path ?alias)))
+              (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
 
           "_lux_program"
           (|let [(&/$Cons [_ (&/$SymbolS "" ?args)]

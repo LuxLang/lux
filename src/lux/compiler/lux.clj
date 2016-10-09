@@ -232,10 +232,6 @@
                             (&&type/type->analysis ?def-type)))]]
     (compile nil ?def-type)))
 
-(defn ^:private compile-def-meta [compile ?meta]
-  (|let [analysis (&&type/defmeta->analysis ?meta)]
-    (compile nil analysis)))
-
 (defn ^:private de-ann [optim]
   (|case optim
     [_ (&o/$ann value-expr _)]
@@ -284,7 +280,7 @@
                                      (doto (.visitEnd)))
                                  (-> (.visitField field-flags &/type-field datum-sig nil nil)
                                      (doto (.visitEnd)))
-                                 (-> (.visitField field-flags &/meta-field datum-sig nil nil)
+                                 (-> (.visitField field-flags &/anns-field datum-sig nil nil)
                                      (doto (.visitEnd)))
                                  (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                      (doto (.visitEnd)))
@@ -295,8 +291,8 @@
                             :let [_ (.visitCode **writer**)]
                             _ (compile-def-type compile ?body)
                             :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/type-field datum-sig)]
-                            _ (compile-def-meta compile ?meta)
-                            :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/meta-field datum-sig)]
+                            _ (&&/compile-meta compile ?meta)
+                            :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/anns-field datum-sig)]
                             _ instancer
                             :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
                             :let [_ (doto **writer**
@@ -367,7 +363,7 @@
                                    (doto (.visitEnd)))
                                (-> (.visitField field-flags &/type-field datum-sig nil nil)
                                    (doto (.visitEnd)))
-                               (-> (.visitField field-flags &/meta-field datum-sig nil nil)
+                               (-> (.visitField field-flags &/anns-field datum-sig nil nil)
                                    (doto (.visitEnd)))
                                (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                    (doto (.visitEnd)))
@@ -377,8 +373,8 @@
                           :let [_ (.visitCode **writer**)]
                           _ (compile-def-type compile ?body)
                           :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/type-field datum-sig)]
-                          _ (compile-def-meta compile ?meta)
-                          :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/meta-field datum-sig)]
+                          _ (&&/compile-meta compile ?meta)
+                          :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/anns-field datum-sig)]
                           _ (compile nil ?body)
                           :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
                           :let [_ (doto **writer**

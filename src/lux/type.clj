@@ -114,9 +114,9 @@
                                   )
                         &/$VoidT))))
 
-(def DefMetaValue
-  (&/$NamedT (&/T ["lux" "DefMetaValue"])
-             (let [DefMetaValue (&/$AppT (&/$BoundT 0) (&/$BoundT 1))]
+(def Ann-Value
+  (&/$NamedT (&/T ["lux" "Ann-Value"])
+             (let [Ann-Value (&/$AppT (&/$BoundT 0) (&/$BoundT 1))]
                (&/$AppT (&/$UnivQ empty-env
                                   (&/$SumT
                                    ;; BoolM
@@ -144,15 +144,15 @@
                                           Ident
                                           (&/$SumT
                                            ;; ListM
-                                           (&/$AppT List DefMetaValue)
+                                           (&/$AppT List Ann-Value)
                                            ;; DictM
-                                           (&/$AppT List (&/$ProdT Text DefMetaValue)))))))))))
+                                           (&/$AppT List (&/$ProdT Text Ann-Value)))))))))))
                                   )
                         &/$VoidT))))
 
-(def DefMeta
-  (&/$NamedT (&/T ["lux" "DefMeta"])
-             (&/$AppT List (&/$ProdT Ident DefMetaValue))))
+(def Anns
+  (&/$NamedT (&/T ["lux" "Anns"])
+             (&/$AppT List (&/$ProdT Ident Ann-Value))))
 
 (def Macro)
 

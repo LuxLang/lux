@@ -9,12 +9,13 @@
             [clojure.java.io :as io]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail*]]
+            (lux [base :as & :refer [|let |do return* return fail fail*]]
                  [type :as &type]
                  [host :as &host])
             (lux.analyser [base :as &a]
                           [module :as &a-module])
-            [lux.host.generics :as &host-generics])
+            [lux.host.generics :as &host-generics]
+            (lux.compiler [type :as &&type]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -105,3 +106,7 @@
   wrap-double  unwrap-double  "java/lang/Double"    "doubleValue"  "D" Opcodes/DUP_X2
   wrap-char    unwrap-char    "java/lang/Character" "charValue"    "C" Opcodes/DUP_X1
   )
+
+(defn compile-meta [compile anns]
+  (|let [analysis (&&type/defmeta->analysis anns)]
+    (compile nil analysis)))

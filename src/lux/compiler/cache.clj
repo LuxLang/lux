@@ -97,12 +97,12 @@
                         module-path (str &&/output-dir "/" module)
                         class-name (str module* "._")
                         old-classes @!classes
-                        ^Class module-meta (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
-                                             (&&/load-class! loader class-name))
+                        ^Class module-class (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
+                                              (&&/load-class! loader class-name))
                         _ (install-all-classes-in-module !classes module* module-path)]]
-              (if (and (= module-hash (get-field &/hash-field module-meta))
-                       (= &/compiler-version (get-field &/compiler-field module-meta)))
-                (let [imports (string/split (get-field &/imports-field module-meta) entry-separator-re)]
+              (if (and (= module-hash (get-field &/hash-field module-class))
+                       (= &/compiler-version (get-field &/compiler-field module-class)))
+                (let [imports (string/split (get-field &/imports-field module-class) entry-separator-re)]
                   (|do [loads (&/map% (fn [_import]
                                         (let [[_module _hash] (string/split _import field-separator-re)]
                                           (|do [file-content (&&io/read-file source-dirs (str _module ".lux"))
@@ -117,8 +117,8 @@
                                         &/$Nil
                                         (&/->list imports)))]
                     (if (->> loads &/->seq (every? true?))
-                      (let [defs (string/split (get-field &/defs-field module-meta) def-separator-re)
-                            tag-groups (let [all-tags (get-field &/tags-field module-meta)]
+                      (let [defs (string/split (get-field &/defs-field module-class) def-separator-re)
+                            tag-groups (let [all-tags (get-field &/tags-field module-class)]
                                          (if (= "" all-tags)
                                            &/$Nil
                                            (-> all-tags
@@ -128,13 +128,15 @@
                                                              (&/T [_type (&/->list (string/split (or _tags "") tag-separator-re))])))))
                                                &/->list)))]
                         (|do [_ (&a-module/create-module module module-hash)
+                              :let [module-anns (get-field &/anns-field module-class)]
+                              _ (&a-module/set-anns module-anns module)
                               _ (&/flag-cached-module module)
                               _ (&a-module/set-imports imports)
                               _ (&/map% (fn [_def]
                                           (let [[_name _alias] (string/split _def #" ")]
                                             (if (= nil _alias)
                                               (let [def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
-                                                    def-meta (get-field &/meta-field def-class)
+                                                    def-meta (get-field &/anns-field def-class)
                                                     def-type (|case (&a-meta/meta-get &a-meta/type?-tag def-meta)
                                                                (&/$Some (&/$BoolM true))
                                                                &type/Type
