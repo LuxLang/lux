@@ -4,7 +4,8 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.analyser.lux
-  (:require (clojure [template :refer [do-template]])
+  (:require (clojure [template :refer [do-template]]
+                     [set :as set])
             clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|do return return* fail fail* |let |list |case]]
@@ -575,6 +576,78 @@
         (return &/$Nil))
       )))
 
+(defn ^:private merge-hosts
+  "(-> Host Host Host)"
+  [new old]
+  (|let [merged-module-states (&/fold (fn [total m-state]
+                                        (|let [[_name _state] m-state]
+                                          (|case _state
+                                            (&/$Cached)
+                                            (&/|put _name _state total)
+                                            
+                                            (&/$Compiled)
+                                            (&/|put _name _state total)
+
+                                            _
+                                            total)))
+                                      (&/get$ &/$module-states old)
+                                      (&/get$ &/$module-states new))]
+    (->> old
+         (&/set$ &/$module-states merged-module-states))))
+
+(defn ^:private merge-modules
+  "(-> Text Module Module Module)"
+  [current-module new old]
+  (do ;; (&/|log! 'old (->> old (&/|map &/|first) &/->seq set)
+      ;;          "\n"
+      ;;          'new (->> new (&/|map &/|first) &/->seq set)
+      ;;          "\n"
+      ;;          'old+new (set/union (->> old (&/|map &/|first) &/->seq set)
+      ;;                              (->> new (&/|map &/|first) &/->seq set)))
+      (&/fold (fn [total* entry]
+                (|let [[_name _module] entry]
+                  (if (or (= current-module _name)
+                          (->> _module
+                               (&/get$ &&module/$defs)
+                               &/|length
+                               (= 0)))
+                    ;; Don't modify the entry of the current module, to
+                    ;; avoid overwritting it's data in improper ways.
+                    ;; Since it's assumed the "original" old module
+                    ;; contains all the proper own-module information.
+                    total*
+                    (do ;; (&/|log! "Adding:" _name "to" current-module
+                        ;;          (->> _module
+                        ;;               (&/get$ &&module/$defs)
+                        ;;               &/|length)
+                        ;;          (->> _module
+                        ;;               (&/get$ &&module/$defs)
+                        ;;               (&/|filter (comp &&module/exported? &/|second))
+                        ;;               (&/|map &/|first)
+                        ;;               &/->seq pr-str))
+                      (&/|put _name _module total*)))))
+              old new)))
+
+(defn ^:private merge-compilers
+  "(-> Text Compiler Compiler Compiler)"
+  [current-module new old]
+  (->> old
+       (&/set$ &/$modules (merge-modules current-module
+                                         (&/get$ &/$modules new)
+                                         (&/get$ &/$modules old)))
+       (&/set$ &/$seed (max (&/get$ &/$seed new)
+                            (&/get$ &/$seed old)))
+       (&/set$ &/$host (merge-hosts (&/get$ &/$host new)
+                                    (&/get$ &/$host old)))))
+
+(def ^:private get-compiler
+  (fn [compiler]
+    (return* compiler compiler)))
+
+(defn ^:private set-compiler [compiler*]
+  (fn [_]
+    (return* compiler* compiler*)))
+
 (defn analyse-module [analyse optimize eval! compile-module ?meta]
   (|do [_ &/ensure-statement
         =anns (&&/analyse-1 analyse &type/Anns ?meta)
@@ -582,27 +655,53 @@
         module-name &/get-module-name
         _ (&&module/set-anns ==anns module-name)
         _imports (&&module/fetch-imports ==anns)
-        current-module &/get-module-name]
-    (&/map% (fn [_import]
-              (|let [[path alias] _import]
-                (&/without-repl
-                 (&/save-module
-                  (|do [_ (if (= current-module path)
-                            (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
-                            (return nil))
-                        already-compiled? (&&module/exists? path)
-                        active? (&/active-module? path)
-                        _ (&/assert! (not active?)
-                                     (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
-                        _ (&&module/add-import path)
-                        ?module-hash (if (not already-compiled?)
-                                       (compile-module path)
-                                       (&&module/module-hash path))
-                        _ (if (= "" alias)
-                            (return nil)
-                            (&&module/alias current-module alias path))]
-                    (return &/$Nil))))))
-            _imports)))
+        current-module &/get-module-name
+        ;; :let [_ (&/|log! 'analyse-module module-name (->> _imports (&/|map &/|first) &/->seq))]
+        =asyncs (&/map% (fn [_import]
+                          (|let [[path alias] _import]
+                            (&/without-repl
+                             (&/save-module
+                              (|do [_ (if (= current-module path)
+                                        (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
+                                        (return nil))
+                                    already-compiled? (&&module/exists? path)
+                                    active? (&/active-module? path)
+                                    _ (&/assert! (not active?)
+                                                 (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
+                                    _ (&&module/add-import path)
+                                    ?async (if (not already-compiled?)
+                                             (compile-module path)
+                                             (|do [_module (&&module/find-module path)
+                                                   ;; :let [_ (&/|log! "Already compiled:" path (->> _module
+                                                   ;;                                                (&/get$ &&module/$defs)
+                                                   ;;                                                &/|length))]
+                                                   _compiler get-compiler]
+                                               (return (doto (promise)
+                                                         (deliver _compiler)))))
+                                    _ (if (= "" alias)
+                                        (return nil)
+                                        (&&module/alias current-module alias path))]
+                                (return ?async))))))
+                        _imports)
+        _compiler get-compiler
+        :let [_compiler* (&/fold2 (fn [compiler _import _async]
+                                    (|let [[path alias] _import
+                                           ;; _ (&/|log! 'import-compiler 'PRE [module-name path])
+                                           import-compiler @_async
+                                           ;; _ (&/|log! 'import-compiler 'POST [module-name path] import-compiler)
+                                           ]
+                                      (merge-compilers current-module import-compiler compiler)))
+                                  _compiler
+                                  _imports
+                                  =asyncs)]
+        _ (set-compiler _compiler*)
+        ;; _ (->> _imports
+        ;;        (&/|map &/|first)
+        ;;        (&/|filter (partial not= "lux"))
+        ;;        (&/map% &&module/add-import))
+        ;; :let [_ (&/|log! "CONTINUE" module-name (->> _imports (&/|map &/|first) &/->seq))]
+        ]
+    (return &/$Nil)))
 
 (defn ^:private coerce [new-type analysis]
   "(-> Type Analysis Analysis)"

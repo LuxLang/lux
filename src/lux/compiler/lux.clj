@@ -346,7 +346,7 @@
 
                       [_ (&/$None)]
                       (return nil))
-                  :let [_ (println 'DEF (str module-name ";" ?name))]]
+                  :let [_ (&/|log! 'DEF (str module-name ";" ?name))]]
               (return nil)))
 
           _
@@ -428,7 +428,7 @@
 
                     [_ (&/$None)]
                     (return nil))
-                :let [_ (println 'DEF (str module-name ";" ?name))]]
+                :let [_ (&/|log! 'DEF (str module-name ";" ?name))]]
             (return nil)))
         ))))
 

@@ -257,14 +257,14 @@
       )))
 
 (defn compile-program [mode program-module source-dirs]
-  (init!)
-  (let [m-action (&/map% (&&parallel/parallel-compilation (partial compile-module source-dirs))
-                         (&/|list "lux" program-module))]
-    (|case (m-action (&/init-state mode))
-      (&/$Right ?state _)
-      (do (println "Compilation complete!")
-        (&&cache/clean ?state)
-        (&packager-program/package program-module))
+  (do (init!)
+    (let [m-action (|do [_ (compile-module source-dirs "lux")]
+                     (compile-module source-dirs program-module))]
+      (|case (m-action (&/init-state mode))
+        (&/$Right ?state _)
+        (do (println "Compilation complete!")
+          (&&cache/clean ?state)
+          (&packager-program/package program-module))
 
-      (&/$Left ?message)
-      (assert false ?message))))
+        (&/$Left ?message)
+        (assert false ?message)))))

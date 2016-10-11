@@ -141,9 +141,21 @@
 (defn dealias [name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
+      (if-let [real-name (->> state
+                              (&/get$ &/$modules)
+                              (&/|get current-module)
+                              (&/get$ $module-aliases)
+                              (&/|get name))]
         (return* state real-name)
-        ((&/fail-with-loc (str "[Analyser Error] Unknown alias: " name))
+        ((&/fail-with-loc (str "[Analyser Error] Unknown alias: " name
+                               "\n"
+                               "@@@ " (->> state
+                                           (&/get$ &/$modules)
+                                           (&/|get current-module)
+                                           (&/get$ $module-aliases)
+                                           (&/|map &/|first)
+                                           &/->seq
+                                           pr-str)))
          state)))))
 
 (defn alias [module alias reference]
@@ -167,12 +179,12 @@
                    nil))))
     ))
 
-(defn ^:private imports? [state imported-module source-module]
+(defn ^:private imports? [state imported-module-name source-module-name]
   (->> state
        (&/get$ &/$modules)
-       (&/|get source-module)
+       (&/|get source-module-name)
        (&/get$ $imports)
-       (&/|any? (partial = imported-module))))
+       (&/|any? (partial = imported-module-name))))
 
 (defn get-anns [module-name]
   (fn [state]
@@ -192,6 +204,17 @@
                                           #(&/set$ $module-anns anns %)
                                           ms))))
              nil)))
+
+(defn exported?
+  "(-> Def Bool)"
+  [?def]
+  (|let [[?type ?ann ?value] ?def]
+    (|case (&meta/meta-get &meta/export?-tag ?ann)
+      (&/$Some (&/$BoolM true))
+      true
+
+      _
+      false)))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
@@ -215,13 +238,27 @@
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
-                  ((&/fail-with-loc (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name)))
+                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Can't use unexported definition: " (str module &/+name-separator+ name)))
                    state))))
-            ((&/fail-with-loc (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))
+            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
+                                   "\n @@@"
+                                   (->> $module (&/get$ $defs) (&/|map &/|first) &/->seq pr-str)))
              state))
-          ((&/fail-with-loc (str "[Analyser Error] Module doesn't exist: " module))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module doesn't exist: " module))
            state))
-        ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
+        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module
+                               "\n"
+                               "@@@ " current-module " :: "
+                               (->> state
+                                    (&/get$ &/$modules)
+                                    (&/|get current-module)
+                                    (&/get$ $imports)
+                                    &/->seq)
+                               " "
+                               (->> state
+                                    (&/get$ &/$modules)
+                                    (&/|map &/|first)
+                                    &/->seq)))
          state))
       )))
 
@@ -400,3 +437,12 @@
 
     _
     (&/fail-with-loc "[Analyser Error] No import meta-data.")))
+
+(defn find-module
+  "(-> Text (Lux Module))"
+  [module-name]
+  (fn [state]
+    (if-let [module (->> state (&/get$ &/$modules) (&/|get module-name))]
+      (return* state module)
+      ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module-name))
+       state))))
