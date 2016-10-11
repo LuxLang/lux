@@ -43,8 +43,9 @@
        ))
 
 ;; [Exports]
-(defn add-import [module]
+(defn add-import
   "(-> Text (Lux Null))"
+  [module]
   (|do [current-module &/get-module-name]
     (fn [state]
       (if (&/|member? module (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $imports)))
@@ -58,8 +59,9 @@
                             state)
                  nil)))))
 
-(defn set-imports [imports]
+(defn set-imports
   "(-> (List Text) (Lux Null))"
+  [imports]
   (|do [current-module &/get-module-name]
     (fn [state]
       (return* (&/update$ &/$modules
@@ -91,8 +93,9 @@
       ((&/fail-with-loc (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name))
        state))))
 
-(defn def-type [module name]
+(defn def-type
   "(-> Text Text (Lux Type))"
+  [module name]
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
@@ -103,8 +106,9 @@
       ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
        state))))
 
-(defn type-def [module name]
+(defn type-def
   "(-> Text Text (Lux [Bool Type]))"
+  [module name]
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
@@ -127,8 +131,9 @@
       ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
        state))))
 
-(defn exists? [name]
+(defn exists?
   "(-> Text (Lux Bool))"
+  [name]
   (fn [state]
     (return* state
              (->> state (&/get$ &/$modules) (&/|contains? name)))))
@@ -162,12 +167,12 @@
                    nil))))
     ))
 
-(defn ^:private imports? [state imported-module source-module]
+(defn ^:private imports? [state imported-module-name source-module-name]
   (->> state
        (&/get$ &/$modules)
-       (&/|get source-module)
+       (&/|get source-module-name)
        (&/get$ $imports)
-       (&/|any? (partial = imported-module))))
+       (&/|any? (partial = imported-module-name))))
 
 (defn get-anns [module-name]
   (fn [state]
@@ -210,18 +215,19 @@
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
-                  ((&/fail-with-loc (str "[Analyser Error] Can't use unexported definition: " (str module &/+name-separator+ name)))
+                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Can't use unexported definition: " (str module &/+name-separator+ name)))
                    state))))
-            ((&/fail-with-loc (str "[Analyser Error] Definition does not exist: " (str module &/+name-separator+ name)))
+            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)))
              state))
-          ((&/fail-with-loc (str "[Analyser Error] Module doesn't exist: " module))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module doesn't exist: " module))
            state))
-        ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
+        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module))
          state))
       )))
 
-(defn ensure-type-def [def-data]
+(defn ensure-type-def
   "(-> DefData (Lux Type))"
+  [def-data]
   (|let [[?type ?meta ?value] def-data]
     (|case (&meta/meta-get &meta/type?-tag ?meta)
       (&/$Some _)
@@ -235,8 +241,9 @@
                          (return true))
                        (return false))))
 
-(defn create-module [name hash]
+(defn create-module
   "(-> Text Hash-Code (Lux Null))"
+  [name hash]
   (fn [state]
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name (new-module hash) %))
@@ -244,8 +251,9 @@
              nil)))
 
 (do-template [<name> <tag> <type>]
-  (defn <name> [module]
+  (defn <name>
     <type>
+    [module]
     (fn [state]
       (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
         (return* state (&/get$ <tag> =module))
@@ -282,8 +290,9 @@
                      (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T [module name]))))]
     (return nil)))
 
-(defn declare-tags [module tag-names was-exported? type]
+(defn declare-tags
   "(-> Text (List Text) Bool Type (Lux Null))"
+  [module tag-names was-exported? type]
   (|do [_ (ensure-undeclared-tags module tag-names)
         type-name (&type/type-name type)
         :let [[_module _name] type-name]
@@ -309,8 +318,9 @@
         ((&/fail-with-loc (str "[Lux Error] Unknown module: " module))
          state)))))
 
-(defn ensure-can-see-tag [module tag-name]
+(defn ensure-can-see-tag
   "(-> Text Text (Lux Unit))"
+  [module tag-name]
   (|do [current-module &/get-module-name]
     (fn [state]
       (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
@@ -327,8 +337,9 @@
          state)))))
 
 (do-template [<name> <part> <doc>]
-  (defn <name> [module tag-name]
+  (defn <name>
     <doc>
+    [module tag-name]
     (fn [state]
       (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [^objects idx+tags+exported+type (&/|get tag-name (&/get$ $tags =module))]

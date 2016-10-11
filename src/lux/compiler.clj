@@ -29,7 +29,8 @@
                           [case :as &&case]
                           [lambda :as &&lambda]
                           [module :as &&module]
-                          [io :as &&io])
+                          [io :as &&io]
+                          [parallel :as &&parallel])
             [lux.packager.program :as &packager-program])
   (:import (org.objectweb.asm Opcodes
                               Label
@@ -118,6 +119,7 @@
     ))
 
 (defn init! []
+  (&&parallel/setup!)
   (reset! !source->last-line {})
   (.mkdirs (java.io.File. &&/output-dir))
   (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
@@ -167,10 +169,11 @@
   (defn compile-module [source-dirs name]
     (let [file-name (str name ".lux")]
       (|do [file-content (&&io/read-file source-dirs file-name)
-            :let [file-hash (hash file-content)]]
+            :let [file-hash (hash file-content)
+                  compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
         (if (&&cache/cached? name)
-          (&&cache/load source-dirs name file-hash compile-module)
-          (let [compiler-step (&analyser/analyse &optimizer/optimize eval! (partial compile-module source-dirs) all-compilers)]
+          (&&cache/load source-dirs name file-hash compile-module!!)
+          (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
             (|do [module-exists? (&a-module/exists? name)]
               (if module-exists?
                 (fail "[Compiler Error] Can't redefine a module!")
@@ -252,13 +255,14 @@
       )))
 
 (defn compile-program [mode program-module source-dirs]
-  (init!)
-  (let [m-action (&/map% (partial compile-module source-dirs) (&/|list "lux" program-module))]
-    (|case (m-action (&/init-state mode))
-      (&/$Right ?state _)
-      (do (println "Compilation complete!")
-        (&&cache/clean ?state)
-        (&packager-program/package program-module))
+  (do (init!)
+    (let [m-action (|do [_ (compile-module source-dirs "lux")]
+                     (compile-module source-dirs program-module))]
+      (|case (m-action (&/init-state mode))
+        (&/$Right ?state _)
+        (do (println "Compilation complete!")
+          (&&cache/clean ?state)
+          (&packager-program/package program-module))
 
-      (&/$Left ?message)
-      (assert false ?message))))
+        (&/$Left ?message)
+        (assert false ?message)))))

@@ -2,6 +2,7 @@
 ;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (ns lux.base
   (:require (clojure [template :refer [do-template]]
                      [string :as string])
@@ -901,7 +902,7 @@
   (fn [state]
     (if-let [module (|get name (get$ $modules state))]
       (return* state module)
-      ((fail-with-loc (str "Unknown module: " name)) state))))
+      ((fail-with-loc (str "[Error] Unknown module: " name)) state))))
 
 (def get-current-module
   "(Lux (Module Compiler))"
@@ -1444,3 +1445,9 @@
 
                   _
                   class-name)]))))
+
+(let [!out! *out*]
+  (defn |log! [& parts]
+    (binding [*out* !out!]
+      (do (print (apply str parts))
+        (flush)))))
