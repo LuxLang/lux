@@ -18,25 +18,6 @@
   (fn [compiler]
     (return* compiler compiler)))
 
-(defn ^:private compilation-task [compile-module* module-name]
-  (|do [compiler get-compiler
-        :let [[task new?] (dosync (if-let [existing-task (get @!state! module-name)]
-                                    (&/T [existing-task false])
-                                    (let [new-task (promise)]
-                                      (do (alter !state! assoc module-name new-task)
-                                        (&/T [new-task true])))))
-              _ (when new?
-                  (.start (new Thread
-                               (fn []
-                                 (|case (&/run-state (compile-module* module-name)
-                                                     compiler)
-                                   (&/$Right post-compiler _)
-                                   (deliver task post-compiler)
-
-                                   (&/$Left ?error)
-                                   (&/|log! ?error))))))]]
-    (return task)))
-
 ;; [Exports]
 (defn setup!
   "Must always call this function before using parallel compilation to make sure that the state that is being tracked is in proper shape."
@@ -45,4 +26,22 @@
 
 (defn parallel-compilation [compile-module*]
   (fn [module-name]
-    (compilation-task compile-module* module-name)))
+    (|do [compiler get-compiler
+          :let [[task new?] (dosync (if-let [existing-task (get @!state! module-name)]
+                                      (&/T [existing-task false])
+                                      (let [new-task (promise)]
+                                        (do (alter !state! assoc module-name new-task)
+                                          (&/T [new-task true])))))
+                _ (when new?
+                    (.start (new Thread
+                                 (fn []
+                                   (let [out-str (with-out-str
+                                                   (|case (&/run-state (compile-module* module-name)
+                                                                       compiler)
+                                                     (&/$Right post-compiler _)
+                                                     (deliver task post-compiler)
+
+                                                     (&/$Left ?error)
+                                                     (println ?error)))]
+                                     (&/|log! out-str))))))]]
+      (return task))))

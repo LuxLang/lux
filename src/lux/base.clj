@@ -1449,5 +1449,5 @@
 (let [!out! *out*]
   (defn |log! [& parts]
     (binding [*out* !out!]
-      (do (print (apply println-str parts))
+      (do (print (apply str parts))
         (flush)))))
