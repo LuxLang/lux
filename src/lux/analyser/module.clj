@@ -141,21 +141,9 @@
 (defn dealias [name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      (if-let [real-name (->> state
-                              (&/get$ &/$modules)
-                              (&/|get current-module)
-                              (&/get$ $module-aliases)
-                              (&/|get name))]
+      (if-let [real-name (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $module-aliases) (&/|get name))]
         (return* state real-name)
-        ((&/fail-with-loc (str "[Analyser Error] Unknown alias: " name
-                               "\n"
-                               "@@@ " (->> state
-                                           (&/get$ &/$modules)
-                                           (&/|get current-module)
-                                           (&/get$ $module-aliases)
-                                           (&/|map &/|first)
-                                           &/->seq
-                                           pr-str)))
+        ((&/fail-with-loc (str "[Analyser Error] Unknown alias: " name))
          state)))))
 
 (defn alias [module alias reference]
@@ -205,17 +193,6 @@
                                           ms))))
              nil)))
 
-(defn exported?
-  "(-> Def Bool)"
-  [?def]
-  (|let [[?type ?ann ?value] ?def]
-    (|case (&meta/meta-get &meta/export?-tag ?ann)
-      (&/$Some (&/$BoolM true))
-      true
-
-      _
-      false)))
-
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
@@ -240,25 +217,11 @@
                   _
                   ((&/fail-with-loc (str "[Analyser Error @ find-def] Can't use unexported definition: " (str module &/+name-separator+ name)))
                    state))))
-            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
-                                   "\n @@@"
-                                   (->> $module (&/get$ $defs) (&/|map &/|first) &/->seq pr-str)))
+            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)))
              state))
           ((&/fail-with-loc (str "[Analyser Error @ find-def] Module doesn't exist: " module))
            state))
-        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module
-                               "\n"
-                               "@@@ " current-module " :: "
-                               (->> state
-                                    (&/get$ &/$modules)
-                                    (&/|get current-module)
-                                    (&/get$ $imports)
-                                    &/->seq)
-                               " "
-                               (->> state
-                                    (&/get$ &/$modules)
-                                    (&/|map &/|first)
-                                    &/->seq)))
+        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module))
          state))
       )))
 
@@ -437,12 +400,3 @@
 
     _
     (&/fail-with-loc "[Analyser Error] No import meta-data.")))
-
-(defn find-module
-  "(-> Text (Lux Module))"
-  [module-name]
-  (fn [state]
-    (if-let [module (->> state (&/get$ &/$modules) (&/|get module-name))]
-      (return* state module)
-      ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module-name))
-       state))))

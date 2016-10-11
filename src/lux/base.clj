@@ -902,7 +902,7 @@
   (fn [state]
     (if-let [module (|get name (get$ $modules state))]
       (return* state module)
-      ((fail-with-loc (str "Unknown module: " name)) state))))
+      ((fail-with-loc (str "[Error] Unknown module: " name)) state))))
 
 (def get-current-module
   "(Lux (Module Compiler))"

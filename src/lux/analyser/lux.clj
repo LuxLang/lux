@@ -33,7 +33,7 @@
     0))
 
 ;; TODO: This technique won't work if the body of the type contains
-;; nested quantifications that are cannot be directly counted.
+;; nested quantifications that cannot be directly counted.
 (defn ^:private next-bound-type [type]
   "(-> Type Type)"
   (&/$BoundT (->> (count-univq type) (* 2) (+ 1))))
@@ -522,8 +522,6 @@
             (return (&&/|meta exo-type* _cursor
                               (&&/$lambda =scope =captured =body))))
 
-          
-          
           _
           (fail "")))
       (fn [err]
@@ -598,35 +596,20 @@
 (defn ^:private merge-modules
   "(-> Text Module Module Module)"
   [current-module new old]
-  (do ;; (&/|log! 'old (->> old (&/|map &/|first) &/->seq set)
-      ;;          "\n"
-      ;;          'new (->> new (&/|map &/|first) &/->seq set)
-      ;;          "\n"
-      ;;          'old+new (set/union (->> old (&/|map &/|first) &/->seq set)
-      ;;                              (->> new (&/|map &/|first) &/->seq set)))
-      (&/fold (fn [total* entry]
-                (|let [[_name _module] entry]
-                  (if (or (= current-module _name)
-                          (->> _module
-                               (&/get$ &&module/$defs)
-                               &/|length
-                               (= 0)))
-                    ;; Don't modify the entry of the current module, to
-                    ;; avoid overwritting it's data in improper ways.
-                    ;; Since it's assumed the "original" old module
-                    ;; contains all the proper own-module information.
-                    total*
-                    (do ;; (&/|log! "Adding:" _name "to" current-module
-                        ;;          (->> _module
-                        ;;               (&/get$ &&module/$defs)
-                        ;;               &/|length)
-                        ;;          (->> _module
-                        ;;               (&/get$ &&module/$defs)
-                        ;;               (&/|filter (comp &&module/exported? &/|second))
-                        ;;               (&/|map &/|first)
-                        ;;               &/->seq pr-str))
-                      (&/|put _name _module total*)))))
-              old new)))
+  (&/fold (fn [total* entry]
+            (|let [[_name _module] entry]
+              (if (or (= current-module _name)
+                      (->> _module
+                           (&/get$ &&module/$defs)
+                           &/|length
+                           (= 0)))
+                ;; Don't modify the entry of the current module, to
+                ;; avoid overwritting it's data in improper ways.
+                ;; Since it's assumed the "original" old module
+                ;; contains all the proper own-module information.
+                total*
+                (&/|put _name _module total*))))
+          old new))
 
 (defn ^:private merge-compilers
   "(-> Text Compiler Compiler Compiler)"
@@ -656,7 +639,6 @@
         _ (&&module/set-anns ==anns module-name)
         _imports (&&module/fetch-imports ==anns)
         current-module &/get-module-name
-        ;; :let [_ (&/|log! 'analyse-module module-name (->> _imports (&/|map &/|first) &/->seq))]
         =asyncs (&/map% (fn [_import]
                           (|let [[path alias] _import]
                             (&/without-repl
@@ -671,10 +653,7 @@
                                     _ (&&module/add-import path)
                                     ?async (if (not already-compiled?)
                                              (compile-module path)
-                                             (|do [_module (&&module/find-module path)
-                                                   ;; :let [_ (&/|log! "Already compiled:" path (->> _module
-                                                   ;;                                                (&/get$ &&module/$defs)
-                                                   ;;                                                &/|length))]
+                                             (|do [_module (&/find-module path)
                                                    _compiler get-compiler]
                                                (return (doto (promise)
                                                          (deliver _compiler)))))
@@ -684,23 +663,19 @@
                                 (return ?async))))))
                         _imports)
         _compiler get-compiler
-        :let [_compiler* (&/fold2 (fn [compiler _import _async]
-                                    (|let [[path alias] _import
-                                           ;; _ (&/|log! 'import-compiler 'PRE [module-name path])
-                                           import-compiler @_async
-                                           ;; _ (&/|log! 'import-compiler 'POST [module-name path] import-compiler)
-                                           ]
-                                      (merge-compilers current-module import-compiler compiler)))
+        :let [;; Some type-vars in the typing environment stay in
+              ;; the environment forever, making type-checking slower.
+              ;; The merging process for compilers more-or-less "fixes" the
+              ;; problem by resetting the typing enviroment, but ideally
+              ;; those type-vars shouldn't survive in the first place.
+              ;; TODO: MUST FIX
+              _compiler* (&/fold2 (fn [compiler _import _async]
+                                    (|let [[path alias] _import]
+                                      (merge-compilers current-module @_async compiler)))
                                   _compiler
                                   _imports
                                   =asyncs)]
-        _ (set-compiler _compiler*)
-        ;; _ (->> _imports
-        ;;        (&/|map &/|first)
-        ;;        (&/|filter (partial not= "lux"))
-        ;;        (&/map% &&module/add-import))
-        ;; :let [_ (&/|log! "CONTINUE" module-name (->> _imports (&/|map &/|first) &/->seq))]
-        ]
+        _ (set-compiler _compiler*)]
     (return &/$Nil)))
 
 (defn ^:private coerce [new-type analysis]
