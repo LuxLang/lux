@@ -89,7 +89,7 @@
       (if already-loaded?
         (return module-hash)
         (|let [redo-cache (|do [_ (delete module)]
-                            (compile-module source-dirs module))]
+                            (compile-module module))]
           (if (cached? module)
             (|do [loader &/loader
                   !classes &/classes

@@ -169,13 +169,11 @@
   (defn compile-module [source-dirs name]
     (let [file-name (str name ".lux")]
       (|do [file-content (&&io/read-file source-dirs file-name)
-            :let [file-hash (hash file-content)]]
+            :let [file-hash (hash file-content)
+                  compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
         (if (&&cache/cached? name)
-          (&&cache/load source-dirs name file-hash compile-module)
-          (let [compiler-step (&analyser/analyse &optimizer/optimize
-                                                 eval!
-                                                 (&&parallel/parallel-compilation (partial compile-module source-dirs))
-                                                 all-compilers)]
+          (&&cache/load source-dirs name file-hash compile-module!!)
+          (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
             (|do [module-exists? (&a-module/exists? name)]
               (if module-exists?
                 (fail "[Compiler Error] Can't redefine a module!")

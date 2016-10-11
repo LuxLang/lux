@@ -39,9 +39,9 @@
                                                    (|case (&/run-state (compile-module* module-name)
                                                                        compiler)
                                                      (&/$Right post-compiler _)
-                                                     (deliver task post-compiler)
+                                                     (deliver task (&/$Right post-compiler))
 
                                                      (&/$Left ?error)
-                                                     (println ?error)))]
+                                                     (deliver task (&/$Left ?error))))]
                                      (&/|log! out-str))))))]]
       (return task))))

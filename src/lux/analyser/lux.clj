@@ -653,29 +653,30 @@
                                     _ (&&module/add-import path)
                                     ?async (if (not already-compiled?)
                                              (compile-module path)
-                                             (|do [_module (&/find-module path)
-                                                   _compiler get-compiler]
+                                             (|do [_compiler get-compiler]
                                                (return (doto (promise)
-                                                         (deliver _compiler)))))
+                                                         (deliver (&/$Right _compiler))))))
                                     _ (if (= "" alias)
                                         (return nil)
                                         (&&module/alias current-module alias path))]
                                 (return ?async))))))
                         _imports)
         _compiler get-compiler
-        :let [;; Some type-vars in the typing environment stay in
-              ;; the environment forever, making type-checking slower.
-              ;; The merging process for compilers more-or-less "fixes" the
-              ;; problem by resetting the typing enviroment, but ideally
-              ;; those type-vars shouldn't survive in the first place.
-              ;; TODO: MUST FIX
-              _compiler* (&/fold2 (fn [compiler _import _async]
-                                    (|let [[path alias] _import]
-                                      (merge-compilers current-module @_async compiler)))
-                                  _compiler
-                                  _imports
-                                  =asyncs)]
-        _ (set-compiler _compiler*)]
+        ;; Some type-vars in the typing environment stay in
+        ;; the environment forever, making type-checking slower.
+        ;; The merging process for compilers more-or-less "fixes" the
+        ;; problem by resetting the typing enviroment, but ideally
+        ;; those type-vars shouldn't survive in the first place.
+        ;; TODO: MUST FIX
+        _ (&/fold% (fn [compiler _async]
+                     (|case @_async
+                       (&/$Right _new-compiler)
+                       (set-compiler (merge-compilers current-module _new-compiler compiler))
+
+                       (&/$Left ?error)
+                       (fail ?error)))
+                   _compiler
+                   =asyncs)]
     (return &/$Nil)))
 
 (defn ^:private coerce [new-type analysis]
