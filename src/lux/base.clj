@@ -1072,17 +1072,18 @@
       count-leading-0s (fn [^String input]
                          (let [parts (.split input "^0*")]
                            (if (= 2 (alength parts))
-                             (.length (aget parts 0))
+                             (.length ^String (aget parts 0))
                              0)))]
   (defn encode-frac [input]
     (if (= 0 input)
       ".0"
-      (->> input
-           (Long/toUnsignedString)
-           remove-trailing-0s
-           (.concat (->> (count-bin-start-0 input)
-                         (bit-shift-left 1)
-                         (make-text-start-0))))))
+      (let [^String prefix (->> (count-bin-start-0 input)
+                                (bit-shift-left 1)
+                                (make-text-start-0))]
+        (->> input
+             (Long/toUnsignedString)
+             remove-trailing-0s
+             (.concat prefix)))))
 
   (defn decode-frac [input]
     (if-let [[_ frac-text] (re-find #"^\.(.+)$" input)]

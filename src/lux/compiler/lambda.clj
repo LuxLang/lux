@@ -82,7 +82,7 @@
     (str "(" (&/fold str "" (&/|repeat (&/|length env) field-sig)) ")"
          <init>-return)))
 
-(defn ^:private init-function [method-writer arity closure-length]
+(defn ^:private init-function [^MethodVisitor method-writer arity closure-length]
   (if (= 1 arity)
     (doto method-writer
       (.visitLdcInsn (int 0))
@@ -91,19 +91,19 @@
       (.visitVarInsn Opcodes/ILOAD (inc closure-length))
       (.visitMethodInsn Opcodes/INVOKESPECIAL &&/function-class "<init>" "(I)V"))))
 
-(defn ^:private add-lambda-<init> [class class-name arity env]
+(defn ^:private add-lambda-<init> [^ClassWriter class class-name arity env]
   (let [closure-length (&/|length env)]
-    (doto (.visitMethod ^ClassWriter class Opcodes/ACC_PUBLIC "<init>" (lambda-<init>-signature env arity) nil nil)
+    (doto (.visitMethod class Opcodes/ACC_PUBLIC "<init>" (lambda-<init>-signature env arity) nil nil)
       (.visitCode)
       ;; Do normal object initialization
       (.visitVarInsn Opcodes/ALOAD 0)
       (init-function arity closure-length)
       ;; Add all of the closure variables
-      (-> (put-field! class-name (str &&/closure-prefix ?captured-id) field-sig #(.visitVarInsn % Opcodes/ALOAD (inc ?captured-id)))
+      (-> (put-field! class-name (str &&/closure-prefix ?captured-id) field-sig #(.visitVarInsn ^MethodVisitor % Opcodes/ALOAD (inc ?captured-id)))
           (->> (|let [[?name [_ (&o/$captured _ ?captured-id ?source)]] ?name+?captured])
                (doseq [?name+?captured (&/->seq env)])))
       ;; Add all the partial arguments
-      (-> (put-field! class-name (str &&/partial-prefix idx*) field-sig #(.visitVarInsn % Opcodes/ALOAD partial-register))
+      (-> (put-field! class-name (str &&/partial-prefix idx*) field-sig #(.visitVarInsn ^MethodVisitor % Opcodes/ALOAD partial-register))
           (->> (|let [partial-register (+ (inc idx*) (inc closure-length))])
                (dotimes [idx* (dec arity)])))
       ;; Finish
@@ -112,9 +112,9 @@
       (.visitEnd))))
 
 (let [impl-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL)]
-  (defn ^:private add-lambda-impl [class class-name compile arity impl-body]
+  (defn ^:private add-lambda-impl [^ClassWriter class class-name compile arity impl-body]
     (let [$begin (new Label)]
-      (&/with-writer (doto (.visitMethod ^ClassWriter class impl-flags "impl" (lambda-impl-signature arity) nil nil)
+      (&/with-writer (doto (.visitMethod class impl-flags "impl" (lambda-impl-signature arity) nil nil)
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
@@ -142,9 +142,9 @@
         :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" (lambda-<init>-signature closed-over arity))]]
     (return nil)))
 
-(defn ^:private add-lambda-reset [class-writer class-name arity env]
+(defn ^:private add-lambda-reset [^ClassWriter class-writer class-name arity env]
   (if (> arity 1)
-    (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC "reset" (reset-signature class-name) nil nil)
+    (doto (.visitMethod class-writer Opcodes/ACC_PUBLIC "reset" (reset-signature class-name) nil nil)
       (.visitCode)
       (.visitTypeInsn Opcodes/NEW class-name)
       (.visitInsn Opcodes/DUP)
@@ -156,21 +156,21 @@
       (.visitInsn Opcodes/ARETURN)
       (.visitMaxs 0 0)
       (.visitEnd))
-    (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC "reset" (reset-signature class-name) nil nil)
+    (doto (.visitMethod class-writer Opcodes/ACC_PUBLIC "reset" (reset-signature class-name) nil nil)
       (.visitCode)
       (.visitVarInsn Opcodes/ALOAD 0)
       (.visitInsn Opcodes/ARETURN)
       (.visitMaxs 0 0)
       (.visitEnd))))
 
-(defn ^:private add-lambda-apply-n [class-writer +degree+ class-name arity env compile impl-body]
+(defn ^:private add-lambda-apply-n [^ClassWriter class-writer +degree+ class-name arity env compile impl-body]
   (if (> arity 1)
     (let [num-partials (dec arity)
           $default (new Label)
           $labels* (map (fn [_] (new Label)) (repeat num-partials nil))
           $labels (vec (concat $labels* (list $default)))
           $end (new Label)
-          method-writer (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature +degree+) nil nil)
+          method-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature +degree+) nil nil)
           frame-locals (to-array (list class-name "java/lang/Object" "java/lang/Object"))
           frame-stack (to-array [Opcodes/INTEGER])
           arity-over-extent (- arity +degree+)]
@@ -246,15 +246,15 @@
           :let [??scope (&/|reverse ?scope)
                 name (&host/location (&/|tail ??scope))
                 class-name (str (&host/->module-class (&/|head ??scope)) "/" name)
-                [=class save?] (|case ?prev-writer
-                                 (&/$Some _writer)
-                                 (&/T [_writer false])
+                [^ClassWriter =class save?] (|case ?prev-writer
+                                              (&/$Some _writer)
+                                              (&/T [_writer false])
 
-                                 (&/$None)
-                                 (&/T [(doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                         (.visit &host/bytecode-version lambda-flags
-                                                 class-name nil &&/function-class (into-array String [])))
-                                       true]))
+                                              (&/$None)
+                                              (&/T [(doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                                                      (.visit &host/bytecode-version lambda-flags
+                                                              class-name nil &&/function-class (into-array String [])))
+                                                    true]))
                 _ (doto =class
                     (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC Opcodes/ACC_FINAL) &&/arity-field "I" nil (int arity))
                         (doto (.visitEnd)))

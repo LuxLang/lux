@@ -556,7 +556,7 @@
     (&&/save-class! (second (string/split &&/function-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
-(defn ^:private compile-LuxRT-adt-methods [=class]
+(defn ^:private compile-LuxRT-adt-methods [^ClassWriter =class]
   (|let [_ (let [$begin (new Label)
                  $not-rec (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getLeft" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
@@ -718,7 +718,7 @@
                (.visitEnd)))]
     nil))
 
-(defn ^:private low-4b [=method]
+(defn ^:private low-4b [^MethodVisitor =method]
   (doto =method
     ;; Assume there is a long at the top of the stack...
     ;; Add mask corresponding to -1 (FFFF...), on the low 32 bits.
@@ -728,21 +728,21 @@
     (.visitInsn Opcodes/LAND)
     ))
 
-(defn ^:private high-4b [=method]
+(defn ^:private high-4b [^MethodVisitor =method]
   (doto =method
     ;; Assume there is a long at the top of the stack...
     (.visitLdcInsn (int 32))
     (.visitInsn Opcodes/LUSHR)
     ))
 
-(defn ^:private swap2 [=method]
+(defn ^:private swap2 [^MethodVisitor =method]
   (doto =method
     ;; X2, Y2
     (.visitInsn Opcodes/DUP2_X2) ;; Y2, X2, Y2
     (.visitInsn Opcodes/POP2) ;; Y2, X2
     ))
 
-(defn ^:private bit-set-64? [=method]
+(defn ^:private bit-set-64? [^MethodVisitor =method]
   (doto =method
     ;; L, I
     (.visitLdcInsn (long 1)) ;; L, I, L
@@ -1076,7 +1076,7 @@
     nil))
 
 (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
-  (defn ^:private compile-LuxRT-nat-methods [=class]
+  (defn ^:private compile-LuxRT-nat-methods [^ClassWriter =class]
     (|let [_ (let [$end (new Label)
                    ;; $then (new Label)
                    $else (new Label)
@@ -1129,7 +1129,7 @@
                (.visitEnd))]
       nil)))
 
-(defn ^:private compile-LuxRT-pm-methods [=class]
+(defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
   (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_fail" "()V" nil nil)
              (.visitCode)
              (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")

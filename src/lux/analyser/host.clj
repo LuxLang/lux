@@ -881,7 +881,7 @@
 
 (defn ^:private analyse-jvm-load-class [analyse exo-type ?values]
   (|do [:let [(&/$Cons [_ (&/$TextS _class-name)] (&/$Nil)) ?values]
-        class-loader &/loader
+        ^ClassLoader class-loader &/loader
         _ (try (do (.loadClass class-loader _class-name)
                  (return nil))
             (catch Exception e
