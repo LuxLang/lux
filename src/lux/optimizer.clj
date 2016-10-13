@@ -111,8 +111,7 @@
     (&/|list $PopPM)
 
     (&a-case/$StoreTestAC _register)
-    (&/|list ($BindPM _register)
-             $PopPM)
+    (&/|list ($BindPM _register))
 
     (&a-case/$BoolTestAC _value)
     (&/|list ($BoolPM _value)
@@ -204,6 +203,57 @@
           ($ExecPM body-id)
           (clean-unnecessary-pops (&/|reverse (transform-pm* test)))))
 
+(defn ^:private pattern->text [pattern]
+  (|case pattern
+    ($PopPM)
+    "$PopPM"
+
+    ($BindPM _id)
+    (str "($BindPM " _id ")")
+
+    ($BoolPM _value)
+    (str "($BoolPM " (pr-str _value) ")")
+
+    ($NatPM _value)
+    (str "($NatPM " (pr-str _value) ")")
+
+    ($IntPM _value)
+    (str "($IntPM " (pr-str _value) ")")
+
+    ($FracPM _value)
+    (str "($FracPM " (pr-str _value) ")")
+
+    ($RealPM _value)
+    (str "($RealPM " (pr-str _value) ")")
+
+    ($CharPM _value)
+    (str "($CharPM " (pr-str _value) ")")
+
+    ($TextPM _value)
+    (str "($TextPM " (pr-str _value) ")")
+
+    ($TuplePM (&/$Left _idx))
+    (str "($TuplePM L" _idx ")")
+
+    ($TuplePM (&/$Right _idx))
+    (str "($TuplePM R" _idx ")")
+
+    ($VariantPM (&/$Left _idx))
+    (str "($VariantPM L" _idx ")")
+
+    ($VariantPM (&/$Right _idx))
+    (str "($VariantPM R" _idx ")")
+
+    ($SeqPM _left _right)
+    (str "($SeqPM " (pattern->text _left) " " (pattern->text _right) ")")
+
+    ($ExecPM _idx)
+    (str "($ExecPM " _idx ")")
+
+    ;; $AltPM is not considered because it's not supposed to be
+    ;; present anywhere at this point in time.
+    ))
+
 ;; This function fuses together the paths of the PM traversal, adding
 ;; branching AltPMs where necessary, and fusing similar paths together
 ;; as much as possible, when early parts of them coincide.
@@ -286,17 +336,213 @@
     ($AltPM pre post)
     ))
 
+(defn ^:private pattern-vars [pattern]
+  (|case pattern
+    ($BindPM _id)
+    (&/|list (&/T [_id false]))
+
+    ($SeqPM _left _right)
+    (&/|++ (pattern-vars _left) (pattern-vars _right))
+    
+    _
+    (&/|list)
+
+    ;; $AltPM is not considered because it's not supposed to be
+    ;; present anywhere at this point in time.
+    ))
+
+(defn ^:private find-unused-vars [var-table body]
+  (|let [[meta body-] body]
+    (|case body-
+      ($var (&/$Local _idx))
+      (&/|update _idx (fn [_] true) var-table)
+
+      ($captured _scope _c-idx [_ ($var (&/$Local _idx))])
+      (&/|update _idx (fn [_] true) var-table)
+      
+      ($variant _idx _is-last? _value)
+      (find-unused-vars var-table _value)
+      
+      ($tuple _elems)
+      (&/fold find-unused-vars var-table _elems)
+
+      ($ann _value-expr _type-expr)
+      (find-unused-vars var-table _value-expr)
+      
+      ($apply _func _args)
+      (&/fold find-unused-vars
+              (find-unused-vars var-table _func)
+              _args)
+
+      ($proc _proc-ident _args _special-args)
+      (&/fold find-unused-vars var-table _args)
+
+      ($iter _args)
+      (&/fold find-unused-vars var-table _args)
+
+      ($let _value _register _body)
+      (-> var-table
+          (find-unused-vars _value)
+          (find-unused-vars _body))
+
+      ($record-get _value _path)
+      (find-unused-vars var-table _value)
+
+      ($if _test _then _else)
+      (-> var-table
+          (find-unused-vars _test)
+          (find-unused-vars _then)
+          (find-unused-vars _else))
+      
+      ($case _value [_pm _bodies])
+      (&/fold find-unused-vars
+              (find-unused-vars var-table _value)
+              _bodies)
+
+      ($function _arity _scope _captured _body)
+      (->> _captured
+           (&/|map &/|second)
+           (&/fold find-unused-vars var-table))
+
+      _
+      var-table
+      )))
+
+(defn ^:private clean-unused-pattern-registers [var-table pattern]
+  (|case pattern
+    ($BindPM _idx)
+    (|let [_new-idx (&/|get _idx var-table)]
+      (cond (= _idx _new-idx)
+            pattern
+
+            (>= _new-idx 0)
+            ($BindPM _new-idx)
+
+            :else
+            $PopPM))
+
+    ($SeqPM _left _right)
+    ($SeqPM (clean-unused-pattern-registers var-table _left)
+            (clean-unused-pattern-registers var-table _right))
+    
+    _
+    pattern
+
+    ;; $AltPM is not considered because it's not supposed to be
+    ;; present anywhere at this point in time.
+    ))
+
+;; This function assumes that the var-table has an ascending index
+;; order.
+;; For example: (2 3 4 5 6 7 8), instead of (8 7 6 5 4 3 2)
+(defn ^:private adjust-register-indexes* [offset var-table]
+  (|case var-table
+    (&/$Nil)
+    (&/|list)
+
+    (&/$Cons [_idx _used?] _tail)
+    (if _used?
+      (&/$Cons (&/T [_idx (- _idx offset)])
+               (adjust-register-indexes* offset _tail))
+      (&/$Cons (&/T [_idx -1])
+               (adjust-register-indexes* (inc offset) _tail))
+      )))
+
+(defn ^:private adjust-register-indexes [var-table]
+  (adjust-register-indexes* 0 var-table))
+
+(defn ^:private clean-unused-body-registers [var-table body]
+  (|let [[meta body-] body]
+    (|case body-
+      ($var (&/$Local _idx))
+      (|let [new-idx (or (&/|get _idx var-table)
+                         _idx)]
+        (&/T [meta ($var (&/$Local new-idx))]))
+      
+      ($captured _scope _c-idx [_sub-meta ($var (&/$Local _idx))])
+      (|let [new-idx (or (&/|get _idx var-table)
+                         _idx)]
+        (&/T [meta ($captured _scope _c-idx (&/T [_sub-meta ($var (&/$Local new-idx))]))]))
+      
+      ($variant _idx _is-last? _value)
+      (&/T [meta ($variant _idx _is-last? (clean-unused-body-registers var-table _value))])
+      
+      ($tuple _elems)
+      (&/T [meta ($tuple (&/|map (partial clean-unused-body-registers var-table)
+                                 _elems))])
+
+      ($ann _value-expr _type-expr)
+      (&/T [meta ($ann (clean-unused-body-registers var-table _value-expr) _type-expr)])
+      
+      ($apply _func _args)
+      (&/T [meta ($apply (clean-unused-body-registers var-table _func)
+                         (&/|map (partial clean-unused-body-registers var-table)
+                                 _args))])
+
+      ($proc _proc-ident _args _special-args)
+      (&/T [meta ($proc _proc-ident
+                        (&/|map (partial clean-unused-body-registers var-table)
+                                _args)
+                        _special-args)])
+
+      ($iter _args)
+      (&/T [meta ($iter (&/|map (partial clean-unused-body-registers var-table)
+                                _args))])
+
+      ($let _value _register _body)
+      (&/T [meta ($let (clean-unused-body-registers var-table _value)
+                       _register
+                       (clean-unused-body-registers var-table _body))])
+
+      ($record-get _value _path)
+      (&/T [meta ($record-get (clean-unused-body-registers var-table _value)
+                              _path)])
+
+      ($if _test _then _else)
+      (&/T [meta ($if (clean-unused-body-registers var-table _test)
+                      (clean-unused-body-registers var-table _then)
+                      (clean-unused-body-registers var-table _else))])
+      
+      ($case _value [_pm _bodies])
+      (&/T [meta ($case (clean-unused-body-registers var-table _value)
+                        (&/T [_pm
+                              (&/|map (partial clean-unused-body-registers var-table)
+                                      _bodies)]))])
+
+      ($function _arity _scope _captured _body)
+      (&/T [meta ($function _arity
+                            _scope
+                            (&/|map (fn [capture]
+                                      (|let [[_name __var] capture]
+                                        (&/T [_name (clean-unused-body-registers var-table __var)])))
+                                    _captured)
+                            _body)])
+
+      _
+      body
+      )))
+
+(defn ^:private optimize-register-use [pattern body]
+  (|let [p-vars (pattern-vars pattern)
+         p-vars* (find-unused-vars p-vars body)
+         adjusted-vars (adjust-register-indexes p-vars*)
+         clean-pattern (clean-unused-pattern-registers adjusted-vars pattern)
+         clean-body (clean-unused-body-registers adjusted-vars body)]
+    (&/T [clean-pattern
+          clean-body])))
+
 ;; This is the top-level function for optimizing PM, which transforms
 ;; each branch and then fuses them together.
 (defn ^:private optimize-pm [branches]
   (|let [;; branches (&/|reverse branches*)
-         bodies (&/|map &/|second branches)
-         bodies-ids (&/|range (&/|length bodies))
-         pms (&/|map (fn [branch]
-                       (|let [[[_pattern _] _body-id] branch]
-                         (transform-pm _pattern _body-id)))
-                     (&/zip2 branches
-                             bodies-ids))]
+         pms+bodies (&/map2 (fn [branch _body-id]
+                              (|let [[_pattern _body] branch]
+                                (optimize-register-use (transform-pm _pattern _body-id)
+                                                       _body)))
+                            branches
+                            (&/|range (&/|length branches)))
+         pms (&/|map &/|first pms+bodies)
+         bodies (&/|map &/|second pms+bodies)]
     (|case (&/|reverse pms)
       (&/$Nil)
       (assert false)
