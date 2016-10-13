@@ -590,8 +590,9 @@
 ;; During the folding, inner functions dissapear, since their bodies
 ;; are merged into their outer "parent" functions.
 ;; Their scopes must change accordingy.
-(defn ^:private de-scope [old-scope new-scope scope]
+(defn ^:private de-scope
   "(-> Scope Scope Scope Scope)"
+  [old-scope new-scope scope]
   (if (identical? new-scope scope)
     old-scope
     scope))
@@ -617,8 +618,9 @@
     ))
 
 ;; Shifts the body of a function after a folding is performed.
-(defn shift-function-body [old-scope new-scope own-body? body]
+(defn shift-function-body
   "(-> Scope Scope Bool Optimized Optimized)"
+  [old-scope new-scope own-body? body]
   (|let [[meta body-] body]
     (|case body-
       ($variant idx is-last? value)
@@ -720,8 +722,9 @@
 ;; That is the pattern that is to be expected of record read-access,
 ;; so this function tries to extract the (possibly nested) path
 ;; necessary, ending in the data-node of the wanted member.
-(defn ^:private record-read-path [pms member-idx]
+(defn ^:private record-read-path
   "(-> (List PM) Idx (List Idx))"
+  [pms member-idx]
   (loop [current-idx 0
          pms pms]
     (|case pms
@@ -761,8 +764,9 @@
 ;; This optimization looks for tail-calls in the function body,
 ;; rewriting them as jumps to the beginning of the function, while
 ;; they also updated the necessary local variables for the next iteration.
-(defn ^:private optimize-loop [arity optim]
+(defn ^:private optimize-iter
   "(-> Int Optimized Optimized)"
+  [arity optim]
   (|let [[meta optim-] optim]
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
@@ -773,22 +777,77 @@
       ($case _value [_pattern _bodies])
       (&/T [meta ($case _value
                         (&/T [_pattern
-                              (&/|map (partial optimize-loop arity)
+                              (&/|map (partial optimize-iter arity)
                                       _bodies)]))])
 
       ($let _value _register _body)
-      (&/T [meta ($let _value _register (optimize-loop arity _body))])
+      (&/T [meta ($let _value _register (optimize-iter arity _body))])
 
       ($if _test _then _else)
       (&/T [meta ($if _test
-                      (optimize-loop arity _then)
-                      (optimize-loop arity _else))])
+                      (optimize-iter arity _then)
+                      (optimize-iter arity _else))])
       
       ($ann _value-expr _type-expr)
-      (&/T [meta ($ann (optimize-loop arity _value-expr) _type-expr)])
+      (&/T [meta ($ann (optimize-iter arity _value-expr) _type-expr)])
 
       _
       optim
+      )))
+
+(defn ^:private contains-self-reference?
+  "(-> Optimized Bool)"
+  [body]
+  (|let [[meta body-] body
+         stepwise-test (fn [base arg] (or base (contains-self-reference? arg)))]
+    (|case body-
+      ($variant idx is-last? value)
+      (contains-self-reference? value)
+      
+      ($tuple elems)
+      (&/fold stepwise-test false elems)
+      
+      ($case value [_pm _bodies])
+      (or (contains-self-reference? value)
+          (&/fold stepwise-test false _bodies))
+
+      ($function arity scope captured body*)
+      (->> captured
+           (&/|map (fn [capture]
+                     (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
+                       _source)))
+           (&/fold stepwise-test false))
+
+      ($ann value-expr type-expr)
+      (contains-self-reference? value-expr)
+      
+      ($var (&/$Local 0))
+      true
+
+      ($apply func args)
+      (or (contains-self-reference? func)
+          (&/fold stepwise-test false args))
+      
+      ($proc proc-ident args special-args)
+      (&/fold stepwise-test false args)
+
+      ($iter args)
+      (&/fold stepwise-test false args)
+
+      ($let _value _register _body)
+      (or (contains-self-reference? _value)
+          (contains-self-reference? _body))
+
+      ($record-get _value _path)
+      (contains-self-reference? _value)
+
+      ($if _test _then _else)
+      (or (contains-self-reference? _test)
+          (contains-self-reference? _then)
+          (contains-self-reference? _else))
+      
+      _
+      false
       )))
 
 ;; [[Initial Optimization]]
@@ -802,8 +861,9 @@
                                    (|let [[_name _analysis] capture]
                                      (&/T [_name (optimize _analysis)])))
                                  closure))]
-  (defn ^:private pass-0 [top-level-func? analysis]
+  (defn ^:private pass-0
     "(-> Bool Analysis Optimized)"
+    [top-level-func? analysis]
     (|let [[meta analysis-] analysis]
       (|case analysis-
         (&a/$bool value)
@@ -834,7 +894,18 @@
         (&/T [meta ($tuple (&/|map (partial pass-0 top-level-func?) elems))])
         
         (&a/$apply func args)
-        (&/T [meta ($apply (pass-0 top-level-func? func) (&/|map (partial pass-0 top-level-func?) args))])
+        (|let [=func (pass-0 top-level-func? func)
+               =args (&/|map (partial pass-0 top-level-func?) args)]
+          (|case =func
+            [_ (&a/$ann [_ ($function _arity _scope _captured _body)]
+                        _)]
+            (if (and (= _arity (&/|length =args))
+                     (not (contains-self-reference? _body)))
+              (&/T [meta ($apply =func =args)])
+              (&/T [meta ($apply =func =args)]))
+            
+            _
+            (&/T [meta ($apply =func =args)])))
         
         (&a/$case value branches)
         (let [normal-case-optim (fn []
@@ -872,24 +943,34 @@
             (normal-case-optim)))
         
         (&a/$lambda scope captured body)
-        (|case (pass-0 false body)
-          ;; If the body of a function is another function, that means
-          ;; no work was done in-between and both layers can be folded
-          ;; into one.
-          [_ ($function _arity _scope _captured _body)]
-          (|let [new-arity (inc _arity)
-                 collapsed-body (shift-function-body scope _scope true _body)]
-            (&/T [meta ($function new-arity
-                                  scope
+        (|let [inner-func? (|case body
+                             [_ (&a/$lambda _ _ _)]
+                             true
+
+                             _
+                             false)]
+          (|case (pass-0 (not inner-func?) body)
+            ;; If the body of a function is another function, that means
+            ;; no work was done in-between and both layers can be folded
+            ;; into one.
+            [_ ($function _arity _scope _captured _body)]
+            (|let [new-arity (inc _arity)
+                   collapsed-body (shift-function-body scope _scope true _body)]
+              (&/T [meta ($function new-arity
+                                    scope
+                                    (optimize-closure (partial pass-0 top-level-func?) captured)
+                                    (if top-level-func?
+                                      (optimize-iter new-arity collapsed-body)
+                                      collapsed-body))]))
+
+            ;; Otherwise, they're nothing to be done and we've got a
+            ;; 1-arity function.
+            =body
+            (&/T [meta ($function 1 scope
                                   (optimize-closure (partial pass-0 top-level-func?) captured)
                                   (if top-level-func?
-                                    (optimize-loop new-arity collapsed-body)
-                                    collapsed-body))]))
-
-          ;; Otherwise, they're nothing to be done and we've got a
-          ;; 1-arity function.
-          =body
-          (&/T [meta ($function 1 scope (optimize-closure (partial pass-0 top-level-func?) captured) =body)]))
+                                    (optimize-iter 1 =body)
+                                    =body))])))
 
         (&a/$ann value-expr type-expr)
         (&/T [meta ($ann (pass-0 top-level-func? value-expr) type-expr)])
@@ -908,7 +989,8 @@
         ))))
 
 ;; [Exports]
-(defn optimize [analysis]
+(defn optimize
   "(-> Analysis Optimized)"
+  [analysis]
   (->> analysis
        (pass-0 true)))
