@@ -767,7 +767,7 @@
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
       (if (= arity (&/|length _args))
-        (&/T [meta-0 ($iter (&/|map (partial optimize-loop -1) _args))])
+        (&/T [meta ($iter _args)])
         optim)
 
       ($case _value [_pattern _bodies])
@@ -776,8 +776,13 @@
                               (&/|map (partial optimize-loop arity)
                                       _bodies)]))])
 
-      ($function _arity _scope _captured _body)
-      (&/T [meta ($function _arity _scope _captured (optimize-loop _arity _body))])
+      ($let _value _register _body)
+      (&/T [meta ($let _value _register (optimize-loop arity _body))])
+
+      ($if _test _then _else)
+      (&/T [meta ($if _test
+                      (optimize-loop arity _then)
+                      (optimize-loop arity _else))])
       
       ($ann _value-expr _type-expr)
       (&/T [meta ($ann (optimize-loop arity _value-expr) _type-expr)])
@@ -797,8 +802,8 @@
                                    (|let [[_name _analysis] capture]
                                      (&/T [_name (optimize _analysis)])))
                                  closure))]
-  (defn ^:private pass-0 [analysis]
-    "(-> Analysis Optimized)"
+  (defn ^:private pass-0 [top-level-func? analysis]
+    "(-> Bool Analysis Optimized)"
     (|let [[meta analysis-] analysis]
       (|case analysis-
         (&a/$bool value)
@@ -823,31 +828,31 @@
         (&/T [meta ($text value)])
         
         (&a/$variant idx is-last? value)
-        (&/T [meta ($variant idx is-last? (pass-0 value))])
+        (&/T [meta ($variant idx is-last? (pass-0 top-level-func? value))])
         
         (&a/$tuple elems)
-        (&/T [meta ($tuple (&/|map pass-0 elems))])
+        (&/T [meta ($tuple (&/|map (partial pass-0 top-level-func?) elems))])
         
         (&a/$apply func args)
-        (&/T [meta ($apply (pass-0 func) (&/|map pass-0 args))])
+        (&/T [meta ($apply (pass-0 top-level-func? func) (&/|map (partial pass-0 top-level-func?) args))])
         
         (&a/$case value branches)
         (let [normal-case-optim (fn []
-                                  (&/T [meta ($case (pass-0 value)
+                                  (&/T [meta ($case (pass-0 top-level-func? value)
                                                     (optimize-pm (&/|map (fn [branch]
                                                                            (|let [[_pattern _body] branch]
-                                                                             (&/T [_pattern (pass-0 _body)])))
+                                                                             (&/T [_pattern (pass-0 top-level-func? _body)])))
                                                                          branches)))]))]
           (|case branches
             ;; The pattern for a let-expression is a single branch,
             ;; tying the value to a register.
             (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
-            (&/T [meta ($let (pass-0 value) _register (pass-0 _body))])
+            (&/T [meta ($let (pass-0 top-level-func? value) _register (pass-0 top-level-func? _body))])
 
             (&/$Cons [(&a-case/$BoolTestAC false) _else]
                      (&/$Cons [(&a-case/$BoolTestAC true) _then]
                               (&/$Nil)))
-            (&/T [meta ($if (pass-0 value) (pass-0 _then) (pass-0 _else))])
+            (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
             
             ;; The pattern for a record-get is a single branch, with a
             ;; tuple pattern and a body corresponding to a
@@ -860,44 +865,50 @@
                 ;; done instead.
                 (normal-case-optim)
                 ;; Otherwise, we've got ourselves a record-get expression.
-                (&/T [meta ($record-get (pass-0 value) _path)])))
+                (&/T [meta ($record-get (pass-0 top-level-func? value) _path)])))
 
             ;; If no special patterns are found, just do normal PM optimization.
             _
             (normal-case-optim)))
         
         (&a/$lambda scope captured body)
-        (|case (pass-0 body)
+        (|case (pass-0 false body)
           ;; If the body of a function is another function, that means
           ;; no work was done in-between and both layers can be folded
           ;; into one.
           [_ ($function _arity _scope _captured _body)]
-          (&/T [meta ($function (inc _arity) scope (optimize-closure pass-0 captured) (shift-function-body scope _scope true _body))])
+          (|let [new-arity (inc _arity)
+                 collapsed-body (shift-function-body scope _scope true _body)]
+            (&/T [meta ($function new-arity
+                                  scope
+                                  (optimize-closure (partial pass-0 top-level-func?) captured)
+                                  (if top-level-func?
+                                    (optimize-loop new-arity collapsed-body)
+                                    collapsed-body))]))
 
           ;; Otherwise, they're nothing to be done and we've got a
           ;; 1-arity function.
           =body
-          (&/T [meta ($function 1 scope (optimize-closure pass-0 captured) =body)]))
+          (&/T [meta ($function 1 scope (optimize-closure (partial pass-0 top-level-func?) captured) =body)]))
 
         (&a/$ann value-expr type-expr)
-        (&/T [meta ($ann (pass-0 value-expr) type-expr)])
+        (&/T [meta ($ann (pass-0 top-level-func? value-expr) type-expr)])
         
         (&a/$var var-kind)
         (&/T [meta ($var var-kind)])
         
         (&a/$captured scope idx source)
-        (&/T [meta ($captured scope idx (pass-0 source))])
+        (&/T [meta ($captured scope idx (pass-0 top-level-func? source))])
 
         (&a/$proc proc-ident args special-args)
-        (&/T [meta ($proc proc-ident (&/|map pass-0 args) special-args)])
+        (&/T [meta ($proc proc-ident (&/|map (partial pass-0 top-level-func?) args) special-args)])
         
         _
-        (assert false (prn-str 'pass-0 (&/adt->text analysis)))
+        (assert false (prn-str 'pass-0 top-level-func? (&/adt->text analysis)))
         ))))
 
 ;; [Exports]
 (defn optimize [analysis]
   "(-> Analysis Optimized)"
   (->> analysis
-       pass-0
-       (optimize-loop -1)))
+       (pass-0 true)))
