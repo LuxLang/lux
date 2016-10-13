@@ -522,14 +522,33 @@
       body
       )))
 
+(defn ^:private simplify-pattern [pattern]
+  (|case pattern
+    ($SeqPM ($TuplePM _idx) ($SeqPM ($PopPM) pattern*))
+    (simplify-pattern pattern*)
+
+    ($SeqPM ($TuplePM _idx) _right)
+    (|case (simplify-pattern _right)
+      ($SeqPM ($PopPM) pattern*)
+      pattern*
+
+      _right*
+      ($SeqPM ($TuplePM _idx) _right*))
+
+    ($SeqPM _left _right)
+    ($SeqPM _left (simplify-pattern _right))
+
+    _
+    pattern))
+
 (defn ^:private optimize-register-use [pattern body]
   (|let [p-vars (pattern-vars pattern)
          p-vars* (find-unused-vars p-vars body)
          adjusted-vars (adjust-register-indexes p-vars*)
          clean-pattern (clean-unused-pattern-registers adjusted-vars pattern)
+         simple-pattern (simplify-pattern clean-pattern)
          clean-body (clean-unused-body-registers adjusted-vars body)]
-    (&/T [clean-pattern
-          clean-body])))
+    (&/T [simple-pattern clean-body])))
 
 ;; This is the top-level function for optimizing PM, which transforms
 ;; each branch and then fuses them together.
