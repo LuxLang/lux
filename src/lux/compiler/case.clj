@@ -61,7 +61,8 @@
     (doto writer
       (.visitInsn Opcodes/DUP)
       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
-      (.visitVarInsn Opcodes/ASTORE _var-id))
+      (.visitVarInsn Opcodes/ASTORE _var-id)
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
 
     (&o/$BoolPM _value)
     (doto writer
