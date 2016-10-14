@@ -22,7 +22,7 @@
   ("tuple" 1)
   ("apply" 2)
   ("case" 2)
-  ("lambda" 3)
+  ("lambda" 4)
   ("ann" 2)
   ("var" 1)
   ("captured" 1)

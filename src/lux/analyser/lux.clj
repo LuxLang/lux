@@ -518,9 +518,10 @@
           (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
                                            ?arg ?arg-t
                                            (&&/analyse-1 analyse ?return-t ?body))
-                _cursor &/cursor]
+                _cursor &/cursor
+                register-offset &&env/next-local-idx]
             (return (&&/|meta exo-type* _cursor
-                              (&&/$lambda =scope =captured =body))))
+                              (&&/$lambda register-offset =scope =captured =body))))
 
           _
           (fail "")))

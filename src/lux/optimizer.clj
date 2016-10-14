@@ -21,7 +21,7 @@
   ("tuple" 1)
   ("apply" 2)
   ("case" 2)
-  ("function" 4)
+  ("function" 5)
   ("ann" 2)
   ("var" 1)
   ("captured" 3)
@@ -35,8 +35,10 @@
   ;; The optimizer looks for those usage patterns and transforms them
   ;; into explicit constructs, which are then subject to specialized optimizations.
 
+  ;; Loop scope, for doing loop inlining
+  ("loop" 3) ;; {register-offset Int, inits (List Optimized), body Optimized}
   ;; This is loop iteration, as expected in imperative programming.
-  ("iter" 1)
+  ("iter" 2) ;; {register-offset Int, vals (List Optimized)}
   ;; This is a simple let-expression, as opposed to the more general pattern-matching.
   ("let" 3)
   ;; This is an access to a record's member. It can be multi-level:
@@ -377,7 +379,11 @@
       ($proc _proc-ident _args _special-args)
       (&/fold find-unused-vars var-table _args)
 
-      ($iter _args)
+      ($loop _register-offset _inits _body)
+      (&/|++ (&/fold find-unused-vars var-table _inits)
+             (find-unused-vars var-table _body))
+      
+      ($iter _ _args)
       (&/fold find-unused-vars var-table _args)
 
       ($let _value _register _body)
@@ -399,7 +405,7 @@
               (find-unused-vars var-table _value)
               _bodies)
 
-      ($function _arity _scope _captured _body)
+      ($function _ _ _ _captured _)
       (->> _captured
            (&/|map &/|second)
            (&/fold find-unused-vars var-table))
@@ -485,8 +491,15 @@
                                 _args)
                         _special-args)])
 
-      ($iter _args)
-      (&/T [meta ($iter (&/|map (partial clean-unused-body-registers var-table)
+      ($loop _register-offset _inits _body)
+      (&/T [meta ($loop _register-offset
+                        (&/|map (partial clean-unused-body-registers var-table)
+                                _inits)
+                        (clean-unused-body-registers var-table _body))])
+      
+      ($iter _iter-register-offset _args)
+      (&/T [meta ($iter _iter-register-offset
+                        (&/|map (partial clean-unused-body-registers var-table)
                                 _args))])
 
       ($let _value _register _body)
@@ -509,8 +522,9 @@
                               (&/|map (partial clean-unused-body-registers var-table)
                                       _bodies)]))])
 
-      ($function _arity _scope _captured _body)
-      (&/T [meta ($function _arity
+      ($function _register-offset _arity _scope _captured _body)
+      (&/T [meta ($function _register-offset
+                            _arity
                             _scope
                             (&/|map (fn [capture]
                                       (|let [[_name __var] capture]
@@ -636,9 +650,10 @@
                                 _pm)
                               (&/|map (partial shift-function-body old-scope new-scope own-body?) _bodies)]))])
       
-      ($function arity scope captured body*)
+      ($function _register-offset arity scope captured body*)
       (|let [scope* (de-scope old-scope new-scope scope)]
-        (&/T [meta ($function arity
+        (&/T [meta ($function _register-offset
+                              arity
                               scope*
                               (&/|map (fn [capture]
                                         (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
@@ -690,8 +705,19 @@
       ($proc proc-ident args special-args)
       (&/T [meta ($proc proc-ident (&/|map (partial shift-function-body old-scope new-scope own-body?) args) special-args)])
 
-      ($iter args)
-      (&/T [meta ($iter (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
+      ($loop _register-offset _inits _body)
+      (&/T [meta ($loop (if own-body?
+                          (inc _register-offset)
+                          _register-offset)
+                        (&/|map (partial shift-function-body old-scope new-scope own-body?)
+                                _inits)
+                        (shift-function-body old-scope new-scope own-body? _body))])
+      
+      ($iter _iter-register-offset args)
+      (&/T [meta ($iter (if own-body?
+                          (inc _iter-register-offset)
+                          _iter-register-offset)
+                        (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
 
       ($let _value _register _body)
       (&/T [meta ($let (shift-function-body old-scope new-scope own-body? _value)
@@ -771,7 +797,7 @@
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
       (if (= arity (&/|length _args))
-        (&/T [meta ($iter _args)])
+        (&/T [meta ($iter 0 _args)])
         optim)
 
       ($case _value [_pattern _bodies])
@@ -811,7 +837,7 @@
       (or (contains-self-reference? value)
           (&/fold stepwise-test false _bodies))
 
-      ($function arity scope captured body*)
+      ($function _ _ _ captured _)
       (->> captured
            (&/|map (fn [capture]
                      (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
@@ -831,7 +857,11 @@
       ($proc proc-ident args special-args)
       (&/fold stepwise-test false args)
 
-      ($iter args)
+      ($loop _register-offset _inits _body)
+      (or (&/fold stepwise-test false _inits)
+          (contains-self-reference? _body))
+      
+      ($iter _ args)
       (&/fold stepwise-test false args)
 
       ($let _value _register _body)
@@ -849,6 +879,112 @@
       _
       false
       )))
+
+(defn ^:private pm-loop-transform [register-offset pattern]
+  (|case pattern
+    ($BindPM _var-id)
+    ($BindPM (+ register-offset _var-id))
+
+    ($SeqPM _left-pm _right-pm)
+    ($SeqPM (pm-loop-transform register-offset _left-pm)
+            (pm-loop-transform register-offset _right-pm))
+
+    ($AltPM _left-pm _right-pm)
+    ($AltPM (pm-loop-transform register-offset _left-pm)
+            (pm-loop-transform register-offset _right-pm))
+
+    _
+    pattern
+    ))
+
+(defn ^:private loop-transform [register-offset body]
+  (|let [[meta body-] body]
+    (|case body-
+      ($variant idx is-last? value)
+      (&/T [meta ($variant idx is-last? (loop-transform register-offset value))])
+      
+      ($tuple elems)
+      (&/T [meta ($tuple (&/|map (partial loop-transform register-offset) elems))])
+      
+      ($case value [_pm _bodies])
+      (&/T [meta ($case (loop-transform register-offset value)
+                        (&/T [(pm-loop-transform register-offset _pm)
+                              (&/|map (partial loop-transform register-offset)
+                                      _bodies)]))])
+      
+      ($function _register-offset arity scope captured body*)
+      (&/T [meta ($function _register-offset
+                            arity
+                            scope
+                            (&/|map (fn [entry]
+                                      (|let [[_name _captured] entry]
+                                        (|case _captured
+                                          ;; [_meta ($captured _scope _idx [_ ($var (&/$Local _l-idx))])]
+                                          ;; (&/T [_meta ($var (&/$Local (+ register-offset (dec _l-idx))))])
+
+                                          [_meta ($captured _scope _idx _source)]
+                                          (&/T [_name _source])
+                                          )))
+                                    captured)
+                            body*)])
+
+      ($ann value-expr type-expr)
+      (&/T [meta ($ann (loop-transform register-offset value-expr)
+                       type-expr)])
+      
+      ($var (&/$Local idx))
+      ;; First, it's decreased because the var index is 1-based (since
+      ;; 0 is reserved for self-reference).
+      ;; Then, I add the offset to ensure the var points to the right register.
+      (&/T [meta ($var (&/$Local (+ register-offset (dec idx))))])
+
+      ($apply func args)
+      (&/T [meta ($apply (loop-transform register-offset func)
+                         (&/|map (partial loop-transform register-offset) args))])
+      
+      ;; ($captured scope idx [_ ($var (&/$Local _l-idx))])
+      ;; (&/T [meta ($var (&/$Local (+ register-offset (dec _l-idx))))])
+
+      ($captured scope idx source)
+      source
+      
+      ($proc proc-ident args special-args)
+      (&/T [meta ($proc proc-ident (&/|map (partial loop-transform register-offset) args) special-args)])
+
+      ($loop _register-offset _inits _body)
+      (&/T [meta ($loop (+ register-offset _register-offset)
+                        (&/|map (partial loop-transform register-offset) _inits)
+                        (loop-transform register-offset _body))])
+      
+      ($iter _iter-register-offset args)
+      (&/T [meta ($iter (+ register-offset _iter-register-offset)
+                        (&/|map (partial loop-transform register-offset) args))])
+
+      ($let _value _register _body)
+      (&/T [meta ($let (loop-transform register-offset _value)
+                       (+ register-offset _register)
+                       (loop-transform register-offset _body))])
+
+      ($record-get _value _path)
+      (&/T [meta ($record-get (loop-transform register-offset _value)
+                              _path)])
+
+      ($if _test _then _else)
+      (&/T [meta ($if (loop-transform register-offset _test)
+                      (loop-transform register-offset _then)
+                      (loop-transform register-offset _else))])
+      
+      _
+      body
+      )))
+
+(defn ^:private inline-loop [meta register-offset scope captured args body]
+  (->> body
+       (shift-function-body scope (&/|tail scope) true)
+       (loop-transform register-offset)
+       ($loop register-offset args)
+       (list meta)
+       (&/T)))
 
 ;; [[Initial Optimization]]
 
@@ -897,11 +1033,11 @@
         (|let [=func (pass-0 top-level-func? func)
                =args (&/|map (partial pass-0 top-level-func?) args)]
           (|case =func
-            [_ (&a/$ann [_ ($function _arity _scope _captured _body)]
+            [_ (&a/$ann [_ ($function _register-offset _arity _scope _captured _body)]
                         _)]
             (if (and (= _arity (&/|length =args))
                      (not (contains-self-reference? _body)))
-              (&/T [meta ($apply =func =args)])
+              (inline-loop meta _register-offset _scope _captured =args _body)
               (&/T [meta ($apply =func =args)]))
             
             _
@@ -942,9 +1078,9 @@
             _
             (normal-case-optim)))
         
-        (&a/$lambda scope captured body)
+        (&a/$lambda _register-offset scope captured body)
         (|let [inner-func? (|case body
-                             [_ (&a/$lambda _ _ _)]
+                             [_ (&a/$lambda _ _ _ _)]
                              true
 
                              _
@@ -953,10 +1089,11 @@
             ;; If the body of a function is another function, that means
             ;; no work was done in-between and both layers can be folded
             ;; into one.
-            [_ ($function _arity _scope _captured _body)]
+            [_ ($function _ _arity _scope _captured _body)]
             (|let [new-arity (inc _arity)
                    collapsed-body (shift-function-body scope _scope true _body)]
-              (&/T [meta ($function new-arity
+              (&/T [meta ($function _register-offset
+                                    new-arity
                                     scope
                                     (optimize-closure (partial pass-0 top-level-func?) captured)
                                     (if top-level-func?
@@ -966,7 +1103,8 @@
             ;; Otherwise, they're nothing to be done and we've got a
             ;; 1-arity function.
             =body
-            (&/T [meta ($function 1 scope
+            (&/T [meta ($function _register-offset
+                                  1 scope
                                   (optimize-closure (partial pass-0 top-level-func?) captured)
                                   (if top-level-func?
                                     (optimize-iter 1 =body)

@@ -86,8 +86,11 @@
         (&o/$apply ?fn ?args)
         (&&lux/compile-apply (partial compile-expression $begin) ?fn ?args)
 
-        (&o/$iter ?args)
-        (&&lux/compile-iter (partial compile-expression $begin) $begin ?args)
+        (&o/$loop _register-offset _inits _body)
+        (&&lux/compile-loop compile-expression _register-offset _inits _body)
+        
+        (&o/$iter _register-offset ?args)
+        (&&lux/compile-iter (partial compile-expression $begin) $begin _register-offset ?args)
 
         (&o/$variant ?tag ?tail ?members)
         (&&lux/compile-variant (partial compile-expression $begin) ?tag ?tail ?members)
@@ -104,7 +107,7 @@
         (&o/$if _test _then _else)
         (&&lux/compile-if (partial compile-expression $begin) _test _then _else)
         
-        (&o/$function ?arity ?scope ?env ?body)
+        (&o/$function _register-offset ?arity ?scope ?env ?body)
         (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
         (&o/$ann ?value-ex ?type-ex)
