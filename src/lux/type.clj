@@ -815,10 +815,10 @@
           (return fixpoints)
           (check-error "" expected actual))
 
-        [(&/$NamedT ?ename ?etype) _]
+        [(&/$NamedT _ ?etype) _]
         (check* class-loader fixpoints invariant?? ?etype actual)
 
-        [_ (&/$NamedT ?aname ?atype)]
+        [_ (&/$NamedT _ ?atype)]
         (check* class-loader fixpoints invariant?? expected ?atype)
 
         [_ _]
