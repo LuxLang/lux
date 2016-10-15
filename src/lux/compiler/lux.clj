@@ -35,21 +35,19 @@
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC "java/lang/Boolean" (if ?value "TRUE" "FALSE") "Ljava/lang/Boolean;")]]
     (return nil)))
 
-(do-template [<name> <class> <sig> <caster>]
+(do-template [<name> <class> <prim> <caster>]
   (defn <name> [value]
     (|do [^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW <class>)
-                    (.visitInsn Opcodes/DUP)
                     (.visitLdcInsn (<caster> value))
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL <class> "<init>" <sig>))]]
+                    (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str "(" <prim> ")" (&host-generics/->type-signature <class>))))]]
       (return nil)))
 
-  compile-nat  "java/lang/Long"      "(J)V" long
-  compile-int  "java/lang/Long"      "(J)V" long
-  compile-frac "java/lang/Long"      "(J)V" long
-  compile-real "java/lang/Double"    "(D)V" double
-  compile-char "java/lang/Character" "(C)V" char
+  compile-nat  "java/lang/Long"      "J" long
+  compile-int  "java/lang/Long"      "J" long
+  compile-frac "java/lang/Long"      "J" long
+  compile-real "java/lang/Double"    "D" double
+  compile-char "java/lang/Character" "C" char
   )
 
 (defn compile-text [?value]
