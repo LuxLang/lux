@@ -40,6 +40,11 @@
           (.visitInsn Opcodes/POP2)
           (pop-alt-stack (- stack-depth 2)))))
 
+(defn ^:private stack-peek [^MethodVisitor writer]
+  (doto writer
+    (.visitInsn Opcodes/DUP)
+    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")))
+
 (defn ^:private compile-pattern* [^MethodVisitor writer bodies stack-depth $else pm]
   "(-> MethodVisitor Case-Pattern (List Label) Int Label MethodVisitor)"
   (|case pm
@@ -59,63 +64,59 @@
 
     (&o/$BindPM _var-id)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      stack-peek
       (.visitVarInsn Opcodes/ASTORE _var-id)
       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
 
     (&o/$BoolPM _value)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Boolean")
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Boolean" "booleanValue" "()Z")
+      stack-peek
+      &&/unwrap-boolean
       (.visitLdcInsn _value)
       (.visitJumpInsn Opcodes/IF_ICMPNE $else))
 
     (&o/$NatPM _value)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
+      stack-peek
+      &&/unwrap-long
       (.visitLdcInsn (long _value))
       (.visitInsn Opcodes/LCMP)
       (.visitJumpInsn Opcodes/IFNE $else))
 
     (&o/$IntPM _value)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Long")
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Long" "longValue" "()J")
+      stack-peek
+      &&/unwrap-long
+      (.visitLdcInsn (long _value))
+      (.visitInsn Opcodes/LCMP)
+      (.visitJumpInsn Opcodes/IFNE $else))
+
+    (&o/$FracPM _value)
+    (doto writer
+      stack-peek
+      &&/unwrap-long
       (.visitLdcInsn (long _value))
       (.visitInsn Opcodes/LCMP)
       (.visitJumpInsn Opcodes/IFNE $else))
 
     (&o/$RealPM _value)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Double")
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Double" "doubleValue" "()D")
+      stack-peek
+      &&/unwrap-double
       (.visitLdcInsn (double _value))
       (.visitInsn Opcodes/DCMPL)
       (.visitJumpInsn Opcodes/IFNE $else))
 
     (&o/$CharPM _value)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
-      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/Character")
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Character" "charValue" "()C")
+      stack-peek
+      &&/unwrap-char
       (.visitLdcInsn _value)
       (.visitJumpInsn Opcodes/IF_ICMPNE $else))
 
     (&o/$TextPM _value)
     (doto writer
-      (.visitInsn Opcodes/DUP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+      stack-peek
       (.visitLdcInsn _value)
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
       (.visitJumpInsn Opcodes/IFEQ $else))
@@ -128,8 +129,7 @@
                              (&/$Right _idx)
                              (&/T [_idx true]))]
       (doto writer
-        (.visitInsn Opcodes/DUP)
-        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+        stack-peek
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitLdcInsn (int _idx))
         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" (if is-tail? "product_getRight" "product_getLeft") "([Ljava/lang/Object;I)Ljava/lang/Object;")
@@ -146,8 +146,7 @@
                             (&/$Right _idx)
                             (&/T [_idx true]))
            _ (doto writer
-               (.visitInsn Opcodes/DUP)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")
+               stack-peek
                (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
                (.visitLdcInsn (int _idx)))
            _ (if is-last
