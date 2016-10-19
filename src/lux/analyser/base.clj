@@ -22,7 +22,7 @@
   ("tuple" 1)
   ("apply" 2)
   ("case" 2)
-  ("lambda" 3)
+  ("lambda" 4)
   ("ann" 2)
   ("var" 1)
   ("captured" 1)
@@ -86,3 +86,46 @@
 
 (defn |meta [type cursor analysis]
   (&/T [(&/T [type cursor]) analysis]))
+
+(defn de-meta
+  "(-> Analysis Analysis)"
+  [analysis]
+  (|let [[meta analysis-] analysis]
+    (|case analysis-
+      ($variant idx is-last? value)
+      ($variant idx is-last? (de-meta value))
+      
+      ($tuple elems)
+      ($tuple (&/|map de-meta elems))
+      
+      ($apply func args)
+      ($apply (de-meta func)
+              (&/|map de-meta args))
+      
+      ($case value branches)
+      ($case (de-meta value)
+             (&/|map (fn [branch]
+                       (|let [[_pattern _body] branch]
+                         (&/T [_pattern (de-meta _body)])))
+                     branches))
+      
+      ($lambda _register-offset scope captured body)
+      ($lambda _register-offset scope
+          (&/|map (fn [branch]
+                    (|let [[_name _captured] branch]
+                      (&/T [_name (de-meta _captured)])))
+                  captured)
+          (de-meta body))
+
+      ($ann value-expr type-expr)
+      (de-meta value-expr)
+      
+      ($captured scope idx source)
+      ($captured scope idx (de-meta source))
+
+      ($proc proc-ident args special-args)
+      ($proc proc-ident (&/|map de-meta args) special-args)
+      
+      _
+      analysis-
+      )))

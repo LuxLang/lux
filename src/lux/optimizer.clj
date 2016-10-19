@@ -21,7 +21,7 @@
   ("tuple" 1)
   ("apply" 2)
   ("case" 2)
-  ("function" 4)
+  ("function" 5)
   ("ann" 2)
   ("var" 1)
   ("captured" 3)
@@ -35,8 +35,10 @@
   ;; The optimizer looks for those usage patterns and transforms them
   ;; into explicit constructs, which are then subject to specialized optimizations.
 
+  ;; Loop scope, for doing loop inlining
+  ("loop" 3) ;; {register-offset Int, inits (List Optimized), body Optimized}
   ;; This is loop iteration, as expected in imperative programming.
-  ("iter" 1)
+  ("iter" 2) ;; {register-offset Int, vals (List Optimized)}
   ;; This is a simple let-expression, as opposed to the more general pattern-matching.
   ("let" 3)
   ;; This is an access to a record's member. It can be multi-level:
@@ -98,6 +100,71 @@
   ;; data-structure is thrown away and the program jumps to the
   ;; branch's body.
   ("ExecPM" 1))
+
+(defn de-meta
+  "(-> Optimized Optimized)"
+  [optim]
+  (|let [[meta optim-] optim]
+    (|case optim-
+      ($variant idx is-last? value)
+      ($variant idx is-last? (de-meta value))
+      
+      ($tuple elems)
+      ($tuple (&/|map de-meta elems))
+      
+      ($case value [_pm _bodies])
+      ($case (de-meta value)
+             (&/T [_pm (&/|map de-meta _bodies)]))
+      
+      ($function _register-offset arity scope captured body*)
+      ($function _register-offset
+                 arity
+                 scope
+                 (&/|map (fn [capture]
+                           (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
+                             (&/T [_name ($captured _scope _idx (de-meta _source))])))
+                         captured)
+                 (de-meta body*))
+
+      ($ann value-expr type-expr)
+      (de-meta value-expr)
+      
+      ($apply func args)
+      ($apply (de-meta func)
+              (&/|map de-meta args))
+      
+      ($captured scope idx source)
+      ($captured scope idx (de-meta source))
+      
+      ($proc proc-ident args special-args)
+      ($proc proc-ident (&/|map de-meta args) special-args)
+
+      ($loop _register-offset _inits _body)
+      ($loop _register-offset
+             (&/|map de-meta _inits)
+             (de-meta _body))
+      
+      ($iter _iter-register-offset args)
+      ($iter _iter-register-offset
+             (&/|map de-meta args))
+
+      ($let _value _register _body)
+      ($let (de-meta _value)
+            _register
+            (de-meta _body))
+
+      ($record-get _value _path)
+      ($record-get (de-meta _value)
+                   _path)
+
+      ($if _test _then _else)
+      ($if (de-meta _test)
+           (de-meta _then)
+           (de-meta _else))
+      
+      _
+      optim-
+      )))
 
 ;; This function does a simple transformation from the declarative
 ;; model of PM of the analyser, to the operational model of PM of the
@@ -377,7 +444,11 @@
       ($proc _proc-ident _args _special-args)
       (&/fold find-unused-vars var-table _args)
 
-      ($iter _args)
+      ($loop _register-offset _inits _body)
+      (&/|++ (&/fold find-unused-vars var-table _inits)
+             (find-unused-vars var-table _body))
+      
+      ($iter _ _args)
       (&/fold find-unused-vars var-table _args)
 
       ($let _value _register _body)
@@ -399,7 +470,7 @@
               (find-unused-vars var-table _value)
               _bodies)
 
-      ($function _arity _scope _captured _body)
+      ($function _ _ _ _captured _)
       (->> _captured
            (&/|map &/|second)
            (&/fold find-unused-vars var-table))
@@ -485,8 +556,15 @@
                                 _args)
                         _special-args)])
 
-      ($iter _args)
-      (&/T [meta ($iter (&/|map (partial clean-unused-body-registers var-table)
+      ($loop _register-offset _inits _body)
+      (&/T [meta ($loop _register-offset
+                        (&/|map (partial clean-unused-body-registers var-table)
+                                _inits)
+                        (clean-unused-body-registers var-table _body))])
+      
+      ($iter _iter-register-offset _args)
+      (&/T [meta ($iter _iter-register-offset
+                        (&/|map (partial clean-unused-body-registers var-table)
                                 _args))])
 
       ($let _value _register _body)
@@ -509,8 +587,9 @@
                               (&/|map (partial clean-unused-body-registers var-table)
                                       _bodies)]))])
 
-      ($function _arity _scope _captured _body)
-      (&/T [meta ($function _arity
+      ($function _register-offset _arity _scope _captured _body)
+      (&/T [meta ($function _register-offset
+                            _arity
                             _scope
                             (&/|map (fn [capture]
                                       (|let [[_name __var] capture]
@@ -590,8 +669,9 @@
 ;; During the folding, inner functions dissapear, since their bodies
 ;; are merged into their outer "parent" functions.
 ;; Their scopes must change accordingy.
-(defn ^:private de-scope [old-scope new-scope scope]
+(defn ^:private de-scope
   "(-> Scope Scope Scope Scope)"
+  [old-scope new-scope scope]
   (if (identical? new-scope scope)
     old-scope
     scope))
@@ -617,8 +697,9 @@
     ))
 
 ;; Shifts the body of a function after a folding is performed.
-(defn shift-function-body [old-scope new-scope own-body? body]
+(defn shift-function-body
   "(-> Scope Scope Bool Optimized Optimized)"
+  [old-scope new-scope own-body? body]
   (|let [[meta body-] body]
     (|case body-
       ($variant idx is-last? value)
@@ -634,9 +715,10 @@
                                 _pm)
                               (&/|map (partial shift-function-body old-scope new-scope own-body?) _bodies)]))])
       
-      ($function arity scope captured body*)
+      ($function _register-offset arity scope captured body*)
       (|let [scope* (de-scope old-scope new-scope scope)]
-        (&/T [meta ($function arity
+        (&/T [meta ($function _register-offset
+                              arity
                               scope*
                               (&/|map (fn [capture]
                                         (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
@@ -688,8 +770,19 @@
       ($proc proc-ident args special-args)
       (&/T [meta ($proc proc-ident (&/|map (partial shift-function-body old-scope new-scope own-body?) args) special-args)])
 
-      ($iter args)
-      (&/T [meta ($iter (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
+      ($loop _register-offset _inits _body)
+      (&/T [meta ($loop (if own-body?
+                          (inc _register-offset)
+                          _register-offset)
+                        (&/|map (partial shift-function-body old-scope new-scope own-body?)
+                                _inits)
+                        (shift-function-body old-scope new-scope own-body? _body))])
+      
+      ($iter _iter-register-offset args)
+      (&/T [meta ($iter (if own-body?
+                          (inc _iter-register-offset)
+                          _iter-register-offset)
+                        (&/|map (partial shift-function-body old-scope new-scope own-body?) args))])
 
       ($let _value _register _body)
       (&/T [meta ($let (shift-function-body old-scope new-scope own-body? _value)
@@ -720,8 +813,9 @@
 ;; That is the pattern that is to be expected of record read-access,
 ;; so this function tries to extract the (possibly nested) path
 ;; necessary, ending in the data-node of the wanted member.
-(defn ^:private record-read-path [pms member-idx]
+(defn ^:private record-read-path
   "(-> (List PM) Idx (List Idx))"
+  [pms member-idx]
   (loop [current-idx 0
          pms pms]
     (|case pms
@@ -761,35 +855,204 @@
 ;; This optimization looks for tail-calls in the function body,
 ;; rewriting them as jumps to the beginning of the function, while
 ;; they also updated the necessary local variables for the next iteration.
-(defn ^:private optimize-loop [arity optim]
+(defn ^:private optimize-iter
   "(-> Int Optimized Optimized)"
+  [arity optim]
   (|let [[meta optim-] optim]
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
       (if (= arity (&/|length _args))
-        (&/T [meta ($iter _args)])
+        (&/T [meta ($iter 1 _args)])
         optim)
 
       ($case _value [_pattern _bodies])
       (&/T [meta ($case _value
                         (&/T [_pattern
-                              (&/|map (partial optimize-loop arity)
+                              (&/|map (partial optimize-iter arity)
                                       _bodies)]))])
 
       ($let _value _register _body)
-      (&/T [meta ($let _value _register (optimize-loop arity _body))])
+      (&/T [meta ($let _value _register (optimize-iter arity _body))])
 
       ($if _test _then _else)
       (&/T [meta ($if _test
-                      (optimize-loop arity _then)
-                      (optimize-loop arity _else))])
+                      (optimize-iter arity _then)
+                      (optimize-iter arity _else))])
       
       ($ann _value-expr _type-expr)
-      (&/T [meta ($ann (optimize-loop arity _value-expr) _type-expr)])
+      (&/T [meta ($ann (optimize-iter arity _value-expr) _type-expr)])
 
       _
       optim
       )))
+
+(defn ^:private contains-self-reference?
+  "(-> Optimized Bool)"
+  [body]
+  (|let [[meta body-] body
+         stepwise-test (fn [base arg] (or base (contains-self-reference? arg)))]
+    (|case body-
+      ($variant idx is-last? value)
+      (contains-self-reference? value)
+      
+      ($tuple elems)
+      (&/fold stepwise-test false elems)
+      
+      ($case value [_pm _bodies])
+      (or (contains-self-reference? value)
+          (&/fold stepwise-test false _bodies))
+
+      ($function _ _ _ captured _)
+      (->> captured
+           (&/|map (fn [capture]
+                     (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
+                       _source)))
+           (&/fold stepwise-test false))
+
+      ($ann value-expr type-expr)
+      (contains-self-reference? value-expr)
+      
+      ($var (&/$Local 0))
+      true
+
+      ($apply func args)
+      (or (contains-self-reference? func)
+          (&/fold stepwise-test false args))
+      
+      ($proc proc-ident args special-args)
+      (&/fold stepwise-test false args)
+
+      ($loop _register-offset _inits _body)
+      (or (&/fold stepwise-test false _inits)
+          (contains-self-reference? _body))
+      
+      ($iter _ args)
+      (&/fold stepwise-test false args)
+
+      ($let _value _register _body)
+      (or (contains-self-reference? _value)
+          (contains-self-reference? _body))
+
+      ($record-get _value _path)
+      (contains-self-reference? _value)
+
+      ($if _test _then _else)
+      (or (contains-self-reference? _test)
+          (contains-self-reference? _then)
+          (contains-self-reference? _else))
+      
+      _
+      false
+      )))
+
+(defn ^:private pm-loop-transform [register-offset direct? pattern]
+  (|case pattern
+    ($BindPM _var-id)
+    ($BindPM (+ register-offset (if direct?
+                                  (- _var-id 2)
+                                  (- _var-id 1))))
+
+    ($SeqPM _left-pm _right-pm)
+    ($SeqPM (pm-loop-transform register-offset direct? _left-pm)
+            (pm-loop-transform register-offset direct? _right-pm))
+
+    ($AltPM _left-pm _right-pm)
+    ($AltPM (pm-loop-transform register-offset direct? _left-pm)
+            (pm-loop-transform register-offset direct? _right-pm))
+
+    _
+    pattern
+    ))
+
+;; This function must be run STRICTLY before shift-function body, as
+;; the transformation assumes that SFB will be invoke after it.
+(defn ^:private loop-transform [register-offset direct? body]
+  (|let [adjust-direct (fn [register]
+                         ;; The register must be decreased once, since
+                         ;; it will be re-increased in
+                         ;; shift-function-body.
+                         ;; The decrease is meant to keep things stable.
+                         (if direct?
+                           ;; And, if this adjustment is done
+                           ;; directly during a loop-transform (and
+                           ;; not indirectly if transforming an inner
+                           ;; loop), then it must be decreased again
+                           ;; because the 0/self var will no longer
+                           ;; exist in the loop's context.
+                           (- register 2)
+                           (- register 1)))
+         [meta body-] body]
+    (|case body-
+      ($variant idx is-last? value)
+      (&/T [meta ($variant idx is-last? (loop-transform register-offset direct? value))])
+      
+      ($tuple elems)
+      (&/T [meta ($tuple (&/|map (partial loop-transform register-offset direct?) elems))])
+      
+      ($case value [_pm _bodies])
+      (&/T [meta ($case (loop-transform register-offset direct? value)
+                        (&/T [(pm-loop-transform register-offset direct? _pm)
+                              (&/|map (partial loop-transform register-offset direct?)
+                                      _bodies)]))])
+
+      ;; Functions are ignored because they'll be handled properly at shift-function-body
+      
+      ($ann value-expr type-expr)
+      (&/T [meta ($ann (loop-transform register-offset direct? value-expr)
+                       type-expr)])
+      
+      ($var (&/$Local idx))
+      ;; The index must be decreased once, because the var index is
+      ;; 1-based (since 0 is reserved for self-reference).
+      ;; Then it must be decreased again, since it will be increased
+      ;; in the shift-function-body call.
+      ;; Then, I add the offset to ensure the var points to the right register.
+      (&/T [meta ($var (&/$Local (-> (adjust-direct idx)
+                                     (+ register-offset))))])
+
+      ($apply func args)
+      (&/T [meta ($apply (loop-transform register-offset direct? func)
+                         (&/|map (partial loop-transform register-offset direct?) args))])
+      
+      ;; Captured-vars are ignored because they'll be handled properly at shift-function-body
+      
+      ($proc proc-ident args special-args)
+      (&/T [meta ($proc proc-ident (&/|map (partial loop-transform register-offset direct?) args) special-args)])
+
+      ($loop _register-offset _inits _body)
+      (&/T [meta ($loop (+ register-offset (adjust-direct _register-offset))
+                        (&/|map (partial loop-transform register-offset direct?) _inits)
+                        (loop-transform register-offset direct? _body))])
+      
+      ($iter _iter-register-offset args)
+      (&/T [meta ($iter (+ register-offset (adjust-direct _iter-register-offset))
+                        (&/|map (partial loop-transform register-offset direct?) args))])
+
+      ($let _value _register _body)
+      (&/T [meta ($let (loop-transform register-offset direct? _value)
+                       (+ register-offset (adjust-direct _register))
+                       (loop-transform register-offset direct? _body))])
+
+      ($record-get _value _path)
+      (&/T [meta ($record-get (loop-transform register-offset direct? _value)
+                              _path)])
+
+      ($if _test _then _else)
+      (&/T [meta ($if (loop-transform register-offset direct? _test)
+                      (loop-transform register-offset direct? _then)
+                      (loop-transform register-offset direct? _else))])
+      
+      _
+      body
+      )))
+
+(defn ^:private inline-loop [meta register-offset scope captured args body]
+  (->> body
+       (loop-transform register-offset true)
+       (shift-function-body scope (&/|tail scope) true)
+       ($loop register-offset args)
+       (list meta)
+       (&/T)))
 
 ;; [[Initial Optimization]]
 
@@ -802,8 +1065,9 @@
                                    (|let [[_name _analysis] capture]
                                      (&/T [_name (optimize _analysis)])))
                                  closure))]
-  (defn ^:private pass-0 [top-level-func? analysis]
+  (defn ^:private pass-0
     "(-> Bool Analysis Optimized)"
+    [top-level-func? analysis]
     (|let [[meta analysis-] analysis]
       (|case analysis-
         (&a/$bool value)
@@ -834,7 +1098,18 @@
         (&/T [meta ($tuple (&/|map (partial pass-0 top-level-func?) elems))])
         
         (&a/$apply func args)
-        (&/T [meta ($apply (pass-0 top-level-func? func) (&/|map (partial pass-0 top-level-func?) args))])
+        (|let [=func (pass-0 top-level-func? func)
+               =args (&/|map (partial pass-0 top-level-func?) args)]
+          (|case =func
+            [_ ($ann [_ ($function _register-offset _arity _scope _captured _body)]
+                     _)]
+            (if (and (= _arity (&/|length =args))
+                     (not (contains-self-reference? _body)))
+              (inline-loop meta _register-offset _scope _captured =args _body)
+              (&/T [meta ($apply =func =args)]))
+            
+            _
+            (&/T [meta ($apply =func =args)])))
         
         (&a/$case value branches)
         (let [normal-case-optim (fn []
@@ -871,25 +1146,37 @@
             _
             (normal-case-optim)))
         
-        (&a/$lambda scope captured body)
-        (|case (pass-0 false body)
-          ;; If the body of a function is another function, that means
-          ;; no work was done in-between and both layers can be folded
-          ;; into one.
-          [_ ($function _arity _scope _captured _body)]
-          (|let [new-arity (inc _arity)
-                 collapsed-body (shift-function-body scope _scope true _body)]
-            (&/T [meta ($function new-arity
-                                  scope
+        (&a/$lambda _register-offset scope captured body)
+        (|let [inner-func? (|case body
+                             [_ (&a/$lambda _ _ _ _)]
+                             true
+
+                             _
+                             false)]
+          (|case (pass-0 (not inner-func?) body)
+            ;; If the body of a function is another function, that means
+            ;; no work was done in-between and both layers can be folded
+            ;; into one.
+            [_ ($function _ _arity _scope _captured _body)]
+            (|let [new-arity (inc _arity)
+                   collapsed-body (shift-function-body scope _scope true _body)]
+              (&/T [meta ($function _register-offset
+                                    new-arity
+                                    scope
+                                    (optimize-closure (partial pass-0 top-level-func?) captured)
+                                    (if top-level-func?
+                                      (optimize-iter new-arity collapsed-body)
+                                      collapsed-body))]))
+
+            ;; Otherwise, they're nothing to be done and we've got a
+            ;; 1-arity function.
+            =body
+            (&/T [meta ($function _register-offset
+                                  1 scope
                                   (optimize-closure (partial pass-0 top-level-func?) captured)
                                   (if top-level-func?
-                                    (optimize-loop new-arity collapsed-body)
-                                    collapsed-body))]))
-
-          ;; Otherwise, they're nothing to be done and we've got a
-          ;; 1-arity function.
-          =body
-          (&/T [meta ($function 1 scope (optimize-closure (partial pass-0 top-level-func?) captured) =body)]))
+                                    (optimize-iter 1 =body)
+                                    =body))])))
 
         (&a/$ann value-expr type-expr)
         (&/T [meta ($ann (pass-0 top-level-func? value-expr) type-expr)])
@@ -908,7 +1195,8 @@
         ))))
 
 ;; [Exports]
-(defn optimize [analysis]
+(defn optimize
   "(-> Analysis Optimized)"
+  [analysis]
   (->> analysis
        (pass-0 true)))
