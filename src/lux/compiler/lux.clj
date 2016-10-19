@@ -152,12 +152,10 @@
 
 (defn compile-loop [compile-expression register-offset inits body]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.println System/out (pr-str 'compile-loop register-offset (&/|length inits)))]
         :let [idxs+inits (&/zip2 (&/|range* 0 (dec (&/|length inits)))
                                  inits)]
         _ (&/map% (fn [idx+_init]
                     (|do [:let [[idx _init] idx+_init
-                                _ (.println System/out (pr-str 'compile-loop/_init (&/adt->text _init)))
                                 idx+ (+ register-offset idx)]
                           _ (compile-expression nil _init)
                           :let [_ (.visitVarInsn *writer* Opcodes/ASTORE idx+)]]
@@ -170,7 +168,7 @@
 
 (defn compile-iter [compile $begin register-offset ?args]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [idxs+args (&/zip2 (&/|range* 1 (&/|length ?args))
+        :let [idxs+args (&/zip2 (&/|range* 0 (dec (&/|length ?args)))
                                 ?args)]
         _ (&/map% (fn [idx+?arg]
                     (|do [:let [[idx ?arg] idx+?arg
