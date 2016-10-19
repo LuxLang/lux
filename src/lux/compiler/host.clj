@@ -687,11 +687,22 @@
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$is-null (new Label)]
+         _ (let [;; $is-null (new Label)
+                 ]
+             ;; I commented out some parts because a null-check was
+             ;; done to ensure variants were never created with null
+             ;; values (this would interfere later with
+             ;; pattern-matching).
+             ;; Since Lux itself doesn't have null values as part of
+             ;; the language, the burden of ensuring non-nulls was
+             ;; shifted to library code dealing with host-interop, to
+             ;; ensure variant-making was as fast as possible.
+             ;; The null-checking code was left as comments in case I
+             ;; ever change my mind.
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
                (.visitCode)
-               (.visitVarInsn Opcodes/ALOAD 2)
-               (.visitJumpInsn Opcodes/IFNULL $is-null)
+               ;; (.visitVarInsn Opcodes/ALOAD 2)
+               ;; (.visitJumpInsn Opcodes/IFNULL $is-null)
                (.visitLdcInsn (int 3))
                (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
                (.visitInsn Opcodes/DUP)
@@ -708,12 +719,12 @@
                (.visitVarInsn Opcodes/ALOAD 2)
                (.visitInsn Opcodes/AASTORE)
                (.visitInsn Opcodes/ARETURN)
-               (.visitLabel $is-null)
-               (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
-               (.visitInsn Opcodes/DUP)
-               (.visitLdcInsn "Can't create variant for null pointer")
-               (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V")
-               (.visitInsn Opcodes/ATHROW)
+               ;; (.visitLabel $is-null)
+               ;; (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
+               ;; (.visitInsn Opcodes/DUP)
+               ;; (.visitLdcInsn "Can't create variant for null pointer")
+               ;; (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V")
+               ;; (.visitInsn Opcodes/ATHROW)
                (.visitMaxs 0 0)
                (.visitEnd)))]
     nil))
