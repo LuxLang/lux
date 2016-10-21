@@ -11,7 +11,8 @@
             (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
             [lux.type.host :as &&host]))
 
-(declare show-type)
+(declare show-type
+         type=)
 
 ;; [Utils]
 (defn |list? [xs]
@@ -196,7 +197,9 @@
     (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (|case tvar
         (&/$Some bound)
-        (fail* (str "[Type Error] Can't rebind type var: " id " | Current type: " (show-type bound)))
+        (if (type= type bound)
+          (return* state nil)
+          (fail* (str "[Type Error] Can't re-bind type var: " id " | Current type: " (show-type bound))))
         
         (&/$None)
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
@@ -710,11 +713,23 @@
             (return* state* output)
 
             (&/$Left _)
-            ((|do [fixpoints* (check* class-loader fixpoints invariant?? (&/$VarT ?id) F2)
-                   e* (apply-type F2 A1)
-                   a* (apply-type F2 A2)]
-               (check* class-loader fixpoints* invariant?? e* a*))
-             state)))
+            (|case F2
+              (&/$UnivQ (&/$Cons _) _)
+              ((|do [actual* (apply-type F2 A2)]
+                 (check* class-loader fixpoints invariant?? expected actual*))
+               state)
+
+              (&/$ExT _)
+              ((|do [fixpoints* (check* class-loader fixpoints invariant?? (&/$VarT ?id) F2)]
+                 (check* class-loader fixpoints* invariant?? A1 A2))
+               state)
+
+              _
+              ((|do [fixpoints* (check* class-loader fixpoints invariant?? (&/$VarT ?id) F2)
+                     e* (apply-type F2 A1)
+                     a* (apply-type F2 A2)]
+                 (check* class-loader fixpoints* invariant?? e* a*))
+               state))))
         
         [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
         (fn [state]
