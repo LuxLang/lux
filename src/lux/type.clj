@@ -629,6 +629,7 @@
     (&/$NamedT ?name ?type)
     (apply-type ?type param)
 
+    ;; TODO: This one must go...
     (&/$ExT id)
     (return (&/$AppT type-fn param))
 
@@ -766,6 +767,9 @@
             (&/$None)
             (|do [expected* (apply-type F A)]
               (check* class-loader (fp-put fp-pair true fixpoints) invariant?? expected* actual))))
+
+        [_ (&/$AppT (&/$ExT aid) A)]
+        (check-error "" expected actual)
 
         [_ (&/$AppT F A)]
         (|do [actual* (apply-type F A)]
