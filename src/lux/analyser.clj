@@ -173,7 +173,7 @@
             (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
               (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
 
-        (&/$IntS idx)
+        (&/$NatS idx)
         (&/with-analysis-meta cursor exo-type
           (&&lux/analyse-variant analyse (&/$Right exo-type) idx nil parameters))
 

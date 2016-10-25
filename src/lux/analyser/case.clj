@@ -360,7 +360,7 @@
             [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
-      (&/$FormS (&/$Cons [_ (&/$IntS idx)] ?values))
+      (&/$FormS (&/$Cons [_ (&/$NatS idx)] ?values))
       (|do [value-type* (adjust-type value-type)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (case (int (&/|length ?values))
