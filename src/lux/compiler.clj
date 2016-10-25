@@ -121,13 +121,18 @@
         ))
     ))
 
-(defn init! []
-  (&&parallel/setup!)
-  (reset! !source->last-line {})
-  (.mkdirs (java.io.File. &&/output-dir))
-  (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
-    (.setAccessible true)
-    (.invoke (ClassLoader/getSystemClassLoader) (to-array [(-> (new java.io.File "./resources") .toURI .toURL)]))))
+(defn init!
+  "(-> (List Text) Null)"
+  [resources-dirs]
+  (do (&&parallel/setup!)
+    (reset! !source->last-line {})
+    (.mkdirs (java.io.File. &&/output-dir))
+    (let [class-loader (ClassLoader/getSystemClassLoader)
+          addURL (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
+                   (.setAccessible true))]
+      (doseq [resources-dir (&/->seq resources-dirs)]
+        (.invoke addURL class-loader
+                 (to-array [(->> resources-dir (new java.io.File) .toURI .toURL)]))))))
 
 (defn eval! [expr]
   (&/with-eval
@@ -257,15 +262,15 @@
           ))
       )))
 
-(defn compile-program [mode program-module source-dirs]
-  (do (init!)
+(defn compile-program [mode program-module resources-dir source-dirs]
+  (do (init! resources-dir)
     (let [m-action (|do [_ (compile-module source-dirs "lux")]
                      (compile-module source-dirs program-module))]
       (|case (m-action (&/init-state mode))
         (&/$Right ?state _)
         (do (println "Compilation complete!")
           (&&cache/clean ?state)
-          (&packager-program/package program-module))
+          (&packager-program/package program-module resources-dir))
 
         (&/$Left ?message)
         (assert false ?message)))))
