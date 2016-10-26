@@ -22,4 +22,7 @@
 
   :classifiers {:sources {:resource-paths ["src"]}
                 :javadoc {:resource-paths ["src"]}}
+
+  :jvm-opts ^:replace ["-server" "-Xms2048m" "-Xmx2048m"
+                       "-XX:+OptimizeStringConcat"]
   )
