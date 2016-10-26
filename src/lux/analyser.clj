@@ -181,10 +181,14 @@
         (&/with-analysis-meta cursor exo-type
           (analyse-variant+ analyse exo-type ?ident parameters))
 
-        _
+        (&/$SymbolS _)
         (&/with-cursor cursor
           (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-            (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+            (&&lux/analyse-apply analyse cursor exo-type =fn parameters)))
+        
+        _
+        (&/with-cursor cursor
+          (&&lux/analyse-nested-apply analyse cursor exo-type (&/T [command-meta command]) parameters)))
       
       _
       (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))

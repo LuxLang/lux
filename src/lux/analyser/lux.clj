@@ -416,6 +416,17 @@
       (do-analyse-apply analyse exo-type =fn ?args))
     ))
 
+(defn analyse-nested-apply [analyse cursor exo-type func args]
+  (|do [:let [_ (prn 'analyse-nested-apply)]
+        =args (&/map% (partial &&/analyse-1+ analyse) args)
+        =func (&&/analyse-1 analyse
+                            (&type/function-type (&/|map &&/expr-type* =args)
+                                                 exo-type)
+                            func)]
+    (return (&/|list (&&/|meta exo-type cursor
+                               (&&/$apply =func =args)
+                               )))))
+
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [:let [num-branches (&/|length ?branches)]
         _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case\" expression.")

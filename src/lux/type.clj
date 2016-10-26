@@ -970,3 +970,13 @@
 
     _
     (return type)))
+
+(defn function-type
+  "(-> (List Type) Type Type)"
+  [inputs output]
+  (|case inputs
+    (&/$Nil)
+    output
+    
+    (&/$Cons input inputs*)
+    (&/$LambdaT input (function-type inputs* output))))
