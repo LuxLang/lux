@@ -11,7 +11,7 @@
   :pom-addition [:developers [:developer
                               [:name "Eduardo Julian"]
                               [:url "https://github.com/eduardoejp"]]]
-  :dependencies [[org.clojure/clojure "1.6.0"]
+  :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/core.match "0.2.1"]
                  [org.ow2.asm/asm-all "5.0.3"]]
   :warn-on-reflection true
