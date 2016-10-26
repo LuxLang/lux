@@ -298,6 +298,9 @@
 
 (defmacro |let [bindings body]
   (reduce (fn [inner [left right]]
+            (if (symbol? left)
+              `(let [~left ~right]
+                 ~inner))
             `(|case ~right
                ~left
                ~inner))

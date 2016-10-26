@@ -72,8 +72,7 @@
     (doto writer
       stack-peek
       &&/unwrap-boolean
-      (.visitLdcInsn _value)
-      (.visitJumpInsn Opcodes/IF_ICMPNE $else))
+      (.visitJumpInsn (if _value Opcodes/IFEQ Opcodes/IFNE) $else))
 
     (&o/$NatPM _value)
     (doto writer
