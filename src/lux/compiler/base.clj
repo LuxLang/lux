@@ -26,31 +26,31 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-(def ^String output-dir "target/jvm")
-(def ^String output-package (str output-dir "/" "program.jar"))
-(def ^String function-class "lux/Function")
-(def ^String lux-utils-class "lux/LuxRT")
-(def ^String unit-tag-field "unit_tag")
+(def ^:const ^String output-dir "target/jvm")
+(def ^:const ^String output-package (str output-dir "/" "program.jar"))
+(def ^:const ^String function-class "lux/Function")
+(def ^:const ^String lux-utils-class "lux/LuxRT")
+(def ^:const ^String unit-tag-field "unit_tag")
 
 ;; Formats
-(def ^String local-prefix "l")
-(def ^String partial-prefix "p")
-(def ^String closure-prefix "c")
-(def ^String apply-method "apply")
+(def ^:const ^String local-prefix "l")
+(def ^:const ^String partial-prefix "p")
+(def ^:const ^String closure-prefix "c")
+(def ^:const ^String apply-method "apply")
 (defn ^String apply-signature [n]
   (str "(" (apply str (repeat n "Ljava/lang/Object;")) ")Ljava/lang/Object;"))
-(def num-apply-variants 8)
-(def arity-field "_arity_")
-(def partials-field "_partials_")
+(def ^:const num-apply-variants 8)
+(def ^:const arity-field "_arity_")
+(def ^:const partials-field "_partials_")
 
-(def exported-separator " ")
-(def def-separator "\t")
-(def tag-separator " ")
-(def type-separator "\t")
-(def tag-group-separator "\n")
+(def ^:const exported-separator " ")
+(def ^:const def-separator "\t")
+(def ^:const tag-separator " ")
+(def ^:const type-separator "\t")
+(def ^:const tag-group-separator "\n")
 
-(def field-separator "\t")
-(def entry-separator "\n")
+(def ^:const field-separator "\t")
+(def ^:const entry-separator "\n")
 
 ;; [Utils]
 (defn ^:private write-file [^String file-name ^bytes data]
