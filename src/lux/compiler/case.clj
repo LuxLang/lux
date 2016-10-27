@@ -135,20 +135,14 @@
         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
         ))
 
-    (&o/$VariantPM _idx+)
+    (&o/$VariantPM _idx _total)
     (|let [$success (new Label)
            $fail (new Label)
-           [_idx is-last] (|case _idx+
-                            (&/$Left _idx)
-                            (&/T [_idx false])
-
-                            (&/$Right _idx)
-                            (&/T [_idx true]))
            _ (doto writer
                stack-peek
                (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
                (.visitLdcInsn (int _idx)))
-           _ (if is-last
+           _ (if (= _idx (dec _total))
                (.visitLdcInsn writer "")
                (.visitInsn writer Opcodes/ACONST_NULL))]
       (doto writer
@@ -175,6 +169,55 @@
         (.visitLabel $alt-else)
         (.visitInsn Opcodes/POP)
         (compile-pattern* bodies stack-depth $else _right-pm)))
+
+    (&o/$AltVariantPM _total _branches _?default)
+    (|let [$default (|case _?default
+                      (&/$Some _)
+                      (new Label)
+
+                      _
+                      $else)
+           $branches (make-array Label (alength _branches))
+           _ (amap _branches
+                   idx 
+                   ret 
+                   (aset $branches idx (if (aget _branches idx)
+                                         (new Label)
+                                         $default)))
+           writer (doto writer
+                    stack-peek
+                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                    (.visitLdcInsn (int 0))
+                    (.visitInsn Opcodes/AALOAD)
+                    &&/unwrap-int
+                    (.visitTableSwitchInsn 0 (dec _total) $default $branches))
+           writer (|case _?default
+                    (&/$Some _default)
+                    (doto writer
+                      (.visitLabel $default)
+                      (compile-pattern* bodies stack-depth $else _default))
+
+                    _
+                    writer)
+           _ (amap _branches
+                   idx
+                   _
+                   (if-let [_branch (aget _branches idx)]
+                     (do (doto writer
+                           (.visitLabel (aget $branches idx))
+                           stack-peek
+                           (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                           (.visitLdcInsn (int idx)))
+                       (if (= idx (dec _total))
+                         (.visitLdcInsn writer "")
+                         (.visitInsn writer Opcodes/ACONST_NULL))
+                       (doto writer
+                         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
+                         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                         (compile-pattern* bodies stack-depth $default _branch)))
+                     nil)
+                   )]
+      writer)
     ))
 
 (defn ^:private compile-pattern [^MethodVisitor writer bodies pm $end]

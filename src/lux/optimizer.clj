@@ -85,7 +85,7 @@
   ("TextPM" 1)
   ;; Compare the CDN with a variant value. If valid, proceed to test
   ;; the variant's inner value.
-  ("VariantPM" 1)
+  ("VariantPM" 2)
   ;; Access a tuple value at a given index, for further examination.
   ("TuplePM" 1)
   ;; Creates an instance of the backtracking info, as a preparatory
@@ -99,7 +99,13 @@
   ;; This is the jumping-off point for the PM part, where the PM
   ;; data-structure is thrown away and the program jumps to the
   ;; branch's body.
-  ("ExecPM" 1))
+  ("ExecPM" 1)
+
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+  ("AltVariantPM" 3)
+  
+  )
 
 (defn de-meta
   "(-> Optimized Optimized)"
@@ -209,9 +215,7 @@
              $PopPM)
 
     (&a-case/$VariantTestAC _idx _num-options _sub-test)
-    (&/|++ (&/|list ($VariantPM (if (= _idx (dec _num-options))
-                                  (&/$Right _idx)
-                                  (&/$Left _idx))))
+    (&/|++ (&/|list ($VariantPM _idx _num-options))
            (&/|++ (transform-pm* _sub-test)
                   (&/|list $PopPM)))
 
@@ -305,11 +309,8 @@
     ($TuplePM (&/$Right _idx))
     (str "($TuplePM R" _idx ")")
 
-    ($VariantPM (&/$Left _idx))
-    (str "($VariantPM L" _idx ")")
-
-    ($VariantPM (&/$Right _idx))
-    (str "($VariantPM R" _idx ")")
+    ($VariantPM _idx _total)
+    (str "($VariantPM " _idx " < " _total ")")
 
     ($SeqPM _left _right)
     (str "($SeqPM " (pattern->text _left) " " (pattern->text _right) ")")
@@ -317,8 +318,13 @@
     ($ExecPM _idx)
     (str "($ExecPM " _idx ")")
 
-    ;; $AltPM is not considered because it's not supposed to be
-    ;; present anywhere at this point in time.
+    ($AltPM _left _right)
+    (str "($AltPM " (pattern->text _left) " " (pattern->text _right) ")")
+
+    ($AltVariantPM _rtotal _rbranches _rdefault)
+    (|let [populated (areduce _rbranches idx ret 0
+                              (+ ret (if (aget _rbranches idx) 1 0)))]
+      (str "($AltVariantPM " populated " :: " _rtotal ")"))
     ))
 
 ;; This function fuses together the paths of the PM traversal, adding
@@ -381,14 +387,10 @@
       ($TuplePM (&/$Right _pre-idx))
       ($AltPM pre post))
 
-    [($VariantPM (&/$Left _pre-idx)) ($VariantPM (&/$Left _post-idx))]
-    (if (= _pre-idx _post-idx)
-      ($VariantPM (&/$Left _pre-idx))
-      ($AltPM pre post))
-
-    [($VariantPM (&/$Right _pre-idx)) ($VariantPM (&/$Right _post-idx))]
-    (if (= _pre-idx _post-idx)
-      ($VariantPM (&/$Right _pre-idx))
+    [($VariantPM _pre-idx _pre-total) ($VariantPM _post-idx _post-total)]
+    (if (and (= _pre-idx _post-idx)
+             (= _pre-total _post-total))
+      ($VariantPM _pre-idx _pre-total)
       ($AltPM pre post))
 
     [($SeqPM _pre-pre _pre-post) ($SeqPM _post-pre _post-post)]
@@ -402,6 +404,87 @@
     _
     ($AltPM pre post)
     ))
+
+(defn ^:private find-super-variants
+  "(-> PM-Tree Bool)"
+  [pm]
+  (|case pm
+    ($AltPM ($SeqPM ($VariantPM _) _)
+            right)
+    (|case right
+      ($SeqPM ($VariantPM _) _)
+      true
+
+      ($SeqPM ($BindPM _) ($ExecPM _))
+      true
+
+      ($SeqPM ($PopPM) ($ExecPM _))
+      true
+
+      ($ExecPM _)
+      true
+
+      _
+      (find-super-variants right))
+
+    _
+    false))
+
+(defn ^:private optimize-variant-pm
+  "(-> PM-Tree PM-Tree)"
+  [pm]
+  (|case pm
+    ($AltPM ($SeqPM ($VariantPM _lidx _ltotal) _ltail)
+            right)
+    (|case right
+      ($SeqPM ($VariantPM _ridx _rtotal) _rtail)
+      (|let [branches (object-array _ltotal)]
+        (if (and (not= _lidx _ridx)
+                 (= _ltotal _rtotal))
+          ($AltVariantPM _ltotal
+                         (doto branches
+                           (aset _lidx _ltail)
+                           (aset _ridx _rtail))
+                         &/$None)
+          pm))
+      
+      ($SeqPM ($BindPM _) ($ExecPM _))
+      (|let [branches (object-array _ltotal)]
+        ($AltVariantPM _ltotal
+                       (doto branches
+                         (aset _lidx _ltail))
+                       (&/$Some right)))
+
+      ($SeqPM ($PopPM) ($ExecPM _))
+      (|let [branches (object-array _ltotal)]
+        ($AltVariantPM _ltotal
+                       (doto branches
+                         (aset _lidx _ltail))
+                       (&/$Some right)))
+
+      ($ExecPM _)
+      (|let [branches (object-array _ltotal)]
+        ($AltVariantPM _ltotal
+                       (doto branches
+                         (aset _lidx _ltail))
+                       (&/$Some right)))
+      
+      _
+      (|case (optimize-variant-pm right)
+        ($AltVariantPM _rtotal _rbranches _rdefault)
+        (if (and (nil? (aget _rbranches _lidx))
+                 (= _ltotal _rtotal))
+          ($AltVariantPM _rtotal
+                         (doto _rbranches
+                           (aset _lidx _ltail))
+                         _rdefault)
+          pm)
+
+        _
+        pm))
+
+    _
+    pm))
 
 (defn ^:private pattern-vars [pattern]
   (|case pattern
@@ -1113,11 +1196,25 @@
         
         (&a/$case value branches)
         (let [normal-case-optim (fn []
-                                  (&/T [meta ($case (pass-0 top-level-func? value)
-                                                    (optimize-pm (&/|map (fn [branch]
-                                                                           (|let [[_pattern _body] branch]
-                                                                             (&/T [_pattern (pass-0 top-level-func? _body)])))
-                                                                         branches)))]))]
+                                  (|let [[pm-tree bodies] (optimize-pm (&/|map (fn [branch]
+                                                                                 (|let [[_pattern _body] branch]
+                                                                                   (&/T [_pattern (pass-0 top-level-func? _body)])))
+                                                                               branches))
+                                         pm (if (find-super-variants pm-tree)
+                                              (|let [ov-pm (optimize-variant-pm pm-tree)]
+                                                (do (prn 'SUPER-VARIANT (pattern->text ov-pm))
+                                                  (&/T [ov-pm bodies])))
+                                              (do (|case pm-tree
+                                                    ($ExecPM _)
+                                                    (prn 'PATTERN (pattern->text pm-tree))
+
+                                                    _
+                                                    (prn 'EXEC ;; (&/->seq (&/|map (comp &/adt->text &/|first) branches))
+                                                         ))
+                                                (&/T [pm-tree bodies])))
+                                         ]
+                                    (&/T [meta ($case (pass-0 top-level-func? value)
+                                                      pm)])))]
           (|case branches
             ;; The pattern for a let-expression is a single branch,
             ;; tying the value to a register.
