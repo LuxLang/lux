@@ -132,8 +132,6 @@
    "module-states"
    "type-env"
    "dummy-mappings"
-   "frame-registers"
-   "frame-stack"
    ])
 
 ;; Compiler
@@ -765,30 +763,7 @@
         ;; lux;type-env
         (|table)
         ;; lux;dummy-mappings
-        (|table)
-        ;; frame-registers
-        []
-        ;; frame-stack
-        []
-        ])))
-
-(do-template [<tag> <with> <get>]
-  (do (defn <with> [registers body]
-        (fn [state]
-          (let [old (->> state (get$ $host) (get$ <tag>))]
-            (|case (body (update$ $host #(set$ <tag> (into old registers) %) state))
-              ($Right state* output)
-              (return* (update$ $host #(set$ <tag> old %) state*) output)
-
-              ($Left msg)
-              (fail* msg)))))
-    (def <get>
-      (fn [state]
-        (return* state (->> state (get$ $host) (get$ <tag>))))))
-
-  $frame-registers with-frame-registers get-frame-registers
-  $frame-stack     with-frame-stack     get-frame-stack
-  )
+        (|table)])))
 
 (defn with-no-catches [body]
   "(All [a] (-> (Lux a) (Lux a)))"

@@ -118,13 +118,8 @@
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
-              :let [frame-registers (list* class-name (repeat arity "java/lang/Object"))]
-              ret (&/with-frame-registers frame-registers
-                    (compile $begin impl-body))
+              ret (compile $begin impl-body)
               :let [_ (doto *writer*
-                        ;; (.visitFrame Opcodes/F_NEW
-                        ;;              (count frame-registers) (to-array frame-registers)
-                        ;;              1 (to-array ["java/lang/Object"]))
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
                         (.visitEnd))]]
@@ -233,13 +228,8 @@
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
-              :let [frame-registers (list* class-name (repeat arity "java/lang/Object"))]
-              ret (&/with-frame-registers frame-registers
-                    (compile $begin impl-body))
+              ret (compile $begin impl-body)
               :let [_ (doto *writer*
-                        ;; (.visitFrame Opcodes/F_NEW
-                        ;;              (count frame-registers) (to-array frame-registers)
-                        ;;              1 (to-array ["java/lang/Object"]))
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
                         (.visitEnd))]]
