@@ -45,15 +45,20 @@
     (.visitInsn Opcodes/DUP)
     (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")))
 
-(defn ^:private compile-pattern* [^MethodVisitor writer bodies stack-depth $else pm]
+(defn ^:private compile-pattern*
   "(-> MethodVisitor Case-Pattern (List Label) Int Label MethodVisitor)"
+  [^MethodVisitor writer current-registers frame-registers total-registers-per-body bodies stack-depth $else pm]
   (|case pm
     (&o/$ExecPM _body-idx)
     (|case (&/|at _body-idx bodies)
       (&/$Some $body)
-      (doto writer
-        (pop-alt-stack stack-depth)
-        (.visitJumpInsn Opcodes/GOTO $body))
+      (do (aset total-registers-per-body _body-idx current-registers)
+        (doto writer
+          (pop-alt-stack stack-depth)
+          ;; (.visitFrame Opcodes/F_NEW
+          ;;              (count current-registers) (to-array current-registers)
+          ;;              0 (to-array []))
+          (.visitJumpInsn Opcodes/GOTO $body)))
 
       (&/$None)
       (assert false))
@@ -62,11 +67,16 @@
     (doto writer
       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
 
-    (&o/$BindPM _var-id)
-    (doto writer
-      stack-peek
-      (.visitVarInsn Opcodes/ASTORE _var-id)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
+    (&o/$SeqPM (&o/$BindPM _var-id) _right-pm)
+    (|let [current-registers* (conj current-registers "java/lang/Object")]
+      (doto writer
+        stack-peek
+        (.visitVarInsn Opcodes/ASTORE _var-id)
+        ;; (.visitFrame Opcodes/F_NEW
+        ;;              (count current-registers*) (to-array current-registers*)
+        ;;              0 (to-array []))
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;")
+        (compile-pattern* current-registers* frame-registers total-registers-per-body bodies stack-depth $else _right-pm)))
 
     (&o/$BoolPM _value)
     (doto writer
@@ -158,25 +168,25 @@
 
     (&o/$SeqPM _left-pm _right-pm)
     (doto writer
-      (compile-pattern* bodies stack-depth $else _left-pm)
-      (compile-pattern* bodies stack-depth $else _right-pm))
+      (compile-pattern* current-registers frame-registers total-registers-per-body bodies stack-depth $else _left-pm)
+      (compile-pattern* current-registers frame-registers total-registers-per-body bodies stack-depth $else _right-pm))
 
     (&o/$AltPM _left-pm _right-pm)
     (|let [$alt-else (new Label)]
       (doto writer
         (.visitInsn Opcodes/DUP)
-        (compile-pattern* bodies (inc stack-depth) $alt-else _left-pm)
+        (compile-pattern* current-registers frame-registers total-registers-per-body bodies (inc stack-depth) $alt-else _left-pm)
         (.visitLabel $alt-else)
         (.visitInsn Opcodes/POP)
-        (compile-pattern* bodies stack-depth $else _right-pm)))
+        (compile-pattern* current-registers frame-registers total-registers-per-body bodies stack-depth $else _right-pm)))
 
     (&o/$AltVariantPM _total _branches _?default)
-    (|let [$default (|case _?default
-                      (&/$Some _)
-                      (new Label)
+    (|let [$default (new Label);; (|case _?default
+           ;; (&/$Some _)
+           ;; (new Label)
 
-                      _
-                      $else)
+           ;; _
+           ;; $else)
            $branches (make-array Label (alength _branches))
            _ (amap _branches
                    idx 
@@ -190,21 +200,35 @@
                     (.visitLdcInsn (int 0))
                     (.visitInsn Opcodes/AALOAD)
                     &&/unwrap-int
+                    ;; (.visitFrame Opcodes/F_NEW
+                    ;;              (count frame-registers) (to-array frame-registers)
+                    ;;              2 (to-array ["[Ljava/lang/Object;" Opcodes/INTEGER]))
                     (.visitTableSwitchInsn 0 (dec _total) $default $branches))
            writer (|case _?default
                     (&/$Some _default)
                     (doto writer
                       (.visitLabel $default)
-                      (compile-pattern* bodies stack-depth $else _default))
+                      ;; (.visitFrame Opcodes/F_NEW
+                      ;;              (count frame-registers) (to-array frame-registers)
+                      ;;              1 (to-array ["[Ljava/lang/Object;"]))
+                      (compile-pattern* current-registers frame-registers total-registers-per-body bodies stack-depth $else _default))
 
                     _
-                    writer)
+                    (doto writer
+                      (.visitLabel $default)
+                      ;; (.visitFrame Opcodes/F_NEW
+                      ;;              (count frame-registers) (to-array frame-registers)
+                      ;;              1 (to-array ["[Ljava/lang/Object;"]))
+                      (.visitJumpInsn Opcodes/GOTO $else)))
            _ (amap _branches
                    idx
                    _
                    (if-let [_branch (aget _branches idx)]
                      (do (doto writer
                            (.visitLabel (aget $branches idx))
+                           ;; (.visitFrame Opcodes/F_NEW
+                           ;;              (count frame-registers) (to-array frame-registers)
+                           ;;              1 (to-array ["[Ljava/lang/Object;"]))
                            stack-peek
                            (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
                            (.visitLdcInsn (int idx)))
@@ -214,42 +238,65 @@
                        (doto writer
                          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
                          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
-                         (compile-pattern* bodies stack-depth $default _branch)))
+                         (compile-pattern* current-registers frame-registers total-registers-per-body bodies stack-depth $default _branch)))
                      nil)
                    )]
       writer)
     ))
 
-(defn ^:private compile-pattern [^MethodVisitor writer bodies pm $end]
+(defn ^:private compile-pattern [^MethodVisitor writer current-registers frame-registers total-registers-per-body bodies pm $end]
   (|let [$else (new Label)]
     (doto writer
-      (compile-pattern* bodies 1 $else pm)
+      (compile-pattern* current-registers frame-registers total-registers-per-body bodies 1 $else pm)
       (.visitLabel $else)
+      ;; (.visitFrame Opcodes/F_NEW
+      ;;              (count frame-registers) (to-array frame-registers)
+      ;;              1 (to-array ["[Ljava/lang/Object;"]))
       (.visitInsn Opcodes/POP)
       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_fail" "()V")
       (.visitInsn Opcodes/ACONST_NULL)
+      ;; (.visitFrame Opcodes/F_NEW
+      ;;              (count frame-registers) (to-array frame-registers)
+      ;;              1 (to-array ["java/lang/Object"]))
       (.visitJumpInsn Opcodes/GOTO $end))))
 
-(defn ^:private compile-bodies [^MethodVisitor writer compile bodies-labels ?bodies $end]
-  (&/map% (fn [label+body]
-            (|let [[_label _body] label+body]
-              (|do [:let [_ (.visitLabel writer _label)]
-                    _ (compile _body)
-                    :let [_ (.visitJumpInsn writer Opcodes/GOTO $end)]]
+(defn ^:private compile-bodies [^MethodVisitor writer compile frame-registers total-registers-per-body bodies-labels ?bodies $end]
+  (&/map% (fn [label+registers+body]
+            (|let [[_label [registers _body]] label+registers+body]
+              (|do [:let [_ (doto writer
+                              (.visitLabel _label)
+                              ;; (.visitFrame Opcodes/F_NEW
+                              ;;              (count registers) (to-array registers)
+                              ;;              0 (to-array []))
+                              )]
+                    _ (&/with-frame-registers registers
+                        (compile _body))
+                    :let [_ (doto writer
+                              (.visitJumpInsn Opcodes/GOTO $end))]]
                 (return nil))))
-          (&/zip2 bodies-labels ?bodies)))
+          (&/zip2 bodies-labels
+                  (&/zip2 (->> total-registers-per-body seq &/->list)
+                          ?bodies))))
 
 ;; [Resources]
 (defn compile-case [compile ?value ?pm ?bodies]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)
-              bodies-labels (&/|map (fn [_] (new Label)) ?bodies)]
+              bodies-labels (&/|map (fn [_] (new Label)) ?bodies)
+              total-registers-per-body (object-array (&/|length ?bodies))]
         _ (compile ?value)
+        frame-registers &/get-frame-registers
         :let [_ (doto *writer*
                   (.visitInsn Opcodes/ACONST_NULL)
                   (.visitInsn Opcodes/SWAP)
                   (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
-              _ (compile-pattern *writer* bodies-labels ?pm $end)]
-        _ (compile-bodies *writer* compile bodies-labels ?bodies $end)
+              _ (compile-pattern *writer*
+                                 frame-registers
+                                 frame-registers
+                                 total-registers-per-body
+                                 bodies-labels
+                                 ?pm
+                                 $end)]
+        _ (compile-bodies *writer* compile frame-registers total-registers-per-body bodies-labels ?bodies $end)
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))

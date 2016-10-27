@@ -775,6 +775,21 @@
     ($AltPM _left-pm _right-pm)
     ($AltPM (shift-pattern _left-pm) (shift-pattern _right-pm))
 
+    ($AltVariantPM _total _branches _default)
+    ($AltVariantPM _total
+                   (amap _branches
+                         idx
+                         ret
+                         (if-let [_branch (aget _branches idx)]
+                           (shift-pattern _branch)
+                           nil))
+                   (|case _default
+                     (&/$Some _default*)
+                     (&/$Some (shift-pattern _default*))
+
+                     _
+                     _default))
+
     _
     pattern
     ))
@@ -1202,7 +1217,7 @@
                                                                                branches))
                                          pm (if (find-super-variants pm-tree)
                                               (|let [ov-pm (optimize-variant-pm pm-tree)]
-                                                (do (prn 'SUPER-VARIANT (pattern->text ov-pm))
+                                                (do (prn 'SUPER-VARIANT (pattern->text ov-pm) (pattern->text pm-tree))
                                                   (&/T [ov-pm bodies])))
                                               (do (|case pm-tree
                                                     ($ExecPM _)

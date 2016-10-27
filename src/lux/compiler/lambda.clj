@@ -118,8 +118,13 @@
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
-              ret (compile $begin impl-body)
+              :let [frame-registers (list* class-name (repeat arity "java/lang/Object"))]
+              ret (&/with-frame-registers frame-registers
+                    (compile $begin impl-body))
               :let [_ (doto *writer*
+                        ;; (.visitFrame Opcodes/F_NEW
+                        ;;              (count frame-registers) (to-array frame-registers)
+                        ;;              1 (to-array ["java/lang/Object"]))
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
                         (.visitEnd))]]
@@ -171,8 +176,6 @@
           $labels (vec (concat $labels* (list $default)))
           $end (new Label)
           method-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature +degree+) nil nil)
-          frame-locals (to-array (list class-name "java/lang/Object" "java/lang/Object"))
-          frame-stack (to-array [Opcodes/INTEGER])
           arity-over-extent (- arity +degree+)]
       (do (doto method-writer
             (.visitCode)
@@ -230,8 +233,13 @@
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
-              ret (compile $begin impl-body)
+              :let [frame-registers (list* class-name (repeat arity "java/lang/Object"))]
+              ret (&/with-frame-registers frame-registers
+                    (compile $begin impl-body))
               :let [_ (doto *writer*
+                        ;; (.visitFrame Opcodes/F_NEW
+                        ;;              (count frame-registers) (to-array frame-registers)
+                        ;;              1 (to-array ["java/lang/Object"]))
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
                         (.visitEnd))]]
