@@ -1058,6 +1058,21 @@
     ($AltPM (pm-loop-transform register-offset direct? _left-pm)
             (pm-loop-transform register-offset direct? _right-pm))
 
+    ($AltVariantPM _total _branches _default)
+    ($AltVariantPM _total
+                   (amap _branches
+                         idx
+                         ret
+                         (if-let [_branch (aget _branches idx)]
+                           (pm-loop-transform register-offset direct? _branch)
+                           nil))
+                   (|case _default
+                     (&/$Some _default*)
+                     (&/$Some (pm-loop-transform register-offset direct? _default*))
+
+                     _
+                     _default))
+
     _
     pattern
     ))
@@ -1217,16 +1232,8 @@
                                                                                branches))
                                          pm (if (find-super-variants pm-tree)
                                               (|let [ov-pm (optimize-variant-pm pm-tree)]
-                                                (do (prn 'SUPER-VARIANT (pattern->text ov-pm) (pattern->text pm-tree))
-                                                  (&/T [ov-pm bodies])))
-                                              (do (|case pm-tree
-                                                    ($ExecPM _)
-                                                    (prn 'PATTERN (pattern->text pm-tree))
-
-                                                    _
-                                                    (prn 'EXEC ;; (&/->seq (&/|map (comp &/adt->text &/|first) branches))
-                                                         ))
-                                                (&/T [pm-tree bodies])))
+                                                (&/T [ov-pm bodies]))
+                                              (&/T [pm-tree bodies]))
                                          ]
                                     (&/T [meta ($case (pass-0 top-level-func? value)
                                                       pm)])))]
