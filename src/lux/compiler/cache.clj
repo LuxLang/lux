@@ -76,6 +76,17 @@
           bytecode (read-file file)]
       (swap! !classes assoc (str module* "." real-name) bytecode))))
 
+(defn ^:private assume-async-result
+  "(-> (Error Compiler) (Lux Null))"
+  [result]
+  (fn [_]
+    (|case result
+      (&/$Left error)
+      (&/$Left error)
+
+      (&/$Right compiler)
+      (return* compiler nil))))
+
 (let [->regex (fn [text] (re-pattern (java.util.regex.Pattern/quote text)))
       entry-separator-re (->regex &&/entry-separator)
       field-separator-re (->regex &&/field-separator)
@@ -88,8 +99,9 @@
     (|do [already-loaded? (&a-module/exists? module)]
       (if already-loaded?
         (return module-hash)
-        (|let [redo-cache (|do [_ (delete module)]
-                            (compile-module module))]
+        (|let [redo-cache (|do [_ (delete module)
+                                async (compile-module module)]
+                            (assume-async-result @async))]
           (if (cached? module)
             (|do [loader &/loader
                   !classes &/classes
