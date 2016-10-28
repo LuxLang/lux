@@ -321,7 +321,7 @@
     ($AltPM _left _right)
     (str "($AltPM " (pattern->text _left) " " (pattern->text _right) ")")
 
-    ($AltVariantPM _rtotal _rbranches _rdefault)
+    ($AltVariantPM _rtotal ^objects _rbranches _rdefault)
     (|let [populated (areduce _rbranches idx ret 0
                               (+ ret (if (aget _rbranches idx) 1 0)))]
       (str "($AltVariantPM " populated " :: " _rtotal ")"))
@@ -471,7 +471,7 @@
       
       _
       (|case (optimize-variant-pm right)
-        ($AltVariantPM _rtotal _rbranches _rdefault)
+        ($AltVariantPM _rtotal ^objects _rbranches _rdefault)
         (if (and (nil? (aget _rbranches _lidx))
                  (= _ltotal _rtotal))
           ($AltVariantPM _rtotal
@@ -775,7 +775,7 @@
     ($AltPM _left-pm _right-pm)
     ($AltPM (shift-pattern _left-pm) (shift-pattern _right-pm))
 
-    ($AltVariantPM _total _branches _default)
+    ($AltVariantPM _total ^objects _branches _default)
     ($AltVariantPM _total
                    (amap _branches
                          idx
@@ -1058,7 +1058,7 @@
     ($AltPM (pm-loop-transform register-offset direct? _left-pm)
             (pm-loop-transform register-offset direct? _right-pm))
 
-    ($AltVariantPM _total _branches _default)
+    ($AltVariantPM _total ^objects _branches _default)
     ($AltVariantPM _total
                    (amap _branches
                          idx

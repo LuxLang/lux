@@ -516,6 +516,13 @@
                   (.visitEnd =interface))]]
     (&&/save-class! interface-name (.toByteArray =interface))))
 
+(defn ^:private array-get!! [^MethodVisitor writer known-array? idx]
+  (doto writer
+    (-> (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (->> (when (not known-array?))))
+    (.visitLdcInsn (int idx))
+    (.visitInsn Opcodes/AALOAD)))
+
 (def compile-Function-class
   (|do [_ (return nil)
         :let [super-class "java/lang/Object"
@@ -685,6 +692,53 @@
                (.visitInsn Opcodes/POP2)
                (.visitInsn Opcodes/ACONST_NULL)
                (.visitInsn Opcodes/ARETURN)
+               (.visitMaxs 0 0)
+               (.visitEnd)))
+         _ (let [$search-start (new Label)
+                 $easy (new Label)
+                 $search-over (new Label)
+                 $must-go-on (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_idx" "([Ljava/lang/Object;I)I" nil nil)
+               (.visitCode)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (array-get!! true 1) ;; last?
+               (.visitJumpInsn Opcodes/IFNULL $easy)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; HARD PATH
+               ;; Counter initialization
+               (.visitLdcInsn (int 0))
+               (.visitVarInsn Opcodes/ISTORE 2)
+               ;; Search-loop start
+               (.visitLabel $search-start)
+               ;; Update counter
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitVarInsn Opcodes/ALOAD 0) (array-get!! true 0) &&/unwrap-int
+               (.visitInsn Opcodes/IADD) (.visitVarInsn Opcodes/ISTORE 2)
+               ;; I need to make sure I don't go overboard.
+               (.visitVarInsn Opcodes/ILOAD 2) ;; counter
+               (.visitVarInsn Opcodes/ILOAD 1) ;; limit
+               (.visitJumpInsn Opcodes/IF_ICMPLT $must-go-on) ;; counter < limit
+               ;; Reached limit. Search is over...
+               (.visitJumpInsn Opcodes/GOTO $search-over)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SEARCH GOES ON
+               (.visitLabel $must-go-on)
+               ;; Figure out if the search can continue
+               (.visitVarInsn Opcodes/ALOAD 0) (array-get!! true 1) ;; "last?" flag
+               (.visitJumpInsn Opcodes/IFNULL $search-over)
+               ;; Update sum & continue search
+               (.visitVarInsn Opcodes/ALOAD 0) (array-get!! true 2) (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+               (.visitVarInsn Opcodes/ASTORE 0)
+               (.visitJumpInsn Opcodes/GOTO $search-start)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SEARCH IS OVER
+               (.visitLabel $search-over)
+               ;; Return counter so far
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/IRETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; EASY PATH
+               (.visitLabel $easy)
+               ;; Get original tag and return it.
+               (.visitVarInsn Opcodes/ALOAD 0) (array-get!! true 0) &&/unwrap-int
+               (.visitInsn Opcodes/IRETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                (.visitMaxs 0 0)
                (.visitEnd)))
          _ (let [;; $is-null (new Label)

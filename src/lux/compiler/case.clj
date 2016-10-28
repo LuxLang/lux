@@ -45,13 +45,13 @@
     (.visitInsn Opcodes/DUP)
     (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")))
 
-(defn ^:private sum-value!! [writer]
+(defn ^:private sum-value!! [^MethodVisitor writer]
   (doto writer
     (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
     (.visitLdcInsn (int 2))
     (.visitInsn Opcodes/AALOAD)))
 
-(defn ^:private sum-get!! [idx total writer]
+(defn ^:private sum-get!! [idx total ^MethodVisitor writer]
   (do (doto writer
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitLdcInsn (int idx)))
@@ -186,7 +186,7 @@
         (.visitInsn Opcodes/POP)
         (compile-pattern* bodies stack-depth $else _right-pm)))
 
-    (&o/$AltVariantPM _total _branches _?default)
+    (&o/$AltVariantPM _total ^objects _branches _?default)
     (|let [$alt-else (new Label)
            $default (|case _?default
                       (&/$Some _)
@@ -194,20 +194,22 @@
 
                       _
                       $else)
-           $branches (make-array Label (alength _branches))
+           $branches ^objects (make-array Label (alength _branches))
            _ (amap _branches
                    idx 
                    ret 
                    (aset $branches idx (if (aget _branches idx)
                                          (new Label)
                                          $default)))
+           limit (int (dec _total))
            writer (doto writer
                     stack-peek
                     (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                    (.visitLdcInsn (int 0))
-                    (.visitInsn Opcodes/AALOAD)
-                    &&/unwrap-int
-                    (.visitTableSwitchInsn 0 (dec _total) $default $branches))
+                    (.visitLdcInsn limit)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_idx" "([Ljava/lang/Object;I)I")
+                    (.visitLdcInsn limit)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Math" "min" "(II)I")
+                    (.visitTableSwitchInsn 0 limit $default $branches))
            writer (doto writer
                     (.visitLabel $alt-else)
                     (.visitInsn Opcodes/POP)

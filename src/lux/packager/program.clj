@@ -67,7 +67,7 @@
 (defn ^:private write-resources!
   "(-> JarOutputStream (List Text) Null)"
   [^JarOutputStream out resources-dirs]
-  (doseq [resources-dir (&/->seq resources-dirs)
+  (doseq [^String resources-dir (&/->seq resources-dirs)
           :let [resources-dir (new File resources-dir)]
           :when (.exists resources-dir)
           ^File res (.listFiles resources-dir)
