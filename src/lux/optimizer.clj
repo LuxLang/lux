@@ -401,34 +401,12 @@
       fused-pre
       ($SeqPM fused-pre (fuse-pms _pre-post _post-post)))
 
+    [($AltPM left right) _]
+    ($AltPM left (fuse-pms right post))
+    
     _
     ($AltPM pre post)
     ))
-
-(defn ^:private find-super-variants
-  "(-> PM-Tree Bool)"
-  [pm]
-  (|case pm
-    ($AltPM ($SeqPM ($VariantPM _) _)
-            right)
-    (|case right
-      ($SeqPM ($VariantPM _) _)
-      true
-
-      ($SeqPM ($BindPM _) ($ExecPM _))
-      true
-
-      ($SeqPM ($PopPM) ($ExecPM _))
-      true
-
-      ($ExecPM _)
-      true
-
-      _
-      (find-super-variants right))
-
-    _
-    false))
 
 (defn ^:private optimize-variant-pm
   "(-> PM-Tree PM-Tree)"
@@ -443,8 +421,8 @@
                  (= _ltotal _rtotal))
           ($AltVariantPM _ltotal
                          (doto branches
-                           (aset _lidx _ltail)
-                           (aset _ridx _rtail))
+                           (aset _lidx (optimize-variant-pm _ltail))
+                           (aset _ridx (optimize-variant-pm _rtail)))
                          &/$None)
           pm))
       
@@ -452,36 +430,47 @@
       (|let [branches (object-array _ltotal)]
         ($AltVariantPM _ltotal
                        (doto branches
-                         (aset _lidx _ltail))
+                         (aset _lidx (optimize-variant-pm _ltail)))
                        (&/$Some right)))
 
       ($SeqPM ($PopPM) ($ExecPM _))
       (|let [branches (object-array _ltotal)]
         ($AltVariantPM _ltotal
                        (doto branches
-                         (aset _lidx _ltail))
+                         (aset _lidx (optimize-variant-pm _ltail)))
                        (&/$Some right)))
 
       ($ExecPM _)
       (|let [branches (object-array _ltotal)]
         ($AltVariantPM _ltotal
                        (doto branches
-                         (aset _lidx _ltail))
+                         (aset _lidx (optimize-variant-pm _ltail)))
                        (&/$Some right)))
       
       _
       (|case (optimize-variant-pm right)
         ($AltVariantPM _rtotal ^objects _rbranches _rdefault)
-        (if (and (nil? (aget _rbranches _lidx))
-                 (= _ltotal _rtotal))
-          ($AltVariantPM _rtotal
-                         (doto _rbranches
-                           (aset _lidx _ltail))
-                         _rdefault)
+        (if (= _ltotal _rtotal)
+          (if (aget _rbranches _lidx)
+            ($AltVariantPM _rtotal
+                           (doto _rbranches
+                             (aset _lidx ($AltPM (optimize-variant-pm _ltail)
+                                                 (aget _rbranches _lidx))))
+                           _rdefault)
+            ($AltVariantPM _rtotal
+                           (doto _rbranches
+                             (aset _lidx (optimize-variant-pm _ltail)))
+                           _rdefault))
           pm)
 
         _
         pm))
+
+    ($AltPM left right)
+    ($AltPM (optimize-variant-pm left) (optimize-variant-pm right))
+
+    ($SeqPM prev next)
+    ($SeqPM (optimize-variant-pm prev) (optimize-variant-pm next))
 
     _
     pm))
@@ -1225,18 +1214,16 @@
             (&/T [meta ($apply =func =args)])))
         
         (&a/$case value branches)
-        (let [normal-case-optim (fn []
-                                  (|let [[pm-tree bodies] (optimize-pm (&/|map (fn [branch]
-                                                                                 (|let [[_pattern _body] branch]
-                                                                                   (&/T [_pattern (pass-0 top-level-func? _body)])))
-                                                                               branches))
-                                         pm (if (find-super-variants pm-tree)
-                                              (|let [ov-pm (optimize-variant-pm pm-tree)]
-                                                (&/T [ov-pm bodies]))
-                                              (&/T [pm-tree bodies]))
-                                         ]
-                                    (&/T [meta ($case (pass-0 top-level-func? value)
-                                                      pm)])))]
+        (|let [normal-case-optim (fn []
+                                   (|let [[pm-tree bodies] (optimize-pm (&/|map (fn [branch]
+                                                                                  (|let [[_pattern _body] branch]
+                                                                                    (&/T [_pattern (pass-0 top-level-func? _body)])))
+                                                                                branches))
+                                          pm (&/T [(->> pm-tree
+                                                        optimize-variant-pm)
+                                                   bodies])]
+                                     (&/T [meta ($case (pass-0 top-level-func? value)
+                                                       pm)])))]
           (|case branches
             ;; The pattern for a let-expression is a single branch,
             ;; tying the value to a register.
