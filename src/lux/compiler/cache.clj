@@ -55,16 +55,31 @@
     (do (clean-file (new File (str &&/output-dir "/" (&host/->module-class module))))
       (return* state nil))))
 
+(defn ^:private module-dirs
+  "(-> File (clojure.Seq File))"
+  [^File module]
+  (->> module
+       .listFiles
+       (filter #(.isDirectory %))
+       (map module-dirs)
+       (apply concat)
+       (list* module)))
+
 (defn clean [state]
   "(-> Compiler Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
-        outdated? #(-> ^File % .getName (string/replace &host/module-separator "/") (->> (contains? needed-modules)) not)
-        outdate-files (->> &&/output-dir (new File) .listFiles seq (filter outdated?))
+        output-dir-prefix (str (.getAbsolutePath (new File &&/output-dir)) "/")
+        outdated? #(->> % (contains? needed-modules) not)
+        outdated-modules (->> (new File &&/output-dir)
+                              .listFiles (filter #(.isDirectory %))
+                              (map module-dirs) doall (apply concat)
+                              (map #(-> ^File % .getAbsolutePath (string/replace output-dir-prefix "")))
+                              (filter outdated?))
         program-file (new File &&/output-package)]
     (when (.exists program-file)
       (.delete program-file))
-    (doseq [f outdate-files]
-      (clean-file f))
+    (doseq [^String f outdated-modules]
+      (clean-file (new File (str output-dir-prefix f))))
     nil))
 
 (defn ^:private install-all-classes-in-module [!classes module* ^String module-path]
