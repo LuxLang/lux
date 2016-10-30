@@ -26,8 +26,7 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-(def ^:const ^String output-dir "target/jvm")
-(def ^:const ^String output-package (str output-dir "/" "program.jar"))
+5
 (def ^:const ^String function-class "lux/Function")
 (def ^:const ^String lux-utils-class "lux/LuxRT")
 (def ^:const ^String unit-tag-field "unit_tag")

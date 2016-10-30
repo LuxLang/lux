@@ -30,8 +30,7 @@
                           [lambda :as &&lambda]
                           [module :as &&module]
                           [io :as &&io]
-                          [parallel :as &&parallel])
-            [lux.packager.program :as &packager-program])
+                          [parallel :as &&parallel]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -269,8 +268,7 @@
       (|case (m-action (&/init-state mode))
         (&/$Right ?state _)
         (do (println "Compilation complete!")
-          (&&cache/clean ?state)
-          (&packager-program/package program-module resources-dir))
+          (&&cache/clean ?state))
 
         (&/$Left ?message)
         (assert false ?message)))))
