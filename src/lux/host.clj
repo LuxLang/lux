@@ -427,8 +427,6 @@
         ^ClassLoader loader &/loader
         !classes &/classes
         :let [_ (swap! !classes assoc store-name bytecode)
-              ;; _ (with-open [stream (java.io.BufferedOutputStream. (java.io.FileOutputStream. (str "target/jvm/" dummy-full-name ".class")))]
-              ;;     (.write stream bytecode))
               _ (.loadClass loader store-name)]
         _ (&/push-dummy-name real-name store-name)]
     (return nil)))

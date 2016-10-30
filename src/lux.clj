@@ -25,11 +25,11 @@
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Cons "release" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Nil)))))
-    (time (&compiler/compile-program &/$Release program-module (process-dirs resources-dirs) (process-dirs source-dirs)))
+    (&/$Cons "release" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
+    (time (&compiler/compile-program &/$Release program-module (process-dirs resources-dirs) (process-dirs source-dirs) target-dir))
 
-    (&/$Cons "debug" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Nil)))))
-    (time (&compiler/compile-program &/$Debug program-module (process-dirs resources-dirs) (process-dirs source-dirs)))
+    (&/$Cons "debug" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
+    (time (&compiler/compile-program &/$Debug program-module (process-dirs resources-dirs) (process-dirs source-dirs) target-dir))
 
     (&/$Cons "repl" (&/$Cons source-dirs (&/$Nil)))
     (&repl/repl (process-dirs source-dirs))

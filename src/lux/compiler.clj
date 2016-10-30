@@ -122,10 +122,11 @@
 
 (defn init!
   "(-> (List Text) Null)"
-  [resources-dirs]
-  (do (&&parallel/setup!)
+  [resources-dirs target-dir]
+  (do (reset! &&/!output-dir target-dir)
+    (&&parallel/setup!)
     (reset! !source->last-line {})
-    (.mkdirs (java.io.File. &&/output-dir))
+    (.mkdirs (java.io.File. target-dir))
     (let [class-loader (ClassLoader/getSystemClassLoader)
           addURL (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
                    (.setAccessible true))]
@@ -261,8 +262,8 @@
           ))
       )))
 
-(defn compile-program [mode program-module resources-dir source-dirs]
-  (do (init! resources-dir)
+(defn compile-program [mode program-module resources-dir source-dirs target-dir]
+  (do (init! resources-dir target-dir)
     (let [m-action (|do [_ (compile-module source-dirs "lux")]
                      (compile-module source-dirs program-module))]
       (|case (m-action (&/init-state mode))

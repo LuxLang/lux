@@ -26,7 +26,8 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-5
+(def !output-dir (atom nil))
+
 (def ^:const ^String function-class "lux/Function")
 (def ^:const ^String lux-utils-class "lux/LuxRT")
 (def ^:const ^String unit-tag-field "unit_tag")
@@ -59,14 +60,14 @@
 
 (defn ^:private write-output [module name data]
   (let [module* (&host/->module-class module)
-        module-dir (str output-dir "/" module*)]
+        module-dir (str @!output-dir "/" module*)]
     (.mkdirs (File. module-dir))
     (write-file (str module-dir "/" name ".class") data)))
 
 (defn class-exists? [^String module ^String class-name]
   "(-> Text Text (IO Bool))"
   (|do [_ (return nil)
-        :let [full-path (str output-dir "/" module "/" class-name ".class")
+        :let [full-path (str @!output-dir "/" module "/" class-name ".class")
               exists? (.exists (File. full-path))]]
     (return exists?)))
 

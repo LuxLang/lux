@@ -47,12 +47,12 @@
 
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str &&/output-dir "/" (&host/->module-class module) "/" module-class))))
+  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class))))
 
 (defn delete [module]
   "(-> Text (Lux Null))"
   (fn [state]
-    (do (clean-file (new File (str &&/output-dir "/" (&host/->module-class module))))
+    (do (clean-file (new File (str @&&/!output-dir "/" (&host/->module-class module))))
       (return* state nil))))
 
 (defn ^:private module-dirs
@@ -68,16 +68,13 @@
 (defn clean [state]
   "(-> Compiler Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
-        output-dir-prefix (str (.getAbsolutePath (new File &&/output-dir)) "/")
+        output-dir-prefix (str (.getAbsolutePath (new File @&&/!output-dir)) "/")
         outdated? #(->> % (contains? needed-modules) not)
-        outdated-modules (->> (new File &&/output-dir)
+        outdated-modules (->> (new File @&&/!output-dir)
                               .listFiles (filter #(.isDirectory %))
                               (map module-dirs) doall (apply concat)
                               (map #(-> ^File % .getAbsolutePath (string/replace output-dir-prefix "")))
-                              (filter outdated?))
-        program-file (new File &&/output-package)]
-    (when (.exists program-file)
-      (.delete program-file))
+                              (filter outdated?))]
     (doseq [^String f outdated-modules]
       (clean-file (new File (str output-dir-prefix f))))
     nil))
@@ -121,7 +118,7 @@
             (|do [loader &/loader
                   !classes &/classes
                   :let [module* (&host-generics/->class-name module)
-                        module-path (str &&/output-dir "/" module)
+                        module-path (str @&&/!output-dir "/" module)
                         class-name (str module* "._")
                         old-classes @!classes
                         ^Class module-class (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
