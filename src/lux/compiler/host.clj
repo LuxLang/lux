@@ -130,7 +130,9 @@
 (defn ^:private compile-method-return [^MethodVisitor writer output]
   (|case output
     (&/$GenericClass "void" (&/$Nil))
-    (.visitInsn writer Opcodes/RETURN)
+    (doto writer
+      (.visitInsn Opcodes/POP)
+      (.visitInsn Opcodes/RETURN))
     
     (&/$GenericClass "boolean" (&/$Nil))
     (doto writer
@@ -484,19 +486,22 @@
 
             _
             (return nil))
-        _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
-            (|do [^MethodVisitor =method &/get-writer
-                  :let [_ (doto =method
-                            (.visitCode))]
-                  _ (&/map% (fn [ftriple]
-                              (|let [[fname fgclass fvalue] ftriple]
-                                (compile-jvm-putstatic compile (&/|list (&o/optimize fvalue)) (&/|list ?name fname fgclass))))
-                            (constant-inits ?fields))
-                  :let [_ (doto =method
-                            (.visitInsn Opcodes/RETURN)
-                            (.visitMaxs 0 0)
-                            (.visitEnd))]]
-              (return nil)))]
+        _ (|let [field-inits (constant-inits ?fields)]
+            (if (&/|empty? field-inits)
+              (return nil)
+              (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+                (|do [^MethodVisitor =method &/get-writer
+                      :let [_ (doto =method
+                                (.visitCode))]
+                      _ (&/map% (fn [ftriple]
+                                  (|let [[fname fgclass fvalue] ftriple]
+                                    (compile-jvm-putstatic compile (&/|list (&o/optimize fvalue)) (&/|list ?name fname fgclass))))
+                                field-inits)
+                      :let [_ (doto =method
+                                (.visitInsn Opcodes/RETURN)
+                                (.visitMaxs 0 0)
+                                (.visitEnd))]]
+                  (return nil)))))]
     (&&/save-class! ?name (.toByteArray (doto =class .visitEnd)))))
 
 (defn compile-jvm-interface [interface-decl ?supers ?anns ?methods]

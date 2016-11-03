@@ -104,7 +104,7 @@
 (do-template [<name> <static?> <method-type>]
   (defn <name> [class-loader target method-name args]
     (|let [target-class (Class/forName target true class-loader)]
-      (if-let [[^Method method ^Class declarer] (first (for [^Method =method (.getMethods target-class)
+      (if-let [[^Method method ^Class declarer] (first (for [^Method =method (.getDeclaredMethods target-class)
                                                              :when (and (.equals ^Object method-name (.getName =method))
                                                                         (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
                                                                         (let [param-types (&/->list (seq (.getParameterTypes =method)))]
@@ -394,7 +394,7 @@
 (defn use-dummy-class [class-decl super-class interfaces ctor-args fields methods]
   (|do [module &/get-module-name
         :let [[?name ?params] class-decl
-              dummy-name (str ?name "__DUMMY__")
+              dummy-name ?name;; (str ?name "__DUMMY__")
               dummy-full-name (str module "/" dummy-name)
               real-name (str (&host-generics/->class-name module) "." ?name)
               store-name (str (&host-generics/->class-name module) "." dummy-name)

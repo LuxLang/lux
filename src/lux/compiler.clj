@@ -213,16 +213,20 @@
                                          defs &a-module/defs
                                          imports &a-module/imports
                                          tag-groups &&module/tag-groups
-                                         :let [_ (doto =class
+                                         :let [^String defs-value (->> defs
+                                                                       (&/|filter (fn [_def]
+                                                                                    (|let [[?name ?alias] _def]
+                                                                                      (= "" ?alias))))
+                                                                       (&/|map (fn [_def]
+                                                                                 (|let [[?name ?alias] _def]
+                                                                                   (str ?name
+                                                                                        &&/exported-separator
+                                                                                        ?alias))))
+                                                                       (&/|interpose &&/def-separator)
+                                                                       (&/fold str ""))
+                                               _ (doto =class
                                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/defs-field "Ljava/lang/String;" nil
-                                                                    (->> defs
-                                                                         (&/|map (fn [_def]
-                                                                                   (|let [[?name ?alias] _def]
-                                                                                     (str ?name
-                                                                                          &&/exported-separator
-                                                                                          ?alias))))
-                                                                         (&/|interpose &&/def-separator)
-                                                                         (&/fold str "")))
+                                                                    defs-value)
                                                        .visitEnd)
                                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
                                                                     (->> imports
@@ -240,7 +244,8 @@
                                                                                           (str type &&/type-separator)))))
                                                                          (&/|interpose &&/tag-group-separator)
                                                                          (&/fold str "")))
-                                                       .visitEnd))]
+                                                       .visitEnd)
+                                                   )]
                                          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
                                              (|do [^MethodVisitor **writer** &/get-writer
                                                    :let [_ (.visitCode **writer**)]
