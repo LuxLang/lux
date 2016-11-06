@@ -146,7 +146,7 @@
                          (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/eval-field "Ljava/lang/Object;" nil nil)
                              (doto (.visitEnd)))
                          (.visitSource file-name nil))]
-          _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+          _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
               (|do [^MethodVisitor *writer* &/get-writer
                     :let [_ (.visitCode *writer*)]
                     _ (compile-expression nil expr)
@@ -246,7 +246,7 @@
                                                                          (&/fold str "")))
                                                        .visitEnd)
                                                    )]
-                                         _ (&/with-writer (.visitMethod =class Opcodes/ACC_PUBLIC "<clinit>" "()V" nil nil)
+                                         _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
                                              (|do [^MethodVisitor **writer** &/get-writer
                                                    :let [_ (.visitCode **writer**)]
                                                    _ (&&/compile-meta compile-expression ==anns)
