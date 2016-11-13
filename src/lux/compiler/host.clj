@@ -1088,56 +1088,272 @@
 
 (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
   (defn ^:private compile-LuxRT-nat-methods [^ClassWriter =class]
-    (|let [_ (let [$end (new Label)
-                   ;; $then (new Label)
-                   $else (new Label)
-                   $from (new Label)
+    (|let [;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#677
+           _ (let [$from (new Label)
                    $to (new Label)
-                   $handler (new Label)]
+                   $handler (new Label)
+                   
+                   $good-start (new Label)
+                   $short-enough (new Label)
+                   $bad-digit (new Label)
+                   $out-of-bounds (new Label)]
                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_nat" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
                  (.visitCode)
-                 (.visitVarInsn Opcodes/ALOAD 0)
-                 (.visitLdcInsn "+")
-                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "startsWith" "(Ljava/lang/String;)Z")
-                 (.visitJumpInsn Opcodes/IFEQ $else)
-                 (.visitVarInsn Opcodes/ALOAD 0)
-                 (.visitLdcInsn (int 1))
-                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(I)Ljava/lang/String;")
                  (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
                  (.visitLabel $from)
-                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "clean_separators" "(Ljava/lang/String;)Ljava/lang/String;")
-                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseUnsignedLong" "(Ljava/lang/String;)J")
-                 (.visitLabel $to)
-                 ;; (.visitJumpInsn Opcodes/GOTO $then)
-                 ;; (.visitLabel $then)
-                 (&&/wrap-long)
+                 ;; Remove the + at the beginning...
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitLdcInsn (int 0))
+                 (.visitLdcInsn (int 0))
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
+                 (.visitLdcInsn "+")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
+                 (.visitJumpInsn Opcodes/IFNE $good-start)
+                 ;; Doesn't start with +
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; Starts with +
+                 (.visitLabel $good-start)
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitLdcInsn (int 1))
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
+                 (.visitVarInsn Opcodes/ASTORE 0) ;; Removed the + prefix...
+                 ;; Begin parsing processs
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+                 (.visitLdcInsn (int 18))
+                 (.visitJumpInsn Opcodes/IF_ICMPLE $short-enough)
+                 ;; Too long
+                 ;; Get prefix...
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitLdcInsn (int 0))
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+                 (.visitLdcInsn (int 1))
+                 (.visitInsn Opcodes/ISUB)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseLong" "(Ljava/lang/String;)J")
+                 (.visitInsn Opcodes/DUP2) ;; Clone prefix, for later...
+                 ;; Get last digit...
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+                 (.visitLdcInsn (int 1))
+                 (.visitInsn Opcodes/ISUB)
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
+                 (.visitLdcInsn (int 10))
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Character" "digit" "(CI)I")
+                 ;; Test last digit...
+                 (.visitInsn Opcodes/DUP)
+                 (.visitJumpInsn Opcodes/IFLT $bad-digit)
+                 ;; Good digit...
+                 ;; Stack: prefix::L, prefix::L, last-digit::I
+                 (.visitInsn Opcodes/I2L)
+                 ;; Build the result...
+                 swap2
+                 (.visitLdcInsn (long 10))
+                 (.visitInsn Opcodes/LMUL)
+                 (.visitInsn Opcodes/LADD) ;; Stack: prefix::L, result::L
+                 (.visitInsn Opcodes/DUP2_X2) ;; Stack: result::L, prefix::L, result::L
+                 swap2 ;; Stack: result::L, result::L, prefix::L
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
+                 (.visitJumpInsn Opcodes/IFLT $out-of-bounds)
+                 ;; Within bounds
+                 ;; Stack: result::L
+                 &&/wrap-long
                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-                 (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
-                 (.visitJumpInsn Opcodes/GOTO $end)
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; Out of bounds
+                 (.visitLabel $out-of-bounds)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; Bad digit...
+                 (.visitLabel $bad-digit)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; 18 chars or less
+                 (.visitLabel $short-enough)
+                 (.visitVarInsn Opcodes/ALOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseLong" "(Ljava/lang/String;)J")
+                 &&/wrap-long
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+                 (.visitInsn Opcodes/ARETURN)
+                 (.visitLabel $to)
                  (.visitLabel $handler)
-                 (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Exception"]))
-                 (.visitInsn Opcodes/POP)
                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-                 (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
-                 (.visitJumpInsn Opcodes/GOTO $end)
-                 (.visitLabel $else)
-                 (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 0 (to-array []))
-                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-                 (.visitLabel $end)
-                 (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
                  (.visitInsn Opcodes/ARETURN)
                  (.visitMaxs 0 0)
                  (.visitEnd)))
-           _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_nat" "(J)Ljava/lang/String;" nil nil)
+           ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#172
+           _ (let [$else (new Label)]
+               (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_nat" "(J)Ljava/lang/String;" nil nil)
+                 (.visitCode)
+                 (.visitLdcInsn "+")
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LCMP)
+                 (.visitJumpInsn Opcodes/IFLT $else)
+                 ;; then
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; else
+                 (.visitLabel $else)
+                 ;; Set up parts of the number string...
+                 ;; First digits
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (int 1))
+                 (.visitInsn Opcodes/LUSHR)
+                 (.visitLdcInsn (long 5))
+                 (.visitInsn Opcodes/LDIV) ;; quot
+                 ;; Last digit
+                 (.visitInsn Opcodes/DUP2)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 swap2
+                 (.visitInsn Opcodes/LSUB)
+                 (.visitLdcInsn (long 10))
+                 (.visitInsn Opcodes/LMUL) ;; quot, rem
+                 ;; Conversion to string...
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;") ;; quot, rem*
+                 (.visitInsn Opcodes/DUP_X2);; rem*, quot, rem*
+                 (.visitInsn Opcodes/POP) ;; rem*, quot
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;") ;; rem*, quot*
+                 (.visitInsn Opcodes/SWAP) ;; quot*, rem*
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+                 (.visitInsn Opcodes/ARETURN)
+                 (.visitMaxs 0 0)
+                 (.visitEnd)))
+           ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#215
+           _ (let [$else (new Label)]
+               (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;" nil nil)
+                 (.visitCode)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LCMP)
+                 (.visitJumpInsn Opcodes/IFLT $else)
+                 ;; then
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; else
+                 (.visitLabel $else)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (int 32))
+                 (.visitInsn Opcodes/LUSHR)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
+                 (.visitLdcInsn (int 32))
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "shiftLeft" "(I)Ljava/math/BigInteger;")
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (int 32))
+                 (.visitInsn Opcodes/LSHL)
+                 (.visitLdcInsn (int 32))
+                 (.visitInsn Opcodes/LUSHR)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "add" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
+                 (.visitInsn Opcodes/ARETURN)
+                 (.visitMaxs 0 0)
+                 (.visitEnd)))
+           ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java?av=f#1267
+           _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_compareUnsigned" "(JJ)I" nil nil)
                (.visitCode)
                (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ "toUnsignedString" "(J)Ljava/lang/String;")
-               (.visitLdcInsn "+")
-               (.visitInsn Opcodes/SWAP)
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-               (.visitInsn Opcodes/ARETURN)
+               (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Long" "MIN_VALUE" "J")
+               (.visitInsn Opcodes/LADD)
+               (.visitVarInsn Opcodes/LLOAD 2)
+               (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Long" "MIN_VALUE" "J")
+               (.visitInsn Opcodes/LADD)
+               (.visitInsn Opcodes/LCMP)
+               (.visitInsn Opcodes/IRETURN)
                (.visitMaxs 0 0)
-               (.visitEnd))]
+               (.visitEnd))
+           ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#1290
+           _ (let [$case-1 (new Label)
+                   $0 (new Label)
+                   $case-2 (new Label)]
+               (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "div_nat" "(JJ)J" nil nil)
+                 (.visitCode)
+                 ;; Test #1
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LCMP)
+                 (.visitJumpInsn Opcodes/IFLT $case-1)
+                 ;; Test #2
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LCMP)
+                 (.visitJumpInsn Opcodes/IFGT $case-2)
+                 ;; Case #3
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "divide" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "longValue" "()J")
+                 (.visitInsn Opcodes/LRETURN)
+                 ;; Case #2
+                 (.visitLabel $case-2)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitInsn Opcodes/LDIV)
+                 (.visitInsn Opcodes/LRETURN)
+                 ;; Case #1
+                 (.visitLabel $case-1)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
+                 (.visitJumpInsn Opcodes/IFLT $0)
+                 ;; 1
+                 (.visitLdcInsn (long 1))
+                 (.visitInsn Opcodes/LRETURN)
+                 ;; 0
+                 (.visitLabel $0)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LRETURN)
+                 (.visitMaxs 0 0)
+                 (.visitEnd)))
+           ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#1323
+           _ (let [$case-1 (new Label)
+                   $case-2 (new Label)]
+               (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "rem_nat" "(JJ)J" nil nil)
+                 (.visitCode)
+                 ;; Test #1
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LCMP)
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitLdcInsn (long 0))
+                 (.visitInsn Opcodes/LCMP)
+                 (.visitInsn Opcodes/IAND)
+                 (.visitJumpInsn Opcodes/IFGT $case-1)
+                 ;; Test #2
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
+                 (.visitJumpInsn Opcodes/IFLT $case-2)
+                 ;; Case #3
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "remainder" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
+                 (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "longValue" "()J")
+                 (.visitInsn Opcodes/LRETURN)
+                 ;; Case #2
+                 (.visitLabel $case-2)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitInsn Opcodes/LRETURN)
+                 ;; Case #1
+                 (.visitLabel $case-1)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitInsn Opcodes/LREM)
+                 (.visitInsn Opcodes/LRETURN)
+                 (.visitMaxs 0 0)
+                 (.visitEnd)))]
       nil)))
 
 (defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
@@ -1608,6 +1824,21 @@
                   (.visitLabel $end))]]
     (return nil)))
 
+(defn compile-jvm-synchronized [compile ?values special-args]
+  (|do [:let [(&/$Cons ?monitor (&/$Cons ?expr (&/$Nil))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?monitor)
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/DUP)
+                  (.visitInsn Opcodes/MONITORENTER))]
+        _ (compile ?expr)
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/SWAP)
+                  (.visitInsn Opcodes/MONITOREXIT))]]
+    (return nil)))
+
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values
@@ -1914,41 +2145,41 @@
   ^:private compile-frac-scale Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
   )
 
-(do-template [<name> <wrapper-class> <value-method> <value-method-sig> <wrap> <comp-method> <comp-sig>]
+(do-template [<name> <comp-method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
           _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))
                 _ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ <comp-method> <comp-sig>)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <comp-method> "(JJ)J")
                     (&&/wrap-long))]]
       (return nil)))
 
-  ^:private compile-nat-div "java.lang.Long" "longValue" "()J" &&/wrap-long "divideUnsigned"    "(JJ)J"
-  ^:private compile-nat-rem "java.lang.Long" "longValue" "()J" &&/wrap-long "remainderUnsigned" "(JJ)J"
+  ^:private compile-nat-div "div_nat"
+  ^:private compile-nat-rem "rem_nat"
   )
 
-(do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig> <comp-method> <comp-sig>]
+(do-template [<name> <cmp-output>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
+          :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
           _ (compile ?y)
           :let [_ (doto *writer*
                     (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))
                 $then (new Label)
                 $end (new Label)
                 _ (doto *writer*
@@ -1962,12 +2193,36 @@
                     (.visitLabel $end))]]
       (return nil)))
 
-  ^:private compile-nat-eq Opcodes/LCMP   0 "java.lang.Long"   "longValue"   "()J" "compareUnsigned" "(JJ)I"
-  ^:private compile-nat-lt Opcodes/LCMP  -1 "java.lang.Long"   "longValue"   "()J" "compareUnsigned" "(JJ)I"
-
-  ^:private compile-frac-eq Opcodes/LCMP   0 "java.lang.Long"   "longValue"   "()J" "compareUnsigned" "(JJ)I"
-  ^:private compile-frac-lt Opcodes/LCMP  -1 "java.lang.Long"   "longValue"   "()J" "compareUnsigned" "(JJ)I"
+  ^:private compile-nat-eq   0
+  
+  ^:private compile-frac-eq  0
+  ^:private compile-frac-lt -1
   )
+
+(let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
+  (defn ^:private compile-nat-lt [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?x)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
+          _ (compile ?y)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))
+                $then (new Label)
+                $end (new Label)
+                _ (doto *writer*
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
+                    (.visitLdcInsn (int -1))
+                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $then)
+                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
+                    (.visitLabel $end))]]
+      (return nil))))
 
 (do-template [<name> <instr> <wrapper>]
   (defn <name> [compile ?values special-args]
@@ -2131,6 +2386,7 @@
     
     "jvm"
     (case proc-name
+      "synchronized"    (compile-jvm-synchronized compile ?values special-args)
       "load-class"      (compile-jvm-load-class compile ?values special-args)
       "instanceof"      (compile-jvm-instanceof compile ?values special-args)
       "try"             (compile-jvm-try compile ?values special-args)

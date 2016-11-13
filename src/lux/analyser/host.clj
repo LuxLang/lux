@@ -676,6 +676,15 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "null"]) (&/|list) (&/|list)))))))
 
+(defn analyse-jvm-synchronized [analyse exo-type ?values]
+  (|do [:let [(&/$Cons ?monitor (&/$Cons ?expr (&/$Nil))) ?values]
+        =monitor (&&/analyse-1+ analyse ?monitor)
+        _ (ensure-object (&&/expr-type* =monitor))
+        =expr (&&/analyse-1 analyse exo-type ?expr)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["jvm" "synchronized"]) (&/|list =monitor =expr) (&/|list)))))))
+
 (do-template [<name> <tag>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values]
@@ -1228,6 +1237,7 @@
       
       "jvm"
       (case proc
+        "synchronized" (analyse-jvm-synchronized analyse exo-type ?values)
         "load-class"   (analyse-jvm-load-class analyse exo-type ?values)
         "try"          (analyse-jvm-try analyse exo-type ?values)
         "throw"        (analyse-jvm-throw analyse exo-type ?values)
