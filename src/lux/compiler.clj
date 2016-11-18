@@ -198,8 +198,6 @@
                                          .visitEnd)
                                      (-> (.visitField +field-flags+ &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
                                          .visitEnd)
-                                     (-> (.visitField +field-flags+ &/anns-field +datum-sig+ nil nil)
-                                         (doto (.visitEnd)))
                                      (.visitSource file-name nil))]
                       _ (if (= "lux" name)
                           (|do [_ &&host/compile-Function-class
@@ -211,7 +209,7 @@
                               (&/exhaust% compiler-step))
                             (&/set$ &/$source (&reader/from name file-content) state))
                       (&/$Right ?state _)
-                      (&/run-state (|do [==anns (&a-module/get-anns name)
+                      (&/run-state (|do [module-anns (&a-module/get-anns name)
                                          defs &a-module/defs
                                          imports &a-module/imports
                                          tag-groups &&module/tag-groups
@@ -222,22 +220,9 @@
                                                                                       (str ?name &&/def-datum-separator (&&&type/serialize-type ?def-type) &&/def-datum-separator (&&&ann/serialize-anns ?def-anns))
                                                                                       (str ?name &&/def-datum-separator ?alias)))))
                                                                         (&/|interpose &&/def-entry-separator)
-                                                                        (&/fold str ""))
-                                               ^String defs-value (->> defs
-                                                                       (&/|filter (fn [_def]
-                                                                                    (|let [[?name ?alias [?def-type ?def-meta ?def-value]] _def]
-                                                                                      (= "" ?alias))))
-                                                                       (&/|map (fn [_def]
-                                                                                 (|let [[?name ?alias [?def-type ?def-meta ?def-value]] _def]
-                                                                                   (str ?name
-                                                                                        &&/exported-separator
-                                                                                        ?alias))))
-                                                                       (&/|interpose &&/def-separator)
-                                                                       (&/fold str ""))
+                                                                        (&/fold str "")
+                                                                        (str (&&&ann/serialize-anns module-anns) &&/section-separator))
                                                _ (doto =class
-                                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/defs-field "Ljava/lang/String;" nil
-                                                                    defs-value)
-                                                       .visitEnd)
                                                    (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
                                                                     (->> imports
                                                                          (&/|map (fn [import]
@@ -256,16 +241,6 @@
                                                                          (&/fold str "")))
                                                        .visitEnd)
                                                    )]
-                                         _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
-                                             (|do [^MethodVisitor **writer** &/get-writer
-                                                   :let [_ (.visitCode **writer**)]
-                                                   _ (&&/compile-meta compile-expression ==anns)
-                                                   :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC module-class-name &/anns-field +datum-sig+)]
-                                                   :let [_ (doto **writer**
-                                                             (.visitInsn Opcodes/RETURN)
-                                                             (.visitMaxs 0 0)
-                                                             (.visitEnd))]]
-                                               (return nil)))
                                          :let [_ (.visitEnd =class)]
                                          _ (&/flag-compiled-module name)
                                          _ (&&/save-class! &/module-class-name (.toByteArray =class))

@@ -14,8 +14,7 @@
                  [host :as &host])
             (lux.analyser [base :as &a]
                           [module :as &a-module])
-            [lux.host.generics :as &host-generics]
-            (lux.compiler [type :as &&type]))
+            [lux.host.generics :as &host-generics])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -43,7 +42,6 @@
 (def ^:const arity-field "_arity_")
 (def ^:const partials-field "_partials_")
 
-(def ^:const exported-separator " ")
 (def ^:const def-separator "\t")
 (def ^:const tag-separator " ")
 (def ^:const type-separator "\t")
@@ -52,6 +50,7 @@
 (def ^:const field-separator "\t")
 (def ^:const entry-separator "\n")
 
+(def ^:const section-separator (->> 29 char str))
 (def ^:const def-datum-separator (->> 31 char str))
 (def ^:const def-entry-separator (->> 30 char str))
 
@@ -123,7 +122,3 @@
   wrap-double  unwrap-double  "java/lang/Double"    "doubleValue"  "D" Opcodes/DUP_X2
   wrap-char    unwrap-char    "java/lang/Character" "charValue"    "C" Opcodes/DUP_X1
   )
-
-(defn compile-meta [compile anns]
-  (|let [analysis (&&type/defmeta->analysis anns)]
-    (compile nil analysis)))

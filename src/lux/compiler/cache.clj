@@ -143,8 +143,7 @@
                                         &/$Nil
                                         (&/->list imports)))]
                     (if (->> loads &/->seq (every? true?))
-                      (let [defs (string/split (get-field &/defs-field module-class) def-separator-re)
-                            tag-groups (let [all-tags (get-field &/tags-field module-class)]
+                      (let [tag-groups (let [all-tags (get-field &/tags-field module-class)]
                                          (if (= "" all-tags)
                                            &/$Nil
                                            (-> all-tags
@@ -155,11 +154,11 @@
                                                &/->list)))]
                         (|do [_ (&a-module/create-module module module-hash)
                               ^String descriptor (&&/read-module-descriptor! module)
-                              :let [module-anns (get-field &/anns-field module-class)]
-                              _ (&a-module/set-anns module-anns module)
+                              :let [[module-anns-section ^String defs-section] (.split descriptor &&/section-separator)]
+                              _ (&a-module/set-anns (&&&ann/deserialize-anns module-anns-section) module)
                               _ (&/flag-cached-module module)
                               _ (&a-module/set-imports imports)
-                              :let [desc-defs (vec (.split descriptor &&/def-entry-separator))]
+                              :let [desc-defs (vec (.split defs-section &&/def-entry-separator))]
                               _ (&/map% (fn [^String _def-entry]
                                           (let [parts (.split _def-entry &&/def-datum-separator)]
                                             (case (alength parts)

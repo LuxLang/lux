@@ -21,8 +21,7 @@
                           [module :as &a-module]
                           [meta :as &a-meta])
             (lux.compiler [base :as &&]
-                          [lambda :as &&lambda]
-                          [type :as &&type]))
+                          [lambda :as &&lambda]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -235,18 +234,6 @@
         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)
               _ (.visitLabel *writer* $end)]]
     (return nil)))
-
-(defn ^:private compile-def-type [compile ?body]
-  (|do [:let [?def-type (|case ?body
-                          [[?def-type ?def-cursor] (&o/$ann ?def-value ?type-expr)]
-                          (&o/optimize ?type-expr)
-
-                          [[?def-type ?def-cursor] ?def-value]
-                          (if (&type/type= &type/Type ?def-type)
-                            (&/T [(&/T [?def-type ?def-cursor])
-                                  (&o/$tuple (&/|list))])
-                            (&&type/type->analysis ?def-type)))]]
-    (compile nil ?def-type)))
 
 (defn ^:private de-ann [optim]
   (|case optim
