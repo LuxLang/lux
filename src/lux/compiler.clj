@@ -30,7 +30,9 @@
                           [lambda :as &&lambda]
                           [module :as &&module]
                           [io :as &&io]
-                          [parallel :as &&parallel]))
+                          [parallel :as &&parallel])
+            (lux.compiler.cache [type :as &&&type]
+                                [ann :as &&&ann]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -213,12 +215,20 @@
                                          defs &a-module/defs
                                          imports &a-module/imports
                                          tag-groups &&module/tag-groups
-                                         :let [^String defs-value (->> defs
+                                         :let [^String def-entries (->> defs
+                                                                        (&/|map (fn [_def]
+                                                                                  (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
+                                                                                    (if (= "" ?alias)
+                                                                                      (str ?name &&/def-datum-separator (&&&type/serialize-type ?def-type) &&/def-datum-separator (&&&ann/serialize-anns ?def-anns))
+                                                                                      (str ?name &&/def-datum-separator ?alias)))))
+                                                                        (&/|interpose &&/def-entry-separator)
+                                                                        (&/fold str ""))
+                                               ^String defs-value (->> defs
                                                                        (&/|filter (fn [_def]
-                                                                                    (|let [[?name ?alias] _def]
+                                                                                    (|let [[?name ?alias [?def-type ?def-meta ?def-value]] _def]
                                                                                       (= "" ?alias))))
                                                                        (&/|map (fn [_def]
-                                                                                 (|let [[?name ?alias] _def]
+                                                                                 (|let [[?name ?alias [?def-type ?def-meta ?def-value]] _def]
                                                                                    (str ?name
                                                                                         &&/exported-separator
                                                                                         ?alias))))
@@ -258,7 +268,8 @@
                                                (return nil)))
                                          :let [_ (.visitEnd =class)]
                                          _ (&/flag-compiled-module name)
-                                         _ (&&/save-class! &/module-class-name (.toByteArray =class))]
+                                         _ (&&/save-class! &/module-class-name (.toByteArray =class))
+                                         _ (&&/write-module-descriptor! name def-entries)]
                                      (return file-hash))
                                    ?state)
                       

@@ -361,13 +361,14 @@
       (return* state
                (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)
                     (&/|map (fn [kv]
-                              (|let [[k [?def-type ?def-meta ?def-value]] kv]
+                              (|let [[k _def-data] kv
+                                     [_ ?def-meta _] _def-data]
                                 (|case (&meta/meta-get &meta/alias-tag ?def-meta)
                                   (&/$Some (&/$IdentM [?r-module ?r-name]))
-                                  (&/T [k (str ?r-module ";" ?r-name)])
+                                  (&/T [k (str ?r-module ";" ?r-name) _def-data])
                                   
                                   _
-                                  (&/T [k ""])
+                                  (&/T [k "" _def-data])
                                   )))))))))
 
 (do-template [<name> <type> <tag> <desc>]
