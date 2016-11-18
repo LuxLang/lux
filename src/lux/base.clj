@@ -230,12 +230,9 @@
 ;; [Exports]
 (def ^:const name-field "_name")
 (def ^:const hash-field "_hash")
-(def ^:const type-field "_type")
 (def ^:const value-field "_value")
 (def ^:const compiler-field "_compiler")
-(def ^:const imports-field "_imports")
 (def ^:const eval-field "_eval")
-(def ^:const tags-field "_tags")
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ";")
 

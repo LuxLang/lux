@@ -209,42 +209,41 @@
                               (&/exhaust% compiler-step))
                             (&/set$ &/$source (&reader/from name file-content) state))
                       (&/$Right ?state _)
-                      (&/run-state (|do [module-anns (&a-module/get-anns name)
+                      (&/run-state (|do [:let [_ (.visitEnd =class)]
+                                         module-anns (&a-module/get-anns name)
                                          defs &a-module/defs
                                          imports &a-module/imports
                                          tag-groups &&module/tag-groups
-                                         :let [^String def-entries (->> defs
-                                                                        (&/|map (fn [_def]
-                                                                                  (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
-                                                                                    (if (= "" ?alias)
-                                                                                      (str ?name &&/def-datum-separator (&&&type/serialize-type ?def-type) &&/def-datum-separator (&&&ann/serialize-anns ?def-anns))
-                                                                                      (str ?name &&/def-datum-separator ?alias)))))
-                                                                        (&/|interpose &&/def-entry-separator)
-                                                                        (&/fold str "")
-                                                                        (str (&&&ann/serialize-anns module-anns) &&/section-separator))
-                                               _ (doto =class
-                                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/imports-field "Ljava/lang/String;" nil
-                                                                    (->> imports
-                                                                         (&/|map (fn [import]
-                                                                                   (|let [[_module _hash] import]
-                                                                                     (str _module &&/field-separator _hash))))
-                                                                         (&/|interpose &&/entry-separator)
-                                                                         (&/fold str "")))
-                                                       .visitEnd)
-                                                   (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/tags-field "Ljava/lang/String;" nil
-                                                                    (->> tag-groups
-                                                                         (&/|map (fn [group]
-                                                                                   (|let [[type tags] group]
-                                                                                     (->> tags (&/|interpose &&/tag-separator) (&/fold str "")
-                                                                                          (str type &&/type-separator)))))
-                                                                         (&/|interpose &&/tag-group-separator)
-                                                                         (&/fold str "")))
-                                                       .visitEnd)
-                                                   )]
-                                         :let [_ (.visitEnd =class)]
+                                         :let [def-entries (->> defs
+                                                                (&/|map (fn [_def]
+                                                                          (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
+                                                                            (if (= "" ?alias)
+                                                                              (str ?name &&/def-datum-separator (&&&type/serialize-type ?def-type) &&/def-datum-separator (&&&ann/serialize-anns ?def-anns))
+                                                                              (str ?name &&/def-datum-separator ?alias)))))
+                                                                (&/|interpose &&/def-entry-separator)
+                                                                (&/fold str ""))
+                                               import-entries (->> imports
+                                                                   (&/|map (fn [import]
+                                                                             (|let [[_module _hash] import]
+                                                                               (str _module &&/field-separator _hash))))
+                                                                   (&/|interpose &&/entry-separator)
+                                                                   (&/fold str ""))
+                                               tag-entries (->> tag-groups
+                                                                (&/|map (fn [group]
+                                                                          (|let [[type tags] group]
+                                                                            (->> tags (&/|interpose &&/tag-separator) (&/fold str "")
+                                                                                 (str type &&/type-separator)))))
+                                                                (&/|interpose &&/tag-group-separator)
+                                                                (&/fold str ""))
+                                               module-descriptor (->> (&/|list import-entries
+                                                                               tag-entries
+                                                                               (&&&ann/serialize-anns module-anns)
+                                                                               def-entries)
+                                                                      (&/|interpose &&/section-separator)
+                                                                      (&/fold str ""))]
                                          _ (&/flag-compiled-module name)
                                          _ (&&/save-class! &/module-class-name (.toByteArray =class))
-                                         _ (&&/write-module-descriptor! name def-entries)]
+                                         _ (&&/write-module-descriptor! name module-descriptor)]
                                      (return file-hash))
                                    ?state)
                       
