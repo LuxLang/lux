@@ -42,17 +42,9 @@
 (def ^:const arity-field "_arity_")
 (def ^:const partials-field "_partials_")
 
-(def ^:const def-separator "\t")
-(def ^:const tag-separator " ")
-(def ^:const type-separator "\t")
-(def ^:const tag-group-separator "\n")
-
-(def ^:const field-separator "\t")
-(def ^:const entry-separator "\n")
-
 (def ^:const section-separator (->> 29 char str))
-(def ^:const def-datum-separator (->> 31 char str))
-(def ^:const def-entry-separator (->> 30 char str))
+(def ^:const datum-separator (->> 31 char str))
+(def ^:const entry-separator (->> 30 char str))
 
 ;; [Utils]
 (defn ^:private write-file [^String file-name ^bytes data]

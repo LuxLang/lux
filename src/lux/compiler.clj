@@ -218,22 +218,24 @@
                                                                 (&/|map (fn [_def]
                                                                           (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
                                                                             (if (= "" ?alias)
-                                                                              (str ?name &&/def-datum-separator (&&&type/serialize-type ?def-type) &&/def-datum-separator (&&&ann/serialize-anns ?def-anns))
-                                                                              (str ?name &&/def-datum-separator ?alias)))))
-                                                                (&/|interpose &&/def-entry-separator)
+                                                                              (str ?name &&/datum-separator (&&&type/serialize-type ?def-type) &&/datum-separator (&&&ann/serialize-anns ?def-anns))
+                                                                              (str ?name &&/datum-separator ?alias)))))
+                                                                (&/|interpose &&/entry-separator)
                                                                 (&/fold str ""))
                                                import-entries (->> imports
                                                                    (&/|map (fn [import]
                                                                              (|let [[_module _hash] import]
-                                                                               (str _module &&/field-separator _hash))))
+                                                                               (str _module &&/datum-separator _hash))))
                                                                    (&/|interpose &&/entry-separator)
                                                                    (&/fold str ""))
                                                tag-entries (->> tag-groups
                                                                 (&/|map (fn [group]
                                                                           (|let [[type tags] group]
-                                                                            (->> tags (&/|interpose &&/tag-separator) (&/fold str "")
-                                                                                 (str type &&/type-separator)))))
-                                                                (&/|interpose &&/tag-group-separator)
+                                                                            (->> tags
+                                                                                 (&/|interpose &&/datum-separator)
+                                                                                 (&/fold str "")
+                                                                                 (str type &&/datum-separator)))))
+                                                                (&/|interpose &&/entry-separator)
                                                                 (&/fold str ""))
                                                module-descriptor (->> (&/|list import-entries
                                                                                tag-entries
