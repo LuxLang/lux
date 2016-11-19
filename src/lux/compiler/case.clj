@@ -127,13 +127,20 @@
 
                              (&/$Right _idx)
                              (&/T [_idx true]))]
-      (doto writer
-        stack-peek
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-        (.visitLdcInsn (int _idx))
-        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" (if is-tail? "product_getRight" "product_getLeft") "([Ljava/lang/Object;I)Ljava/lang/Object;")
-        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
-        ))
+      (if (= 0 _idx)
+        (doto writer
+          stack-peek
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitLdcInsn (int 0))
+          (.visitInsn Opcodes/AALOAD)
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+        (doto writer
+          stack-peek
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitLdcInsn (int _idx))
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" (if is-tail? "product_getRight" "product_getLeft") "([Ljava/lang/Object;I)Ljava/lang/Object;")
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+          )))
 
     (&o/$VariantPM _idx+)
     (|let [$success (new Label)
