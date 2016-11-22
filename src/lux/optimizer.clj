@@ -2,6 +2,7 @@
 ;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (ns lux.optimizer
   (:require (lux [base :as & :refer [|let |do return fail return* fail* |case defvariant]])
             (lux.analyser [base :as &a]
@@ -47,6 +48,12 @@
   ("record-get" 2)
   ;; Regular, run-of-the-mill if expressions.
   ("if" 3)
+
+  ;; Structure-building loops
+  ("struct-loop" 4) ;; base-register, temp-register, arity, body
+  ("struct-loop-head") ;; temp-register, body
+  ("struct-loop-tail" 2) ;; temp-register, body
+  ("struct-loop-iter" 2) ;; temp-register, args
   )
 
 ;; [Utils]
@@ -100,71 +107,6 @@
   ;; data-structure is thrown away and the program jumps to the
   ;; branch's body.
   ("ExecPM" 1))
-
-(defn de-meta
-  "(-> Optimized Optimized)"
-  [optim]
-  (|let [[meta optim-] optim]
-    (|case optim-
-      ($variant idx is-last? value)
-      ($variant idx is-last? (de-meta value))
-      
-      ($tuple elems)
-      ($tuple (&/|map de-meta elems))
-      
-      ($case value [_pm _bodies])
-      ($case (de-meta value)
-             (&/T [_pm (&/|map de-meta _bodies)]))
-      
-      ($function _register-offset arity scope captured body*)
-      ($function _register-offset
-                 arity
-                 scope
-                 (&/|map (fn [capture]
-                           (|let [[_name [_meta ($captured _scope _idx _source)]] capture]
-                             (&/T [_name ($captured _scope _idx (de-meta _source))])))
-                         captured)
-                 (de-meta body*))
-
-      ($ann value-expr type-expr)
-      (de-meta value-expr)
-      
-      ($apply func args)
-      ($apply (de-meta func)
-              (&/|map de-meta args))
-      
-      ($captured scope idx source)
-      ($captured scope idx (de-meta source))
-      
-      ($proc proc-ident args special-args)
-      ($proc proc-ident (&/|map de-meta args) special-args)
-
-      ($loop _register-offset _inits _body)
-      ($loop _register-offset
-             (&/|map de-meta _inits)
-             (de-meta _body))
-      
-      ($iter _iter-register-offset args)
-      ($iter _iter-register-offset
-             (&/|map de-meta args))
-
-      ($let _value _register _body)
-      ($let (de-meta _value)
-            _register
-            (de-meta _body))
-
-      ($record-get _value _path)
-      ($record-get (de-meta _value)
-                   _path)
-
-      ($if _test _then _else)
-      ($if (de-meta _test)
-           (de-meta _then)
-           (de-meta _else))
-      
-      _
-      optim-
-      )))
 
 ;; This function does a simple transformation from the declarative
 ;; model of PM of the analyser, to the operational model of PM of the
@@ -799,7 +741,10 @@
       (&/T [meta ($if (shift-function-body old-scope new-scope own-body? _test)
                       (shift-function-body old-scope new-scope own-body? _then)
                       (shift-function-body old-scope new-scope own-body? _else))])
-      
+
+      ($struct-loop _reg-baseline _temp-reg-baseline _arity _body)
+      (assert false)
+
       _
       body
       )))
@@ -854,37 +799,238 @@
 ;; just using regular loops/iteration.
 ;; This optimization looks for tail-calls in the function body,
 ;; rewriting them as jumps to the beginning of the function, while
-;; they also updated the necessary local variables for the next iteration.
+;; they also update the necessary local variables for the next iteration.
 (defn ^:private optimize-iter
-  "(-> Int Optimized Optimized)"
-  [arity optim]
+  "(-> Int Bool Optimized Optimized)"
+  [arity struct-loop? optim]
   (|let [[meta optim-] optim]
     (|case optim-
       ($apply [meta-0 ($var (&/$Local 0))] _args)
-      (if (= arity (&/|length _args))
-        (&/T [meta ($iter 1 _args)])
-        optim)
+      (cond struct-loop?
+            (&/T [1
+                  optim])
+
+            (= arity (&/|length _args))
+            (&/T [0
+                  (&/T [meta ($iter 1 _args)])])
+
+            :else
+            (&/T [0
+                  optim]))
 
       ($case _value [_pattern _bodies])
-      (&/T [meta ($case _value
-                        (&/T [_pattern
-                              (&/|map (partial optimize-iter arity)
-                                      _bodies)]))])
+      (|let [=bodies* (&/|map (partial optimize-iter arity struct-loop?)
+                              _bodies)
+             struct-iters (&/fold + 0 (&/|map &/|first =bodies*))]
+        (&/T [struct-iters
+              (&/T [meta ($case _value
+                                (&/T [_pattern
+                                      (&/|map &/|second =bodies*)]))])]))
 
       ($let _value _register _body)
-      (&/T [meta ($let _value _register (optimize-iter arity _body))])
+      (|let [[struct-iters =body] (optimize-iter arity struct-loop? _body)]
+        (&/T [struct-iters
+              (&/T [meta ($let _value _register =body)])]))
 
       ($if _test _then _else)
-      (&/T [meta ($if _test
-                      (optimize-iter arity _then)
-                      (optimize-iter arity _else))])
+      (|let [[then-struct-iters =then] (optimize-iter arity struct-loop? _then)
+             [else-struct-iters =else] (optimize-iter arity struct-loop? _else)]
+        (&/T [(+ then-struct-iters
+                 else-struct-iters)
+              (&/T [meta ($if _test =then =else)])]))
       
       ($ann _value-expr _type-expr)
-      (&/T [meta ($ann (optimize-iter arity _value-expr) _type-expr)])
+      (|let [[struct-iters =value-expr] (optimize-iter arity struct-loop? _value-expr)]
+        (&/T [struct-iters
+              (&/T [meta ($ann =value-expr _type-expr)])]))
 
+      ($variant _idx _is-last? _value)
+      (|let [[struct-iters =value] (optimize-iter arity struct-loop? _value)]
+        (&/T [struct-iters
+              (&/T [meta ($variant _idx _is-last? =value)])]))
+      
+      ($tuple _elems)
+      (|let [=elems* (&/|map (partial optimize-iter arity true)
+                             _elems)
+             struct-iters (&/fold + 0 (&/|map &/|first =elems*))]
+        (&/T [struct-iters
+              (&/T [meta ($tuple (&/|map &/|second =elems*))])]))
+      
       _
-      optim
+      (&/T [0
+            optim])
       )))
+
+(defn ^:private highest-pm-register [pattern]
+  (|case pattern
+    ($BindPM _var-id)
+    _var-id
+
+    ($SeqPM _left-pm _right-pm)
+    (max (highest-pm-register _left-pm)
+         (highest-pm-register _right-pm))
+
+    ($AltPM _left-pm _right-pm)
+    (max (highest-pm-register _left-pm)
+         (highest-pm-register _right-pm))
+
+    _
+    0
+    ))
+
+(defn ^:private highest-register [body]
+  (|let [[meta body-] body
+         fold-func (fn [hr elem] (max hr (highest-register elem)))]
+    (|case body-
+      ($variant idx is-last? value)
+      (highest-register value)
+      
+      ($tuple elems)
+      (&/fold fold-func 0 elems)
+      
+      ($case value [_pm _bodies])
+      (max (highest-pm-register _pm)
+           (&/fold fold-func 0 _bodies))
+      
+      ($ann value-expr type-expr)
+      (highest-register value-expr)
+
+      ($apply func args)
+      (&/fold fold-func 0 (&/$Cons func args))
+      
+      ($proc proc-ident args special-args)
+      (&/fold fold-func 0 args)
+
+      ($loop _register-offset _inits _body)
+      (max (dec (+ _register-offset (&/|length _inits)))
+           (highest-register _body))
+      
+      ($let _value _register _body)
+      (max _register
+           (highest-register _body))
+
+      ($record-get _value _path)
+      (highest-register _value)
+
+      ($if _test _then _else)
+      (max (highest-register _then)
+           (highest-register _else))
+      
+      _
+      0
+      )))
+
+;; (defvariant
+;;   ("direct-struct-iter" 0)
+;;   ("indirect-struct-iter" 0)
+;;   ("no-struct-iter" 0))
+
+;; ;; (defn ^:private propagate-struct-iter-state [sis]
+;; ;;   (|case sis
+;; ;;     ($direct-struct-iter) $indirect-struct-iter
+;; ;;     _                     sis))
+
+;; (defn ^:private direct-struct-iter-state? [sis]
+;;   (|case sis
+;;     ($direct-struct-iter) true
+;;     _                     false))
+
+(defn ^:private can-transform? [head-offset]
+  (> head-offset 0))
+
+(defn ^:private struct-loop-transform
+  "(-> Nat Optimized Optimized)"
+  [arity head-offset sl-reg-baseline optim]
+  (|let [[meta optim-] optim]
+    (|case optim-
+      ($apply [meta-0 ($var (&/$Local 0))] _args)
+      (if (and (can-transform? head-offset)
+               (= arity (&/|length _args)))
+        (&/T [head-offset
+              (&/T [meta ($struct-loop-iter sl-reg-baseline _args)])])
+        (&/T [-1
+              optim]))
+
+      ($variant _idx _is-last? _value)
+      (|let [[_transformed-depth =value] (struct-loop-transform arity (inc head-offset) sl-reg-baseline _value)
+             =variant (&/T [meta ($variant _idx _is-last? =value)])
+             =variant* (if (= (inc head-offset) _transformed-depth)
+                         (&/T [meta ($struct-loop-tail =variant)])
+                         =variant)
+             =variant** (if (= 0 head-offset)
+                          (&/T [meta ($struct-loop-head =variant*)])
+                          =variant*)]
+        (&/T [_transformed-depth
+              =variant**]))
+      
+      ($tuple _elems)
+      (|let [=elems* (&/|map (partial struct-loop-transform arity (inc head-offset) sl-reg-baseline)
+                             _elems)
+             _transformed-depth (&/fold (fn [so-far elem]
+                                          (max so-far
+                                               (&/|first elem)))
+                                        -1
+                                        =elems*)
+             =tuple (&/T [meta ($tuple (&/|map &/|second =elems*))])
+             =tuple* (if (= (inc head-offset) _transformed-depth)
+                       (&/T [meta ($struct-loop-tail =tuple)])
+                       =tuple)
+             =tuple** (if (= 0 head-offset)
+                        (&/T [meta ($struct-loop-head =tuple*)])
+                        =tuple*)]
+        (&/T [_transformed-depth
+              =tuple**]))
+
+      ($case _value [_pattern _bodies])
+      (if (can-transform? head-offset)
+        (&/T [-1
+              optim])
+        (&/T [-1
+              (&/T [meta ($case _value
+                                (&/T [_pattern
+                                      (&/|map (comp &/|second
+                                                    (partial struct-loop-transform arity 0 sl-reg-baseline))
+                                              _bodies)]))])]))
+
+      ($if _test _then _else)
+      (if (can-transform? head-offset)
+        (&/T [-1
+              optim])
+        (|let [[_ =then] (struct-loop-transform arity 0 sl-reg-baseline _then)
+               [_ =else] (struct-loop-transform arity 0 sl-reg-baseline _else)]
+          (&/T [-1
+                (&/T [meta ($if _test =then =else)])])))
+
+      ($let _value _register _body)
+      (|let [[_transformed-depth =body] (struct-loop-transform arity head-offset sl-reg-baseline _body)]
+        (&/T [_transformed-depth
+              (&/T [meta ($let _value _register
+                               =body)])]))
+
+      ($ann _value-expr _type-expr)
+      (|let [[_transformed-depth =value-expr] (struct-loop-transform arity head-offset sl-reg-baseline _value-expr)]
+        (&/T [_transformed-depth
+              (&/T [meta ($ann =value-expr _type-expr)])]))
+      
+      _
+      (&/T [-1
+            optim])
+      )))
+
+(def ^:private no-cursor (&/T ["" -1 -1]))
+
+(defn ^:private optimize-all-iter [arity body]
+  (|let [[struct-iters body*] (optimize-iter arity false body)
+         struct-loop? (= 1 struct-iters)
+         body** (if struct-loop?
+                  (|let [sl-reg-baseline (inc (max arity
+                                                   (highest-register body*)))
+                         _ (prn 'struct-loop sl-reg-baseline)]
+                    (&/T [no-cursor
+                          ($struct-loop 1 sl-reg-baseline arity
+                                        (struct-loop-transform arity 0 sl-reg-baseline body*))]))
+                  body*)]
+    body**))
 
 (defn ^:private contains-self-reference?
   "(-> Optimized Bool)"
@@ -1041,6 +1187,9 @@
       (&/T [meta ($if (loop-transform register-offset direct? _test)
                       (loop-transform register-offset direct? _then)
                       (loop-transform register-offset direct? _else))])
+
+      ($struct-loop _reg-baseline _temp-reg-baseline _arity _body)
+      (assert false)
       
       _
       body
@@ -1165,17 +1314,18 @@
                                     scope
                                     (optimize-closure (partial pass-0 top-level-func?) captured)
                                     (if top-level-func?
-                                      (optimize-iter new-arity collapsed-body)
+                                      (optimize-all-iter new-arity collapsed-body)
                                       collapsed-body))]))
 
             ;; Otherwise, they're nothing to be done and we've got a
             ;; 1-arity function.
             =body
             (&/T [meta ($function _register-offset
-                                  1 scope
+                                  1
+                                  scope
                                   (optimize-closure (partial pass-0 top-level-func?) captured)
                                   (if top-level-func?
-                                    (optimize-iter 1 =body)
+                                    (optimize-all-iter 1 =body)
                                     =body))])))
 
         (&a/$ann value-expr type-expr)
