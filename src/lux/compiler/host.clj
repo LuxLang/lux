@@ -2183,7 +2183,7 @@
                 $then (new Label)
                 $end (new Label)
                 _ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC +wrapper-class+ "compareUnsigned" "(JJ)I")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
                     (.visitLdcInsn (int <cmp-output>))
                     (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
                     (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
