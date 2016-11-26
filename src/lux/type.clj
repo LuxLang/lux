@@ -422,10 +422,10 @@
     (&/$HostT name params)
     (|case params
       (&/$Nil)
-      (str "(^ " name ")")
+      (str "(host " name ")")
 
       _
-      (str "(^ " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+      (str "(host " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
     (&/$VoidT)
     "Void"

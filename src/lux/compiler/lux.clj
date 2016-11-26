@@ -243,6 +243,17 @@
     _
     optim))
 
+(defn ^:private throwable->text [^Throwable t]
+  (let [base (->> t
+                  .getStackTrace
+                  (map str)
+                  (cons (.getMessage t))
+                  (interpose "\n")
+                  (apply str))]
+    (if-let [cause (.getCause t)]
+      (str base "\n\n" "Caused by: " (throwable->text cause))
+      base)))
+
 (let [class-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       field-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)]
   (defn compile-def [compile ?name ?body ?meta]
@@ -374,8 +385,10 @@
 
                                  _
                                  false)
-                      def-meta ?meta
-                      def-value (-> def-class (.getField &/value-field) (.get nil))]
+                      def-meta ?meta]
+                def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
+                            (catch Throwable t
+                              (&/assert! false (throwable->text t))))
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))
                 _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])

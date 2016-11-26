@@ -159,7 +159,7 @@
                         (&/T [(.getName =method) (&/|map #(.getName ^Class %) (&/->list (seq (.getParameterTypes =method))))]))))))
 
 (defn def-name [name]
-  (str (&/normalize-name name) "_" (hash name)))
+  (str (&/normalize-name name) "_" (Long/toUnsignedString (hash name))))
 
 (defn location [scope]
   (let [scope (&/$Cons (def-name (&/|head scope))
