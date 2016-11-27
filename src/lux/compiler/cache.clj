@@ -49,7 +49,9 @@
 
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class))))
+  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class)))
+  ;; false
+  )
 
 (defn delete [module]
   "(-> Text (Lux Null))"
@@ -107,8 +109,10 @@
     (if already-loaded?
       (return module-hash)
       (|let [redo-cache (|do [_ (delete module)
-                              async (compile-module module)]
-                          (assume-async-result @async))]
+                              ;; async (compile-module module)
+                              ]
+                          ;; (assume-async-result @async)
+                          (compile-module module))]
         (if (cached? module)
           (|do [loader &/loader
                 !classes &/classes
