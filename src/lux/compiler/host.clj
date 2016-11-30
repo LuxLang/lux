@@ -1187,21 +1187,21 @@
                  (.visitMaxs 0 0)
                  (.visitEnd)))
            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#172
-           _ (let [$else (new Label)]
+           _ (let [$too-big (new Label)]
                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_nat" "(J)Ljava/lang/String;" nil nil)
                  (.visitCode)
                  (.visitLdcInsn "+")
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitLdcInsn (long 0))
                  (.visitInsn Opcodes/LCMP)
-                 (.visitJumpInsn Opcodes/IFLT $else)
+                 (.visitJumpInsn Opcodes/IFLT $too-big)
                  ;; then
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;")
                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
                  (.visitInsn Opcodes/ARETURN)
                  ;; else
-                 (.visitLabel $else)
+                 (.visitLabel $too-big)
                  ;; Set up parts of the number string...
                  ;; First digits
                  (.visitVarInsn Opcodes/LLOAD 0)
@@ -1211,11 +1211,11 @@
                  (.visitInsn Opcodes/LDIV) ;; quot
                  ;; Last digit
                  (.visitInsn Opcodes/DUP2)
+                 (.visitLdcInsn (long 10))
+                 (.visitInsn Opcodes/LMUL)
                  (.visitVarInsn Opcodes/LLOAD 0)
                  swap2
-                 (.visitInsn Opcodes/LSUB)
-                 (.visitLdcInsn (long 10))
-                 (.visitInsn Opcodes/LMUL) ;; quot, rem
+                 (.visitInsn Opcodes/LSUB) ;; quot, rem
                  ;; Conversion to string...
                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;") ;; quot, rem*
                  (.visitInsn Opcodes/DUP_X2);; rem*, quot, rem*
@@ -1228,19 +1228,14 @@
                  (.visitMaxs 0 0)
                  (.visitEnd)))
            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#215
-           _ (let [$else (new Label)]
+           _ (let [$simple-case (new Label)]
                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;" nil nil)
                  (.visitCode)
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitLdcInsn (long 0))
                  (.visitInsn Opcodes/LCMP)
-                 (.visitJumpInsn Opcodes/IFLT $else)
-                 ;; then
-                 (.visitVarInsn Opcodes/LLOAD 0)
-                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
-                 (.visitInsn Opcodes/ARETURN)
+                 (.visitJumpInsn Opcodes/IFGE $simple-case)
                  ;; else
-                 (.visitLabel $else)
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitLdcInsn (int 32))
                  (.visitInsn Opcodes/LUSHR)
@@ -1254,6 +1249,11 @@
                  (.visitInsn Opcodes/LUSHR)
                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "add" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
+                 (.visitInsn Opcodes/ARETURN)
+                 ;; then
+                 (.visitLabel $simple-case)
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
                  (.visitInsn Opcodes/ARETURN)
                  (.visitMaxs 0 0)
                  (.visitEnd)))
@@ -1316,7 +1316,7 @@
                  (.visitMaxs 0 0)
                  (.visitEnd)))
            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#1323
-           _ (let [$case-1 (new Label)
+           _ (let [$test-2 (new Label)
                    $case-2 (new Label)]
                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "rem_nat" "(JJ)J" nil nil)
                  (.visitCode)
@@ -1324,12 +1324,18 @@
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitLdcInsn (long 0))
                  (.visitInsn Opcodes/LCMP)
+                 (.visitJumpInsn Opcodes/IFLE $test-2)
                  (.visitVarInsn Opcodes/LLOAD 2)
                  (.visitLdcInsn (long 0))
                  (.visitInsn Opcodes/LCMP)
-                 (.visitInsn Opcodes/IAND)
-                 (.visitJumpInsn Opcodes/IFGT $case-1)
+                 (.visitJumpInsn Opcodes/IFLE $test-2)
+                 ;; Case #1
+                 (.visitVarInsn Opcodes/LLOAD 0)
+                 (.visitVarInsn Opcodes/LLOAD 2)
+                 (.visitInsn Opcodes/LREM)
+                 (.visitInsn Opcodes/LRETURN)
                  ;; Test #2
+                 (.visitLabel $test-2)
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitVarInsn Opcodes/LLOAD 2)
                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
@@ -1346,12 +1352,7 @@
                  (.visitLabel $case-2)
                  (.visitVarInsn Opcodes/LLOAD 0)
                  (.visitInsn Opcodes/LRETURN)
-                 ;; Case #1
-                 (.visitLabel $case-1)
-                 (.visitVarInsn Opcodes/LLOAD 0)
-                 (.visitVarInsn Opcodes/LLOAD 2)
-                 (.visitInsn Opcodes/LREM)
-                 (.visitInsn Opcodes/LRETURN)
+                 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                  (.visitMaxs 0 0)
                  (.visitEnd)))]
       nil)))
@@ -2302,6 +2303,28 @@
   ^:private compile-real-to-frac "java.lang.Double" "real-to-frac" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
+(let [widen (fn [^MethodVisitor *writer*]
+              (doto *writer*
+                (.visitInsn Opcodes/I2L)))
+      shrink (fn [^MethodVisitor *writer*]
+               (doto *writer*
+                 (.visitInsn Opcodes/L2I)
+                 (.visitInsn Opcodes/I2C)))]
+  (do-template [<name> <unwrap> <wrap> <adjust>]
+    (defn <name> [compile ?values special-args]
+      (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+            ^MethodVisitor *writer* &/get-writer
+            _ (compile ?x)
+            :let [_ (doto *writer*
+                      <unwrap>
+                      <adjust>
+                      <wrap>)]]
+        (return nil)))
+
+    ^:private compile-nat-to-char &&/unwrap-long &&/wrap-char shrink
+    ^:private compile-char-to-nat &&/unwrap-char &&/wrap-long widen
+    ))
+
 (do-template [<name>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
@@ -2311,8 +2334,6 @@
 
   ^:private compile-nat-to-int
   ^:private compile-int-to-nat
-  ^:private compile-nat-to-char
-  ^:private compile-char-to-nat
   )
 
 (defn compile-host [compile proc-category proc-name ?values special-args]
