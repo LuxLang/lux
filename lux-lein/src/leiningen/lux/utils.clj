@@ -3,8 +3,7 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(ns leiningen.luxc.utils
-  (:refer-clojure :exclude [compile])
+(ns leiningen.lux.utils
   (:require [leiningen.core.classpath :as classpath])
   (:import (java.io File
                     InputStreamReader

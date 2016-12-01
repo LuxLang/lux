@@ -3,9 +3,9 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(ns leiningen.luxc.repl
+(ns leiningen.lux.repl
   (:require [leiningen.core.classpath :as classpath]
-            [leiningen.luxc.utils :as &utils])
+            [leiningen.lux.utils :as &utils])
   (:import (java.io InputStreamReader
                     BufferedReader
                     PrintStream)))

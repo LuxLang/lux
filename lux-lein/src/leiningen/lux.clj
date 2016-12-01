@@ -3,18 +3,18 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(ns leiningen.luxc
+(ns leiningen.lux
   (:require [leiningen.pom :as pom]
             [leiningen.core.classpath :as classpath]
-            (leiningen.luxc [compiler :as &compiler]
-                            [test :as &test]
-                            [repl :as &repl])))
+            (leiningen.lux [builder :as &builder]
+                           [test :as &test]
+                           [repl :as &repl])))
 
 ;; [Exports]
-(defn luxc [project & args]
+(defn lux [project & args]
   (case (first args)
-    "compile"
-    (&compiler/compile project)
+    "build"
+    (&builder/build project)
 
     "test"
     (&test/test project)
@@ -23,5 +23,5 @@
     (&repl/repl project)
 
     ;; default...
-    (println "Commands available: compile, test, repl"))
+    (println "Commands available: build, test, repl"))
   )

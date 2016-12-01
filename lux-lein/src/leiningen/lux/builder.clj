@@ -3,17 +3,16 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(ns leiningen.luxc.compiler
-  (:refer-clojure :exclude [compile])
+(ns leiningen.lux.builder
   (:require [leiningen.core.classpath :as classpath]
-            (leiningen.luxc [utils :as &utils]
-                            [packager :as &packager])))
+            (leiningen.lux [utils :as &utils]
+                           [packager :as &packager])))
 
-(defn compile [project]
+(defn build [project]
   (if-let [program-module (get-in project [:lux :program])]
     (do (&utils/run-process (&utils/compile-path project program-module (get project :source-paths (list)))
                             nil
-                            "[COMPILATION BEGIN]"
-                            "[COMPILATION END]")
+                            "[BUILD BEGIN]"
+                            "[BUILD END]")
       (&packager/package project program-module (get project :resource-paths (list))))
     (println "Please provide a program main module in [:lux :program]")))
