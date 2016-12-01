@@ -11,7 +11,7 @@
        (control functor
                 applicative
                 monad)
-       (concurrency [promise #* "Promise/" Monad<Promise>])
+       (concurrency [promise #+ Promise Monad<Promise>])
        (data (struct [list "List/" Monad<List>])
              [product]
              [text]
@@ -31,68 +31,25 @@
   (System.exit 0))
 
 ## [Types]
-(type: #export (Test a)
-  (Promise (Error a)))
-
-## [Structs]
-(struct: #export _ (Functor Test)
-  (def: (map f fa)
-    (Promise/map (Error/map f) fa)))
-
-(struct: #export _ (Applicative Test)
-  (def: functor Functor<Test>)
-
-  (def: (wrap a)
-    (Promise/wrap (#;Right a)))
-
-  (def: (apply ff fa)
-    (do Monad<Promise>
-      [f' ff
-       a' fa]
-      (case [f' a']
-        [(#;Right f) (#;Right a)]
-        (wrap (#;Right (f a)))
-
-        (^or [(#;Left msg) _] [_ (#;Left msg)])
-        (wrap (#;Left msg))))
-    ))
-
-(struct: #export _ (Monad Test)
-  (def: applicative Applicative<Test>)
-  
-  (def: (join mma)
-    (Promise/join (Promise/map (lambda [mma']
-                                 (case mma'
-                                   (#;Left msg)
-                                   (Promise/wrap (#;Left msg))
-
-                                   (#;Right ma)
-                                   ma))
-                               mma)))
-  )
+(type: #export Test
+  (Promise (Error Unit)))
 
 ## [Values]
 (def: #export (fail message)
-  (All [a] (-> Text (Test a)))
+  (All [a] (-> Text Test))
   (:: Monad<Promise> wrap (#;Left message)))
 
 (def: #export (assert message test)
-  (-> Text Bool (Test Unit))
+  (-> Text Bool Test)
   (if test
-    (:: Monad<Test> wrap [])
+    (:: Monad<Promise> wrap (#;Right []))
     (fail message)))
 
-(def: #export (from-promise promise)
-  (All [a] (-> (Promise a) (Test a)))
-  (do Monad<Promise>
-    [output promise]
-    (wrap (#;Right output))))
-
 (def: #hidden (run' tests)
-  (-> (List [Text (IO (Test Unit)) Text]) (Promise Unit))
+  (-> (List [Text (IO Test) Text]) (Promise Unit))
   (do Monad<Promise>
     [printings (mapM @
-                     (: (-> [Text (IO (Test Unit)) Text] (Promise Unit))
+                     (: (-> [Text (IO Test) Text] (Promise Unit))
                         (lambda [[module test description]]
                           (do @
                             [#let [pre (io;run (System.currentTimeMillis []))]
@@ -113,27 +70,26 @@
 
 (type: #export Seed Nat)
 
-(def: #export (try seed random-test)
-  (-> Seed (R;Random (Test Unit)) (Test Seed))
+(def: (try seed random-test)
+  (-> Seed (R;Random Test) (Promise (Error Seed)))
   (let [[prng [new-seed test]] (R;run (R;pcg-32 [pcg-32-magic-inc seed])
                                       (do R;Monad<Random>
                                         [test random-test
                                          next-seed R;nat]
                                         (wrap [next-seed test])))]
-    (do Monad<Test>
-      [_ test]
-      (wrap new-seed))))
+    (do Monad<Promise>
+      [result test]
+      (case result
+        (#;Left error)
+        (wrap (#;Left error))
+
+        (#;Right _)
+        (wrap (#;Right new-seed))))))
 
 (def: (repeat' seed times random-test)
-  (-> Seed Nat (R;Random (Test Unit)) (Test Seed))
-  (case times
-    +0
+  (-> Seed Nat (R;Random Test) Test)
+  (if (=+ +0 times)
     (fail "Can't try a test 0 times.")
-    
-    +1
-    (try seed random-test)
-    
-    _
     (do Monad<Promise>
       [output (try seed random-test)]
       (case output
@@ -141,15 +97,16 @@
         (fail (format "Test failed with this seed: " (%n seed) "\n" error))
 
         (#;Right seed')
-        (repeat' seed' (dec+ times) random-test)))))
+        (if (=+ +1 times)
+          (wrap (#;Right []))
+          (repeat' seed' (dec+ times) random-test))
+        ))))
 
 (def: #export (repeat times random-test)
-  (-> Nat (R;Random (Test Unit)) (Test Unit))
-  (do Monad<Test>
-    [_ (repeat' (int-to-nat (io;run (System.currentTimeMillis [])))
-                times
-                random-test)]
-    (wrap [])))
+  (-> Nat (R;Random Test) Test)
+  (repeat' (int-to-nat (io;run (System.currentTimeMillis [])))
+           times
+           random-test))
 
 ## [Syntax]
 (type: Property-Test
@@ -214,7 +171,7 @@
     (with-gensyms [g!test]
       (wrap (list (` (def: #export (~ g!test)
                        {#;;test (#;TextM (~ description))}
-                       (IO (Test Unit))
+                       (IO Test)
                        (io (~ body)))))))))
 
 (def: (exported-tests module-name)
@@ -232,57 +189,6 @@
               (list;filter product;left)
               (List/map product;right)))))
 
-(syntax: #export (match pattern expression)
-  {#;doc (doc "Runs an expression and pattern-matches against it using the given pattern."
-              "If the pattern-matching succeeds, the test succeeds."
-              (match 15 (|> 5
-                            (?> [even?] [(* 2)]
-                                [odd?] [(* 3)]))))}
-  (with-gensyms [g!_]
-    (wrap (list (` (: (Test Unit)
-                      (case (~ expression)
-                        (~ pattern)
-                        (~' (:: Monad<Test> wrap []))
-
-                        (~ g!_)
-                        (fail (~ (ast;text (format "Pattern was not matched: " (ast;ast-to-text pattern)
-                                                   "\n\n" "From expression: " (ast;ast-to-text expression))))))))))))
-
-(def: #hidden (should-pass' veredict expr-repr)
-  (All [a] (-> (Error a) Text (Test a)))
-  (case veredict
-    (#;Left message) (fail (format "'" message "' @ " expr-repr))
-    (#;Right value)  (:: Monad<Test> wrap value)))
-
-(def: #hidden (should-fail' veredict expr-repr)
-  (All [a] (-> (Error a) Text (Test Unit)))
-  (case veredict
-    (#;Left message) (:: Monad<Test> wrap [])
-    (#;Right value)  (fail (format "Should have failed: " expr-repr))))
-
-(do-template [<macro-name> <func-name> <doc>]
-  [(syntax: #export (<macro-name> expr)
-     {#;doc <doc>}
-     (wrap (list (` (<func-name> (~ expr) (~ (ast;text (ast;ast-to-text expr))))))))]
-
-  [should-pass should-pass' "Verifies that a (Error a) computation succeeds/passes."]
-  [should-fail should-fail' "Verifies that a (Error a) computation fails."]
-  )
-
-(syntax: #export (match+ pattern source)
-  {#;doc (doc "Same as \"match\", but the expression/source is expected to be of type (Test a)."
-              "That is, it's asynchronous and it may fail."
-              "If, however, it succeeds, it's value will be pattern-matched against."
-              (match+ 5 (commit (do Monad<STM>
-                                  [_ (write 5 _var)
-                                   value (read _var)]
-                                  (wrap (#;Right value))))))}
-  (with-gensyms [g!temp]
-    (wrap (list (` (: (Test Unit)
-                      (do Monad<Test>
-                        [(~ g!temp) (~ source)]
-                        (match (~ pattern) (~ g!temp)))))))))
-
 (syntax: #export (run)
   {#;doc (doc "Runs all the tests defined on the current module, and in all imported modules."
               (run))}
@@ -295,7 +201,7 @@
        #let [tests+ (List/map (lambda [[module-name test desc]]
                                 (` [(~ (ast;text module-name)) (~ (ast;symbol [module-name test])) (~ (ast;text desc))]))
                               tests)
-             groups (list;split-all (|> (list;size tests+) (/+ concurrency-level) (++ +1) (min+ +16))
+             groups (list;split-all (|> (list;size tests+) (/+ promise;concurrency-level) (++ +1) (min+ +16))
                                     tests+)]]
       (wrap (list (` (: (IO Unit)
                         (io (exec (do Monad<Promise>
@@ -303,28 +209,30 @@
                                                                 (list g!_ (` (run' (list (~@ group))))))
                                                               groups)))]
                                     (exec (log! "Test-suite finished!")
-                                      (future exit)))
+                                      (promise;future exit)))
                               [])))))))))
 
-(syntax: #export (all {tests (s;some s;any)})
-  {#;doc (doc "Given a sequence of tests, runs them all sequentially, and succeeds if the all succeed."
-              (test: "lux/pipe exports"
-                (all (match 1 (|> 20
-                                  (* 3)
-                                  (+ 4)
-                                  (_> 0 inc)))
-                     (match 10 (|> 5
-                                   (@> (+ @ @))))
-                     (match 15 (|> 5
-                                   (?> [even?] [(* 2)]
-                                       [odd?] [(* 3)]
-                                       [(_> -1)])))
-                     )))}
-  (with-gensyms [g!_]
-    (let [pairs (|> tests
-                    (List/map (: (-> AST (List AST)) (lambda [test] (list g!_ test))))
-                    List/join)]
-      (wrap (list (` (: (Test Unit)
-                        (do Monad<Test>
-                          [(~@ pairs)]
-                          ((~' wrap) [])))))))))
+(def: #export (seq left right)
+  (-> Test Test Test)
+  (do Monad<Promise>
+    [=left left
+     =right right]
+    (case [=left =right]
+      (^or [(#;Left error) _]
+           [_ (#;Left error)])
+      (wrap (#;Left error))
+
+      _
+      (wrap (#;Right [])))))
+
+(def: #export (alt left right)
+  (-> Test Test Test)
+  (do Monad<Promise>
+    [=left left
+     =right right]
+    (case =left
+      (#;Right _)
+      (wrap =left)
+
+      _
+      (wrap =right))))
