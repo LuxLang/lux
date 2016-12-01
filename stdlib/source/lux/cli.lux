@@ -1,0 +1,271 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  [lux #- not]
+  (lux (control functor
+                applicative
+                monad)
+       (data (struct (list #as list #open ("List/" Monoid<List> Monad<List>)))
+             (text #as text #open ("Text/" Monoid<Text>))
+             error
+             (sum #as sum))
+       (codata [io])
+       [compiler #+ with-gensyms Functor<Lux> Monad<Lux>]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+## [Types]
+(type: #export (CLI a)
+  (-> (List Text) (Error [(List Text) a])))
+
+## [Utils]
+(def: (run' opt inputs)
+  (All [a] (-> (CLI a) (List Text) (Error [(List Text) a])))
+  (opt inputs))
+
+## [Structures]
+(struct: #export _ (Functor CLI)
+  (def: (map f ma inputs)
+    (case (ma inputs)
+      (#;Left msg)              (#;Left msg)
+      (#;Right [inputs' datum]) (#;Right [inputs' (f datum)]))))
+
+(struct: #export _ (Applicative CLI)
+  (def: functor Functor<CLI>)
+
+  (def: (wrap a inputs)
+    (#;Right [inputs a]))
+
+  (def: (apply ff fa inputs)
+    (case (ff inputs)
+      (#;Right [inputs' f])
+      (case (fa inputs')
+        (#;Right [inputs'' a])
+        (#;Right [inputs'' (f a)])
+
+        (#;Left msg)
+        (#;Left msg))
+
+      (#;Left msg)
+      (#;Left msg))
+    ))
+
+(struct: #export _ (Monad CLI)
+  (def: applicative Applicative<CLI>)
+
+  (def: (join mma inputs)
+    (case (mma inputs)
+      (#;Left msg)           (#;Left msg)
+      (#;Right [inputs' ma]) (ma inputs'))))
+
+## [Combinators]
+(def: #export any
+  {#;doc "Just returns the next input without applying any logic."}
+  (CLI Text)
+  (lambda [inputs]
+    (case inputs
+      (#;Cons arg inputs')
+      (#;Right [inputs' arg])
+      
+      _
+      (#;Left "Can't extract from empty arguments."))))
+
+(def: #export (parse parser option)
+  {#;doc "Parses the next input with a parsing function."}
+  (All [a] (-> (-> Text (Error a)) (CLI Text) (CLI a)))
+  (lambda [inputs]
+    (case (option inputs)
+      (#;Right [inputs' input])
+      (case (parser input)
+        (#;Right value)
+        (#;Right [inputs' value])
+
+        (#;Left parser-error)
+        (#;Left parser-error))
+
+      (#;Left option-error)
+      (#;Left option-error)
+      )))
+
+(def: #export (option names)
+  {#;doc "Checks that a given option (with multiple possible names) has a value."}
+  (-> (List Text) (CLI Text))
+  (lambda [inputs]
+    (let [[pre post] (list;split-with (. ;not (list;member? text;Eq<Text> names)) inputs)]
+      (case post
+        #;Nil
+        (#;Left ($_ Text/append "Missing option (" (text;join-with " " names) ")"))
+
+        (^ (list& _ value post'))
+        (#;Right [(List/append pre post') value])
+
+        _
+        (#;Left ($_ Text/append "Option lacks value (" (text;join-with " " names) ")"))
+        ))))
+
+(def: #export (flag names)
+  {#;doc "Checks that a given flag (with multiple possible names) is set."}
+  (-> (List Text) (CLI Bool))
+  (lambda [inputs]
+    (let [[pre post] (list;split-with (. ;not (list;member? text;Eq<Text> names)) inputs)]
+      (case post
+        #;Nil
+        (#;Right [pre false])
+
+        (#;Cons _ post')
+        (#;Right [(List/append pre post') true])))))
+
+(def: #export end
+  {#;doc "Ensures there are no more inputs."}
+  (CLI Unit)
+  (lambda [inputs]
+    (case inputs
+      #;Nil (#;Right [inputs []])
+      _     (#;Left (Text/append "Unknown parameters: " (text;join-with " " inputs))))))
+
+(def: #export (assert test message)
+  (-> Bool Text (CLI Unit))
+  (lambda [inputs]
+    (if test
+      (#;Right [inputs []])
+      (#;Left message))))
+
+(def: #export (opt opt)
+  {#;doc "Optionality combinator."}
+  (All [a]
+    (-> (CLI a) (CLI (Maybe a))))
+  (lambda [inputs]
+    (case (opt inputs)
+      (#;Left _)            (#;Right [inputs #;None])
+      (#;Right [inputs' x]) (#;Right [inputs' (#;Some x)]))))
+
+(def: #export (seq optL optR)
+  {#;doc "Sequencing combinator."}
+  (All [a b] (-> (CLI a) (CLI b) (CLI [a b])))
+  (do Monad<CLI>
+    [l optL
+     r optR]
+    (wrap [l r])))
+
+(def: #export (alt optL optR)
+  {#;doc "Heterogeneous alternative combinator."}
+  (All [a b] (-> (CLI a) (CLI b) (CLI (| a b))))
+  (lambda [inputs]
+    (case (optL inputs)
+      (#;Left msg)
+      (case (optR inputs)
+        (#;Left _)
+        (#;Left msg)
+
+        (#;Right [inputs' r])
+        (#;Right [inputs' (sum;right r)]))
+
+      (#;Right [inputs' l])
+      (#;Right [inputs' (sum;left l)]))))
+
+(def: #export (not opt)
+  (All [a] (-> (CLI a) (CLI Unit)))
+  (lambda [inputs]
+    (case (opt inputs)
+      (#;Left msg)
+      (#;Right [inputs []])
+      
+      _
+      (#;Left "Expected to fail; yet succeeded."))))
+
+(def: #export (some opt)
+  {#;doc "0-or-more combinator."}
+  (All [a]
+    (-> (CLI a) (CLI (List a))))
+  (lambda [inputs]
+    (case (opt inputs)
+      (#;Left _)            (#;Right [inputs (list)])
+      (#;Right [inputs' x]) (run' (do Monad<CLI>
+                                    [xs (some opt)]
+                                    (wrap (list& x xs)))
+                                  inputs'))))
+
+(def: #export (many opt)
+  {#;doc "1-or-more combinator."}
+  (All [a]
+    (-> (CLI a) (CLI (List a))))
+  (do Monad<CLI>
+    [x opt
+     xs (some opt)]
+    (wrap (list& x xs))))
+
+(def: #export (either pl pr)
+  {#;doc "Homogeneous alternative combinator."}
+  (All [a]
+    (-> (CLI a) (CLI a) (CLI a)))
+  (lambda [inputs]
+    (case (pl inputs)
+      (#;Left _) (pr inputs)
+      output     output)))
+
+(def: #export (run opt inputs)
+  (All [a] (-> (CLI a) (List Text) (Error a)))
+  (case (opt inputs)
+    (#;Left msg)
+    (#;Left msg)
+
+    (#;Right [_ value])
+    (#;Right value)))
+
+## [Syntax]
+(type: Program-Args
+  (#Raw-Program-Args Text)
+  (#Parsed-Program-Args (List [Text AST])))
+
+(def: program-args^
+  (Syntax Program-Args)
+  (s;alt s;local-symbol
+         (s;form (s;some (s;either (do s;Monad<Syntax>
+                                     [name s;local-symbol]
+                                     (wrap [name (` any)]))
+                                   (s;record (s;seq s;local-symbol s;any)))))))
+
+(syntax: #export (program: {args program-args^} body)
+  {#;doc (doc "Defines the entry-point to a program (similar to the \"main\" function/method in other programming languages)."
+              "Can take a list of all the input parameters to the program, or can destructure them using CLI-option combinators from the lux/cli module."
+              (program: all-args
+                (do Monad<IO>
+                  [foo init-program
+                   bar (do-something all-args)]
+                  (wrap [])))
+
+              (program: (name)
+                (io (log! (Text/append "Hello, " name))))
+
+              (program: ([config config^])
+                (do Monad<IO>
+                  [data (init-program config)]
+                  (do-something data))))}
+  (case args
+    (#Raw-Program-Args args)
+    (wrap (list (` (;_lux_program (~ (ast;symbol ["" args]))
+                                  (~ body)))))
+    
+    (#Parsed-Program-Args args)
+    (with-gensyms [g!args g!_ g!output g!message]
+      (wrap (list (` (;_lux_program (~ g!args)
+                                    (case ((: (CLI (io;IO Unit))
+                                              (do Monad<CLI>
+                                                [(~@ (|> args
+                                                         (List/map (lambda [[name parser]]
+                                                                     (list (ast;symbol ["" name]) parser)))
+                                                         List/join))
+                                                 (~ g!_) end]
+                                                ((~' wrap) (~ body))))
+                                           (~ g!args))
+                                      (#;Right [(~ g!_) (~ g!output)])
+                                      (~ g!output)
+
+                                      (#;Left (~ g!message))
+                                      (error! (~ g!message))
+                                      )))
+                  )))
+    ))

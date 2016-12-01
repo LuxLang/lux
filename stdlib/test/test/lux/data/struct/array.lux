@@ -1,0 +1,130 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control [monad])
+       (codata [io])
+       (data (struct ["&" array]
+                     [list])
+             [number])
+       (math ["R" random])
+       pipe)
+  lux/test)
+
+(def: bounded-size
+  (R;Random Nat)
+  (|> R;nat
+      (:: R;Monad<Random> map (|>. (%+ +100) (++ +1)))))
+
+(test: "Arrays and their copies"
+  [size bounded-size
+   original (R;array size R;nat)
+   #let [clone (&;clone original)
+         copy (: (&;Array Nat)
+                 (&;new size))
+         manual-copy (: (&;Array Nat)
+                        (&;new size))]]
+  (all (assert "Size function must correctly return size of array."
+               (=+ size (&;size original)))
+       (assert "Cloning an array should yield and identical array, but not the same one."
+               (and (:: (&;Eq<Array> number;Eq<Nat>) = original clone)
+                    (not (== original clone))))
+       (assert "Full-range manual copies should give the same result as cloning."
+               (exec (&;copy size +0 original +0 copy)
+                 (and (:: (&;Eq<Array> number;Eq<Nat>) = original copy)
+                      (not (== original copy)))))
+       (assert "Array folding should go over all values."
+               (exec (:: &;Fold<Array> fold
+                         (lambda [x idx]
+                           (exec (&;put idx x manual-copy)
+                             (inc+ idx)))
+                         +0
+                         original)
+                 (:: (&;Eq<Array> number;Eq<Nat>) = original manual-copy)))
+       (assert "Transformations between (full) arrays and lists shouldn't cause lose or change any values."
+               (|> original
+                   &;to-list &;from-list
+                   (:: (&;Eq<Array> number;Eq<Nat>) = original)))
+       ))
+
+(test: "Array mutation"
+  [size bounded-size
+   idx (:: @ map (%+ size) R;nat)
+   array (|> (R;array size R;nat)
+             (R;filter (|>. &;to-list (list;any? odd?+))))
+   #let [value (default (undefined)
+                 (&;get idx array))]]
+  (all (assert "Shouldn't be able to find a value in an unoccupied cell."
+               (case (&;get idx (&;remove idx array))
+                 (#;Some _) false
+                 #;None     true))
+       (assert "You should be able to access values put into the array."
+               (case (&;get idx (&;put idx value array))
+                 (#;Some value') (=+ value' value)
+                 #;None          false))
+       (assert "All cells should be occupied on a full array."
+               (and (=+ size (&;occupied array))
+                    (=+ +0 (&;vacant array))))
+       (assert "Filtering mutates the array to remove invalid values."
+               (exec (&;filter even?+ array)
+                 (and (<+ size (&;occupied array))
+                      (>+ +0 (&;vacant array))
+                      (=+ size (++ (&;occupied array)
+                                   (&;vacant array))))))
+       ))
+
+(test: "Finding values."
+  [size bounded-size
+   array (|> (R;array size R;nat)
+             (R;filter (|>. &;to-list (list;any? even?+))))]
+  (all (assert "Can find values inside arrays."
+               (|> (&;find even?+ array)
+                   (case> (#;Some _) true
+                          #;None     false)))
+       (assert "Can find values inside arrays (with access to indices)."
+               (|> (&;find+ (lambda [idx n]
+                              (and (even?+ n)
+                                   (<+ size idx)))
+                            array)
+                   (case> (#;Some _) true
+                          #;None     false)))))
+
+(test: "Functor"
+  [size bounded-size
+   array (R;array size R;nat)]
+  (let [(^open) &;Functor<Array>
+        (^open) (&;Eq<Array> number;Eq<Nat>)]
+    (all (assert "Functor shouldn't alter original array."
+                 (let [copy (map id array)]
+                   (and (= array copy)
+                        (not (== array copy)))))
+         (assert "Functor should go over all available array elements."
+                 (let [there (map inc+ array)
+                       back-again (map dec+ there)]
+                   (and (not (= array there))
+                        (= array back-again)))))))
+
+(test: "Monoid"
+  [sizeL bounded-size
+   sizeR bounded-size
+   left (R;array sizeL R;nat)
+   right (R;array sizeR R;nat)
+   #let [(^open) &;Monoid<Array>
+         (^open) (&;Eq<Array> number;Eq<Nat>)
+         fusion (append left right)]]
+  (all (assert "Appending two arrays should produce a new one twice as large."
+               (=+ (++ sizeL sizeR) (&;size fusion)))
+       (assert "First elements of fused array should equal the first array."
+               (|> (: (&;Array Nat)
+                      (&;new sizeL))
+                   (&;copy sizeL +0 fusion +0)
+                   (= left)))
+       (assert "Last elements of fused array should equal the second array."
+               (|> (: (&;Array Nat)
+                      (&;new sizeR))
+                   (&;copy sizeR sizeL fusion +0)
+                   (= right)))
+       ))

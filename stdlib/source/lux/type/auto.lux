@@ -1,0 +1,211 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control monad)
+       (data [text]
+             text/format
+             [number]
+             (struct [list "List/" Monad<List> Fold<List>]
+                     [dict])
+             [bool]
+             [product])
+       [compiler #+ Monad<Lux>]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])
+       [type]
+       (type ["tc" check #+ Check Monad<Check>])
+       ))
+
+(def: (find-member-type idx sig-type)
+  (-> Nat Type (Check Type))
+  (case sig-type
+    (#;NamedT _ sig-type')
+    (find-member-type idx sig-type')
+
+    (#;AppT func arg)
+    (case (type;apply-type func arg)
+      #;None
+      (tc;fail (format "Can't apply type " (%type func) " to type " (%type arg)))
+
+      (#;Some sig-type')
+      (find-member-type idx sig-type'))
+
+    (#;ProdT left right)
+    (if (=+ +0 idx)
+      (:: Monad<Check> wrap left)
+      (find-member-type (dec+ idx) right))
+
+    _
+    (if (=+ +0 idx)
+      (:: Monad<Check> wrap sig-type)
+      (tc;fail (format "Can't find member type " (%n idx) " for " (%type sig-type))))))
+
+(def: (resolve-member member)
+  (-> Ident (Lux [Nat Type]))
+  (do Monad<Lux>
+    [member (compiler;normalize member)
+     [idx tag-list sig-type] (compiler;resolve-tag member)]
+    (wrap [idx sig-type])))
+
+(def: (prepare-defs this-module-name defs)
+  (-> Text (List [Text Def]) (List [Ident Type]))
+  (|> defs
+      (list;filter (lambda [[name [def-type def-anns def-value]]]
+                     (compiler;struct? def-anns)))
+      (List/map (lambda [[name [def-type def-anns def-value]]]
+                  [[this-module-name name] def-type]))))
+
+(def: local-env
+  (Lux (List [Ident Type]))
+  (do Monad<Lux>
+    [local-batches compiler;locals
+     #let [total-locals (List/fold (lambda [[name type] table]
+                                     (dict;put~ name type table))
+                                   (: (dict;Dict Text Type)
+                                      (dict;new text;Hash<Text>))
+                                   (List/join local-batches))]]
+    (wrap (|> total-locals
+              dict;entries
+              (List/map (lambda [[name type]] [["" name] type]))))))
+
+(def: local-structs
+  (Lux (List [Ident Type]))
+  (do Monad<Lux>
+    [this-module-name compiler;current-module-name
+     defs (compiler;defs this-module-name)]
+    (wrap (prepare-defs this-module-name defs))))
+
+(def: import-structs
+  (Lux (List [Ident Type]))
+  (do Monad<Lux>
+    [this-module-name compiler;current-module-name
+     imp-mods (compiler;imported-modules this-module-name)
+     export-batches (mapM @ compiler;exports imp-mods)]
+    (wrap (prepare-defs this-module-name (List/join export-batches)))))
+
+(def: (apply-function-type func arg)
+  (-> Type Type (Check Type))
+  (case func
+    (#;NamedT _ func')
+    (apply-function-type func' arg)
+
+    (#;UnivQ _)
+    (do Monad<Check>
+      [[id var] tc;create-var]
+      (apply-function-type (default (undefined)
+                             (type;apply-type func var))
+                           arg))
+
+    (#;LambdaT input output)
+    (do Monad<Check>
+      [_ (tc;check input arg)]
+      (wrap output))
+
+    _
+    (tc;fail (format "Invalid function type: " (%type func)))))
+
+(def: (check-apply member-type input-types output-type)
+  (-> Type (List Type) Type (Check []))
+  (do Monad<Check>
+    [member-type' (foldM Monad<Check>
+                         (lambda [input member]
+                           (apply-function-type member input))
+                         member-type
+                         input-types)]
+    (tc;check output-type member-type')))
+
+(def: compiler-type-context
+  (Lux tc;Context)
+  (lambda [compiler]
+    (let [type-vars (get@ #;type-vars compiler)
+          context (|> tc;fresh-context
+                      (set@ #tc;var-id (get@ #;counter type-vars))
+                      (set@ #tc;bindings (dict;from-list number;Hash<Nat> (get@ #;mappings type-vars))))]
+      (#;Right [compiler context]))))
+
+(def: (test-alternatives sig-type member-idx input-types output-type alts)
+  (-> Type Nat (List Type) Type (List [Ident Type]) (Lux (List Ident)))
+  (do Monad<Lux>
+    [context compiler-type-context]
+    (case (|> alts
+              (list;filter (lambda [[alt-name alt-type]]
+                             (case (tc;run context
+                                           (do Monad<Check>
+                                             [_ (tc;check sig-type alt-type)
+                                              member-type (find-member-type member-idx alt-type)]
+                                             (check-apply member-type input-types output-type)))
+                               (#;Left error)
+                               false
+
+                               (#;Right _)
+                               true)))
+              (List/map product;left))
+      #;Nil
+      (compiler;fail "No alternatives.")
+
+      found
+      (wrap found))))
+
+(def: (find-alternatives sig-type member-idx input-types output-type)
+  (-> Type Nat (List Type) Type (Lux (List Ident)))
+  (let [test (test-alternatives sig-type member-idx input-types output-type)]
+    ($_ compiler;either
+        (do Monad<Lux> [alts local-env] (test alts))
+        (do Monad<Lux> [alts local-structs] (test alts))
+        (do Monad<Lux> [alts import-structs] (test alts)))))
+
+(def: (var? input)
+  (-> AST Bool)
+  (case input
+    [_ (#;SymbolS _)]
+    true
+
+    _
+    false))
+
+(def: (join-pair [l r])
+  (All [a] (-> [a a] (List a)))
+  (list l r))
+
+(syntax: #export (::: {member s;symbol}
+                      {args (s;alt (s;some s;symbol)
+                                   (s;some s;any))})
+  (case args
+    (#;Left args)
+    (do @
+      [[member-idx sig-type] (resolve-member member)
+       input-types (mapM @ compiler;find-type args)
+       output-type compiler;expected-type
+       chosen-ones (find-alternatives sig-type member-idx input-types output-type)]
+      (case chosen-ones
+        #;Nil
+        (compiler;fail (format "No structure option could be found for member " (%ident member)))
+
+        (#;Cons chosen #;Nil)
+        (wrap (list (` (:: (~ (ast;symbol chosen))
+                           (~ (ast;symbol member))
+                           (~@ (List/map ast;symbol args))))))
+
+        _
+        (compiler;fail (format "Too many available options: "
+                               (|> chosen-ones
+                                   (List/map %ident)
+                                   (text;join-with ", ")
+                                   )))))
+
+    (#;Right args)
+    (do @
+      [#let [args-to-bind (list;filter (bool;complement var?) args)]
+       labels (seqM @ (list;repeat (list;size args-to-bind)
+                                   (compiler;gensym "")))
+       #let [retry (` (let [(~@ (|> (list;zip2 labels args-to-bind) (List/map join-pair) List/join))]
+                        (;;::: (~ (ast;symbol member)) (~@ labels))))]]
+      (wrap (list retry)))))
+
+(comment
+  (::: map inc (list 0 1 2 3 4))
+  )

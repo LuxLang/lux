@@ -1,0 +1,126 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control monad
+                [functor])
+       (data [text]
+             text/format
+             (struct [list "List/" Monad<List>]
+                     [dict #+ Dict])
+             [number]
+             [product]
+             [bool]
+             [char]
+             [maybe]
+             [ident "Ident/" Codec<Text,Ident>]
+             error)
+       [compiler #+ Monad<Lux> with-gensyms]
+       (macro [ast]
+              [syntax #+ syntax: Syntax]
+              (syntax [common])
+              [poly #+ poly:])
+       [type]
+       ))
+
+## [Derivers]
+(poly: #export (|Functor| env :x:)
+  (with-gensyms [g!type-fun g!func g!input]
+    (do @
+      [#let [g!map (' map)]
+       [g!vars _] (poly;polymorphic :x:)
+       #let [num-vars (list;size g!vars)
+             new-env (poly;extend-env g!type-fun g!vars env)]
+       _ (compiler;assert (>+ +0 num-vars)
+                      "Functors must have at least 1 type-variable.")]
+      (let [->Functor (: (-> AST AST)
+                         (lambda [.type.] (` (functor;Functor (~ .type.)))))
+            |elem| (: (-> AST (poly;Matcher AST))
+                      (lambda |elem| [value :type:]
+                        ($_ compiler;either
+                            ## Nothing to do.
+                            (do @
+                              [_ (poly;primitive :type:)]
+                              (wrap value))
+                            ## Type-var
+                            (do @
+                              [_ (poly;var new-env (dec+ num-vars) :type:)]
+                              (wrap (` ((~ g!func) (~ value)))))
+                            ## Tuples/records
+                            (do @
+                              [[g!vars members] (poly;tuple :x:)
+                               pm (mapM @
+                                        (lambda [:slot:]
+                                          (do @
+                                            [g!slot (compiler;gensym "g!slot")
+                                             body (|elem| g!slot :slot:)]
+                                            (wrap [g!slot body])))
+                                        members)]
+                              (wrap (` (case (~ g!input)
+                                         [(~@ (List/map product;left pm))]
+                                         [(~@ (List/map product;right pm))])
+                                       )))
+                            ## Recursion
+                            (do @
+                              [_ (poly;recur new-env :type:)]
+                              (wrap (` ((~ g!map) (~ g!func) (~ value)))))
+                            )))]
+        ($_ compiler;either
+            ## Variants
+            (do @
+              [[g!vars cases] (poly;variant :x:)
+               pattern-matching (mapM @
+                                      (lambda [[name :case:]]
+                                        (do @
+                                          [#let [analysis (` ((~ (ast;tag name)) (~ g!input)))]
+                                           synthesis (|elem| g!input :case:)]
+                                          (wrap (list analysis
+                                                      synthesis))))
+                                      cases)]
+              (wrap (` (: (~ (->Functor (type;type-to-ast :x:)))
+                          (struct (def: ((~ g!map) (~ g!func) (~ g!input))
+                                    (case (~ g!input)
+                                      (~@ (List/join pattern-matching)))))
+                          ))))
+            ## Tuples/Records
+            (do @
+              [[g!vars members] (poly;tuple :x:)
+               pm (mapM @
+                        (lambda [:slot:]
+                          (do @
+                            [g!slot (compiler;gensym "g!slot")
+                             body (|elem| g!slot :slot:)]
+                            (wrap [g!slot body])))
+                        members)]
+              (wrap (` (: (~ (->Functor (type;type-to-ast :x:)))
+                          (struct (def: ((~ g!map) (~ g!func) (~ g!input))
+                                    (case (~ g!input)
+                                      [(~@ (List/map product;left pm))]
+                                      [(~@ (List/map product;right pm))])))
+                          ))))
+            ## Functions
+            (with-gensyms [g!out]
+              (do @
+                [[g!vars [:ins: :out:]] (poly;function :x:)
+                 .out. (|elem| g!out :out:)
+                 g!ins (seqM @
+                             (list;repeat (list;size :ins:)
+                                          (compiler;gensym "g!arg")))]
+                (wrap (` (: (~ (->Functor (type;type-to-ast :x:)))
+                            (struct (def: ((~ g!map) (~ g!func) (~ g!input))
+                                      (lambda [(~@ g!ins)]
+                                        (let [(~ g!out) ((~ g!input) (~@ g!ins))]
+                                          (~ .out.))))))))))
+            ## No structure (as you'd expect from Identity)
+            (do @
+              [_ (poly;var new-env (dec+ num-vars) :x:)]
+              (wrap (` (: (~ (->Functor (type;type-to-ast :x:)))
+                          (struct (def: ((~ g!map) (~ g!func) (~ g!input))
+                                    ((~ g!func) (~ g!input))))))))
+            ## Failure...
+            (compiler;fail (format "Can't create Functor for: " (type;type-to-text :x:)))
+            ))
+      )))

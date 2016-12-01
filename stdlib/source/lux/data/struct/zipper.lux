@@ -1,0 +1,196 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (data (struct [list "" Monad<List> Fold<List> "List/" Monoid<List>]
+                     [tree #+ Tree]
+                     [stack #+ Stack]))
+       [compiler]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+## Adapted from the clojure.zip namespace in the Clojure standard library.
+
+## [Types]
+(type: #export (Zipper a)
+  {#parent (Maybe (Zipper a))
+   #lefts (Stack (Tree a))
+   #rights (Stack (Tree a))
+   #node (Tree a)})
+
+## [Values]
+(def: #export (from-tree tree)
+  (All [a] (-> (Tree a) (Zipper a)))
+  {#parent #;None
+   #lefts stack;empty
+   #rights stack;empty
+   #node tree})
+
+(def: #export (to-tree zipper)
+  (All [a] (-> (Zipper a) (Tree a)))
+  (get@ #node zipper))
+
+(def: #export (value zipper)
+  (All [a] (-> (Zipper a) a))
+  (|> zipper (get@ #node) (get@ #tree;value)))
+
+(def: #export (children zipper)
+  (All [a] (-> (Zipper a) (List (Tree a))))
+  (|> zipper (get@ #node) (get@ #tree;children)))
+
+(def: #export (branch? zipper)
+  (All [a] (-> (Zipper a) Bool))
+  (|> zipper children list;empty? not))
+
+(def: #export (leaf? zipper)
+  (All [a] (-> (Zipper a) Bool))
+  (|> zipper branch? not))
+
+(def: #export (parent zipper)
+  (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+  (get@ #parent zipper))
+
+(def: #export (down zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (case (children zipper)
+    #;Nil
+    zipper
+
+    (#;Cons chead ctail)
+    {#parent (#;Some zipper)
+     #lefts stack;empty
+     #rights ctail
+     #node chead}))
+
+(def: #export (up zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (case (get@ #parent zipper)
+    #;None
+    zipper
+
+    (#;Some parent)
+    (|> parent
+        (update@ #node (: (-> (Tree ($ 0)) (Tree ($ 0)))
+                          (lambda [node]
+                            (set@ #tree;children (List/append (list;reverse (get@ #lefts zipper))
+                                                              (#;Cons (get@ #node zipper)
+                                                                      (get@ #rights zipper)))
+                                  node)))))))
+
+(def: #export (root zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (loop [zipper zipper]
+    (case (get@ #parent zipper)
+      #;None     zipper
+      (#;Some _) (recur (up zipper)))))
+
+(do-template [<one-name> <all-name> <side> <op-side>]
+  [(def: #export (<one-name> zipper)
+     (All [a] (-> (Zipper a) (Zipper a)))
+     (case (get@ <side> zipper)
+       #;Nil
+       zipper
+
+       (#;Cons next side')
+       (|> zipper
+           (update@ <op-side> (lambda [op-side]
+                                (#;Cons (get@ #node zipper) op-side)))
+           (set@ <side> side')
+           (set@ #node next))))
+
+   (def: #export (<all-name> zipper)
+     (All [a] (-> (Zipper a) (Zipper a)))
+     (fold (lambda [_] <one-name>) zipper (get@ <side> zipper)))]
+
+  [right rightmost #rights #lefts]
+  [left  leftmost  #lefts  #rights]
+  )
+
+(def: #export (set value zipper)
+  (All [a] (-> a (Zipper a) (Zipper a)))
+  (set@ [#node #tree;value] value zipper))
+
+(def: #export (update f zipper)
+  (All [a] (-> (-> a a) (Zipper a) (Zipper a)))
+  (update@ [#node #tree;value] f zipper))
+
+(def: #export (prepend-child value zipper)
+  (All [a] (-> a (Zipper a) (Zipper a)))
+  (update@ [#node #tree;children]
+           (lambda [children]
+             (#;Cons (tree;tree ($ 0) {value []})
+                     children))
+           zipper))
+
+(def: #export (append-child value zipper)
+  (All [a] (-> a (Zipper a) (Zipper a)))
+  (update@ [#node #tree;children]
+           (lambda [children]
+             (List/append children
+                          (list (tree;tree ($ 0) {value []}))))
+           zipper))
+
+(def: #export (remove zipper)
+  (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+  (case (get@ #lefts zipper)
+    #;Nil
+    (case (get@ #parent zipper)
+      #;None
+      #;None
+
+      (#;Some next)
+      (#;Some (|> next
+                  (update@ [#node #tree;children] (|>. list;tail (default (list)))))))
+
+    (#;Cons next side)
+    (#;Some (|> zipper
+                (set@ #lefts side)
+                (set@ #node next)))))
+
+(do-template [<name> <side>]
+  [(def: #export (<name> value zipper)
+     (All [a] (-> a (Zipper a) (Maybe (Zipper a))))
+     (case (get@ #parent zipper)
+       #;None
+       #;None
+
+       _
+       (#;Some (|> zipper
+                   (update@ <side> (lambda [side]
+                                     (#;Cons (tree;tree ($ 0) {value []})
+                                             side)))))))]
+
+  [insert-left  #lefts]
+  [insert-right #rights]
+  )
+
+(do-template [<name> <h-side> <h-op> <v-op>]
+  [(def: #export (<name> zipper)
+     (All [a] (-> (Zipper a) (Zipper a)))
+     (case (get@ <h-side> zipper)
+       #;Nil
+       (<v-op> zipper)
+
+       _
+       (<h-op> zipper)))]
+
+  [next #rights right down]
+  [prev #lefts  left up]
+  )
+
+(def: #export (end? zipper)
+  (All [a] (-> (Zipper a) Bool))
+  (and (list;empty? (get@ #rights zipper))
+       (list;empty? (children zipper))))
+
+(def: #export (root? zipper)
+  (All [a] (-> (Zipper a) Bool))
+  (case (get@ #parent zipper)
+    #;None
+    true
+
+    _
+    false))

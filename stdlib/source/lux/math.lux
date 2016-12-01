@@ -1,0 +1,158 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module: {#;doc "Common numerical operations."}
+  lux
+  (lux (control monad)
+       (data (struct [list "" Fold<List>])
+             [number "Int/" Number<Int>]
+             [product]
+             text/format)
+       host
+       [compiler]
+       (macro ["s" syntax #+ syntax: Syntax "Syntax/" Functor<Syntax>]
+              [ast])))
+
+## [Values]
+(do-template [<name> <value>]
+  [(def: #export <name>
+     Real
+     (_lux_proc ["jvm" <value>] []))]
+
+  [e  "getstatic:java.lang.Math:E"]
+  [pi "getstatic:java.lang.Math:PI"]
+  )
+
+(def: #export tau Real 6.28318530717958647692)
+
+(do-template [<name> <method>]
+  [(def: #export (<name> n)
+     (-> Real Real)
+     (_lux_proc ["jvm" <method>] [n]))]
+
+  [cos   "invokestatic:java.lang.Math:cos:double"]
+  [sin   "invokestatic:java.lang.Math:sin:double"]
+  [tan   "invokestatic:java.lang.Math:tan:double"]
+
+  [acos  "invokestatic:java.lang.Math:acos:double"]
+  [asin  "invokestatic:java.lang.Math:asin:double"]
+  [atan  "invokestatic:java.lang.Math:atan:double"]
+  
+  [cosh  "invokestatic:java.lang.Math:cosh:double"]
+  [sinh  "invokestatic:java.lang.Math:sinh:double"]
+  [tanh  "invokestatic:java.lang.Math:tanh:double"]
+
+  [exp   "invokestatic:java.lang.Math:exp:double"]
+  [log   "invokestatic:java.lang.Math:log:double"]
+  
+  [cbrt  "invokestatic:java.lang.Math:cbrt:double"]
+  [sqrt  "invokestatic:java.lang.Math:sqrt:double"]
+
+  [degrees "invokestatic:java.lang.Math:toDegrees:double"]
+  [radians "invokestatic:java.lang.Math:toRadians:double"]
+  )
+
+(do-template [<name> <method>]
+  [(def: #export (<name> n)
+     (-> Real Real)
+     (_lux_proc ["jvm" <method>] [n]))]
+
+  [ceil  "invokestatic:java.lang.Math:ceil:double"]
+  [floor "invokestatic:java.lang.Math:floor:double"]
+  )
+
+(def: #export (round n)
+  (-> Real Real)
+  (int-to-real (_lux_proc ["jvm" "invokestatic:java.lang.Math:round:double"] [n])))
+
+(do-template [<name> <method>]
+  [(def: #export (<name> param subject)
+     (-> Real Real Real)
+     (_lux_proc ["jvm" <method>] [subject param]))]
+
+  [atan2 "invokestatic:java.lang.Math:atan2:double,double"]
+  [pow   "invokestatic:java.lang.Math:pow:double,double"]
+  )
+
+(def: (gcd' a b)
+  (-> Int Int Int)
+  (case b
+    0 a
+    _ (gcd' b (% b a))))
+
+(def: #export (gcd a b)
+  {#;doc "Greatest Common Divisor."}
+  (-> Int Int Int)
+  (gcd' (Int/abs a) (Int/abs b)))
+
+(def: #export (lcm x y)
+  {#;doc "Least Common Multiple."}
+  (-> Int Int Int)
+  (case [x y]
+    (^or [_ 0] [0 _])
+    0
+
+    _
+    (|> x (/ (gcd x y)) (* y) Int/abs)
+    ))
+
+## [Syntax]
+(type: #rec Infix
+  (#Const AST)
+  (#Call (List AST))
+  (#Infix Infix AST Infix))
+
+(def: (infix^ _)
+  (-> Unit (Syntax Infix))
+  ($_ s;alt
+      ($_ s;either
+          (Syntax/map ast;bool s;bool)
+          (Syntax/map ast;int s;int)
+          (Syntax/map ast;real s;real)
+          (Syntax/map ast;char s;char)
+          (Syntax/map ast;text s;text)
+          (Syntax/map ast;symbol s;symbol)
+          (Syntax/map ast;tag s;tag))
+      (s;form (s;many s;any))
+      (s;tuple (s;either (do s;Monad<Syntax>
+                           [_ (s;tag! ["" "and"])
+                            init-subject (infix^ [])
+                            init-op s;any
+                            init-param (infix^ [])
+                            steps (s;some (s;seq s;any (infix^ [])))]
+                           (wrap (product;right (fold (lambda [[op param] [subject [_subject _op _param]]]
+                                                        [param [(#Infix _subject _op _param)
+                                                                (` and)
+                                                                (#Infix subject op param)]])
+                                                      [init-param [init-subject init-op init-param]]
+                                                      steps))))
+                         (do s;Monad<Syntax>
+                           [_ (wrap [])
+                            init-subject (infix^ [])
+                            init-op s;any
+                            init-param (infix^ [])
+                            steps (s;some (s;seq s;any (infix^ [])))]
+                           (wrap (fold (lambda [[op param] [_subject _op _param]]
+                                         [(#Infix _subject _op _param) op param])
+                                       [init-subject init-op init-param]
+                                       steps)))
+                         ))
+      ))
+
+(def: (infix-to-prefix infix)
+  (-> Infix AST)
+  (case infix
+    (#Const value)
+    value
+    
+    (#Call parts)
+    (ast;form parts)
+    
+    (#Infix left op right)
+    (` ((~ op) (~ (infix-to-prefix right)) (~ (infix-to-prefix left))))
+    ))
+
+(syntax: #export (infix {expr (infix^ [])})
+  (wrap (list (infix-to-prefix expr))))

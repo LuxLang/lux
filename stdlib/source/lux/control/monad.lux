@@ -1,0 +1,142 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (.. (functor #as F)
+      (applicative #as A)))
+
+## [Utils]
+(def: (fold f init xs)
+  (All [a b]
+    (-> (-> b a a) a (List b) a)) 
+  (case xs
+    #;Nil
+    init
+
+    (#;Cons x xs')
+    (fold f (f x init) xs')))
+
+(def: (map f xs)
+  (All [a b]
+    (-> (-> a b) (List a) (List b))) 
+  (case xs
+    #;Nil
+    #;Nil
+
+    (#;Cons x xs')
+    (#;Cons (f x) (map f xs'))))
+
+(def: (reverse xs)
+  (All [a]
+    (-> (List a) (List a)))
+  (fold (lambda [head tail] (#;Cons head tail))
+        #;Nil
+        xs))
+
+(def: (as-pairs xs)
+  (All [a] (-> (List a) (List [a a])))
+  (case xs
+    (#;Cons x1 (#;Cons x2 xs'))
+    (#;Cons [x1 x2] (as-pairs xs'))
+
+    _
+    #;Nil))
+
+## [Signatures]
+(sig: #export (Monad m)
+  (: (A;Applicative m)
+     applicative)
+  (: (All [a]
+       (-> (m (m a)) (m a)))
+     join))
+
+## [Syntax]
+(macro: #export (do tokens state)
+  {#;doc (doc "Macro for easy concatenation of monadic operations."
+              (do Monad<Maybe>
+                [y (f1 x)
+                 z (f2 z)]
+                (wrap (f3 z))))}
+  (case tokens
+    (#;Cons monad (#;Cons [_ (#;TupleS bindings)] (#;Cons body #;Nil)))
+    (let [g!@ (: AST [["" -1 -1] (#;SymbolS ["" "@"])])
+          g!map (: AST [["" -1 -1] (#;SymbolS ["" " map "])])
+          g!join (: AST [["" -1 -1] (#;SymbolS ["" " join "])])
+          g!apply (: AST [["" -1 -1] (#;SymbolS ["" " apply "])])
+          body' (fold (: (-> [AST AST] AST AST)
+                         (lambda [binding body']
+                           (let [[var value] binding]
+                             (case var
+                               [_ (#;TagS ["" "let"])]
+                               (` (let (~ value) (~ body')))
+
+                               _
+                               (` (|> (~ value) ((~ g!map) (lambda [(~ var)] (~ body'))) (~ g!join)))
+                               ))))
+                      body
+                      (reverse (as-pairs bindings)))]
+      (#;Right [state (#;Cons (` (;_lux_case (~ monad)
+                                             (~ g!@)
+                                             (;_lux_case (~ g!@)
+                                                         {#applicative {#A;functor {#F;map (~ g!map)}
+                                                                        #A;wrap (~' wrap)
+                                                                        #A;apply (~ g!apply)}
+                                                          #join (~ g!join)}
+                                                         (~ body'))))
+                              #;Nil)]))
+
+    _
+    (#;Left "Wrong syntax for do")))
+
+## [Functions]
+(def: #export (seqM monad xs)
+  (All [M a]
+    (-> (Monad M) (List (M a)) (M (List a))))
+  (case xs
+    #;Nil
+    (:: monad wrap #;Nil)
+    
+    (#;Cons x xs')
+    (do monad
+      [_x x
+       _xs (seqM monad xs')]
+      (wrap (#;Cons _x _xs)))
+    ))
+
+(def: #export (mapM monad f xs)
+  (All [M a b]
+    (-> (Monad M) (-> a (M b)) (List a) (M (List b))))
+  (case xs
+    #;Nil
+    (:: monad wrap #;Nil)
+    
+    (#;Cons x xs')
+    (do monad
+      [_x (f x)
+       _xs (mapM monad f xs')]
+      (wrap (#;Cons _x _xs)))
+    ))
+
+(def: #export (foldM monad f init xs)
+  (All [M a b]
+    (-> (Monad M) (-> b a (M a)) a (List b)
+        (M a)))
+  (case xs
+    #;Nil
+    (:: monad wrap init)
+
+    (#;Cons x xs')
+    (do monad
+      [init' (f x init)]
+      (foldM monad f init' xs'))))
+
+(def: #export (liftM Monad<M> f)
+  (All [M a b]
+    (-> (Monad M) (-> a b) (-> (M a) (M b))))
+  (lambda [ma]
+    (do Monad<M>
+      [a ma]
+      (wrap (f a)))))

@@ -1,0 +1,283 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  [lux #- list]
+  (lux (control functor
+                applicative
+                monad
+                hash)
+       (data [bit]
+             [char]
+             [text "Text/" Monoid<Text>]
+             text/format
+             [product]
+             [number]
+             (struct [list "List/" Fold<List>]
+                     ["A" array]
+                     ["D" dict]
+                     ["Q" queue]
+                     ["S" set]
+                     ["ST" stack]
+                     ["V" vector]))
+       (math ["r" ratio]
+             ["c" complex])))
+
+## [Exports]
+(type: #export #rec PRNG
+  (-> Unit [PRNG Nat]))
+
+(type: #export (Random a)
+  (-> PRNG [PRNG a]))
+
+(struct: #export _ (Functor Random)
+  (def: (map f fa)
+    (lambda [state]
+      (let [[state' a] (fa state)]
+        [state' (f a)]))))
+
+(struct: #export _ (Applicative Random)
+  (def: functor Functor<Random>)
+
+  (def: (wrap a)
+    (lambda [state]
+      [state a]))
+
+  (def: (apply ff fa)
+    (lambda [state]
+      (let [[state' f] (ff state)
+            [state'' a] (fa state')]
+        [state'' (f a)]))))
+
+(struct: #export _ (Monad Random)
+  (def: applicative Applicative<Random>)
+
+  (def: (join ffa)
+    (lambda [state]
+      (let [[state' fa] (ffa state)]
+        (fa state')))))
+
+(def: #export nat
+  (Random Nat)
+  (lambda [prng]
+    (let [[prng left] (prng [])
+          [prng right] (prng [])]
+      [prng (++ (bit;<< +32 left)
+                right)])))
+
+(def: #export int
+  (Random Int)
+  (lambda [prng]
+    (let [[prng left] (prng [])
+          [prng right] (prng [])]
+      [prng (nat-to-int (++ (bit;<< +32 left)
+                            right))])))
+
+(def: #export bool
+  (Random Bool)
+  (lambda [prng]
+    (let [[prng output] (prng [])]
+      [prng (|> output (bit;& +1) (=+ +1))])))
+
+(def: (bits n)
+  (-> Nat (Random Nat))
+  (lambda [prng]
+    (let [[prng output] (prng [])]
+      [prng (bit;>>> (-+ n +64) output)])))
+
+(def: #export real
+  (Random Real)
+  (do Monad<Random>
+    [left (bits +26)
+     right (bits +27)]
+    (wrap (|> right
+              (++ (bit;<< +27 left))
+              nat-to-int
+              int-to-real
+              (/. (|> +1 (bit;<< +53) nat-to-int int-to-real))))))
+
+(def: #export frac
+  (Random Frac)
+  (:: Monad<Random> map real-to-frac real))
+
+(def: #export char
+  (Random Char)
+  (do Monad<Random>
+    [base nat]
+    (wrap (char;char base))))
+
+(def: #export (text' char-gen size)
+  (-> (Random Char) Nat (Random Text))
+  (if (=+ +0 size)
+    (:: Monad<Random> wrap "")
+    (do Monad<Random>
+      [x char-gen
+       xs (text' char-gen (dec+ size))]
+      (wrap (Text/append (char;as-text x) xs)))))
+
+(def: #export (text size)
+  (-> Nat (Random Text))
+  (text' char size))
+
+(do-template [<name> <type> <ctor> <gen>]
+  [(def: #export <name>
+     (Random <type>)
+     (do Monad<Random>
+       [left <gen>
+        right <gen>]
+       (wrap (<ctor> left right))))]
+
+  [ratio   r;Ratio   r;ratio   int]
+  [complex c;Complex c;complex real]
+  )
+
+(def: #export (seq left right)
+  (All [a b] (-> (Random a) (Random b) (Random [a b])))
+  (do Monad<Random>
+    [=left left
+     =right right]
+    (wrap [=left =right])))
+
+(def: #export (alt left right)
+  (All [a b] (-> (Random a) (Random b) (Random (| a b))))
+  (do Monad<Random>
+    [? bool]
+    (if ?
+      (do @
+        [=left left]
+        (wrap (+0 =left)))
+      (do @
+        [=right right]
+        (wrap (+1 =right))))))
+
+(def: #export (either left right)
+  (All [a] (-> (Random a) (Random a) (Random a)))
+  (do Monad<Random>
+    [? bool]
+    (if ?
+      left
+      right)))
+
+(def: #export (rec gen)
+  (All [a] (-> (-> (Random a) (Random a)) (Random a)))
+  (lambda [state]
+    (let [gen' (gen (rec gen))]
+      (gen' state))))
+
+(def: #export (filter pred gen)
+  (All [a] (-> (-> a Bool) (Random a) (Random a)))
+  (do Monad<Random>
+    [sample gen]
+    (if (pred sample)
+      (wrap sample)
+      (filter pred gen))))
+
+(do-template [<name> <type> <zero> <plus>]
+  [(def: #export (<name> size value-gen)
+     (All [a] (-> Nat (Random a) (Random (<type> a))))
+     (if (>+ +0 size)
+       (do Monad<Random>
+         [x value-gen
+          xs (<name> (dec+ size) value-gen)]
+         (wrap (<plus> x xs)))
+       (:: Monad<Random> wrap <zero>)))]
+
+  [list   List    (;list)  #;Cons]
+  [vector V;Vector V;empty V;add]
+  )
+
+(do-template [<name> <type> <ctor>]
+  [(def: #export (<name> size value-gen)
+     (All [a] (-> Nat (Random a) (Random (<type> a))))
+     (do Monad<Random>
+       [values (list size value-gen)]
+       (wrap (|> values <ctor>))))]
+
+  [array A;Array  A;from-list]
+  [queue Q;Queue  Q;from-list]
+  [stack ST;Stack (List/fold ST;push ST;empty)]
+  )
+
+(def: #export (set a/Hash size value-gen)
+  (All [a] (-> (Hash a) Nat (Random a) (Random (S;Set a))))
+  (if (>+ +0 size)
+    (do Monad<Random>
+      [xs (set a/Hash (dec+ size) value-gen)]
+      (loop [_ []]
+        (do @
+          [x value-gen
+           #let [xs+ (S;add x xs)]]
+          (if (=+ size (S;size xs+))
+            (wrap xs+)
+            (recur [])))))
+    (:: Monad<Random> wrap (S;new a/Hash))))
+
+(def: #export (dict a/Hash size key-gen value-gen)
+  (All [k v] (-> (Hash k) Nat (Random k) (Random v) (Random (D;Dict k v))))
+  (if (>+ +0 size)
+    (do Monad<Random>
+      [kv (dict a/Hash (dec+ size) key-gen value-gen)]
+      (loop [_ []]
+        (do @
+          [k key-gen
+           v value-gen
+           #let [kv+ (D;put k v kv)]]
+          (if (=+ size (D;size kv+))
+            (wrap kv+)
+            (recur [])))))
+    (:: Monad<Random> wrap (D;new a/Hash))))
+
+(def: #export (run prng calc)
+  (All [a] (-> PRNG (Random a) [PRNG a]))
+  (calc prng))
+
+## [PRNGs]
+## PCG32 http://www.pcg-random.org/
+## Based on this Java implementation: https://github.com/alexeyr/pcg-java
+
+(def: pcg-32-magic-mult Nat +6364136223846793005)
+
+(def: #export (pcg-32 [inc seed])
+  (-> [Nat Nat] PRNG)
+  (lambda [_]
+    (let [seed' (|> seed (*+ pcg-32-magic-mult) (++ inc))
+          xor-shifted (|> seed (bit;>>> +18) (bit;^ seed) (bit;>>> +27))
+          rot (|> seed (bit;>>> +59))]
+      [(pcg-32 [inc seed']) (bit;rotate-right rot xor-shifted)]
+      )))
+
+## Xoroshiro128+ http://xoroshiro.di.unimi.it/
+(def: #export (xoroshiro-128+ [s0 s1])
+  (-> [Nat Nat] PRNG)
+  (lambda [_]
+    (let [result (++ s0 s1)
+          s01 (bit;^ s0 s1)
+          s0' (|> (bit;rotate-left +55 s0)
+                  (bit;^ s01)
+                  (bit;^ (bit;<< +14 s01)))
+          s1' (bit;rotate-left +36 s01)]
+      [(xoroshiro-128+ [s0' s1']) result])
+    ))
+
+## [Values]
+(def: (swap from to vec)
+  (All [a] (-> Nat Nat (V;Vector a) (V;Vector a)))
+  (V;put to (default (undefined)
+              (V;at from vec))
+         vec))
+
+(def: #export (shuffle seed vector)
+  (All [a] (-> Nat (V;Vector a) (V;Vector a)))
+  (let [_size (V;size vector)
+        _shuffle (foldM Monad<Random>
+                        (lambda [idx vec]
+                          (do Monad<Random>
+                            [rand nat]
+                            (wrap (swap idx (%+ _size rand) vec))))
+                        vector
+                        (list;range+ +0 (dec+ _size)))]
+    (|> _shuffle
+        (run (pcg-32 [+123 seed]))
+        product;right)))

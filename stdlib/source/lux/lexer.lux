@@ -1,0 +1,439 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  [lux #- not]
+  (lux (control functor
+                applicative
+                monad
+                codec)
+       (data [text "Text/" Eq<Text>]
+             text/format
+             [number "Int/" Codec<Text,Int>]
+             [product]
+             [char "Char/" Ord<Char>]
+             maybe
+             error
+             (struct [list "" Functor<List>]))
+       host))
+
+## [Types]
+(type: #export (Lexer a)
+  (-> Text (Error [Text a])))
+
+## [Structures]
+(struct: #export _ (Functor Lexer)
+  (def: (map f fa)
+    (lambda [input]
+      (case (fa input)
+        (#;Left msg)              (#;Left msg)
+        (#;Right [input' output]) (#;Right [input' (f output)])))))
+
+(struct: #export _ (Applicative Lexer)
+  (def: functor Functor<Lexer>)
+
+  (def: (wrap a)
+    (lambda [input]
+      (#;Right [input a])))
+
+  (def: (apply ff fa)
+    (lambda [input]
+      (case (ff input)
+        (#;Right [input' f])
+        (case (fa input')
+          (#;Right [input'' a])
+          (#;Right [input'' (f a)])
+
+          (#;Left msg)
+          (#;Left msg))
+
+        (#;Left msg)
+        (#;Left msg)))))
+
+(struct: #export _ (Monad Lexer)
+  (def: applicative Applicative<Lexer>)
+  
+  (def: (join mma)
+    (lambda [input]
+      (case (mma input)
+        (#;Left msg)          (#;Left msg)
+        (#;Right [input' ma]) (ma input'))))
+  )
+
+## [Values]
+## Runner
+(def: #export (run' lexer input)
+  (All [a] (-> (Lexer a) Text (Error [Text a])))
+  (lexer input))
+
+(def: #export (run lexer input)
+  (All [a] (-> (Lexer a) Text (Error a)))
+  (case (lexer input)
+    (#;Left msg)
+    (#;Left msg)
+    
+    (#;Right [input' output])
+    (#;Right output)
+    ))
+
+## Combinators
+(def: #export (fail message)
+  (All [a] (-> Text (Lexer a)))
+  (lambda [input]
+    (#;Left message)))
+
+(def: #export any
+  (Lexer Char)
+  (lambda [input]
+    (case [(text;at +0 input) (text;split +1 input)]
+      [(#;Some output) (#;Some [_ input'])]
+      (#;Right [input' output])
+
+      _
+      (#;Left "Can't parse character from empty text."))
+    ))
+
+(def: #export (seq left right)
+  (All [a b] (-> (Lexer a) (Lexer b) (Lexer [a b])))
+  (do Monad<Lexer>
+    [=left left
+     =right right]
+    (wrap [=left =right])))
+
+(def: #export (alt left right)
+  (All [a b] (-> (Lexer a) (Lexer b) (Lexer (| a b))))
+  (lambda [input]
+    (case (left input)
+      (#;Left msg)
+      (case (right input)
+        (#;Left msg)
+        (#;Left msg)
+
+        (#;Right [input' output])
+        (#;Right [input' (+1 output)]))
+
+      (#;Right [input' output])
+      (#;Right [input' (+0 output)]))))
+
+(def: #export (not! p)
+  (All [a] (-> (Lexer a) (Lexer Unit)))
+  (lambda [input]
+    (case (p input)
+      (#;Left msg)
+      (#;Right [input []])
+      
+      _
+      (#;Left "Expected to fail; yet succeeded."))))
+
+(def: #export (not p)
+  (All [a] (-> (Lexer a) (Lexer Char)))
+  (lambda [input]
+    (case (p input)
+      (#;Left msg)
+      (any input)
+      
+      _
+      (#;Left "Expected to fail; yet succeeded."))))
+
+(def: #export (either left right)
+  (All [a] (-> (Lexer a) (Lexer a) (Lexer a)))
+  (lambda [input]
+    (case (left input)
+      (#;Left msg)
+      (right input)
+
+      output
+      output)))
+
+(def: #export (assert test message)
+  (-> Bool Text (Lexer Unit))
+  (lambda [input]
+    (if test
+      (#;Right [input []])
+      (#;Left message))))
+
+(def: #export (some p)
+  (All [a] (-> (Lexer a) (Lexer (List a))))
+  (lambda [input]
+    (case (p input)
+      (#;Left msg)
+      (#;Right [input (list)])
+      
+      (#;Right [input' x])
+      (run' (do Monad<Lexer>
+              [xs (some p)]
+              (wrap (#;Cons x xs)))
+            input'))
+    ))
+
+(def: #export (many p)
+  (All [a] (-> (Lexer a) (Lexer (List a))))
+  (do Monad<Lexer>
+    [x p
+     xs (some p)]
+    (wrap (#;Cons x xs))))
+
+(def: #export (exactly n p)
+  (All [a] (-> Nat (Lexer a) (Lexer (List a))))
+  (if (>+ +0 n)
+    (do Monad<Lexer>
+      [x p
+       xs (exactly (dec+ n) p)]
+      (wrap (#;Cons x xs)))
+    (:: Monad<Lexer> wrap (list))))
+
+(def: #export (at-most n p)
+  (All [a] (-> Nat (Lexer a) (Lexer (List a))))
+  (if (>+ +0 n)
+    (lambda [input]
+      (case (p input)
+        (#;Left msg)
+        (#;Right [input (list)])
+
+        (#;Right [input' x])
+        (run' (do Monad<Lexer>
+                [xs (at-most (dec+ n) p)]
+                (wrap (#;Cons x xs)))
+              input')
+        ))
+    (:: Monad<Lexer> wrap (list))))
+
+(def: #export (at-least n p)
+  (All [a] (-> Nat (Lexer a) (Lexer (List a))))
+  (do Monad<Lexer>
+    [min-xs (exactly n p)
+     extras (some p)]
+    (wrap (list;concat (list min-xs extras)))))
+
+(def: #export (between from to p)
+  (All [a] (-> Nat Nat (Lexer a) (Lexer (List a))))
+  (do Monad<Lexer>
+    [min-xs (exactly from p)
+     max-xs (at-most (-+ from to) p)]
+    (wrap (list;concat (list min-xs max-xs)))))
+
+(def: #export (opt p)
+  (All [a] (-> (Lexer a) (Lexer (Maybe a))))
+  (lambda [input]
+    (case (p input)
+      (#;Left msg)
+      (#;Right [input #;None])
+
+      (#;Right [input value])
+      (#;Right [input (#;Some value)])
+      )))
+
+(def: #export (this text)
+  (-> Text (Lexer Text))
+  (lambda [input]
+    (if (text;starts-with? text input)
+      (case (text;split (text;size text) input)
+        #;None              (#;Left "")
+        (#;Some [_ input']) (#;Right [input' text]))
+      (#;Left (format "Invalid match: " text " @ " (:: text;Codec<Text,Text> encode input))))
+    ))
+
+(def: #export (sep-by sep p)
+  (All [a b] (-> (Lexer b) (Lexer a) (Lexer (List a))))
+  (do Monad<Lexer>
+    [?x (opt p)]
+    (case ?x
+      #;None
+      (wrap #;Nil)
+      
+      (#;Some x)
+      (do @
+        [xs' (some (seq sep p))]
+        (wrap (#;Cons x (map product;right xs'))))
+      )))
+
+(def: #export end
+  (Lexer Unit)
+  (lambda [input]
+    (case input
+      "" (#;Right [input []])
+      _  (#;Left (format "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
+      )))
+
+(def: #export peek
+  (Lexer Char)
+  (lambda [input]
+    (case (text;at +0 input)
+      (#;Some output)
+      (#;Right [input output])
+
+      _
+      (#;Left "Can't peek character from empty text."))
+    ))
+
+(def: #export (this-char char)
+  (-> Char (Lexer Char))
+  (lambda [input]
+    (case [(text;at +0 input) (text;split +1 input)]
+      [(#;Some char') (#;Some [_ input'])]
+      (if (Char/= char char')
+        (#;Right [input' char])
+        (#;Left (format "Expected " (:: char;Codec<Text,Char> encode char) " @ " (:: text;Codec<Text,Text> encode input)
+                        " " (Int/encode (c2l char))" " (Int/encode (c2l [char'])))))
+
+      _
+      (#;Left "Can't parse character from empty text."))
+    ))
+
+(def: #export get-input
+  (Lexer Text)
+  (lambda [input]
+    (#;Right [input input])))
+
+(def: #export (char-range bottom top)
+  (-> Char Char (Lexer Char))
+  (do Monad<Lexer>
+    [input get-input
+     char any
+     _ (assert (and (Char/>= bottom char)
+                    (Char/<= top char))
+               (format "Character is not within range: " (:: char;Codec<Text,Char> encode bottom) "-" (:: char;Codec<Text,Char> encode top) " @ " (:: text;Codec<Text,Text> encode input)))]
+    (wrap char)))
+
+(do-template [<name> <bottom> <top>]
+  [(def: #export <name>
+     (Lexer Char)
+     (char-range <bottom> <top>))]
+
+  [upper     #"A" #"Z"]
+  [lower     #"a" #"z"]
+  [digit     #"0" #"9"]
+  [oct-digit #"0" #"7"]
+  )
+
+(def: #export alpha
+  (Lexer Char)
+  (either lower upper))
+
+(def: #export alpha-num
+  (Lexer Char)
+  (either alpha digit))
+
+(def: #export hex-digit
+  (Lexer Char)
+  ($_ either
+      digit
+      (char-range #"a" #"f")
+      (char-range #"A" #"F")))
+
+(def: #export (one-of options)
+  (-> Text (Lexer Char))
+  (lambda [input]
+    (case (text;split +1 input)
+      (#;Some [init input'])
+      (if (text;contains? init options)
+        (case (text;at +0 init)
+          (#;Some output)
+          (#;Right [input' output])
+
+          _
+          (#;Left ""))
+        (#;Left (format "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+
+      _
+      (#;Left "Can't parse character from empty text."))))
+
+(def: #export (none-of options)
+  (-> Text (Lexer Char))
+  (lambda [input]
+    (case (text;split +1 input)
+      (#;Some [init input'])
+      (if (;not (text;contains? init options))
+        (case (text;at +0 init)
+          (#;Some output)
+          (#;Right [input' output])
+
+          _
+          (#;Left ""))
+        (#;Left (format "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+
+      _
+      (#;Left "Can't parse character from empty text."))))
+
+(def: #export (satisfies p)
+  (-> (-> Char Bool) (Lexer Char))
+  (lambda [input]
+    (case (: (Maybe [Text Char])
+             (do Monad<Maybe>
+               [[init input'] (text;split +1 input)
+                output (text;at +0 init)]
+               (wrap [input' output])))
+      (#;Some [input' output])
+      (if (p output)
+        (#;Right [input' output])
+        (#;Left (format "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
+
+      _
+      (#;Left "Can't parse character from empty text."))))
+
+(def: #export space
+  (Lexer Char)
+  (satisfies char;space?))
+
+(def: #export (some' p)
+  (-> (Lexer Char) (Lexer Text))
+  (do Monad<Lexer>
+    [cs (some p)]
+    (wrap (text;concat (map char;as-text cs)))))
+
+(def: #export (many' p)
+  (-> (Lexer Char) (Lexer Text))
+  (do Monad<Lexer>
+    [cs (many p)]
+    (wrap (text;concat (map char;as-text cs)))))
+
+(def: #export end?
+  (Lexer Bool)
+  (lambda [input]
+    (#;Right [input (text;empty? input)])))
+
+(def: #export (_& left right)
+  (All [a b] (-> (Lexer a) (Lexer b) (Lexer b)))
+  (do Monad<Lexer>
+    [_ left]
+    right))
+
+(def: #export (&_ left right)
+  (All [a b] (-> (Lexer a) (Lexer b) (Lexer a)))
+  (do Monad<Lexer>
+    [output left
+     _ right]
+    (wrap output)))
+
+(def: #export (default value lexer)
+  (All [a] (-> a (Lexer a) (Lexer a)))
+  (lambda [input]
+    (case (lexer input)
+      (#;Left error)
+      (#;Right [input value])
+
+      (#;Right input'+value)
+      (#;Right input'+value))))
+
+(def: #export (codec codec lexer)
+  (All [a] (-> (Codec Text a) (Lexer Text) (Lexer a)))
+  (lambda [input]
+    (case (lexer input)
+      (#;Left error)
+      (#;Left error)
+
+      (#;Right [input' to-decode])
+      (case (:: codec decode to-decode)
+        (#;Left error)
+        (#;Left error)
+        
+        (#;Right value)
+        (#;Right [input' value])))))
+
+(def: #export (enclosed [start end] lexer)
+  (All [a] (-> [Text Text] (Lexer a) (Lexer a)))
+  (_& (this start)
+      (&_ lexer
+          (this end))))

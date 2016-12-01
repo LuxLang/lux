@@ -1,0 +1,314 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (codata [io])
+       (control monad)
+       (data [text "Text/" Monoid<Text>]
+             text/format
+             error
+             (format [json #* "JSON/" Eq<JSON> Codec<Text,JSON>])
+             (struct [vector #+ vector]
+                     [dict]))
+       [compiler #+ with-gensyms]
+       (macro [ast]
+              [syntax #+ syntax:]
+              [poly #+ derived:])
+       [pipe]
+       test)
+  )
+
+## [Utils]
+(syntax: (reads-to-itself expr)
+  (with-gensyms [g!json g!parsed g!message]
+    (wrap (list (` (: (Test Unit)
+                      (let [(~ g!json) (~ expr)]
+                        (case (|> (~ g!json) JSON/encode JSON/decode)
+                          (#;Left (~ g!message))
+                          (fail (~ g!message))
+
+                          (#;Right (~ g!parsed))
+                          (if (JSON/= (~ g!json) (~ g!parsed))
+                            (~ (' (:: Monad<Test> wrap [])))
+                            (fail (format "Expression does not parse to itself: " (~ (ast;text (ast;ast-to-text expr)))
+                                          "\n\nWhich is: " (|> (~ g!json) JSON/encode)
+                                          "\n\nInstead, it parsed to: " (JSON/encode (~ g!parsed))))
+                            ))))
+                   )))))
+
+## [Tests]
+## (derived: (Codec<JSON,?> ;Bool))
+## (derived: (Codec<JSON,?> ;Int))
+## (derived: (Codec<JSON,?> ;Real))
+## (derived: (Codec<JSON,?> ;Char))
+## (derived: (Codec<JSON,?> ;Text))
+
+## (type: Int-List (List Int))
+## (derived: (Codec<JSON,?> ;;Int-List))
+
+## (type: Int-Maybe (Maybe Int))
+## (derived: (Codec<JSON,?> ;;Int-Maybe))
+
+## (type: Triple [Bool Int Text])
+## (derived: (Codec<JSON,?> ;;Triple))
+
+## (type: User
+##   {#alive? Bool
+##    #age Int
+##    #name Text})
+## (derived: (Codec<JSON,?> ;;User))
+
+## (type: Options
+##   (#One Bool)
+##   (#Two Int)
+##   (#Three Text))
+## (derived: (Codec<JSON,?> ;;Options))
+
+## (test: "Auto-generated codecs"
+##   (let% [<tests> (do-template [<input> <output> <codec>]
+##                    [(match <output>
+##                            (|> <input>
+##                                (:: <codec> encode)
+##                                JSON/encode))
+##                     (match+ <input>
+##                             (should-pass (|> (JSON/decode <output>)
+##                                              (pipe;%> Error/Monad
+##                                                       [(:: <codec> decode)]))))]
+
+##                    [true   "true"     Codec<JSON,Bool>]
+##                    [123    "123.0"    Codec<JSON,Int>]
+##                    [123.45 "123.45"   Codec<JSON,Real>]
+##                    [#"a"   "\"a\""    Codec<JSON,Char>]
+##                    ["yolo" "\"yolo\"" Codec<JSON,Text>]
+
+##                    [(#;Cons 1 (#;Cons 2 (#;Cons 3 #;Nil))) "[1.0,2.0,3.0]" Codec<JSON,Int-List>]
+##                    [#;Nil "[]" Codec<JSON,Int-List>]
+##                    [(#;Some 1) "1.0" Codec<JSON,Int-Maybe>]
+##                    [#;None "null" Codec<JSON,Int-Maybe>]
+##                    [[false 456 "lol"] "[false,456.0,\"lol\"]" Codec<JSON,Triple>]
+##                    [{#alive? true #age 25 #name "Eduardo Julian"}
+##                     "{\"alive?\":true,\"age\":25.0,\"name\":\"Eduardo Julian\"}"
+##                     Codec<JSON,User>]
+##                    [(#One true) "[\"One\",true]" Codec<JSON,Options>]
+##                    [(#Two 123) "[\"Two\",123.0]" Codec<JSON,Options>]
+##                    [(#Three "yolo") "[\"Three\",\"yolo\"]" Codec<JSON,Options>]
+##                    )]
+##     (test-all <tests>
+##               )))
+
+(test: "Basics"
+  (test-all (match #json;Null
+                   null)
+
+            (match (#json;Boolean true)
+                   (gen-boolean true))
+
+            (match (#json;Boolean false)
+                   (gen-boolean false))
+
+            (match (#json;Number 123.45)
+                   (gen-number 123.45))
+
+            (match (#json;String "YOLO")
+                   (gen-string "YOLO"))
+
+            ## (match (^ (#json;Array (list (#json;Boolean true) (#json;Number 123.45) (#json;String "YOLO"))))
+            ##        (json [(gen-boolean true) (gen-number 123.45) (gen-string "YOLO")]))
+
+            ## (match (^ (#json;Object (list ["yolo" (#json;Boolean true)]
+            ##                               ["lol" (#json;Number 123.45)])))
+            ##        (json {"yolo" (gen-boolean true)
+            ##                    "lol" (gen-number 123.45)}))
+
+            (match (#;Some (#json;Boolean true))
+                   (get "yolo" (json {"yolo" true
+                                      "lol" 123.45})))
+
+            (match (#;Left _)
+                   (get "yolo" (json {})))
+
+            ## (match (^ (#;Some (#json;Object (list ["lol" (#json;Number 123.45)]
+            ##                                       ["yolo" (#json;Boolean true)]))))
+            ##        (|> (json {"yolo" (gen-boolean true)})
+            ##            (set "lol" (gen-number 123.45))))
+
+            (match (#;Right true)
+                   (get-boolean "value" (json {"value" true})))
+
+            (match (#;Right 123.45)
+                   (get-number "value" (json {"value" 123.45})))
+
+            (match (#;Right "YOLO")
+                   (get-string "value" (json {"value" "YOLO"})))
+
+            ## (match (^ (#;Right (list (#json;Boolean true) (#json;Number 123.45) (#json;String "YOLO"))))
+            ##        (get-array "value" (json {"value" (json [(gen-boolean true)
+            ##                                                           (gen-number 123.45)
+            ##                                                           (gen-string "YOLO")])})))
+
+            ## (match (^ (#;Right (list ["yolo" (#json;Boolean true)]
+            ##                          ["lol" (#json;Number 123.45)])))
+            ##        (get-object "value" (json {"value" (json {"yolo" (gen-boolean true)
+            ##                                                            "lol" (gen-number 123.45)})})))
+
+            (match (#;Left _)
+                   (get-array "value" (json {})))
+
+            (match (#;Left _)
+                   (get-array "value" (gen-boolean true)))
+            ))
+
+(test: "Encoding"
+  (test-all (match "null"
+                   (JSON/encode (json #null)))
+
+            (match "123.0"
+                   (JSON/encode (json 123)))
+
+            (match "123.46"
+                   (JSON/encode (json 123.46)))
+
+            (match "true"
+                   (JSON/encode (json true)))
+
+            (match "false"
+                   (JSON/encode (json false)))
+
+            (match "\"YOLO\""
+                   (JSON/encode (json "YOLO")))
+
+            (match "[null,123.46,true,\"YOLO\",[\"nyan\",\"cat\"]]"
+                   (JSON/encode (json [#null 123.46 true "YOLO" ["nyan" "cat"]])))
+
+            (match "{\"foo\":\"bar\",\"baz\":null,\"quux\":[\"nyan\",{\"cat\":\"meme\"}]}"
+                   (JSON/encode (json {"foo" "bar"
+                                       "baz" #null
+                                       "quux" ["nyan" {"cat" "meme"}]})))
+            ))
+
+(test: "Decoding"
+  (test-all (reads-to-itself (json #null))
+            (reads-to-itself (json 123))
+            (reads-to-itself (json 123.46))
+            (reads-to-itself (json true))
+            (reads-to-itself (json false))
+            (reads-to-itself (json "\tY\"OLO\n"))
+            (reads-to-itself (json [#null 123.46 true "YOLO" ["nyan" "cat"]]))
+            (reads-to-itself (json {"foo" "bar"
+                                    "baz" #null
+                                    "quux" ["nyan" {"cat" "meme"}]}))
+            ))
+
+(test: "Parser"
+  (test-all (should-pass (run unit
+                              (json #null)))
+            (should-fail (run unit
+                              (json 123)))
+
+            (match+ 123.45
+                    (should-pass (run real
+                                      (json 123.45))))
+            (should-fail (run real
+                              (json #null)))
+
+            (match+ 123
+                    (should-pass (run int
+                                      (json 123))))
+            (should-fail (run int
+                              (json #null)))
+
+            (match+ true
+                    (should-pass (run bool
+                                      (json true))))
+            (should-fail (run bool
+                              (json 123)))
+
+            (match+ "YOLO"
+                    (should-pass (run text
+                                      (json "YOLO"))))
+            (should-fail (run text
+                              (json 123)))
+
+            (match+ (^ (list "YOLO" "LOL" "MEME"))
+                    (should-pass (run (array text)
+                                      (json ["YOLO" "LOL" "MEME"]))))
+            (should-fail (run (array text)
+                              (json 123)))
+
+            (match+ "LOL"
+                    (should-pass (run (at +1 text)
+                                      (json ["YOLO" "LOL" "MEME"]))))
+            (should-fail (run (array text)
+                              (json 123)))
+
+            (match+ "MEME"
+                    (should-pass (run (field "baz" text)
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (should-fail (run (field "baz" text)
+                              (json 123)))
+
+            (match+ (#json;Number 123.0)
+                    (should-pass (run any
+                                      (json 123))))
+
+            (match+ ["YOLO" "MEME"]
+                    (should-pass (run (seq (field "foo" text)
+                                           (field "baz" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (should-fail (run (seq (field "foo" text)
+                                   (field "baz" text))
+                              (json {"foo" "YOLO"
+                                     "bar" "LOL"})))
+
+            (match+ (#;Left "YOLO")
+                    (should-pass (run (alt (field "foo" text)
+                                           (field "baz" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (match+ (#;Right "MEME")
+                    (should-pass (run (alt (field "fool" text)
+                                           (field "baz" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (should-fail (run (alt (field "fool" text)
+                                   (field "baz" text))
+                              (json {"foo" "YOLO"
+                                     "bar" "LOL"})))
+
+            (match+ "YOLO"
+                    (should-pass (run (either (field "foo" text)
+                                              (field "baz" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (match+ "MEME"
+                    (should-pass (run (either (field "fool" text)
+                                              (field "baz" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (should-fail (run (either (field "fool" text)
+                                      (field "baz" text))
+                              (json {"foo" "YOLO"
+                                     "bar" "LOL"})))
+
+            (match+ (#;Some "YOLO")
+                    (should-pass (run (opt (field "foo" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            (match+ #;None
+                    (should-pass (run (opt (field "fool" text))
+                                      (json {"foo" "YOLO"
+                                             "bar" "LOL"
+                                             "baz" "MEME"}))))
+            ))

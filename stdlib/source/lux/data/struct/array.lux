@@ -1,0 +1,224 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control monoid
+                functor
+                applicative
+                monad
+                eq
+                fold)
+       (data error
+             (struct [list "List/" Fold<List>])
+             [product])
+       ))
+
+## [Types]
+(type: #export (Array a)
+  (#;HostT "#Array" (#;Cons a #;Nil)))
+
+## [Functions]
+(def: #export (new size)
+  (All [a] (-> Nat (Array a)))
+  (_lux_proc ["array" "new"] [size]))
+
+(def: #export (size xs)
+  (All [a] (-> (Array a) Nat))
+  (_lux_proc ["array" "size"] [xs]))
+
+(def: #export (get i xs)
+  (All [a]
+    (-> Nat (Array a) (Maybe a)))
+  (_lux_proc ["array" "get"] [xs i]))
+
+(def: #export (put i x xs)
+  (All [a]
+    (-> Nat a (Array a) (Array a)))
+  (_lux_proc ["array" "put"] [xs i x]))
+
+(def: #export (remove i xs)
+  (All [a]
+    (-> Nat (Array a) (Array a)))
+  (_lux_proc ["array" "remove"] [xs i]))
+
+(def: #export (copy length src-start src-array dest-start dest-array)
+  (All [a] (-> Nat Nat (Array a) Nat (Array a)
+               (Array a)))
+  (if (=+ +0 length)
+    dest-array
+    (List/fold (lambda [offset target]
+                 (case (get (++ offset src-start) src-array)
+                   #;None
+                   target
+                   
+                   (#;Some value)
+                   (put (++ offset dest-start) value target)))
+               dest-array
+               (list;range+ +0 (dec+ length)))))
+
+(def: #export (occupied array)
+  {#;doc "Finds out how many cells in an array are occupied."}
+  (All [a] (-> (Array a) Nat))
+  (List/fold (lambda [idx count]
+               (case (get idx array)
+                 #;None
+                 count
+                 
+                 (#;Some _)
+                 (inc+ count)))
+             +0
+             (list;indices (size array))))
+
+(def: #export (vacant array)
+  {#;doc "Finds out how many cells in an array are vacant."}
+  (All [a] (-> (Array a) Nat))
+  (-+ (occupied array) (size array)))
+
+(def: #export (filter p xs)
+  (All [a]
+    (-> (-> a Bool) (Array a) (Array a)))
+  (List/fold (: (-> Nat (Array ($ 0)) (Array ($ 0)))
+                (lambda [idx xs']
+                  (case (get idx xs)
+                    #;None
+                    xs'
+
+                    (#;Some x)
+                    (if (p x)
+                      xs'
+                      (remove idx xs')))))
+             xs
+             (list;indices (size xs))))
+
+(def: #export (find p xs)
+  (All [a]
+    (-> (-> a Bool) (Array a) (Maybe a)))
+  (let [arr-size (size xs)]
+    (loop [idx +0]
+      (if (<+ arr-size idx)
+        (case (get idx xs)
+          #;None
+          (recur (inc+ idx))
+          
+          (#;Some x)
+          (if (p x)
+            (#;Some x)
+            (recur (inc+ idx))))
+        #;None))))
+
+(def: #export (find+ p xs)
+  {#;doc "Just like 'find', but with access to the index of each value."}
+  (All [a]
+    (-> (-> Nat a Bool) (Array a) (Maybe [Nat a])))
+  (let [arr-size (size xs)]
+    (loop [idx +0]
+      (if (<+ arr-size idx)
+        (case (get idx xs)
+          #;None
+          (recur (inc+ idx))
+          
+          (#;Some x)
+          (if (p idx x)
+            (#;Some [idx x])
+            (recur (inc+ idx))))
+        #;None))))
+
+(def: #export (clone xs)
+  (All [a] (-> (Array a) (Array a)))
+  (let [arr-size (size xs)]
+    (List/fold (lambda [idx ys]
+                 (case (get idx xs)
+                   #;None
+                   ys
+
+                   (#;Some x)
+                   (put idx x ys)))
+               (new arr-size)
+               (list;indices arr-size))))
+
+(def: #export (from-list xs)
+  (All [a] (-> (List a) (Array a)))
+  (product;right (List/fold (lambda [x [idx arr]]
+                              [(inc+ idx) (put idx x arr)])
+                            [+0 (new (list;size xs))]
+                            xs)))
+
+(def: #export (to-list array)
+  (All [a] (-> (Array a) (List a)))
+  (let [_size (size array)]
+    (product;right (List/fold (lambda [_ [idx tail]]
+                                (case (get idx array)
+                                  (#;Some head)
+                                  [(dec+ idx) (#;Cons head tail)]
+
+                                  #;None
+                                  [(dec+ idx) tail]))
+                              [(dec+ _size) #;Nil]
+                              (list;repeat _size [])
+                              ))))
+
+## [Structures]
+(struct: #export (Eq<Array> (^open "a:"))
+  (All [a] (-> (Eq a) (Eq (Array a))))
+  (def: (= xs ys)
+    (let [sxs (size xs)
+          sxy (size ys)]
+      (and (lux;=+ sxy sxs)
+           (List/fold (lambda [idx prev]
+                        (and prev
+                             (case [(get idx xs) (get idx ys)]
+                               [#;None #;None]
+                               true
+
+                               [(#;Some x) (#;Some y)]
+                               (a:= x y)
+
+                               _
+                               false)))
+                      true
+                      (list;range+ +0 (dec+ sxs)))))
+    ))
+
+(struct: #export Monoid<Array> (All [a]
+                                 (Monoid (Array a)))
+  (def: unit (new +0))
+
+  (def: (append xs ys)
+    (let [sxs (size xs)
+          sxy (size ys)]
+      (|> (new (++ sxy sxs))
+          (copy sxs +0 xs +0)
+          (copy sxy +0 ys sxs)))))
+
+(struct: #export _ (Functor Array)
+  (def: (map f ma)
+    (let [arr-size (size ma)]
+      (if (=+ +0 arr-size)
+        (new arr-size)
+        (List/fold (: (-> Nat (Array ($ 1)) (Array ($ 1)))
+                      (lambda [idx mb]
+                        (case (get idx ma)
+                          #;None
+                          mb
+
+                          (#;Some x)
+                          (put idx (f x) mb))))
+                   (new arr-size)
+                   (list;range+ +0 (dec+ arr-size)))))))
+
+(struct: #export _ (Fold Array)
+  (def: (fold f init xs)
+    (let [arr-size (size xs)]
+      (loop [so-far init
+             idx +0]
+        (if (<+ arr-size idx)
+          (case (get idx xs)
+            #;None
+            (recur so-far (inc+ idx))
+
+            (#;Some value)
+            (recur (f value so-far) (inc+ idx)))
+          so-far)))))

@@ -1,0 +1,330 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux [compiler #+ Monad<Lux> with-gensyms]
+       (macro ["s" syntax #+ syntax: Syntax]
+              [ast])
+       (control functor
+                applicative
+                monad)
+       (concurrency [promise #* "Promise/" Monad<Promise>])
+       (data (struct [list "List/" Monad<List>])
+             [product]
+             [text]
+             text/format
+             [error #* "Error/" Monad<Error>])
+       (codata [io #- run])
+       (math ["R" random])
+       [host #- try]))
+
+## [Host]
+(jvm-import java.lang.System
+  (#static exit [int] #io void)
+  (#static currentTimeMillis [] #io long))
+
+(def: #hidden exit
+  (IO Unit)
+  (System.exit 0))
+
+## [Types]
+(type: #export (Test a)
+  (Promise (Error a)))
+
+## [Structs]
+(struct: #export _ (Functor Test)
+  (def: (map f fa)
+    (Promise/map (Error/map f) fa)))
+
+(struct: #export _ (Applicative Test)
+  (def: functor Functor<Test>)
+
+  (def: (wrap a)
+    (Promise/wrap (#;Right a)))
+
+  (def: (apply ff fa)
+    (do Monad<Promise>
+      [f' ff
+       a' fa]
+      (case [f' a']
+        [(#;Right f) (#;Right a)]
+        (wrap (#;Right (f a)))
+
+        (^or [(#;Left msg) _] [_ (#;Left msg)])
+        (wrap (#;Left msg))))
+    ))
+
+(struct: #export _ (Monad Test)
+  (def: applicative Applicative<Test>)
+  
+  (def: (join mma)
+    (Promise/join (Promise/map (lambda [mma']
+                                 (case mma'
+                                   (#;Left msg)
+                                   (Promise/wrap (#;Left msg))
+
+                                   (#;Right ma)
+                                   ma))
+                               mma)))
+  )
+
+## [Values]
+(def: #export (fail message)
+  (All [a] (-> Text (Test a)))
+  (:: Monad<Promise> wrap (#;Left message)))
+
+(def: #export (assert message test)
+  (-> Text Bool (Test Unit))
+  (if test
+    (:: Monad<Test> wrap [])
+    (fail message)))
+
+(def: #export (from-promise promise)
+  (All [a] (-> (Promise a) (Test a)))
+  (do Monad<Promise>
+    [output promise]
+    (wrap (#;Right output))))
+
+(def: #hidden (run' tests)
+  (-> (List [Text (IO (Test Unit)) Text]) (Promise Unit))
+  (do Monad<Promise>
+    [printings (mapM @
+                     (: (-> [Text (IO (Test Unit)) Text] (Promise Unit))
+                        (lambda [[module test description]]
+                          (do @
+                            [#let [pre (io;run (System.currentTimeMillis []))]
+                             outcome (io;run test)
+                             #let [post (io;run (System.currentTimeMillis []))]]
+                            (case outcome
+                              (#;Left error)
+                              (wrap (log! (format "Error: " (:: text;Codec<Text,Text> encode description) " @ " module "\n" error "\n\n")))
+                              
+                              _
+                              (exec (log! (format "Success: " (:: text;Codec<Text,Text> encode description) " @ " module
+                                                  " in " (%i (- pre post)) "ms"))
+                                (wrap []))))))
+                     tests)]
+    (wrap [])))
+
+(def: pcg-32-magic-inc Nat +12345)
+
+(type: #export Seed Nat)
+
+(def: #export (try seed random-test)
+  (-> Seed (R;Random (Test Unit)) (Test Seed))
+  (let [[prng [new-seed test]] (R;run (R;pcg-32 [pcg-32-magic-inc seed])
+                                      (do R;Monad<Random>
+                                        [test random-test
+                                         next-seed R;nat]
+                                        (wrap [next-seed test])))]
+    (do Monad<Test>
+      [_ test]
+      (wrap new-seed))))
+
+(def: (repeat' seed times random-test)
+  (-> Seed Nat (R;Random (Test Unit)) (Test Seed))
+  (case times
+    +0
+    (fail "Can't try a test 0 times.")
+    
+    +1
+    (try seed random-test)
+    
+    _
+    (do Monad<Promise>
+      [output (try seed random-test)]
+      (case output
+        (#;Left error)
+        (fail (format "Test failed with this seed: " (%n seed) "\n" error))
+
+        (#;Right seed')
+        (repeat' seed' (dec+ times) random-test)))))
+
+(def: #export (repeat times random-test)
+  (-> Nat (R;Random (Test Unit)) (Test Unit))
+  (do Monad<Test>
+    [_ (repeat' (int-to-nat (io;run (System.currentTimeMillis [])))
+                times
+                random-test)]
+    (wrap [])))
+
+## [Syntax]
+(type: Property-Test
+  {#seed (Maybe (Either Nat Ident))
+   #bindings (List [AST AST])
+   #body AST})
+
+(type: Test-Kind
+  (#Property Property-Test)
+  (#Simple AST))
+
+(def: propery-test^
+  (Syntax Property-Test)
+  ($_ s;seq
+      (s;opt (s;alt s;nat
+                    s;symbol))
+      (s;tuple (s;some (s;seq s;any s;any)))
+      s;any))
+
+(def: test^
+  (Syntax Test-Kind)
+  (s;alt propery-test^
+         s;any))
+
+(def: (pair-to-list [x y])
+  (All [a] (-> [a a] (List a)))
+  (list x y))
+
+(syntax: #export (test: description {body test^})
+  {#;doc (doc "Macro for definint tests."
+              (test: "lux/pipe exports"
+                (all (match 1 (|> 20
+                                  (* 3)
+                                  (+ 4)
+                                  (_> 0 inc)))
+                     (match 10 (|> 5
+                                   (@> (+ @ @))))
+                     (match 15 (|> 5
+                                   (?> [even?] [(* 2)]
+                                       [odd?] [(* 3)]
+                                       [(_> -1)])))
+                     )))}
+  (let [body (case body
+               (#Property seed bindings body)
+               (let [seed' (case seed
+                             #;None
+                             (' +100)
+
+                             (#;Some (#;Left value))
+                             (ast;nat value)
+
+                             (#;Some (#;Right var))
+                             (ast;symbol var))
+                     bindings' (|> bindings (List/map pair-to-list) List/join)]
+                 (` (repeat (~ seed')
+                            (do R;Monad<Random>
+                              [(~@ bindings')]
+                              ((~' wrap) (~ body))))))
+               
+               (#Simple body)
+               body)]
+    (with-gensyms [g!test]
+      (wrap (list (` (def: #export (~ g!test)
+                       {#;;test (#;TextM (~ description))}
+                       (IO (Test Unit))
+                       (io (~ body)))))))))
+
+(def: (exported-tests module-name)
+  (-> Text (Lux (List [Text Text Text])))
+  (do Monad<Lux>
+    [defs (compiler;exports module-name)]
+    (wrap (|> defs
+              (List/map (lambda [[def-name [_ def-anns _]]]
+                          (case (compiler;get-text-ann (ident-for #;;test) def-anns)
+                            (#;Some description)
+                            [true module-name def-name description]
+
+                            _
+                            [false module-name def-name ""])))
+              (list;filter product;left)
+              (List/map product;right)))))
+
+(syntax: #export (match pattern expression)
+  {#;doc (doc "Runs an expression and pattern-matches against it using the given pattern."
+              "If the pattern-matching succeeds, the test succeeds."
+              (match 15 (|> 5
+                            (?> [even?] [(* 2)]
+                                [odd?] [(* 3)]))))}
+  (with-gensyms [g!_]
+    (wrap (list (` (: (Test Unit)
+                      (case (~ expression)
+                        (~ pattern)
+                        (~' (:: Monad<Test> wrap []))
+
+                        (~ g!_)
+                        (fail (~ (ast;text (format "Pattern was not matched: " (ast;ast-to-text pattern)
+                                                   "\n\n" "From expression: " (ast;ast-to-text expression))))))))))))
+
+(def: #hidden (should-pass' veredict expr-repr)
+  (All [a] (-> (Error a) Text (Test a)))
+  (case veredict
+    (#;Left message) (fail (format "'" message "' @ " expr-repr))
+    (#;Right value)  (:: Monad<Test> wrap value)))
+
+(def: #hidden (should-fail' veredict expr-repr)
+  (All [a] (-> (Error a) Text (Test Unit)))
+  (case veredict
+    (#;Left message) (:: Monad<Test> wrap [])
+    (#;Right value)  (fail (format "Should have failed: " expr-repr))))
+
+(do-template [<macro-name> <func-name> <doc>]
+  [(syntax: #export (<macro-name> expr)
+     {#;doc <doc>}
+     (wrap (list (` (<func-name> (~ expr) (~ (ast;text (ast;ast-to-text expr))))))))]
+
+  [should-pass should-pass' "Verifies that a (Error a) computation succeeds/passes."]
+  [should-fail should-fail' "Verifies that a (Error a) computation fails."]
+  )
+
+(syntax: #export (match+ pattern source)
+  {#;doc (doc "Same as \"match\", but the expression/source is expected to be of type (Test a)."
+              "That is, it's asynchronous and it may fail."
+              "If, however, it succeeds, it's value will be pattern-matched against."
+              (match+ 5 (commit (do Monad<STM>
+                                  [_ (write 5 _var)
+                                   value (read _var)]
+                                  (wrap (#;Right value))))))}
+  (with-gensyms [g!temp]
+    (wrap (list (` (: (Test Unit)
+                      (do Monad<Test>
+                        [(~ g!temp) (~ source)]
+                        (match (~ pattern) (~ g!temp)))))))))
+
+(syntax: #export (run)
+  {#;doc (doc "Runs all the tests defined on the current module, and in all imported modules."
+              (run))}
+  (with-gensyms [g!_]
+    (do @
+      [current-module compiler;current-module-name
+       modules (compiler;imported-modules current-module)
+       tests (: (Lux (List [Text Text Text]))
+                (:: @ map List/join (mapM @ exported-tests (#;Cons current-module modules))))
+       #let [tests+ (List/map (lambda [[module-name test desc]]
+                                (` [(~ (ast;text module-name)) (~ (ast;symbol [module-name test])) (~ (ast;text desc))]))
+                              tests)
+             groups (list;split-all (|> (list;size tests+) (/+ concurrency-level) (++ +1) (min+ +16))
+                                    tests+)]]
+      (wrap (list (` (: (IO Unit)
+                        (io (exec (do Monad<Promise>
+                                    [(~@ (List/join (List/map (lambda [group]
+                                                                (list g!_ (` (run' (list (~@ group))))))
+                                                              groups)))]
+                                    (exec (log! "Test-suite finished!")
+                                      (future exit)))
+                              [])))))))))
+
+(syntax: #export (all {tests (s;some s;any)})
+  {#;doc (doc "Given a sequence of tests, runs them all sequentially, and succeeds if the all succeed."
+              (test: "lux/pipe exports"
+                (all (match 1 (|> 20
+                                  (* 3)
+                                  (+ 4)
+                                  (_> 0 inc)))
+                     (match 10 (|> 5
+                                   (@> (+ @ @))))
+                     (match 15 (|> 5
+                                   (?> [even?] [(* 2)]
+                                       [odd?] [(* 3)]
+                                       [(_> -1)])))
+                     )))}
+  (with-gensyms [g!_]
+    (let [pairs (|> tests
+                    (List/map (: (-> AST (List AST)) (lambda [test] (list g!_ test))))
+                    List/join)]
+      (wrap (list (` (: (Test Unit)
+                        (do Monad<Test>
+                          [(~@ pairs)]
+                          ((~' wrap) [])))))))))

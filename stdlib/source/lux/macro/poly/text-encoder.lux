@@ -1,0 +1,126 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control monad
+                [codec])
+       (data [text]
+             text/format
+             (struct [list "List/" Monad<List>]
+                     [dict #+ Dict])
+             [number]
+             [product]
+             [bool]
+             [char]
+             [maybe]
+             [ident "Ident/" Codec<Text,Ident>]
+             error)
+       [compiler #+ Monad<Lux> with-gensyms]
+       (macro [ast]
+              [syntax #+ syntax: Syntax]
+              (syntax [common])
+              [poly #+ poly:])
+       [type]
+       ))
+
+## [Derivers]
+(poly: #export (|Codec@Text//encode| env :x:)
+  (let [->Codec//encode (: (-> AST AST)
+                           (lambda [.type.] (` (-> (~ .type.) Text))))]
+    (let% [<basic> (do-template [<type> <matcher> <encoder>]
+                     [(do @
+                        [_ (<matcher> :x:)]
+                        (wrap (` (: (~ (->Codec//encode (` <type>)))
+                                    (~' <encoder>)))))]
+
+                     [Unit poly;unit (lambda [_0] "[]")]
+                     [Bool poly;bool (:: bool;Codec<Text,Bool> encode)]
+                     [Nat  poly;nat  (:: number;Codec<Text,Nat> encode)]
+                     [Int  poly;int  (:: number;Codec<Text,Int> encode)]
+                     [Frac poly;frac (:: number;Codec<Text,Frac> encode)]
+                     [Real poly;real (:: number;Codec<Text,Real> encode)]
+                     [Char poly;char (:: char;Codec<Text,Char> encode)]
+                     [Text poly;text (:: text;Codec<Text,Text> encode)])]
+      ($_ compiler;either
+          ## Primitives
+          <basic>
+          ## Variants
+          (with-gensyms [g!type-fun g!case g!input]
+            (do @
+              [[g!vars cases] (poly;variant :x:)
+               #let [new-env (poly;extend-env g!type-fun g!vars env)]
+               pattern-matching (mapM @
+                                      (lambda [[name :case:]]
+                                        (do @
+                                          [encoder (|Codec@Text//encode| new-env :case:)]
+                                          (wrap (list (` ((~ (ast;tag name)) (~ g!case)))
+                                                      (` (format "(#"
+                                                                 (~ (ast;text (Ident/encode name)))
+                                                                 " "
+                                                                 ((~ encoder) (~ g!case))
+                                                                 ")"))))))
+                                      cases)]
+              (wrap (` (: (~ (poly;gen-type ->Codec//encode g!type-fun g!vars :x:))
+                          (lambda [(~@ g!vars)]
+                            (lambda [(~ g!input)]
+                              (case (~ g!input)
+                                (~@ (List/join pattern-matching)))))
+                          )))))
+          ## Records
+          (with-gensyms [g!type-fun g!case g!input]
+            (do @
+              [[g!vars slots] (poly;record :x:)
+               #let [new-env (poly;extend-env g!type-fun g!vars env)]
+               synthesis (mapM @
+                               (lambda [[name :slot:]]
+                                 (do @
+                                   [encoder (|Codec@Text//encode| new-env :slot:)]
+                                   (wrap (` (format "#"
+                                                    (~ (ast;text (Ident/encode name)))
+                                                    " "
+                                                    ((~ encoder) (get@ (~ (ast;tag name)) (~ g!input))))))))
+                               slots)]
+              (wrap (` (: (~ (poly;gen-type ->Codec//encode g!type-fun g!vars :x:))
+                          (lambda [(~@ g!vars)]
+                            (lambda [(~ g!input)]
+                              (format "{" (~@ (list;interpose (' " ") synthesis)) "}")))
+                          )))))
+          ## Tuples
+          (with-gensyms [g!type-fun g!case g!input]
+            (do @
+              [[g!vars members] (poly;tuple :x:)
+               #let [new-env (poly;extend-env g!type-fun g!vars env)]
+               parts (mapM @
+                           (lambda [:member:]
+                             (do @
+                               [g!member (compiler;gensym "g!member")
+                                encoder (|Codec@Text//encode| new-env :member:)]
+                               (wrap [g!member encoder])))
+                           members)
+               #let [analysis (` [(~@ (List/map product;left parts))])
+                     synthesis (List/map (lambda [[g!member g!encoder]]
+                                           (` ((~ g!encoder) (~ g!member))))
+                                         parts)]]
+              (wrap (` (: (~ (poly;gen-type ->Codec//encode g!type-fun g!vars :x:))
+                          (lambda [(~@ g!vars)]
+                            (lambda [(~ g!input)]
+                              (case (~ g!input)
+                                (~ analysis)
+                                (format "[" (~@ (list;interpose (' " ") synthesis)) "]"))))
+                          )))
+              ))
+          ## Type applications
+          (do @
+            [[:func: :args:] (poly;apply :x:)
+             .func. (|Codec@Text//encode| env :func:)
+             .args. (mapM @ (|Codec@Text//encode| env) :args:)]
+            (wrap (` (: (~ (->Codec//encode (type;type-to-ast :x:)))
+                        ((~ .func.) (~@ .args.))))))
+          ## Bound type-variables
+          (poly;bound env :x:)
+          ## Failure...
+          (compiler;fail (format "Can't create Text encoder for: " (type;type-to-text :x:)))
+          ))))

@@ -1,0 +1,150 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (codata [io])
+       (control monad)
+       (data ["&" text]
+             [char]
+             text/format
+             [number]
+             (struct [list]))
+       (codata function)
+       (math ["R" random])
+       pipe)
+  lux/test)
+
+(test: "Size"
+  [size (:: @ map (%+ +100) R;nat)
+   sample (R;text size)]
+  (assert "" (or (and (=+ +0 size)
+                      (&;empty? sample))
+                 (=+ size (&;size sample)))))
+
+(def: bounded-size
+  (R;Random Nat)
+  (|> R;nat
+      (:: R;Monad<Random> map (|>. (%+ +100) (++ +1)))))
+
+(test: "Locations"
+  [size bounded-size
+   idx (:: @ map (%+ size) R;nat)
+   sample (R;text size)]
+  (assert "" (|> sample
+                 (&;at idx)
+                 (case> (^=> (#;Some char)
+                             {(char;as-text char) char'}
+                             {[(&;index-of char' sample)
+                               (&;last-index-of char' sample)
+                               (&;index-of' char' idx sample)
+                               (&;last-index-of' char' idx sample)]
+                              [(#;Some io) (#;Some lio)
+                               (#;Some io') (#;Some lio')]})
+                        (and (<=+ idx io)
+                             (>=+ idx lio)
+
+                             (=+ idx io')
+                             (>=+ idx lio')
+
+                             (&;contains? char' sample))
+
+                        _
+                        false
+                        ))
+          ))
+
+(test: "Text functions"
+  [sizeL bounded-size
+   sizeR bounded-size
+   sampleL (R;text sizeL)
+   sampleR (R;text sizeR)
+   #let [sample (&;concat (list sampleL sampleR))
+         fake-sample (&;join-with " " (list sampleL sampleR))
+         dup-sample (&;join-with "" (list sampleL sampleR))
+         enclosed-sample (&;enclose [sampleR sampleR] sampleL)
+         (^open) &;Eq<Text>]]
+  (assert "" (and (not (= sample fake-sample))
+                  (= sample dup-sample)
+                  (&;starts-with? sampleL sample)
+                  (&;ends-with? sampleR sample)
+                  (= enclosed-sample
+                     (&;enclose' sampleR sampleL))
+                  
+                  (|> (&;split sizeL sample)
+                      (case> (#;Right [_l _r])
+                             (and (= sampleL _l)
+                                  (= sampleR _r)
+                                  (= sample (&;concat (list _l _r))))
+
+                             _
+                             false))
+                  
+                  (|> [(&;sub +0 sizeL sample)
+                       (&;sub sizeL (&;size sample) sample)
+                       (&;sub' sizeL sample)
+                       (&;sub' +0 sample)]
+                      (case> [(#;Right _l) (#;Right _r) (#;Right _r') (#;Right _f)]
+                             (and (= sampleL _l)
+                                  (= sampleR _r)
+                                  (= _r _r')
+                                  (= sample _f))
+
+                             _
+                             false))
+                  )
+          ))
+
+(test: "More text functions"
+  [sizeS bounded-size
+   sizeP bounded-size
+   sizeL bounded-size
+   sep1 (R;text sizeS)
+   sep2 (R;text sizeS)
+   #let [part-gen (|> (R;text sizeP)
+                      (R;filter (. not (&;contains? sep1))))]
+   parts (R;list sizeL part-gen)
+   #let [sample1 (&;concat (list;interpose sep1 parts))
+         sample2 (&;concat (list;interpose sep2 parts))
+         (^open) &;Eq<Text>]]
+  (assert "" (and (=+ (list;size parts)
+                      (list;size (&;split-all-with sep1 sample1)))
+                  (= sample2
+                     (&;replace sep1 sep2 sample1))
+                  )))
+
+(test: "Other text functions"
+  (all (match "abc" (&;lower-case "ABC"))
+       (match "ABC" (&;upper-case "abc"))
+       (match "ABC" (&;trim " \tABC\n\r"))
+       ))
+
+(test: "Structures"
+  (all (assert "" (:: &;Ord<Text> < "bcd" "abc"))
+       (assert "" (not (:: &;Ord<Text> < "abc" "abc")))
+       (assert "" (not (:: &;Ord<Text> < "abc" "bcd")))
+       (assert "" (:: &;Ord<Text> <= "bcd" "abc"))
+       (assert "" (:: &;Ord<Text> <= "abc" "abc"))
+       (assert "" (not (:: &;Ord<Text> <= "abc" "bcd")))
+       (assert "" (:: &;Ord<Text> > "abc" "bcd"))
+       (assert "" (not (:: &;Ord<Text> > "abc" "abc")))
+       (assert "" (not (:: &;Ord<Text> > "bcd" "abc")))
+       (assert "" (:: &;Ord<Text> >= "abc" "bcd"))
+       (assert "" (:: &;Ord<Text> >= "abc" "abc"))
+       (assert "" (not (:: &;Ord<Text> >= "bcd" "abc")))
+       ))
+
+(test: "Codec"
+  [size bounded-size
+   sample (R;text size)
+   #let [(^open) &;Eq<Text>]]
+  (assert "" (|> sample
+                 (:: &;Codec<Text,Text> encode)
+                 (:: &;Codec<Text,Text> decode)
+                 (case> (#;Right decoded)
+                        (= sample decoded)
+
+                        _
+                        false))))

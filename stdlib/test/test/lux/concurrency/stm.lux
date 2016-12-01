@@ -1,0 +1,57 @@
+(;module:
+  lux
+  (lux (codata [io])
+       (control monad)
+       (data [number]
+             (struct [list "" Functor<List>])
+             text/format)
+       (concurrency stm
+                    [promise])
+       (codata function))
+  lux/test)
+
+(def: vars Int 5)
+(def: processes/vars Int 5)
+(def: iterations/processes Int 100)
+
+(test: "lux/concurrency/stm exports"
+  (let [_var (var 0)
+        changes (io;run (follow "test" _var))
+        tests (: (List (Test Int))
+                 (map (lambda [_]
+                        (let [_concurrency-var (var 0)]
+                          (from-promise (do promise;Monad<Promise>
+                                          [_ (seqM @
+                                                   (map (lambda [_]
+                                                          (mapM @ (lambda [_] (commit (update inc _concurrency-var)))
+                                                                (list;range 1 iterations/processes)))
+                                                        (list;range 1 processes/vars)))]
+                                          (commit (read _concurrency-var))))))
+                      (list;range 1 vars)))]
+    (test-all (match+ 0 (commit (do Monad<STM>
+                                  [value (read _var)]
+                                  (wrap (#;Right value)))))
+              (match+ 5 (commit (do Monad<STM>
+                                  [_ (write 5 _var)
+                                   value (read _var)]
+                                  (wrap (#;Right value)))))
+              (match+ 5 (commit (do Monad<STM>
+                                  [value (read _var)]
+                                  (wrap (#;Right value)))))
+              (match+ 15 (commit (do Monad<STM>
+                                   [_ (update (* 3) _var)
+                                    value (read _var)]
+                                   (wrap (#;Right value)))))
+              (match+ 15 (commit (do Monad<STM>
+                                   [value (read _var)]
+                                   (wrap (#;Right value)))))
+              (match+ [5 15] (do promise;Monad<Promise>
+                               [?c1+changes' changes
+                                #let [[c1 changes'] (default [-1 changes] ?c1+changes')]
+                                ?c2+changes' changes'
+                                #let [[c2 changes'] (default [-1 changes] ?c2+changes')]]
+                               (wrap (#;Right [c1 c2]))))
+              ## Temporarily commented-out due to type-checking bug in
+              ## compiler...
+              ## (match+ _ (seqM Monad<Test> tests))
+              )))

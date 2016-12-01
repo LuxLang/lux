@@ -1,0 +1,222 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control number
+                monoid
+                eq
+                hash
+                [ord]
+                enum
+                bounded
+                codec)
+       (data error)))
+
+## [Structures]
+(do-template [<type> <test>]
+  [(struct: #export _ (Eq <type>)
+     (def: = <test>))]
+
+  [ Nat =+]
+  [ Int =]
+  [Frac =..]
+  [Real =.]
+  )
+
+(do-template [<type> <eq> <lt> <lte> <gt> <gte>]
+  [(struct: #export _ (ord;Ord <type>)
+     (def: eq <eq>)
+     (def: < <lt>)
+     (def: <= <lte>)
+     (def: > <gt>)
+     (def: >= <gte>))]
+
+  [ Nat  Eq<Nat> <+  <=+  >+  >=+]
+  [ Int  Eq<Int> <   <=   >   >=]
+  [Frac Eq<Frac> <.. <=.. >.. >=..]
+  [Real Eq<Real> <.  <=.  >.  >=.]
+  )
+
+(struct: #export _ (Number Nat)
+  (def: ord Ord<Nat>)
+  (def: + ++)
+  (def: - -+)
+  (def: * *+)
+  (def: / /+)
+  (def: % %+)
+  (def: negate id)
+  (def: abs id)
+  (def: (signum x)
+    (case x
+      +0 +0
+      _  +1))
+  )
+
+(do-template [<type> <ord> <+> <-> <*> </> <%> <=> <<> <0> <1> <-1>]
+  [(struct: #export _ (Number <type>)
+     (def: ord <ord>)
+     (def: + <+>)
+     (def: - <->)
+     (def: * <*>)
+     (def: / </>)
+     (def: % <%>)
+     (def: negate (<*> <-1>))
+     (def: (abs x)
+       (if (<<> <0> x)
+         (<*> <-1> x)
+         x))
+     (def: (signum x)
+       (cond (<=> <0> x) <0>
+             (<<> <0> x) <-1>
+             ## else
+             <1>))
+     )]
+
+  [ Int  Ord<Int> +  -  *  /  %  =  <  0   1   -1]
+  [Real Ord<Real> +. -. *. /. %. =. <. 0.0 1.0 -1.0]
+  )
+
+(do-template [<type> <ord> <succ> <pred>]
+  [(struct: #export _ (Enum <type>)
+     (def: ord <ord>)
+     (def: succ <succ>)
+     (def: pred <pred>))]
+
+  [Nat Ord<Nat> (++ +1) (-+ +1)]
+  [Int Ord<Int> inc    dec]
+  )
+
+(do-template [<type> <top> <bottom>]
+  [(struct: #export _ (Bounded <type>)
+     (def: top <top>)
+     (def: bottom <bottom>))]
+
+  [ Nat (_lux_proc ["nat" "max-value"] [])                            (_lux_proc ["nat" "min-value"] [])]
+  [ Int (_lux_proc ["jvm" "getstatic:java.lang.Long:MAX_VALUE"] [])   (_lux_proc ["jvm" "getstatic:java.lang.Long:MIN_VALUE"] [])]
+  [Real (_lux_proc ["jvm" "getstatic:java.lang.Double:MAX_VALUE"] []) (_lux_proc ["jvm" "getstatic:java.lang.Double:MIN_VALUE"] [])])
+
+(do-template [<name> <type> <unit> <append>]
+  [(struct: #export <name> (Monoid <type>)
+     (def: unit <unit>)
+     (def: (append x y) (<append> x y)))]
+
+  [ Add@Monoid<Nat>  Nat +0                       ++]
+  [ Mul@Monoid<Nat>  Nat +1                       *+]
+  [ Max@Monoid<Nat>  Nat (:: Bounded<Nat> bottom)  max+]
+  [ Min@Monoid<Nat>  Nat (:: Bounded<Nat> top)     min+]
+  [ Add@Monoid<Int>  Int 0                        +]
+  [ Mul@Monoid<Int>  Int 1                        *]
+  [ Max@Monoid<Int>  Int (:: Bounded<Int> bottom)  max]
+  [ Min@Monoid<Int>  Int (:: Bounded<Int> top)     min]
+  [Add@Monoid<Real> Real 0.0                      +.]
+  [Mul@Monoid<Real> Real 1.0                      *.]
+  [Max@Monoid<Real> Real (:: Bounded<Real> bottom) max.]
+  [Min@Monoid<Real> Real (:: Bounded<Real> top)    min.]
+  )
+
+(def: (text.replace pattern value template)
+  (-> Text Text Text Text)
+  (_lux_proc ["jvm" "invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"] [template pattern value]))
+
+(do-template [<type> <encoder> <decoder> <error>]
+  [(struct: #export _ (Codec Text <type>)
+     (def: (encode x)
+       (_lux_proc <encoder> [x]))
+
+     (def: (decode input)
+       (case (_lux_proc <decoder> [input])
+         (#;Some value)
+         (#;Right value)
+
+         #;None
+         (#;Left <error>))))]
+
+  [Nat  ["nat" "encode"]  ["nat" "decode"]  "Couldn't decode Nat"]
+  [Frac ["frac" "encode"] ["frac" "decode"] "Couldn't decode Frac"]
+  )
+
+(def: clean-number
+  (-> Text Text)
+  (|>. (text.replace "," "")
+       (text.replace "_" "")))
+
+(do-template [<type> <encode> <decode> <error>]
+  [(struct: #export _ (Codec Text <type>)
+     (def: (encode x)
+       (_lux_proc ["jvm" <encode>] [x]))
+
+     (def: (decode input)
+       (_lux_proc ["jvm" "try"]
+                  [(#;Right (_lux_proc ["jvm" <decode>] [(clean-number input)]))
+                   (lambda [e] (#;Left <error>))])))]
+
+  [ Int "invokevirtual:java.lang.Object:toString:" "invokestatic:java.lang.Long:parseLong:java.lang.String"     "Couldn't parse Int"]
+  [Real "invokevirtual:java.lang.Object:toString:" "invokestatic:java.lang.Double:parseDouble:java.lang.String" "Couldn't parse Real"]
+  )
+
+(struct: #export _ (Hash Nat)
+  (def: eq Eq<Nat>)
+  (def: hash id))
+
+(struct: #export _ (Hash Int)
+  (def: eq Eq<Int>)
+  (def: hash int-to-nat))
+
+(struct: #export _ (Hash Real)
+  (def: eq Eq<Real>)
+  
+  (def: hash
+    (|>. (:: Codec<Text,Real> encode)
+         []
+         (_lux_proc ["jvm" "invokevirtual:java.lang.Object:hashCode:"])
+         []
+         (_lux_proc ["jvm" "i2l"])
+         int-to-nat)))
+
+## [Values & Syntax]
+(do-template [<struct> <to-proc> <radix> <macro> <error> <doc>]
+  [(struct: #export <struct> (Codec Text Nat)
+     (def: (encode value)
+       (_lux_proc ["jvm" <to-proc>] [(nat-to-int value)]))
+
+     (def: (decode repr)
+       (_lux_proc ["jvm" "try"]
+                  [(#;Right (int-to-nat (_lux_proc ["jvm" "invokestatic:java.lang.Long:valueOf:java.lang.String,int"] [repr (_lux_proc ["jvm" "l2i"] [<radix>])])))
+                   (lambda [ex] (#;Left <error>))])))
+
+   (macro: #export (<macro> tokens state)
+     {#;doc <doc>}
+     (case tokens
+       (#;Cons [meta (#;TextS repr)] #;Nil)
+       (case (:: <struct> decode repr)
+         (#;Right value)
+         (#;Right [state (list [meta (#;NatS value)])])
+
+         (#;Left error)
+         (#;Left error))
+
+       _
+       (#;Left <error>)))]
+
+  [Binary@Codec<Text,Nat> "invokestatic:java.lang.Long:toBinaryString:long" 2  bin "Invalid binary syntax."
+   (doc "Given syntax for a binary number, generates a Nat."
+        (bin "11001001"))]
+  [Octal@Codec<Text,Nat>  "invokestatic:java.lang.Long:toOctalString:long"  8  oct "Invalid octal syntax."
+   (doc "Given syntax for an octal number, generates a Nat."
+        (oct "0615243"))]
+  [Hex@Codec<Text,Nat>    "invokestatic:java.lang.Long:toHexString:long"    16 hex "Invalid hexadecimal syntax."
+   (doc "Given syntax for a hexadecimal number, generates a Nat."
+        (hex "deadBEEF"))]
+  )
+
+(do-template [<name> <field>]
+  [(def: #export <name> Real
+     (_lux_proc ["jvm" <field>] []))]
+
+  [nan  "getstatic:java.lang.Double:NaN"]
+  [+inf "getstatic:java.lang.Double:POSITIVE_INFINITY"]
+  [-inf "getstatic:java.lang.Double:NEGATIVE_INFINITY"]
+  )

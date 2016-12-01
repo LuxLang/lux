@@ -1,0 +1,291 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux [math]
+       (control eq
+                [ord]
+                number
+                codec
+                monad)
+       (data [number "r:" Number<Real> Codec<Text,Real>]
+             [text "Text/" Monoid<Text>]
+             error
+             maybe
+             (struct [list "List/" Monad<List>]))
+       [compiler]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+## Based on org.apache.commons.math4.complex.Complex
+
+(type: #export Complex
+  {#real Real
+   #imaginary Real})
+
+(syntax: #export (complex real {?imaginary (s;opt s;any)})
+  (wrap (list (` {#;;real (~ real)
+                  #;;imaginary (~ (default (` 0.0)
+                                    ?imaginary))}))))
+
+(def: #export i Complex (complex 0.0 1.0))
+
+(def: #export one Complex (complex 1.0 0.0))
+
+(def: #export zero Complex (complex 0.0 0.0))
+
+(def: #export (c= param input)
+  (-> Complex Complex Bool)
+  (and (=. (get@ #real param)
+           (get@ #real input))
+       (=. (get@ #imaginary param)
+           (get@ #imaginary input))))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> param input)
+     (-> Complex Complex Complex)
+     {#real (<op> (get@ #real param)
+                  (get@ #real input))
+      #imaginary (<op> (get@ #imaginary param)
+                       (get@ #imaginary input))})]
+
+  [c+ +.]
+  [c- -.]
+  )
+
+(struct: #export _ (Eq Complex)
+  (def: = c=))
+
+(def: #export negate
+  (-> Complex Complex)
+  (|>. (update@ #real r:negate)
+       (update@ #imaginary r:negate)))
+
+(def: #export signum
+  (-> Complex Complex)
+  (|>. (update@ #real r:signum)
+       (update@ #imaginary r:signum)))
+
+(def: #export conjugate
+  (-> Complex Complex)
+  (update@ #imaginary r:negate))
+
+(def: #export (c*' param input)
+  (-> Real Complex Complex)
+  {#real (*. param
+             (get@ #real input))
+   #imaginary (*. param
+                  (get@ #imaginary input))})
+
+(def: #export (c* param input)
+  (-> Complex Complex Complex)
+  {#real (-. (*. (get@ #imaginary param)
+                 (get@ #imaginary input))
+             (*. (get@ #real param)
+                 (get@ #real input)))
+   #imaginary (+. (*. (get@ #real param)
+                      (get@ #imaginary input))
+                  (*. (get@ #imaginary param)
+                      (get@ #real input)))})
+
+(def: #export (c/ (^slots [#real #imaginary]) input)
+  (-> Complex Complex Complex)
+  (if (<. (r:abs imaginary)
+          (r:abs real))
+    (let [quot (/. imaginary real)
+          denom (|> real (*. quot) (+. imaginary))]
+      {#real (|> (get@ #real input) (*. quot) (+. (get@ #imaginary input)) (/. denom))
+       #imaginary (|> (get@ #imaginary input) (*. quot) (-. (get@ #real input)) (/. denom))})
+    (let [quot (/. real imaginary)
+          denom (|> imaginary (*. quot) (+. real))]
+      {#real (|> (get@ #imaginary input) (*. quot) (+. (get@ #real input)) (/. denom))
+       #imaginary (|> (get@ #imaginary input) (-. (*. quot (get@ #real input))) (/. denom))})))
+
+(def: #export (c/' param (^slots [#real #imaginary]))
+  (-> Real Complex Complex)
+  {#real (/. param real)
+   #imaginary (/. param imaginary)})
+
+(def: #export (cos (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  {#real (*. (math;cosh imaginary)
+             (math;cos real))
+   #imaginary (*. (math;sinh imaginary)
+                  (r:negate (math;sin real)))})
+
+(def: #export (cosh (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  {#real (*. (math;cos imaginary)
+             (math;cosh real))
+   #imaginary (*. (math;sin imaginary)
+                  (math;sinh real))})
+
+(def: #export (sin (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  {#real (*. (math;cosh imaginary)
+             (math;sin real))
+   #imaginary (*. (math;sinh imaginary)
+                  (math;cos real))})
+
+(def: #export (sinh (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  {#real (*. (math;cos imaginary)
+             (math;sinh real))
+   #imaginary (*. (math;sin imaginary)
+                  (math;cosh real))})
+
+(def: #export (tan (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  (let [r2 (*. 2.0 real)
+        i2 (*. 2.0 imaginary)
+        d (+. (math;cos r2) (math;cosh i2))]
+    {#real (/. d (math;sin r2))
+     #imaginary (/. d (math;sinh i2))}))
+
+(def: #export (tanh (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  (let [r2 (*. 2.0 real)
+        i2 (*. 2.0 imaginary)
+        d (+. (math;cosh r2) (math;cos i2))]
+    {#real (/. d (math;sinh r2))
+     #imaginary (/. d (math;sin i2))}))
+
+(def: #export (abs (^slots [#real #imaginary]))
+  (-> Complex Real)
+  (if (<. (r:abs imaginary)
+          (r:abs real))
+    (if (=. 0.0 imaginary)
+      (r:abs real)
+      (let [q (/. imaginary real)]
+        (*. (math;sqrt (+. 1.0 (*. q q)))
+            (r:abs imaginary))))
+    (if (=. 0.0 real)
+      (r:abs imaginary)
+      (let [q (/. real imaginary)]
+        (*. (math;sqrt (+. 1.0 (*. q q)))
+            (r:abs real))))
+    ))
+
+(def: #export (exp (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  (let [r-exp (math;exp real)]
+    {#real (*. r-exp (math;cos imaginary))
+     #imaginary (*. r-exp (math;sin imaginary))}))
+
+(def: #export (log (^@ input (^slots [#real #imaginary])))
+  (-> Complex Complex)
+  {#real (math;log (abs input))
+   #imaginary (math;atan2 real imaginary)})
+
+(do-template [<name> <type> <op>]
+  [(def: #export (<name> param input)
+     (-> <type> Complex Complex)
+     (|> input log (<op> param) exp))]
+
+  [pow  Complex c*]
+  [pow' Real    c*']
+  )
+
+(def: (copy-sign sign magnitude)
+  (-> Real Real Real)
+  (*. (r:signum sign) magnitude))
+
+(def: #export (sqrt (^@ input (^slots [#real #imaginary])))
+  (-> Complex Complex)
+  (let [t (|> input abs (+. (r:abs real)) (/. 2.0) math;sqrt)]
+    (if (>=. 0.0 real)
+      {#real t
+       #imaginary (/. (*. 2.0 t)
+                      imaginary)}
+      {#real (/. (*. 2.0 t)
+                 (r:abs imaginary))
+       #imaginary (*. t (copy-sign imaginary 1.0))})))
+
+(def: #export (sqrt-1z input)
+  (-> Complex Complex)
+  (|> (complex 1.0) (c- (c* input input)) sqrt))
+
+(def: #export (reciprocal (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  (if (<. (r:abs imaginary)
+          (r:abs real))
+    (let [q (/. imaginary real)
+          scale (/. (|> real (*. q) (+. imaginary))
+                    1.0)]
+      {#real (*. q scale)
+       #imaginary (r:negate scale)})
+    (let [q (/. real imaginary)
+          scale (/. (|> imaginary (*. q) (+. real))
+                    1.0)]
+      {#real scale
+       #imaginary (|> scale r:negate (*. q))})))
+
+(def: #export (acos input)
+  (-> Complex Complex)
+  (|> input
+      (c+ (|> input sqrt-1z (c* i)))
+      log
+      (c* (negate i))))
+
+(def: #export (asin input)
+  (-> Complex Complex)
+  (|> input
+      sqrt-1z
+      (c+ (c* i input))
+      log
+      (c* (negate i))))
+
+(def: #export (atan input)
+  (-> Complex Complex)
+  (|> input
+      (c+ i)
+      (c/ (c- input i))
+      log
+      (c* (c/ (complex 2.0) i))))
+
+(def: #export (argument (^slots [#real #imaginary]))
+  (-> Complex Real)
+  (math;atan2 real imaginary))
+
+(def: #export (nth-root nth input)
+  (-> Nat Complex (List Complex))
+  (if (=+ +0 nth)
+    (list)
+    (let [r-nth (|> nth nat-to-int int-to-real)
+          nth-root-of-abs (math;pow (/. r-nth 1.0)
+                                    (abs input))
+          nth-phi (|> input argument (/. r-nth))
+          slice (|> math;pi (*. 2.0) (/. r-nth))]
+      (|> (list;range+ +0 (dec+ nth))
+          (List/map (lambda [nth']
+                      (let [inner (|> nth' nat-to-int int-to-real
+                                      (*. slice)
+                                      (+. nth-phi))
+                            real (*. nth-root-of-abs
+                                     (math;cos inner))
+                            imaginary (*. nth-root-of-abs
+                                          (math;sin inner))]
+                        {#real real
+                         #imaginary imaginary})))))))
+
+(struct: #export _ (Codec Text Complex)
+  (def: (encode (^slots [#real #imaginary]))
+    ($_ Text/append "(" (r:encode real) ", " (r:encode imaginary) ")"))
+
+  (def: (decode input)
+    (case (do Monad<Maybe>
+            [input' (text;sub +1 (-+ +1 (text;size input)) input)]
+            (text;split-with "," input'))
+      #;None
+      (#;Left (Text/append "Wrong syntax for complex numbers: " input))
+
+      (#;Some [r' i'])
+      (do Monad<Error>
+        [r (r:decode (text;trim r'))
+         i (r:decode (text;trim i'))]
+        (wrap {#real r
+               #imaginary i}))
+      )))

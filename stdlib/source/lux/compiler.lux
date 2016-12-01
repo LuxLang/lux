@@ -1,0 +1,559 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module: {#;doc "Functions for extracting information from the state of the compiler."}
+  lux
+  (lux (macro [ast])
+       (control functor
+                applicative
+                monad)
+       (data (struct [list #* "List/" Monoid<List> Monad<List>])
+             [number]
+             [text "Text/" Monoid<Text> Eq<Text>]
+             [product]
+             [ident "Ident/" Codec<Text,Ident>]
+             maybe
+             error)))
+
+## (type: (Lux a)
+##   (-> Compiler (Error [Compiler a])))
+
+(struct: #export _ (Functor Lux)
+  (def: (map f fa)
+    (lambda [state]
+      (case (fa state)
+        (#;Left msg)
+        (#;Left msg)
+
+        (#;Right [state' a])
+        (#;Right [state' (f a)])))))
+
+(struct: #export _ (Applicative Lux)
+  (def: functor Functor<Lux>)
+
+  (def: (wrap x)
+    (lambda [state]
+      (#;Right [state x])))
+
+  (def: (apply ff fa)
+    (lambda [state]
+      (case (ff state)
+        (#;Right [state' f])
+        (case (fa state')
+          (#;Right [state'' a])
+          (#;Right [state'' (f a)])
+
+          (#;Left msg)
+          (#;Left msg))
+
+        (#;Left msg)
+        (#;Left msg)))))
+
+(struct: #export _ (Monad Lux)
+  (def: applicative Applicative<Lux>)
+  
+  (def: (join mma)
+    (lambda [state]
+      (case (mma state)
+        (#;Left msg)
+        (#;Left msg)
+
+        (#;Right [state' ma])
+        (ma state')))))
+
+(def: (get k plist)
+  (All [a]
+    (-> Text (List [Text a]) (Maybe a)))
+  (case plist
+    #;Nil
+    #;None
+
+    (#;Cons [k' v] plist')
+    (if (Text/= k k')
+      (#;Some v)
+      (get k plist'))))
+
+(def: #export (run' compiler action)
+  (All [a] (-> Compiler (Lux a) (Error [Compiler a])))
+  (action compiler))
+
+(def: #export (run compiler action)
+  (All [a] (-> Compiler (Lux a) (Error a)))
+  (case (action compiler)
+    (#;Left error)
+    (#;Left error)
+
+    (#;Right [_ output])
+    (#;Right output)))
+
+(def: #export (either left right)
+  (All [a] (-> (Lux a) (Lux a) (Lux a)))
+  (lambda [compiler]
+    (case (left compiler)
+      (#;Left error)
+      (right compiler)
+
+      (#;Right [compiler' output])
+      (#;Right [compiler' output]))))
+
+(def: #export (assert test message)
+  (-> Bool Text (Lux Unit))
+  (lambda [compiler]
+    (if test
+      (#;Right [compiler []])
+      (#;Left message))))
+
+(def: #export (fail msg)
+  (All [a]
+    (-> Text (Lux a)))
+  (lambda [_]
+    (#;Left msg)))
+
+(def: #export (find-module name)
+  (-> Text (Lux Module))
+  (lambda [state]
+    (case (get name (get@ #;modules state))
+      (#;Some module)
+      (#;Right [state module])
+
+      _
+      (#;Left ($_ Text/append "Unknown module: " name)))))
+
+(def: #export current-module-name
+  (Lux Text)
+  (lambda [state]
+    (case (list;last (get@ #;scopes state))
+      (#;Some scope)
+      (case (get@ #;name scope)
+        (#;Cons m-name #;Nil)
+        (#;Right [state m-name])
+
+        _
+        (#;Left "Improper name for scope."))
+
+      _
+      (#;Left "Empty environment!")
+      )))
+
+(def: #export current-module
+  (Lux Module)
+  (do Monad<Lux>
+    [this-module-name current-module-name]
+    (find-module this-module-name)))
+
+(def: #export (get-ann tag meta)
+  (-> Ident Anns (Maybe Ann-Value))
+  (let [[p n] tag]
+    (case meta
+      (#;Cons [[p' n'] dmv] meta')
+      (if (and (Text/= p p')
+               (Text/= n n'))
+        (#;Some dmv)
+        (get-ann tag meta'))
+      
+      #;Nil
+      #;None)))
+
+(do-template [<name> <tag> <type>]
+  [(def: #export (<name> tag meta)
+     (-> Ident Anns (Maybe <type>))
+     (case (get-ann tag meta)
+       (#;Some (<tag> value))
+       (#;Some value)
+
+       _
+       #;None))]
+
+  [get-bool-ann  #;BoolM  Bool]
+  [get-int-ann   #;IntM   Int]
+  [get-real-ann  #;RealM  Real]
+  [get-char-ann  #;CharM  Char]
+  [get-text-ann  #;TextM  Text]
+  [get-ident-ann #;IdentM Ident]
+  [get-list-ann  #;ListM  (List Ann-Value)]
+  [get-dict-ann  #;DictM  (List [Text Ann-Value])]
+  )
+
+(def: #export (get-doc meta)
+  (-> Anns (Maybe Text))
+  (get-text-ann ["lux" "doc"] meta))
+
+(def: #export (flag-set? flag-name meta)
+  (-> Ident Anns Bool)
+  (case (get-ann flag-name meta)
+    (#;Some (#;BoolM true))
+    true
+
+    _
+    false))
+
+(do-template [<name> <tag>]
+  [(def: #export <name>
+     (-> Anns Bool)
+     (flag-set? (ident-for <tag>)))]
+
+  [export?   #;export?]
+  [hidden?   #;hidden?]
+  [macro?    #;macro?]
+  [type?     #;type?]
+  [struct?   #;struct?]
+  [type-rec? #;type-rec?]
+  [sig?      #;sig?]
+  )
+
+(do-template [<name> <tag> <type>]
+  [(def: (<name> dmv)
+     (-> Ann-Value (Maybe <type>))
+     (case dmv
+       (<tag> actual-value)
+       (#;Some actual-value)
+
+       _
+       #;None))]
+
+  [try-mlist #;ListM (List Ann-Value)]
+  [try-mtext #;TextM Text]
+  )
+
+(do-template [<name> <tag>]
+  [(def: #export (<name> meta)
+     (-> Anns (List Text))
+     (default (list)
+       (do Monad<Maybe>
+         [_args (get-ann (ident-for <tag>) meta)
+          args (try-mlist _args)]
+         (mapM @ try-mtext args))))]
+
+  [func-args #;func-args]
+  [type-args #;type-args]
+  )
+
+(def: (find-macro' modules this-module module name)
+  (-> (List [Text Module]) Text Text Text
+      (Maybe Macro))
+  (do Monad<Maybe>
+    [$module (get module modules)
+     [def-type def-anns def-value] (: (Maybe Def) (|> (: Module $module) (get@ #;defs) (get name)))]
+    (if (and (macro? def-anns)
+             (or (export? def-anns) (Text/= module this-module)))
+      (#;Some (:! Macro def-value))
+      (case (get-ann ["lux" "alias"] def-anns)
+        (#;Some (#;IdentM [r-module r-name]))
+        (find-macro' modules this-module r-module r-name)
+
+        _
+        #;None))))
+
+(def: #export (find-macro ident)
+  (-> Ident (Lux (Maybe Macro)))
+  (do Monad<Lux>
+    [this-module current-module-name]
+    (let [[module name] ident]
+      (: (Lux (Maybe Macro))
+         (lambda [state]
+           (#;Right [state (find-macro' (get@ #;modules state) this-module module name)]))))))
+
+(def: #export (normalize ident)
+  (-> Ident (Lux Ident))
+  (case ident
+    ["" name]
+    (do Monad<Lux>
+      [module-name current-module-name]
+      (wrap [module-name name]))
+
+    _
+    (:: Monad<Lux> wrap ident)))
+
+(def: #export (macro-expand-once syntax)
+  (-> AST (Lux (List AST)))
+  (case syntax
+    [_ (#;FormS (#;Cons [[_ (#;SymbolS macro-name)] args]))]
+    (do Monad<Lux>
+      [macro-name' (normalize macro-name)
+       ?macro (find-macro macro-name')]
+      (case ?macro
+        (#;Some macro)
+        (macro args)
+        
+        #;None
+        (:: Monad<Lux> wrap (list syntax))))
+
+    _
+    (:: Monad<Lux> wrap (list syntax))))
+
+(def: #export (macro-expand syntax)
+  (-> AST (Lux (List AST)))
+  (case syntax
+    [_ (#;FormS (#;Cons [[_ (#;SymbolS macro-name)] args]))]
+    (do Monad<Lux>
+      [macro-name' (normalize macro-name)
+       ?macro (find-macro macro-name')]
+      (case ?macro
+        (#;Some macro)
+        (do Monad<Lux>
+          [expansion (macro args)
+           expansion' (mapM Monad<Lux> macro-expand expansion)]
+          (wrap (:: Monad<List> join expansion')))
+        
+        #;None
+        (:: Monad<Lux> wrap (list syntax))))
+
+    _
+    (:: Monad<Lux> wrap (list syntax))))
+
+(def: #export (macro-expand-all syntax)
+  (-> AST (Lux (List AST)))
+  (case syntax
+    [_ (#;FormS (#;Cons [[_ (#;SymbolS macro-name)] args]))]
+    (do Monad<Lux>
+      [macro-name' (normalize macro-name)
+       ?macro (find-macro macro-name')]
+      (case ?macro
+        (#;Some macro)
+        (do Monad<Lux>
+          [expansion (macro args)
+           expansion' (mapM Monad<Lux> macro-expand-all expansion)]
+          (wrap (:: Monad<List> join expansion')))
+        
+        #;None
+        (do Monad<Lux>
+          [parts' (mapM Monad<Lux> macro-expand-all (list& (ast;symbol macro-name) args))]
+          (wrap (list (ast;form (:: Monad<List> join parts')))))))
+
+    [_ (#;FormS (#;Cons [harg targs]))]
+    (do Monad<Lux>
+      [harg+ (macro-expand-all harg)
+       targs+ (mapM Monad<Lux> macro-expand-all targs)]
+      (wrap (list (ast;form (List/append harg+ (:: Monad<List> join (: (List (List AST)) targs+)))))))
+
+    [_ (#;TupleS members)]
+    (do Monad<Lux>
+      [members' (mapM Monad<Lux> macro-expand-all members)]
+      (wrap (list (ast;tuple (:: Monad<List> join members')))))
+
+    _
+    (:: Monad<Lux> wrap (list syntax))))
+
+(def: #export (gensym prefix)
+  (-> Text (Lux AST))
+  (lambda [state]
+    (#;Right [(update@ #;seed inc+ state)
+              (ast;symbol ["" ($_ Text/append "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
+
+(def: (get-local-symbol ast)
+  (-> AST (Lux Text))
+  (case ast
+    [_ (#;SymbolS [_ name])]
+    (:: Monad<Lux> wrap name)
+
+    _
+    (fail (Text/append "AST is not a local symbol: " (ast;ast-to-text ast)))))
+
+(macro: #export (with-gensyms tokens)
+  {#;doc (doc "Creates new symbols and offers them to the body expression."
+              (syntax: #export (synchronized lock body)
+                (with-gensyms [g!lock g!body g!_]
+                  (wrap (list (` (let [(~ g!lock) (~ lock)
+                                       (~ g!_) (;_jvm_monitorenter (~ g!lock))
+                                       (~ g!body) (~ body)
+                                       (~ g!_) (;_jvm_monitorexit (~ g!lock))]
+                                   (~ g!body)))))
+                  )))}
+  (case tokens
+    (^ (list [_ (#;TupleS symbols)] body))
+    (do Monad<Lux>
+      [symbol-names (mapM @ get-local-symbol symbols)
+       #let [symbol-defs (List/join (List/map (: (-> Text (List AST))
+                                                 (lambda [name] (list (ast;symbol ["" name]) (` (gensym (~ (ast;text name)))))))
+                                              symbol-names))]]
+      (wrap (list (` (do Monad<Lux>
+                       [(~@ symbol-defs)]
+                       (~ body))))))
+
+    _
+    (fail "Wrong syntax for with-gensyms")))
+
+(def: #export (macro-expand-1 token)
+  (-> AST (Lux AST))
+  (do Monad<Lux>
+    [token+ (macro-expand token)]
+    (case token+
+      (^ (list token'))
+      (wrap token')
+
+      _
+      (fail "Macro expanded to more than 1 element."))))
+
+(def: #export (module-exists? module)
+  (-> Text (Lux Bool))
+  (lambda [state]
+    (#;Right [state (case (get module (get@ #;modules state))
+                      (#;Some _)
+                      true
+                      
+                      #;None
+                      false)])))
+
+(def: (try-both f x1 x2)
+  (All [a b]
+    (-> (-> a (Maybe b)) a a (Maybe b)))
+  (case (f x1)
+    #;None     (f x2)
+    (#;Some y) (#;Some y)))
+
+(def: #export (find-var-type name)
+  (-> Text (Lux Type))
+  (lambda [state]
+    (let [test (: (-> [Text Analysis] Bool)
+                  (|>. product;left (Text/= name)))]
+      (case (do Monad<Maybe>
+              [scope (find (lambda [env]
+                             (or (any? test (get@ [#;locals #;mappings] env))
+                                 (any? test (get@ [#;closure #;mappings] env))))
+                           (get@ #;scopes state))
+               [_ [[type _] _]] (try-both (find test)
+                                          (get@ [#;locals #;mappings] scope)
+                                          (get@ [#;closure #;mappings] scope))]
+              (wrap type))
+        (#;Some var-type)
+        (#;Right [state var-type])
+
+        #;None
+        (#;Left ($_ Text/append "Unknown variable: " name))))))
+
+(def: #export (find-def name)
+  (-> Ident (Lux Def))
+  (lambda [state]
+    (case (: (Maybe Def)
+             (do Monad<Maybe>
+               [#let [[v-prefix v-name] name]
+                (^slots [#;defs]) (get v-prefix (get@ #;modules state))]
+               (get v-name defs)))
+      (#;Some _meta)
+      (#;Right [state _meta])
+
+      _
+      (#;Left ($_ Text/append "Unknown definition: " (Ident/encode name))))))
+
+(def: #export (find-def-type name)
+  (-> Ident (Lux Type))
+  (do Monad<Lux>
+    [[def-type def-data def-value] (find-def name)]
+    (wrap def-type)))
+
+(def: #export (find-type name)
+  (-> Ident (Lux Type))
+  (do Monad<Lux>
+    [#let [[_ _name] name]]
+    (either (find-var-type _name)
+            (do @
+              [name (normalize name)]
+              (find-def-type name)))))
+
+(def: #export (find-type-def name)
+  (-> Ident (Lux Type))
+  (do Monad<Lux>
+    [[def-type def-data def-value] (find-def name)]
+    (wrap (:! Type def-value))))
+
+(def: #export (defs module-name)
+  (-> Text (Lux (List [Text Def])))
+  (lambda [state]
+    (case (get module-name (get@ #;modules state))
+      #;None          (#;Left ($_ Text/append "Unknown module: " module-name))
+      (#;Some module) (#;Right [state (get@ #;defs module)])
+      )))
+
+(def: #export (exports module-name)
+  (-> Text (Lux (List [Text Def])))
+  (do Monad<Lux>
+    [defs (defs module-name)]
+    (wrap (filter (lambda [[name [def-type def-anns def-value]]]
+                    (and (export? def-anns)
+                         (not (hidden? def-anns))))
+                  defs))))
+
+(def: #export modules
+  (Lux (List Text))
+  (lambda [state]
+    (|> state
+        (get@ #;modules)
+        (List/map product;left)
+        [state]
+        #;Right)))
+
+(def: #export (tags-of type-name)
+  (-> Ident (Lux (List Ident)))
+  (do Monad<Lux>
+    [#let [[module name] type-name]
+     module (find-module module)]
+    (case (get name (get@ #;types module))
+      (#;Some [tags _])
+      (wrap tags)
+
+      _
+      (wrap (list)))))
+
+(def: #export cursor
+  (Lux Cursor)
+  (lambda [state]
+    (#;Right [state (get@ #;cursor state)])))
+
+(def: #export expected-type
+  (Lux Type)
+  (lambda [state]
+    (case (get@ #;expected state)
+      (#;Some type)
+      (#;Right [state type])
+
+      #;None
+      (#;Left "Not expecting any type."))))
+
+(def: #export (imported-modules module-name)
+  (-> Text (Lux (List Text)))
+  (do Monad<Lux>
+    [(^slots [#;imports]) (find-module module-name)]
+    (wrap imports)))
+
+(def: #export (resolve-tag (^@ tag [module name]))
+  (-> Ident (Lux [Nat (List Ident) Type]))
+  (do Monad<Lux>
+    [=module (find-module module)
+     this-module-name current-module-name]
+    (case (get name (get@ #;tags =module))
+      (#;Some [idx tag-list exported? type])
+      (if (or exported?
+              (Text/= this-module-name module))
+        (wrap [idx tag-list type])
+        (fail ($_ Text/append "Can't access tag: " (Ident/encode tag) " from module " this-module-name)))
+
+      _
+      (fail ($_ Text/append "Unknown tag: " (Ident/encode tag))))))
+
+(def: #export locals
+  (Lux (List (List [Text Type])))
+  (lambda [state]
+    (case (list;inits (get@ #;scopes state))
+      #;None
+      (#;Left "No local environment")
+
+      (#;Some scopes)
+      (#;Right [state
+                (List/map (|>. (get@ [#;locals #;mappings])
+                               (List/map (lambda [[name [[type cursor] analysis]]]
+                                           [name type])))
+                          scopes)]))))
+
+(def: #export (un-alias def-name)
+  (-> Ident (Lux Ident))
+  (do Monad<Lux>
+    [def-name (normalize def-name)
+     [_ def-anns _] (find-def def-name)]
+    (case (get-ann (ident-for #;alias) def-anns)
+      (#;Some (#;IdentM real-def-name))
+      (wrap real-def-name)
+
+      _
+      (wrap def-name))))

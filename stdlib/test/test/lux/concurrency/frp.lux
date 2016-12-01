@@ -1,0 +1,54 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data [number]
+             text/format
+             error)
+       (concurrency [promise #+ Promise Monad<Promise> "Promise/" Monad<Promise>]
+                    frp)
+       (codata function
+               io))
+  lux/test)
+
+(def: (List->Chan values)
+  (-> (List Int) (Chan Int))
+  (let [_chan (: (Chan Int) (chan))]
+    (run (do Monad<IO>
+           [_ (mapM Monad<IO>
+                    (lambda [value]
+                      (write value _chan))
+                    values)
+            _ (close _chan)]
+           (wrap _chan)))))
+
+(test: "lux/concurrency/frp exports"
+  (test-all (match+ (^ (list 0 1 2 3 4 5))
+                    (from-promise (consume (List->Chan (list 0 1 2 3 4 5)))))
+            (match+ (^ (list 0 1 2 3 4 5))
+                    (from-promise (consume (let [input (List->Chan (list 0 1 2 3 4 5))
+                                               output (: (Chan Int) (chan))]
+                                           (exec (pipe input output)
+                                             output)))))
+            (match+ (^ (list 0 2 4))
+                    (from-promise (consume (filter even? (List->Chan (list 0 1 2 3 4 5))))))
+            (match+ (^ (list 0 1 2 3 4 5 0 -1 -2 -3 -4 -5))
+                    (from-promise (consume (merge (list (List->Chan (list 0 1 2 3 4 5))
+                                                      (List->Chan (list 0 -1 -2 -3 -4 -5)))))))
+            (match+ 15 (from-promise (fold (lambda [base input] (Promise/wrap (+ input base))) 0 (List->Chan (list 0 1 2 3 4 5)))))
+            (match+ (^ (list 0 1 2 3 4 5))
+                    (from-promise (consume (no-dups number;Eq<Int> (List->Chan (list 0 0 0 1 2 2 3 3 3 3 4 4 4 5 5))))))
+            (match+ (^ (list 12345))
+                    (from-promise (consume (as-chan (:: promise;Monad<Promise> wrap 12345)))))
+            (match+ (^ (list 1 2 3 4 5 6))
+                    (from-promise (consume (:: Functor<Chan> map inc (List->Chan (list 0 1 2 3 4 5))))))
+            (match+ (^ (list 12345))
+                    (from-promise (consume (:: Applicative<Chan> wrap 12345))))
+            (match+ (^ (list 12346))
+                    (from-promise (consume (let [(^open) Applicative<Chan>]
+                                           (apply (wrap inc) (wrap 12345))))))
+            (match+ (^ (list 12346))
+                    (from-promise (consume (do Monad<Chan>
+                                           [f (wrap inc)
+                                            a (wrap 12345)]
+                                           (wrap (f a))))))
+            ))

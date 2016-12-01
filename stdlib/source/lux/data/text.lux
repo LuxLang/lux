@@ -1,0 +1,223 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control monoid
+                eq
+                [ord]
+                monad
+                codec
+                hash)
+       (data (struct [list])
+             maybe)))
+
+## [Functions]
+(def: #export (size x)
+  (-> Text Nat)
+  (int-to-nat (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" "invokevirtual:java.lang.String:length:"] [x])])))
+
+(def: #export (at idx x)
+  (-> Nat Text (Maybe Char))
+  (if (<+ (size x) idx)
+    (#;Some (_lux_proc ["jvm" "invokevirtual:java.lang.String:charAt:int"] [x (_lux_proc ["jvm" "l2i"] [(nat-to-int idx)])]))
+    #;None))
+
+(def: #export (contains? sub text)
+  (-> Text Text Bool)
+  (_lux_proc ["jvm" "invokevirtual:java.lang.String:contains:java.lang.CharSequence"] [text sub]))
+
+(do-template [<name> <proc>]
+  [(def: #export (<name> x)
+     (-> Text Text)
+     (_lux_proc ["jvm" <proc>] [x]))]
+  [lower-case "invokevirtual:java.lang.String:toLowerCase:"]
+  [upper-case "invokevirtual:java.lang.String:toUpperCase:"]
+  [trim       "invokevirtual:java.lang.String:trim:"]
+  )
+
+(def: #export (sub from to x)
+  (-> Nat Nat Text (Maybe Text))
+  (if (and (<+ to from)
+           (<=+ (size x) to))
+    (#;Some (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int,int"]
+                       [x
+                        (_lux_proc ["jvm" "l2i"] [(nat-to-int from)])
+                        (_lux_proc ["jvm" "l2i"] [(nat-to-int to)])]))
+    #;None))
+
+(def: #export (sub' from x)
+  (-> Nat Text (Maybe Text))
+  (sub from (size x) x))
+
+(def: #export (replace pattern value template)
+  (-> Text Text Text Text)
+  (_lux_proc ["jvm" "invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"] [template pattern value]))
+
+(do-template [<common> <common-proc> <general> <general-proc>]
+  [(def: #export (<common> pattern x)
+     (-> Text Text (Maybe Nat))
+     (case (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" <common-proc>] [x pattern])])
+       -1  #;None
+       idx (#;Some (int-to-nat idx))))
+
+   (def: #export (<general> pattern from x)
+     (-> Text Nat Text (Maybe Nat))
+     (if (<+ (size x) from)
+       (case (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" <general-proc>] [x pattern (_lux_proc ["jvm" "l2i"] [(nat-to-int from)])])])
+         -1  #;None
+         idx (#;Some (int-to-nat idx)))
+       #;None))]
+
+  [index-of      "invokevirtual:java.lang.String:indexOf:java.lang.String"     index-of'      "invokevirtual:java.lang.String:indexOf:java.lang.String,int"]
+  [last-index-of "invokevirtual:java.lang.String:lastIndexOf:java.lang.String" last-index-of' "invokevirtual:java.lang.String:lastIndexOf:java.lang.String,int"]
+  )
+
+(def: #export (starts-with? prefix x)
+  (-> Text Text Bool)
+  (case (index-of prefix x)
+    (#;Some +0)
+    true
+
+    _
+    false))
+
+(def: #export (ends-with? postfix x)
+  (-> Text Text Bool)
+  (case (last-index-of postfix x)
+    (#;Some n)
+    (=+ (size x)
+        (++ (size postfix) n))
+
+    _
+    false))
+
+(def: #export (split at x)
+  (-> Nat Text (Maybe [Text Text]))
+  (if (<=+ (size x) at)
+    (let [pre (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int,int"] [x (_lux_proc ["jvm" "l2i"] [0]) (_lux_proc ["jvm" "l2i"] [(nat-to-int at)])])
+          post (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int"] [x (_lux_proc ["jvm" "l2i"] [(nat-to-int at)])])]
+      (#;Some [pre post]))
+    #;None))
+
+(def: #export (split-with token sample)
+  (-> Text Text (Maybe [Text Text]))
+  (do Monad<Maybe>
+    [index (index-of token sample)
+     [pre post'] (split index sample)
+     [_ post] (split (size token) post')]
+    (wrap [pre post])))
+
+(def: #export (split-all-with token sample)
+  (-> Text Text (List Text))
+  (case (split-with token sample)
+    (#;Some [pre post])
+    (#;Cons pre (split-all-with token post))
+
+    #;None
+    (#;Cons sample #;Nil)))
+
+(def: #export split-lines
+  (split-all-with "\n"))
+
+## [Structures]
+(struct: #export _ (Eq Text)
+  (def: (= test subject)
+    (_lux_proc ["jvm" "invokevirtual:java.lang.Object:equals:java.lang.Object"] [subject test])))
+
+(struct: #export _ (ord;Ord Text)
+  (def: eq Eq<Text>)
+
+  (do-template [<name> <op>]
+    [(def: (<name> test subject)
+       (<op> 0
+             (_lux_proc ["jvm" "i2l"]  [(_lux_proc ["jvm" "invokevirtual:java.lang.String:compareTo:java.lang.String"] [subject test])])))]
+
+    [<  ;<]
+    [<= ;<=]
+    [>  ;>]
+    [>= ;>=]))
+
+(struct: #export _ (Monoid Text)
+  (def: unit "")
+  (def: (append x y)
+    (_lux_proc ["jvm" "invokevirtual:java.lang.String:concat:java.lang.String"] [x y])))
+
+(open Monoid<Text>)
+
+(struct: #export _ (Codec Text Text)
+  (def: (encode original)
+    (let [escaped (|> original
+                      (replace "\\" "\\\\")
+                      (replace "\t" "\\t")
+                      (replace "\b" "\\b")
+                      (replace "\n" "\\n")
+                      (replace "\r" "\\r")
+                      (replace "\f" "\\f")
+                      (replace "\"" "\\\"")
+                      )]
+      ($_ append "\"" escaped "\"")))
+
+  (def: (decode input)
+    (if (and (starts-with? "\"" input)
+             (ends-with? "\"" input))
+      (case (sub +1 (dec+ (size input)) input)
+        (#;Some input')
+        (|> input'
+            (replace "\\\\" "\\")
+            (replace "\\t" "\t")
+            (replace "\\b" "\b")
+            (replace "\\n" "\n")
+            (replace "\\r" "\r")
+            (replace "\\f" "\f")
+            (replace "\\\"" "\"")
+            #;Some)
+
+        #;None
+        (#;Left "Couldn't decode text"))
+      (#;Left "Couldn't decode text"))))
+
+(struct: #export _ (Hash Text)
+  (def: eq Eq<Text>)
+  
+  (def: hash
+    (|>. []
+         (_lux_proc ["jvm" "invokevirtual:java.lang.Object:hashCode:"])
+         []
+         (_lux_proc ["jvm" "i2l"])
+         int-to-nat)))
+
+(def: #export concat
+  (-> (List Text) Text)
+  (let [(^open) list;Fold<List>
+        (^open) Monoid<Text>]
+    (|>. list;reverse (fold append unit))))
+
+(def: #export (join-with sep texts)
+  (-> Text (List Text) Text)
+  (|> texts (list;interpose sep) concat))
+
+(def: #export (empty? text)
+  (-> Text Bool)
+  (case text
+    "" true
+    _  false))
+
+(def: #export (replace-once pattern value template)
+  (-> Text Text Text Text)
+  (default template
+    (do Monad<Maybe>
+      [[pre post] (split-with pattern template)]
+      (let [(^open) Monoid<Text>]
+        (wrap ($_ append pre value post))))))
+
+(def: #export (enclose [left right] content)
+  (-> [Text Text] Text Text)
+  (let [(^open) Monoid<Text>]
+    ($_ append left content right)))
+
+(def: #export (enclose' boundary content)
+  (-> Text Text Text)
+  (enclose [boundary boundary] content))

@@ -1,0 +1,164 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control monad)
+       (data (struct [list])
+             text/format)
+       [compiler]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+## Exports
+(type: #export Export-Level
+  #Exported
+  #Hidden)
+
+(def: #export export-level
+  (Syntax (Maybe Export-Level))
+  (s;opt (s;alt (s;tag! ["" "export"])
+                (s;tag! ["" "hidden"]))))
+
+(def: #export (gen-export-level ?el)
+  (-> (Maybe Export-Level) (List AST))
+  (case ?el
+    #;None
+    (list)
+
+    (#;Some #Exported)
+    (list (' #export))
+
+    (#;Some #Hidden)
+    (list (' #hidden))))
+
+## Declarations
+(type: #export Decl
+  {#decl-name Text
+   #decl-args (List Text)})
+
+(def: #export decl
+  (s;either (s;seq s;local-symbol
+                   (:: s;Monad<Syntax> wrap (list)))
+            (s;form (s;seq s;local-symbol
+                           (s;many s;local-symbol)))))
+
+## Definitions
+(type: #export Def-Syntax
+  {#def-name Text
+   #def-type (Maybe AST)
+   #def-value AST
+   #def-meta (List [Ident AST])
+   #def-args (List Text)
+   })
+
+(def: check^
+  (Syntax [(Maybe AST) AST])
+  (s;either (s;form (do s;Monad<Syntax>
+                      [_ (s;symbol! ["lux" "_lux_:"])
+                       type s;any
+                       value s;any]
+                      (wrap [(#;Some type) value])))
+            (s;seq (:: s;Monad<Syntax> wrap #;None)
+                   s;any)))
+
+(def: _def-meta-tag^
+  (Syntax Ident)
+  (s;tuple (s;seq s;text s;text)))
+
+(def: (_def-meta^ _)
+  (-> Top (Syntax (List [Ident AST])))
+  (s;alt (s;tag! ["lux" "Nil"])
+         (s;form (do s;Monad<Syntax>
+                   [_ (s;tag! ["lux" "Cons"])
+                    [head tail] (s;seq (s;tuple (s;seq _def-meta-tag^ s;any))
+                                       (_def-meta^ []))]
+                   (wrap [head tail])))
+         ))
+
+(def: (flat-list^ _)
+  (-> Top (Syntax (List AST)))
+  (s;either (do s;Monad<Syntax>
+              [_ (s;tag! ["lux" "Nil"])]
+              (wrap (list)))
+            (s;form (do s;Monad<Syntax>
+                      [_ (s;tag! ["lux" "Cons"])
+                       [head tail] (s;tuple (s;seq s;any s;any))
+                       tail (s;local (list tail) (flat-list^ []))]
+                      (wrap (#;Cons head tail))))))
+
+(def: list-meta^
+  (Syntax (List AST))
+  (s;form (do s;Monad<Syntax>
+            [_ (s;tag! ["lux" "ListM"])]
+            (flat-list^ []))))
+
+(def: text-meta^
+  (Syntax Text)
+  (s;form (do s;Monad<Syntax>
+            [_ (s;tag! ["lux" "TextM"])]
+            s;text)))
+
+(def: (find-def-args meta-data)
+  (-> (List [Ident AST]) (List Text))
+  (default (list)
+    (list;find (lambda [[tag value]]
+                 (case tag
+                   (^=> ["lux" "func-args"]
+                        {(s;run (list value) list-meta^)
+                         (#;Right [_ args])}
+                        {(s;run args (s;some text-meta^))
+                         (#;Right [_ args])})
+                   (#;Some args)
+
+                   _
+                   #;None))
+               meta-data)))
+
+(def: #export (def compiler)
+  (-> Compiler (Syntax Def-Syntax))
+  (do s;Monad<Syntax>
+    [def-raw s;any
+     me-def-raw (s;on compiler
+                      (compiler;macro-expand-all def-raw))]
+    (s;local me-def-raw
+             (s;form (do @
+                       [_ (s;symbol! ["lux" "_lux_def"])
+                        def-name s;local-symbol
+                        [?def-type def-value] check^
+                        def-meta s;any
+                        def-meta (s;local (list def-meta)
+                                          (_def-meta^ []))
+                        #let [def-args (find-def-args def-meta)]]
+                       (wrap {#def-name def-name
+                              #def-type ?def-type
+                              #def-meta def-meta
+                              #def-value def-value
+                              #def-args def-args}))))))
+
+(def: #export (typed-de compiler)
+  (-> Compiler (Syntax Def-Syntax))
+  (do s;Monad<Syntax>
+    [_def (def compiler)
+     _ (case (get@ #def-type _def)
+         (#;Some _)
+         (wrap [])
+
+         #;None
+         (s;fail "Typed def must have a type!")
+         )]
+    (wrap _def)))
+
+(def: #export def-meta
+  (Syntax (List [Ident AST]))
+  (s;record (s;some (s;seq s;tag s;any))))
+
+(def: #export typed-arg
+  (Syntax [Text AST])
+  (s;record (s;seq s;local-symbol s;any)))
+
+(def: #export type-params
+  (Syntax (List Text))
+  (s;tuple (s;some s;local-symbol)))

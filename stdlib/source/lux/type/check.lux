@@ -1,0 +1,518 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control functor
+                applicative
+                monad)
+       (data [text "Text/" Monoid<Text> Eq<Text>]
+             text/format
+             [number]
+             maybe
+             (struct [list]
+                     [dict])
+             error)
+       [type "Type/" Eq<Type>]
+       ))
+
+(type: #export Id Nat)
+
+(type: #export Fixpoints (List [[Type Type] Bool]))
+
+(type: #export Context
+  {#var-id Id
+   #ex-id Id
+   #bindings (dict;Dict Id (Maybe Type))
+   #fixpoints Fixpoints
+   })
+
+(type: #export (Check a)
+  (-> Context (Error [Context a])))
+
+(struct: #export _ (Functor Check)
+  (def: (map f fa)
+    (lambda [context]
+      (case (fa context)
+        (#;Left error)
+        (#;Left error)
+
+        (#;Right [context' output])
+        (#;Right [context' (f output)])
+        ))))
+
+(struct: #export _ (Applicative Check)
+  (def: functor Functor<Check>)
+
+  (def: (wrap x)
+    (lambda [context]
+      (#;Right [context x])))
+
+  (def: (apply ff fa)
+    (lambda [context]
+      (case (ff context)
+        (#;Right [context' f])
+        (case (fa context')
+          (#;Right [context'' a])
+          (#;Right [context'' (f a)])
+
+          (#;Left error)
+          (#;Left error))
+
+        (#;Left error)
+        (#;Left error)
+        )))
+  )
+
+(struct: #export _ (Monad Check)
+  (def: applicative Applicative<Check>)
+
+  (def: (join ffa)
+    (lambda [context]
+      (case (ffa context)
+        (#;Right [context' fa])
+        (case (fa context')
+          (#;Right [context'' a])
+          (#;Right [context'' a])
+
+          (#;Left error)
+          (#;Left error))
+
+        (#;Left error)
+        (#;Left error)
+        )))
+  )
+
+(open Monad<Check> "Check/")
+
+## [[Logic]]
+(def: #export (run context proc)
+  (All [a] (-> Context (Check a) (Error a)))
+  (case (proc context)
+    (#;Left error)
+    (#;Left error)
+
+    (#;Right [context' output])
+    (#;Right output)))
+
+(def: (apply-type! t-func t-arg)
+  (-> Type Type (Check Type))
+  (lambda [context]
+    (case (type;apply-type t-func t-arg)
+      #;None
+      (#;Left (format "Invalid type application: " (type;type-to-text t-func) " on " (type;type-to-text t-arg)))
+
+      (#;Some output)
+      (#;Right [context output]))))
+
+(def: #export existential
+  (Check [Id Type])
+  (lambda [context]
+    (let [id (get@ #ex-id context)]
+      (#;Right [(update@ #ex-id inc+ context)
+                [id (#;ExT id)]]))))
+
+(def: (bound? id)
+  (-> Id (Check Bool))
+  (lambda [context]
+    (case (|> context (get@ #bindings) (dict;get id))
+      (#;Some (#;Some _))
+      (#;Right [context true])
+
+      (#;Some #;None)
+      (#;Right [context false])
+      
+      #;None
+      (#;Left (format "Unknown type-var: " (%n id))))))
+
+(def: (deref id)
+  (-> Id (Check Type))
+  (lambda [context]
+    (case (|> context (get@ #bindings) (dict;get id))
+      (#;Some (#;Some type))
+      (#;Right [context type])
+
+      (#;Some #;None)
+      (#;Left (format "Unbound type-var: " (%n id)))
+      
+      #;None
+      (#;Left (format "Unknown type-var: " (%n id))))))
+
+(def: (set-var id type)
+  (-> Id Type (Check []))
+  (lambda [context]
+    (case (|> context (get@ #bindings) (dict;get id))
+      (#;Some (#;Some bound))
+      (#;Left (format "Can't rebind type-var: " (%n id) " | Current type: " (type;type-to-text bound)))
+      
+      (#;Some #;None)
+      (#;Right [(update@ #bindings (dict;put id (#;Some type)) context)
+                []])
+
+      #;None
+      (#;Left (format "Unknown type-var: " (%n id))))))
+
+(def: (reset-var id type)
+  (-> Id Type (Check []))
+  (lambda [context]
+    (case (|> context (get@ #bindings) (dict;get id))
+      (#;Some _)
+      (#;Right [(update@ #bindings (dict;put id (#;Some type)) context)
+                []])
+      
+      #;None
+      (#;Left (format "Unknown type-var: " (%n id))))))
+
+(def: (unset-var id)
+  (-> Id (Check []))
+  (lambda [context]
+    (case (|> context (get@ #bindings) (dict;get id))
+      (#;Some _)
+      (#;Right [(update@ #bindings (dict;put id #;None) context)
+                []])
+      
+      #;None
+      (#;Left (format "Unknown type-var: " (%n id))))))
+
+(def: (clean t-id type)
+  (-> Id Type (Check Type))
+  (case type
+    (#;VarT id)
+    (if (=+ t-id id)
+      (do Monad<Check>
+        [? (bound? id)]
+        (if ?
+          (deref id)
+          (wrap type)))
+      (do Monad<Check>
+        [? (bound? id)]
+        (if ?
+          (do Monad<Check>
+            [=type (deref id)
+             ==type (clean t-id =type)]
+            (case ==type
+              (#;VarT =id)
+              (if (=+ t-id =id)
+                (do Monad<Check>
+                  [_ (unset-var id)]
+                  (wrap type))
+                (do Monad<Check>
+                  [_ (reset-var id ==type)]
+                  (wrap type)))
+
+              _
+              (do Monad<Check>
+                [_ (reset-var id ==type)]
+                (wrap type))))
+          (wrap type))))
+
+    (#;HostT name params)
+    (do Monad<Check>
+      [=params (mapM @ (clean t-id) params)]
+      (wrap (#;HostT name =params)))
+    
+    (^template [<tag>]
+     (<tag> left right)
+     (do Monad<Check>
+       [=left (clean t-id left)
+        =right (clean t-id right)]
+       (wrap (<tag> =left =right))))
+    ([#;LambdaT]
+     [#;AppT]
+     [#;ProdT]
+     [#;SumT])
+
+    (^template [<tag>]
+     (<tag> env body)
+     (do Monad<Check>
+       [=env (mapM @ (clean t-id) env)
+        =body (clean t-id body)] ## TODO: DON'T CLEAN THE BODY
+       (wrap (<tag> =env =body))))
+    ([#;UnivQ]
+     [#;ExQ])
+    
+    _
+    (:: Monad<Check> wrap type)
+    ))
+
+(def: #export create-var
+  (Check [Id Type])
+  (lambda [context]
+    (let [id (get@ #var-id context)]
+      (#;Right [(|> context
+                    (update@ #var-id inc+)
+                    (update@ #bindings (dict;put id #;None)))
+                [id (#;VarT id)]]))))
+
+(do-template [<get> <set> <tag> <type>]
+  [(def: <get>
+     (Check <type>)
+     (lambda [context]
+       (#;Right [context
+                 (get@ <tag> context)])))
+
+   (def: (<set> value)
+     (-> <type> (Check []))
+     (lambda [context]
+       (#;Right [(set@ <tag> value context)
+                 []])))]
+
+  [get-bindings  set-bindings  #bindings  (dict;Dict Id (Maybe Type))]
+  [get-fixpoints set-fixpoints #fixpoints Fixpoints]
+  )
+
+(def: #export (delete-var id)
+  (-> Id (Check []))
+  (do Monad<Check>
+    [? (bound? id)
+     _ (if ?
+         (wrap [])
+         (do Monad<Check>
+           [[ex-id ex] existential]
+           (set-var id ex)))
+     bindings get-bindings
+     bindings' (mapM @
+                     (lambda [(^@ binding [b-id b-type])]
+                       (if (=+ id b-id)
+                         (wrap binding)
+                         (case b-type
+                           #;None
+                           (wrap binding)
+
+                           (#;Some b-type')
+                           (case b-type'
+                             (#;VarT t-id)
+                             (if (=+ id t-id)
+                               (wrap [b-id #;None])
+                               (wrap binding))
+
+                             _
+                             (do Monad<Check>
+                               [b-type'' (clean id b-type')]
+                               (wrap [b-id (#;Some b-type'')])))
+                           )))
+                     (dict;entries bindings))]
+    (set-bindings (|> bindings' (dict;from-list number;Hash<Nat>) (dict;remove id)))))
+
+(def: #export (with-var k)
+  (All [a] (-> (-> [Id Type] (Check a)) (Check a)))
+  (do Monad<Check>
+    [[id var] create-var
+     output (k [id var])
+     _ (delete-var id)]
+    (wrap output)))
+
+(def: #export fresh-context
+  Context
+  {#var-id +0
+   #ex-id +0
+   #bindings (dict;new number;Hash<Nat>)
+   #fixpoints (list)
+   })
+
+(def: (attempt op)
+  (All [a] (-> (Check a) (Check (Maybe a))))
+  (lambda [context]
+    (case (op context)
+      (#;Right [context' output])
+      (#;Right [context' (#;Some output)])
+
+      (#;Left _)
+      (#;Right [context #;None]))))
+
+(def: #export (fail message)
+  (All [a] (-> Text (Check a)))
+  (lambda [context]
+    (#;Left message)))
+
+(def: (fail-check expected actual)
+  (-> Type Type (Check []))
+  (fail (format "Expected: " (type;type-to-text expected) "\n\n"
+                "Actual:   " (type;type-to-text actual))))
+
+(def: success (Check []) (Check/wrap []))
+
+(def: (|| left right)
+  (All [a] (-> (Check a) (Check a) (Check a)))
+  (lambda [context]
+    (case (left context)
+      (#;Right [context' output])
+      (#;Right [context' output])
+
+      (#;Left _)
+      (right context))))
+
+(def: (fp-get [e a] fixpoints)
+  (-> [Type Type] Fixpoints (Maybe Bool))
+  (list;find (lambda [[[fe fa] status]]
+               (if (and (Type/= e fe)
+                        (Type/= a fa))
+                 (#;Some status)
+                 #;None))
+             fixpoints))
+
+(def: (fp-put ea status fixpoints)
+  (-> [Type Type] Bool Fixpoints Fixpoints)
+  (#;Cons [ea status] fixpoints))
+
+(def: #export (check expected actual)
+  (-> Type Type (Check []))
+  (if (== expected actual)
+    success
+    (case [expected actual]
+      [(#;VarT e-id) (#;VarT a-id)]
+      (if (=+ e-id a-id)
+        success
+        (do Monad<Check>
+          [ebound (attempt (deref e-id))
+           abound (attempt (deref a-id))]
+          (case [ebound abound]
+            [#;None #;None]
+            (set-var e-id actual)
+            
+            [(#;Some etype) #;None]
+            (check etype actual)
+
+            [#;None (#;Some atype)]
+            (check expected atype)
+
+            [(#;Some etype) (#;Some atype)]
+            (check etype atype))))
+      
+      [(#;VarT id) _]
+      (|| (set-var id actual)
+          (do Monad<Check>
+            [bound (deref id)]
+            (check bound actual)))
+      
+      [_ (#;VarT id)]
+      (|| (set-var id expected)
+          (do Monad<Check>
+            [bound (deref id)]
+            (check expected bound)))
+
+      [(#;AppT (#;ExT eid) eA) (#;AppT (#;ExT aid) aA)]
+      (if (=+ eid aid)
+        (check eA aA)
+        (fail-check expected actual))
+
+      [(#;AppT (#;VarT id) A1) (#;AppT F2 A2)]
+      (|| (do Monad<Check>
+            [F1 (deref id)]
+            (check (#;AppT F1 A1) actual))
+          (do Monad<Check>
+            [_ (check (#;VarT id) F2)
+             e' (apply-type! F2 A1)
+             a' (apply-type! F2 A2)]
+            (check e' a')))
+      
+      [(#;AppT F1 A1) (#;AppT (#;VarT id) A2)]
+      (|| (do Monad<Check>
+            [F2 (deref id)]
+            (check expected (#;AppT F2 A2)))
+          (do Monad<Check>
+            [_ (check F1 (#;VarT id))
+             e' (apply-type! F1 A1)
+             a' (apply-type! F1 A2)]
+            (check e' a')))
+
+      [(#;AppT F A) _]
+      (do Monad<Check>
+        [#let [fp-pair [expected actual]]
+         fixpoints get-fixpoints]
+        (case (fp-get fp-pair fixpoints)
+          (#;Some ?)
+          (if ?
+            success
+            (fail-check expected actual))
+
+          #;None
+          (do Monad<Check>
+            [expected' (apply-type! F A)
+             _ (set-fixpoints (fp-put fp-pair true fixpoints))]
+            (check expected' actual))))
+
+      [_ (#;AppT F A)]
+      (do Monad<Check>
+        [actual' (apply-type! F A)]
+        (check expected actual'))
+
+      [(#;UnivQ _) _]
+      (do Monad<Check>
+        [[ex-id ex] existential
+         expected' (apply-type! expected ex)]
+        (check expected' actual))
+
+      [_ (#;UnivQ _)]
+      (with-var
+        (lambda [[var-id var]]
+          (do Monad<Check>
+            [actual' (apply-type! actual var)
+             =output (check expected actual')
+             _ (clean var-id expected)]
+            success)))
+
+      [(#;ExQ e!env e!def) _]
+      (with-var
+        (lambda [[var-id var]]
+          (do Monad<Check>
+            [expected' (apply-type! expected var)
+             =output (check expected' actual)
+             _ (clean var-id actual)]
+            success)))
+
+      [_ (#;ExQ a!env a!def)]
+      (do Monad<Check>
+        [[ex-id ex] existential
+         actual' (apply-type! actual ex)]
+        (check expected actual'))
+
+      [(#;HostT e-name e-params) (#;HostT a-name a-params)]
+      (if (Text/= e-name a-name)
+        (do Monad<Check>
+          [_ (mapM Monad<Check>
+                   (lambda [[e a]] (check e a))
+                   (list;zip2 e-params a-params))]
+          success)
+        (fail-check expected actual))
+
+      (^template [<unit> <append>]
+       [<unit> <unit>]
+       success
+       
+       [(<append> eL eR) (<append> aL aR)]
+       (do Monad<Check>
+         [_ (check eL aL)]
+         (check eR aR)))
+      ([#;VoidT #;SumT]
+       [#;UnitT #;ProdT])
+      
+      [(#;LambdaT eI eO) (#;LambdaT aI aO)]
+      (do Monad<Check>
+        [_ (check aI eI)]
+        (check eO aO))
+
+      [(#;ExT e!id) (#;ExT a!id)]
+      (if (=+ e!id a!id)
+        success
+        (fail-check expected actual))
+
+      [(#;NamedT _ ?etype) _]
+      (check ?etype actual)
+
+      [_ (#;NamedT _ ?atype)]
+      (check expected ?atype)
+
+      _
+      (fail-check expected actual))))
+
+(def: #export (checks? expected actual)
+  (-> Type Type Bool)
+  (case (run fresh-context (check expected actual))
+    (#;Left error)
+    false
+
+    (#;Right _)
+    true))

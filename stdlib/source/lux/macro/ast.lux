@@ -1,0 +1,149 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control eq)
+       (data bool
+             number
+             [char]
+             [text #+ Eq<Text> "Text/" Monoid<Text>]
+             ident
+             (struct [list #* "" Functor<List> Fold<List>])
+             )))
+
+## [Types]
+## (type: (AST' w)
+##   (#;BoolS Bool)
+##   (#;NatS Nat)
+##   (#;IntS Int)
+##   (#;RealS Real)
+##   (#;CharS Char)
+##   (#;TextS Text)
+##   (#;SymbolS Text Text)
+##   (#;TagS Text Text)
+##   (#;FormS (List (w (AST' w))))
+##   (#;TupleS (List (w (AST' w))))
+##   (#;RecordS (List [(w (AST' w)) (w (AST' w))])))
+
+## (type: AST
+##   (Meta Cursor (AST' (Meta Cursor))))
+
+## [Utils]
+(def: _cursor Cursor ["" -1 -1])
+
+## [Functions]
+(do-template [<name> <type> <tag>]
+  [(def: #export (<name> x)
+     (-> <type> AST)
+     [_cursor (<tag> x)])]
+  
+  [bool   Bool             #;BoolS]
+  [nat    Nat              #;NatS]
+  [int    Int              #;IntS]
+  [frac   Frac             #;FracS]
+  [real   Real             #;RealS]
+  [char   Char             #;CharS]
+  [text   Text             #;TextS]
+  [symbol Ident            #;SymbolS]
+  [tag    Ident            #;TagS]
+  [form   (List AST)       #;FormS]
+  [tuple  (List AST)       #;TupleS]
+  [record (List [AST AST]) #;RecordS]
+  )
+
+(do-template [<name> <tag>]
+  [(def: #export (<name> name)
+     (-> Text AST)
+     [_cursor (<tag> ["" name])])]
+
+  [local-symbol #;SymbolS]
+  [local-tag    #;TagS])
+
+## [Structures]
+(struct: #export _ (Eq AST)
+  (def: (= x y)
+    (case [x y]
+      (^template [<tag> <eq>]
+       [[_ (<tag> x')] [_ (<tag> y')]]
+       (:: <eq> = x' y'))
+      ([#;BoolS   Eq<Bool>]
+       [#;NatS    Eq<Nat>]
+       [#;IntS    Eq<Int>]
+       [#;FracS   Eq<Frac>]
+       [#;RealS   Eq<Real>]
+       [#;CharS   char;Eq<Char>]
+       [#;TextS   Eq<Text>]
+       [#;SymbolS Eq<Ident>]
+       [#;TagS    Eq<Ident>])
+
+      (^template [<tag>]
+       [[_ (<tag> xs')] [_ (<tag> ys')]]
+       (and (:: Eq<Nat> = (size xs') (size ys'))
+            (fold (lambda [[x' y'] old]
+                    (and old (= x' y')))
+                  true
+                  (zip2 xs' ys'))))
+      ([#;FormS]
+       [#;TupleS])
+
+      [[_ (#;RecordS xs')] [_ (#;RecordS ys')]]
+      (and (:: Eq<Nat> = (size xs') (size ys'))
+           (fold (lambda [[[xl' xr'] [yl' yr']] old]
+                   (and old (= xl' yl') (= xr' yr')))
+                 true
+                 (zip2 xs' ys')))
+      
+      _
+      false)))
+
+## [Values]
+(def: #export (ast-to-text ast)
+  (-> AST Text)
+  (case ast
+    (^template [<tag> <struct>]
+     [_ (<tag> value)]
+     (:: <struct> encode value))
+    ([#;BoolS   Codec<Text,Bool>]
+     [#;NatS    Codec<Text,Nat>]
+     [#;IntS    Codec<Text,Int>]
+     [#;FracS   Codec<Text,Frac>]
+     [#;RealS   Codec<Text,Real>]
+     [#;CharS   char;Codec<Text,Char>]
+     [#;TextS   text;Codec<Text,Text>]
+     [#;SymbolS Codec<Text,Ident>])
+
+    [_ (#;TagS ident)]
+    (Text/append  "#" (:: Codec<Text,Ident> encode ident))
+
+    (^template [<tag> <open> <close>]
+     [_ (<tag> members)]
+     ($_ Text/append <open> (|> members (map ast-to-text) (interpose " ") (text;join-with "")) <close>))
+    ([#;FormS  "(" ")"]
+     [#;TupleS "[" "]"])
+
+    [_ (#;RecordS pairs)]
+    ($_ Text/append "{" (|> pairs (map (lambda [[left right]] ($_ Text/append (ast-to-text left) " " (ast-to-text right)))) (interpose " ") (text;join-with "")) "}")
+    ))
+
+(def: #export (replace source target ast)
+  (-> AST AST AST AST)
+  (if (:: Eq<AST> = source ast)
+    target
+    (case ast
+      (^template [<tag>]
+       [cursor (<tag> parts)]
+       [cursor (<tag> (map (replace source target) parts))])
+      ([#;FormS]
+       [#;TupleS])
+
+      [cursor (#;RecordS parts)]
+      [cursor (#;RecordS (map (lambda [[left right]]
+                                [(replace source target left)
+                                 (replace source target right)])
+                              parts))]
+
+      _
+      ast)))

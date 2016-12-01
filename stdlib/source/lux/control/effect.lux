@@ -1,0 +1,315 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module: lux
+  (lux (control ["F" functor]
+                applicative
+                monad)
+       (codata [io #- run])
+       (data (struct [list "List/" Monad<List>])
+             [number "Nat/" Codec<Text,Nat>]
+             text/format
+             error)
+       [compiler]
+       [macro]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax]
+              (syntax [common]))
+       [type]
+       (type ["tc" check])))
+
+## [Type]
+(type: #export (Eff F a)
+  (#Pure a)
+  (#Effect (F (Eff F a))))
+
+(sig: #export (Handler E M)
+  (: (All [a] (-> (Eff E a) (M a)))
+     handle))
+
+## [Values]
+(struct: #export (Functor<Eff> dsl)
+  (All [F] (-> (F;Functor F) (F;Functor (Eff F))))
+  (def: (map f ea)
+    (case ea
+      (#Pure a)
+      (#Pure (f a))
+      
+      (#Effect value)
+      (#Effect (:: dsl map (map f) value)))))
+
+(struct: #export (Applicative<Eff> dsl)
+  (All [F] (-> (F;Functor F) (Applicative (Eff F))))
+  (def: functor (Functor<Eff> dsl))
+
+  (def: (wrap a)
+    (#Pure a))
+  
+  (def: (apply ef ea)
+    (case [ef ea]
+      [(#Pure f) (#Pure a)]
+      (#Pure (f a))
+
+      [(#Pure f) (#Effect fa)]
+      (#Effect (:: dsl map
+                   (:: (Functor<Eff> dsl) map f)
+                   fa))
+
+      [(#Effect ff) _]
+      (#Effect (:: dsl map
+                   (lambda [f] (apply f ea))
+                   ff))
+      )))
+
+(struct: #export (Monad<Eff> dsl)
+  (All [F] (-> (F;Functor F) (Monad (Eff F))))
+  (def: applicative (Applicative<Eff> dsl))
+
+  (def: (join efefa)
+    (case efefa
+      (#Pure efa)
+      (case efa
+        (#Pure a)
+        (#Pure a)
+
+        (#Effect fa)
+        (#Effect fa))
+      
+      (#Effect fefa)
+      (#Effect (:: dsl map
+                   (:: (Monad<Eff> dsl) join)
+                   fefa))
+      )))
+
+(type: (@| L R)
+  (All [a] (| (L a) (R a))))
+
+(def: #export (combine-functors left right)
+  (All [L R]
+    (-> (F;Functor L) (F;Functor R)
+        (F;Functor (@| L R))))
+  (struct
+   (def: (map f l|r)
+     (case l|r
+       (+0 l) (+0 (:: left map f l))
+       (+1 r) (+1 (:: right map f r)))
+     )))
+
+(def: #export (combine-handlers Monad<M> left right)
+  (All [L R M]
+    (-> (Monad M)
+        (Handler L M) (Handler R M)
+        (Handler (@| L R) M)))
+  (struct
+   (def: (handle el|r)
+     (case el|r
+       (#Pure x)
+       (:: Monad<M> wrap x)
+
+       (#Effect l|r)
+       (case l|r
+         (#;Left l) (:: left handle (#Effect l))
+         (#;Right r) (:: right handle (#Effect r))
+         ))
+     )))
+
+## [Syntax]
+(syntax: #export (||E {effects (s;some s;any)})
+  (do @
+    [g!a (compiler;gensym "g!a")
+     #let [effects@a (List/map (lambda [eff] (` ((~ eff) (~ g!a))))
+                               effects)]]
+    (wrap (list (` (All [(~ g!a)]
+                     (| (~@ effects@a))))
+                ))))
+
+(syntax: #export (||F {functors (s;many s;any)})
+  (wrap (list (` ($_ ;;combine-functors (~@ functors))))))
+
+(syntax: #export (||H monad {handlers (s;many s;any)})
+  (do @
+    [g!combiner (compiler;gensym "")]
+    (wrap (list (` (let [(~ g!combiner) (;;combine-handlers (~ monad))]
+                     ($_ (~ g!combiner) (~@ handlers))))))))
+
+(type: Op
+  {#name Text
+   #inputs (List AST)
+   #output AST})
+
+(def: op^
+  (Syntax Op)
+  (s;form (s;either ($_ s;seq
+                        s;local-symbol
+                        (s;tuple (s;some s;any))
+                        s;any)
+                    ($_ s;seq
+                        s;local-symbol
+                        (:: s;Monad<Syntax> wrap (list))
+                        s;any))))
+
+(syntax: #export (effect: {exp-lvl common;export-level}
+                   {name s;local-symbol}
+                   {ops (s;many op^)})
+  (do @
+    [g!output (compiler;gensym "g!output")
+     #let [op-types (List/map (lambda [op]
+                                (let [g!tag (ast;tag ["" (get@ #name op)])
+                                      g!inputs (` [(~@ (get@ #inputs op))])
+                                      g!output (` (-> (~ (get@ #output op)) (~ g!output)))]
+                                  (` ((~ g!tag) (~ g!inputs) (~ g!output)))))
+                              ops)
+           type-name (ast;symbol ["" name])
+           type-def (` (type: (~@ (common;gen-export-level exp-lvl))
+                         ((~ type-name) (~ g!output))
+                         (~@ op-types)))
+           op-tags (List/map (|>. (get@ #name) [""] ast;tag (list) ast;tuple)
+                             ops)
+           functor-def (` (struct: (~@ (common;gen-export-level exp-lvl)) (~' _) (F;Functor (~ type-name))
+                            (def: ((~' map) (~' f) (~' fa))
+                              (case (~' fa)
+                                (^template [(~' <tag>)]
+                                  ((~' <tag>) (~' params) (~' cont))
+                                  ((~' <tag>) (~' params) (. (~' f) (~' cont))))
+                                ((~@ op-tags))))
+                            ))
+           function-defs (List/map (lambda [op]
+                                     (let [g!name (ast;symbol ["" (get@ #name op)])
+                                           g!tag (ast;tag ["" (get@ #name op)])
+                                           g!params (: (List AST)
+                                                       (case (list;size (get@ #inputs op))
+                                                         +0 (list)
+                                                         s (|> (list;range+ +0 (dec+ s))
+                                                               (List/map (|>. Nat/encode
+                                                                              (format "_")
+                                                                              [""]
+                                                                              ast;symbol)))))]
+                                       (` (def: (~@ (common;gen-export-level exp-lvl)) ((~ g!name) (~@ g!params))
+                                            (-> (~@ (get@ #inputs op))
+                                                ((~ type-name) (~ (get@ #output op))))
+                                            ((~ g!tag) [(~@ g!params)] ;id)))))
+                                   ops)]]
+    (wrap (list& type-def
+                 functor-def
+                 function-defs))))
+
+(type: Translation
+  {#effect Ident
+   #base AST
+   #monad AST})
+
+(def: translation^
+  (Syntax Translation)
+  (s;form (do s;Monad<Syntax>
+            [_ (s;symbol! ["" "=>"])]
+            (s;seq s;symbol
+                   (s;tuple (s;seq s;any
+                                   s;any))))))
+
+(syntax: #export (handler: {exp-lvl common;export-level}
+                   {name s;local-symbol}
+                   {[effect base monad] translation^}
+                   {defs (s;many (common;def *compiler*))})
+  (do @
+    [(^@ effect [e-module _]) (compiler;un-alias effect)
+     g!input (compiler;gensym "g!input")
+     g!cont (compiler;gensym "g!cont")
+     g!value (compiler;gensym "value")
+     #let [g!cases (|> defs
+                       (List/map (lambda [def]
+                                   (let [g!tag (ast;tag [e-module (get@ #common;def-name def)])
+                                         g!args (List/map (|>. [""] ast;symbol)
+                                                          (get@ #common;def-args def))
+                                         eff-calc (case (get@ #common;def-type def)
+                                                    #;None
+                                                    (get@ #common;def-value def)
+
+                                                    (#;Some type)
+                                                    (` (: (~ type) (~ (get@ #common;def-value def)))))
+                                         invocation (case g!args
+                                                      #;Nil
+                                                      eff-calc
+
+                                                      _
+                                                      (` ((~ eff-calc) (~@ g!args))))]
+                                     (list (` ((~ g!tag) [(~@ g!args)] (~ g!cont)))
+                                           (` (do (~ monad)
+                                                [(~ g!value) (~ invocation)]
+                                                ((~' handle) ((~ g!cont) (~ g!value)))))
+                                           ))))
+                       List/join)]]
+    (wrap (list (` (struct: (~@ (common;gen-export-level exp-lvl)) (~ (ast;symbol ["" name]))
+                     (;;Handler (~ (ast;symbol effect)) (~ base))
+                     (def: ((~' handle) (~ g!input))
+                       (case (~ g!input)
+                         (#Pure (~ g!input))
+                         (:: (~ monad) (~' wrap) (~ g!input))
+
+                         (#Effect (~ g!input))
+                         (case (~ g!input)
+                           (~@ g!cases))))))))))
+
+(syntax: #export (with-handler handler body)
+  (wrap (list (` (:: (~ handler) (~' handle) (~ body))))))
+
+(def: (un-apply type-app)
+  (-> Type Type)
+  (case type-app
+    (#;AppT effect value)
+    effect
+
+    _
+    (error! (format "Wrong type format: " (type;type-to-text type-app)))))
+
+(def: (clean-effect effect)
+  (-> Type Type)
+  (case effect
+    (#;UnivQ env body)
+    (#;UnivQ (list) body)
+
+    _
+    (error! (format "Wrong effect format: " (type;type-to-text effect)))))
+
+(def: g!functor AST (ast;symbol ["" "%E"]))
+
+(syntax: #export (doE functor {bindings (s;tuple (s;some s;any))} body)
+  (do @
+    [g!output (compiler;gensym "")]
+    (wrap (list (` (let [(~ g!functor) (~ functor)]
+                     (do (Monad<Eff> (~ g!functor))
+                       [(~@ bindings)
+                        (~ g!output) (~ body)]
+                       ((~' wrap) (~ g!output)))))))))
+
+(syntax: #export (lift {value (s;alt s;symbol
+                                     s;any)})
+  (case value
+    (#;Left var)
+    (do @
+      [input (compiler;find-type var)
+       output compiler;expected-type]
+      (case [input output]
+        (^=> [(#;AppT eff0 _) (#;AppT stackT0 recT0)]
+             {(type;apply-type stackT0 recT0) (#;Some unfoldT0)}
+             {stackT0 (^ (#;AppT (#;NamedT (ident-for ;;Eff) _)
+                                 stackT1))}
+             {(type;apply-type stackT1 recT0) (#;Some unfoldT1)}
+             {(list;find (lambda [[idx effect]]
+                           (if (tc;checks? (clean-effect effect) eff0)
+                             (#;Some idx)
+                             #;None))
+                         (|> unfoldT1 type;flatten-sum (List/map un-apply) list;enumerate))
+              (#;Some idx)})
+        (wrap (list (` (#;;Effect (:: (~ g!functor) (~' map) (~' wrap) ((~ (ast;int (nat-to-int idx)))
+                                                                        (~ (ast;symbol var))))))))
+
+        _
+        (compiler;fail (format "Invalid type to lift: " (type;type-to-text output)))))
+
+    (#;Right node)
+    (do @
+      [g!value (compiler;gensym "")]
+      (wrap (list (` (let [(~ g!value) (~ node)]
+                       (;;lift (~ g!value)))))))))

@@ -1,0 +1,127 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (codata [io])
+       (control monad)
+       (data (struct ["&" zipper]
+                     [tree]
+                     [list "List/" Fold<List> Functor<List>])
+             [text "Text/" Monoid<Text>]
+             text/format
+             [number])
+       (codata function)
+       (math ["R" random])
+       pipe)
+  lux/test)
+
+(def: gen-tree
+  (R;Random (tree;Tree Nat))
+  (R;rec (lambda [gen-tree]
+           (do R;Monad<Random>
+             ## Each branch can have, at most, 1 child.
+             [size (|> R;nat (:: @ map (%+ +2)))]
+             (R;seq R;nat
+                    (R;list size gen-tree))))))
+
+(def: (to-end zipper)
+  (All [a] (-> (&;Zipper a) (&;Zipper a)))
+  (loop [zipper zipper]
+    (if (&;end? zipper)
+      zipper
+      (recur (&;next zipper)))))
+
+(test: "Zippers"
+  [sample gen-tree
+   new-val R;nat
+   pre-val R;nat
+   post-val R;nat
+   #let [(^open "Tree/") (tree;Eq<Tree> number;Eq<Nat>)
+         (^open "List/") (list;Eq<List> number;Eq<Nat>)]]
+  (all (assert "Trees can be converted to/from zippers."
+               (|> sample
+                   &;from-tree &;to-tree
+                   (Tree/= sample)))
+
+       (assert "Creating a zipper gives you a root node."
+               (|> sample &;from-tree &;root?))
+       
+       (assert "Can move down inside branches. Can move up from lower nodes."
+               (let [zipper (&;from-tree sample)]
+                 (if (&;branch? zipper)
+                   (let [child (|> zipper &;down)]
+                     (and (not (Tree/= sample (&;to-tree child)))
+                          (|> child &;parent (default (undefined)) (== zipper))
+                          (|> child &;up (== zipper))
+                          (|> child &;root (== zipper))))
+                   (and (&;leaf? zipper)
+                        (|> zipper (&;prepend-child new-val) &;branch?)))))
+
+       (assert "Can prepend and append children."
+               (let [zipper (&;from-tree sample)]
+                 (if (&;branch? zipper)
+                   (let [mid-val (|> zipper &;down &;value)
+                         zipper (|> zipper
+                                    (&;prepend-child pre-val)
+                                    (&;append-child post-val))]
+                     (and (|> zipper &;down &;value (== pre-val))
+                          (|> zipper &;down &;right &;value (== mid-val))
+                          (|> zipper &;down &;right &;right &;value (== post-val))
+                          (|> zipper &;down &;rightmost &;leftmost &;value (== pre-val))
+                          (|> zipper &;down &;right &;left &;value (== mid-val))
+                          (|> zipper &;down &;rightmost &;value (== post-val))))
+                   true)))
+
+       (assert "Can insert children around a node (unless it's root)."
+               (let [zipper (&;from-tree sample)]
+                 (if (&;branch? zipper)
+                   (let [mid-val (|> zipper &;down &;value)
+                         zipper (|> zipper
+                                    &;down
+                                    (&;insert-left pre-val)
+                                    (default (undefined))
+                                    (&;insert-right post-val)
+                                    (default (undefined))
+                                    &;up)]
+                     (and (|> zipper &;down &;value (== pre-val))
+                          (|> zipper &;down &;right &;value (== mid-val))
+                          (|> zipper &;down &;right &;right &;value (== post-val))
+                          (|> zipper &;down &;rightmost &;leftmost &;value (== pre-val))
+                          (|> zipper &;down &;right &;left &;value (== mid-val))
+                          (|> zipper &;down &;rightmost &;value (== post-val))))
+                   (and (|> zipper (&;insert-left pre-val) (case> (#;Some _) false
+                                                                  #;None     true))
+                        (|> zipper (&;insert-right post-val) (case> (#;Some _) false
+                                                                    #;None     true))))))
+       
+       (assert "Can set and update the value of a node."
+               (|> sample &;from-tree (&;set new-val) &;value (=+ new-val)))
+
+       (assert "Zipper traversal follows the outline of the tree depth-first."
+               (List/= (tree;flatten sample)
+                       (loop [zipper (&;from-tree sample)]
+                         (if (&;end? zipper)
+                           (list)
+                           (#;Cons (&;value zipper)
+                                   (recur (&;next zipper)))))))
+
+       (assert "Backwards zipper traversal yield reverse tree flatten."
+               (List/= (list;reverse (tree;flatten sample))
+                       (loop [zipper (to-end (&;from-tree sample))]
+                         (if (&;root? zipper)
+                           (list)
+                           (#;Cons (&;value zipper)
+                                   (recur (&;prev zipper)))))))
+
+       (assert "Can remove nodes (except root nodes)."
+               (let [zipper (&;from-tree sample)]
+                 (if (&;branch? zipper)
+                   (and (|> zipper &;down &;root? not)
+                        (|> zipper &;down &;remove (case> #;None false
+                                                          (#;Some node) (&;root? node))))
+                   (|> zipper &;remove (case> #;None     true
+                                              (#;Some _) false)))))
+       ))

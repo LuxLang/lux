@@ -1,0 +1,135 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control functor
+                monad
+                comonad)
+       [compiler #+ with-gensyms]
+       (macro ["s" syntax #+ syntax: Syntax])
+       (data (struct [list "List/" Monad<List>])
+             bool)
+       (codata [cont #+ @lazy Cont])))
+
+## [Types]
+(type: #export (Stream a)
+  (Cont [a (Stream a)]))
+
+## [Utils]
+(def: (cycle' x xs init full)
+  (All [a]
+    (-> a (List a) a (List a) (Stream a)))
+  (case xs
+    #;Nil           (@lazy [x (cycle' init full init full)])
+    (#;Cons x' xs') (@lazy [x (cycle' x' xs' init full)])))
+
+## [Functions]
+(def: #export (iterate f x)
+  (All [a]
+    (-> (-> a a) a (Stream a)))
+  (@lazy [x (iterate f (f x))]))
+
+(def: #export (repeat x)
+  (All [a]
+    (-> a (Stream a)))
+  (@lazy [x (repeat x)]))
+
+(def: #export (cycle xs)
+  (All [a]
+    (-> (List a) (Maybe (Stream a))))
+  (case xs
+    #;Nil          #;None
+    (#;Cons x xs') (#;Some (cycle' x xs' x xs'))))
+
+(do-template [<name> <return> <part>]
+  [(def: #export (<name> s)
+     (All [a] (-> (Stream a) <return>))
+     (let [[h t] (cont;run s)]
+       <part>))]
+
+  [head a          h]
+  [tail (Stream a) t])
+
+(def: #export (at idx s)
+  (All [a] (-> Nat (Stream a) a))
+  (let [[h t] (cont;run s)]
+    (if (>+ +0 idx)
+      (at (dec+ idx) t)
+      h)))
+
+(do-template [<taker> <dropper> <splitter> <pred-type> <pred-test> <pred-step>]
+  [(def: #export (<taker> pred xs)
+     (All [a]
+       (-> <pred-type> (Stream a) (List a)))
+     (let [[x xs'] (cont;run xs)]
+       (if <pred-test>
+         (list& x (<taker> <pred-step> xs'))
+         (list))))
+
+   (def: #export (<dropper> pred xs)
+     (All [a]
+       (-> <pred-type> (Stream a) (Stream a)))
+     (let [[x xs'] (cont;run xs)]
+       (if <pred-test>
+         (<dropper> <pred-step> xs')
+         xs)))
+
+   (def: #export (<splitter> pred xs)
+     (All [a]
+       (-> <pred-type> (Stream a) [(List a) (Stream a)]))
+     (let [[x xs'] (cont;run xs)]
+       (if <pred-test>
+         (let [[tail next] (<splitter> <pred-step> xs')]
+           [(#;Cons [x tail]) next])
+         [(list) xs])))]
+  
+  [take-while drop-while split-with (-> a Bool) (pred x)     pred]
+  [take       drop       split      Nat         (>+ +0 pred) (dec+ pred)]
+  )
+
+(def: #export (unfold step init)
+  (All [a b]
+    (-> (-> a [a b]) a (Stream b)))
+  (let [[next x] (step init)]
+    (@lazy [x (unfold step next)])))
+
+(def: #export (filter p xs)
+  (All [a] (-> (-> a Bool) (Stream a) (Stream a)))
+  (let [[x xs'] (cont;run xs)]
+    (if (p x)
+      (@lazy [x (filter p xs')])
+      (filter p xs'))))
+
+(def: #export (partition p xs)
+  (All [a] (-> (-> a Bool) (Stream a) [(Stream a) (Stream a)]))
+  [(filter p xs) (filter (complement p) xs)])
+
+## [Structures]
+(struct: #export _ (Functor Stream)
+  (def: (map f fa)
+    (let [[h t] (cont;run fa)]
+      (@lazy [(f h) (map f t)]))))
+
+(struct: #export _ (CoMonad Stream)
+  (def: functor Functor<Stream>)
+  (def: unwrap head)
+  (def: (split wa)
+    (let [[head tail] (cont;run wa)]
+      (@lazy [wa (split tail)]))))
+
+## [Pattern-matching]
+(syntax: #export (^stream& {patterns (s;form (s;many s;any))} body {branches (s;some s;any)})
+  {#;doc (doc "Allows destructuring of streams in pattern-matching expressions."
+              "Caveat emptor: Only use it for destructuring, and not for testing values within the streams."
+              (let [(^stream& x y z _tail) (some-stream-func 1 2 3)]
+                (func x y z)))}
+  (with-gensyms [g!s]
+    (let [body+ (` (let [(~@ (List/join (List/map (lambda [pattern]
+                                                    (list (` [(~ pattern) (~ g!s)])
+                                                          (` (cont;run (~ g!s)))))
+                                                  patterns)))]
+                     (~ body)))]
+      (wrap (list& g!s body+ branches)))))

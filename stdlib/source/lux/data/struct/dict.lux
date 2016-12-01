@@ -1,0 +1,675 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control hash
+                eq)
+       (data maybe
+             (struct [list "List/" Fold<List> Functor<List> Monoid<List>]
+                     [array #+ Array "Array/" Functor<Array> Fold<Array>])
+             [bit]
+             [product]
+             text/format
+             [number])
+       ))
+
+## This implementation of Hash Array Mapped Trie (HAMT) is based on
+## Clojure's PersistentHashMap implementation.
+## That one is further based on Phil Bagwell's Hash Array Mapped Trie.
+
+## [Utils]
+## Bitmaps are used to figure out which branches on a #Base node are
+## populated. The number of bits that are 1s in a bitmap signal the
+## size of the #Base node.
+(type: BitMap Nat)
+
+## Represents the position of a node in a BitMap.
+## It's meant to be a single bit set on a 32-bit word.
+## The position of the bit reflects whether an entry in an analogous
+## position exists within a #Base, as reflected in it's BitMap.
+(type: BitPosition Nat)
+
+## An index into an array.
+(type: Index Nat)
+
+## A hash-code derived from a key during tree-traversal.
+(type: Hash-Code Nat)
+
+## Represents the nesting level of a leaf or node, when looking-it-up
+## while exploring the tree.
+## Changes in levels are done by right-shifting the hashes of keys by
+## the appropriate multiple of the branching-exponent.
+## A shift of 0 means root level.
+## A shift of (* branching-exponent 1) means level 2.
+## A shift of (* branching-exponent N) means level N+1.
+(type: Level Nat)
+
+## Nodes for the tree data-structure that organizes the data inside
+## Dicts.
+(type: (Node k v)
+  (#Hierarchy Nat (Array (Node k v)))
+  (#Base BitMap
+         (Array (Either (Node k v)
+                        [k v])))
+  (#Collisions Hash-Code (Array [k v])))
+
+## #Hierarchy nodes are meant to point down only to lower-level nodes.
+(type: (Hierarchy k v)
+  [Nat (Array (Node k v))])
+
+## #Base nodes may point down to other nodes, but also to leaves,
+## which are KV pairs.
+(type: (Base k v)
+  (Array (Either (Node k v)
+                 [k v])))
+
+## #Collisions are collections of KV-pairs for which the key is
+## different on each case, but their hashes are all the same (thus
+## causing a collision).
+(type: (Collisions k v)
+  (Array [k v]))
+
+## That bitmap for an empty #Base is 0.
+## Which is the same as 0000 0000 0000 0000 0000 0000 0000 0000.
+## Or 0x00000000.
+## Which is 32 zeroes, since the branching factor is 32.
+(def: clean-bitmap
+  BitMap
+  +0)
+
+## Bitmap position (while looking inside #Base nodes) is determined by
+## getting 5 bits from a hash of the key being looked up and using
+## them as an index into the array inside #Base.
+## Since the data-structure can have multiple levels (and the hash has
+## more than 5 bits), the binary-representation of the hash is shifted
+## by 5 positions on each step (2^5 = 32, which is the branching
+## factor).
+## The initial shifting level, though, is 0 (which corresponds to the
+## shift in the shallowest node on the tree, which is the root node).
+(def: root-level
+  Level
+  +0)
+
+## The exponent to which 2 must be elevated, to reach the branching
+## factor of the data-structure.
+(def: branching-exponent
+  Nat
+  +5)
+
+## The threshold on which #Hierarchy nodes are demoted to #Base nodes,
+## which is 1/4 of the branching factor (or a left-shift 2).
+(def: demotion-threshold
+  Nat
+  (bit;<< (-+ +2 branching-exponent) +1))
+
+## The threshold on which #Base nodes are promoted to #Hierarchy nodes,
+## which is 1/2 of the branching factor (or a left-shift 1).
+(def: promotion-threshold
+  Nat
+  (bit;<< (-+ +1 branching-exponent) +1))
+
+## The size of hierarchy-nodes, which is 2^(branching-exponent).
+(def: hierarchy-nodes-size
+  Nat
+  (bit;<< branching-exponent +1))
+
+## The cannonical empty node, which is just an empty #Base node.
+(def: empty
+  Node
+  (#Base clean-bitmap (array;new +0)))
+
+## Expands a copy of the array, to have 1 extra slot, which is used
+## for storing the value.
+(def: (insert! idx value old-array)
+  (All [a] (-> Index a (Array a) (Array a)))
+  (let [old-size (array;size old-array)]
+    (|> (: (Array ($ 0))
+           (array;new (inc+ old-size)))
+        (array;copy idx +0 old-array +0)
+        (array;put idx value)
+        (array;copy (-+ idx old-size) idx old-array (inc+ idx)))))
+
+## Creates a copy of an array with an index set to a particular value.
+(def: (update! idx value array)
+  (All [a] (-> Index a (Array a) (Array a)))
+  (|> array array;clone (array;put idx value)))
+
+## Creates a clone of the array, with an empty position at index.
+(def: (vacant! idx array)
+  (All [a] (-> Index (Array a) (Array a)))
+  (|> array array;clone (array;remove idx)))
+
+## Shrinks a copy of the array by removing the space at index.
+(def: (remove! idx array)
+  (All [a] (-> Index (Array a) (Array a)))
+  (let [new-size (dec+ (array;size array))]
+    (|> (array;new new-size)
+        (array;copy idx +0 array +0)
+        (array;copy (-+ idx new-size) (inc+ idx) array idx))))
+
+## Given a top-limit for indices, produces all indices in [0, R).
+(def: indices-for
+  (-> Nat (List Index))
+  (|>. dec+ (list;range+ +0)))
+
+## Increases the level-shift by the branching-exponent, to explore
+## levels further down the tree.
+(def: level-up
+  (-> Level Level)
+  (++ branching-exponent))
+
+(def: hierarchy-mask BitMap (dec+ hierarchy-nodes-size))
+
+## Gets the branching-factor sized section of the hash corresponding
+## to a particular level, and uses that as an index into the array.
+(def: (level-index level hash)
+  (-> Level Hash-Code Index)
+  (bit;& hierarchy-mask
+         (bit;>>> level hash)))
+
+## A mechanism to go from indices to bit-positions.
+(def: (->bit-position index)
+  (-> Index BitPosition)
+  (bit;<< index +1))
+
+## The bit-position within a base that a given hash-code would have.
+(def: (bit-position level hash)
+  (-> Level Hash-Code BitPosition)
+  (->bit-position (level-index level hash)))
+
+(def: (bit-position-is-set? bit bitmap)
+  (-> BitPosition BitMap Bool)
+  (not (=+ clean-bitmap (bit;& bit bitmap))))
+
+## Figures out whether a bitmap only contains a single bit-position.
+(def: only-bit-position?
+  (-> BitPosition BitMap Bool)
+  =+)
+
+(def: (set-bit-position bit bitmap)
+  (-> BitPosition BitMap BitMap)
+  (bit;| bit bitmap))
+
+(def: unset-bit-position
+  (-> BitPosition BitMap BitMap)
+  bit;^)
+
+## Figures out the size of a bitmap-indexed array by counting all the
+## 1s within the bitmap.
+(def: bitmap-size
+  (-> BitMap Nat)
+  bit;count)
+
+## A mask that, for a given bit position, only allows all the 1s prior
+## to it, which would indicate the bitmap-size (and, thus, index)
+## associated with it.
+(def: bit-position-mask
+  (-> BitPosition BitMap)
+  dec+)
+
+## The index on the base array, based on it's bit-position.
+(def: (base-index bit-position bitmap)
+  (-> BitPosition BitMap Index)
+  (bitmap-size (bit;& (bit-position-mask bit-position)
+                      bitmap)))
+
+## Produces the index of a KV-pair within a #Collisions node.
+(def: (collision-index Hash<K> key colls)
+  (All [K V] (-> (Hash K) K (Collisions K V) (Maybe Index)))
+  (:: Monad<Maybe> map product;left
+      (array;find+ (lambda [idx [key' val']]
+                     (:: Hash<K> = key key'))
+                   colls)))
+
+## When #Hierarchy nodes grow too small, they're demoted to #Base
+## nodes to save space.
+(def: (demote-hierarchy except-idx [h-size h-array])
+  (All [k v] (-> Index (Hierarchy k v) [BitMap (Base k v)]))
+  (List/fold (lambda [idx (^@ node [bitmap base])]
+               (case (array;get idx h-array)
+                 #;None            node
+                 (#;Some sub-node) (if (=+ except-idx idx)
+                                     node
+                                     [(set-bit-position (->bit-position idx) bitmap)
+                                      (array;put idx (#;Left sub-node) base)])
+                 ))
+             [clean-bitmap
+              (: (Base ($ 0) ($ 1))
+                 (array;new (dec+ h-size)))]
+             (list;indices (array;size h-array))))
+
+## When #Base nodes grow too large, they're promoted to #Hierarchy to
+## add some depth to the tree and help keep it's balance.
+(def: (promote-base put' Hash<K> level bitmap base)
+  (All [K V]
+    (-> (-> Level Hash-Code K V (Hash K) (Node K V) (Node K V))
+        (Hash K) Level
+        BitMap (Base K V)
+        (Array (Node K V))))
+  (product;right (List/fold (lambda [hierarchy-idx (^@ default [base-idx h-array])]
+                              (if (bit-position-is-set? (->bit-position hierarchy-idx)
+                                                        bitmap)
+                                [(inc+ base-idx)
+                                 (case (array;get base-idx base)
+                                   (#;Some (#;Left sub-node))
+                                   (array;put hierarchy-idx sub-node h-array)
+
+                                   (#;Some (#;Right [key' val']))
+                                   (array;put hierarchy-idx
+                                              (put' (level-up level) (:: Hash<K> hash key') key' val' Hash<K> empty)
+                                              h-array)
+
+                                   #;None
+                                   (undefined))]
+                                default))
+                            [+0
+                             (: (Array (Node ($ 0) ($ 1)))
+                                (array;new hierarchy-nodes-size))]
+                            (indices-for hierarchy-nodes-size))))
+
+## All empty nodes look the same (a #Base node with clean bitmap is
+## used).
+## So, this test is introduced to detect them.
+(def: (empty?' node)
+  (All [K V] (-> (Node K V) Bool))
+  (case node
+    (^~ (#Base ;;clean-bitmap _))
+    true
+
+    _
+    false))
+
+(def: (put' level hash key val Hash<K> node)
+  (All [K V] (-> Level Hash-Code K V (Hash K) (Node K V) (Node K V)))
+  (case node
+    ## For #Hierarchy nodes, I check whether I can add the element to
+    ## a sub-node. If impossible, I introduced a new singleton sub-node.
+    (#Hierarchy _size hierarchy)
+    (let [idx (level-index level hash)
+          [_size' sub-node] (: [Nat (Node ($ 0) ($ 1))]
+                               (case (array;get idx hierarchy)
+                                 (#;Some sub-node)
+                                 [_size sub-node]
+
+                                 _
+                                 [(inc+ _size) empty]))]
+      (#Hierarchy _size'
+                  (update! idx (put' (level-up level) hash key val Hash<K> sub-node)
+                           hierarchy)))
+
+    ## For #Base nodes, I check if the corresponding BitPosition has
+    ## already been used.
+    (#Base bitmap base)
+    (let [bit (bit-position level hash)]
+      (if (bit-position-is-set? bit bitmap)
+        ## If so...
+        (let [idx (base-index bit bitmap)]
+          (case (array;get idx base)
+            #;None
+            (undefined)
+
+            ## If it's being used by a node, I add the KV to it.
+            (#;Some (#;Left sub-node))
+            (let [sub-node' (put' (level-up level) hash key val Hash<K> sub-node)]
+              (#Base bitmap (update! idx (#;Left sub-node') base)))
+
+            ## Otherwise, if it's being used by a KV, I compare the keys.
+            (#;Some (#;Right key' val'))
+            (if (:: Hash<K> = key key')
+              ## If the same key is found, I replace the value.
+              (#Base bitmap (update! idx (#;Right key val) base))
+              ## Otherwise, I compare the hashes of the keys.
+              (#Base bitmap (update! idx
+                                     (#;Left (let [hash' (:: Hash<K> hash key')]
+                                               (if (=+ hash hash')
+                                                 ## If the hashes are
+                                                 ## the same, a new
+                                                 ## #Collisions node
+                                                 ## is added.
+                                                 (#Collisions hash (|> (: (Array [($ 0) ($ 1)])
+                                                                          (array;new +2))
+                                                                       (array;put +0 [key' val'])
+                                                                       (array;put +1 [key val])))
+                                                 ## Otherwise, I can
+                                                 ## just keep using
+                                                 ## #Base nodes, so I
+                                                 ## add both KV pairs
+                                                 ## to the empty one.
+                                                 (let [next-level (level-up level)]
+                                                   (|> empty
+                                                       (put' next-level hash' key' val' Hash<K>)
+                                                       (put' next-level hash  key  val Hash<K>))))))
+                                     base)))))
+        ## However, if the BitPosition has not been used yet, I check
+        ## whether this #Base node is ready for a promotion.
+        (let [base-count (bitmap-size bitmap)]
+          (if (>=+ promotion-threshold base-count)
+            ## If so, I promote it to a #Hierarchy node, and add the new
+            ## KV-pair as a singleton node to it.
+            (#Hierarchy (inc+ base-count)
+                        (|> (promote-base put' Hash<K> level bitmap base)
+                            (array;put (level-index level hash)
+                                       (put' (level-up level) hash key val Hash<K> empty))))
+            ## Otherwise, I just resize the #Base node to accommodate the
+            ## new KV-pair.
+            (#Base (set-bit-position bit bitmap)
+                   (insert! (base-index bit bitmap) (#;Right [key val]) base))))))
+    
+    ## For #Collisions nodes, I compare the hashes.
+    (#Collisions _hash _colls)
+    (if (=+ hash _hash)
+      ## If they're equal, that means the new KV contributes to the
+      ## collisions.
+      (case (collision-index Hash<K> key _colls)
+        ## If the key was already present in the collisions-list, it's
+        ## value gets updated.
+        (#;Some coll-idx)
+        (#Collisions _hash (update! coll-idx [key val] _colls))
+
+        ## Otherwise, the KV-pair is added to the collisions-list.
+        #;None
+        (#Collisions _hash (insert! (array;size _colls) [key val] _colls)))
+      ## If the hashes are not equal, I create a new #Base node that
+      ## contains the old #Collisions node, plus the new KV-pair.
+      (|> (#Base (bit-position level _hash)
+                 (|> (: (Base ($ 0) ($ 1))
+                        (array;new +1))
+                     (array;put +0 (#;Left node))))
+          (put' level hash key val Hash<K>)))
+    ))
+
+(def: (remove' level hash key Hash<K> node)
+  (All [K V] (-> Level Hash-Code K (Hash K) (Node K V) (Node K V)))
+  (case node
+    ## For #Hierarchy nodes, find out if there's a valid sub-node for
+    ## the Hash-Code.
+    (#Hierarchy h-size h-array)
+    (let [idx (level-index level hash)]
+      (case (array;get idx h-array)
+        ## If not, there's nothing to remove.
+        #;None
+        node
+
+        ## But if there is, try to remove the key from the sub-node.
+        (#;Some sub-node)
+        (let [sub-node' (remove' (level-up level) hash key Hash<K> sub-node)]
+          ## Then check if a removal was actually done.
+          (if (== sub-node sub-node')
+            ## If not, then there's nothing to change here either.
+            node
+            ## But if the sub-removal yielded an empty sub-node...
+            (if (empty?' sub-node')
+              ## Check if it's due time for a demotion.
+              (if (<=+ demotion-threshold h-size)
+                ## If so, perform it.
+                (#Base (demote-hierarchy idx [h-size h-array]))
+                ## Otherwise, just clear the space.
+                (#Hierarchy (dec+ h-size) (vacant! idx h-array)))
+              ## But if the sub-removal yielded a non-empty node, then
+              ## just update the hiearchy branch.
+              (#Hierarchy h-size (update! idx sub-node' h-array)))))))
+
+    ## For #Base nodes, check whether the BitPosition is set.
+    (#Base bitmap base)
+    (let [bit (bit-position level hash)]
+      (if (bit-position-is-set? bit bitmap)
+        (let [idx (base-index bit bitmap)]
+          (case (array;get idx base)
+            #;None
+            (undefined)
+
+            ## If set, check if it's a sub-node, and remove the KV
+            ## from it.
+            (#;Some (#;Left sub-node))
+            (let [sub-node' (remove' (level-up level) hash key Hash<K> sub-node)]
+              ## Verify that it was removed.
+              (if (== sub-node sub-node')
+                ## If not, there's also nothing to change here.
+                node
+                ## But if it came out empty...
+                (if (empty?' sub-node')
+                  ### ... figure out whether that's the only position left.
+                  (if (only-bit-position? bit bitmap)
+                    ## If so, removing it leaves this node empty too.
+                    empty
+                    ## But if not, then just unset the position and
+                    ## remove the node.
+                    (#Base (unset-bit-position bit bitmap)
+                           (remove! idx base)))
+                  ## But, if it didn't come out empty, then the
+                  ## position is kept, and the node gets updated.
+                  (#Base bitmap
+                         (update! idx (#;Left sub-node') base)))))
+
+            ## If, however, there was a KV pair instead of a sub-node.
+            (#;Some (#;Right [key' val']))
+            ## Check if the keys match.
+            (if (:: Hash<K> = key key')
+              ## If so, remove the KV pair and unset the BitPosition.
+              (#Base (unset-bit-position bit bitmap)
+                     (remove! idx base))
+              ## Otherwise, there's nothing to remove.
+              node)))
+        ## If the BitPosition is not set, there's nothing to remove.
+        node))
+
+    ## For #Collisions nodes, It need to find out if the key already existst.
+    (#Collisions _hash _colls)
+    (case (collision-index Hash<K> key _colls)
+      ## If not, then there's nothing to remove.
+      #;None
+      node
+
+      ## But if so, then check the size of the collisions list.
+      (#;Some idx)
+      (if (=+ +1 (array;size _colls))
+        ## If there's only one left, then removing it leaves us with
+        ## an empty node.
+        empty
+        ## Otherwise, just shrink the array by removing the KV pair.
+        (#Collisions _hash (remove! idx _colls))))
+    ))
+
+(def: (get' level hash key Hash<K> node)
+  (All [K V] (-> Level Hash-Code K (Hash K) (Node K V) (Maybe V)))
+  (case node
+    ## For #Hierarchy nodes, just look-up the key on its children.
+    (#Hierarchy _size hierarchy)
+    (case (array;get (level-index level hash) hierarchy)
+      #;None            #;None
+      (#;Some sub-node) (get' (level-up level) hash key Hash<K> sub-node))
+
+    ## For #Base nodes, check the leaves, and recursively check the branches.
+    (#Base bitmap base)
+    (let [bit (bit-position level hash)]
+      (if (bit-position-is-set? bit bitmap)
+        (case (array;get (base-index bit bitmap) base)
+          #;None
+          (undefined)
+          
+          (#;Some (#;Left sub-node))
+          (get' (level-up level) hash key Hash<K> sub-node)
+
+          (#;Some (#;Right [key' val']))
+          (if (:: Hash<K> = key key')
+            (#;Some val')
+            #;None))
+        #;None))
+
+    ## For #Collisions nodes, do a linear scan of all the known KV-pairs.
+    (#Collisions _hash _colls)
+    (:: Monad<Maybe> map product;right
+        (array;find (|>. product;left (:: Hash<K> = key))
+                    _colls))
+    ))
+
+(def: (size' node)
+  (All [K V] (-> (Node K V) Nat))
+  (case node
+    (#Hierarchy _size hierarchy)
+    (Array/fold ++ +0 (Array/map size' hierarchy))
+    
+    (#Base _ base)
+    (Array/fold ++ +0 (Array/map (lambda [sub-node']
+                                   (case sub-node'
+                                     (#;Left sub-node) (size' sub-node)
+                                     (#;Right _)       +1))
+                                 base))
+
+    (#Collisions hash colls)
+    (array;size colls)
+    ))
+
+(def: (entries' node)
+  (All [K V] (-> (Node K V) (List [K V])))
+  (case node
+    (#Hierarchy _size hierarchy)
+    (Array/fold (lambda [sub-node tail] (List/append (entries' sub-node) tail))
+                #;Nil
+                hierarchy)
+
+    (#Base bitmap base)
+    (Array/fold (lambda [branch tail]
+                  (case branch
+                    (#;Left sub-node)
+                    (List/append (entries' sub-node) tail)
+
+                    (#;Right [key' val'])
+                    (#;Cons [key' val'] tail)))
+                #;Nil
+                base)
+    
+    (#Collisions hash colls)
+    (Array/fold (lambda [[key' val'] tail] (#;Cons [key' val'] tail))
+                #;Nil
+                colls)))
+
+## [Exports]
+(type: #export (Dict k v)
+  {#;doc "A dictionary implemented as a Hash-Array Mapped Trie (HAMT)."}
+  {#hash (Hash k)
+   #root (Node k v)})
+
+(def: #export (new Hash<K>)
+  (All [K V] (-> (Hash K) (Dict K V)))
+  {#hash Hash<K>
+   #root empty})
+
+(def: #export (put key val [Hash<K> node])
+  (All [K V] (-> K V (Dict K V) (Dict K V)))
+  [Hash<K> (put' root-level (:: Hash<K> hash key) key val Hash<K> node)])
+
+(def: #export (remove key [Hash<K> node])
+  (All [K V] (-> K (Dict K V) (Dict K V)))
+  [Hash<K> (remove' root-level (:: Hash<K> hash key) key Hash<K> node)])
+
+(def: #export (get key [Hash<K> node])
+  (All [K V] (-> K (Dict K V) (Maybe V)))
+  (get' root-level (:: Hash<K> hash key) key Hash<K> node))
+
+(def: #export (contains? key table)
+  (All [K V] (-> K (Dict K V) Bool))
+  (case (get key table)
+    #;None     false
+    (#;Some _) true))
+
+(def: #export (put~ key val table)
+  {#;doc "Only puts the KV-pair if the key is not already present."}
+  (All [K V] (-> K V (Dict K V) (Dict K V)))
+  (if (contains? key table)
+    table
+    (put key val table)))
+
+(def: #export (update key f table)
+  {#;doc "Transforms the value located at key (if available), using the given function."}
+  (All [K V] (-> K (-> V V) (Dict K V) (Dict K V)))
+  (case (get key table)
+    #;None
+    table
+
+    (#;Some val)
+    (put key (f val) table)))
+
+(def: #export size
+  (All [K V] (-> (Dict K V) Nat))
+  (|>. product;right size'))
+
+(def: #export empty?
+  (All [K V] (-> (Dict K V) Bool))
+  (|>. size (=+ +0)))
+
+(def: #export (entries dict)
+  (All [K V] (-> (Dict K V) (List [K V])))
+  (entries' (product;right dict)))
+
+(def: #export (from-list Hash<K> kvs)
+  (All [K V] (-> (Hash K) (List [K V]) (Dict K V)))
+  (List/fold (lambda [[k v] dict]
+               (put k v dict))
+             (new Hash<K>)
+             kvs))
+
+(do-template [<name> <elem-type> <side>]
+  [(def: #export <name>
+     (All [K V] (-> (Dict K V) (List <elem-type>)))
+     (|>. entries (List/map <side>)))]
+
+  [keys   K product;left]
+  [values V product;right]
+  )
+
+(def: #export (merge dict2 dict1)
+  (All [K V] (-> (Dict K V) (Dict K V) (Dict K V)))
+  (List/fold (lambda [[key val] dict] (put key val dict))
+             dict1
+             (entries dict2)))
+
+(def: #export (merge-with f dict1 dict2)
+  (All [K V] (-> (-> V V V) (Dict K V) (Dict K V) (Dict K V)))
+  (List/fold (lambda [[key val] dict]
+               (case (get key dict)
+                 #;None
+                 (put key val dict)
+
+                 (#;Some val')
+                 (put key (f val' val) dict)))
+             dict1
+             (entries dict2)))
+
+(def: #export (re-bind from-key to-key dict)
+  (All [K V] (-> K K (Dict K V) (Dict K V)))
+  (case (get from-key dict)
+    #;None
+    dict
+
+    (#;Some val)
+    (|> dict
+        (remove from-key)
+        (put to-key val))))
+
+(def: #export (select keys (^@ old-dict [Hash<K> _]))
+  {#;doc "Creates a sub-set of the given dict, with only the specified keys."}
+  (All [K V] (-> (List K) (Dict K V) (Dict K V)))
+  (List/fold (lambda [key new-dict]
+               (case (get key old-dict)
+                 #;None       new-dict
+                 (#;Some val) (put key val new-dict)))
+             (new Hash<K>)
+             keys))
+
+## [Structures]
+(struct: #export (Eq<Dict> Eq<v>) (All [k v] (-> (Eq v) (Eq (Dict k v))))
+  (def: (= test subject)
+    (and (=+ (size test)
+             (size subject))
+         (list;every? (lambda [k]
+                        (case [(get k test) (get k subject)]
+                          [(#;Some tk) (#;Some sk)]
+                          (:: Eq<v> = tk sk)
+
+                          _
+                          false))
+                      (keys test)))))

@@ -1,0 +1,364 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  [lux #- list]
+  (lux (control monad
+                [eq])
+       (data [text]
+             text/format
+             (struct [list "List/" Monad<List>]
+                     [dict #+ Dict])
+             [number]
+             [product]
+             [bool]
+             [char]
+             [maybe])
+       [compiler #+ Monad<Lux> with-gensyms]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax]
+              (syntax [common]))
+       [type]
+       ))
+
+## [Types]
+(type: #export (Matcher a)
+  (-> Type (Lux a)))
+
+(type: #export Env (Dict Nat AST))
+
+## [Combinators]
+(do-template [<combinator> <name>]
+  [(def: #export <combinator>
+     (Matcher Unit)
+     (lambda [:type:]
+       (case (type;un-alias :type:)
+         (#;NamedT ["lux" <name>] _)
+         (:: compiler;Monad<Lux> wrap [])
+
+         _
+         (compiler;fail (format "Not " <name> " type: " (type;type-to-text :type:))))))]
+
+  [unit "Unit"]
+  [bool "Bool"]
+  [nat  "Nat"]
+  [int  "Int"]
+  [frac "Frac"]
+  [real "Real"]
+  [char "Char"]
+  [text "Text"]
+  )
+
+(def: #export primitive
+  (Matcher Type)
+  (lambda [:type:]
+    (let% [<primitives> (do-template [<parser> <type>]
+                          [(do Monad<Lux>
+                             [_ (<parser> :type:)]
+                             (wrap <type>))]
+
+                          [bool Bool]
+                          [nat  Nat]
+                          [int  Int]
+                          [frac Frac]
+                          [real Real]
+                          [char Char]
+                          [text Text])]
+      ($_ compiler;either
+          <primitives>))))
+
+(syntax: ($AST$ ast)
+  (wrap (;list (ast;text (ast;ast-to-text ast)))))
+
+(do-template [<single> <multi> <flattener> <tag>]
+  [(def: #export <single>
+     (Matcher [Type Type])
+     (lambda [:type:]
+       (case (type;un-name :type:)
+         (<tag> :left: :right:)
+         (:: compiler;Monad<Lux> wrap [:left: :right:])
+
+         _
+         (compiler;fail (format "Not a " ($AST$ <tag>) " type: " (type;type-to-text :type:))))))
+
+   (def: #export <multi>
+     (Matcher (List Type))
+     (lambda [:type:]
+       (let [members (<flattener> (type;un-name :type:))]
+         (if (>+ +1 (list;size members))
+           (:: compiler;Monad<Lux> wrap members)
+           (compiler;fail (format "Not a " ($AST$ <tag>) " type: " (type;type-to-text :type:)))))))]
+
+  [sum    sum+    type;flatten-sum      #;SumT]
+  [prod   prod+   type;flatten-prod     #;ProdT]
+  )
+
+(def: #export func
+  (Matcher [Type Type])
+  (lambda [:type:]
+    (case (type;un-name :type:)
+      (#;LambdaT :left: :right:)
+      (:: compiler;Monad<Lux> wrap [:left: :right:])
+
+      _
+      (compiler;fail (format "Not a LambdaT type: " (type;type-to-text :type:))))))
+
+(def: #export func+
+  (Matcher [(List Type) Type])
+  (lambda [:type:]
+    (let [[ins out] (type;flatten-function (type;un-name :type:))]
+      (if (>+ +0 (list;size ins))
+        (:: compiler;Monad<Lux> wrap [ins out])
+        (compiler;fail (format "Not a LambdaT type: " (type;type-to-text :type:)))))))
+
+(def: #export tagged
+  (Matcher [(List Ident) Type])
+  (lambda [:type:]
+    (case (type;un-alias :type:)
+      (#;NamedT type-name :def:)
+      (do compiler;Monad<Lux>
+        [tags (compiler;tags-of type-name)]
+        (wrap [tags :def:]))
+
+      _
+      (compiler;fail (format "Unnamed types can't have tags: " (type;type-to-text :type:))))))
+
+(def: #export polymorphic
+  (Matcher [(List AST) Type])
+  (lambda [:type:]
+    (loop [:type: (type;un-name :type:)]
+      (case :type:
+        (#;UnivQ _ :type:')
+        (do compiler;Monad<Lux>
+          [[g!tail :type:''] (recur :type:')
+           g!head (compiler;gensym "type-var")]
+          (wrap [(list& g!head g!tail)
+                 :type:'']))
+
+        _
+        (:: compiler;Monad<Lux> wrap [(;list) :type:])))))
+
+(do-template [<combinator> <sub-comb>]
+  [(def: #export <combinator>
+     (Matcher [(List AST) (List [Ident Type])])
+     (lambda [:type:]
+       (do compiler;Monad<Lux>
+         [[tags :type:] (tagged :type:)
+          _ (compiler;assert (>+ +0 (list;size tags)) "Records and variants must have tags.")
+          [vars :type:] (polymorphic :type:)
+          members (<sub-comb> :type:)]
+         (wrap [vars (list;zip2 tags members)]))))]
+
+  [variant sum+]
+  [record  prod+]
+  )
+
+(def: #export tuple
+  (Matcher [(List AST) (List Type)])
+  (lambda [:type:]
+    (do compiler;Monad<Lux>
+      [[vars :type:] (polymorphic :type:)
+       members (prod+ :type:)]
+      (wrap [vars members]))))
+
+(def: #export function
+  (Matcher [(List AST) [(List Type) Type]])
+  (lambda [:type:]
+    (do compiler;Monad<Lux>
+      [[vars :type:] (polymorphic :type:)
+       ins+out (func+ :type:)]
+      (wrap [vars ins+out]))))
+
+(def: #export apply
+  (Matcher [Type (List Type)])
+  (lambda [:type:]
+    (do compiler;Monad<Lux>
+      [#let [[:func: :args:] (loop [:type: (type;un-name :type:)]
+                               (case :type:
+                                 (#;AppT :func: :arg:)
+                                 (let [[:func:' :args:] (recur :func:)]
+                                   [:func:' (list& :arg: :args:)])
+
+                                 _
+                                 [:type: (;list)]))]]
+      (case :args:
+        #;Nil
+        (compiler;fail "Not a type application.")
+
+        _
+        (wrap [:func: (list;reverse :args:)])))))
+
+(do-template [<combinator> <name>]
+  [(def: #export <combinator>
+     (Matcher Type)
+     (lambda [:type:]
+       (case (type;un-name :type:)
+         (^=> (#;AppT :quant: :arg:)
+              {(type;un-alias :quant:) (#;NamedT ["lux" <name>] _)})
+         (:: compiler;Monad<Lux> wrap :arg:)
+
+         _
+         (compiler;fail (format "Not " <name> " type: " (type;type-to-text :type:))))))]
+
+  [maybe "Maybe"]
+  [list  "List"]
+  )
+
+(def: (adjusted-idx env idx)
+  (-> Env Nat Nat)
+  (let [env-level (/+ +2 (dict;size env))
+        bound-level (/+ +2 idx)
+        bound-idx (%+ +2 idx)]
+    (|> env-level dec+ (-+ bound-level) (*+ +2) (++ bound-idx))))
+
+(def: #export (bound env)
+  (-> Env (Matcher AST))
+  (lambda [:type:]
+    (case :type:
+      (#;BoundT idx)
+      (case (dict;get (adjusted-idx env idx) env)
+        (#;Some poly-val)
+        (:: compiler;Monad<Lux> wrap poly-val)
+
+        #;None
+        (compiler;fail (format "Unknown bound type: " (type;type-to-text :type:))))
+
+      _
+      (compiler;fail (format "Not a bound type: " (type;type-to-text :type:))))))
+
+(def: #export (var env var-id)
+  (-> Env Nat (Matcher Unit))
+  (lambda [:type:]
+    (case :type:
+      (^=> (#;BoundT idx)
+           (=+ var-id (adjusted-idx env idx)))
+      (:: compiler;Monad<Lux> wrap [])
+
+      _
+      (compiler;fail (format "Not a bound type: " (type;type-to-text :type:))))))
+
+(def: #export (recur env)
+  (-> Env (Matcher Unit))
+  (lambda [:type:]
+    (do Monad<Lux>
+      [[t-fun t-args] (apply :type:)]
+      (loop [base +0
+             :parts: (list& t-fun t-args)]
+        (case :parts:
+          #;Nil
+          (wrap [])
+          
+          (^=> (#;Cons (#;BoundT idx) :parts:')
+               {(adjusted-idx env idx)
+                idx'}
+               (=+ base idx'))
+          (recur (inc+ base) :parts:')
+
+          _
+          (compiler;fail (format "Type is not a recursive instance: " (type;type-to-text :type:)))))
+      )))
+
+## [Syntax]
+(def: #export (extend-env type-func type-vars env)
+  (-> AST (List AST) Env Env)
+  (case type-vars
+    #;Nil
+    env
+    
+    (#;Cons tvar type-vars')
+    (let [current-size (dict;size env)]
+      (|> env
+          (dict;put current-size type-func)
+          (dict;put (inc+ current-size) tvar)
+          (extend-env (` (#;AppT (~ type-func) (~ tvar))) type-vars')
+          ))))
+
+(syntax: #export (poly: {_ex-lev common;export-level}
+                   {[name env inputs] (s;form ($_ s;seq
+                                                  s;local-symbol
+                                                  s;local-symbol
+                                                  (s;many s;local-symbol)))}
+                   body)
+  (with-gensyms [g!body]
+    (let [g!inputs (List/map (|>. [""] ast;symbol) inputs)
+          g!name (ast;symbol ["" name])
+          g!env (ast;symbol ["" env])]
+      (wrap (;list (` (syntax: (~@ (common;gen-export-level _ex-lev)) ((~ g!name) (~@ (List/map (lambda [g!input] (` {(~ g!input) s;symbol}))
+                                                                                                g!inputs)))
+                        (do Monad<Lux>
+                          [(~@ (List/join (List/map (lambda [g!input] (;list g!input (` (compiler;find-type-def (~ g!input)))))
+                                                    g!inputs)))
+                           (~' #let) [(~ g!env) (: Env (dict;new number;Hash<Nat>))]
+                           (~ g!body) (: (Lux AST)
+                                         (loop [(~ g!env) (~ g!env)
+                                                (~@ (List/join (List/map (lambda [g!input] (;list g!input g!input))
+                                                                         g!inputs)))]
+                                           (let [(~ g!name) (~' recur)]
+                                             (~ body))))]
+                          ((~' wrap) (;list (~ g!body)))))))))))
+
+(def: (common-poly-name? poly-func)
+  (-> Text Bool)
+  (and (text;starts-with? "|" poly-func)
+       (text;ends-with? "|" poly-func)))
+
+(def: (derivation-name poly args)
+  (-> Text (List Text) (Maybe Text))
+  (if (common-poly-name? poly)
+    (case (text;sub +1 (dec+ (text;size poly)) poly)
+      (#;Some clean-poly)
+      (case (list;reverse args)
+        #;Nil
+        #;None
+
+        (#;Cons type #;Nil)
+        (#;Some (format type "/" clean-poly))
+
+        (#;Cons type args)
+        (#;Some (format type "/" clean-poly "@" (|> args list;reverse (text;join-with ",")))))
+      
+      #;None
+      #;None)
+    #;None))
+
+(syntax: #export (derived: {_ex-lev common;export-level}
+                   {?name (s;opt s;local-symbol)}
+                   {[poly-func poly-args] (s;either (s;form (s;seq s;symbol (s;many s;symbol)))
+                                                    (s;seq s;symbol (:: @ wrap (;list))))}
+                   {?custom-impl (s;opt s;any)})
+  (do @
+    [name (case ?name
+            (#;Some name)
+            (wrap name)
+
+            (^=> #;None
+                 {(derivation-name (product;right poly-func) (List/map product;right poly-args))
+                  (#;Some derived-name)})
+            (wrap derived-name)
+
+            _
+            (compiler;fail "derived: was given no explicit name, and can't generate one from given information."))
+     #let [impl (case ?custom-impl
+                  (#;Some custom-impl)
+                  custom-impl
+
+                  #;None
+                  (` ((~ (ast;symbol poly-func)) (~@ (List/map ast;symbol poly-args)))))]]
+    (wrap (;list (` (def: (~@ (common;gen-export-level _ex-lev))
+                      (~ (ast;symbol ["" name]))
+                      (~ impl)))))))
+
+## [Derivers]
+(def: #export (gen-type converter type-fun tvars type)
+  (-> (-> AST AST) AST (List AST) Type AST)
+  (let [type' (type;type-to-ast type)]
+    (case tvars
+      #;Nil
+      (converter type')
+
+      _
+      (` (All (~ type-fun) [(~@ tvars)]
+           (-> (~@ (List/map converter tvars))
+               (~ (converter (` ((~ type') (~@ tvars)))))))))))

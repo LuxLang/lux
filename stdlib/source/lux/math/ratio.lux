@@ -1,0 +1,141 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux [math]
+       (control eq
+                [ord]
+                number
+                codec
+                monad)
+       (data [number "i:" Number<Int> Codec<Text,Int>]
+             [text "Text/" Monoid<Text>]
+             error)
+       [compiler]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+(type: #export Ratio
+  {#numerator Int
+   #denominator Int})
+
+(def: #hidden (normalize (^slots [#numerator #denominator]))
+  (-> Ratio Ratio)
+  (let [common (math;gcd numerator denominator)
+        numerator (/ common numerator)
+        denominator (/ common denominator)]
+    {#numerator (if (and (< 0 numerator)
+                         (< 0 denominator))
+                  (i:abs numerator)
+                  numerator)
+     #denominator (i:abs denominator)}))
+
+(def: #export (r* param input)
+  (-> Ratio Ratio Ratio)
+  (normalize [(* (get@ #numerator param)
+                 (get@ #numerator input))
+              (* (get@ #denominator param)
+                 (get@ #denominator input))]))
+
+(def: #export (r/ param input)
+  (-> Ratio Ratio Ratio)
+  (normalize [(* (get@ #denominator param)
+                 (get@ #numerator input))
+              (* (get@ #numerator param)
+                 (get@ #denominator input))]))
+
+(def: #export (r+ param input)
+  (-> Ratio Ratio Ratio)
+  (normalize [(+ (* (get@ #denominator input)
+                    (get@ #numerator param))
+                 (* (get@ #denominator param)
+                    (get@ #numerator input)))
+              (* (get@ #denominator param)
+                 (get@ #denominator input))]))
+
+(def: #export (r- param input)
+  (-> Ratio Ratio Ratio)
+  (normalize [(- (* (get@ #denominator input)
+                    (get@ #numerator param))
+                 (* (get@ #denominator param)
+                    (get@ #numerator input)))
+              (* (get@ #denominator param)
+                 (get@ #denominator input))]))
+
+(def: #export (r% param input)
+  (-> Ratio Ratio Ratio)
+  (let [quot (/ (* (get@ #denominator input)
+                   (get@ #numerator param))
+                (* (get@ #denominator param)
+                   (get@ #numerator input)))]
+    (r- (update@ #numerator (* quot) param)
+        input)))
+
+(def: #export (r= param input)
+  (-> Ratio Ratio Bool)
+  (and (= (get@ #numerator param)
+          (get@ #numerator input))
+       (= (get@ #denominator param)
+          (get@ #denominator input))))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> param input)
+     (-> Ratio Ratio Bool)
+     (and (<op> (* (get@ #denominator input)
+                   (get@ #numerator param))
+                (* (get@ #denominator param)
+                   (get@ #numerator input)))))]
+
+  [r<  <]
+  [r<= <=]
+  [r>  >]
+  [r>= >=]
+  )
+
+(struct: #export _ (Eq Ratio)
+  (def: = r=))
+
+(struct: #export _ (ord;Ord Ratio)
+  (def: eq Eq<Ratio>)
+  (def: < r<)
+  (def: <= r<=)
+  (def: > r>)
+  (def: >= r>=))
+
+(struct: #export _ (Number Ratio)
+  (def: ord Ord<Ratio>)
+  (def: + r+)
+  (def: - r-)
+  (def: * r*)
+  (def: / r/)
+  (def: % r%)
+  (def: negate (|>. (update@ #numerator i:negate) normalize))
+  (def: abs (|>. (update@ #numerator i:abs) (update@ #denominator i:abs)))
+  (def: (signum x)
+    {#numerator (i:signum (get@ #numerator x))
+     #denominator 1}))
+
+(def: separator Text ":")
+
+(struct: #export _ (Codec Text Ratio)
+  (def: (encode (^slots [#numerator #denominator]))
+    ($_ Text/append (i:encode numerator) separator (i:encode denominator)))
+
+  (def: (decode input)
+    (case (text;split-with separator input)
+      (#;Some [num denom])
+      (do Monad<Error>
+        [numerator (i:decode num)
+         denominator (i:decode denom)]
+        (wrap (normalize {#numerator numerator
+                          #denominator denominator})))
+      
+      #;None
+      (#;Left (Text/append "Invalid syntax for ratio: " input)))))
+
+(syntax: #export (ratio numerator denominator)
+  (wrap (list (` (normalize {#;;numerator (~ numerator)
+                             #;;denominator (~ denominator)})))))

@@ -1,0 +1,114 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (control functor
+                ["A" applicative #*]
+                ["M" monad #*])))
+
+## [Types]
+(type: #export (State s a)
+  (-> s [s a]))
+
+## [Structures]
+(struct: #export Functor<State> (All [s] (Functor (State s)))
+  (def: (map f ma)
+    (lambda [state]
+      (let [[state' a] (ma state)]
+        [state' (f a)]))))
+
+(struct: #export Applicative<State> (All [s] (Applicative (State s)))
+  (def: functor Functor<State>)
+
+  (def: (wrap a)
+    (lambda [state]
+      [state a]))
+
+  (def: (apply ff fa)
+    (lambda [state]
+      (let [[state' f] (ff state)
+            [state'' a] (fa state')]
+        [state'' (f a)]))))
+
+(struct: #export Monad<State> (All [s] (Monad (State s)))
+  (def: applicative Applicative<State>)
+
+  (def: (join mma)
+    (lambda [state]
+      (let [[state' ma] (mma state)]
+        (ma state')))))
+
+## [Values]
+(def: #export get
+  (All [s] (State s s))
+  (lambda [state]
+    [state state]))
+
+(def: #export (put new-state)
+  (All [s] (-> s (State s Unit)))
+  (lambda [state]
+    [new-state []]))
+
+(def: #export (update change)
+  (All [s] (-> (-> s s) (State s Unit)))
+  (lambda [state]
+    [(change state) []]))
+
+(def: #export (use user)
+  {#;doc "Run function on current state."}
+  (All [s a] (-> (-> s a) (State s a)))
+  (lambda [state]
+    [state (user state)]))
+
+(def: #export (local change action)
+  {#;doc "Run computation with a locally-modified state."}
+  (All [s a] (-> (-> s s) (State s a) (State s a)))
+  (lambda [state]
+    (let [[state' output] (action (change state))]
+      [state output])))
+
+(def: #export (run state action)
+  (All [s a] (-> s (State s a) [s a]))
+  (action state))
+
+(struct: (Functor<StateT> Functor<M>)
+  (All [M s] (-> (Functor M) (Functor (All [a] (-> s (M [s a]))))))
+  (def: (map f sfa)
+    (lambda [state]
+      (:: Functor<M> map (lambda [[s a]] [s (f a)])
+          (sfa state)))))
+
+(struct: (Applicative<StateT> Monad<M>)
+  (All [M s] (-> (Monad M) (Applicative (All [a] (-> s (M [s a]))))))
+  (def: functor (Functor<StateT> (get@ [#M;applicative #A;functor]
+                                       Monad<M>)))
+
+  (def: (wrap a)
+    (lambda [state]
+      (:: Monad<M> wrap [state a])))
+
+  (def: (apply sFf sFa)
+    (lambda [state]
+      (do Monad<M>
+        [[state f] (sFf state)
+         [state a] (sFa state)]
+        (wrap [state (f a)])))))
+
+(struct: #export (StateT Monad<M>)
+  (All [M s] (-> (Monad M) (Monad (All [a] (-> s (M [s a]))))))
+  (def: applicative (Applicative<StateT> Monad<M>))
+  (def: (join sMsMa)
+    (lambda [state]
+      (do Monad<M>
+        [[state' sMa] (sMsMa state)]
+        (sMa state')))))
+
+(def: #export (lift-state Monad<M> ma)
+  (All [M s a] (-> (Monad M) (M a) (-> s (M [s a]))))
+  (lambda [state]
+    (do Monad<M>
+      [a ma]
+      (wrap [state a]))))

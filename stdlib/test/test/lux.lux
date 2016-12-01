@@ -1,0 +1,164 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  lux/test
+  (lux (control monad)
+       (codata [io])
+       [math]
+       (math ["R" random])
+       (data text/format)
+       [compiler]
+       (macro ["s" syntax #+ syntax:])))
+
+(test: "Every value is identical to itself, and the 'id' function doesn't change values in any way."
+  [value R;int]
+  (assert "" (and (== value value)
+                  (== value (id value)))))
+
+(test: "Values created separately can't be identical."
+  [x R;int
+   y R;int]
+  (match false (== x y)))
+
+(do-template [category rand-gen inc dec even? odd? = < >]
+  [(test: (format "[" category "] " "Moving up-down or down-up should result in same value.")
+     [value rand-gen]
+     (assert "" (and (|> value inc dec (= value))
+                     (|> value dec inc (= value)))))
+
+   (test: (format "[" category "] " "(x+1) > x && (x-1) < x")
+     [value rand-gen]
+     (assert "" (and (|> value inc (> value))
+                     (|> value dec (< value)))))
+
+   (test: (format "[" category "] " "Every odd/even number is surrounded by two of the other kind.")
+     [value rand-gen]
+     (assert ""
+             (if (even? value)
+               (and (|> value inc odd?)
+                    (|> value dec odd?))
+               (and (|> value inc even?)
+                    (|> value dec even?)))))]
+
+  ["Nat" R;nat inc+ dec+ even?+ odd?+ =+ <+ >+]
+  ["Int" R;int inc  dec  even?  odd?  =  <  >]
+  )
+
+(do-template [category rand-gen = < > <= >= min max]
+  [(test: (format "[" category "] " "The symmetry of numerical comparisons.")
+     [x rand-gen
+      y rand-gen]
+     (assert ""
+             (or (= x y)
+                 (if (< y x)
+                   (> x y)
+                   (< x y)))))
+
+   (test: (format "[" category "] " "Minimums and maximums.")
+     [x rand-gen
+      y rand-gen]
+     (assert ""
+             (and (and (<= x (min x y))
+                       (<= y (min x y)))
+                  (and (>= x (max x y))
+                       (>= y (max x y)))
+                  )))]
+
+  ["Int"  R;int  =   <   >   <=   >=   min   max]
+  ["Nat"  R;nat  =+  <+  >+  <=+  >=+  min+  max+]
+  ["Real" R;real =.  <.  >.  <=.  >=.  min.  max.]
+  ["Frac" R;frac =.. <.. >.. <=.. >=.. min.. max..]
+  )
+
+(do-template [category rand-gen = + - * / <%> > <0> <1> <10> %x <cap> <prep>]
+  [(test: (format "[" category "] " "Additive identity")
+     [x rand-gen]
+     (assert ""
+             (and (|> x (+ <0>) (= x))
+                  (|> x (- <0>) (= x)))))
+
+   (test: (format "[" category "] " "Addition & Substraction")
+     [x (:: @ map <prep> rand-gen)
+      y (:: @ map <prep> rand-gen)
+      #let [x (* <10> x)
+            y (* <10> y)
+            cond (and (|> x (- y) (+ y) (= x))
+                      (|> x (+ y) (- y) (= x)))
+            _ (if cond
+                []
+                (exec
+                  (log! "+- SAMPLE")
+                  (log! (format (%x x) " -+ " (%x y) " = " (%x (|> x (- y) (+ y)))))
+                  (log! (format (%x x) " +- " (%x y) " = " (%x (|> x (+ y) (- y)))))))
+            ]]
+     (assert ""
+             (and (|> x (- y) (+ y) (= x))
+                  (|> x (+ y) (- y) (= x)))))
+
+   (test: (format "[" category "] " "Multiplicative identity")
+     [x rand-gen]
+     (assert ""
+             (and (|> x (* <1>) (= x))
+                  (|> x (/ <1>) (= x)))))
+
+   (test: (format "[" category "] " "Multiplication & Division")
+     [x (:: @ map <cap> rand-gen)
+      y (|> rand-gen
+            (:: @ map <cap>)
+            (R;filter (|>. (= <0>) not)))
+      #let [r (<%> y x)
+            x' (- r x)]]
+     (assert ""
+             (or (> x' y)
+                 (|> x' (/ y) (* y) (= x')))
+             ))]
+
+  ["Nat"  R;nat  =+ ++ -+ *+ /+ ;%+ >+ +0  +1   +1000000   %n (;%+ +1000) id]
+  ["Int"  R;int  =  +  -  *  /  ;%  >   0   1    1000000   %i (;%   1000) id]
+  ["Real" R;real =. +. -. *. /. ;%. >.  0.0 1.0  1000000.0 %r id          math;floor]
+  )
+
+(do-template [category rand-gen -> <- = <cap> %a %z]
+  [(test: (format "[" category "] " "Numeric conversions")
+     [value rand-gen
+      #let [value (<cap> value)]]
+     (assert ""
+             (|> value -> <- (= value))))]
+
+  ["Int->Nat"  R;int  int-to-nat  nat-to-int  =  (;%  1000000)   %i %n]
+  ["Nat->Int"  R;nat  nat-to-int  int-to-nat  =+ (;%+ +1000000)  %n %i]
+  ["Int->Real" R;int  int-to-real real-to-int =  (;%  1000000)   %i %r]
+  ["Real->Int" R;real real-to-int int-to-real =. math;floor %r %i]
+  ## [R;real real-to-frac frac-to-real =. (;%. 1.0) %r %f]
+  )
+
+(test: "Simple macros and constructs"
+  (all (match ["lux" "yolo"] (ident-for ;yolo))
+       (match ["test/lux" "yolo"] (ident-for ;;yolo))
+       (match ["" "yolo"] (ident-for yolo))
+       (match ["lux/test" "yolo"] (ident-for lux/test;yolo))
+       (match ["lux" "yolo"] (ident-for #;yolo))
+       (match ["test/lux" "yolo"] (ident-for #;;yolo))
+       (match ["" "yolo"] (ident-for #yolo))
+       (match ["lux/test" "yolo"] (ident-for #lux/test;yolo))
+
+       (match 1000 (loop [counter 0
+                          value 1]
+                     (if (< 3 counter)
+                       (recur (inc counter) (* 10 value))
+                       value)))
+
+       (match (^ (list 1 2 3))
+              (list 1 2 3))
+       (match (^ (list 1 2 3 4 5 6))
+              (list& 1 2 3 (list 4 5 6)))
+
+       (match "yolo" (default "yolo"
+                       #;None))
+       (match "lol" (default "yolo"
+                      (#;Some "lol")))
+       ))
