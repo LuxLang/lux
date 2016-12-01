@@ -8,7 +8,8 @@
             [leiningen.core.classpath :as classpath]
             (leiningen.lux [builder :as &builder]
                            [test :as &test]
-                           [repl :as &repl])))
+                           [repl :as &repl]
+                           [watch :as &watch])))
 
 ;; [Exports]
 (defn lux [project & args]
@@ -22,6 +23,14 @@
     "repl"
     (&repl/repl project)
 
+    "watch"
+    (case (second args)
+      "build"
+      (&watch/watch #(&builder/build project) project)
+
+      "test"
+      (&watch/watch #(&test/test project) project))
+
     ;; default...
-    (println "Commands available: build, test, repl"))
+    (println "Commands available: (watch) build, (watch) test, repl"))
   )

@@ -86,11 +86,8 @@
         (when line
           (println line)
           (recur (.readLine std-out))))
-      (loop [had-error? false
-             line (.readLine std-err)]
-        (if line
-          (do (println line)
-            (recur true (.readLine std-err)))
-          (when had-error?
-            (System/exit 1))))
+      (loop [line (.readLine std-err)]
+        (when line
+          (println line)
+          (recur (.readLine std-err))))
       (println post))))
