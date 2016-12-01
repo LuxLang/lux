@@ -12,12 +12,12 @@
 ;; [Exports]
 (def next-local-idx
   (fn [state]
-    (return* state (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$counter)))))
+    (return* state (->> state (&/get$ &/$scopes) &/|head (&/get$ &/$locals) (&/get$ &/$counter)))))
 
 (defn with-local [name type body]
   (fn [state]
-    (let [old-mappings (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
-          =return (body (&/update$ &/$envs
+    (let [old-mappings (->> state (&/get$ &/$scopes) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
+          =return (body (&/update$ &/$scopes
                                    (fn [stack]
                                      (let [var-analysis (&&/|meta type &/empty-cursor (&&/$var (&/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
                                        (&/$Cons (&/update$ &/$locals #(->> %
@@ -28,12 +28,12 @@
                                    state))]
       (|case =return
         (&/$Right ?state ?value)
-        (return* (&/update$ &/$envs (fn [stack*]
-                                      (&/$Cons (&/update$ &/$locals #(->> %
-                                                                          (&/update$ &/$counter dec)
-                                                                          (&/set$ &/$mappings old-mappings))
-                                                          (&/|head stack*))
-                                               (&/|tail stack*)))
+        (return* (&/update$ &/$scopes (fn [stack*]
+                                        (&/$Cons (&/update$ &/$locals #(->> %
+                                                                            (&/update$ &/$counter dec)
+                                                                            (&/set$ &/$mappings old-mappings))
+                                                            (&/|head stack*))
+                                                 (&/|tail stack*)))
                             ?state)
                  ?value)
         
@@ -42,8 +42,8 @@
 
 (defn with-alias [name var-analysis body]
   (fn [state]
-    (let [old-mappings (->> state (&/get$ &/$envs) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
-          =return (body (&/update$ &/$envs
+    (let [old-mappings (->> state (&/get$ &/$scopes) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
+          =return (body (&/update$ &/$scopes
                                    (fn [stack]
                                      (&/$Cons (&/update$ &/$locals #(->> %
                                                                          (&/update$ &/$mappings (fn [m] (&/|put name var-analysis m))))
@@ -52,11 +52,11 @@
                                    state))]
       (|case =return
         (&/$Right ?state ?value)
-        (return* (&/update$ &/$envs (fn [stack*]
-                                      (&/$Cons (&/update$ &/$locals #(->> %
-                                                                          (&/set$ &/$mappings old-mappings))
-                                                          (&/|head stack*))
-                                               (&/|tail stack*)))
+        (return* (&/update$ &/$scopes (fn [stack*]
+                                        (&/$Cons (&/update$ &/$locals #(->> %
+                                                                            (&/set$ &/$mappings old-mappings))
+                                                            (&/|head stack*))
+                                                 (&/|tail stack*)))
                             ?state)
                  ?value)
         
@@ -65,7 +65,7 @@
 
 (def captured-vars
   (fn [state]
-    (|case (&/get$ &/$envs state)
+    (|case (&/get$ &/$scopes state)
       (&/$Nil)
       (fail* "[Analyser Error] Can't obtain captured vars without environments.")
 

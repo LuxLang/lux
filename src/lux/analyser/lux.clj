@@ -280,7 +280,7 @@
 
 (defn ^:private analyse-local [analyse exo-type name]
   (fn [state]
-    (|let [stack (&/get$ &/$envs state)
+    (|let [stack (&/get$ &/$scopes state)
            no-binding? #(and (->> % (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|contains? name) not)
                              (->> % (&/get$ &/$closure) (&/get$ &/$mappings) (&/|contains? name) not))
            [inner outer] (&/|split-with no-binding? stack)]
@@ -313,7 +313,7 @@
                                         (&/|reverse inner) scopes)]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
              (return (&/|list =local)))
-           (&/set$ &/$envs (&/|++ inner* outer) state)))
+           (&/set$ &/$scopes (&/|++ inner* outer) state)))
         ))))
 
 (defn analyse-symbol [analyse exo-type ident]

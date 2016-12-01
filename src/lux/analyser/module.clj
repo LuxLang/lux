@@ -76,7 +76,7 @@
   (fn [state]
     (when (and (= "Macro" name) (= "lux" module))
       (&type/set-macro-type! def-value))
-    (|case (&/get$ &/$envs state)
+    (|case (&/get$ &/$scopes state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
                     (&/update$ &/$modules
@@ -247,7 +247,7 @@
   (fn [state]
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name (new-module hash) %))
-                  (&/set$ &/$envs (&/|list (&/env name &/$Nil))))
+                  (&/set$ &/$scopes (&/|list (&/env name &/$Nil))))
              nil)))
 
 (do-template [<name> <tag> <type>]

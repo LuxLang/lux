@@ -151,7 +151,7 @@
    "source"
    "cursor"
    "modules"
-   "envs"
+   "scopes"
    "type-vars"
    "expected"
    "seed"
@@ -787,7 +787,7 @@
       (T ["" -1 -1])
       ;; "lux;modules"
       (|table)
-      ;; "lux;envs"
+      ;; "lux;scopes"
       $Nil
       ;; "lux;types"
       +init-bindings+
@@ -806,7 +806,7 @@
     (|case (body state)
       ($Right state* output)
       (return* (->> state*
-                    (set$ $envs (get$ $envs state))
+                    (set$ $scopes (get$ $scopes state))
                     (set$ $source (get$ $source state)))
                output)
 
@@ -855,7 +855,7 @@
 
 (def get-top-local-env
   (fn [state]
-    (try (let [top (|head (get$ $envs state))]
+    (try (let [top (|head (get$ $scopes state))]
            (return* state top))
       (catch Throwable _
         ((fail-with-loc "No local environment.") state)))))
@@ -885,7 +885,7 @@
 
 (def get-module-name
   (fn [state]
-    (|case (|reverse (get$ $envs state))
+    (|case (|reverse (get$ $scopes state))
       ($Nil)
       ((fail-with-loc "[Analyser Error] Can't get the module-name without a module.") state)
 
@@ -906,11 +906,11 @@
 
 (defn with-scope [name body]
   (fn [state]
-    (let [old-name (->> state (get$ $envs) |head (get$ $name))
-          output (body (update$ $envs #($Cons (env name old-name) %) state))]
+    (let [old-name (->> state (get$ $scopes) |head (get$ $name))
+          output (body (update$ $scopes #($Cons (env name old-name) %) state))]
       (|case output
         ($Right state* datum)
-        (return* (update$ $envs |tail state*) datum)
+        (return* (update$ $scopes |tail state*) datum)
         
         _
         output))))
@@ -923,7 +923,7 @@
                        (return (->> top (get$ $inner-closures) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $envs #($Cons (update$ $inner-closures inc (|head %))
+        (run-state body* (update$ $scopes #($Cons (update$ $inner-closures inc (|head %))
                                                 (|tail %))
                                   state))))))
 
@@ -931,11 +931,11 @@
   (|do [_mode get-mode]
     (fn [state]
       (let [output (body (if (in-repl? _mode)
-                           (update$ $envs |tail state)
+                           (update$ $scopes |tail state)
                            state))]
         (|case output
           ($Right state* datum)
-          (return* (set$ $envs (get$ $envs state) state*) datum)
+          (return* (set$ $scopes (get$ $scopes state) state*) datum)
           
           _
           output)))))
@@ -955,7 +955,7 @@
 
 (def get-scope-name
   (fn [state]
-    (return* state (->> state (get$ $envs) |head (get$ $name)))))
+    (return* state (->> state (get$ $scopes) |head (get$ $name)))))
 
 (defn with-writer [writer body]
   (fn [state]
