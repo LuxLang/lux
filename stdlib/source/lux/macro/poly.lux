@@ -9,7 +9,7 @@
                 [eq])
        (data [text]
              text/format
-             (struct [list "List/" Monad<List>]
+             (struct [list "List/" Fold<List> Monad<List>]
                      [dict #+ Dict])
              [number]
              [product]
@@ -140,7 +140,7 @@
         _
         (:: compiler;Monad<Lux> wrap [(;list) :type:])))))
 
-(do-template [<combinator> <sub-comb>]
+(do-template [<combinator> <sub-comb> <build>]
   [(def: #export <combinator>
      (Matcher [(List AST) (List [Ident Type])])
      (lambda [:type:]
@@ -148,11 +148,17 @@
          [[tags :type:] (tagged :type:)
           _ (compiler;assert (>+ +0 (list;size tags)) "Records and variants must have tags.")
           [vars :type:] (polymorphic :type:)
-          members (<sub-comb> :type:)]
-         (wrap [vars (list;zip2 tags members)]))))]
+          members (<sub-comb> :type:)
+          #let [num-tags (list;size tags)
+                [init-tags last-tag] (list;split (dec+ num-tags) tags)
+                [init-types last-types] (list;split (dec+ num-tags) members)]]
+         (wrap [vars (list;concat (;list (list;zip2 init-tags init-types)
+                                         (;list [(default (undefined)
+                                                   (list;head last-tag))
+                                                 (<build> last-types)])))]))))]
 
-  [variant sum+]
-  [record  prod+]
+  [variant sum+  type;variant]
+  [record  prod+ type;tuple]
   )
 
 (def: #export tuple
@@ -301,35 +307,21 @@
 
 (def: (common-poly-name? poly-func)
   (-> Text Bool)
-  (and (text;starts-with? "|" poly-func)
-       (text;ends-with? "|" poly-func)))
+  (text;contains? "?" poly-func))
 
 (def: (derivation-name poly args)
   (-> Text (List Text) (Maybe Text))
   (if (common-poly-name? poly)
-    (case (text;sub +1 (dec+ (text;size poly)) poly)
-      (#;Some clean-poly)
-      (case (list;reverse args)
-        #;Nil
-        #;None
-
-        (#;Cons type #;Nil)
-        (#;Some (format type "/" clean-poly))
-
-        (#;Cons type args)
-        (#;Some (format type "/" clean-poly "@" (|> args list;reverse (text;join-with ",")))))
-      
-      #;None
-      #;None)
+    (#;Some (List/fold (text;replace-once "?") poly args))
     #;None))
 
 (syntax: #export (derived: {_ex-lev common;export-level}
                    {?name (s;opt s;local-symbol)}
-                   {[poly-func poly-args] (s;either (s;form (s;seq s;symbol (s;many s;symbol)))
-                                                    (s;seq s;symbol (:: @ wrap (;list))))}
+                   {[poly-func poly-args] (s;form (s;seq s;symbol (s;many s;symbol)))}
                    {?custom-impl (s;opt s;any)})
   (do @
-    [name (case ?name
+    [poly-args (mapM @ compiler;normalize poly-args)
+     name (case ?name
             (#;Some name)
             (wrap name)
 

@@ -67,8 +67,8 @@
         wrapper (lambda [x] (` (;;json (~ x))))]
     (case token
       (^template [<ast-tag> <ctor> <json-tag>]
-                 [_ (<ast-tag> value)]
-                 (wrap (list (` (: JSON (<json-tag> (~ (<ctor> value))))))))
+        [_ (<ast-tag> value)]
+        (wrap (list (` (: JSON (<json-tag> (~ (<ctor> value))))))))
       ([#;BoolS ast;bool            #Boolean]
        [#;IntS  (|>. int-to-real ast;real) #Number]
        [#;RealS ast;real            #Number]
@@ -109,7 +109,7 @@
 (def: (show-array show-json elems)
   (-> (-> JSON Text) (-> Array Text))
   (format "["
-          (|> elems (Vector/map show-json) vector;vector-to-list (text;join-with ","))
+          (|> elems (Vector/map show-json) vector;to-list (text;join-with ","))
           "]"))
 
 (def: (show-object show-json object)
@@ -125,8 +125,8 @@
   (-> JSON Text)
   (case json
     (^template [<tag> <show>]
-               (<tag> value)
-               (<show> value))
+      (<tag> value)
+      (<show> value))
     ([#Null    show-null]
      [#Boolean show-boolean]
      [#Number  show-number]
@@ -316,7 +316,7 @@
         _ (lexer;this-char <close>)]
        (wrap (<prep> elems))))]
 
-  [array~  Array  #"[" #"]" (json~ [])  vector;list-to-vector]
+  [array~  Array  #"[" #"]" (json~ [])  vector;from-list]
   [object~ Object #"{" #"}" (kv~ json~) (dict;from-list text;Hash<Text>)]
   )
 
@@ -485,7 +485,7 @@
     (case json
       (#Array values)
       (do Monad<Error>
-        [elems (mapM @ parser (vector;vector-to-list values))]
+        [elems (mapM @ parser (vector;to-list values))]
         (wrap elems))
 
       _
@@ -631,8 +631,8 @@
       true
 
       (^template [<tag> <struct>]
-                 [(<tag> x') (<tag> y')]
-                 (:: <struct> = x' y'))
+        [(<tag> x') (<tag> y')]
+        (:: <struct> = x' y'))
       ([#Boolean bool;Eq<Bool>]
        [#Number  number;Eq<Real>]
        [#String  text;Eq<Text>])
@@ -719,18 +719,18 @@
   (All [a b] (-> (-> a b) (List a) (List b)))
   List/map)
 
-(poly: #export (|Codec@JSON//encode| *env* :x:)
+(poly: #export (Codec<JSON,?>//encode *env* :x:)
   (let [->Codec//encode (: (-> AST AST)
                            (lambda [.type.] (` (-> (~ .type.) JSON))))]
     (let% [<basic> (do-template [<type> <matcher> <encoder>]
                      [(do @ [_ (<matcher> :x:)] (wrap (` (: (~ (->Codec//encode (` <type>))) <encoder>))))]
 
                      [Unit poly;unit (lambda [(~ (ast;symbol ["" "0"]))] #Null)]
-                     [Bool poly;bool ;;boolean]
-                     [Int  poly;int  (|>. int-to-real ;;number)]
-                     [Real poly;real ;;number]
-                     [Char poly;char (|>. char;->Text ;;string)]
-                     [Text poly;text ;;string])]
+                     [Bool poly;bool ;;gen-boolean]
+                     [Int  poly;int  (|>. ;int-to-real ;;gen-number)]
+                     [Real poly;real ;;gen-number]
+                     [Char poly;char (|>. char;as-text ;;gen-string)]
+                     [Text poly;text ;;gen-string])]
       ($_ compiler;either
           <basic>
           (with-gensyms [g!type-fun g!case g!input g!key g!val]
@@ -745,7 +745,7 @@
                        _
                        (compiler;fail ""))
                #let [new-*env* (poly;extend-env g!type-fun g!vars *env*)]
-               .val. (|Codec@JSON//encode| new-*env* :val:)
+               .val. (Codec<JSON,?>//encode new-*env* :val:)
                #let [:x:+ (case g!vars
                             #;Nil
                             (->Codec//encode (type;type-to-ast :x:))
@@ -767,14 +767,14 @@
               ))
           (do @
             [:sub: (poly;maybe :x:)
-             .sub. (|Codec@JSON//encode| *env* :sub:)]
+             .sub. (Codec<JSON,?>//encode *env* :sub:)]
             (wrap (` (: (~ (->Codec//encode (type;type-to-ast :x:)))
-                        (;;nullable (~ .sub.))))))
+                        (;;gen-nullable (~ .sub.))))))
           (do @
             [:sub: (poly;list :x:)
-             .sub. (|Codec@JSON//encode| *env* :sub:)]
+             .sub. (Codec<JSON,?>//encode *env* :sub:)]
             (wrap (` (: (~ (->Codec//encode (type;type-to-ast :x:)))
-                        (|>. (_map_ (~ .sub.)) vector;list-to-vector ;;array)))))
+                        (|>. (_map_ (~ .sub.)) vector;from-list ;;gen-array)))))
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars cases] (poly;variant :x:)
@@ -783,7 +783,7 @@
                                       (lambda [[name :case:]]
                                         (do @
                                           [#let [tag (ast;tag name)]
-                                           encoder (|Codec@JSON//encode| new-*env* :case:)]
+                                           encoder (Codec<JSON,?>//encode new-*env* :case:)]
                                           (wrap (list (` ((~ tag) (~ g!case)))
                                                       (` (;;json [(~ (ast;text (product;right name)))
                                                                   ((~ encoder) (~ g!case))]))))))
@@ -808,7 +808,7 @@
                synthesis (mapM @
                                (lambda [[name :slot:]]
                                  (do @
-                                   [encoder (|Codec@JSON//encode| new-*env* :slot:)]
+                                   [encoder (Codec<JSON,?>//encode new-*env* :slot:)]
                                    (wrap [(` (~ (ast;text (product;right name))))
                                           (` ((~ encoder) (get@ (~ (ast;tag name)) (~ g!input))))])))
                                slots)
@@ -824,7 +824,7 @@
                           (lambda [(~@ g!vars) (~ g!input)]
                             (;;json (~ (ast;record synthesis))))
                           )))))
-          (with-gensyms [g!type-fun g!case g!input]
+          (with-gensyms [g!type-fun g!case]
             (do @
               [[g!vars members] (poly;tuple :x:)
                #let [new-*env* (poly;extend-env g!type-fun g!vars *env*)]
@@ -832,7 +832,7 @@
                                       (lambda [:member:]
                                         (do @
                                           [g!member (compiler;gensym "g!member")
-                                           encoder (|Codec@JSON//encode| new-*env* :member:)]
+                                           encoder (Codec<JSON,?>//encode new-*env* :member:)]
                                           (wrap [g!member encoder])))
                                       members)
                #let [:x:+ (case g!vars
@@ -845,18 +845,16 @@
                                      (~ (->Codec//encode (` ((~ (type;type-to-ast :x:)) (~@ g!vars)))))))))]
                #let [.tuple. (` [(~@ (List/map product;left pattern-matching))])]]
               (wrap (` (: (~ :x:+)
-                          (lambda [(~@ g!vars) (~ g!input)]
-                            (case (~ g!input)
-                              (~ .tuple.)
-                              (;;array (list (~@ (List/map (lambda [[g!member g!encoder]]
-                                                             (` ((~ g!encoder) (~ g!member))))
-                                                           pattern-matching))))))
+                          (lambda [(~@ g!vars) (~ .tuple.)]
+                            (;;json [(~@ (List/map (lambda [[g!member g!encoder]]
+                                                     (` ((~ g!encoder) (~ g!member))))
+                                                   pattern-matching))]))
                           )))
               ))
           (do @
             [[:func: :args:] (poly;apply :x:)
-             .func. (|Codec@JSON//encode| *env* :func:)
-             .args. (mapM @ (|Codec@JSON//encode| *env*) :args:)]
+             .func. (Codec<JSON,?>//encode *env* :func:)
+             .args. (mapM @ (Codec<JSON,?>//encode *env*) :args:)]
             (wrap (` (: (~ (->Codec//encode (type;type-to-ast :x:)))
                         ((~ .func.) (~@ .args.))))))
           (poly;bound *env* :x:)
@@ -869,7 +867,7 @@
     (let% [<basic> (do-template [<type> <matcher> <decoder>]
                      [(do @ [_ (<matcher> :x:)] (wrap (` (: (~ (->Codec//decode (` <type>))) <decoder>))))]
 
-                     [Unit poly;unit ;;null]
+                     [Unit poly;unit ;;unit]
                      [Bool poly;bool ;;bool]
                      [Int  poly;int  ;;int]
                      [Real poly;real ;;real]
@@ -931,8 +929,8 @@
                                           [#let [tag (ast;tag name)]
                                            decoder (Codec<JSON,?>//decode new-*env* :case:)]
                                           (wrap (list (` (do Monad<Parser>
-                                                           [(~ g!_) (;;at 0 (;;text! (~ (ast;text (product;right name)))))
-                                                            (~ g!_) (;;at 1 (~ decoder))]
+                                                           [(~ g!_) (;;at +0 (;;text! (~ (ast;text (product;right name)))))
+                                                            (~ g!_) (;;at +1 (~ decoder))]
                                                            ((~ (' wrap)) ((~ tag) (~ g!_)))))))))
                                       cases)
                #let [:x:+ (case g!vars
@@ -1026,6 +1024,6 @@
 (syntax: #export (Codec<JSON,?> :x:)
   (wrap (list (` (: (Codec JSON (~ :x:))
                     (struct
-                     (def: (~ (' encode)) (|Codec@JSON//encode| (~ :x:)))
+                     (def: (~ (' encode)) (Codec<JSON,?>//encode (~ :x:)))
                      (def: (~ (' decode)) (Codec<JSON,?>//decode (~ :x:)))
                      ))))))
