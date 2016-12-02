@@ -1,84 +1,98 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
-  [lux #- not]
+  lux
   (lux (codata [io])
        (control monad)
        (data text/format
+             [text "Text/" Eq<Text>]
              [number]
              [product]
-             [sum])
+             [sum]
+             (struct [list]))
        (codata function)
-       [cli #- run])
-  [lux/test #-  assert])
+       ["&" cli]
+       (math ["R" random])
+       pipe)
+  lux/test)
 
-(test: "lux/cli exports"
-  (test-all (match (#;Right "foo")
-                   (cli;run any (list "foo" "bar" "baz")))
-            (match (#;Left _)
-                   (cli;run any (list)))
-            (match (#;Right 123)
-                   (cli;run (parse (:: number;Codec<Text,Int> decode) any) (list "123")))
-            (match (#;Left _)
-                   (cli;run (option (list "-p" "--port")) (list)))
-            (match (#;Left _)
-                   (cli;run (option (list "-p" "--port")) (list "yolo")))
-            (match (#;Right "123")
-                   (cli;run (option (list "-p" "--port")) (list "-p" "123")))
-            (match (#;Right "123")
-                   (cli;run (option (list "-p" "--port")) (list "--port" "123")))
-            (match (#;Right false)
-                   (cli;run (flag (list "-h" "--help")) (list)))
-            (match (#;Right false)
-                   (cli;run (flag (list "-h" "--help")) (list "yolo")))
-            (match (#;Right true)
-                   (cli;run (flag (list "-h" "--help")) (list "-h")))
-            (match (#;Right true)
-                   (cli;run (flag (list "-h" "--help")) (list "--help")))
-            (match (#;Right [])
-                   (cli;run end (list)))
-            (match (#;Left _)
-                   (cli;run end (list "yolo")))
-            (match (#;Left "YOLO")
-                   (cli;run (assert false "YOLO") (list "yolo")))
-            (match (#;Right [])
-                   (cli;run (assert true "YOLO") (list "yolo")))
-            (match (#;Right #;None)
-                   (cli;run (opt any) (list)))
-            (match (#;Right (#;Some "yolo"))
-                   (cli;run (opt any) (list "yolo")))
-            (match (#;Right ["foo" "bar"])
-                   (cli;run (seq any any) (list "foo" "bar" "baz")))
-            (match (#;Right ["foo" "bar"])
-                   (cli;run (seq any any) (list "foo" "bar")))
-            (match (#;Left _)
-                   (cli;run (seq any any) (list "foo")))
-            ## (match (#;Right (#;Left 123))
-            ##          (cli;run (alt (parse (:: number;Codec<Text,Int> decode) any)
-            ##                       any)
-            ##                   (list "123" "foo")))
-            ## (match (#;Right (#;Right "foo"))
-            ##          (cli;run (alt (parse (:: number;Codec<Text,Int> decode) any)
-            ##                       any)
-            ##                   (list "foo")))
-            (match (#;Left _)
-                   (cli;run (alt (parse (:: number;Codec<Text,Int> decode) any)
-                                 (parse (:: number;Codec<Text,Real> decode) any))
-                            (list "foo")))
-            (match (#;Left _)
-                   (cli;run (not (parse (:: number;Codec<Text,Int> decode) any))
-                            (list "123")))
-            (match (#;Right [])
-                   (cli;run (not (parse (:: number;Codec<Text,Int> decode) any))
-                            (list "yolo")))
-            (match (^ (#;Right (list "foo" "bar" "baz")))
-                   (cli;run (some any) (list "foo" "bar" "baz")))
-            (match (^ (#;Right (list)))
-                   (cli;run (some any) (list)))
-            (match (^ (#;Right (list "foo" "bar" "baz")))
-                   (cli;run (many any) (list "foo" "bar" "baz")))
-            (match (#;Left _)
-                   (cli;run (many any) (list)))
-            (match (#;Right "yolo")
-                   (cli;run (either (parse sum;right any)
-                                    any)
-                            (list "yolo")))
-            ))
+(test: "CLI"
+  [num-args (:: @ map (%+ +10) R;nat)
+   #let [(^open "Nat/") number;Codec<Text,Nat>
+         gen-arg (:: @ map Nat/encode R;nat)]
+   option-name (R;text +5)
+   args (R;list num-args gen-arg)]
+  ($_ seq
+      (assert "Can read any argument."
+              (|> (&;run &;any args)
+                  (case> (#;Left _)
+                         (=+ +0 num-args)
+                         
+                         (#;Right arg)
+                         (and (not (=+ +0 num-args))
+                              (Text/= arg (default (undefined)
+                                            (list;head args)))))))
+
+      (assert "Can safely fail parsing an argument."
+              (|> (&;run (&;opt &;any) args)
+                  (case> (#;Right (#;Some arg))
+                         (and (not (=+ +0 num-args))
+                              (Text/= arg (default (undefined)
+                                            (list;head args))))
+
+                         (#;Right #;None)
+                         (=+ +0 num-args)
+
+                         _
+                         false)))
+      
+      (assert "Can read multiple arguments."
+              (and (|> (&;run (&;some &;any) args)
+                       (case> (#;Left _)
+                              false
+                              
+                              (#;Right args')
+                              (=+ num-args (list;size args'))))
+                   (|> (&;run (&;many &;any) args)
+                       (case> (#;Left _)
+                              (=+ +0 num-args)
+                              
+                              (#;Right args')
+                              (=+ num-args (list;size args'))))))
+
+      (assert "Can use custom token parsers."
+              (|> (&;run (&;parse Nat/decode) args)
+                  (case> (#;Left _)
+                         (=+ +0 num-args)
+                         
+                         (#;Right parsed)
+                         (Text/= (Nat/encode parsed)
+                                 (default (undefined)
+                                   (list;head args))))))
+
+      (assert "Can obtain option values."
+              (and (|> (&;run (&;option (list option-name)) (list& option-name args))
+                       (case> (#;Left _)
+                              (=+ +0 num-args)
+                              
+                              (#;Right value)
+                              (Text/= value (default (undefined)
+                                              (list;head args)))))
+                   (|> (&;run (&;option (list option-name)) args)
+                       (case> (#;Left _) true (#;Right _) false))))
+
+      (assert "Can check flags."
+              (and (|> (&;run (&;flag (list option-name)) (list& option-name args))
+                       (case> (#;Right true) true _ false))
+                   (|> (&;run (&;flag (list option-name)) args)
+                       (case> (#;Right false) true _ false))))
+
+      (assert "Can query if there are any more inputs."
+              (and (|> (&;run &;end args)
+                       (case> (#;Right []) (=+ +0 num-args) _ false))
+                   (|> (&;run (&;not &;end) args)
+                       (case> (#;Right []) (not (=+ +0 num-args)) _ false))))
+      ))
