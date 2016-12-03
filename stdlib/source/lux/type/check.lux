@@ -12,6 +12,7 @@
              text/format
              [number]
              maybe
+             [product]
              (struct [list]
                      [dict])
              error)
@@ -214,22 +215,22 @@
       (wrap (#;HostT name =params)))
     
     (^template [<tag>]
-     (<tag> left right)
-     (do Monad<Check>
-       [=left (clean t-id left)
-        =right (clean t-id right)]
-       (wrap (<tag> =left =right))))
+      (<tag> left right)
+      (do Monad<Check>
+        [=left (clean t-id left)
+         =right (clean t-id right)]
+        (wrap (<tag> =left =right))))
     ([#;LambdaT]
      [#;AppT]
      [#;ProdT]
      [#;SumT])
 
     (^template [<tag>]
-     (<tag> env body)
-     (do Monad<Check>
-       [=env (mapM @ (clean t-id) env)
-        =body (clean t-id body)] ## TODO: DON'T CLEAN THE BODY
-       (wrap (<tag> =env =body))))
+      (<tag> env body)
+      (do Monad<Check>
+        [=env (mapM @ (clean t-id) env)
+         =body (clean t-id body)] ## TODO: DON'T CLEAN THE BODY
+        (wrap (<tag> =env =body))))
     ([#;UnivQ]
      [#;ExQ])
     
@@ -334,7 +335,7 @@
 
 (def: success (Check []) (Check/wrap []))
 
-(def: (|| left right)
+(def: (either left right)
   (All [a] (-> (Check a) (Check a) (Check a)))
   (lambda [context]
     (case (left context)
@@ -346,12 +347,11 @@
 
 (def: (fp-get [e a] fixpoints)
   (-> [Type Type] Fixpoints (Maybe Bool))
-  (list;find (lambda [[[fe fa] status]]
-               (if (and (Type/= e fe)
-                        (Type/= a fa))
-                 (#;Some status)
-                 #;None))
-             fixpoints))
+  (:: Monad<Maybe> map product;right
+      (list;find (lambda [[[fe fa] status]]
+                   (and (Type/= e fe)
+                        (Type/= a fa)))
+                 fixpoints)))
 
 (def: (fp-put ea status fixpoints)
   (-> [Type Type] Bool Fixpoints Fixpoints)
@@ -382,16 +382,16 @@
             (check etype atype))))
       
       [(#;VarT id) _]
-      (|| (set-var id actual)
-          (do Monad<Check>
-            [bound (deref id)]
-            (check bound actual)))
+      (either (set-var id actual)
+              (do Monad<Check>
+                [bound (deref id)]
+                (check bound actual)))
       
       [_ (#;VarT id)]
-      (|| (set-var id expected)
-          (do Monad<Check>
-            [bound (deref id)]
-            (check expected bound)))
+      (either (set-var id expected)
+              (do Monad<Check>
+                [bound (deref id)]
+                (check expected bound)))
 
       [(#;AppT (#;ExT eid) eA) (#;AppT (#;ExT aid) aA)]
       (if (n.= eid aid)
@@ -399,24 +399,24 @@
         (fail-check expected actual))
 
       [(#;AppT (#;VarT id) A1) (#;AppT F2 A2)]
-      (|| (do Monad<Check>
-            [F1 (deref id)]
-            (check (#;AppT F1 A1) actual))
-          (do Monad<Check>
-            [_ (check (#;VarT id) F2)
-             e' (apply-type! F2 A1)
-             a' (apply-type! F2 A2)]
-            (check e' a')))
+      (either (do Monad<Check>
+                [F1 (deref id)]
+                (check (#;AppT F1 A1) actual))
+              (do Monad<Check>
+                [_ (check (#;VarT id) F2)
+                 e' (apply-type! F2 A1)
+                 a' (apply-type! F2 A2)]
+                (check e' a')))
       
       [(#;AppT F1 A1) (#;AppT (#;VarT id) A2)]
-      (|| (do Monad<Check>
-            [F2 (deref id)]
-            (check expected (#;AppT F2 A2)))
-          (do Monad<Check>
-            [_ (check F1 (#;VarT id))
-             e' (apply-type! F1 A1)
-             a' (apply-type! F1 A2)]
-            (check e' a')))
+      (either (do Monad<Check>
+                [F2 (deref id)]
+                (check expected (#;AppT F2 A2)))
+              (do Monad<Check>
+                [_ (check F1 (#;VarT id))
+                 e' (apply-type! F1 A1)
+                 a' (apply-type! F1 A2)]
+                (check e' a')))
 
       [(#;AppT F A) _]
       (do Monad<Check>
@@ -479,13 +479,13 @@
         (fail-check expected actual))
 
       (^template [<unit> <append>]
-       [<unit> <unit>]
-       success
-       
-       [(<append> eL eR) (<append> aL aR)]
-       (do Monad<Check>
-         [_ (check eL aL)]
-         (check eR aR)))
+        [<unit> <unit>]
+        success
+        
+        [(<append> eL eR) (<append> aL aR)]
+        (do Monad<Check>
+          [_ (check eL aL)]
+          (check eR aR)))
       ([#;VoidT #;SumT]
        [#;UnitT #;ProdT])
       
