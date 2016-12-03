@@ -20,6 +20,14 @@
       (->> (.listFiles dir) (mapcat (comp file-tree #(.getAbsolutePath ^File %))) (cons path))
       (list))))
 
+(defn ^:private drain! [^WatchService watcher]
+  (when-let [^WatchKey key (.poll watcher)]
+    (when (and (.isValid key)
+               (not (.isEmpty (.pollEvents key))))
+      
+      (.reset key)
+      (recur watcher))))
+
 (defn watch [action project]
   (let [fs (FileSystems/getDefault)
         ^WatchService watcher (.newWatchService fs)
@@ -35,6 +43,7 @@
               (when (.isValid key)
                 (.pollEvents key)
                 (.reset key)
+                (drain! watcher)
                 (action)))
           (Thread/sleep 1000)
           (recur))))

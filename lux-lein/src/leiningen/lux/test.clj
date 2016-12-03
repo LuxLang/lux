@@ -11,10 +11,10 @@
 
 (defn test [project]
   (if-let [tests-module (get-in project [:lux :tests])]
-    (do (&utils/run-process (&utils/compile-path project tests-module (concat (:test-paths project) (:source-paths project)))
-                            nil
-                            "[BUILD BEGIN]"
-                            "[BUILD END]")
+    (when (&utils/run-process (&utils/compile-path project tests-module (concat (:test-paths project) (:source-paths project)))
+                              nil
+                              "[BUILD BEGIN]"
+                              "[BUILD END]")
       (let [java-cmd (get project :java-cmd "java")
             jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
             output-package (str (get-in project [:lux :target] &utils/output-dir) "/"

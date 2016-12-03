@@ -86,8 +86,10 @@
         (when line
           (println line)
           (recur (.readLine std-out))))
-      (loop [line (.readLine std-err)]
-        (when line
-          (println line)
-          (recur (.readLine std-err))))
-      (println post))))
+      (let [first-error-line (.readLine std-err)]
+        (do (loop [line first-error-line]
+              (when line
+                (println line)
+                (recur (.readLine std-err))))
+          (println post)
+          (nil? first-error-line))))))

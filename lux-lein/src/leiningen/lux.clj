@@ -23,7 +23,7 @@
     "repl"
     (&repl/repl project)
 
-    "watch"
+    "auto"
     (case (second args)
       "build"
       (&watch/watch #(&builder/build project) project)
@@ -32,5 +32,5 @@
       (&watch/watch #(&test/test project) project))
 
     ;; default...
-    (println "Commands available: (watch) build, (watch) test, repl"))
+    (println "Commands available: (auto) build, (auto) test, repl"))
   )
