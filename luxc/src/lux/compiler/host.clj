@@ -1840,22 +1840,6 @@
                   (.visitInsn Opcodes/MONITOREXIT))]]
     (return nil)))
 
-(do-template [<name> <op>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values
-                ;; (&/$Nil) special-args
-                ]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?monitor)
-          :let [_ (doto *writer*
-                    (.visitInsn <op>)
-                    (.visitInsn Opcodes/ACONST_NULL))]]
-      (return nil)))
-
-  ^:private compile-jvm-monitorenter Opcodes/MONITORENTER
-  ^:private compile-jvm-monitorexit  Opcodes/MONITOREXIT
-  )
-
 (defn ^:private compile-jvm-throw [compile ?values special-args]
   (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values
               ;; (&/$Nil) special-args
@@ -2421,8 +2405,6 @@
       "putstatic"       (compile-jvm-putstatic compile ?values special-args)
       "putfield"        (compile-jvm-putfield compile ?values special-args)
       "throw"           (compile-jvm-throw compile ?values special-args)
-      "monitorenter"    (compile-jvm-monitorenter compile ?values special-args)
-      "monitorexit"     (compile-jvm-monitorexit compile ?values special-args)
       "null?"           (compile-jvm-null? compile ?values special-args)
       "null"            (compile-jvm-null compile ?values special-args)
       "anewarray"       (compile-jvm-anewarray compile ?values special-args)

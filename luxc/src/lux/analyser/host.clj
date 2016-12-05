@@ -686,21 +686,6 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "synchronized"]) (&/|list =monitor =expr) (&/|list)))))))
 
-(do-template [<name> <tag>]
-  (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons ?monitor (&/$Nil)) ?values]
-          =monitor (&&/analyse-1+ analyse ?monitor)
-          _ (ensure-object (&&/expr-type* =monitor))
-          :let [output-type &/$UnitT]
-          _ (&type/check exo-type output-type)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["jvm" <tag>]) (&/|list =monitor) (&/|list)))))))
-
-  ^:private analyse-jvm-monitorenter "monitorenter"
-  ^:private analyse-jvm-monitorexit  "monitorexit"
-  )
-
 (defn ^:private analyse-jvm-throw [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values]
         =ex (&&/analyse-1+ analyse ?ex)
@@ -1242,8 +1227,6 @@
         "load-class"   (analyse-jvm-load-class analyse exo-type ?values)
         "try"          (analyse-jvm-try analyse exo-type ?values)
         "throw"        (analyse-jvm-throw analyse exo-type ?values)
-        "monitorenter" (analyse-jvm-monitorenter analyse exo-type ?values)
-        "monitorexit"  (analyse-jvm-monitorexit analyse exo-type ?values)
         "null?"        (analyse-jvm-null? analyse exo-type ?values)
         "null"         (analyse-jvm-null analyse exo-type ?values)
         "anewarray"    (analyse-jvm-anewarray analyse exo-type ?values)
