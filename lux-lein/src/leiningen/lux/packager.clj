@@ -34,7 +34,6 @@
         (doto (-> (.put Attributes$Name/MAIN_CLASS (str module "._"))
                   (->> (when (not includes-android?))))
           (.put Attributes$Name/MANIFEST_VERSION "1.0")
-          (.put (new Attributes$Name "LUX_JAR") "true")
           (-> (.put (new Attributes$Name name) real-v)
               (->> (doseq [[name v] (get project :manifest)
                            :let [real-v (if (string? v) v (v project))]])))))))
