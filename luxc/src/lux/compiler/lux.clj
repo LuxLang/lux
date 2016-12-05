@@ -264,9 +264,9 @@
         (if (= 1 (&/|length ?meta))
           (|do [:let [current-class (&host-generics/->class-name (str (&host/->module-class r-module) "/" (&host/def-name r-name)))
                       def-class (&&/load-class! class-loader current-class)
-                      def-type (&a-module/def-type r-module r-name)
                       def-meta ?meta
                       def-value (-> def-class (.getField &/value-field) (.get nil))]
+                def-type (&a-module/def-type r-module r-name)
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))]
             (return nil))
@@ -316,8 +316,10 @@
 
                                    _
                                    false)
-                        def-meta ?meta
-                        def-value (-> def-class (.getField &/value-field) (.get nil))]
+                        def-meta ?meta]
+                  def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
+                              (catch Throwable t
+                                (&/assert! "Error during value initialization." (throwable->text t))))
                   _ (&/without-repl-closure
                      (&a-module/define module-name ?name def-type def-meta def-value))
                   _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
@@ -388,7 +390,7 @@
                       def-meta ?meta]
                 def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
                             (catch Throwable t
-                              (&/assert! false (throwable->text t))))
+                              (&/assert! "Error during value initialization." (throwable->text t))))
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))
                 _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])

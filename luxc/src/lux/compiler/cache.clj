@@ -163,10 +163,10 @@
                                         2 (let [[_name _alias] parts
                                                 [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
                                                 def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
-                                                def-type (&a-module/def-type __module __name)
                                                 def-anns (&/|list (&/T [&a-meta/alias-tag (&/$IdentM (&/T [__module __name]))]))
                                                 def-value (get-field &/value-field def-class)]
-                                            (&a-module/define module _name def-type def-anns def-value))
+                                            (|do [def-type (&a-module/def-type __module __name)]
+                                              (&a-module/define module _name def-type def-anns def-value)))
                                         3 (let [[_name _type _anns] parts
                                                 def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
                                                 [def-anns _] (&&&ann/deserialize-anns _anns)
