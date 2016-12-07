@@ -36,17 +36,3 @@
 
     _
     (println "Can't understand command.")))
-
-(comment
-  (-main "release" "tests"
-         "/home/eduardoejp/workspace/projects/lux-stdlib/resources"
-         (str "/home/eduardoejp/workspace/projects/lux-stdlib/source" unit-separator
-              "/home/eduardoejp/workspace/projects/lux-stdlib/test")
-         "/home/eduardoejp/workspace/projects/lux/target/jvm")
-
-  (-main "release" "tests"
-         "/home/eduardoejp/workspace/projects/lux-stdlib/resources"
-         (str "/home/eduardoejp/workspace/projects/lux-stdlib/source" unit-separator
-              "/home/eduardoejp/workspace/projects/lux-stdlib/test")
-         "/home/eduardoejp/workspace/projects/lux-stdlib/target/jvm")
-  )
