@@ -1,54 +1,125 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (control monad)
        (data text/format
              [number]
-             [product])
+             [product]
+             [text "Text/" Eq<Text>])
        (codata function
                [io])
-       host)
+       ["&" host #+ jvm-import class: interface: object]
+       (math ["R" random])
+       pipe)
   lux/test)
 
-(jvm-import java.lang.Object
-  (new []))
+(jvm-import java.lang.Exception
+  (new [String]))
 
-(jvm-import java.lang.String)
+(jvm-import java.lang.Object)
 
 (jvm-import (java.lang.Class a)
   (getName [] String))
 
-(test: "lux/host exports"
-  (let% [<conversions-0> (do-template [<value> <forward> <backward>]
-                           [(match <value> (|> <value> <forward> <backward>))]
+(jvm-import java.lang.System
+  (#static out java.io.PrintStream)
+  (#static currentTimeMillis [] #io long)
+  (#static getenv [String] #io #? String))
 
-                           [123   l2d d2l]
-                           [123   l2f f2l]
-                           [123   l2i i2l]
-                           [123.0 d2l l2d]
-                           [123.0 d2f f2d]
-                           [123.0 d2i i2d]
-                           )
-         <conversions-1> (do-template [<forward> <backward>]
-                           [(match 123 (|> 123 l2i <forward> <backward> i2l))]
+(class: #final (TestClass A) [Runnable]
+  ## Fields
+  (#private foo boolean)
+  (#private bar A)
+  (#private baz java.lang.Object)
+  ## Methods
+  (#public [] (new {value A}) []
+           (exec (:= .foo true)
+             (:= .bar value)
+             (:= .baz "")
+             []))
+  (#public (virtual) java.lang.Object
+           "")
+  (#public #static (static) java.lang.Object
+           "")
+  (Runnable [] (run) void
+            [])
+  )
 
-                           [i2c c2i]
-                           )]
-    (test-all (match "java.lang.Class" (Class.getName [] (class-for java.lang.Class)))
-              (match "java.lang.Class" (Class.getName [] (class-for Class)))
-              (match true (null? (: Object (null))))
-              (match false (null? (Object.new [])))
-              (match #;None (: (Maybe Object) (??? (null))))
-              (match (#;Some _) (: (Maybe Object) (??? (Object.new []))))
-              (match true (null? (!!! (: (Maybe Object) (??? (null))))))
-              (match false (null? (!!! (: (Maybe Object) (??? (Object.new []))))))
-              (match true (instance? Object (Object.new [])))
-              (match false (instance? String (Object.new [])))
-              (match 123 (synchronized (Object.new [])
-                           123))
-              (match +10 (array-length (array String +10)))
-              (match "YOLO" (let [array (array String +10)] 
-                              (exec (array-store +0 "YOLO" array)
-                                (array-load +0 array))))
-              <conversions-0>
-              <conversions-1>
-              )))
+(def: test-runnable
+  (object [Runnable]
+    []
+    (Runnable [] (run) void
+              [])))
+
+(interface: TestInterface
+  ([] foo [boolean String] void #throws [Exception]))
+
+(test: "Conversions"
+  [sample R;int]
+  (let% [<int-convs> (do-template [<to> <from> <message>]
+                       [(assert <message>
+                                (or (|> sample <to> <from> (i.= sample))
+                                    (let [capped-sample (|> sample <to> <from>)]
+                                      (|> capped-sample <to> <from> (i.= sample)))))]
+
+                       [&;l2b &;b2l "Can succesfully convert to/from byte."]
+                       [&;l2s &;s2l "Can succesfully convert to/from short."]
+                       [&;l2i &;i2l "Can succesfully convert to/from int."]
+                       [&;l2f &;f2l "Can succesfully convert to/from float."]
+                       [&;l2d &;d2l "Can succesfully convert to/from double."]
+                       [(<| &;i2c &;l2i) (<| &;i2l &;c2i) "Can succesfully convert to/from char."]
+                       )]
+    ($_ seq
+        <int-convs>
+        )))
+
+(test: "Miscellaneous"
+  ($_ seq
+      (assert "Can check if an object is of a certain class."
+              (and (&;instance? String "")
+                   (not (&;instance? Long ""))
+                   (&;instance? Object (&;null))))
+
+      (assert "Can run code in a \"synchronized\" block."
+              (&;synchronized "" true))
+
+      ## (assert "Can safely try risky code."
+      ##         (and (case (&;try [])
+      ##                (#;Right _) true
+      ##                (#;Left _) false)
+      ##              (case (&;try (_lux_proc ["jvm" "throw"] [(Exception.new "Uh, oh...")]))
+      ##                (#;Right _) false
+      ##                (#;Left _) true)))
+
+      (assert "Can access Class instances."
+              (Text/= "java.lang.Class" (Class.getName [] (&;class-for java.lang.Class))))
+
+      (assert "Can check if a value is null."
+              (and (&;null? (&;null))
+                   (not (&;null? ""))))
+
+      (assert "Can safely convert nullable references into Maybe values."
+              (and (|> (: (Maybe Object) (&;??? (&;null)))
+                       (case> #;None true
+                              _ false))
+                   (|> (: (Maybe Object) (&;??? ""))
+                       (case> (#;Some _) true
+                              _ false))))
+      ))
+
+(test: "Arrays"
+  [size (|> R;nat (:: @ map (|>. (n.% +100) (n.max +1))))
+   idx (|> R;nat (:: @ map (n.% size)))
+   value R;int]
+  ($_ seq
+      (assert "Can create arrays of some length."
+              (n.= size (&;array-length (&;array Long size))))
+
+      (assert "Can set and get array values."
+              (let [arr (&;array Long size)]
+                (exec (&;array-store idx value arr)
+                  (i.= value (&;array-load idx arr)))))))

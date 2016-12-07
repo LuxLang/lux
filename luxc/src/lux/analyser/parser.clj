@@ -428,10 +428,13 @@
 
 (def parse-interface-def
   (|do [=gclass-decl parse-gclass-decl
+        _ _space_
         =supers (with-brackets
                   (spaced parse-gclass-super))
+        _ _space_
         =anns (with-brackets
                 (spaced parse-ann))
+        _ _space_
         =methods (spaced parse-method-decl)]
     (return (&/T [=gclass-decl =supers =anns =methods]))))
 

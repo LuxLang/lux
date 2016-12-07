@@ -466,8 +466,8 @@
   ^:private analyse-jvm-l2d "l2d" "java.lang.Long"      "java.lang.Double"
   ^:private analyse-jvm-l2f "l2f" "java.lang.Long"      "java.lang.Float"
   ^:private analyse-jvm-l2i "l2i" "java.lang.Long"      "java.lang.Integer"
-  ^:private analyse-jvm-l2s "l2i" "java.lang.Long"      "java.lang.Short"
-  ^:private analyse-jvm-l2b "l2i" "java.lang.Long"      "java.lang.Byte"
+  ^:private analyse-jvm-l2s "l2s" "java.lang.Long"      "java.lang.Short"
+  ^:private analyse-jvm-l2b "l2b" "java.lang.Long"      "java.lang.Byte"
 
   ^:private analyse-jvm-c2b "c2b" "java.lang.Character" "java.lang.Byte"
   ^:private analyse-jvm-c2s "c2s" "java.lang.Character" "java.lang.Short"

@@ -1523,8 +1523,6 @@
   ^:private compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"    "()J" "java.lang.Double"    "(D)V"
   ^:private compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"    "()J" "java.lang.Float"     "(F)V"
   ^:private compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-l2s Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Short"     "(S)V"
-  ^:private compile-jvm-l2b Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Byte"      "(B)V"
 
   ^:private compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue"  "()C" "java.lang.Byte"      "(B)V"
   ^:private compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue"  "()C" "java.lang.Short"     "(S)V"
@@ -1534,6 +1532,26 @@
   ^:private compile-jvm-s2l Opcodes/I2L "java.lang.Short"     "shortValue" "()S" "java.lang.Long"      "(J)V"
   
   ^:private compile-jvm-b2l Opcodes/I2L "java.lang.Byte"      "byteValue"  "()B" "java.lang.Long"      "(J)V"
+  )
+
+(do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
+  (defn <name> [compile _?value special-args]
+    (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
+          ^MethodVisitor *writer* &/get-writer
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
+                    (.visitInsn Opcodes/DUP))]
+          _ (compile ?value)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from-class>))
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from-class>) <from-method> <from-sig>)
+                    (.visitInsn Opcodes/L2I)
+                    (.visitInsn <op>)
+                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
+      (return nil)))
+
+  ^:private compile-jvm-l2s Opcodes/I2S "java.lang.Long"    "longValue"    "()J" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-l2b Opcodes/I2B "java.lang.Long"    "longValue"    "()J" "java.lang.Byte"      "(B)V"
   )
 
 (do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
