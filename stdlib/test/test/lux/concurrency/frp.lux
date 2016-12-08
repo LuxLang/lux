@@ -1,3 +1,8 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (control monad)
@@ -5,50 +10,122 @@
              text/format
              error)
        (concurrency [promise #+ Promise Monad<Promise> "Promise/" Monad<Promise>]
-                    frp)
+                    ["&" frp])
        (codata function
-               io))
+               [io #- run]))
   lux/test)
 
 (def: (List->Chan values)
-  (-> (List Int) (Chan Int))
-  (let [_chan (: (Chan Int) (chan))]
-    (run (do Monad<IO>
-           [_ (mapM Monad<IO>
-                    (lambda [value]
-                      (write value _chan))
-                    values)
-            _ (close _chan)]
-           (wrap _chan)))))
+  (-> (List Int) (&;Chan Int))
+  (let [_chan (: (&;Chan Int) (&;chan))]
+    (io;run (do Monad<IO>
+              [_ (mapM @ (lambda [value] (&;write value _chan))
+                       values)
+               _ (&;close _chan)]
+              (wrap _chan)))))
 
-(test: "lux/concurrency/frp exports"
-  (test-all (match+ (^ (list 0 1 2 3 4 5))
-                    (from-promise (consume (List->Chan (list 0 1 2 3 4 5)))))
-            (match+ (^ (list 0 1 2 3 4 5))
-                    (from-promise (consume (let [input (List->Chan (list 0 1 2 3 4 5))
-                                               output (: (Chan Int) (chan))]
-                                           (exec (pipe input output)
-                                             output)))))
-            (match+ (^ (list 0 2 4))
-                    (from-promise (consume (filter even? (List->Chan (list 0 1 2 3 4 5))))))
-            (match+ (^ (list 0 1 2 3 4 5 0 -1 -2 -3 -4 -5))
-                    (from-promise (consume (merge (list (List->Chan (list 0 1 2 3 4 5))
-                                                      (List->Chan (list 0 -1 -2 -3 -4 -5)))))))
-            (match+ 15 (from-promise (fold (lambda [base input] (Promise/wrap (i.+ input base))) 0 (List->Chan (list 0 1 2 3 4 5)))))
-            (match+ (^ (list 0 1 2 3 4 5))
-                    (from-promise (consume (no-dups number;Eq<Int> (List->Chan (list 0 0 0 1 2 2 3 3 3 3 4 4 4 5 5))))))
-            (match+ (^ (list 12345))
-                    (from-promise (consume (as-chan (:: promise;Monad<Promise> wrap 12345)))))
-            (match+ (^ (list 1 2 3 4 5 6))
-                    (from-promise (consume (:: Functor<Chan> map i.inc (List->Chan (list 0 1 2 3 4 5))))))
-            (match+ (^ (list 12345))
-                    (from-promise (consume (:: Applicative<Chan> wrap 12345))))
-            (match+ (^ (list 12346))
-                    (from-promise (consume (let [(^open) Applicative<Chan>]
-                                           (apply (wrap i.inc) (wrap 12345))))))
-            (match+ (^ (list 12346))
-                    (from-promise (consume (do Monad<Chan>
-                                           [f (wrap i.inc)
-                                            a (wrap 12345)]
-                                           (wrap (f a))))))
-            ))
+(test: "FRP"
+  ($_ seq
+      (do Monad<Promise>
+        [elems (&;consume (List->Chan (list 0 1 2 3 4 5)))]
+        (assert "Can consume a chan into a list."
+                (case elems
+                  (^ (list 0 1 2 3 4 5))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (let [input (List->Chan (list 0 1 2 3 4 5))
+                                output (: (&;Chan Int) (&;chan))]
+                            (exec (&;pipe input output)
+                              output)))]
+        (assert "Can pipe one channel into another."
+                (case elems
+                  (^ (list 0 1 2 3 4 5))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (&;filter i.even? (List->Chan (list 0 1 2 3 4 5))))]
+        (assert "Can filter a channel's elements."
+                (case elems
+                  (^ (list 0 2 4))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (&;merge (list (List->Chan (list 0 1 2 3 4 5))
+                                         (List->Chan (list 0 -1 -2 -3 -4 -5)))))]
+        (assert "Can merge channels."
+                (case elems
+                  (^ (list 0 1 2 3 4 5 0 -1 -2 -3 -4 -5))
+                  true
+
+                  _
+                  false)))
+      
+      (do Monad<Promise>
+        [output (&;fold (lambda [base input] (Promise/wrap (i.+ input base))) 0 (List->Chan (list 0 1 2 3 4 5)))]
+        (assert "Can fold over a channel."
+                (i.= 15 output)))
+
+      (do Monad<Promise>
+        [elems (&;consume (&;no-dups number;Eq<Int> (List->Chan (list 0 0 0 1 2 2 3 3 3 3 4 4 4 5 5))))]
+        (assert "Can avoid immediate repetition in the channel."
+                (case elems
+                  (^ (list 0 1 2 3 4 5))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (&;as-chan (:: promise;Monad<Promise> wrap 12345)))]
+        (assert "Can convert a promise into a single-value channel."
+                (case elems
+                  (^ (list 12345))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (:: &;Functor<Chan> map i.inc (List->Chan (list 0 1 2 3 4 5))))]
+        (assert "Functor goes over every element in a channel."
+                (case elems
+                  (^ (list 1 2 3 4 5 6))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (let [(^open) &;Applicative<Chan>]
+                            (apply (wrap i.inc) (wrap 12345))))]
+        (assert "Applicative works over all channel values."
+                (case elems
+                  (^ (list 12346))
+                  true
+
+                  _
+                  false)))
+
+      (do Monad<Promise>
+        [elems (&;consume (do &;Monad<Chan>
+                            [f (wrap i.inc)
+                             a (wrap 12345)]
+                            (wrap (f a))))]
+        (assert "Monad works over all channel values."
+                (case elems
+                  (^ (list 12346))
+                  true
+
+                  _
+                  false)))
+      ))

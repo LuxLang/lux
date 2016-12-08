@@ -1,3 +1,8 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (codata [io])
@@ -5,53 +10,74 @@
        (data [number]
              (struct [list "" Functor<List>])
              text/format)
-       (concurrency stm
+       (concurrency ["&" stm]
                     [promise])
-       (codata function))
+       (codata function)
+       (math ["R" random])
+       pipe)
   lux/test)
 
 (def: vars Int 5)
 (def: processes/vars Int 5)
 (def: iterations/processes Int 100)
 
-(test: "lux/concurrency/stm exports"
-  (let [_var (var 0)
-        changes (io;run (follow "test" _var))
-        tests (: (List (Test Int))
+(test: "STM"
+  (let [_var (&;var 0)
+        changes (io;run (&;follow "test" _var))
+        tests (: (List Test)
                  (map (lambda [_]
-                        (let [_concurrency-var (var 0)]
-                          (from-promise (do promise;Monad<Promise>
-                                          [_ (seqM @
-                                                   (map (lambda [_]
-                                                          (mapM @ (lambda [_] (commit (update i.inc _concurrency-var)))
-                                                                (list;range 1 iterations/processes)))
-                                                        (list;range 1 processes/vars)))]
-                                          (commit (read _concurrency-var))))))
-                      (list;range 1 vars)))]
-    (test-all (match+ 0 (commit (do Monad<STM>
-                                  [value (read _var)]
-                                  (wrap (#;Right value)))))
-              (match+ 5 (commit (do Monad<STM>
-                                  [_ (write 5 _var)
-                                   value (read _var)]
-                                  (wrap (#;Right value)))))
-              (match+ 5 (commit (do Monad<STM>
-                                  [value (read _var)]
-                                  (wrap (#;Right value)))))
-              (match+ 15 (commit (do Monad<STM>
-                                   [_ (update (i.* 3) _var)
-                                    value (read _var)]
-                                   (wrap (#;Right value)))))
-              (match+ 15 (commit (do Monad<STM>
-                                   [value (read _var)]
-                                   (wrap (#;Right value)))))
-              (match+ [5 15] (do promise;Monad<Promise>
-                               [?c1+changes' changes
-                                #let [[c1 changes'] (default [-1 changes] ?c1+changes')]
-                                ?c2+changes' changes'
-                                #let [[c2 changes'] (default [-1 changes] ?c2+changes')]]
-                               (wrap (#;Right [c1 c2]))))
-              ## Temporarily commented-out due to type-checking bug in
-              ## compiler...
-              ## (match+ _ (seqM Monad<Test> tests))
-              )))
+                        (let [_concurrency-var (&;var 0)]
+                          (do promise;Monad<Promise>
+                            [_ (seqM @
+                                     (map (lambda [_]
+                                            (mapM @ (lambda [_] (&;commit (&;update i.inc _concurrency-var)))
+                                                  (list;i.range 1 iterations/processes)))
+                                          (list;i.range 1 processes/vars)))
+                             _ (&;commit (&;read _concurrency-var))]
+                            (assert "" true))))
+                      (list;i.range 1 vars)))]
+    ($_ seq
+        (do promise;Monad<Promise>
+          [output (&;commit (do &;Monad<STM>
+                              [value (&;read _var)]
+                              (wrap value)))]
+          (assert "" (i.= 0 output)))
+
+        (do promise;Monad<Promise>
+          [output (&;commit (do &;Monad<STM>
+                              [_ (&;write 5 _var)
+                               value (&;read _var)]
+                              (wrap value)))]
+          (assert "" (i.= 5 output)))
+
+        (do promise;Monad<Promise>
+          [output (&;commit (do &;Monad<STM>
+                              [value (&;read _var)]
+                              (wrap value)))]
+          (assert "" (i.= 5 output)))
+
+        (do promise;Monad<Promise>
+          [output (&;commit (do &;Monad<STM>
+                              [_ (&;update (i.* 3) _var)
+                               value (&;read _var)]
+                              (wrap value)))]
+          (assert "" (i.= 15 output)))
+
+        (do promise;Monad<Promise>
+          [output (&;commit (do &;Monad<STM>
+                              [value (&;read _var)]
+                              (wrap value)))]
+          (assert "" (i.= 15 output)))
+
+        (do promise;Monad<Promise>
+          [?c1+changes' changes
+           #let [[c1 changes'] (default [-1 changes] ?c1+changes')]
+           ?c2+changes' changes'
+           #let [[c2 changes'] (default [-1 changes] ?c2+changes')]]
+          (assert ""
+                  (and (i.= 5 c1)
+                       (i.= 15 c2))))
+        ## Temporarily commented-out due to type-checking bug in
+        ## compiler...
+        ## (match+ _ (seqM Monad<Test> tests))
+        )))

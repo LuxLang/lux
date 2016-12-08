@@ -1,3 +1,8 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (control monad)
@@ -5,7 +10,7 @@
              text/format
              error)
        (concurrency [promise #+ Promise Monad<Promise> "Promise/" Monad<Promise>]
-                    actor)
+                    ["&" actor #+ actor:])
        (codata function
                [io #- run]))
   lux/test)
@@ -23,48 +28,60 @@
       (log! (format "Current state: " (%i *state*)))
       (wrap []))))
 
-(test: "lux/concurrency/actor exports"
-  (let [counter-proc (: (Proc Int (Promise Int))
+(test: "Actors"
+  (let [counter-proc (: (&;Proc Int (Promise Int))
                         [(lambda [self output state]
                            (let [state' (i.inc state)]
                              (exec (io;run (promise;resolve state' output))
                                (Promise/wrap (#;Right state')))))
                          (lambda [?error state] (Promise/wrap []))])]
-    (test-all (match true
-                     (let [counter (: (Actor Int (Promise Int))
-                                      (io;run (spawn 0 counter-proc)))]
-                       (alive? counter)))
-              (match [true false]
-                     (let [counter (: (Actor Int (Promise Int))
-                                      (io;run (spawn 0 counter-proc)))]
-                       [(io;run (poison counter))
-                        (alive? counter)]))
-              (match [true false]
-                     (let [counter (: (Actor Int (Promise Int))
-                                      (io;run (spawn 0 counter-proc)))]
-                       [(io;run (poison counter))
-                        (io;run (poison counter))]))
-              (match+ [1 2 3]
-                      (do Monad<Promise>
-                        [#let [counter (: (Actor Int (Promise Int))
-                                          (io;run (spawn 0 counter-proc)))
-                               output-1 (: (Promise Int) (promise;promise))
-                               output-2 (: (Promise Int) (promise;promise))
-                               output-3 (: (Promise Int) (promise;promise))]
-                         ?1 (send output-1 counter)
-                         ?2 (send output-2 counter)
-                         ?3 (send output-3 counter)]
-                        (if (and ?1 ?2 ?3)
-                          (from-promise ($_ promise;seq output-1 output-2 output-3))
-                          (wrap (#;Left "Uh, oh...")))))
-              (match+ [[0 1] [1 3] [3 6]]
-                      (do Monad<Promise>
-                        [#let [adder (: Adder
-                                        (io;run (spawn 0 Adder//new)))]
-                         t1 (add! 1 adder)
-                         t2 (add! 2 adder)
-                         t3 (add! 3 adder)
-                         #let [? (io;run (poison adder))]]
-                        (wrap (#;Right [t1 t2 t3]))
-                        ))
-              )))
+    ($_ seq
+        (assert "Can check where an actor is alive."
+                (let [counter (: (&;Actor Int (Promise Int))
+                                 (io;run (&;spawn 0 counter-proc)))]
+                  (&;alive? counter)))
+        
+        (assert "Can poison/kill actors."
+                (let [counter (: (&;Actor Int (Promise Int))
+                                 (io;run (&;spawn 0 counter-proc)))]
+                  (and (io;run (&;poison counter))
+                       (not (&;alive? counter)))))
+        
+        (assert "Can't poison an already poisoned actor."
+                (let [counter (: (&;Actor Int (Promise Int))
+                                 (io;run (&;spawn 0 counter-proc)))]
+                  (and (io;run (&;poison counter))
+                       (not (io;run (&;poison counter))))))
+        
+        (do Monad<Promise>
+          [#let [counter (: (&;Actor Int (Promise Int))
+                            (io;run (&;spawn 0 counter-proc)))
+                 output-1 (: (Promise Int) (promise;promise))
+                 output-2 (: (Promise Int) (promise;promise))
+                 output-3 (: (Promise Int) (promise;promise))]
+           _ (&;send output-1 counter)
+           _ (&;send output-2 counter)
+           _ (&;send output-3 counter)
+           =1 output-1
+           =2 output-2
+           =3 output-3]
+          (assert "Can send messages to actors."
+                  (and (i.= 1 =1)
+                       (i.= 2 =2)
+                       (i.= 3 =3))))
+        
+        (do Monad<Promise>
+          [#let [adder (: Adder
+                          (io;run (&;spawn 0 Adder//new)))]
+           t1 (add! 1 adder)
+           t2 (add! 2 adder)
+           t3 (add! 3 adder)
+           #let [_ (io;run (&;poison adder))]]
+          (assert "Can use custom-defined actors."
+                  (case [t1 t2 t3]
+                    [[0 1] [1 3] [3 6]]
+                    true
+
+                    _
+                    false)))
+        )))

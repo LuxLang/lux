@@ -1,31 +1,78 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (control monad)
        (data [number]
              text/format
              error)
-       (concurrency promise)
+       (concurrency ["&" promise])
        (codata function
-               [io #*]))
+               [io #- run])
+       (math ["R" random])
+       pipe)
   lux/test)
 
-(test: "lux/concurrency/promise exports"
-  (test-all (match+ true (from-promise (future (io true))))
-            (match+ [] (from-promise (wait +500)))
-            (match+ [true false] (from-promise (seq (future (io true))
-                                                  (future (io false)))))
-            (match+ (#;Left true) (from-promise (alt (delay +100 true)
-                                                   (delay +200 false))))
-            (match+ (#;Right false) (from-promise (alt (delay +200 true)
-                                                     (delay +100 false))))
-            (match+ true (from-promise (either (delay +100 true)
-                                             (delay +200 false))))
-            (match+ false (from-promise (either (delay +200 true)
-                                              (delay +100 false))))
-            (match (#;Some true) (poll (:: Monad<Promise> wrap true)))
-            (match #;None (poll (delay +200 true)))
-            (match false (io;run (resolve false (:: Monad<Promise> wrap true))))
-            (match true (io;run (resolve true (: (Promise Bool) (promise)))))
-            (match+ #;None (from-promise (time-out +100 (delay +200 true))))
-            (match+ (#;Some true) (from-promise (time-out +200 (delay +100 true))))
-            ))
+(test: "Promises"
+  ($_ seq
+      (do &;Monad<Promise>
+        [running? (&;future (io true))]
+        (assert "Can run IO actions in separate threads."
+                running?))
+
+      (do &;Monad<Promise>
+        [_ (&;wait +500)]
+        (assert "Can wait for a specified amount of time."
+                true))
+
+      (do &;Monad<Promise>
+        [[left right] (&;seq (&;future (io true))
+                             (&;future (io false)))]
+        (assert "Can combine promises sequentially."
+                (and left (not right))))
+
+      (do &;Monad<Promise>
+        [?left (&;alt (&;delay +100 true)
+                      (&;delay +200 false))
+         ?right (&;alt (&;delay +200 true)
+                       (&;delay +100 false))]
+        (assert "Can combine promises alternatively."
+                (case [?left ?right]
+                  [(#;Left true) (#;Right false)]
+                  true
+
+                  _
+                  false)))
+
+      (do &;Monad<Promise>
+        [?left (&;either (&;delay +100 true)
+                         (&;delay +200 false))
+         ?right (&;either (&;delay +200 true)
+                          (&;delay +100 false))]
+        (assert "Can combine promises alternatively [Part 2]."
+                (and ?left (not ?right))))
+
+      (assert "Can poll a promise for its value."
+              (and (|> (&;poll (:: &;Monad<Promise> wrap true))
+                       (case> (#;Some true) true _ false))
+                   (|> (&;poll (&;delay +200 true))
+                       (case> #;None true _ false))))
+
+      (assert "Cant re-resolve a resolved promise."
+              (and (not (io;run (&;resolve false (:: &;Monad<Promise> wrap true))))
+                   (io;run (&;resolve true (: (&;Promise Bool) (&;promise))))))
+
+      (do &;Monad<Promise>
+        [?none (&;time-out +100 (&;delay +200 true))
+         ?some (&;time-out +200 (&;delay +100 true))]
+        (assert "Can establish maximum waiting times for promises to be fulfilled."
+                (case [?none ?some]
+                  [#;None (#;Some true)]
+                  true
+
+                  _
+                  false)))
+      ))
