@@ -11,89 +11,95 @@
                 number
                 codec
                 monad)
-       (data [number "i:" Number<Int> Codec<Text,Int>]
+       (data [number "n/" Number<Nat> Codec<Text,Nat>]
              [text "Text/" Monoid<Text>]
-             error)
+             error
+             [product])
        [compiler]
        (macro [ast]
               ["s" syntax #+ syntax: Syntax])))
 
 (type: #export Ratio
-  {#numerator Int
-   #denominator Int})
+  {#numerator Nat
+   #denominator Nat})
 
 (def: #hidden (normalize (^slots [#numerator #denominator]))
   (-> Ratio Ratio)
-  (let [common (nat-to-int (math;gcd (int-to-nat (i:abs numerator))
-                                     (int-to-nat (i:abs denominator))))
-        numerator (i./ common numerator)
-        denominator (i./ common denominator)]
-    {#numerator (if (and (i.< 0 numerator)
-                         (i.< 0 denominator))
-                  (i:abs numerator)
-                  numerator)
-     #denominator (i:abs denominator)}))
+  (let [common (math;gcd numerator denominator)]
+    {#numerator (n./ common numerator)
+     #denominator (n./ common denominator)}))
 
 (def: #export (q.* param input)
   (-> Ratio Ratio Ratio)
-  (normalize [(i.* (get@ #numerator param)
+  (normalize [(n.* (get@ #numerator param)
                    (get@ #numerator input))
-              (i.* (get@ #denominator param)
+              (n.* (get@ #denominator param)
                    (get@ #denominator input))]))
 
 (def: #export (q./ param input)
   (-> Ratio Ratio Ratio)
-  (normalize [(i.* (get@ #denominator param)
+  (normalize [(n.* (get@ #denominator param)
                    (get@ #numerator input))
-              (i.* (get@ #numerator param)
+              (n.* (get@ #numerator param)
                    (get@ #denominator input))]))
 
 (def: #export (q.+ param input)
   (-> Ratio Ratio Ratio)
-  (normalize [(i.+ (i.* (get@ #denominator input)
+  (normalize [(n.+ (n.* (get@ #denominator input)
                         (get@ #numerator param))
-                   (i.* (get@ #denominator param)
+                   (n.* (get@ #denominator param)
                         (get@ #numerator input)))
-              (i.* (get@ #denominator param)
+              (n.* (get@ #denominator param)
                    (get@ #denominator input))]))
 
 (def: #export (q.- param input)
   (-> Ratio Ratio Ratio)
-  (normalize [(i.- (i.* (get@ #denominator input)
+  (normalize [(n.- (n.* (get@ #denominator input)
                         (get@ #numerator param))
-                   (i.* (get@ #denominator param)
+                   (n.* (get@ #denominator param)
                         (get@ #numerator input)))
-              (i.* (get@ #denominator param)
+              (n.* (get@ #denominator param)
                    (get@ #denominator input))]))
 
 (def: #export (q.% param input)
   (-> Ratio Ratio Ratio)
-  (let [quot (i./ (i.* (get@ #denominator input)
+  (let [quot (n./ (n.* (get@ #denominator input)
                        (get@ #numerator param))
-                  (i.* (get@ #denominator param)
+                  (n.* (get@ #denominator param)
                        (get@ #numerator input)))]
-    (q.- (update@ #numerator (i.* quot) param)
+    (q.- (update@ #numerator (n.* quot) param)
          input)))
 
 (def: #export (q.= param input)
   (-> Ratio Ratio Bool)
-  (and (i.= (get@ #numerator param)
+  (and (n.= (get@ #numerator param)
             (get@ #numerator input))
-       (i.= (get@ #denominator param)
+       (n.= (get@ #denominator param)
             (get@ #denominator input))))
 
 (do-template [<name> <op>]
   [(def: #export (<name> param input)
      (-> Ratio Ratio Bool)
-     (and (<op> (i.* (get@ #denominator input)
+     (and (<op> (n.* (get@ #denominator input)
                      (get@ #numerator param))
-                (i.* (get@ #denominator param)
+                (n.* (get@ #denominator param)
                      (get@ #numerator input)))))]
 
-  [q.<  i.<]
-  [q.<= i.<=]
-  [q.>  i.>]
-  [q.>= i.>=]
+  [q.<  n.<]
+  [q.<= n.<=]
+  [q.>  n.>]
+  [q.>= n.>=]
+  )
+
+(do-template [<name> <comp>]
+  [(def: #export (<name> left right)
+     (-> Ratio Ratio Ratio)
+     (if (<comp> left right)
+       right
+       left))]
+
+  [q.min q.<]
+  [q.max q.>]
   )
 
 (struct: #export _ (Eq Ratio)
@@ -113,24 +119,39 @@
   (def: * q.*)
   (def: / q./)
   (def: % q.%)
-  (def: negate (|>. (update@ #numerator i:negate) normalize))
-  (def: abs (|>. (update@ #numerator i:abs) (update@ #denominator i:abs)))
+  (def: (negate (^slots [#numerator #denominator]))
+    {#numerator denominator
+     #denominator numerator})
+  (def: abs id)
   (def: (signum x)
-    {#numerator (i:signum (get@ #numerator x))
-     #denominator 1}))
+    {#numerator +1
+     #denominator +1}))
 
 (def: separator Text ":")
 
+(def: part-encode
+  (-> Nat Text)
+  (|>. n/encode (text;split +1) (default (undefined)) product;right))
+
+(def: (part-decode part)
+  (-> Text (Error Nat))
+  (case (text;split-with "+" part)
+    (#;Some [_ part])
+    (n/decode part)
+
+    _
+    (fail "Invalid format for ratio part.")))
+
 (struct: #export _ (Codec Text Ratio)
   (def: (encode (^slots [#numerator #denominator]))
-    ($_ Text/append (i:encode numerator) separator (i:encode denominator)))
+    ($_ Text/append (part-encode numerator) separator (part-encode denominator)))
 
   (def: (decode input)
     (case (text;split-with separator input)
       (#;Some [num denom])
       (do Monad<Error>
-        [numerator (i:decode num)
-         denominator (i:decode denom)]
+        [numerator (part-decode num)
+         denominator (part-decode denom)]
         (wrap (normalize {#numerator numerator
                           #denominator denominator})))
       
