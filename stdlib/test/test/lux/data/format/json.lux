@@ -15,7 +15,7 @@
              [bool]
              [char]
              [maybe]
-             [number]
+             [number "i/" Number<Int>]
              (format ["&" json])
              (struct [vector #+ vector]
                      [dict]
@@ -38,7 +38,7 @@
              ($_ R;alt
                  (:: @ wrap [])
                  R;bool
-                 R;real
+                 (|> R;real (:: @ map (r.* 1_000_000.0)))
                  (R;text size)
                  (R;vector size gen-json)
                  (R;dict text;Hash<Text> size (R;text size) gen-json)
@@ -81,37 +81,52 @@
 (def: gen-record
   (R;Random Record)
   (do R;Monad<Random>
-    [size (:: @ map (n.% +2) R;nat)]
+    [size (:: @ map (n.% +2) R;nat)
+     #let [gen-int (|> R;int (:: @ map (|>. i/abs (i.% 1_000_000))))]]
     ($_ R;seq
         (:: @ wrap [])
         R;bool
-        R;int
+        gen-int
         R;real
         R;char
         (R;text size)
-        (R;maybe R;int)
-        (R;list size R;int)
-        ($_ R;alt R;bool R;int R;real)
-        ($_ R;seq R;int R;real R;char)
+        (R;maybe gen-int)
+        (R;list size gen-int)
+        ($_ R;alt R;bool gen-int R;real)
+        ($_ R;seq gen-int R;real R;char)
         )))
 
 (derived: (&;Codec<JSON,?> Record))
 
 (struct: _ (Eq Record)
   (def: (= recL recR)
-    (and (:: bool;Eq<Bool> = (get@ #bool recL) (get@ #bool recR))
-         (i.= (get@ #int recL) (get@ #int recR))
-         (r.= (get@ #real recL) (get@ #real recR))
-         (:: char;Eq<Char> = (get@ #char recL) (get@ #char recR))
-         (:: text;Eq<Text> = (get@ #text recL) (get@ #text recR))
-         (:: (maybe;Eq<Maybe> number;Eq<Int>) = (get@ #maybe recL) (get@ #maybe recR))
-         (:: (list;Eq<List> number;Eq<Int>) = (get@ #list recL) (get@ #list recR))
-         (let [[tL0 tL1 tL2] (get@ #tuple recL)
-               [tR0 tR1 tR2] (get@ #tuple recR)]
-           (and (i.= tL0 tR0)
-                (r.= tL1 tR1)
-                (:: char;Eq<Char> = tL2 tR2)))
-         )))
+    (let [variant/= (lambda [left right]
+                      (case [left right]
+                        [(#Case0 left') (#Case0 right')]
+                        (:: bool;Eq<Bool> = left' right')
+                        
+                        [(#Case1 left') (#Case1 right')]
+                        (i.= left' right')
+                        
+                        [(#Case2 left') (#Case2 right')]
+                        (r.= left' right')
+
+                        _
+                        false))]
+      (and (:: bool;Eq<Bool> = (get@ #bool recL) (get@ #bool recR))
+           (i.= (get@ #int recL) (get@ #int recR))
+           (r.= (get@ #real recL) (get@ #real recR))
+           (:: char;Eq<Char> = (get@ #char recL) (get@ #char recR))
+           (:: text;Eq<Text> = (get@ #text recL) (get@ #text recR))
+           (:: (maybe;Eq<Maybe> number;Eq<Int>) = (get@ #maybe recL) (get@ #maybe recR))
+           (:: (list;Eq<List> number;Eq<Int>) = (get@ #list recL) (get@ #list recR))
+           (variant/= (get@ #variant recL) (get@ #variant recR))
+           (let [[tL0 tL1 tL2] (get@ #tuple recL)
+                 [tR0 tR1 tR2] (get@ #tuple recR)]
+             (and (i.= tL0 tR0)
+                  (r.= tL1 tR1)
+                  (:: char;Eq<Char> = tL2 tR2)))
+           ))))
 
 (test: "Polytypism"
   [sample gen-record
