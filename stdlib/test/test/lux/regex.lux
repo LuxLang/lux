@@ -7,194 +7,251 @@
   lux
   (lux (codata [io])
        (control monad)
-       (data error
-             [product])
+       (data [error #- fail]
+             [product]
+             [text "T/" Eq<Text>]
+             text/format)
        [compiler]
        (macro [ast]
               ["s" syntax #+ syntax:])
-       test
+       (math ["R" random])
+       pipe
        [lexer]
-       regex))
+       ["&" regex])
+  lux/test)
 
-(syntax: (should-regex {veredict (s;alt s;bool s;any)} {regex s;text} {input s;text})
-  (case veredict
-    (+0 ?)
-    (if ?
-      (wrap (list (` (match+ (~ (ast;text input))
-                             (should-pass (lexer;run (regex (~ (ast;text regex)))
-                                                     (~ (ast;text input))))))))
-      (wrap (list (` (should-fail (lexer;run (regex (~ (ast;text regex)))
-                                             (~ (ast;text input))))))))
+## [Utils]
+(def: (should-pass regex input)
+  (-> (lexer;Lexer Text) Text Bool)
+  (|> (lexer;run regex input)
+      (case> (#;Right parsed)
+             (T/= parsed input)
 
-    (+1 result)
-    (wrap (list (` (match+ (~ result)
-                           (should-pass (lexer;run (regex (~ (ast;text regex)))
-                                                   (~ (ast;text input))))))))))
+             _
+             false)))
+
+(def: (should-passT test regex input)
+  (-> Text (lexer;Lexer Text) Text Bool)
+  (|> (lexer;run regex input)
+      (case> (#;Right parsed)
+             (T/= test parsed)
+
+             _
+             false)))
+
+(def: (should-fail regex input)
+  (All [a] (-> (lexer;Lexer a) Text Bool))
+  (|> (lexer;run regex input)
+      (case> (#;Left _) true _ false)))
+
+(syntax: (should-check pattern regex input)
+  (wrap (list (` (|> (lexer;run (~ regex) (~ input))
+                     (case> (^ (#;Right (~ pattern)))
+                            true
+
+                            (~' _)
+                            false))))))
 
 ## [Tests]
 (test: "Regular Expressions [Basics]"
-  (test-all (should-regex true "a" "a")
-            (should-regex false "a" ".")
-            (should-regex true "\\." ".")
-            (should-regex false "\\." "a")
-            ))
+  (assert "Can parse character literals."
+          (and (should-pass (&;regex "a") "a")
+               (should-fail (&;regex "a") ".")
+               (should-pass (&;regex "\\.") ".")
+               (should-fail (&;regex "\\.") "a"))))
 
 (test: "Regular Expressions [System character classes]"
-  (test-all (should-regex true "." "a")
+  ($_ seq
+      (assert "Can parse anything."
+              (should-pass (&;regex ".") "a"))
 
-            (should-regex true "\\d" "0")
-            (should-regex false "\\d" "m")
-            (should-regex true "\\D" "m")
-            (should-regex false "\\D" "0")
+      (assert "Can parse digits."
+              (and (should-pass (&;regex "\\d") "0")
+                   (should-fail (&;regex "\\d") "m")))
+      
+      (assert "Can parse non digits."
+              (and (should-pass (&;regex "\\D") "m")
+                   (should-fail (&;regex "\\D") "0")))
 
-            (should-regex true "\\s" " ")
-            (should-regex false "\\s" "m")
-            (should-regex true "\\S" "m")
-            (should-regex false "\\S" " ")
+      (assert "Can parse white-space."
+              (and (should-pass (&;regex "\\s") " ")
+                   (should-fail (&;regex "\\s") "m")))
+      
+      (assert "Can parse non white-space."
+              (and (should-pass (&;regex "\\S") "m")
+                   (should-fail (&;regex "\\S") " ")))
 
-            (should-regex true "\\w" "_")
-            (should-regex false "\\w" "^")
-            (should-regex true "\\W" ".")
-            (should-regex false "\\W" "a")
+      (assert "Can parse word characters."
+              (and (should-pass (&;regex "\\w") "_")
+                   (should-fail (&;regex "\\w") "^")))
+      
+      (assert "Can parse non word characters."
+              (and (should-pass (&;regex "\\W") ".")
+                   (should-fail (&;regex "\\W") "a")))
 
-            (should-regex true "\\p{Lower}" "m")
-            (should-regex false "\\p{Lower}" "M")
+      (assert "Can parse using special character classes."
+              (and (and (should-pass (&;regex "\\p{Lower}") "m")
+                        (should-fail (&;regex "\\p{Lower}") "M"))
 
-            (should-regex true "\\p{Upper}" "M")
-            (should-regex false "\\p{Upper}" "m")
+                   (and (should-pass (&;regex "\\p{Upper}") "M")
+                        (should-fail (&;regex "\\p{Upper}") "m"))
 
-            (should-regex true "\\p{Alpha}" "M")
-            (should-regex false "\\p{Alpha}" "0")
+                   (and (should-pass (&;regex "\\p{Alpha}") "M")
+                        (should-fail (&;regex "\\p{Alpha}") "0"))
 
-            (should-regex true "\\p{Digit}" "1")
-            (should-regex false "\\p{Digit}" "n")
+                   (and (should-pass (&;regex "\\p{Digit}") "1")
+                        (should-fail (&;regex "\\p{Digit}") "n"))
 
-            (should-regex true "\\p{Alnum}" "1")
-            (should-regex false "\\p{Alnum}" ".")
+                   (and (should-pass (&;regex "\\p{Alnum}") "1")
+                        (should-fail (&;regex "\\p{Alnum}") "."))
 
-            (should-regex true "\\p{Space}" " ")
-            (should-regex false "\\p{Space}" ".")
+                   (and (should-pass (&;regex "\\p{Space}") " ")
+                        (should-fail (&;regex "\\p{Space}") "."))
 
-            (should-regex true "\\p{HexDigit}" "a")
-            (should-regex false "\\p{HexDigit}" ".")
+                   (and (should-pass (&;regex "\\p{HexDigit}") "a")
+                        (should-fail (&;regex "\\p{HexDigit}") "."))
 
-            (should-regex true "\\p{OctDigit}" "6")
-            (should-regex false "\\p{OctDigit}" ".")
+                   (and (should-pass (&;regex "\\p{OctDigit}") "6")
+                        (should-fail (&;regex "\\p{OctDigit}") "."))
 
-            (should-regex true "\\p{Blank}" "\t")
-            (should-regex false "\\p{Blank}" ".")
+                   (and (should-pass (&;regex "\\p{Blank}") "\t")
+                        (should-fail (&;regex "\\p{Blank}") "."))
 
-            (should-regex true "\\p{ASCII}" "\t")
-            (should-regex false "\\p{ASCII}" "\u1234")
+                   (and (should-pass (&;regex "\\p{ASCII}") "\t")
+                        (should-fail (&;regex "\\p{ASCII}") "\u1234"))
 
-            (should-regex true "\\p{Contrl}" "\u0012")
-            (should-regex false "\\p{Contrl}" "a")
+                   (and (should-pass (&;regex "\\p{Contrl}") "\u0012")
+                        (should-fail (&;regex "\\p{Contrl}") "a"))
 
-            (should-regex true "\\p{Punct}" "@")
-            (should-regex false "\\p{Punct}" "a")
+                   (and (should-pass (&;regex "\\p{Punct}") "@")
+                        (should-fail (&;regex "\\p{Punct}") "a"))
 
-            (should-regex true "\\p{Graph}" "@")
-            (should-regex false "\\p{Graph}" " ")
+                   (and (should-pass (&;regex "\\p{Graph}") "@")
+                        (should-fail (&;regex "\\p{Graph}") " "))
 
-            (should-regex true "\\p{Print}" "\u0020")
-            (should-regex false "\\p{Print}" "\u1234")
-            ))
+                   (and (should-pass (&;regex "\\p{Print}") "\u0020")
+                        (should-fail (&;regex "\\p{Print}") "\u1234"))))
+      ))
 
 (test: "Regular Expressions [Custom character classes]"
-  (test-all (should-regex true "[abc]" "a")
-            (should-regex false "[abc]" "m")
+  ($_ seq
+      (assert "Can parse using custom character classes."
+              (and (should-pass (&;regex "[abc]") "a")
+                   (should-fail (&;regex "[abc]") "m")))
 
-            (should-regex true "[a-z]" "a")
-            (should-regex true "[a-z]" "m")
-            (should-regex true "[a-z]" "z")
+      (assert "Can parse using character ranges."
+              (and (should-pass (&;regex "[a-z]") "a")
+                   (should-pass (&;regex "[a-z]") "m")
+                   (should-pass (&;regex "[a-z]") "z")))
 
-            (should-regex true "[a-zA-Z]" "a")
-            (should-regex true "[a-zA-Z]" "m")
-            (should-regex true "[a-zA-Z]" "z")
-            (should-regex true "[a-zA-Z]" "A")
-            (should-regex true "[a-zA-Z]" "M")
-            (should-regex true "[a-zA-Z]" "Z")
+      (assert "Can combine character ranges."
+              (and (should-pass (&;regex "[a-zA-Z]") "a")
+                   (should-pass (&;regex "[a-zA-Z]") "m")
+                   (should-pass (&;regex "[a-zA-Z]") "z")
+                   (should-pass (&;regex "[a-zA-Z]") "A")
+                   (should-pass (&;regex "[a-zA-Z]") "M")
+                   (should-pass (&;regex "[a-zA-Z]") "Z")))
 
-            (should-regex false "[^abc]" "a")
-            (should-regex true "[^abc]" "m")
+      (assert "Can negate custom character classes."
+              (and (should-fail (&;regex "[^abc]") "a")
+                   (should-pass (&;regex "[^abc]") "m")))
 
-            (should-regex false "[^a-z]" "a")
-            (should-regex true "[^a-z]" "0")
-            (should-regex false "[^a-zA-Z]" "a")
-            (should-regex true "[^a-zA-Z]" "0")
+      (assert "Can negate character ranges.."
+              (and (should-fail (&;regex "[^a-z]") "a")
+                   (should-pass (&;regex "[^a-z]") "0")))
+      
+      (assert "Can parse negate combinations of character ranges."
+              (and (should-fail (&;regex "[^a-zA-Z]") "a")
+                   (should-pass (&;regex "[^a-zA-Z]") "0")))
 
-            (should-regex false "[a-z&&[def]]" "a")
-            (should-regex true "[a-z&&[def]]" "d")
+      (assert "Can make custom character classes more specific."
+              (and (and (should-fail (&;regex "[a-z&&[def]]") "a")
+                        (should-pass (&;regex "[a-z&&[def]]") "d"))
 
-            (should-regex true "[a-z&&[^bc]]" "a")
-            (should-regex false "[a-z&&[^bc]]" "b")
+                   (and (should-pass (&;regex "[a-z&&[^bc]]") "a")
+                        (should-fail (&;regex "[a-z&&[^bc]]") "b"))
 
-            (should-regex true "[a-z&&[^m-p]]" "a")
-            (should-regex false "[a-z&&[^m-p]]" "m")
-            (should-regex false "[a-z&&[^m-p]]" "p")
-            ))
+                   (and (should-pass (&;regex "[a-z&&[^m-p]]") "a")
+                        (should-fail (&;regex "[a-z&&[^m-p]]") "m")
+                        (should-fail (&;regex "[a-z&&[^m-p]]") "p"))))
+      ))
 
 (test: "Regular Expressions [Reference]"
-  (test-all (let [number (regex "\\d+")]
-              (should-regex ["809-345-6789" "809" "345" "6789"] "(\\@<number>)-(\\@<number>)-(\\@<number>)" "809-345-6789"))
-            ))
+  (let [number (&;regex "\\d+")]
+    (assert "Can build complex regexs by combining simpler ones."
+            (should-check ["809-345-6789" "809" "345" "6789"] (&;regex "(\\@<number>)-(\\@<number>)-(\\@<number>)") "809-345-6789"))))
 
 (test: "Regular Expressions [Quantifiers]"
-  (test-all (should-regex "aa" "aa" "aa")
+  ($_ seq
+      (assert "Can sequentially combine patterns."
+              (should-passT "aa" (&;regex "aa") "aa"))
 
-            (should-regex "a" "a?" "a")
-            (should-regex "" "a?" "")
-            
-            (should-regex "aaa" "a*" "aaa")
-            (should-regex "" "a*" "")
-            
-            (should-regex "aaa" "a+" "aaa")
-            (should-regex "a" "a+" "a")
-            (should-regex false "a+" "")
+      (assert "Can match patterns optionally."
+              (and (should-passT "a" (&;regex "a?") "a")
+                   (should-passT "" (&;regex "a?") "")))
+      
+      (assert "Can match a pattern 0 or more times."
+              (and (should-passT "aaa" (&;regex "a*") "aaa")
+                   (should-passT "" (&;regex "a*") "")))
+      
+      (assert "Can match a pattern 1 or more times."
+              (and (should-passT "aaa" (&;regex "a+") "aaa")
+                   (should-passT "a" (&;regex "a+") "a")
+                   (should-fail (&;regex "a+") "")))
 
-            (should-regex "aa" "a{2}" "aa")
-            (should-regex "a" "a{1}" "aa")
-            (should-regex false "a{3}" "aa")
+      (assert "Can match a pattern N times."
+              (and (should-passT "aa" (&;regex "a{2}") "aa")
+                   (should-passT "a" (&;regex "a{1}") "aa")
+                   (should-fail (&;regex "a{3}") "aa")))
 
-            (should-regex "aa" "a{1,}" "aa")
-            (should-regex "aa" "a{2,}" "aa")
-            (should-regex false "a{3,}" "aa")
+      (assert "Can match a pattern at-least N times."
+              (and (should-passT "aa" (&;regex "a{1,}") "aa")
+                   (should-passT "aa" (&;regex "a{2,}") "aa")
+                   (should-fail (&;regex "a{3,}") "aa")))
 
-            (should-regex "a" "a{,1}" "aa")
-            (should-regex "aa" "a{,2}" "aa")
-            (should-regex "aa" "a{,3}" "aa")
+      (assert "Can match a pattern at-most N times."
+              (and (should-passT "a" (&;regex "a{,1}") "aa")
+                   (should-passT "aa" (&;regex "a{,2}") "aa")
+                   (should-passT "aa" (&;regex "a{,3}") "aa")))
 
-            (should-regex "a" "a{1,2}" "a")
-            (should-regex "aa" "a{1,2}" "aa")
-            (should-regex "aa" "a{1,2}" "aaa")
-            ))
+      (assert "Can match a pattern between N and M times."
+              (and (should-passT "a" (&;regex "a{1,2}") "a")
+                   (should-passT "aa" (&;regex "a{1,2}") "aa")
+                   (should-passT "aa" (&;regex "a{1,2}") "aaa")))
+      ))
 
 (test: "Regular Expressions [Groups]"
-  (test-all (should-regex ["abc" "b"] "a(.)c" "abc")
-            (should-regex ["abbbbbc" "bbbbb"] "a(b+)c" "abbbbbc")
-            (should-regex ["809-345-6789" "809" "345" "6789"] "(\\d{3})-(\\d{3})-(\\d{4})" "809-345-6789")
-            (should-regex ["809-345-6789" "809" "6789"] "(\\d{3})-(?:\\d{3})-(\\d{4})" "809-345-6789")
-            (should-regex ["809-809-6789" "809" "6789"] "(\\d{3})-\\0-(\\d{4})" "809-809-6789")
-            (should-regex ["809-809-6789" "809" "6789"] "(?<code>\\d{3})-\\k<code>-(\\d{4})" "809-809-6789")
-            (should-regex ["809-809-6789-6789" "809" "6789"] "(?<code>\\d{3})-\\k<code>-(\\d{4})-\\0" "809-809-6789-6789")
+  ($_ seq
+      (assert "Can extract groups of sub-matches specified in a pattern."
+              (and (should-check ["abc" "b"] (&;regex "a(.)c") "abc")
+                   (should-check ["abbbbbc" "bbbbb"] (&;regex "a(b+)c") "abbbbbc")
+                   (should-check ["809-345-6789" "809" "345" "6789"] (&;regex "(\\d{3})-(\\d{3})-(\\d{4})") "809-345-6789")
+                   (should-check ["809-345-6789" "809" "6789"] (&;regex "(\\d{3})-(?:\\d{3})-(\\d{4})") "809-345-6789")
+                   (should-check ["809-809-6789" "809" "6789"] (&;regex "(\\d{3})-\\0-(\\d{4})") "809-809-6789")
+                   (should-check ["809-809-6789" "809" "6789"] (&;regex "(?<code>\\d{3})-\\k<code>-(\\d{4})") "809-809-6789")
+                   (should-check ["809-809-6789-6789" "809" "6789"] (&;regex "(?<code>\\d{3})-\\k<code>-(\\d{4})-\\0") "809-809-6789-6789")))
 
-            (should-regex ["809-345-6789" "809" ["345-6789" "345" "6789"]] "(\\d{3})-((\\d{3})-(\\d{4}))" "809-345-6789")
-            ))
+      (assert "Can specify groups within groups."
+              (should-check ["809-345-6789" "809" ["345-6789" "345" "6789"]] (&;regex "(\\d{3})-((\\d{3})-(\\d{4}))") "809-345-6789"))
+      ))
 
 (test: "Regular Expressions [Alternation]"
-  (test-all (should-regex ["a" (+0 [])] "a|b" "a")
-            (should-regex ["b" (+1 [])] "a|b" "b")
-            (should-regex false "a|b" "c")
+  ($_ seq
+      (assert "Can specify alternative patterns."
+              (and (should-check ["a" (+0 [])] (&;regex "a|b") "a")
+                   (should-check ["b" (+1 [])] (&;regex "a|b") "b")
+                   (should-fail (&;regex "a|b") "c")))
 
-            (should-regex ["abc" (+0 "b")] "a(.)c|b(.)d" "abc")
-            (should-regex ["bcd" (+1 "c")] "a(.)c|b(.)d" "bcd")
-            (should-regex false "a(.)c|b(.)d" "cde")
+      (assert "Can have groups within alternations."
+              (and (should-check ["abc" (+0 "b")] (&;regex "a(.)c|b(.)d") "abc")
+                   (should-check ["bcd" (+1 "c")] (&;regex "a(.)c|b(.)d") "bcd")
+                   (should-fail (&;regex "a(.)c|b(.)d") "cde")
 
-            (should-regex ["abc" (+0 ["b" "c"])] "a(.)(.)|b(.)(.)" "abc")
-            (should-regex ["bcd" (+1 ["c" "d"])] "a(.)(.)|b(.)(.)" "bcd")
-            (should-regex false "a(.)(.)|b(.)(.)" "cde")
+                   (should-check ["abc" (+0 ["b" "c"])] (&;regex "a(.)(.)|b(.)(.)") "abc")
+                   (should-check ["bcd" (+1 ["c" "d"])] (&;regex "a(.)(.)|b(.)(.)") "bcd")
+                   (should-fail (&;regex "a(.)(.)|b(.)(.)") "cde")
 
-            (should-regex ["809-345-6789" (+0 ["809" "345-6789" "345" "6789"])]
-                          "(\\d{3})-((\\d{3})-(\\d{4}))|b(.)d"
-                          "809-345-6789")
-            ))
+                   (should-check ["809-345-6789" (+0 ["809" "345-6789" "345" "6789"])]
+                                 (&;regex "(\\d{3})-((\\d{3})-(\\d{4}))|b(.)d")
+                                 "809-345-6789")))
+      ))
