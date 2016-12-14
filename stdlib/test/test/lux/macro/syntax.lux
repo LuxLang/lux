@@ -1,176 +1,259 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (codata [io])
-       (control monad)
+       (control monad
+                eq)
        (data [text "Text/" Monoid<Text>]
-             [number])
+             text/format
+             [number]
+             [bool]
+             [char]
+             [ident]
+             [error #- fail])
+       (codata function)
+       (math ["R" random])
+       pipe
+       [compiler]
        (macro [ast]
-              ["s" syntax #+ syntax: Syntax])
-       (codata function))
+              ["s" syntax #+ syntax: Syntax]))
   lux/test)
 
-(test: "lux/macro/syntax exports [Part 1]"
-  (let% [<simple-tests> (do-template [<pattern> <expr> <get> <ask> <demand>]
-                          [(match (#;Right [_ <pattern>])
-                                  (s;run (list <expr>)
-                                         <get>))
-                           (match (#;Right [_ true])
-                                  (s;run (list <expr>)
-                                         (<ask> <pattern>)))
-                           (match (#;Right [_ []])
-                                  (s;run (list <expr>)
-                                         (<demand> <pattern>)))]
+## [Utils]
+(def: (enforced? parser input)
+  (-> (Syntax []) (List AST) Bool)
+  (case (s;run input parser)
+    (#;Right [_ []])
+    true
 
-                          [true           (ast;bool true)             s;bool   s;bool?   s;bool!]
-                          [123            (ast;int 123)               s;int    s;int?    s;int!]
-                          [123.0          (ast;real 123.0)            s;real   s;real?   s;real!]
-                          [#"\n"          (ast;char #"\n")            s;char   s;char?   s;char!]
-                          ["\n"           (ast;text "\n")             s;text   s;text?   s;text!]
-                          [["yolo" "lol"] (ast;symbol ["yolo" "lol"]) s;symbol s;symbol? s;symbol!]
-                          [["yolo" "lol"] (ast;tag ["yolo" "lol"])    s;tag    s;tag?    s;tag!]
-                          )
-         <group-tests> (do-template [<parser> <ctor>]
-                         [(match (#;Right [_ [true 123]])
-                                 (s;run (list (<ctor> (list (ast;bool true) (ast;int 123))))
-                                        (<parser> (s;seq s;bool s;int))))
-                          (match (#;Right [_ true])
-                                 (s;run (list (<ctor> (list (ast;bool true))))
-                                        (<parser> s;bool)))
-                          (match (#;Left _)
-                                 (s;run (list (<ctor> (list (ast;bool true) (ast;int 123))))
-                                        (<parser> s;bool)))
-                          (match (#;Right [_ (#;Left true)])
-                                 (s;run (list (<ctor> (list (ast;bool true))))
-                                        (<parser> (s;alt s;bool s;int))))
-                          (match (#;Right [_ (#;Right 123)])
-                                 (s;run (list (<ctor> (list (ast;int 123))))
-                                        (<parser> (s;alt s;bool s;int))))
-                          (match (#;Left _)
-                                 (s;run (list (<ctor> (list (ast;real 123.0))))
-                                        (<parser> (s;alt s;bool s;int))))]
+    _
+    false))
 
-                         [s;form  ast;form]
-                         [s;tuple ast;tuple])]
-    (test-all (match (#;Right [_ [_ (#;BoolS true)]])
-                     (s;run (list (ast;bool true) (ast;int 123))
-                            s;any))
-              <simple-tests>
-              (match (#;Right [_ []])
-                     (s;run (list (ast;bool true) (ast;int 123))
-                            (s;assert true "yolo")))
-              (match (#;Left _)
-                     (s;run (list (ast;bool true) (ast;int 123))
-                            (s;assert false "yolo")))
-              (match (#;Right [_ +123])
-                     (s;run (list (ast;nat +123))
-                            s;nat))
-              (match (#;Left _)
-                     (s;run (list (ast;int -123))
-                            s;nat))
-              (match (#;Right [_ "yolo"])
-                     (s;run (list (ast;local-symbol "yolo"))
-                            s;local-symbol))
-              (match (#;Left _)
-                     (s;run (list (ast;symbol ["yolo" "lol"]))
-                            s;local-symbol))
-              (match (#;Right [_ "yolo"])
-                     (s;run (list (ast;local-tag "yolo"))
-                            s;local-tag))
-              (match (#;Left _)
-                     (s;run (list (ast;tag ["yolo" "lol"]))
-                            s;local-tag))
-              <group-tests>
-              )))
+(def: (found? parser input)
+  (-> (Syntax Bool) (List AST) Bool)
+  (case (s;run input parser)
+    (#;Right [_ true])
+    true
 
-(test: "lux/macro/syntax exports [Part 2]"
-  (test-all (match (#;Right [_ [true 123]])
-                   (s;run (list (ast;record (list [(ast;bool true) (ast;int 123)])))
-                          (s;record (s;seq s;bool s;int))))
-            (match (#;Right [_ (#;Some +123)])
-                   (s;run (list (ast;nat +123))
-                          (s;opt s;nat)))
-            (match (#;Right [_ #;None])
-                   (s;run (list (ast;int -123))
-                          (s;opt s;nat)))
-            (match (^ (#;Right [_ (list +123 +456 +789)]))
-                   (s;run (list (ast;nat +123) (ast;nat +456) (ast;nat +789))
-                          (s;some s;nat)))
-            (match (^ (#;Right [_ (list)]))
-                   (s;run (list (ast;int -123))
-                          (s;some s;nat)))
-            (match (^ (#;Right [_ (list +123 +456 +789)]))
-                   (s;run (list (ast;nat +123) (ast;nat +456) (ast;nat +789))
-                          (s;many s;nat)))
-            (match (^ (#;Right [_ (list +123)]))
-                   (s;run (list (ast;nat +123))
-                          (s;many s;nat)))
-            (match (#;Left _)
-                   (s;run (list (ast;int -123))
-                          (s;many s;nat)))
-            (match (#;Right [_ 123])
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;either s;pos-int s;int)))
-            (match (#;Right [_ -123])
-                   (s;run (list (ast;int -123) (ast;int 456) (ast;int 789))
-                          (s;either s;pos-int s;int)))
-            (match (#;Left _)
-                   (s;run (list (ast;bool true) (ast;int 456) (ast;int 789))
-                          (s;either s;pos-int s;int)))
-            (match (#;Right [_ true])
-                   (s;run (list)
-                          s;end?))
-            (match (#;Right [_ false])
-                   (s;run (list (ast;bool true))
-                          s;end?))
-            (match (#;Right [_ []])
-                   (s;run (list)
-                          s;end))
-            (match (#;Left _)
-                   (s;run (list (ast;bool true))
-                          s;end))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;exactly +3 s;int)))
-            (match (^ (#;Right [_ (list 123 456)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;exactly +2 s;int)))
-            (match (#;Left _)
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;exactly +4 s;int)))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;at-least +3 s;int)))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;at-least +2 s;int)))
-            (match (#;Left _)
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;at-least +4 s;int)))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;at-most +3 s;int)))
-            (match (^ (#;Right [_ (list 123 456)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;at-most +2 s;int)))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;at-most +4 s;int)))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;between +3 +10 s;int)))
-            (match (#;Left _)
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;between +4 +10 s;int)))
-            (match (^ (#;Right [_ (list 123 456 789)]))
-                   (s;run (list (ast;int 123) (ast;text "YOLO") (ast;int 456) (ast;text "YOLO") (ast;int 789))
-                          (s;sep-by (s;text! "YOLO") s;int)))
-            (match (^ (#;Right [_ (list 123 456)]))
-                   (s;run (list (ast;int 123) (ast;text "YOLO") (ast;int 456) (ast;int 789))
-                          (s;sep-by (s;text! "YOLO") s;int)))
-            (match (#;Left _)
-                   (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
-                          (s;not s;int)))
-            (match (#;Right [_ []])
-                   (s;run (list (ast;bool true) (ast;int 456) (ast;int 789))
-                          (s;not s;int)))
-            ))
+    _
+    false))
+
+(def: (is? Eq<a> test parser input)
+  (All [a] (-> (Eq a) a (Syntax a) (List AST) Bool))
+  (case (s;run input parser)
+    (#;Right [_ output])
+    (:: Eq<a> = test output)
+
+    _
+    false))
+
+(def: (fails? input)
+  (All [a] (-> (Error a) Bool))
+  (case input
+    (#;Left _)
+    true
+
+    _
+    false))
+
+(syntax: (match pattern input)
+  (wrap (list (` (case (~ input)
+                   (^ (#;Right [(~' _) (~ pattern)]))
+                   true
+
+                   (~' _)
+                   false)))))
+
+## [Tests]
+(test: "Simple value syntax."
+  (let% [<simple-tests> (do-template [<assertion> <value> <ctor> <Eq> <get> <ask> <demand>]
+                          [(assert <assertion>
+                                   (and (is? <Eq> <value> <get> (list (<ctor> <value>)))
+                                        (found? (<ask> <value>) (list (<ctor> <value>)))
+                                        (enforced? (<demand> <value>) (list (<ctor> <value>)))))]
+
+                          ["Can parse Bool syntax."   true           ast;bool   bool;Eq<Bool>   s;bool   s;bool?   s;bool!]
+                          ["Can parse Nat syntax."    +123           ast;nat    number;Eq<Nat>  s;nat    s;nat?    s;nat!]
+                          ["Can parse Int syntax."    123            ast;int    number;Eq<Int>  s;int    s;int?    s;int!]
+                          ## ["Can parse Frac syntax."   .123           ast;frac   number;Eq<Frac> s;frac   s;frac?   s;frac!]
+                          ["Can parse Real syntax."   123.0          ast;real   number;Eq<Real> s;real   s;real?   s;real!]
+                          ["Can parse Char syntax."   #"\n"          ast;char   char;Eq<Char>   s;char   s;char?   s;char!]
+                          ["Can parse Text syntax."   "\n"           ast;text   text;Eq<Text>   s;text   s;text?   s;text!]
+                          ["Can parse Symbol syntax." ["yolo" "lol"] ast;symbol ident;Eq<Ident> s;symbol s;symbol? s;symbol!]
+                          ["Can parse Tag syntax."    ["yolo" "lol"] ast;tag    ident;Eq<Ident> s;tag    s;tag?    s;tag!]
+                          )]
+    ($_ seq
+        <simple-tests>
+
+        (assert "Can parse symbols belonging to the current namespace."
+                (and (match "yolo"
+                            (s;run (list (ast;local-symbol "yolo"))
+                                   s;local-symbol))
+                     (fails? (s;run (list (ast;symbol ["yolo" "lol"]))
+                                    s;local-symbol))))
+        
+        (assert "Can parse tags belonging to the current namespace."
+                (and (match "yolo"
+                            (s;run (list (ast;local-tag "yolo"))
+                                   s;local-tag))
+                     (fails? (s;run (list (ast;tag ["yolo" "lol"]))
+                                    s;local-tag))))
+        )))
+
+(test: "Complex value syntax."
+  (let% [<group-tests> (do-template [<type> <parser> <ctor>]
+                         [(assert (format "Can parse " <type> " syntax.")
+                                  (and (match [true 123]
+                                              (s;run (list (<ctor> (list (ast;bool true) (ast;int 123))))
+                                                     (<parser> (s;seq s;bool s;int))))
+                                       (match true
+                                              (s;run (list (<ctor> (list (ast;bool true))))
+                                                     (<parser> s;bool)))
+                                       (fails? (s;run (list (<ctor> (list (ast;bool true) (ast;int 123))))
+                                                      (<parser> s;bool)))
+                                       (match (#;Left true)
+                                              (s;run (list (<ctor> (list (ast;bool true))))
+                                                     (<parser> (s;alt s;bool s;int))))
+                                       (match (#;Right 123)
+                                              (s;run (list (<ctor> (list (ast;int 123))))
+                                                     (<parser> (s;alt s;bool s;int))))
+                                       (fails? (s;run (list (<ctor> (list (ast;real 123.0))))
+                                                      (<parser> (s;alt s;bool s;int))))))]
+
+                         ["form"  s;form  ast;form]
+                         ["tuple" s;tuple ast;tuple])]
+    ($_ seq
+        <group-tests>
+
+        (assert "Can parse record syntax."
+                (match [true 123]
+                       (s;run (list (ast;record (list [(ast;bool true) (ast;int 123)])))
+                              (s;record (s;seq s;bool s;int)))))
+        )))
+
+(test: "Assertions"
+  (assert "Can make assertions while parsing."
+          (and (match []
+                      (s;run (list (ast;bool true) (ast;int 123))
+                             (s;assert "yolo" true)))
+               (fails? (s;run (list (ast;bool true) (ast;int 123))
+                              (s;assert "yolo" false))))))
+
+(test: "Combinators [Part 1]"
+  ($_ seq
+      (assert "Can parse any AST."
+              (match [_ (#;BoolS true)]
+                     (s;run (list (ast;bool true) (ast;int 123))
+                            s;any)))
+
+      (assert "Can optionally succeed with some parser."
+              (and (match (#;Some +123)
+                          (s;run (list (ast;nat +123))
+                                 (s;opt s;nat)))
+                   (match #;None
+                          (s;run (list (ast;int -123))
+                                 (s;opt s;nat)))))
+
+      (assert "Can apply a parser 0 or more times."
+              (and (match (list +123 +456 +789)
+                          (s;run (list (ast;nat +123) (ast;nat +456) (ast;nat +789))
+                                 (s;some s;nat)))
+                   (match (list)
+                          (s;run (list (ast;int -123))
+                                 (s;some s;nat)))))
+
+      (assert "Can apply a parser 1 or more times."
+              (and (match (list +123 +456 +789)
+                          (s;run (list (ast;nat +123) (ast;nat +456) (ast;nat +789))
+                                 (s;many s;nat)))
+                   (match (list +123)
+                          (s;run (list (ast;nat +123))
+                                 (s;many s;nat)))
+                   (fails? (s;run (list (ast;int -123))
+                                  (s;many s;nat)))))
+
+      (assert "Can use either parser."
+              (and (match 123
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;either s;pos-int s;int)))
+                   (match -123
+                          (s;run (list (ast;int -123) (ast;int 456) (ast;int 789))
+                                 (s;either s;pos-int s;int)))
+                   (fails? (s;run (list (ast;bool true) (ast;int 456) (ast;int 789))
+                                  (s;either s;pos-int s;int)))))
+
+      (assert "Can create the opposite/negation of any parser."
+              (and (fails? (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                  (s;not s;int)))
+                   (match []
+                          (s;run (list (ast;bool true) (ast;int 456) (ast;int 789))
+                                 (s;not s;int)))))
+      ))
+
+(test: "Combinators Part [2]"
+  ($_ seq
+      (assert "Can check whether the end has been reached."
+              (and (match true
+                          (s;run (list)
+                                 s;end?))
+                   (match false
+                          (s;run (list (ast;bool true))
+                                 s;end?))))
+
+      (assert "Can ensure the end has been reached."
+              (and (match []
+                          (s;run (list)
+                                 s;end))
+                   (fails? (s;run (list (ast;bool true))
+                                  s;end))))
+
+      (assert "Can apply a parser N times."
+              (and (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;exactly +3 s;int)))
+                   (match (list 123 456)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;exactly +2 s;int)))
+                   (fails? (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                  (s;exactly +4 s;int)))))
+
+      (assert "Can apply a parser at-least N times."
+              (and (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;at-least +3 s;int)))
+                   (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;at-least +2 s;int)))
+                   (fails? (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                  (s;at-least +4 s;int)))))
+
+      (assert "Can apply a parser at-most N times."
+              (and (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;at-most +3 s;int)))
+                   (match (list 123 456)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;at-most +2 s;int)))
+                   (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;at-most +4 s;int)))))
+
+      (assert "Can apply a parser between N and M times."
+              (and (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                 (s;between +3 +10 s;int)))
+                   (fails? (s;run (list (ast;int 123) (ast;int 456) (ast;int 789))
+                                  (s;between +4 +10 s;int)))))
+
+      (assert "Can parse while taking separators into account."
+              (and (match (list 123 456 789)
+                          (s;run (list (ast;int 123) (ast;text "YOLO") (ast;int 456) (ast;text "YOLO") (ast;int 789))
+                                 (s;sep-by (s;text! "YOLO") s;int)))
+                   (match (list 123 456)
+                          (s;run (list (ast;int 123) (ast;text "YOLO") (ast;int 456) (ast;int 789))
+                                 (s;sep-by (s;text! "YOLO") s;int)))))
+      ))
