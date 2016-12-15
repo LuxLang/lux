@@ -1,0 +1,162 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(;module:
+  lux
+  (lux (codata [io])
+       (control monad)
+       (data [text "Text/" Monoid<Text>]
+             text/format
+             [number]
+             maybe
+             (struct [list]))
+       (math ["R" random])
+       pipe
+       [type]
+       ["&" type/check])
+  lux/test)
+
+## [Utils]
+(def: gen-name
+  (R;Random Text)
+  (do R;Monad<Random>
+    [size (|> R;nat (:: @ map (n.% +10)))]
+    (R;text size)))
+
+(def: gen-ident
+  (R;Random Ident)
+  (R;seq gen-name gen-name))
+
+(def: gen-type
+  (R;Random Type)
+  (let [(^open "R/") R;Monad<Random>]
+    (R;rec (lambda [gen-type]
+             ($_ R;alt
+                 (R;seq gen-name (R/wrap (list)))
+                 (R/wrap [])
+                 (R/wrap [])
+                 (R;seq gen-type gen-type)
+                 (R;seq gen-type gen-type)
+                 (R;seq gen-type gen-type)
+                 R;nat
+                 R;nat
+                 R;nat
+                 (R;seq (R/wrap (list)) gen-type)
+                 (R;seq (R/wrap (list)) gen-type)
+                 (R;seq gen-type gen-type)
+                 (R;seq gen-ident gen-type)
+                 )))))
+
+(def: (type-checks? input)
+  (-> (&;Check []) Bool)
+  (case (&;run &;fresh-context input)
+    (#;Right [])
+    true
+
+    (#;Left error)
+    false))
+
+## [Tests]
+(test: "Top and Bottom"
+  [sample gen-type]
+  ($_ seq
+      (assert "Top is the super-type 0f everything."
+              (&;checks? Top sample))
+
+      (assert "Bottom is the sub-type 0f everything."
+              (&;checks? sample Bottom))
+      ))
+
+(test: "Simple type-checking."
+  ($_ seq
+      (assert "Unit and Void match themselves."
+              (and (&;checks? Void Void)
+                   (&;checks? Unit Unit)))
+
+      (assert "Existential types only match with themselves."
+              (and (type-checks? (do &;Monad<Check>
+                                   [[id ex] &;existential]
+                                   (&;check ex ex)))
+                   (not (type-checks? (do &;Monad<Check>
+                                        [[lid lex] &;existential
+                                         [rid rex] &;existential]
+                                        (&;check lex rex))))))
+
+      (assert "Names don't affect type-checking."
+              (and (type-checks? (do &;Monad<Check>
+                                   [[id ex] &;existential]
+                                   (&;check (#;NamedT ["module" "name"] ex)
+                                            ex)))
+                   (type-checks? (do &;Monad<Check>
+                                   [[id ex] &;existential]
+                                   (&;check ex
+                                            (#;NamedT ["module" "name"] ex))))
+                   (type-checks? (do &;Monad<Check>
+                                   [[id ex] &;existential]
+                                   (&;check (#;NamedT ["module" "name"] ex)
+                                            (#;NamedT ["module" "name"] ex))))))
+
+      (assert "Can type-check functions."
+              (and (&;checks? (#;LambdaT Bottom Top)
+                              (#;LambdaT Top Bottom))
+                   (not (&;checks? (#;LambdaT Top Bottom)
+                                   (#;LambdaT Bottom Top)))))
+      ))
+
+(test: "Type application"
+  [meta gen-type
+   data gen-type]
+  (assert "Can type-check type application."
+          (and (&;checks? (#;AppT (#;AppT Meta meta) data)
+                          (type;tuple (list meta data)))
+               (&;checks? (type;tuple (list meta data))
+                          (#;AppT (#;AppT Meta meta) data)))))
+
+(test: "Host types"
+  [nameL gen-name
+   nameR gen-name
+   paramL gen-type
+   paramR gen-type]
+  ($_ seq
+      (assert "Host types match when they have the same name and the same parameters."
+              (&;checks? (#;HostT nameL (list paramL))
+                         (#;HostT nameL (list paramL))))
+
+      (assert "Names matter to host types."
+              (&;checks? (#;HostT nameL (list paramL))
+                         (#;HostT nameR (list paramL))))
+
+      (assert "Parameters matter to host types."
+              (&;checks? (#;HostT nameL (list paramL))
+                         (#;HostT nameL (list paramR))))
+      ))
+
+(test: "Type-vars"
+  ($_ seq
+      (assert "Type-vars check against themselves."
+              (type-checks? (&;with-var (lambda [[id var]] (&;check var var)))))
+
+      (assert "Can bind unbound type-vars by type-checking against them."
+              (and (type-checks? (&;with-var (lambda [[id var]] (&;check var #;UnitT))))
+                   (type-checks? (&;with-var (lambda [[id var]] (&;check #;UnitT var))))))
+
+      (assert "Can't rebind already bound type-vars."
+              (not (type-checks? (&;with-var (lambda [[id var]]
+                                               (do &;Monad<Check>
+                                                 [_ (&;check var #;UnitT)]
+                                                 (&;check var #;VoidT)))))))
+
+      (assert "If the type bound to a var is a super-type to another, then the var is also a super-type."
+              (type-checks? (&;with-var (lambda [[id var]]
+                                          (do &;Monad<Check>
+                                            [_ (&;check var Top)]
+                                            (&;check var #;UnitT))))))
+
+      (assert "If the type bound to a var is a sub-type of another, then the var is also a sub-type."
+              (type-checks? (&;with-var (lambda [[id var]]
+                                          (do &;Monad<Check>
+                                            [_ (&;check var Bottom)]
+                                            (&;check #;UnitT var))))))
+      ))

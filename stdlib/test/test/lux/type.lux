@@ -1,41 +1,137 @@
+##  Copyright (c) Eduardo Julian. All rights reserved.
+##  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+##  If a copy of the MPL was not distributed with this file,
+##  You can obtain one at http://mozilla.org/MPL/2.0/.
+
 (;module:
   lux
   (lux (codata [io])
        (control monad)
        (data [text "Text/" Monoid<Text>]
-             [number])
-       type
-       (codata function))
+             text/format
+             [number]
+             maybe
+             (struct [list]))
+       (math ["R" random])
+       pipe
+       ["&" type])
   lux/test)
 
-(test: "lux/type exports"
-  (let% [<eq-tests> (do-template [<type>]
-                      [(match true (:: Eq<Type> = <type> <type>))]
+## [Utils]
+(def: gen-name
+  (R;Random Text)
+  (do R;Monad<Random>
+    [size (|> R;nat (:: @ map (n.% +10)))]
+    (R;text size)))
 
-                      [(#;HostT "java.util.List" (list Int))]
-                      [#;UnitT]
-                      [#;VoidT]
-                      [(#;VarT +123)]
-                      [(#;ExT +123)]
-                      [(#;BoundT +123)]
-                      [(#;LambdaT Bool Int)]
-                      [(#;AppT List Int)]
-                      [(#;NamedT ["" "Int-List"] (#;AppT List Int))]
-                      [(#;SumT Bool Int)]
-                      [(#;ProdT Bool Int)]
-                      [(#;UnivQ (list) (#;ProdT Bool (#;BoundT +1)))]
-                      [(#;ExQ (list) (#;ProdT Bool (#;BoundT +1)))]
-                      )]
-    (test-all <eq-tests>
-              (match (^=> (#;Some _type) (:: Eq<Type> = _type (#;ProdT Bool Int)))
-                     (apply-type (type (Meta Bool)) Int))
-              (match #;None (apply-type Text Bool))
-              (match true
-                     (:: Eq<Type> =
-                         (#;NamedT ["" "a"]
-                                   (#;ProdT Bool Int))
-                         (un-alias (#;NamedT ["" "c"]
-                                             (#;NamedT ["" "b"]
-                                                       (#;NamedT ["" "a"]
-                                                                 (#;ProdT Bool Int)))))))
-              )))
+(def: gen-ident
+  (R;Random Ident)
+  (R;seq gen-name gen-name))
+
+(def: gen-type
+  (R;Random Type)
+  (let [(^open "R/") R;Monad<Random>]
+    (R;rec (lambda [gen-type]
+             ($_ R;alt
+                 (R;seq gen-name (R/wrap (list)))
+                 (R/wrap [])
+                 (R/wrap [])
+                 (R;seq gen-type gen-type)
+                 (R;seq gen-type gen-type)
+                 (R;seq gen-type gen-type)
+                 R;nat
+                 R;nat
+                 R;nat
+                 (R;seq (R/wrap (list)) gen-type)
+                 (R;seq (R/wrap (list)) gen-type)
+                 (R;seq gen-type gen-type)
+                 (R;seq gen-ident gen-type)
+                 )))))
+
+## [Tests]
+(test: "Types"
+  [sample gen-type]
+  (assert "Every type is equal to itself."
+          (:: &;Eq<Type> = sample sample)))
+
+(test: "Type application"
+  (assert "Can apply quantified types (universal and existential quantification)."
+          (and (default false
+                 (do Monad<Maybe>
+                   [partial (&;apply-type Meta Bool)
+                    full (&;apply-type partial Int)]
+                   (wrap (:: &;Eq<Type> = full (#;ProdT Bool Int)))))
+               (|> (&;apply-type Text Bool)
+                   (case> #;None true _ false)))))
+
+(test: "Naming"
+  (let [base (#;NamedT ["" "a"] (#;ProdT Bool Int))
+        aliased (#;NamedT ["" "c"]
+                          (#;NamedT ["" "b"]
+                                    base))]
+    ($_ seq
+        (assert "Can remove aliases from an already-named type."
+                (:: &;Eq<Type> =
+                    base
+                    (&;un-alias aliased)))
+
+        (assert "Can remove all names from a type."
+                (and (not (:: &;Eq<Type> =
+                              base
+                              (&;un-name aliased)))
+                     (:: &;Eq<Type> =
+                         (&;un-name base)
+                         (&;un-name aliased)))))))
+
+(test: "Type construction [structs]"
+  [size (|> R;nat (:: @ map (n.% +3)))
+   members (seqM @ (list;repeat size gen-type))
+   #let [(^open "&/") &;Eq<Type>
+         (^open "L/") (list;Eq<List> &;Eq<Type>)]]
+  (let% [<struct-tests> (do-template [<desc> <ctor> <dtor> <unit>]
+                          [(assert (format "Can build and tear-down " <desc> " types.")
+                                   (let [flat (|> members <ctor> <dtor>)]
+                                     (or (n.= (list;size members) (list;size flat))
+                                         (and (n.= +0 (list;size members))
+                                              (n.= +1 (list;size flat))
+                                              (|> flat list;head (default (undefined)) (&/= <unit>))))))]
+
+                          ["variant" &;variant &;flatten-variant #;VoidT]
+                          ["tuple"   &;tuple   &;flatten-tuple   #;UnitT]
+                          )]
+    ($_ seq
+        <struct-tests>
+        )))
+
+(test: "Type construction [parameterized]"
+  [size (|> R;nat (:: @ map (n.% +3)))
+   members (seqM @ (list;repeat size gen-type))
+   extra gen-type
+   #let [(^open "&/") &;Eq<Type>
+         (^open "L/") (list;Eq<List> &;Eq<Type>)]]
+  ($_ seq
+      (assert "Can build and tear-down function types."
+              (let [[inputs output] (|> (&;function members extra) &;flatten-function)]
+                (n.= (list;size members) (list;size inputs))))
+
+      (assert "Can build and tear-down application types."
+              (let [[tfunc tparams] (|> members (&;application extra) &;flatten-application)]
+                (n.= (list;size members) (list;size tparams))))
+      ))
+
+(test: "Type construction [higher order]"
+  [size (|> R;nat (:: @ map (n.% +3)))
+   extra gen-type
+   #let [(^open "&/") &;Eq<Type>]]
+  (let% [<quant-tests> (do-template [<desc> <ctor> <dtor>]
+                         [(assert (format "Can build and tear-down " <desc> " types.")
+                                  (let [[flat-size flat-body] (|> extra (<ctor> size) <dtor>)]
+                                    (and (n.= size flat-size)
+                                         (&/= extra flat-body))))]
+
+                         ["universally-quantified"   &;univq &;flatten-univq]
+                         ["existentially-quantified" &;exq   &;flatten-exq]
+                         )]
+    ($_ seq
+        <quant-tests>
+        )))

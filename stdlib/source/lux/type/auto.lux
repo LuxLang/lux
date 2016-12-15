@@ -20,6 +20,37 @@
        (type ["tc" check #+ Check Monad<Check>])
        ))
 
+(def: (find-type-var id env)
+  (-> Nat (Bindings Nat (Maybe Type)) (Lux Type))
+  (case (list;find (|>. product;left (n.= id))
+                   (get@ #;mappings env))
+    (#;Some [_ (#;Some type)])
+    (case type
+      (#;VarT id')
+      (find-type-var id' env)
+
+      _
+      (:: Monad<Lux> wrap type))
+
+    (#;Some [_ #;None])
+    (compiler;fail (format "Unbound type-var " (%n id)))
+
+    #;None
+    (compiler;fail (format "Unknown type-var " (%n id)))
+    ))
+
+(def: (resolve-type var-name)
+  (-> Ident (Lux Type))
+  (do Monad<Lux>
+    [raw-type (compiler;find-type var-name)
+     compiler compiler;get-compiler]
+    (case raw-type
+      (#;VarT id)
+      (find-type-var id (get@ #;type-vars compiler))
+
+      _
+      (wrap raw-type))))
+
 (def: (find-member-type idx sig-type)
   (-> Nat Type (Check Type))
   (case sig-type
@@ -84,8 +115,12 @@
   (do Monad<Lux>
     [this-module-name compiler;current-module-name
      imp-mods (compiler;imported-modules this-module-name)
-     export-batches (mapM @ compiler;exports imp-mods)]
-    (wrap (prepare-defs this-module-name (List/join export-batches)))))
+     export-batches (mapM @ (lambda [imp-mod]
+                              (do @
+                                [exports (compiler;exports imp-mod)]
+                                (wrap (prepare-defs imp-mod exports))))
+                          imp-mods)]
+    (wrap (List/join export-batches))))
 
 (def: (apply-function-type func arg)
   (-> Type Type (Check Type))
@@ -123,7 +158,7 @@
   (lambda [compiler]
     (let [type-vars (get@ #;type-vars compiler)
           context (|> tc;fresh-context
-                      (set@ #tc;var-id (get@ #;counter type-vars))
+                      (set@ #tc;var-counter (get@ #;counter type-vars))
                       (set@ #tc;bindings (dict;from-list number;Hash<Nat> (get@ #;mappings type-vars))))]
       (#;Right [compiler context]))))
 
@@ -135,7 +170,7 @@
               (list;filter (lambda [[alt-name alt-type]]
                              (case (tc;run context
                                            (do Monad<Check>
-                                             [_ (tc;check sig-type alt-type)
+                                             [_ (tc;check alt-type sig-type)
                                               member-type (find-member-type member-idx alt-type)]
                                              (check-apply member-type input-types output-type)))
                                (#;Left error)
@@ -171,23 +206,23 @@
   (All [a] (-> [a a] (List a)))
   (list l r))
 
-(syntax: #export (::: {member s;symbol}
-                      {args (s;alt (s;some s;symbol)
-                                   (s;some s;any))})
+(syntax: #export (::: [member s;symbol]
+                      [args (s;alt (s;some s;symbol)
+                                   (s;some s;any))])
   (case args
     (#;Left args)
     (do @
       [[member-idx sig-type] (resolve-member member)
-       input-types (mapM @ compiler;find-type args)
+       input-types (mapM @ resolve-type args)
        output-type compiler;expected-type
        chosen-ones (find-alternatives sig-type member-idx input-types output-type)]
       (case chosen-ones
         #;Nil
-        (compiler;fail (format "No structure option could be found for member " (%ident member)))
+        (compiler;fail (format "No structure option could be found for member: " (%ident member)))
 
         (#;Cons chosen #;Nil)
         (wrap (list (` (:: (~ (ast;symbol chosen))
-                           (~ (ast;symbol member))
+                           (~ (ast;local-symbol (product;right member)))
                            (~@ (List/map ast;symbol args))))))
 
         _
@@ -205,7 +240,3 @@
        #let [retry (` (let [(~@ (|> (list;zip2 labels args-to-bind) (List/map join-pair) List/join))]
                         (;;::: (~ (ast;symbol member)) (~@ labels))))]]
       (wrap (list retry)))))
-
-(comment
-  (::: map i.inc (list 0 1 2 3 4))
-  )
