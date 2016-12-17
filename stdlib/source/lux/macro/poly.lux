@@ -27,7 +27,7 @@
 (type: #export (Matcher a)
   (-> Type (Lux a)))
 
-(type: #export Env (Dict Nat AST))
+(type: #export Env (Dict Nat [Type AST]))
 
 ## [Combinators]
 (do-template [<combinator> <name> <type>]
@@ -73,6 +73,8 @@
                              [_ (<parser> :type:)]
                              (wrap <type>))]
 
+                          [void Void]
+                          [unit Unit]
                           [bool Bool]
                           [nat  Nat]
                           [int  Int]
@@ -160,7 +162,8 @@
      (lambda [:type:]
        (do compiler;Monad<Lux>
          [[tags :type:] (tagged :type:)
-          _ (compiler;assert (n.> +0 (list;size tags)) "Records and variants must have tags.")
+          _ (compiler;assert "Records and variants must have tags."
+                             (n.> +0 (list;size tags)))
           [vars :type:] (polymorphic :type:)
           members (<sub-comb> :type:)
           #let [num-tags (list;size tags)
@@ -239,8 +242,8 @@
     (case :type:
       (#;BoundT idx)
       (case (dict;get (adjusted-idx env idx) env)
-        (#;Some poly-val)
-        (:: compiler;Monad<Lux> wrap poly-val)
+        (#;Some [poly-type poly-ast])
+        (:: compiler;Monad<Lux> wrap poly-ast)
 
         #;None
         (compiler;fail (format "Unknown bound type: " (%type :type:))))
@@ -266,7 +269,7 @@
                                    _
                                    #;None))
                              t-args)]
-                (wrap (` ((~ =func) (~@ =args)))))
+                (wrap (` ((~ (product;right =func)) (~@ (List/map product;right =args))))))
               (#;Some call)])
         (wrap call)
 
@@ -274,19 +277,32 @@
         (compiler;fail (format "Type is not a recursive instance: " (%type :type:))))
       )))
 
+(def: #export (var env var-id)
+  (-> Env Nat (Matcher Unit))
+  (lambda [:type:]
+    (case :type:
+      (^=> (#;BoundT idx)
+           (exec (log! (format "poly;var " (%n idx) " => " (%n (adjusted-idx env idx))))
+             (n.= var-id (adjusted-idx env idx))))
+      (:: compiler;Monad<Lux> wrap [])
+
+      _
+      (compiler;fail (format "Not a bound type: " (%type :type:))))))
+
 ## [Syntax]
-(def: #export (extend-env type-func type-vars env)
-  (-> AST (List AST) Env Env)
+(def: #export (extend-env [funcT funcA] type-vars env)
+  (-> [Type AST] (List [Type AST]) Env Env)
   (case type-vars
     #;Nil
     env
     
-    (#;Cons tvar type-vars')
+    (#;Cons [varT varA] type-vars')
     (let [current-size (dict;size env)]
       (|> env
-          (dict;put current-size type-func)
-          (dict;put (n.inc current-size) tvar)
-          (extend-env (` (#;AppT (~ type-func) (~ tvar))) type-vars')
+          (dict;put current-size [funcT funcA])
+          (dict;put (n.inc current-size) [varT varA])
+          (extend-env [(#;AppT funcT varT) (` (#;AppT (~ funcA) (~ varA)))]
+                      type-vars')
           ))))
 
 (syntax: #export (poly: [_ex-lev common;export-level]
@@ -351,35 +367,54 @@
                       (~ impl)))))))
 
 ## [Derivers]
-(def: #export (contains-bound-types? type)
-  (-> Type Bool)
+(def: (to-ast env type)
+  (-> Env Type AST)
   (case type
     (#;HostT name params)
-    (list;any? contains-bound-types? params)
+    (` (#;HostT (~ (ast;text name))
+                (list (~@ (List/map (to-ast env) params)))))
 
     (^template [<tag>]
-      (<tag> _)
-      false)
-    ([#;VoidT] [#;UnitT]
-     [#;VarT] [#;ExT]
-     [#;UnivQ] [#;ExQ])
+      <tag>
+      (` <tag>))
+    ([#;VoidT] [#;UnitT])
+
+    (^template [<tag>]
+      (<tag> idx)
+      (` (<tag> (~ (ast;nat idx)))))
+    ([#;VarT] [#;ExT])
 
     (#;BoundT idx)
-    true
+    (let [idx (adjusted-idx env idx)]
+      (if (n.= +0 idx)
+        (|> (dict;get idx env) (default (undefined)) product;left (to-ast env))
+        (` (;$ (~ (ast;nat (n.dec idx)))))))
 
     (^template [<tag>]
       (<tag> left right)
-      (or (contains-bound-types? left)
-          (contains-bound-types? right)))
-    ([#;LambdaT] [#;AppT] [#;SumT] [#;ProdT])
+      (` (<tag> (~ (to-ast env left))
+                (~ (to-ast env right)))))
+    ([#;LambdaT] [#;AppT])
+
+    (^template [<tag> <macro> <flattener>]
+      (<tag> left right)
+      (` (<macro> (~@ (List/map (to-ast env) (<flattener> type))))))
+    ([#;SumT  | type;flatten-variant]
+     [#;ProdT & type;flatten-tuple])
 
     (#;NamedT name sub-type)
-    (contains-bound-types? sub-type)
+    (ast;symbol name)
+
+    (^template [<tag>]
+      (<tag> scope body)
+      (` (<tag> (list (~@ (List/map (to-ast env) scope)))
+                (~ (to-ast env body)))))
+    ([#;UnivQ] [#;ExQ])
     ))
 
-(def: #export (gen-type converter type-fun tvars type)
-  (-> (-> AST AST) AST (List AST) Type AST)
-  (let [type' (type;to-ast type)]
+(def: #export (gen-type env converter type-fun tvars type)
+  (-> Env (-> AST AST) AST (List AST) Type AST)
+  (let [type' (to-ast env type)]
     (case tvars
       #;Nil
       (converter type')
@@ -388,3 +423,7 @@
       (` (All (~ type-fun) [(~@ tvars)]
            (-> (~@ (List/map converter tvars))
                (~ (converter (` ((~ type') (~@ tvars)))))))))))
+
+(def: #export (type-var-indices num-vars)
+  (-> Nat (List Type))
+  (|> num-vars list;indices (List/map (|>. #;BoundT))))

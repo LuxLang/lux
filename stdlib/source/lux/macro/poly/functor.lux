@@ -27,19 +27,25 @@
        ))
 
 ## [Derivers]
-(poly: #export (|Functor| env :x:)
+(poly: #export (Functor<?> env :x:)
   (with-gensyms [g!type-fun g!func g!input]
     (do @
       [#let [g!map (' map)]
        [g!vars _] (poly;polymorphic :x:)
        #let [num-vars (list;size g!vars)
-             new-env (poly;extend-env g!type-fun g!vars env)]
-       _ (compiler;assert (n.> +0 num-vars)
-                      "Functors must have at least 1 type-variable.")]
+             new-env (poly;extend-env [:x: g!type-fun]
+                                      (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                      env)]
+       _ (compiler;assert "Functors must have at least 1 type-variable."
+                          (n.> +0 num-vars))]
       (let [->Functor (: (-> AST AST)
-                         (lambda [.type.] (` (functor;Functor (~ .type.)))))
-            |elem| (: (-> AST (poly;Matcher AST))
-                      (lambda |elem| [value :type:]
+                         (lambda [.type.]
+                           (if (n.= +1 num-vars)
+                             (` (functor;Functor (~ .type.)))
+                             (let [type-params (|> num-vars n.dec list;indices (List/map (|>. %n ast;local-symbol)))]
+                               (` (All [(~@ type-params)] (functor;Functor ((~ .type.) (~@ type-params)))))))))
+            Arg<?> (: (-> AST (poly;Matcher AST))
+                      (lambda Arg<?> [value :type:]
                         ($_ compiler;either
                             ## Nothing to do.
                             (do @
@@ -47,19 +53,23 @@
                               (wrap value))
                             ## Type-var
                             (do @
-                              [_ (poly;var new-env (n.dec num-vars) :type:)]
+                              [_ (poly;var new-env (|> num-vars (n.* +2) n.dec) :type:)]
                               (wrap (` ((~ g!func) (~ value)))))
+                            ## Bound type-variables
+                            (do @
+                              [_ (poly;bound new-env :type:)]
+                              (wrap value))
                             ## Tuples/records
                             (do @
-                              [[g!vars members] (poly;tuple :x:)
+                              [[g!vars members] (poly;tuple :type:)
                                pm (mapM @
                                         (lambda [:slot:]
                                           (do @
                                             [g!slot (compiler;gensym "g!slot")
-                                             body (|elem| g!slot :slot:)]
+                                             body (Arg<?> g!slot :slot:)]
                                             (wrap [g!slot body])))
                                         members)]
-                              (wrap (` (case (~ g!input)
+                              (wrap (` (case (~ value)
                                          [(~@ (List/map product;left pm))]
                                          [(~@ (List/map product;right pm))])
                                        )))
@@ -76,9 +86,9 @@
                                       (lambda [[name :case:]]
                                         (do @
                                           [#let [analysis (` ((~ (ast;tag name)) (~ g!input)))]
-                                           synthesis (|elem| g!input :case:)]
+                                           synthesis (Arg<?> g!input :case:)]
                                           (wrap (list analysis
-                                                      synthesis))))
+                                                      (` ((~ (ast;tag name)) (~ synthesis)))))))
                                       cases)]
               (wrap (` (: (~ (->Functor (type;to-ast :x:)))
                           (struct (def: ((~ g!map) (~ g!func) (~ g!input))
@@ -92,7 +102,7 @@
                         (lambda [:slot:]
                           (do @
                             [g!slot (compiler;gensym "g!slot")
-                             body (|elem| g!slot :slot:)]
+                             body (Arg<?> g!slot :slot:)]
                             (wrap [g!slot body])))
                         members)]
               (wrap (` (: (~ (->Functor (type;to-ast :x:)))
@@ -105,18 +115,18 @@
             (with-gensyms [g!out]
               (do @
                 [[g!vars [:ins: :out:]] (poly;function :x:)
-                 .out. (|elem| g!out :out:)
-                 g!ins (seqM @
-                             (list;repeat (list;size :ins:)
-                                          (compiler;gensym "g!arg")))]
+                 .out. (Arg<?> g!out :out:)
+                 g!envs (seqM @
+                              (list;repeat (list;size :ins:)
+                                           (compiler;gensym "g!envs")))]
                 (wrap (` (: (~ (->Functor (type;to-ast :x:)))
                             (struct (def: ((~ g!map) (~ g!func) (~ g!input))
-                                      (lambda [(~@ g!ins)]
-                                        (let [(~ g!out) ((~ g!input) (~@ g!ins))]
+                                      (lambda [(~@ g!envs)]
+                                        (let [(~ g!out) ((~ g!input) (~@ g!envs))]
                                           (~ .out.))))))))))
             ## No structure (as you'd expect from Identity)
             (do @
-              [_ (poly;var new-env (n.dec num-vars) :x:)]
+              [_ (poly;var new-env num-vars :x:)]
               (wrap (` (: (~ (->Functor (type;to-ast :x:)))
                           (struct (def: ((~ g!map) (~ g!func) (~ g!input))
                                     ((~ g!func) (~ g!input))))))))

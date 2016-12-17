@@ -26,14 +26,25 @@
        [type]
        ))
 
+(def: (function$ func inputs output)
+  (-> AST (List AST) AST AST)
+  (case inputs
+    #;Nil
+    output
+
+    _
+    (` (lambda (~@ (if (list;empty? inputs) (list) (list func)))
+         [(~@ inputs)]
+         (~ output)))))
+
 ## [Derivers]
-(poly: #export (|Codec@Text//encode| env :x:)
-  (let [->Codec//encode (: (-> AST AST)
+(poly: #export (Codec<Text,?>::encode env :x:)
+  (let [->Codec::encode (: (-> AST AST)
                            (lambda [.type.] (` (-> (~ .type.) Text))))]
     (let% [<basic> (do-template [<type> <matcher> <encoder>]
                      [(do @
                         [_ (<matcher> :x:)]
-                        (wrap (` (: (~ (->Codec//encode (` <type>)))
+                        (wrap (` (: (~ (->Codec::encode (` <type>)))
                                     (~' <encoder>)))))]
 
                      [Unit poly;unit (lambda [_0] "[]")]
@@ -51,73 +62,83 @@
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars cases] (poly;variant :x:)
-               #let [new-env (poly;extend-env g!type-fun g!vars env)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                pattern-matching (mapM @
                                       (lambda [[name :case:]]
                                         (do @
-                                          [encoder (|Codec@Text//encode| new-env :case:)]
+                                          [encoder (Codec<Text,?>::encode new-env :case:)]
                                           (wrap (list (` ((~ (ast;tag name)) (~ g!case)))
                                                       (` (format "(#"
                                                                  (~ (ast;text (Ident/encode name)))
                                                                  " "
                                                                  ((~ encoder) (~ g!case))
                                                                  ")"))))))
-                                      cases)]
-              (wrap (` (: (~ (poly;gen-type ->Codec//encode g!type-fun g!vars :x:))
-                          (lambda [(~@ g!vars)]
-                            (lambda [(~ g!input)]
-                              (case (~ g!input)
-                                (~@ (List/join pattern-matching)))))
+                                      cases)
+               #let [base (function$ g!type-fun g!vars
+                                     (` (lambda [(~ g!input)]
+                                          (case (~ g!input)
+                                            (~@ (List/join pattern-matching))))))]]
+              (wrap (` (: (~ (poly;gen-type env ->Codec::encode g!type-fun g!vars :x:))
+                          (~ base)
                           )))))
           ## Records
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars slots] (poly;record :x:)
-               #let [new-env (poly;extend-env g!type-fun g!vars env)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                synthesis (mapM @
                                (lambda [[name :slot:]]
                                  (do @
-                                   [encoder (|Codec@Text//encode| new-env :slot:)]
+                                   [encoder (Codec<Text,?>::encode new-env :slot:)]
                                    (wrap (` (format "#"
                                                     (~ (ast;text (Ident/encode name)))
                                                     " "
                                                     ((~ encoder) (get@ (~ (ast;tag name)) (~ g!input))))))))
-                               slots)]
-              (wrap (` (: (~ (poly;gen-type ->Codec//encode g!type-fun g!vars :x:))
-                          (lambda [(~@ g!vars)]
-                            (lambda [(~ g!input)]
-                              (format "{" (~@ (list;interpose (' " ") synthesis)) "}")))
+                               slots)
+               #let [base (function$ g!type-fun g!vars
+                                     (` (lambda [(~ g!input)]
+                                          (format "{" (~@ (list;interpose (' " ") synthesis)) "}"))))]]
+              (wrap (` (: (~ (poly;gen-type env ->Codec::encode g!type-fun g!vars :x:))
+                          (~ base)
                           )))))
           ## Tuples
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars members] (poly;tuple :x:)
-               #let [new-env (poly;extend-env g!type-fun g!vars env)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                parts (mapM @
                            (lambda [:member:]
                              (do @
                                [g!member (compiler;gensym "g!member")
-                                encoder (|Codec@Text//encode| new-env :member:)]
+                                encoder (Codec<Text,?>::encode new-env :member:)]
                                (wrap [g!member encoder])))
                            members)
                #let [analysis (` [(~@ (List/map product;left parts))])
                      synthesis (List/map (lambda [[g!member g!encoder]]
                                            (` ((~ g!encoder) (~ g!member))))
-                                         parts)]]
-              (wrap (` (: (~ (poly;gen-type ->Codec//encode g!type-fun g!vars :x:))
-                          (lambda [(~@ g!vars)]
-                            (lambda [(~ g!input)]
-                              (case (~ g!input)
-                                (~ analysis)
-                                (format "[" (~@ (list;interpose (' " ") synthesis)) "]"))))
-                          )))
-              ))
+                                         parts)
+                     base (function$ g!type-fun g!vars
+                                     (` (lambda [(~ g!input)]
+                                          (case (~ g!input)
+                                            (~ analysis)
+                                            (format "[" (~@ (list;interpose (' " ") synthesis)) "]")))))]]
+              (wrap (` (: (~ (poly;gen-type env ->Codec::encode g!type-fun g!vars :x:))
+                          (~ base)
+                          )))))
+          ## Type recursion
+          (poly;recur env :x:)
           ## Type applications
           (do @
             [[:func: :args:] (poly;apply :x:)
-             .func. (|Codec@Text//encode| env :func:)
-             .args. (mapM @ (|Codec@Text//encode| env) :args:)]
-            (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
+             .func. (Codec<Text,?>::encode env :func:)
+             .args. (mapM @ (Codec<Text,?>::encode env) :args:)]
+            (wrap (` (: (~ (->Codec::encode (type;to-ast :x:)))
                         ((~ .func.) (~@ .args.))))))
           ## Bound type-variables
           (poly;bound env :x:)
