@@ -30,6 +30,21 @@
 (type: #export Env (Dict Nat AST))
 
 ## [Combinators]
+(do-template [<combinator> <name> <type>]
+  [(def: #export <combinator>
+     (Matcher Unit)
+     (lambda [:type:]
+       (case (type;un-name :type:)
+         <type>
+         (:: compiler;Monad<Lux> wrap [])
+
+         _
+         (compiler;fail (format "Not " <name> " type: " (%type :type:))))))]
+
+  [void "Void" #;VoidT]
+  [unit "Unit" #;UnitT]
+  )
+
 (do-template [<combinator> <name>]
   [(def: #export <combinator>
      (Matcher Unit)
@@ -41,7 +56,6 @@
          _
          (compiler;fail (format "Not " <name> " type: " (%type :type:))))))]
 
-  [unit "Unit"]
   [bool "Bool"]
   [nat  "Nat"]
   [int  "Int"]
@@ -234,36 +248,30 @@
       _
       (compiler;fail (format "Not a bound type: " (%type :type:))))))
 
-(def: #export (var env var-id)
-  (-> Env Nat (Matcher Unit))
-  (lambda [:type:]
-    (case :type:
-      (^=> (#;BoundT idx)
-           (n.= var-id (adjusted-idx env idx)))
-      (:: compiler;Monad<Lux> wrap [])
-
-      _
-      (compiler;fail (format "Not a bound type: " (%type :type:))))))
-
 (def: #export (recur env)
-  (-> Env (Matcher Unit))
+  (-> Env (Matcher AST))
   (lambda [:type:]
     (do Monad<Lux>
-      [[t-fun t-args] (apply :type:)]
-      (loop [base +0
-             :parts: (list& t-fun t-args)]
-        (case :parts:
-          #;Nil
-          (wrap [])
-          
-          (^=> (#;Cons (#;BoundT idx) :parts:')
-               [(adjusted-idx env idx)
-                idx']
-               (n.= base idx'))
-          (recur (n.inc base) :parts:')
+      [[t-func t-args] (apply :type:)]
+      (case t-func
+        (^=> (#;BoundT t-func-idx)
+             (n.= +0 (adjusted-idx env t-func-idx))
+             [(do maybe;Monad<Maybe>
+                [=func (dict;get +0 env)
+                 =args (mapM @ (lambda [t-arg]
+                                 (case t-arg
+                                   (#;BoundT idx)
+                                   (dict;get (adjusted-idx env idx) env)
 
-          _
-          (compiler;fail (format "Type is not a recursive instance: " (%type :type:)))))
+                                   _
+                                   #;None))
+                             t-args)]
+                (wrap (` ((~ =func) (~@ =args)))))
+              (#;Some call)])
+        (wrap call)
+
+        _
+        (compiler;fail (format "Type is not a recursive instance: " (%type :type:))))
       )))
 
 ## [Syntax]
@@ -343,6 +351,32 @@
                       (~ impl)))))))
 
 ## [Derivers]
+(def: #export (contains-bound-types? type)
+  (-> Type Bool)
+  (case type
+    (#;HostT name params)
+    (list;any? contains-bound-types? params)
+
+    (^template [<tag>]
+      (<tag> _)
+      false)
+    ([#;VoidT] [#;UnitT]
+     [#;VarT] [#;ExT]
+     [#;UnivQ] [#;ExQ])
+
+    (#;BoundT idx)
+    true
+
+    (^template [<tag>]
+      (<tag> left right)
+      (or (contains-bound-types? left)
+          (contains-bound-types? right)))
+    ([#;LambdaT] [#;AppT] [#;SumT] [#;ProdT])
+
+    (#;NamedT name sub-type)
+    (contains-bound-types? sub-type)
+    ))
+
 (def: #export (gen-type converter type-fun tvars type)
   (-> (-> AST AST) AST (List AST) Type AST)
   (let [type' (type;to-ast type)]

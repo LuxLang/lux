@@ -24,8 +24,20 @@
        [type]
        ))
 
+## [Utils]
+(def: (function$ func inputs output)
+  (-> AST (List AST) AST AST)
+  (case inputs
+    #;Nil
+    output
+
+    _
+    (` (lambda (~@ (if (list;empty? inputs) (list) (list func)))
+         [(~@ inputs)]
+         (~ output)))))
+
 ## [Derivers]
-(poly: #export (|Eq| env :x:)
+(poly: #export (Eq<?> env :x:)
   (let [->Eq (: (-> AST AST)
                 (lambda [.type.] (` (eq;Eq (~ .type.)))))]
     (let% [<basic> (do-template [<type> <matcher> <eq>]
@@ -53,19 +65,21 @@
                pattern-matching (mapM @
                                       (lambda [[name :case:]]
                                         (do @
-                                          [encoder (|Eq| new-env :case:)]
+                                          [g!eq (Eq<?> new-env :case:)]
                                           (wrap (list (` [((~ (ast;tag name)) (~ g!left))
                                                           ((~ (ast;tag name)) (~ g!right))])
-                                                      (` ((~ encoder) (~ g!left) (~ g!right)))))))
-                                      cases)]
-              (wrap (` (: (~ (poly;gen-type ->Eq g!type-fun g!vars :x:))
-                          (lambda [(~@ g!vars)]
-                            (lambda [(~ g!left) (~ g!right)]
-                              (case [(~ g!left) (~ g!right)]
-                                (~@ (List/join pattern-matching)))))
-                          )))))
+                                                      (` ((~ g!eq) (~ g!left) (~ g!right)))))))
+                                      cases)
+               #let [base (function$ g!type-fun g!vars
+                                     (` (lambda [(~ g!left) (~ g!right)]
+                                          (case [(~ g!left) (~ g!right)]
+                                            (~@ (List/join pattern-matching))))))]]
+              (wrap (if (and false (poly;contains-bound-types? :x:))
+                      base
+                      (` (: (~ (poly;gen-type ->Eq g!type-fun g!vars :x:))
+                            (~ base)))))))
           ## Tuples
-          (with-gensyms [g!type-fun g!left g!right]
+          (with-gensyms [g!type-fun]
             (do @
               [[g!vars members] (poly;tuple :x:)
                #let [new-env (poly;extend-env g!type-fun g!vars env)]
@@ -74,26 +88,27 @@
                                         (do @
                                           [g!left (compiler;gensym "g!left")
                                            g!right (compiler;gensym "g!right")
-                                           encoder (|Eq| new-env :member:)]
-                                          (wrap [g!left g!right encoder])))
+                                           g!eq (Eq<?> new-env :member:)]
+                                          (wrap [g!left g!right g!eq])))
                                       members)
                #let [.left. (` [(~@ (List/map product;left pattern-matching))])
-                     .right. (` [(~@ (List/map (|>. product;right product;left) pattern-matching))])]]
-              (wrap (` (: (~ (poly;gen-type ->Eq g!type-fun g!vars :x:))
-                          (lambda [(~@ g!vars)]
-                            (lambda [(~ g!left) (~ g!right)]
-                              (case [(~ g!left) (~ g!right)]
-                                [(~ .left.) (~ .right.)]
-                                (;;array (list (~@ (List/map (lambda [[g!left g!right g!encoder]]
-                                                               (` ((~ g!encoder) (~ g!left) (~ g!right))))
-                                                             pattern-matching)))))))
-                          )))
-              ))
+                     .right. (` [(~@ (List/map (|>. product;right product;left) pattern-matching))])
+                     base (function$ g!type-fun g!vars
+                                     (` (lambda [(~ .left.) (~ .right.)]
+                                          (and (~@ (List/map (lambda [[g!left g!right g!eq]]
+                                                               (` ((~ g!eq) (~ g!left) (~ g!right))))
+                                                             pattern-matching))))))]]
+              (wrap (if (and false (poly;contains-bound-types? :x:))
+                      base
+                      (` (: (~ (poly;gen-type ->Eq g!type-fun g!vars :x:))
+                            (~ base)))))))
+          ## Type recursion
+          (poly;recur env :x:)
           ## Type applications
           (do @
             [[:func: :args:] (poly;apply :x:)
-             .func. (|Eq| env :func:)
-             .args. (mapM @ (|Eq| env) :args:)]
+             .func. (Eq<?> env :func:)
+             .args. (mapM @ (Eq<?> env) :args:)]
             (wrap (` (: (~ (->Eq (type;to-ast :x:)))
                         ((~ .func.) (~@ .args.))))))
           ## Bound type-vars
