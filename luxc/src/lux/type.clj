@@ -457,10 +457,12 @@
       (str "(" (show-type ?call-fun) " " (->> ?call-args (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
     (&/$UnivQ ?env ?body)
-    (str "(All " (show-type ?body) ")")
+    (str "(All " "{" (->> ?env (&/|map show-type) (&/|interpose " ") (&/fold str "")) "} "
+         (show-type ?body) ")")
 
     (&/$ExQ ?env ?body)
-    (str "(Ex " (show-type ?body) ")")
+    (str "(Ex " "{" (->> ?env (&/|map show-type) (&/|interpose " ") (&/fold str "")) "} "
+         (show-type ?body) ")")
     
     (&/$NamedT ?name ?type)
     (&/ident->text ?name)

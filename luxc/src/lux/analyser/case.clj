@@ -125,10 +125,20 @@
              (beta-reduce! level env ?type-arg))
     
     (&/$UnivQ ?local-env ?local-def)
-    (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
+    (|case ?local-env
+      (&/$Nil)
+      (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
+
+      _
+      type)
 
     (&/$ExQ ?local-env ?local-def)
-    (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
+    (|case ?local-env
+      (&/$Nil)
+      (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
+
+      _
+      type)
 
     (&/$LambdaT ?input ?output)
     (&/$LambdaT (beta-reduce! level env ?input)
@@ -184,7 +194,9 @@
     (&type/with-var
       (fn [$var]
         (|do [=type (apply-type! type $var)
-              ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var]) (&/|map update-up-frame up)) =type)]
+              ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var])
+                                            (&/|map update-up-frame up))
+                                   =type)]
           (&type/clean $var ==type))))
 
     (&/$ExQ _aenv _abody)
@@ -193,34 +205,34 @@
       (adjust-type* up =type))
 
     (&/$ProdT ?left ?right)
-    (|do [:let [=type (&/fold (fn [_abody ena]
-                                (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                  (clean! 0 _avar _aidx _abody)))
-                              type
-                              up)]
-          :let [distributor (fn [v]
-                              (&/fold (fn [_abody ena]
-                                        (|let [[_aenv _aidx _avar] ena]
-                                          (&/$UnivQ _aenv _abody)))
-                                      v
-                                      up))
-                adjusted-type (&type/Tuple$ (&/|map distributor (&type/flatten-prod =type)))]]
-      (return adjusted-type))
+    (let [=type (&/fold (fn [_abody ena]
+                          (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                            (clean! 0 _avar _aidx _abody)))
+                        type
+                        up)
+          distributor (fn [v]
+                        (&/fold (fn [_abody ena]
+                                  (|let [[_aenv _aidx _avar] ena]
+                                    (&/$UnivQ _aenv _abody)))
+                                v
+                                up))]
+      (return (&type/Tuple$ (&/|map distributor
+                                    (&type/flatten-prod =type)))))
 
     (&/$SumT ?left ?right)
-    (|do [:let [=type (&/fold (fn [_abody ena]
-                                (|let [[_aenv _aidx (&/$VarT _avar)] ena]
-                                  (clean! 0 _avar _aidx _abody)))
-                              type
-                              up)]
-          :let [distributor (fn [v]
-                              (&/fold (fn [_abody ena]
-                                        (|let [[_aenv _aidx _avar] ena]
-                                          (&/$UnivQ _aenv _abody)))
-                                      v
-                                      up))
-                adjusted-type (&type/Variant$ (&/|map distributor (&type/flatten-sum =type)))]]
-      (return adjusted-type))
+    (let [=type (&/fold (fn [_abody ena]
+                          (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                            (clean! 0 _avar _aidx _abody)))
+                        type
+                        up)
+          distributor (fn [v]
+                        (&/fold (fn [_abody ena]
+                                  (|let [[_aenv _aidx _avar] ena]
+                                    (&/$UnivQ _aenv _abody)))
+                                v
+                                up))]
+      (return (&type/Variant$ (&/|map distributor
+                                      (&type/flatten-sum =type)))))
 
     (&/$AppT ?tfun ?targ)
     (|do [=type (apply-type! ?tfun ?targ)]
