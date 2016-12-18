@@ -230,7 +230,7 @@ Called by `imenu--generic-function'."
             "`" "`'" "'" "do-template" "with-gensyms"
             "object" "jvm-import" "do-to" "with-open" "synchronized" "class-for"
             "doc"
-            "||E" "||F" "||H" "effect:" "handler:" "with-handler" "doE" "lift"
+            "|E" "|F" "|H" "effect:" "handler:" "with-handler" "doE" "lift"
             "regex"
             ) t)
          "\\>")

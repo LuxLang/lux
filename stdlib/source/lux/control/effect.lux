@@ -8,17 +8,16 @@
                 applicative
                 monad)
        (codata [io #- run])
-       (data (struct [list "List/" Monad<List>])
+       (data (struct [list "List/" Monad<List> Monoid<List>])
              [number "Nat/" Codec<Text,Nat>]
              text/format
-             error)
+             error
+             [ident "Ident/" Eq<Ident>])
        [compiler]
-       [macro]
        (macro [ast]
               ["s" syntax #+ syntax: Syntax]
               (syntax [common]))
-       [type]
-       (type ["tc" check])))
+       [type]))
 
 ## [Type]
 (type: #export (Eff F a)
@@ -83,13 +82,13 @@
                    fefa))
       )))
 
-(type: (@| L R)
+(type: #export (|@ L R)
   (All [a] (| (L a) (R a))))
 
 (def: #export (combine-functors left right)
   (All [L R]
     (-> (F;Functor L) (F;Functor R)
-        (F;Functor (@| L R))))
+        (F;Functor (|@ L R))))
   (struct
    (def: (map f l|r)
      (case l|r
@@ -101,7 +100,7 @@
   (All [L R M]
     (-> (Monad M)
         (Handler L M) (Handler R M)
-        (Handler (@| L R) M)))
+        (Handler (|@ L R) M)))
   (struct
    (def: (handle el|r)
      (case el|r
@@ -116,19 +115,13 @@
      )))
 
 ## [Syntax]
-(syntax: #export (||E {effects (s;some s;any)})
-  (do @
-    [g!a (compiler;gensym "g!a")
-     #let [effects@a (List/map (lambda [eff] (` ((~ eff) (~ g!a))))
-                               effects)]]
-    (wrap (list (` (All [(~ g!a)]
-                     (| (~@ effects@a))))
-                ))))
+(syntax: #export (|E [effects (s;many s;any)])
+  (wrap (list (` ($_ ;;|@ (~@ effects))))))
 
-(syntax: #export (||F {functors (s;many s;any)})
+(syntax: #export (|F [functors (s;many s;any)])
   (wrap (list (` ($_ ;;combine-functors (~@ functors))))))
 
-(syntax: #export (||H monad {handlers (s;many s;any)})
+(syntax: #export (|H monad [handlers (s;many s;any)])
   (do @
     [g!combiner (compiler;gensym "")]
     (wrap (list (` (let [(~ g!combiner) (;;combine-handlers (~ monad))]
@@ -150,9 +143,9 @@
                         (:: s;Monad<Syntax> wrap (list))
                         s;any))))
 
-(syntax: #export (effect: {exp-lvl common;export-level}
-                   {name s;local-symbol}
-                   {ops (s;many op^)})
+(syntax: #export (effect: [exp-lvl common;export-level]
+                   [name s;local-symbol]
+                   [ops (s;many op^)])
   (do @
     [g!output (compiler;gensym "g!output")
      #let [op-types (List/map (lambda [op]
@@ -208,10 +201,10 @@
                    (s;tuple (s;seq s;any
                                    s;any))))))
 
-(syntax: #export (handler: {exp-lvl common;export-level}
-                   {name s;local-symbol}
-                   {[effect base monad] translation^}
-                   {defs (s;many (common;def *compiler*))})
+(syntax: #export (handler: [exp-lvl common;export-level]
+                   [name s;local-symbol]
+                   [[effect target-type target-monad] translation^]
+                   [defs (s;many (common;def *compiler*))])
   (do @
     [(^@ effect [e-module _]) (compiler;un-alias effect)
      g!input (compiler;gensym "g!input")
@@ -235,21 +228,22 @@
                                                       _
                                                       (` ((~ eff-calc) (~@ g!args))))]
                                      (list (` ((~ g!tag) [(~@ g!args)] (~ g!cont)))
-                                           (` (do (~ monad)
+                                           (` (do (~ target-monad)
                                                 [(~ g!value) (~ invocation)]
                                                 ((~' handle) ((~ g!cont) (~ g!value)))))
                                            ))))
                        List/join)]]
     (wrap (list (` (struct: (~@ (common;gen-export-level exp-lvl)) (~ (ast;symbol ["" name]))
-                     (;;Handler (~ (ast;symbol effect)) (~ base))
+                     (;;Handler (~ (ast;symbol effect)) (~ target-type))
                      (def: ((~' handle) (~ g!input))
                        (case (~ g!input)
                          (#Pure (~ g!input))
-                         (:: (~ monad) (~' wrap) (~ g!input))
+                         (:: (~ target-monad) (~' wrap) (~ g!input))
 
                          (#Effect (~ g!input))
                          (case (~ g!input)
-                           (~@ g!cases))))))))))
+                           (~@ g!cases)))
+                       )))))))
 
 (syntax: #export (with-handler handler body)
   (wrap (list (` (:: (~ handler) (~' handle) (~ body))))))
@@ -272,9 +266,9 @@
     _
     (error! (format "Wrong effect format: " (%type effect)))))
 
-(def: g!functor AST (ast;symbol ["" "%E"]))
+(def: g!functor AST (ast;symbol ["" "\t@E\t"]))
 
-(syntax: #export (doE functor {bindings (s;tuple (s;some s;any))} body)
+(syntax: #export (doE functor [bindings (s;tuple (s;some s;any))] body)
   (do @
     [g!output (compiler;gensym "")]
     (wrap (list (` (let [(~ g!functor) (~ functor)]
@@ -283,8 +277,52 @@
                         (~ g!output) (~ body)]
                        ((~' wrap) (~ g!output)))))))))
 
-(syntax: #export (lift {value (s;alt s;symbol
-                                     s;any)})
+(def: (flatten-effect-stack stack)
+  (-> Type (List Type))
+  (case stack
+    (#;SumT left right)
+    (List/append (flatten-effect-stack left)
+                 (flatten-effect-stack right))
+
+    (^ (#;AppT branches (#;VarT _)))
+    (flatten-effect-stack branches)
+
+    (^ (#;AppT (#;AppT (#;NamedT (ident-for ;;|@) _)
+                       left)
+               right))
+    (#;Cons left (flatten-effect-stack right))
+
+    (^ (#;AppT (#;AppT (#;NamedT (ident-for ;;Eff) _)
+                       effect)
+               param))
+    (list effect)
+
+    _
+    (list stack)
+    ))
+
+(def: (same-effect? expected actual)
+  (case [expected actual]
+    [(#;NamedT e-name _) (#;NamedT a-name _)]
+    (Ident/= e-name a-name)
+
+    _
+    false))
+
+(def: (nest-effect idx total base)
+  (-> Nat Nat AST AST)
+  (cond (n.= +0 idx)
+        (` (+0 (~ base)))
+
+        (n.> +2 total)
+        (` (+1 (~ (nest-effect (n.dec idx) (n.dec total) base))))
+
+        ## else
+        (` (+1 (~ base)))
+        ))
+
+(syntax: #export (lift [value (s;alt s;symbol
+                                     s;any)])
   (case value
     (#;Left var)
     (do @
@@ -296,14 +334,13 @@
              [stackT0 (^ (#;AppT (#;NamedT (ident-for ;;Eff) _)
                                  stackT1))]
              [(type;apply-type stackT1 recT0) (#;Some unfoldT1)]
-             [(list;find (lambda [[idx effect]]
-                           (if (tc;checks? (clean-effect effect) eff0)
-                             (#;Some idx)
-                             #;None))
-                         (|> unfoldT1 type;flatten-variant (List/map un-apply) list;enumerate))
-              (#;Some idx)])
-        (wrap (list (` (#;;Effect (:: (~ g!functor) (~' map) (~' wrap) ((~ (ast;int (nat-to-int idx)))
-                                                                        (~ (ast;symbol var))))))))
+             [(flatten-effect-stack unfoldT1) stack]
+             [(|> stack list;enumerate
+                  (list;find (lambda [[idx effect]]
+                               (same-effect? effect eff0))))
+              (#;Some [idx _])])
+        (wrap (list (` (#;;Effect (:: (~ g!functor) (~' map) (~' wrap)
+                                      (~ (nest-effect idx (list;size stack) (ast;symbol var))))))))
 
         _
         (compiler;fail (format "Invalid type to lift: " (%type output)))))
