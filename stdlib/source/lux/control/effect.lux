@@ -14,6 +14,7 @@
              error
              [ident "Ident/" Eq<Ident>])
        [compiler]
+       [macro]
        (macro [ast]
               ["s" syntax #+ syntax: Syntax]
               (syntax [common]))
@@ -25,7 +26,9 @@
   (#Effect (F (Eff F a))))
 
 (sig: #export (Handler E M)
-  (: (All [a] (-> (Eff E a) (M a)))
+  (: (Monad M)
+     monad)
+  (: (All [a] (-> (E a) (M a)))
      handle))
 
 ## [Values]
@@ -102,17 +105,13 @@
         (Handler L M) (Handler R M)
         (Handler (|@ L R) M)))
   (struct
-   (def: (handle el|r)
-     (case el|r
-       (#Pure x)
-       (:: Monad<M> wrap x)
-
-       (#Effect l|r)
-       (case l|r
-         (#;Left l) (:: left handle (#Effect l))
-         (#;Right r) (:: right handle (#Effect r))
-         ))
-     )))
+   (def: monad Monad<M>)
+   
+   (def: (handle l|r)
+     (case l|r
+       (#;Left l) (:: left handle l)
+       (#;Right r) (:: right handle r)
+       ))))
 
 ## [Syntax]
 (syntax: #export (|E [effects (s;many s;any)])
@@ -190,8 +189,8 @@
 
 (type: Translation
   {#effect Ident
-   #base AST
-   #monad AST})
+   #target-type AST
+   #target-monad AST})
 
 (def: translation^
   (Syntax Translation)
@@ -210,6 +209,7 @@
      g!input (compiler;gensym "g!input")
      g!cont (compiler;gensym "g!cont")
      g!value (compiler;gensym "value")
+     g!wrap (compiler;gensym "wrap")
      #let [g!cases (|> defs
                        (List/map (lambda [def]
                                    (let [g!tag (ast;tag [e-module (get@ #common;def-name def)])
@@ -229,24 +229,31 @@
                                                       (` ((~ eff-calc) (~@ g!args))))]
                                      (list (` ((~ g!tag) [(~@ g!args)] (~ g!cont)))
                                            (` (do (~ target-monad)
-                                                [(~ g!value) (~ invocation)]
-                                                ((~' handle) ((~ g!cont) (~ g!value)))))
+                                                [(~' #let) [(~ g!wrap) (~' wrap)]
+                                                 (~ g!value) (~ invocation)]
+                                                ((~ g!wrap) ((~ g!cont) (~ g!value)))))
                                            ))))
                        List/join)]]
     (wrap (list (` (struct: (~@ (common;gen-export-level exp-lvl)) (~ (ast;symbol ["" name]))
                      (;;Handler (~ (ast;symbol effect)) (~ target-type))
+                     (def: (~' monad) (~ target-monad))
+                     
                      (def: ((~' handle) (~ g!input))
                        (case (~ g!input)
-                         (#Pure (~ g!input))
-                         (:: (~ target-monad) (~' wrap) (~ g!input))
-
-                         (#Effect (~ g!input))
-                         (case (~ g!input)
-                           (~@ g!cases)))
+                         (~@ g!cases))
                        )))))))
 
-(syntax: #export (with-handler handler body)
-  (wrap (list (` (:: (~ handler) (~' handle) (~ body))))))
+(def: #export (with-handler handler body)
+  (All [E M a] (-> (Handler E M) (Eff E a) (M a)))
+  (case body
+    (#Pure value)
+    (:: handler wrap value)
+
+    (#Effect effect)
+    (do (get@ #monad handler)
+      [result (:: handler handle effect)]
+      (with-handler handler result))
+    ))
 
 (def: (un-apply type-app)
   (-> Type Type)
@@ -275,7 +282,7 @@
                      (do (Monad<Eff> (~ g!functor))
                        [(~@ bindings)
                         (~ g!output) (~ body)]
-                       ((~' wrap) (~ g!output)))))))))
+                       (#;;Pure (~ g!output)))))))))
 
 (def: (flatten-effect-stack stack)
   (-> Type (List Type))
