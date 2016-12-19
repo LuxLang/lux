@@ -48,22 +48,22 @@
 (def: #hidden (run' tests)
   (-> (List [Text (IO Test) Text]) (Promise Unit))
   (do Monad<Promise>
-    [printings (mapM @
-                     (: (-> [Text (IO Test) Text] (Promise Unit))
-                        (lambda [[module test description]]
-                          (do @
-                            [#let [pre (io;run (System.currentTimeMillis []))]
-                             outcome (io;run test)
-                             #let [post (io;run (System.currentTimeMillis []))]]
-                            (case outcome
-                              (#;Left error)
-                              (wrap (log! (format "Error: " (:: text;Codec<Text,Text> encode description) " @ " module "\n" error "\n")))
-                              
-                              _
-                              (exec (log! (format "Success: " (:: text;Codec<Text,Text> encode description) " @ " module
-                                                  " in " (%i (i.- pre post)) "ms"))
-                                (wrap []))))))
-                     tests)]
+    [#let [printings (List/map (: (-> [Text (IO Test) Text] (Promise Unit))
+                                  (lambda [[module test description]]
+                                    (do @
+                                      [#let [pre (io;run (System.currentTimeMillis []))]
+                                       outcome (io;run test)
+                                       #let [post (io;run (System.currentTimeMillis []))]
+                                       #let [description+ (:: text;Codec<Text,Text> encode description)]]
+                                      (case outcome
+                                        (#;Left error)
+                                        (wrap (log! (format "Error: " description+ " @ " module "\n" error "\n")))
+                                        
+                                        _
+                                        (exec (log! (format "Success: " description+ " @ " module " in " (%i (i.- pre post)) "ms"))
+                                          (wrap []))))))
+                               tests)]
+     _ (seqM @ printings)]
     (wrap [])))
 
 (def: pcg-32-magic-inc Nat +12345)
@@ -197,12 +197,14 @@
       [current-module compiler;current-module-name
        modules (compiler;imported-modules current-module)
        tests (: (Lux (List [Text Text Text]))
-                (:: @ map List/join (mapM @ exported-tests (#;Cons current-module modules))))
+                (|> (#;Cons current-module modules)
+                    list;reverse
+                    (mapM @ exported-tests)
+                    (:: @ map List/join)))
        #let [tests+ (List/map (lambda [[module-name test desc]]
                                 (` [(~ (ast;text module-name)) (~ (ast;symbol [module-name test])) (~ (ast;text desc))]))
                               tests)
-             groups (list;split-all (|> (list;size tests+) (n./ promise;concurrency-level) (n.+ +1) (n.min +16))
-                                    tests+)]]
+             groups (list;split-all promise;concurrency-level tests+)]]
       (wrap (list (` (: (IO Unit)
                         (io (exec (do Monad<Promise>
                                     [(~@ (List/join (List/map (lambda [group]
