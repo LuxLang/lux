@@ -1314,19 +1314,22 @@
         ;; else
         (->> (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " [category proc]))
              (if-let [[_ _def-code] (re-find #"^interface:(.*)$" proc)]
-               (&reader/with-source "interface" _def-code
-                 (|do [[=gclass-decl =supers =anns =methods] &&a-parser/parse-interface-def]
-                   (analyse-jvm-interface analyse compile-interface =gclass-decl =supers =anns =methods))))
+               (|do [[_module _line _column] &/cursor]
+                 (&reader/with-source (str "interface@" "(" _module "," _line "," _column ")") _def-code
+                   (|do [[=gclass-decl =supers =anns =methods] &&a-parser/parse-interface-def]
+                     (analyse-jvm-interface analyse compile-interface =gclass-decl =supers =anns =methods)))))
              
              (if-let [[_ _def-code] (re-find #"^class:(.*)$" proc)]
-               (&reader/with-source "class" _def-code
-                 (|do [[=gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods] &&a-parser/parse-class-def]
-                   (analyse-jvm-class analyse compile-class =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods))))
+               (|do [[_module _line _column] &/cursor]
+                 (&reader/with-source (str "class@" "(" _module "," _line "," _column ")") _def-code
+                   (|do [[=gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods] &&a-parser/parse-class-def]
+                     (analyse-jvm-class analyse compile-class =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods)))))
              
              (if-let [[_ _def-code] (re-find #"^anon-class:(.*)$" proc)]
-               (&reader/with-source "anon-class" _def-code
-                 (|do [[=super-class =interfaces =ctor-args =methods] &&a-parser/parse-anon-class-def]
-                   (analyse-jvm-anon-class analyse compile-class exo-type =super-class =interfaces =ctor-args =methods))))
+               (|do [[_module _line _column] &/cursor]
+                 (&reader/with-source (str "anon-class@" "(" _module "," _line "," _column ")") _def-code
+                   (|do [[=super-class =interfaces =ctor-args =methods] &&a-parser/parse-anon-class-def]
+                     (analyse-jvm-anon-class analyse compile-class exo-type =super-class =interfaces =ctor-args =methods)))))
              
              (if-let [[_ _class] (re-find #"^instanceof:([^:]+)$" proc)]
                (analyse-jvm-instanceof analyse exo-type _class ?values))
