@@ -939,15 +939,16 @@
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$is-zero (new Label)
-                 $end (new Label)]
+         _ (let [$is-zero (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_frac" "(J)Ljava/lang/String;" nil nil)
                (.visitCode)
                (.visitVarInsn Opcodes/LLOAD 0)
                (.visitLdcInsn (long 0))
                (.visitInsn Opcodes/LCMP)
                (.visitJumpInsn Opcodes/IFEQ $is-zero)
-               ;; IF =/= 0
+               ;; IF != 0
+               ;; Add prefix dot for later usage.
+               (.visitLdcInsn ".")
                ;; Generate leading 0s
                (.visitLdcInsn (long 1))
                (.visitVarInsn Opcodes/LLOAD 0)
@@ -964,12 +965,13 @@
                (.visitInsn Opcodes/AALOAD)
                ;; Join leading 0s with number text
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+               ;; Join with prefix dot
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
                ;; FINISH
-               (.visitJumpInsn Opcodes/GOTO $end)
+               (.visitInsn Opcodes/ARETURN)
                ;; IF == 0
                (.visitLabel $is-zero)
                (.visitLdcInsn ".0")
-               (.visitLabel $end)
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
