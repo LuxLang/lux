@@ -7,7 +7,7 @@
   lux
   (lux (codata [io])
        (control monad)
-       (data [text "Text/" Monoid<Text>]
+       (data [text "Text/" Monoid<Text> Eq<Text>]
              text/format
              [number]
              maybe
@@ -49,6 +49,26 @@
                  (R;seq gen-ident gen-type)
                  )))))
 
+(def: (valid-type? type)
+  (-> Type Bool)
+  (case type
+    (#;HostT name params)
+    (list;every? valid-type? params)
+    
+    (^or #;VoidT #;UnitT (#;ExT id))
+    true
+
+    (^template [<tag>]
+      (<tag> left right)
+      (and (valid-type? left) (valid-type? right)))
+    ([#;SumT] [#;ProdT] [#;LambdaT])
+
+    (#;NamedT name type')
+    (valid-type? type')
+
+    _
+    false))
+
 (def: (type-checks? input)
   (-> (&;Check []) Bool)
   (case (&;run &;fresh-context input)
@@ -60,12 +80,12 @@
 
 ## [Tests]
 (test: "Top and Bottom"
-  [sample gen-type]
+  [sample (|> gen-type (R;filter valid-type?))]
   ($_ seq
-      (assert "Top is the super-type 0f everything."
+      (assert "Top is the super-type of everything."
               (&;checks? Top sample))
 
-      (assert "Bottom is the sub-type 0f everything."
+      (assert "Bottom is the sub-type of everything."
               (&;checks? sample Bottom))
       ))
 
@@ -116,21 +136,21 @@
 
 (test: "Host types"
   [nameL gen-name
-   nameR gen-name
+   nameR (|> gen-name (R;filter (. not (Text/= nameL))))
    paramL gen-type
-   paramR gen-type]
+   paramR (|> gen-type (R;filter (|>. (&;checks? paramL) not)))]
   ($_ seq
       (assert "Host types match when they have the same name and the same parameters."
               (&;checks? (#;HostT nameL (list paramL))
                          (#;HostT nameL (list paramL))))
 
       (assert "Names matter to host types."
-              (&;checks? (#;HostT nameL (list paramL))
-                         (#;HostT nameR (list paramL))))
+              (not (&;checks? (#;HostT nameL (list paramL))
+                              (#;HostT nameR (list paramL)))))
 
       (assert "Parameters matter to host types."
-              (&;checks? (#;HostT nameL (list paramL))
-                         (#;HostT nameL (list paramR))))
+              (not (&;checks? (#;HostT nameL (list paramL))
+                              (#;HostT nameL (list paramR)))))
       ))
 
 (test: "Type-vars"
