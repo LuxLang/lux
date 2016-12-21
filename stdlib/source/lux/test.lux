@@ -102,15 +102,18 @@
           (repeat' seed' (n.dec times) random-test))
         ))))
 
-(def: #export (repeat times random-test)
-  (-> Nat (R;Random Test) Test)
-  (repeat' (int-to-nat (io;run (System.currentTimeMillis [])))
-           times
+(def: #export (repeat ?seed times random-test)
+  (-> (Maybe Nat) Nat (R;Random Test) Test)
+  (repeat' (default (int-to-nat (io;run (System.currentTimeMillis [])))
+             ?seed)
+           (case ?seed
+             #;None times
+             (#;Some _) +1)
            random-test))
 
 ## [Syntax]
 (type: Property-Test
-  {#seed (Maybe (Either Nat Ident))
+  {#seed (Maybe Nat)
    #bindings (List [AST AST])
    #body AST})
 
@@ -118,22 +121,36 @@
   (#Property Property-Test)
   (#Simple AST))
 
-(def: propery-test^
+(def: seed^
+  (Syntax Nat)
+  (do s;Monad<Syntax>
+    [_ (s;tag! ["" "seed"])]
+    s;nat))
+
+(def: property-test^
   (Syntax Property-Test)
   ($_ s;seq
-      (s;opt (s;alt s;nat
-                    s;symbol))
+      (s;opt seed^)
       (s;tuple (s;some (s;seq s;any s;any)))
       s;any))
 
 (def: test^
   (Syntax Test-Kind)
-  (s;alt propery-test^
+  (s;alt property-test^
          s;any))
 
 (def: (pair-to-list [x y])
   (All [a] (-> [a a] (List a)))
   (list x y))
+
+(def: #hidden (try-body lazy-body)
+  (-> (IO Test) Test)
+  (case (host;try (io;run lazy-body))
+    (#;Right output)
+    output
+
+    (#;Left error)
+    (assert error false)))
 
 (syntax: #export (test: description [body test^])
   {#;doc (doc "Macro for definint tests."
@@ -151,20 +168,18 @@
                      )))}
   (let [body (case body
                (#Property seed bindings body)
-               (let [seed' (case seed
+               (let [=seed (case seed
                              #;None
-                             (' +100)
-
-                             (#;Some (#;Left value))
-                             (ast;nat value)
-
-                             (#;Some (#;Right var))
-                             (ast;symbol var))
+                             (` #;None)
+                             
+                             (#;Some value)
+                             (` (#;Some (~ (ast;nat value)))))
                      bindings' (|> bindings (List/map pair-to-list) List/join)]
-                 (` (repeat (~ seed')
+                 (` (repeat (~ =seed)
+                            +100
                             (do R;Monad<Random>
                               [(~@ bindings')]
-                              ((~' wrap) (~ body))))))
+                              ((~' wrap) (;;try-body (io;io (~ body))))))))
                
                (#Simple body)
                body)]
