@@ -12,7 +12,7 @@
                 applicative
                 monad)
        (concurrency [promise #+ Promise Monad<Promise>])
-       (data (struct [list "List/" Monad<List>])
+       (data (struct [list "List/" Monad<List> Fold<List>])
              [product]
              [text]
              text/format
@@ -26,9 +26,12 @@
   (#static exit [int] #io void)
   (#static currentTimeMillis [] #io long))
 
-(def: #hidden exit
-  (IO Unit)
-  (System.exit 0))
+(do-template [<name> <signal>]
+  [(def: #hidden <name> (IO Unit) (System.exit <signal>))]
+
+  [exit 0]
+  [die  1]
+  )
 
 ## [Types]
 (type: #export Test
@@ -46,25 +49,26 @@
     (fail message)))
 
 (def: #hidden (run' tests)
-  (-> (List [Text (IO Test) Text]) (Promise Unit))
+  (-> (List [Text (IO Test) Text]) (Promise Nat))
   (do Monad<Promise>
-    [#let [printings (List/map (: (-> [Text (IO Test) Text] (Promise Unit))
+    [#let [test-runs (List/map (: (-> [Text (IO Test) Text] (Promise Nat))
                                   (lambda [[module test description]]
                                     (do @
                                       [#let [pre (io;run (System.currentTimeMillis []))]
                                        outcome (io;run test)
-                                       #let [post (io;run (System.currentTimeMillis []))]
-                                       #let [description+ (:: text;Codec<Text,Text> encode description)]]
+                                       #let [post (io;run (System.currentTimeMillis []))
+                                             description+ (:: text;Codec<Text,Text> encode description)]]
                                       (case outcome
                                         (#;Left error)
-                                        (wrap (log! (format "Error: " description+ " @ " module "\n" error "\n")))
+                                        (exec (log! (format "Error: " description+ " @ " module "\n" error "\n"))
+                                          (wrap +0))
                                         
                                         _
                                         (exec (log! (format "Success: " description+ " @ " module " in " (%i (i.- pre post)) "ms"))
-                                          (wrap []))))))
+                                          (wrap +1))))))
                                tests)]
-     _ (seqM @ printings)]
-    (wrap [])))
+     test-runs (seqM @ test-runs)]
+    (wrap (List/fold n.+ +0 test-runs))))
 
 (def: pcg-32-magic-inc Nat +12345)
 
@@ -214,10 +218,13 @@
               (list;filter product;left)
               (List/map product;right)))))
 
+(def: #hidden _appendT_ (-> Text Text Text) (:: text;Monoid<Text> append))
+(def: #hidden _%i_ (-> Int Text) %i)
+
 (syntax: #export (run)
   {#;doc (doc "Runs all the tests defined on the current module, and in all imported modules."
               (run))}
-  (with-gensyms [g!_]
+  (with-gensyms [g!_ g!accum]
     (do @
       [current-module compiler;current-module-name
        modules (compiler;imported-modules current-module)
@@ -229,14 +236,28 @@
        #let [tests+ (List/map (lambda [[module-name test desc]]
                                 (` [(~ (ast;text module-name)) (~ (ast;symbol [module-name test])) (~ (ast;text desc))]))
                               tests)
+             num-tests (list;size tests+)
              groups (list;split-all promise;concurrency-level tests+)]]
       (wrap (list (` (: (IO Unit)
                         (io (exec (do Monad<Promise>
-                                    [(~@ (List/join (List/map (lambda [group]
-                                                                (list g!_ (` (run' (list (~@ group))))))
-                                                              groups)))]
-                                    (exec (log! "Test-suite finished!")
-                                      (promise;future exit)))
+                                    [(~' #let) [(~ g!accum) +0]
+                                     (~@ (List/join (List/map (lambda [group]
+                                                                (list g!_ (` (run' (list (~@ group))))
+                                                                      (' #let) (` [(~ g!accum) (n.+ (~ g!_) (~ g!accum))])))
+                                                              groups)))
+                                     (~' #let) [(~ g!_) (n.- (~ g!accum) (~ (ast;nat num-tests)))]]
+                                    (exec (log! ($_ _appendT_
+                                                    "Test-suite finished."
+                                                    "\n"
+                                                    (_%i_ (nat-to-int (~ g!_))) " tests failed."
+                                                    "\n"
+                                                    (_%i_ (nat-to-int (~ g!accum)))
+                                                    " out of "
+                                                    (~ (|> num-tests nat-to-int _%i_ ast;text))
+                                                    " tests passed."))
+                                      (promise;future (if (n.> +0 (~ g!_))
+                                                        ;;die
+                                                        ;;exit))))
                               [])))))))))
 
 (def: #export (seq left right)
