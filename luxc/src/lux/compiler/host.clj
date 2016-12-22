@@ -1106,7 +1106,7 @@
                  ;; Remove the + at the beginning...
                  (.visitVarInsn Opcodes/ALOAD 0)
                  (.visitLdcInsn (int 0))
-                 (.visitLdcInsn (int 0))
+                 (.visitLdcInsn (int 1))
                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
                  (.visitLdcInsn "+")
                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
@@ -1444,7 +1444,7 @@
               _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
                   (.visitCode)
                   (.visitLdcInsn (->> #'&/$Some meta ::&/idx int)) ;; I
-                  (.visitInsn Opcodes/ACONST_NULL) ;; I?
+                  (.visitLdcInsn "") ;; I?
                   (.visitVarInsn Opcodes/ALOAD 0) ;; I?O
                   (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitInsn Opcodes/ARETURN)
