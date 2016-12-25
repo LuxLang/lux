@@ -1722,7 +1722,7 @@
               _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "clean_separators" "(Ljava/lang/String;)Ljava/lang/String;" nil nil)
                   (.visitCode)
                   (.visitVarInsn Opcodes/ALOAD 0)
-                  (.visitLdcInsn ",|_")
+                  (.visitLdcInsn "_")
                   (.visitLdcInsn "")
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "replaceAll" "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;")
                   (.visitInsn Opcodes/ARETURN)

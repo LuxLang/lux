@@ -164,12 +164,12 @@
 (do-template [<name> <tag> <regex>]
   (def <name>
     (|do [[meta _ token] (&reader/read-regex <regex>)]
-      (return (&/T [meta (<tag> (string/replace token #",|_" ""))]))))
+      (return (&/T [meta (<tag> (string/replace token #"_" ""))]))))
 
-  lex-nat   $Nat   #"^\+(0|[1-9][0-9,_]*)"
-  lex-int   $Int   #"^-?(0|[1-9][0-9,_]*)"
-  lex-frac  $Frac  #"^(\.[0-9,_]+)"
-  lex-real  $Real  #"^-?(0\.[0-9,_]+|[1-9][0-9,_]*\.[0-9,_]+)(e-?[1-9][0-9,_]*)?"
+  lex-nat   $Nat   #"^\+(0|[1-9][0-9_]*)"
+  lex-int   $Int   #"^-?(0|[1-9][0-9_]*)"
+  lex-frac  $Frac  #"^(\.[0-9_]+)"
+  lex-real  $Real  #"^-?(0\.[0-9_]+|[1-9][0-9_]*\.[0-9_]+)(e-?[1-9][0-9_]*)?"
   )
 
 (def lex-char
