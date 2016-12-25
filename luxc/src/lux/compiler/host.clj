@@ -862,55 +862,6 @@
              (.visitInsn Opcodes/LRETURN)
              (.visitMaxs 0 0)
              (.visitEnd))
-         _ (let [$start (new Label)
-                 $body (new Label)
-                 $end (new Label)
-                 $zero (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "count_bin_start_0" "(J)I" nil nil)
-               (.visitCode)
-               ;; Initialize counter
-               (.visitLdcInsn (int 0)) ; I
-               (.visitVarInsn Opcodes/ISTORE 2) ; 
-               ;; Initialize index var
-               (.visitLdcInsn (int 63)) ; I
-               ;; Begin loop
-               (.visitLabel $start) ; I
-               ;; Make sure we're still on the valid index range
-               (.visitInsn Opcodes/DUP) ; I, I
-               (.visitLdcInsn (int -1)) ; I, I, I
-               (.visitJumpInsn Opcodes/IF_ICMPGT $body) ; I
-               ;; If not, just return what we've got.
-               (.visitInsn Opcodes/POP) ;
-               (.visitVarInsn Opcodes/ILOAD 2) ; I
-               (.visitJumpInsn Opcodes/GOTO $end)
-               ;; If so, run the body
-               (.visitLabel $body) ;; I
-               (.visitInsn Opcodes/DUP) ;; I, I
-               (.visitVarInsn Opcodes/LLOAD 0) ;; I, I, L
-               (.visitInsn Opcodes/DUP2_X1) ;; I, L, I, L
-               (.visitInsn Opcodes/POP2) ;; I, L, I
-               bit-set-64? ;; I, I
-               (.visitJumpInsn Opcodes/IFEQ $zero) ;; I
-               ;; No more zeroes from now on...
-               (.visitInsn Opcodes/POP) ;;
-               (.visitVarInsn Opcodes/ILOAD 2) ;; I
-               (.visitJumpInsn Opcodes/GOTO $end)
-               ;; Found another zero...
-               (.visitLabel $zero) ;; I
-               ;; Increase counter
-               (.visitVarInsn Opcodes/ILOAD 2) ;; I, I
-               (.visitLdcInsn (int 1)) ;; I, I, I
-               (.visitInsn Opcodes/IADD) ;; I, I
-               (.visitVarInsn Opcodes/ISTORE 2) ;; I
-               ;; Increase index, then iterate again...
-               (.visitLdcInsn (int 1)) ;; I, I
-               (.visitInsn Opcodes/ISUB) ;; I
-               (.visitJumpInsn Opcodes/GOTO $start)
-               ;; Finally, return
-               (.visitLabel $end) ; I
-               (.visitInsn Opcodes/IRETURN)
-               (.visitMaxs 0 0)
-               (.visitEnd)))
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "times5" "(I[B)[B" nil nil)
@@ -1129,117 +1080,264 @@
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$end (new Label)
-                 ;; $then (new Label)
-                 $else (new Label)
-                 $from (new Label)
-                 $to (new Label)
-                 $handler (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_frac" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)
+                 $not-set (new Label)
+                 $next-iteration (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_text_to_digits" "(Ljava/lang/String;)[B" nil nil)
                (.visitCode)
-               ;; Check prefix
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ISTORE 1) ;; Index
+               (.visitLdcInsn (int frac-bits))
+               (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
+               (.visitVarInsn Opcodes/ASTORE 2) ;; digits
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 2)
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
                (.visitVarInsn Opcodes/ALOAD 0)
-               (.visitLdcInsn ".")
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "startsWith" "(Ljava/lang/String;)Z")
-               (.visitJumpInsn Opcodes/IFEQ $else)
-               ;; Remove prefix
-               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitVarInsn Opcodes/ILOAD 1)
                (.visitLdcInsn (int 1))
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(I)Ljava/lang/String;")
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "clean_separators" "(Ljava/lang/String;)Ljava/lang/String;")
-               (.visitInsn Opcodes/DUP)
-               (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
-               (.visitLabel $from)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "read_frac_text" "(Ljava/lang/String;)J")
-               (.visitLabel $to)
+               (.visitInsn Opcodes/IADD)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Byte" "parseByte" "(Ljava/lang/String;)B")
+               ;; Set digit
+               (.visitVarInsn Opcodes/ALOAD 2)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               swap2x1
+               (.visitInsn Opcodes/BASTORE)
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 1)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               (.visitMaxs 0 0)
+               (.visitEnd)))
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)
+                 $is-less-than (new Label)
+                 $is-equal (new Label)]
+             ;; [B0 <= [B1
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_lte" "([B[B)Z" nil nil)
+               (.visitCode)
+               (.visitLdcInsn (int 0))
+               (.visitVarInsn Opcodes/ISTORE 2) ;; Index
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitLdcInsn (int frac-bits))
+               (.visitJumpInsn Opcodes/IF_ICMPLT $do-a-round)
+               (.visitLdcInsn true)
+               (.visitInsn Opcodes/IRETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/BALOAD) ;; {D0}
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/BALOAD) ;; {D0, D1}
                (.visitInsn Opcodes/DUP2)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "count_bin_start_0" "(J)I")
-               (.visitInsn Opcodes/LSHL)
-               (.visitInsn Opcodes/DUP2_X1)
+               (.visitJumpInsn Opcodes/IF_ICMPLT $is-less-than)
+               (.visitJumpInsn Opcodes/IF_ICMPEQ $is-equal)
+               ;; Is greater than...
+               (.visitLdcInsn false)
+               (.visitInsn Opcodes/IRETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $is-less-than)
                (.visitInsn Opcodes/POP2)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "count_leading_zeroes" "(Ljava/lang/String;)J")
-               (.visitInsn Opcodes/L2D)
-               (.visitLdcInsn (double 10.0))
-               swap2
-               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Math" "pow" "(DD)D")
-               (.visitInsn Opcodes/D2L)
-               (.visitInsn Opcodes/LDIV)
-               ;; (.visitJumpInsn Opcodes/GOTO $then)
-               ;; (.visitLabel $then)
-               (&&/wrap-long)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-               (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
-               (.visitJumpInsn Opcodes/GOTO $end)
-               (.visitLabel $handler)
-               (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Exception"]))
-               (.visitInsn Opcodes/POP)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-               (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
-               (.visitJumpInsn Opcodes/GOTO $end)
-               ;; Doesn't start with necessary prefix.
-               (.visitLabel $else)
-               (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 0 (to-array []))
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-               (.visitLabel $end)
-               (.visitFrame Opcodes/F_NEW 1 (to-array ["java/lang/String"]) 1 (to-array ["java/lang/Object"]))
+               (.visitLdcInsn true)
+               (.visitInsn Opcodes/IRETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $is-equal)
+               ;; Increment index
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/IADD)
+               (.visitVarInsn Opcodes/ISTORE 2)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               (.visitMaxs 0 0)
+               (.visitEnd)))
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)
+                 $simple-sub (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_sub_once" "([BBI)[B" nil nil)
+               (.visitCode)
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 2) ;; {target-digit}
+               (.visitInsn Opcodes/BALOAD)
+               (.visitVarInsn Opcodes/ILOAD 1) ;; {target-digit, param-digit}
+               (.visitInsn Opcodes/DUP2)
+               (.visitJumpInsn Opcodes/IF_ICMPGE $simple-sub)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;; Since $0 < $1
+               (.visitInsn Opcodes/SWAP)
+               (.visitInsn Opcodes/ISUB) ;; $1 - $0
+               (.visitLdcInsn (byte 10))
+               (.visitInsn Opcodes/SWAP)
+               (.visitInsn Opcodes/ISUB) ;; 10 - ($1 - $0)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               swap2x1
+               (.visitInsn Opcodes/BASTORE)
+               ;; Prepare to iterate...
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 2)
+               ;; Subtract 1 from next digit
+               (.visitLdcInsn (int 1))
+               (.visitVarInsn Opcodes/ISTORE 1)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $simple-sub)
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               swap2x1
+               (.visitInsn Opcodes/BASTORE)
+               (.visitVarInsn Opcodes/ALOAD 0)
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [string-bcn (&host-generics/->bytecode-class-name "java.lang.String")
-                 $valid (new Label)
-                 $end (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "count_leading_zeroes" "(Ljava/lang/String;)J" nil nil)
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_sub" "([B[B)[B" nil nil)
                (.visitCode)
-               (.visitVarInsn Opcodes/ALOAD 0) ;; S
-               (.visitLdcInsn "^0*") ;; S, S
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL string-bcn "split" "(Ljava/lang/String;)[Ljava/lang/String;") ;; [S
-               (.visitInsn Opcodes/DUP) ;; [S, [S
-               (.visitInsn Opcodes/ARRAYLENGTH) ;; [S, I
-               (.visitLdcInsn (int 2)) ;; [S, I, I
-               (.visitJumpInsn Opcodes/IF_ICMPEQ $valid) ;; [S
-               ;; Invalid...
-               (.visitInsn Opcodes/POP) ;;
-               (.visitLdcInsn (long 0)) ;; J
-               (.visitJumpInsn Opcodes/GOTO $end)
-               (.visitLabel $valid) ;; [S
-               ;; Valid...
-               (.visitLdcInsn (int 1)) ;; [S, I
-               (.visitInsn Opcodes/AALOAD) ;; S
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL string-bcn "length" "()I") ;; I
-               (.visitVarInsn Opcodes/ALOAD 0) ;; I, S
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL string-bcn "length" "()I") ;; I, I
-               (.visitInsn Opcodes/SWAP) ;; I, I
-               (.visitInsn Opcodes/ISUB) ;; I
-               (.visitInsn Opcodes/I2L) ;; J
-               (.visitLabel $end) ;; J
-               (.visitInsn Opcodes/LRETURN)
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ISTORE 2) ;; Index
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 0) ;; {target-digits}
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/BALOAD) ;; {target-digits, param-digit}
+               (.visitVarInsn Opcodes/ILOAD 2) ;; {target-digits, param-digit, idx}
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_sub_once" "([BBI)[B")
+               (.visitVarInsn Opcodes/ASTORE 0) ;; Update target digits
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 2)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$only-zeroes (new Label)
-                 $end (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "read_frac_text" "(Ljava/lang/String;)J" nil nil)
+         _ (let [$from (new Label)
+                 $to (new Label)
+                 $handler (new Label)
+                 $loop-start (new Label)
+                 $do-a-round (new Label)
+                 $skip-power (new Label)
+                 $iterate (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_frac" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
                (.visitCode)
+               ;; Initialization
+               (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
                (.visitVarInsn Opcodes/ALOAD 0)
-               (.visitLdcInsn "0*$")
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL
-                                 (&host-generics/->bytecode-class-name "java.lang.String")
-                                 "split" "(Ljava/lang/String;)[Ljava/lang/String;")
-               (.visitInsn Opcodes/DUP)
-               (.visitInsn Opcodes/ARRAYLENGTH)
-               (.visitJumpInsn Opcodes/IFEQ $only-zeroes)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "clean_separators" "(Ljava/lang/String;)Ljava/lang/String;")
+               (.visitLabel $from)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_text_to_digits" "(Ljava/lang/String;)[B")
+               (.visitLabel $to)
+               (.visitVarInsn Opcodes/ASTORE 0) ;; From test to digits...
                (.visitLdcInsn (int 0))
-               (.visitInsn Opcodes/AALOAD)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseUnsignedLong" "(Ljava/lang/String;)J")
-               (.visitJumpInsn Opcodes/GOTO $end)
-               (.visitLabel $only-zeroes)
-               (.visitInsn Opcodes/POP)
+               (.visitVarInsn Opcodes/ISTORE 1) ;; Index
+               (.visitLdcInsn (long 0))
+               (.visitVarInsn Opcodes/LSTORE 2) ;; Output
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitLdcInsn (int frac-bits))
+               (.visitJumpInsn Opcodes/IF_ICMPLT $do-a-round)
+               (.visitVarInsn Opcodes/LLOAD 2)
+               &&/wrap-long
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
                (.visitVarInsn Opcodes/ALOAD 0)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseUnsignedLong" "(Ljava/lang/String;)J")
-               (.visitLabel $end)
-               (.visitInsn Opcodes/LRETURN)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digit_power" "(I)[B")
+               (.visitInsn Opcodes/DUP2)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_lte" "([B[B)Z")
+               (.visitJumpInsn Opcodes/IFNE $skip-power)
+               ;; Subtract power
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_sub" "([B[B)[B")
+               (.visitVarInsn Opcodes/ASTORE 0)
+               ;; Set bit on output
+               (.visitVarInsn Opcodes/LLOAD 2)
+               (.visitLdcInsn (long 1))
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitInsn Opcodes/LSHL)
+               (.visitInsn Opcodes/LOR)
+               (.visitVarInsn Opcodes/LSTORE 2)
+               (.visitJumpInsn Opcodes/GOTO $iterate)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $skip-power)
+               (.visitInsn Opcodes/POP2)
+               ;; (.visitJumpInsn Opcodes/GOTO $iterate)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $iterate)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 1)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $handler)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+               (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
-               (.visitEnd)))
-         ]
+               (.visitEnd)))]
     nil))
 
 (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
