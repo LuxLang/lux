@@ -1129,7 +1129,7 @@
                  $is-less-than (new Label)
                  $is-equal (new Label)]
              ;; [B0 <= [B1
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_lte" "([B[B)Z" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_lt" "([B[B)Z" nil nil)
                (.visitCode)
                (.visitLdcInsn (int 0))
                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
@@ -1140,7 +1140,7 @@
                (.visitVarInsn Opcodes/ILOAD 2)
                (.visitLdcInsn (int frac-bits))
                (.visitJumpInsn Opcodes/IF_ICMPLT $do-a-round)
-               (.visitLdcInsn true)
+               (.visitLdcInsn false)
                (.visitInsn Opcodes/IRETURN)
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1267,12 +1267,20 @@
                  $loop-start (new Label)
                  $do-a-round (new Label)
                  $skip-power (new Label)
-                 $iterate (new Label)]
+                 $iterate (new Label)
+                 $bad-format (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_frac" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
                (.visitCode)
+               ;; Check prefix
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitLdcInsn ".")
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "startsWith" "(Ljava/lang/String;)Z")
+               (.visitJumpInsn Opcodes/IFEQ $bad-format)
                ;; Initialization
                (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
                (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitLdcInsn (int 1))
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(I)Ljava/lang/String;")
                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "clean_separators" "(Ljava/lang/String;)Ljava/lang/String;")
                (.visitLabel $from)
                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_text_to_digits" "(Ljava/lang/String;)[B")
@@ -1301,7 +1309,7 @@
                (.visitVarInsn Opcodes/ILOAD 1)
                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digit_power" "(I)[B")
                (.visitInsn Opcodes/DUP2)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_lte" "([B[B)Z")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_lt" "([B[B)Z")
                (.visitJumpInsn Opcodes/IFNE $skip-power)
                ;; Subtract power
                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_sub" "([B[B)[B")
@@ -1310,6 +1318,9 @@
                (.visitVarInsn Opcodes/LLOAD 2)
                (.visitLdcInsn (long 1))
                (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitInsn Opcodes/SWAP)
+               (.visitInsn Opcodes/ISUB)
                (.visitInsn Opcodes/LSHL)
                (.visitInsn Opcodes/LOR)
                (.visitVarInsn Opcodes/LSTORE 2)
@@ -1326,7 +1337,7 @@
                (.visitLabel $iterate)
                (.visitVarInsn Opcodes/ILOAD 1)
                (.visitLdcInsn (int 1))
-               (.visitInsn Opcodes/ISUB)
+               (.visitInsn Opcodes/IADD)
                (.visitVarInsn Opcodes/ISTORE 1)
                ;; Iterate
                (.visitJumpInsn Opcodes/GOTO $loop-start)
@@ -1334,6 +1345,12 @@
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                (.visitLabel $handler)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $bad-format)
                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
