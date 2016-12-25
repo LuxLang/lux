@@ -753,6 +753,13 @@
     (.visitInsn Opcodes/POP2) ;; Y2, X2
     ))
 
+(defn ^:private swap2x1 [^MethodVisitor =method]
+  (doto =method
+    ;; X1, Y2
+    (.visitInsn Opcodes/DUP2_X1) ;; Y2, X1, Y2
+    (.visitInsn Opcodes/POP2) ;; Y2, X1
+    ))
+
 (defn ^:private bit-set-64? [^MethodVisitor =method]
   (doto =method
     ;; L, I
@@ -766,7 +773,8 @@
     ))
 
 (defn ^:private compile-LuxRT-frac-methods [^ClassWriter =class]
-  (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "mul_frac" "(JJ)J" nil nil)
+  (|let [frac-bits 64
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "mul_frac" "(JJ)J" nil nil)
              ;; Based on: http://stackoverflow.com/a/31629280/6823464
              (.visitCode)
              ;; Bottom part
@@ -903,76 +911,222 @@
                (.visitInsn Opcodes/IRETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$start (new Label)
-                 $can-append (new Label)
-                 $end (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_text_start_0" "(J)Ljava/lang/String;" nil nil)
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "times5" "(I[B)[B" nil nil)
                (.visitCode)
-               ;; Initialize accum
-               (.visitLdcInsn "") ;; S
-               (.visitVarInsn Opcodes/ASTORE 2) ;;
-               ;; Initialize comparator
-               (.visitLdcInsn (long 10)) ;; L
-               ;; Testing/accum loop
-               (.visitLabel $start) ;; L
-               (.visitInsn Opcodes/DUP2) ;; L, L
-               (.visitVarInsn Opcodes/LLOAD 0) ;; L, L, L
-               (.visitInsn Opcodes/LCMP) ;; L, I
-               (.visitJumpInsn Opcodes/IFLT $can-append) ;; L
-               ;; No more testing.
-               ;; Throw away the comparator and return accum.
-               (.visitInsn Opcodes/POP2) ;;
-               (.visitVarInsn Opcodes/ALOAD 2) ;; S
-               (.visitJumpInsn Opcodes/GOTO $end)
-               ;; Can keep accumulating
-               (.visitLabel $can-append) ;; L
-               ;; Add one more 0 to accum
-               (.visitVarInsn Opcodes/ALOAD 2) ;; L, S
-               (.visitLdcInsn "0") ;; L, S, S
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;") ;; L, S
-               (.visitVarInsn Opcodes/ASTORE 2) ;; L
-               ;; Update comparator and re-iterate
-               (.visitLdcInsn (long 10)) ;; L, L
-               (.visitInsn Opcodes/LMUL) ;; L
-               (.visitJumpInsn Opcodes/GOTO $start)
-               (.visitLabel $end) ;; S
+               (.visitLdcInsn (int 0)) ;; {carry}
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 0)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 1)
                (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;; {carry}
+               (.visitLabel $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitVarInsn Opcodes/ILOAD 0)
+               (.visitInsn Opcodes/BALOAD) ;; {carry, current-digit}
+               (.visitLdcInsn (int 5))
+               (.visitInsn Opcodes/IMUL)
+               (.visitInsn Opcodes/IADD) ;; {next-raw-digit}
+               (.visitInsn Opcodes/DUP)
+               (.visitLdcInsn (int 10))
+               (.visitInsn Opcodes/IREM) ;; {next-raw-digit, next-digit}
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitVarInsn Opcodes/ILOAD 0)
+               swap2x1
+               (.visitInsn Opcodes/BASTORE) ;; {next-raw-digit}
+               (.visitLdcInsn (int 10))
+               (.visitInsn Opcodes/IDIV) ;; {next-carry}
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 0)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 0)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$is-zero (new Label)]
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digit_power" "(I)[B" nil nil)
+               (.visitCode)
+               ;; Initialize digits array.
+               (.visitLdcInsn (int frac-bits))
+               (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE) ;; {digits}
+               (.visitInsn Opcodes/DUP)
+               (.visitVarInsn Opcodes/ILOAD 0)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/BASTORE) ;; digits = 5^0
+               (.visitVarInsn Opcodes/ASTORE 1)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitVarInsn Opcodes/ILOAD 0) ;; {times}
+               (.visitLabel $loop-start)
+               (.visitInsn Opcodes/DUP)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
+               ;; {times}
+               (.visitVarInsn Opcodes/ILOAD 0)
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "times5" "(I[B)[B") ;; {digits*5, times}
+               (.visitVarInsn Opcodes/ASTORE 1) ;; {times}
+               ;; Decrement index
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               ;; {times-1}
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               (.visitMaxs 0 0)
+               (.visitEnd)))
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "add_frac_digit_powers" "([B[B)[B" nil nil)
+               (.visitCode)
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ISTORE 2) ;; Index
+               (.visitLdcInsn (int frac-bits))
+               (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
+               (.visitVarInsn Opcodes/ASTORE 3) ;; added_digits
+               (.visitLdcInsn (int 0)) ;; {carry}
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;; {carry}
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               ;; {carry}
+               (.visitVarInsn Opcodes/ALOAD 3)
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;; {carry}
+               (.visitLabel $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/BALOAD) ;; {carry, dL}
+               (.visitVarInsn Opcodes/ALOAD 1)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/BALOAD) ;; {carry, dL, dR}
+               (.visitInsn Opcodes/IADD)
+               (.visitInsn Opcodes/IADD) ;; {raw-next-digit}
+               (.visitInsn Opcodes/DUP)
+               (.visitLdcInsn (int 10))
+               (.visitInsn Opcodes/IREM) ;; {raw-next-digit, next-digit}
+               (.visitVarInsn Opcodes/ALOAD 3)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               swap2x1
+               (.visitInsn Opcodes/BASTORE) ;; {raw-next-digit}
+               (.visitLdcInsn (int 10))
+               (.visitInsn Opcodes/IDIV) ;; {next-carry}
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 2)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               (.visitMaxs 0 0)
+               (.visitEnd)))
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_to_text" "([B)Ljava/lang/String;" nil nil)
+               (.visitCode)
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ISTORE 1) ;; Index
+               (.visitLdcInsn "") ;; {text}
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitInsn Opcodes/BALOAD) ;; {text, digit}
+               (.visitLdcInsn (int 10)) ;; {text, digit, radix}
+               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Character" "forDigit" "(II)C") ;; {text, digit-char}
+               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Character" "toString" "(C)Ljava/lang/String;") ;; {text, digit-char-text}
+               (.visitInsn Opcodes/SWAP)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 1)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 1)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               (.visitMaxs 0 0)
+               (.visitEnd)))
+         _ (let [$loop-start (new Label)
+                 $do-a-round (new Label)
+                 $not-set (new Label)
+                 $next-iteration (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_frac" "(J)Ljava/lang/String;" nil nil)
                (.visitCode)
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitLdcInsn (long 0))
-               (.visitInsn Opcodes/LCMP)
-               (.visitJumpInsn Opcodes/IFEQ $is-zero)
-               ;; IF != 0
-               ;; Add prefix dot for later usage.
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ISTORE 2) ;; Index
+               (.visitLdcInsn (int frac-bits))
+               (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
+               (.visitVarInsn Opcodes/ASTORE 3) ;; digits
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $loop-start)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitJumpInsn Opcodes/IFGE $do-a-round)
+               ;; Prepare text to return.
+               (.visitVarInsn Opcodes/ALOAD 3)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_to_text" "([B)Ljava/lang/String;")
                (.visitLdcInsn ".")
-               ;; Generate leading 0s
-               (.visitLdcInsn (long 1))
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "count_bin_start_0" "(J)I")
-               (.visitInsn Opcodes/LSHL)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_text_start_0" "(J)Ljava/lang/String;")
-               ;; Convert to number text
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toUnsignedString" "(J)Ljava/lang/String;")
-               ;; Remove unnecessary trailing zeroes
-               (.visitLdcInsn "0*$")
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "split" "(Ljava/lang/String;)[Ljava/lang/String;")
-               (.visitLdcInsn (int 0))
-               (.visitInsn Opcodes/AALOAD)
-               ;; Join leading 0s with number text
+               (.visitInsn Opcodes/SWAP)
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-               ;; Join with prefix dot
-               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-               ;; FINISH
                (.visitInsn Opcodes/ARETURN)
-               ;; IF == 0
-               (.visitLabel $is-zero)
-               (.visitLdcInsn ".0")
-               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $do-a-round)
+               (.visitVarInsn Opcodes/LLOAD 0)
+               (.visitVarInsn Opcodes/ILOAD 2)
+               bit-set-64?
+               (.visitJumpInsn Opcodes/IFEQ $next-iteration)
+               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitInsn Opcodes/ISUB)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digit_power" "(I)[B")
+               (.visitVarInsn Opcodes/ALOAD 3)
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "add_frac_digit_powers" "([B[B)[B")
+               (.visitVarInsn Opcodes/ASTORE 3)
+               (.visitJumpInsn Opcodes/GOTO $next-iteration)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $next-iteration)
+               ;; Decrement index
+               (.visitVarInsn Opcodes/ILOAD 2)
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
+               (.visitVarInsn Opcodes/ISTORE 2)
+               ;; Iterate
+               (.visitJumpInsn Opcodes/GOTO $loop-start)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                (.visitMaxs 0 0)
                (.visitEnd)))
          _ (let [$end (new Label)
