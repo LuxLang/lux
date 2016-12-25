@@ -265,4 +265,5 @@
           (&&cache/clean ?state))
 
         (&/$Left ?message)
-        (assert false ?message)))))
+        (do (&/|log! (str "Compilation failed:\n" ?message))
+          (System/exit 1))))))
