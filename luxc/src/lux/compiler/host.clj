@@ -1047,6 +1047,11 @@
                (.visitLdcInsn ".")
                (.visitInsn Opcodes/SWAP)
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+               ;; Trim unnecessary 0s at the end...
+               (.visitLdcInsn "0*$")
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "split" "(Ljava/lang/String;)[Ljava/lang/String;")
+               (.visitLdcInsn (int 0))
+               (.visitInsn Opcodes/AALOAD)
                (.visitInsn Opcodes/ARETURN)
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1086,7 +1091,10 @@
                  $next-iteration (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_text_to_digits" "(Ljava/lang/String;)[B" nil nil)
                (.visitCode)
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+               (.visitLdcInsn (int 1))
+               (.visitInsn Opcodes/ISUB)
                (.visitVarInsn Opcodes/ISTORE 1) ;; Index
                (.visitLdcInsn (int frac-bits))
                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
@@ -1276,6 +1284,11 @@
                (.visitLdcInsn ".")
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "startsWith" "(Ljava/lang/String;)Z")
                (.visitJumpInsn Opcodes/IFEQ $bad-format)
+               ;; Check if size is valid
+               (.visitVarInsn Opcodes/ALOAD 0)
+               (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+               (.visitLdcInsn (int (inc frac-bits))) ;; It's increased, to account for the prefix .
+               (.visitJumpInsn Opcodes/IF_ICMPGT $bad-format)
                ;; Initialization
                (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
                (.visitVarInsn Opcodes/ALOAD 0)
