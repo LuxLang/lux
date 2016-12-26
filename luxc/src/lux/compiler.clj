@@ -255,15 +255,18 @@
           ))
       )))
 
-(defn compile-program [mode program-module resources-dir source-dirs target-dir]
-  (do (init! resources-dir target-dir)
-    (let [m-action (|do [_ (compile-module source-dirs "lux")]
-                     (compile-module source-dirs program-module))]
-      (|case (m-action (&/init-state mode))
-        (&/$Right ?state _)
-        (do (println "Compilation complete!")
-          (&&cache/clean ?state))
+(let [!err! *err*]
+  (defn compile-program [mode program-module resources-dir source-dirs target-dir]
+    (do (init! resources-dir target-dir)
+      (let [m-action (|do [_ (compile-module source-dirs "lux")]
+                       (compile-module source-dirs program-module))]
+        (|case (m-action (&/init-state mode))
+          (&/$Right ?state _)
+          (do (println "Compilation complete!")
+            (&&cache/clean ?state))
 
-        (&/$Left ?message)
-        (do (&/|log! (str "Compilation failed:\n" ?message))
-          (System/exit 1))))))
+          (&/$Left ?message)
+          (binding [*out* !err!]
+            (do (println (str "Compilation failed:\n" ?message))
+              (flush)
+              (System/exit 1))))))))
