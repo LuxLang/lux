@@ -687,18 +687,18 @@
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
+         ;; I commented-out some parts because a null-check was
+         ;; done to ensure variants were never created with null
+         ;; values (this would interfere later with
+         ;; pattern-matching).
+         ;; Since Lux itself doesn't have null values as part of
+         ;; the language, the burden of ensuring non-nulls was
+         ;; shifted to library code dealing with host-interop, to
+         ;; ensure variant-making was as fast as possible.
+         ;; The null-checking code was left as comments in case I
+         ;; ever change my mind.
          _ (let [;; $is-null (new Label)
                  ]
-             ;; I commented out some parts because a null-check was
-             ;; done to ensure variants were never created with null
-             ;; values (this would interfere later with
-             ;; pattern-matching).
-             ;; Since Lux itself doesn't have null values as part of
-             ;; the language, the burden of ensuring non-nulls was
-             ;; shifted to library code dealing with host-interop, to
-             ;; ensure variant-making was as fast as possible.
-             ;; The null-checking code was left as comments in case I
-             ;; ever change my mind.
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
                (.visitCode)
                ;; (.visitVarInsn Opcodes/ALOAD 2)
@@ -1027,9 +1027,19 @@
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)
                  $not-set (new Label)
-                 $next-iteration (new Label)]
+                 $next-iteration (new Label)
+                 $normal-path (new Label)]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_frac" "(J)Ljava/lang/String;" nil nil)
                (.visitCode)
+               ;; A quick corner-case to handle.
+               (.visitVarInsn Opcodes/LLOAD 0)
+               (.visitLdcInsn (long 0))
+               (.visitInsn Opcodes/LCMP)
+               (.visitJumpInsn Opcodes/IFNE $normal-path)
+               (.visitLdcInsn ".0")
+               (.visitInsn Opcodes/ARETURN)
+               (.visitLabel $normal-path)
+               ;; Normal case
                (.visitLdcInsn (int (dec frac-bits)))
                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
                (.visitLdcInsn (int frac-bits))
