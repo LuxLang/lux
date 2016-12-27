@@ -362,7 +362,7 @@
                 =arg (&/with-attempt
                        (&&/analyse-1 analyse ?input-t ?arg)
                        (fn [err]
-                         (&/fail-with-loc (str err "\n" "[Analyser Error] Function expected: " (&type/show-type ?input-t)))))]
+                         (&/fail-with-loc (str err "\n" "[Analyser Error] Argument expected: " (&type/show-type ?input-t)))))]
             (return (&/T [=output-t (&/$Cons =arg =args)])))
 
           _

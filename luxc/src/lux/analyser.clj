@@ -79,6 +79,10 @@
       (|do [_ (&type/check exo-type &type/Int)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$int ?value)))))
 
+      (&/$FracS ?value)
+      (|do [_ (&type/check exo-type &type/Frac)]
+        (return (&/|list (&&/|meta exo-type cursor (&&/$frac ?value)))))
+
       (&/$RealS ?value)
       (|do [_ (&type/check exo-type &type/Real)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$real ?value)))))

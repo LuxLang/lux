@@ -924,7 +924,7 @@
     (fn [state]
       (let [body* (with-scope closure-name body)]
         (run-state body* (update$ $scopes #($Cons (update$ $inner-closures inc (|head %))
-                                                (|tail %))
+                                                  (|tail %))
                                   state))))))
 
 (defn without-repl-closure [body]
@@ -1040,57 +1040,119 @@
   (fn [state]
     (return* state (get$ $cursor state))))
 
-(let [remove-trailing-0s (fn [^String input]
-                           (-> input
-                               (.split "0*$")
-                               (aget 0)))
-      make-text-start-0 (fn [input]
-                          (loop [accum ""
-                                 range 10]
-                            (if (< input range)
-                              (recur (.concat accum "0")
-                                     (* 10 range))
-                              accum)))
-      count-bin-start-0 (fn [input]
-                          (loop [counter 0
-                                 idx 63]
-                            (if (and (> idx -1)
-                                     (not (bit-test input idx)))
-                              (recur (inc counter)
-                                     (dec idx))
-                              counter)))
-      read-frac-text (fn [^String input]
-                       (let [output* (.split input "0*$")]
-                         (if (= 0 (alength output*))
-                           (Long/parseUnsignedLong (aget output* 0))
-                           (Long/parseUnsignedLong input))))
-      count-leading-0s (fn [^String input]
-                         (let [parts (.split input "^0*")]
-                           (if (= 2 (alength parts))
-                             (.length ^String (aget parts 0))
-                             0)))]
-  (defn encode-frac [input]
-    (if (= 0 input)
-      ".0"
-      (let [^String prefix (->> (count-bin-start-0 input)
-                                (bit-shift-left 1)
-                                (make-text-start-0))]
-        (->> input
-             (Long/toUnsignedString)
-             remove-trailing-0s
-             (.concat prefix)))))
+(def frac-bits 64)
 
-  (defn decode-frac [input]
-    (if-let [[_ frac-text] (re-find #"^\.(.+)$" input)]
-      (let [output* (-> frac-text
-                        (string/replace #",_" "")
-                        read-frac-text)
-            rows-to-move-forward (count-bin-start-0 output*)
-            scaling-factor (long (Math/pow 10.0 (double (count-leading-0s input))))]
-        (-> output*
-            (bit-shift-left rows-to-move-forward)
-            (/ scaling-factor)))
-      (assert false (str "Invalid Frac syntax: " input))))
+(let [clean-separators (fn [^String input]
+                         (.replaceAll input "_" ""))
+      frac-text-to-digits (fn [^String input]
+                            (loop [output (vec (repeat frac-bits 0))
+                                   index (dec (.length input))]
+                              (if (>= index 0)
+                                (let [digit (Byte/parseByte (.substring input index (inc index)))]
+                                  (recur (assoc output index digit)
+                                         (dec index)))
+                                output)))
+      times5 (fn [index digits]
+               (loop [index index
+                      carry 0
+                      digits digits]
+                 (if (>= index 0)
+                   (let [raw (->> (get digits index) (* 5) (+ carry))]
+                     (recur (dec index)
+                            (int (/ raw 10))
+                            (assoc digits index (rem raw 10))))
+                   digits)))
+      frac-digit-power (fn [level]
+                         (loop [output (-> (vec (repeat frac-bits 0))
+                                           (assoc level 1))
+                                times level]
+                           (if (>= times 0)
+                             (recur (times5 level output)
+                                    (dec times))
+                             output)))
+      frac-digits-lt (fn frac-digits-lt
+                       ([subject param index]
+                          (and (< index frac-bits)
+                               (or (< (get subject index)
+                                      (get param index))
+                                   (and (= (get subject index)
+                                           (get param index))
+                                        (frac-digits-lt subject param (inc index))))))
+                       ([subject param]
+                          (frac-digits-lt subject param 0)))
+      frac-digits-sub-once (fn [subject param-digit index]
+                             (if (>= (get subject index)
+                                     param-digit)
+                               (update-in subject [index] #(- % param-digit))
+                               (recur (update-in subject [index] #(- 10 (- param-digit %)))
+                                      1
+                                      (dec index))))
+      frac-digits-sub (fn [subject param]
+                        (loop [target subject
+                               index (dec frac-bits)]
+                          (if (>= index 0)
+                            (recur (frac-digits-sub-once target (get param index) index)
+                                   (dec index))
+                            target)))
+      frac-digits-to-text (fn [digits]
+                            (loop [output ""
+                                   index (dec frac-bits)]
+                              (if (>= index 0)
+                                (recur (-> (get digits index)
+                                           (Character/forDigit 10)
+                                           (str output))
+                                       (dec index))
+                                output)))
+      add-frac-digit-powers (fn [dl dr]
+                              (loop [index (dec frac-bits)
+                                     output (vec (repeat frac-bits 0))
+                                     carry 0]
+                                (if (>= index 0)
+                                  (let [raw (+ carry
+                                               (get dl index)
+                                               (get dr index))]
+                                    (recur (dec index)
+                                           (assoc output index (rem raw 10))
+                                           (int (/ raw 10))))
+                                  output)))
+      ]
+  ;; Based on the LuxRT.encode_frac method
+  (defn encode-frac [input]
+    (loop [index (dec frac-bits)
+           output (vec (repeat frac-bits 0))]
+      (if (>= index 0)
+        (recur (dec index)
+               (if (bit-test input index)
+                 (->> (- (dec frac-bits) index)
+                      frac-digit-power
+                      (add-frac-digit-powers output))
+                 output))
+        (-> output frac-digits-to-text
+            (->> (str "."))
+            (.split "0*$")
+            (aget 0)))))
+
+  ;; Based on the LuxRT.decode_frac method
+  (defn decode-frac [^String input]
+    (if (and (.startsWith input ".")
+             (< (.length input) (inc frac-bits)))
+      (loop [digits-left (-> input
+                             (.substring 1)
+                             clean-separators
+                             frac-text-to-digits)
+             index 0
+             ouput 0]
+        (if (< index frac-bits)
+          (let [power-slice (frac-digit-power index)]
+            (if (not (frac-digits-lt digits-left power-slice))
+              (recur (frac-digits-sub digits-left power-slice)
+                     (inc index)
+                     (bit-set ouput (- (dec frac-bits) index)))
+              (recur digits-left
+                     (inc index)
+                     ouput)))
+          ouput))
+      (throw (str "Bad format for Frac number: " input))))
   )
 
 (defn show-ast [ast]
