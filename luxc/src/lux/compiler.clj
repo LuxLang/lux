@@ -124,15 +124,15 @@
 
 (defn init!
   "(-> (List Text) Null)"
-  [resources-dirs target-dir]
+  [resources-dirs ^String target-dir]
   (do (reset! &&/!output-dir target-dir)
     (&&parallel/setup!)
     (reset! !source->last-line {})
-    (.mkdirs (java.io.File. target-dir))
+    (.mkdirs (new java.io.File target-dir))
     (let [class-loader (ClassLoader/getSystemClassLoader)
           addURL (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
                    (.setAccessible true))]
-      (doseq [resources-dir (&/->seq resources-dirs)]
+      (doseq [^String resources-dir (&/->seq resources-dirs)]
         (.invoke addURL class-loader
                  (to-array [(->> resources-dir (new java.io.File) .toURI .toURL)]))))))
 

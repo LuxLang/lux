@@ -74,7 +74,7 @@
 
 (declare deserialize-type)
 
-(defn ^:private deserialize-list [input]
+(defn ^:private deserialize-list [^String input]
   (cond (.startsWith input nil-signal)
         [&/$Nil (.substring input 1)]
 

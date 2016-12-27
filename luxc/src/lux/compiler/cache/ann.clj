@@ -99,17 +99,17 @@
 
 (defn ^:private deserialize-ident* [^String input]
   (when (.startsWith input "@")
-    (let [[ident* ^String input*] (.split (.substring input 1) stop 2)
+    (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
           [_module _name] (.split ident* ident-separator 2)]
       [(&/T [_module _name]) input*])))
 
 (defn ^:private deserialize-ident [^String input]
   (when (.startsWith input "@")
-    (let [[ident* ^String input*] (.split (.substring input 1) stop 2)
+    (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
           [_module _name] (.split ident* ident-separator 2)]
       [(&/$IdentM (&/T [_module _name])) input*])))
 
-(defn ^:private deserialize-seq [deserializer input]
+(defn ^:private deserialize-seq [deserializer ^String input]
   (cond (.startsWith input nil-signal)
         [&/$Nil (.substring input 1)]
 

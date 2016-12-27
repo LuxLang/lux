@@ -64,7 +64,7 @@
   [^File module]
   (->> module
        .listFiles
-       (filter #(.isDirectory %))
+       (filter #(.isDirectory ^File %))
        (map module-dirs)
        (apply concat)
        (list* module)))
@@ -72,10 +72,10 @@
 (defn clean [state]
   "(-> Compiler Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
-        output-dir-prefix (str (.getAbsolutePath (new File @&&/!output-dir)) "/")
+        output-dir-prefix (str (.getAbsolutePath (new File ^String @&&/!output-dir)) "/")
         outdated? #(->> % (contains? needed-modules) not)
-        outdated-modules (->> (new File @&&/!output-dir)
-                              .listFiles (filter #(.isDirectory %))
+        outdated-modules (->> (new File ^String @&&/!output-dir)
+                              .listFiles (filter #(.isDirectory ^File %))
                               (map module-dirs) doall (apply concat)
                               (map #(-> ^File % .getAbsolutePath (string/replace output-dir-prefix "")))
                               (filter outdated?))]
