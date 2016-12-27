@@ -6,7 +6,7 @@
 (;module:
   lux
   (lux (control monad)
-       (data [text]
+       (data [text "Text/" Eq<Text>]
              text/format
              [number]
              (struct [list "List/" Monad<List> Fold<List>]
@@ -75,10 +75,38 @@
       (:: Monad<Check> wrap sig-type)
       (tc;fail (format "Can't find member type " (%n idx) " for " (%type sig-type))))))
 
+(def: (find-member-name member)
+  (-> Ident (Lux Ident))
+  (case member
+    ["" simple-name]
+    (compiler;either (do Monad<Lux>
+                       [member (compiler;normalize member)
+                        _ (compiler;resolve-tag member)]
+                       (wrap member))
+                     (do Monad<Lux>
+                       [this-module-name compiler;current-module-name
+                        imp-mods (compiler;imported-modules this-module-name)
+                        tag-lists (mapM @ compiler;tag-lists imp-mods)
+                        #let [tag-lists (|> tag-lists List/join (List/map product;left) List/join)
+                              candidates (list;filter (. (Text/= simple-name) product;right)
+                                                      tag-lists)]]
+                       (case candidates
+                         #;Nil
+                         (compiler;fail (format "Unknown tag: " (%ident member)))
+                         
+                         (#;Cons winner #;Nil)
+                         (wrap winner)
+                         
+                         _
+                         (compiler;fail (format "Too many candidate tags: " (%list %ident candidates))))))
+
+    _
+    (:: Monad<Lux> wrap member)))
+
 (def: (resolve-member member)
   (-> Ident (Lux [Nat Type]))
   (do Monad<Lux>
-    [member (compiler;normalize member)
+    [member (find-member-name member)
      [idx tag-list sig-type] (compiler;resolve-tag member)]
     (wrap [idx sig-type])))
 
