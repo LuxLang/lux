@@ -1114,23 +1114,24 @@
                                     (recur (dec index)
                                            (assoc output index (rem raw 10))
                                            (int (/ raw 10))))
-                                  output)))
-      ]
+                                  output)))]
   ;; Based on the LuxRT.encode_frac method
   (defn encode-frac [input]
-    (loop [index (dec frac-bits)
-           output (vec (repeat frac-bits 0))]
-      (if (>= index 0)
-        (recur (dec index)
-               (if (bit-test input index)
-                 (->> (- (dec frac-bits) index)
-                      frac-digit-power
-                      (add-frac-digit-powers output))
-                 output))
-        (-> output frac-digits-to-text
-            (->> (str "."))
-            (.split "0*$")
-            (aget 0)))))
+    (if (= 0 input)
+      ".0"
+      (loop [index (dec frac-bits)
+             output (vec (repeat frac-bits 0))]
+        (if (>= index 0)
+          (recur (dec index)
+                 (if (bit-test input index)
+                   (->> (- (dec frac-bits) index)
+                        frac-digit-power
+                        (add-frac-digit-powers output))
+                   output))
+          (-> output frac-digits-to-text
+              (->> (str "."))
+              (.split "0*$")
+              (aget 0))))))
 
   ;; Based on the LuxRT.decode_frac method
   (defn decode-frac [^String input]
