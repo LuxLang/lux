@@ -130,8 +130,9 @@
   "(-> Text (List Text) Null)"
   [project module resources-dirs]
   (let [output-dir (get-in project [:lux :target] &utils/output-dir)
-        output-package (str (get-in project [:lux :target] &utils/output-dir) "/"
-                            (get project :jar-name &utils/output-package))
+        output-package-name (get project :jar-name &utils/output-package)
+        output-dir (get-in project [:lux :target] &utils/output-dir)
+        output-package (str output-dir "/" output-package-name)
         !all-jar-files (atom {})
         includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
                                          (get project :dependencies)))
@@ -164,10 +165,11 @@
               (.closeEntry)))
           nil))
       (when (get-in project [:lux :android])
-        (let [output-dex "classes.dex"
+        (let [output-dir-context (new File (get-in project [:lux :target] &utils/output-dir))
+              output-dex "classes.dex"
               _ (do (.delete (new File output-dex))
-                  (&utils/run-process (str "dx --dex --output=" output-dex " " output-package)
-                                      (new File (get-in project [:lux :target] &utils/output-dir))
+                  (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)
+                                      output-dir-context
                                       "[DX BEGIN]"
                                       "[DX END]"))
               manifest-path (get-in project [:lux :android :manifest] default-manifest-file)
@@ -175,37 +177,40 @@
               android-path (str sdk-path "/platforms/android-" (get-in project [:lux :android :version]) "/android.jar")
               _ (assert (.exists (new File android-path))
                         (str "Can't find Android JAR: " android-path))
-              output-apk-unaligned (string/replace output-package #"\.jar$" ".apk.unaligned")
-              output-apk (string/replace output-package #"\.jar$" ".apk")
+              output-apk-unaligned-name (string/replace output-package-name #"\.jar$" ".apk.unaligned")
+              output-apk-unaligned-path (str output-dir "/" output-apk-unaligned-name)
+              output-apk-path (string/replace output-package #"\.jar$" ".apk")
               current-working-dir (.getCanonicalPath (new File "."))
-              _ (do (&utils/run-process (str "aapt package -f -M " manifest-path " -I " android-path " -F " output-apk-unaligned
-                                             (apply str " " (interleave (repeat (count resources-dirs)
-                                                                                "-A ")
-                                                                        (filter #(.exists (new File %))
-                                                                                resources-dirs)))
-                                             (apply str " " (interleave (repeat (count resources-dirs)
-                                                                                "-S ")
-                                                                        (->> (get-in project [:lux :android :resources] ["android-resources"])
-                                                                             (map (partial str current-working-dir "/"))
-                                                                             (filter #(.exists (new File %)))))))
-                                        nil
-                                        "[AAPT PACKAGE BEGIN]"
-                                        "[AAPT PACKAGE END]")
-                  (&utils/run-process (str "aapt add -f " output-apk-unaligned " " output-dex)
-                                      (new File (get-in project [:lux :target] &utils/output-dir))
+              _ (do (.delete (new File output-apk-unaligned-path))
+                  (&utils/run-process (str "aapt package -f -M " manifest-path " -I " android-path " -F " output-apk-unaligned-path
+                                           (apply str " " (interleave (repeat (count resources-dirs)
+                                                                              "-A ")
+                                                                      (filter #(.exists (new File %))
+                                                                              resources-dirs)))
+                                           (apply str " " (interleave (repeat (count resources-dirs)
+                                                                              "-S ")
+                                                                      (->> (get-in project [:lux :android :resources] ["android-resources"])
+                                                                           (map (partial str current-working-dir "/"))
+                                                                           (filter #(.exists (new File %)))))))
+                                      nil
+                                      "[AAPT PACKAGE BEGIN]"
+                                      "[AAPT PACKAGE END]")
+                  (&utils/run-process (str "aapt add -f " output-apk-unaligned-name " " output-dex)
+                                      output-dir-context
                                       "[AAPT ADD BEGIN]"
                                       "[AAPT ADD END]")
                   (when-let [path (get-in project [:lux :android :keystore :path])]
                     (when-let [alias (get-in project [:lux :android :keystore :alias])]
                       (when-let [password (get-in project [:lux :android :keystore :password])]
-                        (&utils/run-process (str "jarsigner -storepass " password " -keystore " path " " output-apk-unaligned " " alias)
-                                            nil
+                        (&utils/run-process (str "jarsigner -storepass " password " -keystore " path " " output-apk-unaligned-name " " alias)
+                                            output-dir-context
                                             "[JARSIGNER BEGIN]"
                                             "[JARSIGNER END]"))))
-                  (&utils/run-process (str "zipalign 4 " output-apk-unaligned " " output-apk)
-                                      nil
-                                      "[ZIPALIGN BEGIN]"
-                                      "[ZIPALIGN END]")
+                  (do (.delete (new File output-apk-path))
+                    (&utils/run-process (str "zipalign 4 " output-apk-unaligned-path " " output-apk-path)
+                                        nil
+                                        "[ZIPALIGN BEGIN]"
+                                        "[ZIPALIGN END]"))
                   )
               ]
           nil)))))
