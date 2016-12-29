@@ -204,22 +204,32 @@
                       (set@ #tc;bindings (dict;from-list number;Hash<Nat> (get@ #;mappings type-vars))))]
       (#;Right [compiler context]))))
 
-(def: (test-provision context dep alts)
-  (-> tc;Context Type (List [Ident Type]) (Lux (List Ident)))
+(type: #rec Instance
+  {#constructor Ident
+   #dependencies (List Instance)})
+
+(def: (test-provision provision context dep alts)
+  (-> (-> Compiler tc;Context Type (Check Instance))
+      tc;Context Type (List [Ident Type])
+      (Lux (List Instance)))
   (do Monad<Lux>
     [compiler compiler;get-compiler]
     (case (|> alts
-              (list;filter (lambda [[alt-name alt-type]]
-                             (case (tc;run context
-                                           (do Monad<Check>
-                                             [_ (tc;check dep alt-type)]
-                                             (wrap [])))
-                               (#;Left error)
-                               false
+              (List/map (lambda [[alt-name alt-type]]
+                          (case (tc;run context
+                                        (do Monad<Check>
+                                          [[tvars alt-type] (concrete-type alt-type)
+                                           #let [[deps alt-type] (type;flatten-function alt-type)]
+                                           _ (tc;check dep alt-type)
+                                           context' tc;get-context
+                                           =deps (mapM @ (provision compiler context') deps)]
+                                          (wrap =deps)))
+                            (#;Left error)
+                            (list)
 
-                               (#;Right _)
-                               true)))
-              (List/map product;left))
+                            (#;Right =deps)
+                            (list [alt-name =deps]))))
+              List/join)
       #;Nil
       (compiler;fail (format "No candidates for provisioning: " (%type dep)))
 
@@ -227,12 +237,12 @@
       (wrap found))))
 
 (def: (provision compiler context dep)
-  (-> Compiler tc;Context Type (Check Ident))
+  (-> Compiler tc;Context Type (Check Instance))
   (case (compiler;run compiler
                       ($_ compiler;either
-                          (do Monad<Lux> [alts local-env] (test-provision context dep alts))
-                          (do Monad<Lux> [alts local-structs] (test-provision context dep alts))
-                          (do Monad<Lux> [alts import-structs] (test-provision context dep alts))))
+                          (do Monad<Lux> [alts local-env] (test-provision provision context dep alts))
+                          (do Monad<Lux> [alts local-structs] (test-provision provision context dep alts))
+                          (do Monad<Lux> [alts import-structs] (test-provision provision context dep alts))))
     (#;Left error)
     (tc;fail error)
 
@@ -245,11 +255,11 @@
       (:: Monad<Check> wrap winner)
 
       _
-      (tc;fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list %ident candidates))))
+      (tc;fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list (. %ident product;left) candidates))))
     ))
 
 (def: (test-alternatives sig-type member-idx input-types output-type alts)
-  (-> Type Nat (List Type) Type (List [Ident Type]) (Lux (List [Ident (List Ident)])))
+  (-> Type Nat (List Type) Type (List [Ident Type]) (Lux (List Instance)))
   (do Monad<Lux>
     [compiler compiler;get-compiler
      context compiler-type-context]
@@ -262,7 +272,6 @@
                                            _ (tc;check alt-type sig-type)
                                            member-type (find-member-type member-idx alt-type)
                                            _ (check-apply member-type input-types output-type)
-                                           =tvars (mapM @ tc;deref tvars)
                                            context' tc;get-context
                                            =deps (mapM @ (provision compiler context') deps)]
                                           (wrap =deps)))
@@ -283,7 +292,7 @@
       (wrap found))))
 
 (def: (find-alternatives sig-type member-idx input-types output-type)
-  (-> Type Nat (List Type) Type (Lux (List [Ident (List Ident)])))
+  (-> Type Nat (List Type) Type (Lux (List Instance)))
   (let [test (test-alternatives sig-type member-idx input-types output-type)]
     ($_ compiler;either
         (do Monad<Lux> [alts local-env] (test alts))
@@ -303,6 +312,15 @@
   (All [a] (-> [a a] (List a)))
   (list l r))
 
+(def: (instance$ [constructor dependencies])
+  (-> Instance AST)
+  (case dependencies
+    #;Nil
+    (ast;symbol constructor)
+
+    _
+    (` ((~ (ast;symbol constructor)) (~@ (List/map instance$ dependencies))))))
+
 (syntax: #export (::: [member s;symbol]
                       [args (s;alt (s;seq (s;some s;symbol) s;end)
                                    (s;seq (s;some s;any) s;end))])
@@ -317,16 +335,10 @@
         #;Nil
         (compiler;fail (format "No structure option could be found for member: " (%ident member)))
 
-        (#;Cons [chosen deps] #;Nil)
-        (let [chosen-inst (case deps
-                            #;Nil
-                            (ast;symbol chosen)
-
-                            _
-                            (` ((~ (ast;symbol chosen)) (~@ (List/map ast;symbol deps)))))]
-          (wrap (list (` (:: (~ chosen-inst)
-                             (~ (ast;local-symbol (product;right member)))
-                             (~@ (List/map ast;symbol args)))))))
+        (#;Cons chosen #;Nil)
+        (wrap (list (` (:: (~ (instance$ chosen))
+                           (~ (ast;local-symbol (product;right member)))
+                           (~@ (List/map ast;symbol args))))))
 
         _
         (compiler;fail (format "Too many options available: "
