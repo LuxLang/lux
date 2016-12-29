@@ -13,24 +13,11 @@
 
 ;; [Exports]
 (defn lux [project & args]
-  (case (first args)
-    "build"
-    (&builder/build project)
-
-    "test"
-    (&test/test project)
-
-    "repl"
-    (&repl/repl project)
-
-    "auto"
-    (case (second args)
-      "build"
-      (&watch/watch #(&builder/build project) project)
-
-      "test"
-      (&watch/watch #(&test/test project) project))
-
+  (case args
+    ["build"] (&builder/build project)
+    ["test"] (&test/test project)
+    ["repl"] (&repl/repl project)
+    ["auto" "build"] (&watch/watch #(&builder/build project) project)
+    ["auto" "test"] (&watch/watch #(&test/test project) project)
     ;; default...
-    (println "Commands available: (auto) build, (auto) test, repl"))
-  )
+    (println "Commands available: (auto) build, (auto) test, repl")))
