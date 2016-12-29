@@ -171,6 +171,20 @@
     _
     (tc;fail (format "Invalid function type: " (%type func)))))
 
+(def: (concrete-type type)
+  (-> Type (Check [(List Nat) Type]))
+  (case type
+    (#;UnivQ _)
+    (do Monad<Check>
+      [[id var] tc;create-var
+       [ids final-output] (concrete-type (default (undefined)
+                                           (type;apply-type type var)))]
+      (wrap [(#;Cons id ids)
+             final-output]))
+    
+    _
+    (:: Monad<Check> wrap [(list) type])))
+
 (def: (check-apply member-type input-types output-type)
   (-> Type (List Type) Type (Check []))
   (do Monad<Check>
@@ -190,17 +204,16 @@
                       (set@ #tc;bindings (dict;from-list number;Hash<Nat> (get@ #;mappings type-vars))))]
       (#;Right [compiler context]))))
 
-(def: (test-alternatives sig-type member-idx input-types output-type alts)
-  (-> Type Nat (List Type) Type (List [Ident Type]) (Lux (List Ident)))
+(def: (test-provision context dep alts)
+  (-> tc;Context Type (List [Ident Type]) (Lux (List Ident)))
   (do Monad<Lux>
-    [context compiler-type-context]
+    [compiler compiler;get-compiler]
     (case (|> alts
               (list;filter (lambda [[alt-name alt-type]]
                              (case (tc;run context
                                            (do Monad<Check>
-                                             [_ (tc;check alt-type sig-type)
-                                              member-type (find-member-type member-idx alt-type)]
-                                             (check-apply member-type input-types output-type)))
+                                             [_ (tc;check dep alt-type)]
+                                             (wrap [])))
                                (#;Left error)
                                false
 
@@ -208,13 +221,69 @@
                                true)))
               (List/map product;left))
       #;Nil
-      (compiler;fail "No alternatives.")
+      (compiler;fail (format "No candidates for provisioning: " (%type dep)))
+
+      found
+      (wrap found))))
+
+(def: (provision compiler context dep)
+  (-> Compiler tc;Context Type (Check Ident))
+  (case (compiler;run compiler
+                      ($_ compiler;either
+                          (do Monad<Lux> [alts local-env] (test-provision context dep alts))
+                          (do Monad<Lux> [alts local-structs] (test-provision context dep alts))
+                          (do Monad<Lux> [alts import-structs] (test-provision context dep alts))))
+    (#;Left error)
+    (tc;fail error)
+
+    (#;Right candidates)
+    (case candidates
+      #;Nil
+      (tc;fail (format "No candidates for provisioning: " (%type dep)))
+
+      (#;Cons winner #;Nil)
+      (:: Monad<Check> wrap winner)
+
+      _
+      (tc;fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list %ident candidates))))
+    ))
+
+(def: (test-alternatives sig-type member-idx input-types output-type alts)
+  (-> Type Nat (List Type) Type (List [Ident Type]) (Lux (List [Ident (List Ident)])))
+  (do Monad<Lux>
+    [compiler compiler;get-compiler
+     context compiler-type-context]
+    (case (|> alts
+              (List/map (lambda [[alt-name alt-type]]
+                          (case (tc;run context
+                                        (do Monad<Check>
+                                          [[tvars alt-type] (concrete-type alt-type)
+                                           #let [[deps alt-type] (type;flatten-function alt-type)]
+                                           _ (tc;check alt-type sig-type)
+                                           member-type (find-member-type member-idx alt-type)
+                                           _ (check-apply member-type input-types output-type)
+                                           =tvars (mapM @ tc;deref tvars)
+                                           context' tc;get-context
+                                           =deps (mapM @ (provision compiler context') deps)]
+                                          (wrap =deps)))
+                            (#;Left error)
+                            (list)
+
+                            (#;Right =deps)
+                            (list [alt-name =deps]))))
+              List/join)
+      #;Nil
+      (compiler;fail (format "No alternatives."
+                             "\n"
+                             (|> alts
+                                 (List/map product;left)
+                                 (%list %ident))))
 
       found
       (wrap found))))
 
 (def: (find-alternatives sig-type member-idx input-types output-type)
-  (-> Type Nat (List Type) Type (Lux (List Ident)))
+  (-> Type Nat (List Type) Type (Lux (List [Ident (List Ident)])))
   (let [test (test-alternatives sig-type member-idx input-types output-type)]
     ($_ compiler;either
         (do Monad<Lux> [alts local-env] (test alts))
@@ -248,15 +317,21 @@
         #;Nil
         (compiler;fail (format "No structure option could be found for member: " (%ident member)))
 
-        (#;Cons chosen #;Nil)
-        (wrap (list (` (:: (~ (ast;symbol chosen))
-                           (~ (ast;local-symbol (product;right member)))
-                           (~@ (List/map ast;symbol args))))))
+        (#;Cons [chosen deps] #;Nil)
+        (let [chosen-inst (case deps
+                            #;Nil
+                            (ast;symbol chosen)
+
+                            _
+                            (` ((~ (ast;symbol chosen)) (~@ (List/map ast;symbol deps)))))]
+          (wrap (list (` (:: (~ chosen-inst)
+                             (~ (ast;local-symbol (product;right member)))
+                             (~@ (List/map ast;symbol args)))))))
 
         _
-        (compiler;fail (format "Too many available options: "
+        (compiler;fail (format "Too many options available: "
                                (|> chosen-ones
-                                   (List/map %ident)
+                                   (List/map (. %ident product;left))
                                    (text;join-with ", ")
                                    )))))
 
