@@ -1510,3 +1510,7 @@
     (binding [*out* !out!]
       (do (print (apply str parts))
         (flush)))))
+
+(def get-compiler
+  (fn [compiler]
+    (return* compiler compiler)))

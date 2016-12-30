@@ -17,7 +17,8 @@
                           [module :as &a-module]
                           [meta :as &a-meta])
             (lux.compiler [base :as &&]
-                          [io :as &&io])
+                          [io :as &&io]
+                          [parallel :as &&parallel])
             (lux.compiler.cache [type :as &&&type]
                                 [ann :as &&&ann]))
   (:import (java.io File
@@ -49,9 +50,7 @@
 
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class)))
-  ;; false
-  )
+  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class))))
 
 (defn delete [module]
   "(-> Text (Lux Null))"
@@ -108,81 +107,101 @@
   (|do [already-loaded? (&a-module/exists? module)]
     (if already-loaded?
       (return module-hash)
-      (|let [redo-cache (|do [_ (delete module)
-                              ;; async (compile-module module)
-                              ]
-                          ;; (assume-async-result @async)
-                          (compile-module module))]
-        (if (cached? module)
-          (|do [loader &/loader
-                !classes &/classes
-                :let [module* (&host-generics/->class-name module)
-                      module-path (str @&&/!output-dir "/" module)
-                      class-name (str module* "._")
-                      old-classes @!classes
-                      ^Class module-class (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
-                                            (&&/load-class! loader class-name))
-                      _ (install-all-classes-in-module !classes module* module-path)]]
-            (if (and (= module-hash (get-field &/hash-field module-class))
-                     (= &/compiler-version (get-field &/compiler-field module-class)))
-              (|do [^String descriptor (&&/read-module-descriptor! module)
-                    :let [sections (.split descriptor &&/section-separator)
-                          [^String imports-section ^String tags-section module-anns-section ^String defs-section] sections
-                          imports (vec (.split imports-section &&/entry-separator))]
-                    loads (&/map% (fn [^String _import]
-                                    (let [[_module _hash] (.split _import &&/datum-separator 2)]
-                                      (|do [file-content (&&io/read-file source-dirs (str _module ".lux"))
-                                            :let [file-hash (hash file-content)
-                                                  __hash (Integer/parseInt _hash)]
-                                            _ (load source-dirs _module file-hash compile-module)
-                                            cached? (&/cached-module? _module)
-                                            :let [consistent-cache? (= file-hash __hash)]]
-                                        (return (and cached?
-                                                     consistent-cache?)))))
-                                  (if (= [""] imports)
-                                    &/$Nil
-                                    (&/->list imports)))]
-                (if (->> loads &/->seq (every? true?))
-                  (|do [:let [tag-groups (if (= "" tags-section)
-                                           &/$Nil
-                                           (-> tags-section
-                                               (.split &&/entry-separator)
-                                               seq
-                                               (->> (map (fn [^String _group]
-                                                           (let [[_type & _tags] (.split _group &&/datum-separator)]
-                                                             (&/T [_type (->> _tags seq &/->list)])))))
-                                               &/->list))]
-                        _ (&a-module/create-module module module-hash)
-                        _ (&a-module/set-anns (&&&ann/deserialize-anns module-anns-section) module)
-                        _ (&/flag-cached-module module)
-                        _ (&a-module/set-imports imports)
-                        :let [desc-defs (vec (.split defs-section &&/entry-separator))]
-                        _ (&/map% (fn [^String _def-entry]
-                                    (let [parts (.split _def-entry &&/datum-separator)]
-                                      (case (alength parts)
-                                        2 (let [[_name _alias] parts
-                                                [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
-                                                def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
-                                                def-anns (&/|list (&/T [&a-meta/alias-tag (&/$IdentM (&/T [__module __name]))]))
-                                                def-value (get-field &/value-field def-class)]
-                                            (|do [def-type (&a-module/def-type __module __name)]
-                                              (&a-module/define module _name def-type def-anns def-value)))
-                                        3 (let [[_name _type _anns] parts
-                                                def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
-                                                [def-anns _] (&&&ann/deserialize-anns _anns)
-                                                [def-type _] (&&&type/deserialize-type _type)
-                                                def-value (get-field &/value-field def-class)]
-                                            (&a-module/define module _name def-type def-anns def-value)))))
-                                  (if (= [""] desc-defs)
-                                    &/$Nil
-                                    (&/->list desc-defs)))
-                        _ (&/map% (fn [group]
-                                    (|let [[_type _tags] group]
-                                      (|do [[was-exported? =type] (&a-module/type-def module _type)]
-                                        (&a-module/declare-tags module _tags was-exported? =type))))
-                                  tag-groups)]
-                    (return module-hash))
-                  redo-cache))
-              (do (reset! !classes old-classes)
-                redo-cache)))
-          redo-cache)))))
+      (|do [[p-cached? p-result] (&&parallel/load-cached-module module)]
+        (if p-cached?
+          (|do [compiler &/get-compiler
+                :let [_ (&/|log! (str "REUSING CACHE #0: " module "\n"))]
+                :let [new-compiler (&/update$ &/$modules
+                                              #(&/|put module @p-result %)
+                                              compiler)]
+                :let [_ (&/|log! (str "REUSING CACHE #1: " module "\n"))]]
+            (return* new-compiler
+                     module-hash))
+          (|let [redo-cache (|do [_ (delete module)
+                                  :let [_ (&/|log! "MUST REDO CACHE: " module "\n")]
+                                  async (compile-module module)
+                                  _ (assume-async-result @async)
+                                  loaded-module (&/find-module module)
+                                  :let [_ (deliver p-result loaded-module)
+                                        _ (&/|log! (str "REDID CACHE: " module "\n"))]]
+                              (return nil)
+                              ;; (compile-module module)
+                              )]
+            (if (cached? module)
+              (|do [:let [_ (&/|log! (str "BUILDING CACHE: " module "\n"))]
+                    loader &/loader
+                    !classes &/classes
+                    :let [module* (&host-generics/->class-name module)
+                          module-path (str @&&/!output-dir "/" module)
+                          class-name (str module* "._")
+                          old-classes @!classes
+                          ^Class module-class (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
+                                                (&&/load-class! loader class-name))
+                          _ (install-all-classes-in-module !classes module* module-path)]]
+                (if (and (= module-hash (get-field &/hash-field module-class))
+                         (= &/compiler-version (get-field &/compiler-field module-class)))
+                  (|do [^String descriptor (&&/read-module-descriptor! module)
+                        :let [sections (.split descriptor &&/section-separator)
+                              [^String imports-section ^String tags-section module-anns-section ^String defs-section] sections
+                              imports (vec (.split imports-section &&/entry-separator))]
+                        :let [_ (&/|log! "CACHED: " module " | Loading Imports: " (pr-str imports) "\n")]
+                        loads (&/map% (fn [^String _import]
+                                        (let [[_module _hash] (.split _import &&/datum-separator 2)]
+                                          (|do [file-content (&&io/read-file source-dirs (str _module ".lux"))
+                                                :let [file-hash (hash file-content)
+                                                      __hash (Integer/parseInt _hash)]
+                                                _ (load source-dirs _module file-hash compile-module)
+                                                cached? (&/cached-module? _module)
+                                                :let [consistent-cache? (= file-hash __hash)]]
+                                            (return (and cached?
+                                                         consistent-cache?)))))
+                                      (if (= [""] imports)
+                                        &/$Nil
+                                        (&/->list imports)))]
+                    (if (->> loads &/->seq (every? true?))
+                      (|do [:let [tag-groups (if (= "" tags-section)
+                                               &/$Nil
+                                               (-> tags-section
+                                                   (.split &&/entry-separator)
+                                                   seq
+                                                   (->> (map (fn [^String _group]
+                                                               (let [[_type & _tags] (.split _group &&/datum-separator)]
+                                                                 (&/T [_type (->> _tags seq &/->list)])))))
+                                                   &/->list))]
+                            _ (&a-module/create-module module module-hash)
+                            _ (&a-module/set-anns (&&&ann/deserialize-anns module-anns-section) module)
+                            _ (&/flag-cached-module module)
+                            _ (&a-module/set-imports imports)
+                            :let [desc-defs (vec (.split defs-section &&/entry-separator))]
+                            _ (&/map% (fn [^String _def-entry]
+                                        (let [parts (.split _def-entry &&/datum-separator)]
+                                          (case (alength parts)
+                                            2 (let [[_name _alias] parts
+                                                    [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
+                                                    def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
+                                                    def-anns (&/|list (&/T [&a-meta/alias-tag (&/$IdentM (&/T [__module __name]))]))
+                                                    def-value (get-field &/value-field def-class)]
+                                                (|do [def-type (&a-module/def-type __module __name)]
+                                                  (&a-module/define module _name def-type def-anns def-value)))
+                                            3 (let [[_name _type _anns] parts
+                                                    def-class (&&/load-class! loader (str module* "." (&host/def-name _name)))
+                                                    [def-anns _] (&&&ann/deserialize-anns _anns)
+                                                    [def-type _] (&&&type/deserialize-type _type)
+                                                    def-value (get-field &/value-field def-class)]
+                                                (&a-module/define module _name def-type def-anns def-value)))))
+                                      (if (= [""] desc-defs)
+                                        &/$Nil
+                                        (&/->list desc-defs)))
+                            _ (&/map% (fn [group]
+                                        (|let [[_type _tags] group]
+                                          (|do [[was-exported? =type] (&a-module/type-def module _type)]
+                                            (&a-module/declare-tags module _tags was-exported? =type))))
+                                      tag-groups)
+                            loaded-module (&/find-module module)
+                            :let [_ (deliver p-result loaded-module)
+                                  _ (&/|log! (str "BUILT CACHE: " module "\n"))]]
+                        (return module-hash))
+                      redo-cache))
+                  (do (reset! !classes old-classes)
+                    redo-cache)))
+              redo-cache)))))))

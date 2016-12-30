@@ -177,11 +177,13 @@
 (let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
       +datum-sig+ "Ljava/lang/Object;"]
   (defn compile-module [source-dirs name]
+    (&/|log! "compile-module " name "\n")
     (let [file-name (str name ".lux")]
       (|do [file-content (&&io/read-file source-dirs file-name)
             :let [file-hash (hash file-content)
-                  ;; compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))
-                  compile-module!! (partial compile-module source-dirs)]]
+                  compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))
+                  ;; compile-module!! (partial compile-module source-dirs)
+                  ]]
         (if (&&cache/cached? name)
           (&&cache/load source-dirs name file-hash compile-module!!)
           (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
