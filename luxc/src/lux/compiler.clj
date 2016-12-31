@@ -127,6 +127,7 @@
   [resources-dirs ^String target-dir]
   (do (reset! &&/!output-dir target-dir)
     (&&parallel/setup!)
+    (&&io/init-libs!)
     (reset! !source->last-line {})
     (.mkdirs (new java.io.File target-dir))
     (let [class-loader (ClassLoader/getSystemClassLoader)
@@ -258,7 +259,8 @@
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]
     (do (init! resources-dir target-dir)
-      (let [m-action (|do [_ (compile-module source-dirs "lux")]
+      (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs)
+                           _ (compile-module source-dirs "lux")]
                        (compile-module source-dirs program-module))]
         (|case (m-action (&/init-state mode))
           (&/$Right ?state _)

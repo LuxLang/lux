@@ -147,13 +147,9 @@
               def-value (get-field &/value-field def-class)]
           (&a-module/define module _name def-type def-anns def-value)))))
 
-(defn ^:private redo-cache [compile-module module]
-  (|do [_ (delete module)
-        ;; async (compile-module module)
-        ]
-    ;; (assume-async-result @async)
-    (compile-module module)
-    ))
+(defn ^:private uninstall-cache [module]
+  (|do [_ (delete module)]
+    (return false)))
 
 (defn ^:private install-module [loader module module-hash imports tag-groups module-anns def-entries]
   (|do [_ (&a-module/create-module module module-hash)
@@ -183,10 +179,41 @@
                             (&/->list def-entries)))]
         (install-module loader module module-hash
                         imports tag-groups module-anns def-entries))
-      (redo-cache compile-module module))))
+      (uninstall-cache module))))
+
+(defn ^:private enumerate-cached-modules!* [^File parent]
+  (if (.isDirectory parent)
+    (let [children (for [^File child (seq (.listFiles parent))
+                         entry (enumerate-cached-modules!* child)]
+                     entry)]
+      (if (.exists (new File parent "_.class"))
+        (list* (.getAbsolutePath parent)
+               children)
+        children))
+    (list)))
+
+(defn ^:private enumerate-cached-modules! []
+  (let [output-dir (new File @&&/!output-dir)
+        prefix-to-subtract (inc (.length (.getAbsolutePath output-dir)))]
+    (->> output-dir
+         enumerate-cached-modules!*
+         rest
+         (map #(.substring ^String % prefix-to-subtract))
+         &/->list)))
+
+(def !pre-loaded-cache (atom nil))
+(defn pre-load-cache! [source-dirs]
+  (let [cached-modules (enumerate-cached-modules!)
+        loaded-dict (&/fold (fn [loaded-dict present-module]
+                              (assoc loaded-dict present-module false))
+                            {}
+                            cached-modules)]
+    (do (&/|log! (prn-str 'pre-load-cache! (&/->seq source-dirs)))
+      (&/|log! (prn-str 'pre-load-cache! (&/->seq cached-modules)))
+      (return nil))))
 
 (defn load [source-dirs module module-hash compile-module]
-  "(-> (List Text) Text Int (-> Text (Lux [])) (Lux Bool))"
+  "(-> (List Text) Text Int (-> Text (Lux [])) (Lux Nil))"
   (|do [already-loaded? (&a-module/exists? module)]
     (if already-loaded?
       (return nil)
@@ -204,5 +231,5 @@
                    (= &/compiler-version (get-field &/compiler-field module-class)))
             (process-module load compile-module source-dirs loader module module-hash)
             (do (reset! !classes old-classes)
-              (redo-cache compile-module module))))
-        (redo-cache compile-module module)))))
+              (uninstall-cache module))))
+        (uninstall-cache module)))))
