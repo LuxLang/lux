@@ -183,77 +183,76 @@
             :let [file-hash (hash file-content)
                   ;; compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))
                   compile-module!! (partial compile-module source-dirs)]]
-        (if (&&cache/cached? name)
-          (&&cache/load source-dirs name file-hash compile-module!!)
-          (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
-            (|do [module-exists? (&a-module/exists? name)]
-              (if module-exists?
-                (fail "[Compiler Error] Can't redefine a module!")
-                (|do [_ (&&cache/delete name)
-                      _ (&a-module/create-module name file-hash)
-                      _ (&/flag-active-module name)
-                      :let [module-class-name (str (&host/->module-class name) "/_")
-                            =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                     (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                             module-class-name nil "java/lang/Object" nil)
-                                     (-> (.visitField +field-flags+ &/hash-field "I" nil file-hash)
-                                         .visitEnd)
-                                     (-> (.visitField +field-flags+ &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
-                                         .visitEnd)
-                                     (.visitSource file-name nil))]
-                      _ (if (= "lux" name)
-                          (|do [_ &&host/compile-Function-class
-                                _ &&host/compile-LuxRT-class]
-                            (return nil))
-                          (return nil))]
-                  (fn [state]
-                    (|case ((&/with-writer =class
-                              (&/exhaust% compiler-step))
-                            (&/set$ &/$source (&reader/from name file-content) state))
-                      (&/$Right ?state _)
-                      (&/run-state (|do [:let [_ (.visitEnd =class)]
-                                         module-anns (&a-module/get-anns name)
-                                         defs &a-module/defs
-                                         imports &a-module/imports
-                                         tag-groups &&module/tag-groups
-                                         :let [def-entries (->> defs
-                                                                (&/|map (fn [_def]
-                                                                          (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
-                                                                            (if (= "" ?alias)
-                                                                              (str ?name &&/datum-separator (&&&type/serialize-type ?def-type) &&/datum-separator (&&&ann/serialize-anns ?def-anns))
-                                                                              (str ?name &&/datum-separator ?alias)))))
-                                                                (&/|interpose &&/entry-separator)
-                                                                (&/fold str ""))
-                                               import-entries (->> imports
-                                                                   (&/|map (fn [import]
-                                                                             (|let [[_module _hash] import]
-                                                                               (str _module &&/datum-separator _hash))))
-                                                                   (&/|interpose &&/entry-separator)
-                                                                   (&/fold str ""))
-                                               tag-entries (->> tag-groups
-                                                                (&/|map (fn [group]
-                                                                          (|let [[type tags] group]
-                                                                            (->> tags
-                                                                                 (&/|interpose &&/datum-separator)
-                                                                                 (&/fold str "")
-                                                                                 (str type &&/datum-separator)))))
-                                                                (&/|interpose &&/entry-separator)
-                                                                (&/fold str ""))
-                                               module-descriptor (->> (&/|list import-entries
-                                                                               tag-entries
-                                                                               (&&&ann/serialize-anns module-anns)
-                                                                               def-entries)
-                                                                      (&/|interpose &&/section-separator)
-                                                                      (&/fold str ""))]
-                                         _ (&/flag-compiled-module name)
-                                         _ (&&/save-class! &/module-class-name (.toByteArray =class))
-                                         _ (&&/write-module-descriptor! name module-descriptor)]
-                                     (return file-hash))
-                                   ?state)
-                      
-                      (&/$Left ?message)
-                      (fail* ?message)))))))
-          ))
+        (&/|eitherL (&&cache/load name)
+                    (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
+                      (|do [module-exists? (&a-module/exists? name)]
+                        (if module-exists?
+                          (fail "[Compiler Error] Can't redefine a module!")
+                          (|do [_ (&&cache/delete name)
+                                _ (&a-module/create-module name file-hash)
+                                _ (&/flag-active-module name)
+                                :let [module-class-name (str (&host/->module-class name) "/_")
+                                      =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                                               (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                                       module-class-name nil "java/lang/Object" nil)
+                                               (-> (.visitField +field-flags+ &/hash-field "I" nil file-hash)
+                                                   .visitEnd)
+                                               (-> (.visitField +field-flags+ &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
+                                                   .visitEnd)
+                                               (.visitSource file-name nil))]
+                                _ (if (= "lux" name)
+                                    (|do [_ &&host/compile-Function-class
+                                          _ &&host/compile-LuxRT-class]
+                                      (return nil))
+                                    (return nil))]
+                            (fn [state]
+                              (|case ((&/with-writer =class
+                                        (&/exhaust% compiler-step))
+                                      (&/set$ &/$source (&reader/from name file-content) state))
+                                (&/$Right ?state _)
+                                (&/run-state (|do [:let [_ (.visitEnd =class)]
+                                                   module-anns (&a-module/get-anns name)
+                                                   defs &a-module/defs
+                                                   imports &a-module/imports
+                                                   tag-groups &&module/tag-groups
+                                                   :let [def-entries (->> defs
+                                                                          (&/|map (fn [_def]
+                                                                                    (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
+                                                                                      (if (= "" ?alias)
+                                                                                        (str ?name &&/datum-separator (&&&type/serialize-type ?def-type) &&/datum-separator (&&&ann/serialize-anns ?def-anns))
+                                                                                        (str ?name &&/datum-separator ?alias)))))
+                                                                          (&/|interpose &&/entry-separator)
+                                                                          (&/fold str ""))
+                                                         import-entries (->> imports
+                                                                             (&/|map (fn [import]
+                                                                                       (|let [[_module _hash] import]
+                                                                                         (str _module &&/datum-separator _hash))))
+                                                                             (&/|interpose &&/entry-separator)
+                                                                             (&/fold str ""))
+                                                         tag-entries (->> tag-groups
+                                                                          (&/|map (fn [group]
+                                                                                    (|let [[type tags] group]
+                                                                                      (->> tags
+                                                                                           (&/|interpose &&/datum-separator)
+                                                                                           (&/fold str "")
+                                                                                           (str type &&/datum-separator)))))
+                                                                          (&/|interpose &&/entry-separator)
+                                                                          (&/fold str ""))
+                                                         module-descriptor (->> (&/|list import-entries
+                                                                                         tag-entries
+                                                                                         (&&&ann/serialize-anns module-anns)
+                                                                                         def-entries)
+                                                                                (&/|interpose &&/section-separator)
+                                                                                (&/fold str ""))]
+                                                   _ (&/flag-compiled-module name)
+                                                   _ (&&/save-class! &/module-class-name (.toByteArray =class))
+                                                   _ (&&/write-module-descriptor! name module-descriptor)]
+                                               (return file-hash))
+                                             ?state)
+                                
+                                (&/$Left ?message)
+                                (fail* ?message))))))))
+        )
       )))
 
 (let [!err! *err*]
