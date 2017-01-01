@@ -1510,3 +1510,12 @@
     (binding [*out* !out!]
       (do (print (apply str parts))
         (flush)))))
+
+(defn |eitherL [left right]
+  (fn [compiler]
+    (|case (run-state left compiler)
+      ($Left _error)
+      (run-state right compiler)
+
+      _output
+      _output)))

@@ -45,13 +45,11 @@
   (-> class ^Field (.getField field-name) (.get nil)))
 
 ;; [Resources]
-(def module-class (str &/module-class-name ".class"))
+(def module-class-file (str &/module-class-name ".class"))
 
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class)))
-  ;; false
-  )
+  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class-file))))
 
 (defn delete [module]
   "(-> Text (Lux Null))"
@@ -84,13 +82,15 @@
     nil))
 
 (defn ^:private install-all-classes-in-module [!classes module* ^String module-path]
-  (doseq [^File file (seq (.listFiles (File. module-path)))
-          :when (not (.isDirectory file))
-          :let [file-name (.getName file)]
-          :when (not= module-class file-name)]
-    (let [real-name (second (re-find #"^(.*)\.class$" file-name))
-          bytecode (read-file file)]
-      (swap! !classes assoc (str module* "." real-name) bytecode))))
+  (let [classes+bytecode (for [^File file (seq (.listFiles (File. module-path)))
+                               :when (not (.isDirectory file))
+                               :let [file-name (.getName file)]
+                               :when (not= module-class-file file-name)]
+                           [(second (re-find #"^(.*)\.class$" file-name))
+                            (read-file file)])
+        _ (doseq [[class-name bytecode] classes+bytecode]
+            (swap! !classes assoc (str module* "." class-name) bytecode))]
+    (map first classes+bytecode)))
 
 (defn ^:private assume-async-result
   "(-> (Error Compiler) (Lux Null))"
@@ -102,17 +102,6 @@
 
       (&/$Right compiler)
       (return* compiler nil))))
-
-(defn ^:private load-module! [load compile-module source-dirs ^String _import]
-  (let [[_module _hash] (.split _import &&/datum-separator 2)]
-    (|do [file-content (&&io/read-file source-dirs (str _module ".lux"))
-          :let [file-hash (hash file-content)
-                __hash (Integer/parseInt _hash)]
-          _ (load source-dirs _module file-hash compile-module)
-          cached? (&/cached-module? _module)
-          :let [consistent-cache? (= file-hash __hash)]]
-      (return (and cached?
-                   consistent-cache?)))))
 
 (defn ^:private parse-tag-groups [^String tags-section]
   (if (= "" tags-section)
@@ -147,62 +136,125 @@
               def-value (get-field &/value-field def-class)]
           (&a-module/define module _name def-type def-anns def-value)))))
 
-(defn ^:private redo-cache [compile-module module]
-  (|do [_ (delete module)
-        ;; async (compile-module module)
-        ]
-    ;; (assume-async-result @async)
-    (compile-module module)
-    ))
+(defn ^:private uninstall-cache [module]
+  (|do [_ (delete module)]
+    (return false)))
 
 (defn ^:private install-module [loader module module-hash imports tag-groups module-anns def-entries]
   (|do [_ (&a-module/create-module module module-hash)
         _ (&a-module/set-anns module-anns module)
-        _ (&/flag-cached-module module)
         _ (&a-module/set-imports imports)
         _ (&/map% (partial process-def-entry loader module)
                   def-entries)
         _ (&/map% (partial process-tag-group module) tag-groups)]
     (return nil)))
 
-(defn ^:private process-module [load compile-module source-dirs loader module module-hash]
-  (|do [^String descriptor (&&/read-module-descriptor! module)
+(defn ^:private process-module [pre-load! source-dirs cache-table module-name module-hash loader]
+  (|do [^String descriptor (&&/read-module-descriptor! module-name)
         :let [[imports-section tags-section module-anns-section defs-section] (.split descriptor &&/section-separator)
-              imports (let [imports (vec (.split ^String imports-section &&/entry-separator))]
-                        (if (= [""] imports)
-                          &/$Nil
-                          (&/->list imports)))]
-        loads (&/map% (partial load-module! load compile-module source-dirs)
-                      imports)]
-    (if (->> loads &/->seq (every? true?))
+              imports (let [imports (vec (.split ^String imports-section &&/entry-separator))
+                            imports (if (= [""] imports)
+                                      &/$Nil
+                                      (&/->list imports))]
+                        (&/|map #(.split ^String % &&/datum-separator 2) imports))]
+        cache-table* (&/fold% (fn [cache-table* _import]
+                                (|do [:let [[_module _hash] _import]
+                                      file-content (&&io/read-file source-dirs (str _module ".lux"))
+                                      output (pre-load! source-dirs cache-table* _module (hash file-content))]
+                                  (return output)))
+                              cache-table
+                              imports)]
+    (if (&/|every? (fn [_import]
+                     (|let [[_module _hash] _import]
+                       (contains? cache-table* _module)))
+                   imports)
       (let [tag-groups (parse-tag-groups tags-section)
             module-anns (&&&ann/deserialize-anns module-anns-section)
             def-entries (let [def-entries (vec (.split ^String defs-section &&/entry-separator))]
                           (if (= [""] def-entries)
                             &/$Nil
                             (&/->list def-entries)))]
-        (install-module loader module module-hash
-                        imports tag-groups module-anns def-entries))
-      (redo-cache compile-module module))))
+        (|do [_ (install-module loader module-name module-hash
+                                imports tag-groups module-anns def-entries)
+              =module (&/find-module module-name)]
+          (return (&/T [true (assoc cache-table* module-name =module)]))))
+      (return (&/T [false cache-table*])))))
 
-(defn load [source-dirs module module-hash compile-module]
-  "(-> (List Text) Text Int (-> Text (Lux [])) (Lux Bool))"
-  (|do [already-loaded? (&a-module/exists? module)]
-    (if already-loaded?
-      (return nil)
-      (if (cached? module)
+(defn ^:private enumerate-cached-modules!* [^File parent]
+  (if (.isDirectory parent)
+    (let [children (for [^File child (seq (.listFiles parent))
+                         entry (enumerate-cached-modules!* child)]
+                     entry)]
+      (if (.exists (new File parent "_.class"))
+        (list* (.getAbsolutePath parent)
+               children)
+        children))
+    (list)))
+
+(defn ^:private enumerate-cached-modules! []
+  (let [output-dir (new File @&&/!output-dir)
+        prefix-to-subtract (inc (.length (.getAbsolutePath output-dir)))]
+    (->> output-dir
+         enumerate-cached-modules!*
+         rest
+         (map #(.substring ^String % prefix-to-subtract))
+         &/->list)))
+
+(defn ^:private pre-load! [source-dirs cache-table module module-hash]
+  (cond (contains? cache-table module)
+        (return cache-table)
+
+        (not (cached? module))
+        (return cache-table)
+
+        :else
         (|do [loader &/loader
               !classes &/classes
               :let [module* (&host-generics/->class-name module)
                     module-path (str @&&/!output-dir "/" module)
-                    class-name (str module* "._")
-                    old-classes @!classes
-                    ^Class module-class (do (swap! !classes assoc class-name (read-file (File. (str module-path "/_.class"))))
+                    class-name (str module* "." &/module-class-name)
+                    ^Class module-class (do (swap! !classes assoc class-name (read-file (new File (str module-path "/" module-class-file))))
                                           (&&/load-class! loader class-name))
-                    _ (install-all-classes-in-module !classes module* module-path)]]
-          (if (and (= module-hash (get-field &/hash-field module-class))
-                   (= &/compiler-version (get-field &/compiler-field module-class)))
-            (process-module load compile-module source-dirs loader module module-hash)
-            (do (reset! !classes old-classes)
-              (redo-cache compile-module module))))
-        (redo-cache compile-module module)))))
+                    installed-classes (install-all-classes-in-module !classes module* module-path)
+                    valid-cache? (and (= module-hash (get-field &/hash-field module-class))
+                                      (= &/compiler-version (get-field &/compiler-field module-class)))
+                    drop-cache! (|do [_ (uninstall-cache module)
+                                      :let [_ (swap! !classes (fn [_classes-dict]
+                                                                (reduce dissoc _classes-dict installed-classes)))]]
+                                  (return cache-table))]]
+          (if valid-cache?
+            (|do [[success? cache-table*] (process-module pre-load! source-dirs cache-table module module-hash loader)
+                  _ (if success?
+                      (return nil)
+                      drop-cache!)]
+              (return cache-table*))
+            drop-cache!))))
+
+(def !pre-loaded-cache (atom nil))
+(defn pre-load-cache! [source-dirs]
+  (|do [:let [fs-cached-modules (enumerate-cached-modules!)]
+        pre-loaded-modules (&/fold% (fn [cache-table module-name]
+                                      (|do [file-content (&&io/read-file source-dirs (str module-name ".lux"))
+                                            :let [module-hash (hash file-content)]]
+                                        (pre-load! source-dirs cache-table module-name module-hash)))
+                                    {}
+                                    fs-cached-modules)
+        :let [_ (reset! !pre-loaded-cache pre-loaded-modules)]]
+    (return nil)))
+
+(defn ^:private inject-module
+  "(-> (Module Compiler) (-> Compiler (Lux Null)))"
+  [module-name module]
+  (fn [compiler]
+    (return* (&/update$ &/$modules
+                        #(&/|put module-name module %)
+                        compiler)
+             nil)))
+
+(defn load [module-name]
+  "(-> Text (Lux Null))"
+  (if-let [module-struct (get @!pre-loaded-cache module-name)]
+    (|do [_ (inject-module module-name module-struct)
+          _ (&/flag-cached-module module-name)]
+      (return nil))
+    (fail (str "[Cache Error] Module is not cached: " module-name))))

@@ -11,13 +11,10 @@
 ;; [Utils]
 (def ^:private !libs (atom nil))
 
-(defn ^:private libs-imported? []
-  (not (nil? @!libs)))
-
-(defn ^:private init-libs! []
+;; [Resources]
+(defn init-libs! []
   (reset! !libs (&lib/load)))
 
-;; [Resources]
 (defn read-file [source-dirs ^String file-name]
   (|case (&/|some (fn [source-dir]
                     (let [file (new java.io.File (str source-dir "/" file-name))]
@@ -29,8 +26,6 @@
     (return (slurp file))
 
     (&/$None)
-    (do (when (not (libs-imported?))
-          (init-libs!))
-      (if-let [code (get @!libs file-name)]
-        (return code)
-        (fail (str "[I/O Error] File doesn't exist: " file-name))))))
+    (if-let [code (get @!libs file-name)]
+      (return code)
+      (fail (str "[I/O Error] File doesn't exist: " file-name)))))
