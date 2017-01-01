@@ -9,12 +9,23 @@
                     InputStreamReader
                     BufferedReader)))
 
-(def ^:const ^String output-dir "target/jvm")
+(def ^:const ^String output-dir (str "target" java.io.File/separator "jvm"))
 (def ^:const ^String output-package "program.jar")
 
 (def ^:private unit-separator (str (char 31)))
 
-(def ^:private vm-options "-server -Xms2048m -Xmx2048m -XX:+OptimizeStringConcat")
+(def ^:private vm-options
+  ""
+  ;; "-server -Xms2048m -Xmx2048m -XX:+OptimizeStringConcat"
+  )
+
+(defn ^:private prepare-path [path]
+  (let [path (if (and (.startsWith path "/")
+                      (= "\\" java.io.File/separator))
+               (.substring path 1)
+               path)
+        path (.replace path "/" java.io.File/separator)]
+    path))
 
 (defn compile-path [project module source-paths]
   (let [output-dir (get-in project [:lux :target] output-dir)
@@ -22,23 +33,24 @@
                        (.getURLs)
                        (map #(.getFile ^java.net.URL %))
                        (filter #(.endsWith ^String % ".jar")))
-        compiler-path (some (fn [^:private path]
-                              (if (.contains path "com/github/luxlang/luxc-jvm")
-                                path
-                                nil))
-                            jar-paths)
-        stdlib-path (some (fn [^:private path]
-                            (if (.contains path "com/github/luxlang/lux-stdlib")
-                              path
-                              nil))
-                          jar-paths)
-        deps-paths (filter (fn [^:private path]
-                             (or (.contains path "org/ow2/asm/asm-all")
-                                 (.contains path "org/clojure/core.match")
-                                 (.contains path "org/clojure/clojure")))
-                           jar-paths)
+        compiler-path (prepare-path (some (fn [^:private path]
+                                            (if (.contains path "com/github/luxlang/luxc-jvm")
+                                              path
+                                              nil))
+                                          jar-paths))
+        stdlib-path (prepare-path (some (fn [^:private path]
+                                          (if (.contains path "com/github/luxlang/lux-stdlib")
+                                            path
+                                            nil))
+                                        jar-paths))
+        deps-paths (map prepare-path
+                        (filter (fn [^:private path]
+                                  (or (.contains path "org/ow2/asm/asm-all")
+                                      (.contains path "org/clojure/core.match")
+                                      (.contains path "org/clojure/clojure")))
+                                jar-paths))
         sdk-path (get-in project [:lux :android :sdk])
-        android-path (str sdk-path "/platforms/android-" (get-in project [:lux :android :version]) "/android.jar")
+        android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
         deps-paths (if (.exists (new File android-path))
                      (cons android-path deps-paths)
                      deps-paths)]
@@ -48,9 +60,10 @@
                           (list* stdlib-path)
                           (interpose java.io.File/pathSeparator)
                           (reduce str ""))
+          class-path (.replace class-path "/" java.io.File/separator)
           java-cmd (get project :java-cmd "java")
           jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))]
-      (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path ":" class-path)
+      (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path java.io.File/pathSeparator class-path)
            " lux release " module
            " " (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
            " " (->> source-paths (interpose unit-separator) (apply str))
@@ -61,20 +74,31 @@
                        (.getURLs)
                        (map #(.getFile ^java.net.URL %))
                        (filter #(.endsWith ^String % ".jar")))
-        compiler-path (some (fn [^:private path]
-                              (if (.contains path "com/github/luxlang/luxc-jvm")
-                                path
-                                nil))
-                            jar-paths)
-        deps-paths (filter (fn [^:private path]
-                             (or (.contains path "org/ow2/asm/asm-all")
-                                 (.contains path "org/clojure/core.match")
-                                 (.contains path "org/clojure/clojure")))
-                           jar-paths)]
-    (let [class-path (->> (classpath/get-classpath project) (filter #(.endsWith % ".jar")) (concat deps-paths) (interpose ":") (reduce str ""))
+        compiler-path (prepare-path (some (fn [^:private path]
+                                            (if (.contains path "com/github/luxlang/luxc-jvm")
+                                              path
+                                              nil))
+                                          jar-paths))
+        stdlib-path (prepare-path (some (fn [^:private path]
+                                          (if (.contains path "com/github/luxlang/lux-stdlib")
+                                            path
+                                            nil))
+                                        jar-paths))
+        deps-paths (map prepare-path
+                        (filter (fn [^:private path]
+                                  (or (.contains path "org/ow2/asm/asm-all")
+                                      (.contains path "org/clojure/core.match")
+                                      (.contains path "org/clojure/clojure")))
+                                jar-paths))]
+    (let [class-path (->> (classpath/get-classpath project)
+                          (filter #(.endsWith % ".jar"))
+                          (concat deps-paths)
+                          (list* stdlib-path)
+                          (interpose java.io.File/pathSeparator)
+                          (reduce str ""))
           java-cmd (get project :java-cmd "java")
           jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))]
-      (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path ":" class-path)
+      (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path java.io.File/pathSeparator class-path)
            " lux repl " (->> source-paths (interpose unit-separator) (apply str))))))
 
 (defn run-process [command working-directory pre post]

@@ -54,14 +54,14 @@
 
 (defn ^:private write-output [module name data]
   (let [module* (&host/->module-class module)
-        module-dir (str @!output-dir "/" module*)]
+        module-dir (str @!output-dir java.io.File/separator module*)]
     (.mkdirs (File. module-dir))
-    (write-file (str module-dir "/" name ".class") data)))
+    (write-file (str module-dir java.io.File/separator name ".class") data)))
 
 (defn class-exists? [^String module ^String class-name]
   "(-> Text Text (IO Bool))"
   (|do [_ (return nil)
-        :let [full-path (str @!output-dir "/" module "/" class-name ".class")
+        :let [full-path (str @!output-dir java.io.File/separator module java.io.File/separator class-name ".class")
               exists? (.exists (File. full-path))]]
     (return exists?)))
 
@@ -86,14 +86,14 @@
 
 (defn write-module-descriptor! [^String name ^String descriptor]
   (|do [_ (return nil)
-        :let [lmd-dir (str @!output-dir "/" name)
+        :let [lmd-dir (str @!output-dir java.io.File/separator name)
               _ (.mkdirs (File. lmd-dir))
-              _ (write-file (str lmd-dir "/" lux-module-descriptor-name) (.getBytes descriptor java.nio.charset.StandardCharsets/UTF_8))]]
+              _ (write-file (str lmd-dir java.io.File/separator lux-module-descriptor-name) (.getBytes descriptor java.nio.charset.StandardCharsets/UTF_8))]]
     (return nil)))
 
 (defn read-module-descriptor! [^String name]
   (|do [_ (return nil)]
-    (return (slurp (str @!output-dir "/" name "/" lux-module-descriptor-name)
+    (return (slurp (str @!output-dir java.io.File/separator name java.io.File/separator lux-module-descriptor-name)
                    :encoding "UTF-8"))))
 
 (do-template [<wrap-name> <unwrap-name> <class> <unwrap-method> <prim> <dup>]

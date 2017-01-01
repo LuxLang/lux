@@ -49,12 +49,18 @@
 
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str @&&/!output-dir "/" (&host/->module-class module) "/" module-class-file))))
+  (.exists (new File (str @&&/!output-dir
+                          java.io.File/separator
+                          (.replace ^String (&host/->module-class module) "/" java.io.File/separator)
+                          java.io.File/separator
+                          module-class-file))))
 
 (defn delete [module]
   "(-> Text (Lux Null))"
   (fn [state]
-    (do (clean-file (new File (str @&&/!output-dir "/" (&host/->module-class module))))
+    (do (clean-file (new File (str @&&/!output-dir
+                                   java.io.File/separator
+                                   (.replace ^String (&host/->module-class module) "/" java.io.File/separator))))
       (return* state nil))))
 
 (defn ^:private module-dirs
@@ -70,7 +76,7 @@
 (defn clean [state]
   "(-> Compiler Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
-        output-dir-prefix (str (.getAbsolutePath (new File ^String @&&/!output-dir)) "/")
+        output-dir-prefix (str (.getAbsolutePath (new File ^String @&&/!output-dir)) java.io.File/separator)
         outdated? #(->> % (contains? needed-modules) not)
         outdated-modules (->> (new File ^String @&&/!output-dir)
                               .listFiles (filter #(.isDirectory ^File %))
@@ -197,7 +203,9 @@
     (->> output-dir
          enumerate-cached-modules!*
          rest
-         (map #(.substring ^String % prefix-to-subtract))
+         (map #(-> ^String %
+                   (.replace java.io.File/separator "/")
+                   (.substring prefix-to-subtract)))
          &/->list)))
 
 (defn ^:private pre-load! [source-dirs cache-table module module-hash]
@@ -211,9 +219,9 @@
         (|do [loader &/loader
               !classes &/classes
               :let [module* (&host-generics/->class-name module)
-                    module-path (str @&&/!output-dir "/" module)
+                    module-path (str @&&/!output-dir java.io.File/separator module)
                     class-name (str module* "." &/module-class-name)
-                    ^Class module-class (do (swap! !classes assoc class-name (read-file (new File (str module-path "/" module-class-file))))
+                    ^Class module-class (do (swap! !classes assoc class-name (read-file (new File (str module-path java.io.File/separator module-class-file))))
                                           (&&/load-class! loader class-name))
                     installed-classes (install-all-classes-in-module !classes module* module-path)
                     valid-cache? (and (= module-hash (get-field &/hash-field module-class))

@@ -17,7 +17,7 @@
 
 (defn read-file [source-dirs ^String file-name]
   (|case (&/|some (fn [source-dir]
-                    (let [file (new java.io.File (str source-dir "/" file-name))]
+                    (let [file (new java.io.File source-dir file-name)]
                       (if (.exists file)
                         (&/$Some file)
                         &/$None)))
