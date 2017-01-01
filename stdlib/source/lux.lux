@@ -1614,7 +1614,7 @@
   (-> Text Text Text)
   (_lux_proc ["jvm" "invokevirtual:java.lang.String:concat:java.lang.String"] [x y]))
 
-(def:''' (Ident->Text ident)
+(def:''' (Ident/encode ident)
   #Nil
   (-> Ident Text)
   (let' [[module name] ident]
@@ -1659,10 +1659,10 @@
               (#Right [state ident]))
 
             #None
-            (#Left ($_ Text/append "Unknown definition: " (Ident->Text ident))))
+            (#Left ($_ Text/append "Unknown definition: " (Ident/encode ident))))
           
           #None
-          (#Left ($_ Text/append "Unknown module: " module " @ " (Ident->Text ident))))))
+          (#Left ($_ Text/append "Unknown module: " module " @ " (Ident/encode ident))))))
 
 (def:''' (splice replace? untemplate tag elems)
   #Nil
@@ -2913,6 +2913,11 @@
     (#;Some (#;Right []))
     (list (' #hidden))))
 
+(def:' #export (log! message)
+  (-> Text Unit)
+  (_lux_proc ["jvm" "invokevirtual:java.io.PrintStream:println:java.lang.String"]
+             [(_lux_proc ["jvm" "getstatic:java.lang.System:out"] []) message]))
+
 (macro:' #export (def: tokens)
   (list [["lux" "doc"] (#TextM "## Defines global constants/functions.
                                 (def: (rejoin-pair pair)
@@ -2927,22 +2932,28 @@
         parts (: (Maybe [AST (List AST) (Maybe AST) AST AST])
                  (case tokens'
                    (^ (list [_ (#FormS (#Cons name args))] meta type body))
-                   (#Some name args (#Some type) body meta)
+                   (#Some [name args (#Some type) body meta])
                    
                    (^ (list name meta type body))
-                   (#Some name #Nil (#Some type) body meta)
+                   (#Some [name #Nil (#Some type) body meta])
 
+                   (^ (list [_ (#FormS (#Cons name args))] [_ (#RecordS meta-kvs)] body))
+                   (#Some [name args #None body (record$ meta-kvs)])
+
+                   (^ (list name [_ (#RecordS meta-kvs)] body))
+                   (#Some [name #Nil #None body (record$ meta-kvs)])
+                   
                    (^ (list [_ (#FormS (#Cons name args))] type body))
-                   (#Some name args (#Some type) body (' {}))
+                   (#Some [name args (#Some type) body (' {})])
                    
                    (^ (list name type body))
-                   (#Some name #Nil (#Some type) body (' {}))
+                   (#Some [name #Nil (#Some type) body (' {})])
                    
                    (^ (list [_ (#FormS (#Cons name args))] body))
-                   (#Some name args #None body (' {}))
+                   (#Some [name args #None body (' {})])
                    
                    (^ (list name body))
-                   (#Some name #Nil #None body (' {}))
+                   (#Some [name #Nil #None body (' {})])
 
                    _
                    #None))]
@@ -3138,11 +3149,6 @@
   (-> Int Int Text Text)
   (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int,int"] [text (_lux_proc ["jvm" "l2i"] [idx1]) (_lux_proc ["jvm" "l2i"] [idx2])]))
 
-(def: #export (log! message)
-  (-> Text Unit)
-  (_lux_proc ["jvm" "invokevirtual:java.io.PrintStream:println:java.lang.String"]
-             [(_lux_proc ["jvm" "getstatic:java.lang.System:out"] []) message]))
-
 (def: (split-text splitter input)
   (-> Text Text (List Text))
   (let [idx (index-of splitter input)]
@@ -3316,7 +3322,7 @@
       (return output)
 
       _
-      (fail (Text/append "Unknown tag: " (Ident->Text [module name]))))))
+      (fail (Text/append "Unknown tag: " (Ident/encode [module name]))))))
 
 (def: (resolve-type-tags type)
   (-> Type (Lux (Maybe [(List Ident) (List Type)])))
@@ -3973,12 +3979,12 @@
          #scope-type-vars scope-type-vars} state]
     (case (get v-prefix modules)
       #None
-      (#Left (Text/append "Unknown definition: " (Ident->Text name)))
+      (#Left (Text/append "Unknown definition: " (Ident/encode name)))
 
       (#Some {#defs defs #module-hash _ #module-aliases _ #imports _ #tags tags #types types #module-anns _})
       (case (get v-name defs)
         #None
-        (#Left (Text/append "Unknown definition: " (Ident->Text name)))
+        (#Left (Text/append "Unknown definition: " (Ident/encode name)))
 
         (#Some [def-type def-meta def-value])
         (#Right [state [def-type def-value]])))))
@@ -4000,13 +4006,13 @@
             (#Right state struct-type)
 
             _
-            (#Left ($_ Text/append "Unknown var: " (Ident->Text ident)))))
+            (#Left ($_ Text/append "Unknown var: " (Ident/encode ident)))))
         (case (find-def-type ident state)
           (#Some struct-type)
           (#Right state struct-type)
 
           _
-          (#Left ($_ Text/append "Unknown var: " (Ident->Text ident)))))
+          (#Left ($_ Text/append "Unknown var: " (Ident/encode ident)))))
       )))
 
 (def: (zip2 xs ys)
@@ -4780,7 +4786,7 @@
 
 (def: tag->Text
   (-> Ident Text)
-  (. (Text/append "#") Ident->Text))
+  (. (Text/append "#") Ident/encode))
 
 (def: (repeat n x)
   (All [a] (-> Int a (List a)))
@@ -4833,7 +4839,7 @@
      [#RealS   ->Text]
      [#CharS   Char/encode]
      [#TextS   Text/encode]
-     [#SymbolS Ident->Text]
+     [#SymbolS Ident/encode]
      [#TagS    tag->Text])
 
     (^template [<tag> <open> <close> <prep>]
@@ -5071,7 +5077,7 @@
               (test: "AST operations & structures"
                 (let% [<tests> (do-template [<expr> <text> <pattern>]
                                  [(compare <pattern> <expr>)
-                                  (compare <text> (:: AST/Show show <expr>))
+                                  (compare <text> (:: AST/encode show <expr>))
                                   (compare true (:: Eq<AST> = <expr> <expr>))]
 
                                  [(bool true)                             "true"       [["" -1 -1] (#;BoolS true)]]
@@ -5149,7 +5155,7 @@
        ["Text" Text text$])
       
       _
-      (fail (Text/append "Can't anti-quote type: " (Ident->Text name))))))
+      (fail (Text/append "Can't anti-quote type: " (Ident/encode name))))))
 
 (def: (anti-quote token)
   (-> AST (Lux AST))
