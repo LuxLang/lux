@@ -81,7 +81,12 @@
         outdated-modules (->> (new File ^String @&&/!output-dir)
                               .listFiles (filter #(.isDirectory ^File %))
                               (map module-dirs) doall (apply concat)
-                              (map #(-> ^File % .getAbsolutePath (string/replace output-dir-prefix "")))
+                              (map (fn [^File dir-file]
+                                     (let [^String dir-module (-> dir-file
+                                                                  .getAbsolutePath
+                                                                  (string/replace output-dir-prefix ""))
+                                           corrected-dir-module (.replace dir-module java.io.File/separator "/")]
+                                       corrected-dir-module)))
                               (filter outdated?))]
     (doseq [^String f outdated-modules]
       (clean-file (new File (str output-dir-prefix f))))

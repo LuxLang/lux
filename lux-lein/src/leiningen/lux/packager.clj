@@ -57,7 +57,9 @@
   "(-> File JarOutputStream Null)"
   [^File file ^JarOutputStream out output-dir]
   (let [output-dir-size (inc (.length output-dir))
-        module-name (.substring (.getPath file) output-dir-size)
+        module-name (-> (.getPath file)
+                        (.substring output-dir-size)
+                        (.replace java.io.File/separator "/"))
         inner-files (.listFiles file)
         inner-modules (filter #(.isDirectory ^File %) inner-files)
         inner-classes (filter #(not (.isDirectory ^File %)) inner-files)]
@@ -123,7 +125,7 @@
             (recur (.getNextJarEntry is))))
         ))))
 
-(def default-manifest-file "./AndroidManifest.xml")
+(def default-manifest-file (str "." java.io.File/separator "AndroidManifest.xml"))
 
 ;; [Resources]
 (defn package
@@ -132,7 +134,7 @@
   (let [output-dir (get-in project [:lux :target] &utils/output-dir)
         output-package-name (get project :jar-name &utils/output-package)
         output-dir (get-in project [:lux :target] &utils/output-dir)
-        output-package (str output-dir "/" output-package-name)
+        output-package (str output-dir java.io.File/separator output-package-name)
         !all-jar-files (atom {})
         includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
                                          (get project :dependencies)))
@@ -174,11 +176,11 @@
                                       "[DX END]"))
               manifest-path (get-in project [:lux :android :manifest] default-manifest-file)
               sdk-path (get-in project [:lux :android :sdk])
-              android-path (str sdk-path "/platforms/android-" (get-in project [:lux :android :version]) "/android.jar")
+              android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
               _ (assert (.exists (new File android-path))
                         (str "Can't find Android JAR: " android-path))
               output-apk-unaligned-name (string/replace output-package-name #"\.jar$" ".apk.unaligned")
-              output-apk-unaligned-path (str output-dir "/" output-apk-unaligned-name)
+              output-apk-unaligned-path (str output-dir java.io.File/separator output-apk-unaligned-name)
               output-apk-path (string/replace output-package #"\.jar$" ".apk")
               current-working-dir (.getCanonicalPath (new File "."))
               _ (do (.delete (new File output-apk-unaligned-path))
@@ -190,7 +192,7 @@
                                            (apply str " " (interleave (repeat (count resources-dirs)
                                                                               "-S ")
                                                                       (->> (get-in project [:lux :android :resources] ["android-resources"])
-                                                                           (map (partial str current-working-dir "/"))
+                                                                           (map (partial str current-working-dir java.io.File/separator))
                                                                            (filter #(.exists (new File %)))))))
                                       nil
                                       "[AAPT PACKAGE BEGIN]"
