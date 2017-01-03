@@ -89,6 +89,7 @@
     (#;Right output)))
 
 (def: #export (either left right)
+  {#;doc "Pick whichever computation succeeds."}
   (All [a] (-> (Lux a) (Lux a) (Lux a)))
   (lambda [compiler]
     (case (left compiler)
@@ -99,6 +100,7 @@
       (#;Right [compiler' output]))))
 
 (def: #export (assert message test)
+  {#;doc "Fails with the given message if the test is false."}
   (-> Text Bool (Lux Unit))
   (lambda [compiler]
     (if test
@@ -106,6 +108,7 @@
       (#;Left message))))
 
 (def: #export (fail msg)
+  {#;doc "Fails with the given message."}
   (All [a]
     (-> Text (Lux a)))
   (lambda [_]
@@ -143,23 +146,24 @@
     [this-module-name current-module-name]
     (find-module this-module-name)))
 
-(def: #export (get-ann tag meta)
+(def: #export (get-ann tag anns)
+  {#;doc "Looks-up a particular annotation's value within the set of annotations."}
   (-> Ident Anns (Maybe Ann-Value))
   (let [[p n] tag]
-    (case meta
-      (#;Cons [[p' n'] dmv] meta')
+    (case anns
+      (#;Cons [[p' n'] dmv] anns')
       (if (and (Text/= p p')
                (Text/= n n'))
         (#;Some dmv)
-        (get-ann tag meta'))
+        (get-ann tag anns'))
       
       #;Nil
       #;None)))
 
 (do-template [<name> <tag> <type>]
-  [(def: #export (<name> tag meta)
+  [(def: #export (<name> tag anns)
      (-> Ident Anns (Maybe <type>))
-     (case (get-ann tag meta)
+     (case (get-ann tag anns)
        (#;Some (<tag> value))
        (#;Some value)
 
@@ -176,31 +180,34 @@
   [get-dict-ann  #;DictM  (List [Text Ann-Value])]
   )
 
-(def: #export (get-doc meta)
+(def: #export (get-doc anns)
+  {#;doc "Looks-up a definition's documentation."}
   (-> Anns (Maybe Text))
-  (get-text-ann ["lux" "doc"] meta))
+  (get-text-ann ["lux" "doc"] anns))
 
-(def: #export (flag-set? flag-name meta)
+(def: #export (flag-set? flag-name anns)
+  {#;doc "Finds out whether an annotation-as-a-flag is set (has value 'true')."}
   (-> Ident Anns Bool)
-  (case (get-ann flag-name meta)
+  (case (get-ann flag-name anns)
     (#;Some (#;BoolM true))
     true
 
     _
     false))
 
-(do-template [<name> <tag>]
+(do-template [<name> <tag> <desc>]
   [(def: #export <name>
+     {#;doc (#;TextM ($_ Text/append "Checks whether a definition is " <desc> "."))}
      (-> Anns Bool)
      (flag-set? (ident-for <tag>)))]
 
-  [export?   #;export?]
-  [hidden?   #;hidden?]
-  [macro?    #;macro?]
-  [type?     #;type?]
-  [struct?   #;struct?]
-  [type-rec? #;type-rec?]
-  [sig?      #;sig?]
+  [export?   #;export?   "exported"]
+  [hidden?   #;hidden?   "hidden"]
+  [macro?    #;macro?    "a macro"]
+  [type?     #;type?     "a type"]
+  [struct?   #;struct?   "a structure"]
+  [type-rec? #;type-rec? "a recursive type"]
+  [sig?      #;sig?      "a signature"]
   )
 
 (do-template [<name> <tag> <type>]
@@ -217,17 +224,18 @@
   [try-mtext #;TextM Text]
   )
 
-(do-template [<name> <tag>]
-  [(def: #export (<name> meta)
+(do-template [<name> <tag> <desc>]
+  [(def: #export (<name> anns)
+     {#;doc (#;TextM ($_ Text/append "Looks up the arguments of a " <desc> "."))}
      (-> Anns (List Text))
      (default (list)
        (do Monad<Maybe>
-         [_args (get-ann (ident-for <tag>) meta)
+         [_args (get-ann (ident-for <tag>) anns)
           args (try-mlist _args)]
          (mapM @ try-mtext args))))]
 
-  [func-args #;func-args]
-  [type-args #;type-args]
+  [func-args #;func-args "function"]
+  [type-args #;type-args "parameterized type"]
   )
 
 (def: (find-macro' modules this-module module name)
@@ -256,6 +264,9 @@
            (#;Right [state (find-macro' (get@ #;modules state) this-module module name)]))))))
 
 (def: #export (normalize ident)
+  {#;doc "If given an identifier without a module prefix, gives it the current module's name as prefix.
+
+          Otherwise, returns the identifier as-is."}
   (-> Ident (Lux Ident))
   (case ident
     ["" name]
@@ -267,6 +278,9 @@
     (:: Monad<Lux> wrap ident)))
 
 (def: #export (macro-expand-once syntax)
+  {#;doc "Given code that requires applying a macro, does it once and returns the result.
+
+          Otherwise, returns the code as-is."}
   (-> AST (Lux (List AST)))
   (case syntax
     [_ (#;FormS (#;Cons [[_ (#;SymbolS macro-name)] args]))]
@@ -284,6 +298,9 @@
     (:: Monad<Lux> wrap (list syntax))))
 
 (def: #export (macro-expand syntax)
+  {#;doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left.
+
+          Otherwise, returns the code as-is."}
   (-> AST (Lux (List AST)))
   (case syntax
     [_ (#;FormS (#;Cons [[_ (#;SymbolS macro-name)] args]))]
@@ -304,6 +321,7 @@
     (:: Monad<Lux> wrap (list syntax))))
 
 (def: #export (macro-expand-all syntax)
+  {#;doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
   (-> AST (Lux (List AST)))
   (case syntax
     [_ (#;FormS (#;Cons [[_ (#;SymbolS macro-name)] args]))]
@@ -337,6 +355,9 @@
     (:: Monad<Lux> wrap (list syntax))))
 
 (def: #export (gensym prefix)
+  {#;doc "Generates a unique identifier as an AST node (ready to be used in code templates).
+
+          A prefix can be given (or just be empty text \"\") to better identify the code for debugging purposes."}
   (-> Text (Lux AST))
   (lambda [state]
     (#;Right [(update@ #;seed n.inc state)
@@ -376,6 +397,7 @@
     (fail "Wrong syntax for with-gensyms")))
 
 (def: #export (macro-expand-1 token)
+  {#;doc "Works just like macro-expand, except that it ensures that the output is a single AST token."}
   (-> AST (Lux AST))
   (do Monad<Lux>
     [token+ (macro-expand token)]
@@ -404,6 +426,7 @@
     (#;Some y) (#;Some y)))
 
 (def: #export (find-var-type name)
+  {#;doc "Looks-up the type of a local variable somewhere in the environment."}
   (-> Text (Lux Type))
   (lambda [state]
     (let [test (: (-> [Text Analysis] Bool)
@@ -424,6 +447,7 @@
         (#;Left ($_ Text/append "Unknown variable: " name))))))
 
 (def: #export (find-def name)
+  {#;doc "Looks-up a definition's whole data in the available modules (including the current one)."}
   (-> Ident (Lux Def))
   (lambda [state]
     (case (: (Maybe Def)
@@ -431,19 +455,21 @@
                [#let [[v-prefix v-name] name]
                 (^slots [#;defs]) (get v-prefix (get@ #;modules state))]
                (get v-name defs)))
-      (#;Some _meta)
-      (#;Right [state _meta])
+      (#;Some _anns)
+      (#;Right [state _anns])
 
       _
       (#;Left ($_ Text/append "Unknown definition: " (Ident/encode name))))))
 
 (def: #export (find-def-type name)
+  {#;doc "Looks-up a definition's type in the available modules (including the current one)."}
   (-> Ident (Lux Type))
   (do Monad<Lux>
     [[def-type def-data def-value] (find-def name)]
     (wrap def-type)))
 
 (def: #export (find-type name)
+  {#;doc "Looks-up the type of either a local variable or a definition."}
   (-> Ident (Lux Type))
   (do Monad<Lux>
     [#let [[_ _name] name]]
@@ -453,12 +479,14 @@
               (find-def-type name)))))
 
 (def: #export (find-type-def name)
+  {#;doc "Finds the value of a type definition (such as Int, Top or Compiler)."}
   (-> Ident (Lux Type))
   (do Monad<Lux>
     [[def-type def-data def-value] (find-def name)]
     (wrap (:! Type def-value))))
 
 (def: #export (defs module-name)
+  {#;doc "The entire list of definitions in a module (including the unexported/private ones)."}
   (-> Text (Lux (List [Text Def])))
   (lambda [state]
     (case (get module-name (get@ #;modules state))
@@ -467,6 +495,7 @@
       )))
 
 (def: #export (exports module-name)
+  {#;doc "All the exported definitions in a module."}
   (-> Text (Lux (List [Text Def])))
   (do Monad<Lux>
     [defs (defs module-name)]
@@ -476,6 +505,7 @@
                   defs))))
 
 (def: #export modules
+  {#;doc "All the available modules (including the current one)."}
   (Lux (List Text))
   (lambda [state]
     (|> state
@@ -485,6 +515,7 @@
         #;Right)))
 
 (def: #export (tags-of type-name)
+  {#;doc "All the tags associated with a type definition."}
   (-> Ident (Lux (List Ident)))
   (do Monad<Lux>
     [#let [[module name] type-name]
@@ -497,11 +528,13 @@
       (wrap (list)))))
 
 (def: #export cursor
+  {#;doc "The cursor of the current expression being analyzed."}
   (Lux Cursor)
   (lambda [state]
     (#;Right [state (get@ #;cursor state)])))
 
 (def: #export expected-type
+  {#;doc "The expected type of the current expression being analyzed."}
   (Lux Type)
   (lambda [state]
     (case (get@ #;expected state)
@@ -512,15 +545,18 @@
       (#;Left "Not expecting any type."))))
 
 (def: #export (imported-modules module-name)
+  {#;doc "All the modules imported by a specified module."}
   (-> Text (Lux (List Text)))
   (do Monad<Lux>
     [(^slots [#;imports]) (find-module module-name)]
     (wrap imports)))
 
-(def: #export (resolve-tag (^@ tag [module name]))
+(def: #export (resolve-tag tag)
+  {#;doc "Given a tag, finds out what is its index, its related tag-list and it's associated type."}
   (-> Ident (Lux [Nat (List Ident) Type]))
   (do Monad<Lux>
-    [=module (find-module module)
+    [#let [[module name] tag]
+     =module (find-module module)
      this-module-name current-module-name]
     (case (get name (get@ #;tags =module))
       (#;Some [idx tag-list exported? type])
@@ -533,6 +569,7 @@
       (fail ($_ Text/append "Unknown tag: " (Ident/encode tag))))))
 
 (def: #export (tag-lists module)
+  {#;doc "All the tag-lists defined in a module, with their associated types."}
   (-> Text (Lux (List [(List Ident) Type])))
   (do Monad<Lux>
     [=module (find-module module)
@@ -545,6 +582,7 @@
                           [tag-list type]))))))
 
 (def: #export locals
+  {#;doc "All the local variables currently in scope, separated in different scopes."}
   (Lux (List (List [Text Type])))
   (lambda [state]
     (case (list;inits (get@ #;scopes state))
@@ -559,6 +597,7 @@
                           scopes)]))))
 
 (def: #export (un-alias def-name)
+  {#;doc "Given an aliased definition's name, returns the original definition being referenced."}
   (-> Ident (Lux Ident))
   (do Monad<Lux>
     [def-name (normalize def-name)
@@ -571,6 +610,7 @@
       (wrap def-name))))
 
 (def: #export get-compiler
+  {#;doc "Obtains the current state of the compiler."}
   (Lux Compiler)
   (lambda [compiler]
     (#;Right [compiler compiler])))
