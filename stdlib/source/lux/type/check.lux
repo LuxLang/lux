@@ -3,7 +3,9 @@
 ##  If a copy of the MPL was not distributed with this file,
 ##  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(;module:
+(;module: {#;doc "Type-checking functionality.
+
+                  Very useful for writing advanced macros."}
   lux
   (lux (control functor
                 applicative
@@ -109,6 +111,7 @@
       (#;Right [context output]))))
 
 (def: #export existential
+  {#;doc "A producer of existential types."}
   (Check [Id Type])
   (lambda [context]
     (let [id (get@ #ex-counter context)]
@@ -128,7 +131,7 @@
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
-(def: #export (deref id)
+(def: #export (read-var id)
   (-> Id (Check Type))
   (lambda [context]
     (case (|> context (get@ #bindings) (dict;get id))
@@ -141,8 +144,8 @@
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
-(def: (set-var id type)
-  (-> Id Type (Check []))
+(def: #export (write-var id type)
+  (-> Id Type (Check Unit))
   (lambda [context]
     (case (|> context (get@ #bindings) (dict;get id))
       (#;Some (#;Some bound))
@@ -155,8 +158,8 @@
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
-(def: (reset-var id type)
-  (-> Id Type (Check []))
+(def: (rewrite-var id type)
+  (-> Id Type (Check Unit))
   (lambda [context]
     (case (|> context (get@ #bindings) (dict;get id))
       (#;Some _)
@@ -166,8 +169,8 @@
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
-(def: (unset-var id)
-  (-> Id (Check []))
+(def: #export (clear-var id)
+  (-> Id (Check Unit))
   (lambda [context]
     (case (|> context (get@ #bindings) (dict;get id))
       (#;Some _)
@@ -185,27 +188,27 @@
       (do Monad<Check>
         [? (bound? id)]
         (if ?
-          (deref id)
+          (read-var id)
           (wrap type)))
       (do Monad<Check>
         [? (bound? id)]
         (if ?
           (do Monad<Check>
-            [=type (deref id)
+            [=type (read-var id)
              ==type (clean t-id =type)]
             (case ==type
               (#;VarT =id)
               (if (n.= t-id =id)
                 (do Monad<Check>
-                  [_ (unset-var id)]
+                  [_ (clear-var id)]
                   (wrap type))
                 (do Monad<Check>
-                  [_ (reset-var id ==type)]
+                  [_ (rewrite-var id ==type)]
                   (wrap type)))
 
               _
               (do Monad<Check>
-                [_ (reset-var id ==type)]
+                [_ (rewrite-var id ==type)]
                 (wrap type))))
           (wrap type))))
 
@@ -255,7 +258,7 @@
                  (get@ <tag> context)])))
 
    (def: (<set> value)
-     (-> <type> (Check []))
+     (-> <type> (Check Unit))
      (lambda [context]
        (#;Right [(set@ <tag> value context)
                  []])))]
@@ -265,14 +268,14 @@
   )
 
 (def: #export (delete-var id)
-  (-> Id (Check []))
+  (-> Id (Check Unit))
   (do Monad<Check>
     [? (bound? id)
      _ (if ?
          (wrap [])
          (do Monad<Check>
            [[ex-id ex] existential]
-           (set-var id ex)))
+           (write-var id ex)))
      bindings get-bindings
      bindings' (mapM @
                      (lambda [(^@ binding [b-id b-type])]
@@ -329,11 +332,11 @@
     (#;Left message)))
 
 (def: (fail-check expected actual)
-  (-> Type Type (Check []))
+  (-> Type Type (Check Unit))
   (fail (format "Expected: " (%type expected) "\n\n"
                 "Actual:   " (%type actual))))
 
-(def: success (Check []) (Check/wrap []))
+(def: success (Check Unit) (Check/wrap []))
 
 (def: (either left right)
   (All [a] (-> (Check a) (Check a) (Check a)))
@@ -358,7 +361,8 @@
   (#;Cons [ea status] fixpoints))
 
 (def: #export (check expected actual)
-  (-> Type Type (Check []))
+  {#;doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
+  (-> Type Type (Check Unit))
   (if (is expected actual)
     success
     (case [expected actual]
@@ -366,11 +370,11 @@
       (if (n.= e-id a-id)
         success
         (do Monad<Check>
-          [ebound (attempt (deref e-id))
-           abound (attempt (deref a-id))]
+          [ebound (attempt (read-var e-id))
+           abound (attempt (read-var a-id))]
           (case [ebound abound]
             [#;None #;None]
-            (set-var e-id actual)
+            (write-var e-id actual)
             
             [(#;Some etype) #;None]
             (check etype actual)
@@ -382,15 +386,15 @@
             (check etype atype))))
       
       [(#;VarT id) _]
-      (either (set-var id actual)
+      (either (write-var id actual)
               (do Monad<Check>
-                [bound (deref id)]
+                [bound (read-var id)]
                 (check bound actual)))
       
       [_ (#;VarT id)]
-      (either (set-var id expected)
+      (either (write-var id expected)
               (do Monad<Check>
-                [bound (deref id)]
+                [bound (read-var id)]
                 (check expected bound)))
 
       [(#;AppT (#;ExT eid) eA) (#;AppT (#;ExT aid) aA)]
@@ -400,7 +404,7 @@
 
       [(#;AppT (#;VarT id) A1) (#;AppT F2 A2)]
       (either (do Monad<Check>
-                [F1 (deref id)]
+                [F1 (read-var id)]
                 (check (#;AppT F1 A1) actual))
               (do Monad<Check>
                 [_ (check (#;VarT id) F2)
@@ -410,7 +414,7 @@
       
       [(#;AppT F1 A1) (#;AppT (#;VarT id) A2)]
       (either (do Monad<Check>
-                [F2 (deref id)]
+                [F2 (read-var id)]
                 (check expected (#;AppT F2 A2)))
               (do Monad<Check>
                 [_ (check F1 (#;VarT id))
@@ -509,6 +513,7 @@
       (fail-check expected actual))))
 
 (def: #export (checks? expected actual)
+  {#;doc "A simple type-checking function that just returns a yes/no answer."}
   (-> Type Type Bool)
   (case (run fresh-context (check expected actual))
     (#;Left error)

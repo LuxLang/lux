@@ -30,6 +30,7 @@
    #observers (Dict Text (-> a (IO Unit)))})
 
 (type: #export (Var a)
+  {#;doc "A mutable cell containing a value, and observers that will be alerted of any change to it."}
   (Atom (Var-State a)))
 
 (type: (Tx-Frame a)
@@ -41,9 +42,11 @@
   (List (Ex [a] (Tx-Frame a))))
 
 (type: #export (STM a)
+  {#;doc "A computation which updates a transaction and produces a value."}
   (-> Tx [Tx a]))
 
 (def: #export (var value)
+  {#;doc "Creates a new STM var, with a default value."}
   (All [a] (-> a (Var a)))
   (atom;atom {#value value
               #observers (dict;new text;Hash<Text>)}))
@@ -128,6 +131,9 @@
       (write! new-value var))))
 
 (def: #export (unfollow label target)
+  {#;doc "Stop tracking the changes to a Var.
+
+          Caveat emptor: It won't close any Chan that used to track the changes."}
   (All [a] (-> Text (Var a) (IO Unit)))
   (do Monad<IO>
     [[value observers] (atom;get target)]
@@ -135,7 +141,7 @@
               target)))
 
 (def: #export (follow label target)
-  {#;doc "Creates a channel (identified by a given text) that will receive all changes to the value of the given var."}
+  {#;doc "Creates a channel (identified by a label) that will receive all changes to the value of the given var."}
   (All [a] (-> Text (Var a) (IO (frp;Chan a))))
   (let [head (frp;chan ($ +0))
         chan-var (var head)
@@ -181,17 +187,19 @@
         (ma tx')))))
 
 (def: #export (update! f var)
-  (All [a] (-> (-> a a) (Var a) (Promise [a a])))
-  (P;future (io (loop [_ []]
-                  (let [(^@ state [value observers]) (io;run (atom;get var))
-                        value' (f value)]
-                    (if (io;run (atom;compare-and-swap state
-                                                       [value' observers]
-                                                       var))
-                      [value value']
-                      (recur [])))))))
+  {#;doc "Will update a Var's value, and return a tuple with the old and the new values."}
+  (All [a] (-> (-> a a) (Var a) (IO [a a])))
+  (io (loop [_ []]
+        (let [(^@ state [value observers]) (io;run (atom;get var))
+              value' (f value)]
+          (if (io;run (atom;compare-and-swap state
+                                             [value' observers]
+                                             var))
+            [value value']
+            (recur []))))))
 
 (def: #export (update f var)
+  {#;doc "Will update a Var's value, and return a tuple with the old and the new values."}
   (All [a] (-> (-> a a) (Var a) (STM [a a])))
   (do Monad<STM>
     [a (read var)

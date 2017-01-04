@@ -3,7 +3,8 @@
 ##  If a copy of the MPL was not distributed with this file,
 ##  You can obtain one at http://mozilla.org/MPL/2.0/.
 
-(;module: lux
+(;module: {#;doc "Algebraic effects."}
+  lux
   (lux (control ["F" functor]
                 applicative
                 monad)
@@ -12,7 +13,8 @@
              [number "Nat/" Codec<Text,Nat>]
              text/format
              error
-             [ident "Ident/" Eq<Ident>])
+             [ident "Ident/" Eq<Ident>]
+             [text])
        [compiler]
        [macro]
        (macro [ast]
@@ -22,10 +24,12 @@
 
 ## [Type]
 (type: #export (Eff F a)
+  {#;doc "A Free Monad implementation for algebraic effects."}
   (#Pure a)
   (#Effect (F (Eff F a))))
 
 (sig: #export (Handler E M)
+  {#;doc "A way to interpret effects into arbitrary monads."}
   (: (Monad M)
      monad)
   (: (All [a] (-> (E a) (M a)))
@@ -85,10 +89,10 @@
                    fefa))
       )))
 
-(type: #export (|@ L R)
+(type: #hidden (|@ L R)
   (All [a] (| (L a) (R a))))
 
-(def: #export (combine-functors left right)
+(def: #hidden (combine-functors left right)
   (All [L R]
     (-> (F;Functor L) (F;Functor R)
         (F;Functor (|@ L R))))
@@ -99,7 +103,7 @@
        (+1 r) (+1 (:: right map f r)))
      )))
 
-(def: #export (combine-handlers Monad<M> left right)
+(def: #hidden (combine-handlers Monad<M> left right)
   (All [L R M]
     (-> (Monad M)
         (Handler L M) (Handler R M)
@@ -115,12 +119,23 @@
 
 ## [Syntax]
 (syntax: #export (|E [effects (s;many s;any)])
+  {#;doc (doc "A way to combine smaller effect into a larger effect."
+              (type: EffABC (|E EffA EffB EffC)))}
   (wrap (list (` ($_ ;;|@ (~@ effects))))))
 
 (syntax: #export (|F [functors (s;many s;any)])
+  {#;doc (doc "A way to combine smaller effect functors into a larger functor."
+              (def: Functor<EffABC>
+                (Functor EffABC)
+                (|F Functor<EffA> Functor<EffB> Functor<EffC>)))}
   (wrap (list (` ($_ ;;combine-functors (~@ functors))))))
 
 (syntax: #export (|H monad [handlers (s;many s;any)])
+  {#;doc (doc "A way to combine smaller effect handlers into a larger handler."
+              (def: Handler<EffABC,IO>
+                (Handler EffABC io;IO)
+                (|H io;Monad<IO>
+                    Handler<EffA,IO> Handler<EffB,IO> Handler<EffC,IO>)))}
   (do @
     [g!combiner (compiler;gensym "")]
     (wrap (list (` (let [(~ g!combiner) (;;combine-handlers (~ monad))]
@@ -145,6 +160,13 @@
 (syntax: #export (effect: [exp-lvl common;export-level]
                    [name s;local-symbol]
                    [ops (s;many op^)])
+  {#;doc (doc "Define effects by specifying which operations and constants a handler must provide."
+              (effect: #export EffA
+                (opA [Nat Text] Bool)
+                (fieldA Nat))
+
+              "In this case, 'opA' will be a function (-> Nat Text Bool)."
+              "'fieldA' will be a value provided by a handler.")}
   (do @
     [g!output (compiler;gensym "g!output")
      #let [op-types (List/map (lambda [op]
@@ -204,6 +226,15 @@
                    [name s;local-symbol]
                    [[effect target-type target-monad] translation^]
                    [defs (s;many (common;def *compiler*))])
+  {#;doc (doc "Define effect handlers by implementing the operations and values of an effect."
+              (handler: _
+                (=> EffA [io;IO io;Monad<IO>])
+                (def: (opA size sample)
+                  (:: io;Monad<IO> wrap (n.< size (text;size sample))))
+
+                (def: fieldA (:: io;Monad<IO> wrap +10)))
+
+              "Since a name for the handler was not specified, 'handler:' will generate the name as Handler<EffA,IO>.")}
   (do @
     [(^@ effect [e-module _]) (compiler;un-alias effect)
      g!input (compiler;gensym "g!input")
@@ -244,6 +275,7 @@
                        )))))))
 
 (def: #export (with-handler handler body)
+  {#;doc "Handles an effectful computation with the given handler to produce a monadic value."}
   (All [E M a] (-> (Handler E M) (Eff E a) (M a)))
   (case body
     (#Pure value)
@@ -276,6 +308,13 @@
 (def: g!functor AST (ast;symbol ["" "\t@E\t"]))
 
 (syntax: #export (doE functor [bindings (s;tuple (s;some s;any))] body)
+  {#;doc (doc "An alternative to the 'do' macro for monads."
+              (io;run (with-handler Handler<EffABC,IO>
+                        (doE Functor<EffABC>
+                          [a (lift fieldA)
+                           b (lift fieldB)
+                           c (lift fieldC)]
+                          (wrap ($_ n.+ a b c))))))}
   (do @
     [g!output (compiler;gensym "")]
     (wrap (list (` (let [(~ g!functor) (~ functor)]
@@ -330,6 +369,13 @@
 
 (syntax: #export (lift [value (s;alt s;symbol
                                      s;any)])
+  {#;doc (doc "A way to (automatically) lift effectful fields and operations from simple effects into the larger space of composite effects."
+              (io;run (with-handler Handler<EffABC,IO>
+                        (doE Functor<EffABC>
+                          [a (lift fieldA)
+                           b (lift fieldB)
+                           c (lift fieldC)]
+                          (wrap ($_ n.+ a b c))))))}
   (case value
     (#;Left var)
     (do @

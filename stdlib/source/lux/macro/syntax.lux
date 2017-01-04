@@ -29,6 +29,7 @@
 
 ## [Types]
 (type: #export (Syntax a)
+  {#;doc "A Lux AST syntax parser."}
   (-> (List AST) (Error [(List AST) a])))
 
 ## [Structures]
@@ -91,6 +92,7 @@
 
 (do-template [<get-name> <ask-name> <demand-name> <type> <tag> <eq> <desc>]
   [(def: #export <get-name>
+     {#;doc (#;TextM ($_ Text/append "Parses the next " <desc> " input AST."))}
      (Syntax <type>)
      (lambda [tokens]
        (case tokens
@@ -101,6 +103,7 @@
          (#;Left ($_ Text/append "Can't parse " <desc> (remaining-inputs tokens))))))
 
    (def: #export (<ask-name> v)
+     {#;doc (#;TextM ($_ Text/append "Asks if the given " <desc> " is the next input AST."))}
      (-> <type> (Syntax Bool))
      (lambda [tokens]
        (case tokens
@@ -115,6 +118,7 @@
          (#;Right [tokens false]))))
 
    (def: #export (<demand-name> v)
+     {#;doc (#;TextM ($_ Text/append "Ensures the given " <desc> " is the next input AST."))}
      (-> <type> (Syntax Unit))
      (lambda [tokens]
        (case tokens
@@ -137,10 +141,11 @@
   [   tag    tag?    tag! Ident    #;TagS ident;Eq<Ident> "tag"]
   )
 
-(def: #export (assert message v)
+(def: #export (assert message test)
+  {#;doc "Fails with the given message if the test is false."}
   (-> Text Bool (Syntax Unit))
   (lambda [tokens]
-    (if v
+    (if test
       (#;Right [tokens []])
       (#;Left ($_ Text/append message (remaining-inputs tokens))))))
 
@@ -158,6 +163,7 @@
 
 (do-template [<name> <tag> <desc>]
   [(def: #export <name>
+     {#;doc (#;TextM ($_ Text/append "Parse a local " <desc> " (a " <desc> " that has no module prefix)."))}
      (Syntax Text)
      (lambda [tokens]
        (case tokens
@@ -165,14 +171,15 @@
          (#;Right [tokens' x])
 
          _
-         (#;Left ($_ Text/append "Can't parse " <desc> (remaining-inputs tokens))))))]
+         (#;Left ($_ Text/append "Can't parse local " <desc> (remaining-inputs tokens))))))]
 
-  [local-symbol #;SymbolS "local symbol"]
-  [   local-tag #;TagS    "local tag"]
+  [local-symbol #;SymbolS "symbol"]
+  [   local-tag #;TagS    "tag"]
   )
 
 (do-template [<name> <tag> <desc>]
   [(def: #export (<name> p)
+     {#;doc (#;TextM ($_ Text/append "Parse inside the contents of a " <desc> " as if they were the input ASTs."))}
      (All [a]
        (-> (Syntax a) (Syntax a)))
      (lambda [tokens]
@@ -190,6 +197,7 @@
   )
 
 (def: #export (record p)
+  {#;doc (#;TextM ($_ Text/append "Parse inside the contents of a record as if they were the input ASTs."))}
   (All [a]
     (-> (Syntax a) (Syntax a)))
   (lambda [tokens]
@@ -287,6 +295,7 @@
       _     (#;Right [tokens false]))))
 
 (def: #export (exactly n p)
+  {#;doc "Parse exactly N times."}
   (All [a] (-> Nat (Syntax a) (Syntax (List a))))
   (if (n.> +0 n)
     (do Monad<Syntax>
@@ -296,6 +305,7 @@
     (:: Monad<Syntax> wrap (list))))
 
 (def: #export (at-least n p)
+  {#;doc "Parse at least N times."}
   (All [a] (-> Nat (Syntax a) (Syntax (List a))))
   (do Monad<Syntax>
     [min (exactly n p)
@@ -303,6 +313,7 @@
     (wrap (List/append min extra))))
 
 (def: #export (at-most n p)
+  {#;doc "Parse at most N times."}
   (All [a] (-> Nat (Syntax a) (Syntax (List a))))
   (if (n.> +0 n)
     (lambda [input]
@@ -319,6 +330,7 @@
     (:: Monad<Syntax> wrap (list))))
 
 (def: #export (between from to p)
+  {#;doc "Parse between N and M times."}
   (All [a] (-> Nat Nat (Syntax a) (Syntax (List a))))
   (do Monad<Syntax>
     [min-xs (exactly from p)
@@ -366,31 +378,35 @@
       (#;Right [input' output])
       (#;Right [input' output]))))
 
-(def: #export (on compiler meta)
+(def: #export (on compiler action)
+  {#;doc "Run a Lux operation as if it was a Syntax parser."}
   (All [a] (-> Compiler (Lux a) (Syntax a)))
   (lambda [input]
-    (case (meta compiler)
+    (case (compiler;run compiler action)
       (#;Left error)
       (#;Left error)
 
-      (#;Right [_ value])
+      (#;Right value)
       (#;Right [input value])
       )))
 
 (def: #export (local local-inputs syntax)
+  {#;doc "Run a syntax parser with the given list of inputs, instead of the real ones."}
   (All [a] (-> (List AST) (Syntax a) (Syntax a)))
   (lambda [real-inputs]
     (case (syntax local-inputs)
       (#;Left error)
       (#;Left error)
 
-      (#;Right [unconsume-inputs value])
-      (case unconsume-inputs
+      (#;Right [unconsumed-inputs value])
+      (case unconsumed-inputs
         #;Nil
         (#;Right [real-inputs value])
 
         _
-        (#;Left "Unconsumed inputs.")))))
+        (#;Left (Text/append "Unconsumed inputs: "
+                             (|> (map ast;to-text unconsumed-inputs)
+                                 (text;join-with ", "))))))))
 
 ## [Syntax]
 (def: #hidden text.join-with text;join-with)
@@ -413,11 +429,14 @@
                                                  (with-brackets (spaced (map (method-def$ id) methods))))))]
                   (wrap (list (` (;_lux_proc ["jvm" (~ (ast;text def-code))] [])))))))}
   (let [[exported? tokens] (case tokens
+                             (^ (list& [_ (#;TagS ["" "hidden"])] tokens'))
+                             [(#;Some #;Left) tokens']
+
                              (^ (list& [_ (#;TagS ["" "export"])] tokens'))
-                             [true tokens']
+                             [(#;Some #;Right) tokens']
 
                              _
-                             [false tokens])
+                             [#;None tokens])
         ?parts (: (Maybe [Text (List AST) AST AST])
                   (case tokens
                     (^ (list [_ (#;FormS (list& [_ (#;SymbolS ["" name])] args))]
@@ -451,7 +470,15 @@
            #let [g!state (ast;symbol ["" "*compiler*"])
                  g!end (ast;symbol ["" ""])
                  error-msg (ast;text (Text/append "Wrong syntax for " name))
-                 export-ast (: (List AST) (if exported? (list (' #export)) (list)))]]
+                 export-ast (: (List AST) (case exported?
+                                            (#;Some #;Left)
+                                            (list (' #hidden))
+
+                                            (#;Some #;Right)
+                                            (list (' #export))
+
+                                            _
+                                            (list)))]]
           (wrap (list (` (macro: (~@ export-ast) ((~ (ast;symbol ["" name])) (~ g!tokens))
                            (~ meta)
                            (lambda [(~ g!state)]
