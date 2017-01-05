@@ -247,9 +247,15 @@
 (defn pre-load-cache! [source-dirs]
   (|do [:let [fs-cached-modules (enumerate-cached-modules!)]
         pre-loaded-modules (&/fold% (fn [cache-table module-name]
-                                      (|do [file-content (&&io/read-file source-dirs (str module-name ".lux"))
-                                            :let [module-hash (hash file-content)]]
-                                        (pre-load! source-dirs cache-table module-name module-hash)))
+                                      (fn [_compiler]
+                                        (|case ((&&io/read-file source-dirs (str module-name ".lux"))
+                                                _compiler)
+                                          (&/$Left error)
+                                          (return* _compiler cache-table)
+
+                                          (&/$Right _compiler* file-content)
+                                          ((pre-load! source-dirs cache-table module-name (hash file-content))
+                                           _compiler*))))
                                     {}
                                     fs-cached-modules)
         :let [_ (reset! !pre-loaded-cache pre-loaded-modules)]]
