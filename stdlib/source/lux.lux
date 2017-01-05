@@ -5597,3 +5597,117 @@
 
     _
     (fail "Wrong syntax for type-of")))
+
+(type: #hidden Export-Level'
+  #Export
+  #Hidden)
+
+(def: (parse-export-level tokens)
+  (-> (List AST) (Lux [(Maybe Export-Level') (List AST)]))
+  (case tokens
+    (^ (list& [_ (#TagS ["" "export"])] tokens'))
+    (:: Monad<Lux> wrap [(#;Some #Export) tokens'])
+
+    (^ (list& [_ (#TagS ["" "hidden"])] tokens'))
+    (:: Monad<Lux> wrap [(#;Some #Hidden) tokens'])
+
+    _
+    (:: Monad<Lux> wrap [#;None tokens])
+    ))
+
+(def: (gen-export-level ?export-level)
+  (-> (Maybe Export-Level') (List AST))
+  (case ?export-level
+    #;None
+    (list)
+
+    (#;Some #Export)
+    (list (' #export))
+    
+    (#;Some #Hidden)
+    (list (' #hidden))
+    ))
+
+(def: (parse-complex-declaration tokens)
+  (-> (List AST) (Lux [[Text (List Text)] (List AST)]))
+  (case tokens
+    (^ (list& [_ (#FormS (list& [_ (#SymbolS ["" name])] args'))] tokens'))
+    (do Monad<Lux>
+      [args (mapM Monad<Lux>
+                  (lambda [arg']
+                    (case arg'
+                      [_ (#SymbolS ["" arg-name])]
+                      (wrap arg-name)
+
+                      _
+                      (fail "Couldn't parse an argument.")))
+                  args')]
+      (wrap [[name args] tokens']))
+    
+    _
+    (fail "Couldn't parse a complex declaration.")
+    ))
+
+(def: (parse-any tokens)
+  (-> (List AST) (Lux [AST (List AST)]))
+  (case tokens
+    (^ (list& token tokens'))
+    (:: Monad<Lux> wrap [token tokens'])
+    
+    _
+    (fail "Couldn't parse anything.")
+    ))
+
+(def: (parse-end tokens)
+  (-> (List AST) (Lux Unit))
+  (case tokens
+    (^ (list))
+    (:: Monad<Lux> wrap [])
+    
+    _
+    (fail "Expected input ASTs to be empty.")
+    ))
+
+(def: (parse-anns tokens)
+  (-> (List AST) (Lux [AST (List AST)]))
+  (case tokens
+    (^ (list& [_ (#RecordS _anns)] tokens'))
+    (:: Monad<Lux> wrap [(record$ _anns) tokens'])
+
+    _
+    (:: Monad<Lux> wrap [(' {}) tokens])
+    ))
+
+(macro: #export (template: tokens)
+  {#;doc (doc "Define macros in the style of do-template and ^template."
+              "For simple macros that don't need any fancy features."
+              (template: (square x)
+                (i.* x x)))}
+  (do Monad<Lux>
+    [?export-level|tokens (parse-export-level tokens)
+     #let [[?export-level tokens] ?export-level|tokens]
+     name+args|tokens (parse-complex-declaration tokens)
+     #let [[[name args] tokens] name+args|tokens]
+     anns|tokens (parse-anns tokens)
+     #let [[anns tokens] anns|tokens]
+     input-template|tokens (parse-any tokens)
+     #let [[input-template tokens] input-template|tokens]
+     _ (parse-end tokens)
+     g!tokens (gensym "tokens")
+     g!compiler (gensym "compiler")
+     g!_ (gensym "_")
+     #let [rep-env (map (lambda [arg]
+                          [arg (` ((~' ~) (~ (symbol$ ["" arg]))))])
+                        args)]]
+    (wrap (list (` (macro: (~@ (gen-export-level ?export-level))
+                     ((~ (symbol$ ["" name])) (~ g!tokens) (~ g!compiler))
+                     (~ anns)
+                     (case (~ g!tokens)
+                       (^ (list (~@ (map (|>. [""] symbol$) args))))
+                       (#;Right [(~ g!compiler)
+                                 (list (` (~ (replace-syntax rep-env input-template))))])
+
+                       (~ g!_)
+                       (#;Left (~ (text$ (Text/append "Wrong syntax for " name))))
+                       )))))
+    ))
