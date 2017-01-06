@@ -16,7 +16,7 @@
   (reset! !libs (&lib/load)))
 
 (defn read-file [source-dirs ^String file-name]
-  (|case (&/|some (fn [source-dir]
+  (|case (&/|some (fn [^String source-dir]
                     (let [file (new java.io.File source-dir file-name)]
                       (if (.exists file)
                         (&/$Some file)
@@ -28,4 +28,4 @@
     (&/$None)
     (if-let [code (get @!libs file-name)]
       (return code)
-      (fail (str "[I/O Error] File doesn't exist: " file-name)))))
+      (&/fail-with-loc (str "[I/O Error] File doesn't exist: " file-name)))))

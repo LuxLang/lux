@@ -142,7 +142,7 @@
             (&a-module/define module _name def-type def-anns def-value)))
       3 (let [[_name _type _anns] parts
               def-class (&&/load-class! loader (str (&host-generics/->class-name module) "." (&host/def-name _name)))
-              [def-anns _] (&&&ann/deserialize-anns _anns)
+              def-anns (&&&ann/deserialize-anns _anns)
               [def-type _] (&&&type/deserialize-type _type)
               def-value (get-field &/value-field def-class)]
           (&a-module/define module _name def-type def-anns def-value)))))
@@ -203,7 +203,7 @@
     (list)))
 
 (defn ^:private enumerate-cached-modules! []
-  (let [output-dir (new File @&&/!output-dir)
+  (let [output-dir (new File ^String @&&/!output-dir)
         prefix-to-subtract (inc (.length (.getAbsolutePath output-dir)))]
     (->> output-dir
          enumerate-cached-modules!*

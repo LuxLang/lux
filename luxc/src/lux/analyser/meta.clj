@@ -31,8 +31,8 @@
     &/$None
 
     _
-    (assert false (prn-str (&/adt->text ident)
-                           (&/adt->text dict)))))
+    (assert false (println-str (&/adt->text ident)
+                               (&/adt->text dict)))))
 
 (do-template [<name> <tag-name>]
   (def <name> (&/T [tag-prefix <tag-name>]))

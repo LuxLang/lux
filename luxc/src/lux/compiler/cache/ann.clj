@@ -155,5 +155,8 @@
       (deserialize-dict input)
       (assert false "[Cache error] Can't deserialize annocation.")))
 
-(defn deserialize-anns [^String input]
-  (deserialize-seq deserialize-ann-entry input))
+(defn deserialize-anns
+  "(-> Text Text)"
+  [^String input]
+  (let [[output _] (deserialize-seq deserialize-ann-entry input)]
+    output))
