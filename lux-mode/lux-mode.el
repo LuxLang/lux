@@ -1,6 +1,6 @@
 ;;; lux-mode.el --- Major mode for Lux code -*- lexical-binding: t; -*-
 
-;; Copyright © 2015 Eduardo Julian
+;; Copyright © 2014-2017 Eduardo Julian
 ;;
 ;; Authors: Eduardo Julian <eduardoejp@gmail.com>
 ;; URL: http://github.com/lux/lux-mode
