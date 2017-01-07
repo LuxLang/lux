@@ -2,7 +2,7 @@
 
 An Emacs mode for *the Lux programming language*.
 
-You can create a directory inside your .emacs.d directory named "el_files"
+You can create a directory inside your `.emacs.d` directory named `el_files`.
 
 Then, you can add this to your *init.el* file:
 
