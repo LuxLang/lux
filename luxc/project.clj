@@ -22,6 +22,8 @@
 
   :classifiers {:sources {:resource-paths ["src"]}
                 :javadoc {:resource-paths ["src"]}}
+  :scm {:name "git"
+        :url "https://github.com/LuxLang/lux.git"}
 
   :aot [lux]
   

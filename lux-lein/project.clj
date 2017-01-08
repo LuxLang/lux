@@ -10,7 +10,7 @@
             :url "https://www.mozilla.org/en-US/MPL/2.0/"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [com.github.luxlang/luxc-jvm "0.5.0"]
-                 [com.github.luxlang/lux-stdlib "0.5.0"]]
+                 [com.github.luxlang/stdlib "0.5.0"]]
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                                      :creds :gpg}]
                         ["snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
@@ -18,4 +18,7 @@
   :pom-addition [:developers [:developer
                               [:name "Eduardo Julian"]
                               [:url "https://github.com/eduardoejp"]]]
+  :scm {:name "git"
+        :url "https://github.com/LuxLang/lux.git"}
+  
   :eval-in :leiningen)
