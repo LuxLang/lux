@@ -1,4 +1,4 @@
-(defproject com.github.luxlang/luxc-jvm "0.5.0-SNAPSHOT"
+(defproject com.github.luxlang/luxc-jvm "0.5.0"
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
   :description "The JVM compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
