@@ -1,14 +1,13 @@
 # stdlib
-Standard library for the Lux family of programming languages.
+Standard library for the Lux programming language.
 
 ### How do I get it?
 
-Just add this to your Leiningen dependencies when building Lux programs:
-```
-[com.github.luxlang/lux-stdlib "0.3.3"]
-```
+You will get it automatically by just using the Leiningen plugin for Lux.
 
-You can find the Leiningen plugin for Lux over here: https://github.com/LuxLang/lux-lein
+The plugin will fetch for you both the compiler and the standard library, all matched with the plugin's version.
+
+You can find the Leiningen plugin for Lux over here: https://github.com/LuxLang/lux/tree/master/lux-lein
 
 ### How do I use it?
 

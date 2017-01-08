@@ -5,23 +5,27 @@ You'll need a project.clj that imports the lein-luxc plugin.
 Here's an example:
 
 ```
-(defproject com.github.luxlang/lux-stdlib "0.4.0"
-  :description "Standard library for the Lux programming language."
-  :url "https://github.com/LuxLang/stdlib"
-  :license {:name "Mozilla Public License (Version 2.0)"
-            :url "https://www.mozilla.org/en-US/MPL/2.0/"}
-  :plugins [[com.github.luxlang/lein-luxc "0.3.0"]]
+(defproject lux/tutorial1 "0.1.0-SNAPSHOT"
+  :plugins [[com.github.luxlang/lein-luxc "0.5.0"]]
+  :dependencies [[io.vertx/vertx-web "3.0.0"]]
   :source-paths ["source"]
+  :test-paths ["test"]
+  :lux {:program "tutorial1
+        tests "tests"}
   )
-
 ```
 
 Now, all you need to do is run the plugin like this:
 
-	lein luxc compile
-	
-And, if you want to run unit-tests, you can do:
+	lein lux build
 
-	lein luxc test
+There is also the _auto-build_ feature, which will re-build your project every time a file changes.
 
-Those unit tests must be in the `test` directory on your project root.
+	lein lux auto build
+
+And, if you want to run your tests, you can do:
+
+	lein lux test
+	lein lux auto test
+
+Those tests must be in the `test` directory on your project root.
