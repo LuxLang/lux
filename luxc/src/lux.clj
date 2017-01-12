@@ -31,8 +31,10 @@
     (&/$Cons "debug" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
     (time (&compiler/compile-program &/$Debug program-module (process-dirs resources-dirs) (process-dirs source-dirs) target-dir))
 
-    (&/$Cons "repl" (&/$Cons source-dirs (&/$Nil)))
-    (&repl/repl (process-dirs source-dirs))
+    (&/$Cons "repl" (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))
+    (&repl/repl (process-dirs resources-dirs)
+                (process-dirs source-dirs)
+                target-dir)
 
     _
     (println "Can't understand command.")))

@@ -39,7 +39,7 @@
                                               nil))
                                           jar-paths))
         stdlib-path (prepare-path (some (fn [^:private path]
-                                          (if (.contains path "com/github/luxlang/lux-stdlib")
+                                          (if (.contains path "com/github/luxlang/stdlib")
                                             path
                                             nil))
                                         jar-paths))
@@ -70,7 +70,8 @@
            " " output-dir))))
 
 (defn repl-path [project source-paths]
-  (let [jar-paths (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
+  (let [output-dir (get-in project [:lux :target] output-dir)
+        jar-paths (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
                        (.getURLs)
                        (map #(.getFile ^java.net.URL %))
                        (filter #(.endsWith ^String % ".jar")))
@@ -80,7 +81,7 @@
                                               nil))
                                           jar-paths))
         stdlib-path (prepare-path (some (fn [^:private path]
-                                          (if (.contains path "com/github/luxlang/lux-stdlib")
+                                          (if (.contains path "com/github/luxlang/stdlib")
                                             path
                                             nil))
                                         jar-paths))
@@ -99,7 +100,10 @@
           java-cmd (get project :java-cmd "java")
           jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))]
       (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path java.io.File/pathSeparator class-path)
-           " lux repl " (->> source-paths (interpose unit-separator) (apply str))))))
+           " lux repl "
+           (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
+           " " (->> source-paths (interpose unit-separator) (apply str))
+           " " output-dir))))
 
 (defn run-process [command working-directory pre post]
   (let [process (.exec (Runtime/getRuntime) command nil working-directory)]

@@ -621,7 +621,7 @@
 (defn try-all% [monads]
   (|case monads
     ($Nil)
-    (fail "There are no alternatives to try!")
+    (fail "[Error] There are no alternatives to try!")
 
     ($Cons m monads*)
     (fn [state]
@@ -641,7 +641,7 @@
 (defn try-all-% [prefix monads]
   (|case monads
     ($Nil)
-    (fail "There are no alternatives to try!")
+    (fail "[Error] There are no alternatives to try!")
 
     ($Cons m monads*)
     (fn [state]
@@ -851,14 +851,14 @@
         (return* state datum)
 
         _
-        ((fail-with-loc "Writer hasn't been set.") state)))))
+        ((fail-with-loc "[Error] Writer hasn't been set.") state)))))
 
 (def get-top-local-env
   (fn [state]
     (try (let [top (|head (get$ $scopes state))]
            (return* state top))
       (catch Throwable _
-        ((fail-with-loc "No local environment.") state)))))
+        ((fail-with-loc "[Error] No local environment.") state)))))
 
 (def gen-id
   (fn [state]
@@ -927,10 +927,33 @@
                                                   (|tail %))
                                   state))))))
 
+(let [!out! *out*]
+  (defn |log! [& parts]
+    (binding [*out* !out!]
+      (do (print (apply str parts))
+        (flush)))))
+
+(defn |last [xs]
+  (|case xs
+    ($Cons x ($Nil))
+    x
+
+    ($Cons x xs*)
+    (|last xs*)
+
+    _
+    (assert false (adt->text xs))))
+
+(def get-scope-name
+  (fn [state]
+    (return* state (->> state (get$ $scopes) |head (get$ $name)))))
+
 (defn without-repl-closure [body]
-  (|do [_mode get-mode]
+  (|do [_mode get-mode
+        current-scope get-scope-name]
     (fn [state]
-      (let [output (body (if (in-repl? _mode)
+      (let [output (body (if (and (in-repl? _mode)
+                                  (->> current-scope |last (= "REPL")))
                            (update$ $scopes |tail state)
                            state))]
         (|case output
@@ -952,10 +975,6 @@
           
           _
           output)))))
-
-(def get-scope-name
-  (fn [state]
-    (return* state (->> state (get$ $scopes) |head (get$ $name)))))
 
 (defn with-writer [writer body]
   (fn [state]
@@ -1445,17 +1464,6 @@
     _
     (assert false (adt->text xs))))
 
-(defn |last [xs]
-  (|case xs
-    ($Cons x ($Nil))
-    x
-
-    ($Cons x xs*)
-    (|last xs*)
-
-    _
-    (assert false (adt->text xs))))
-
 (defn |partition [n xs]
   (->> xs ->seq (partition-all n) (map ->list) ->list))
 
@@ -1504,12 +1512,6 @@
 
                   _
                   class-name)]))))
-
-(let [!out! *out*]
-  (defn |log! [& parts]
-    (binding [*out* !out!]
-      (do (print (apply str parts))
-        (flush)))))
 
 (defn |eitherL [left right]
   (fn [compiler]
