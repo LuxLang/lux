@@ -1,4 +1,4 @@
-(defproject com.github.luxlang/luxc-jvm "0.5.0"
+(defproject com.github.luxlang/luxc-jvm "0.6.0-SNAPSHOT"
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
   :description "The JVM compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
@@ -20,11 +20,12 @@
                  ["releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
   :source-paths ["src"]
 
-  :classifiers {:sources {:resource-paths ["src"]}
-                :javadoc {:resource-paths ["src"]}}
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
+  :classifiers {:sources {:resource-paths ["src"]}
+                :javadoc {:resource-paths ["src"]}}
+  
   :aot [lux]
   
   :jvm-opts ^:replace ["-server" "-Xms2048m" "-Xmx2048m"

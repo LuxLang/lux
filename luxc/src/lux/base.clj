@@ -237,7 +237,7 @@
 (def ^:const +name-separator+ ";")
 
 (def ^:const ^String compiler-name "Lux/JVM")
-(def ^:const ^String compiler-version "0.5.0")
+(def ^:const ^String compiler-version "0.6.0")
 
 ;; Constructors
 (def empty-cursor (T ["" -1 -1]))
