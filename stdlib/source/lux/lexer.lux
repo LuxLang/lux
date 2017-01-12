@@ -15,7 +15,7 @@
              [product]
              [char "Char/" Ord<Char>]
              maybe
-             [error #- fail]
+             ["E" error #- fail]
              (struct [list "" Functor<List>]))
        host))
 
@@ -28,29 +28,29 @@
   (def: (map f fa)
     (lambda [input]
       (case (fa input)
-        (#;Left msg)              (#;Left msg)
-        (#;Right [input' output]) (#;Right [input' (f output)])))))
+        (#E;Error msg)              (#E;Error msg)
+        (#E;Success [input' output]) (#E;Success [input' (f output)])))))
 
 (struct: #export _ (Applicative Lexer)
   (def: functor Functor<Lexer>)
 
   (def: (wrap a)
     (lambda [input]
-      (#;Right [input a])))
+      (#E;Success [input a])))
 
   (def: (apply ff fa)
     (lambda [input]
       (case (ff input)
-        (#;Right [input' f])
+        (#E;Success [input' f])
         (case (fa input')
-          (#;Right [input'' a])
-          (#;Right [input'' (f a)])
+          (#E;Success [input'' a])
+          (#E;Success [input'' (f a)])
 
-          (#;Left msg)
-          (#;Left msg))
+          (#E;Error msg)
+          (#E;Error msg))
 
-        (#;Left msg)
-        (#;Left msg)))))
+        (#E;Error msg)
+        (#E;Error msg)))))
 
 (struct: #export _ (Monad Lexer)
   (def: applicative Applicative<Lexer>)
@@ -58,31 +58,31 @@
   (def: (join mma)
     (lambda [input]
       (case (mma input)
-        (#;Left msg)          (#;Left msg)
-        (#;Right [input' ma]) (ma input'))))
+        (#E;Error msg)          (#E;Error msg)
+        (#E;Success [input' ma]) (ma input'))))
   )
 
 ## [Values]
 ## Runner
-(def: #export (run' lexer input)
-  (All [a] (-> (Lexer a) Text (Error [Text a])))
+(def: #export (run' input lexer)
+  (All [a] (-> Text (Lexer a) (Error [Text a])))
   (lexer input))
 
-(def: #export (run lexer input)
-  (All [a] (-> (Lexer a) Text (Error a)))
+(def: #export (run input lexer)
+  (All [a] (-> Text (Lexer a) (Error a)))
   (case (lexer input)
-    (#;Left msg)
-    (#;Left msg)
+    (#E;Error msg)
+    (#E;Error msg)
     
-    (#;Right [input' output])
-    (#;Right output)
+    (#E;Success [input' output])
+    (#E;Success output)
     ))
 
 ## Combinators
 (def: #export (fail message)
   (All [a] (-> Text (Lexer a)))
   (lambda [input]
-    (#;Left message)))
+    (#E;Error message)))
 
 (def: #export any
   {#;doc "Just returns the next character without applying any logic."}
@@ -90,10 +90,10 @@
   (lambda [input]
     (case [(text;at +0 input) (text;split +1 input)]
       [(#;Some output) (#;Some [_ input'])]
-      (#;Right [input' output])
+      (#E;Success [input' output])
 
       _
-      (#;Left "Can't parse character from empty text."))
+      (#E;Error "Can't parse character from empty text."))
     ))
 
 (def: #export (seq left right)
@@ -109,45 +109,45 @@
   (All [a b] (-> (Lexer a) (Lexer b) (Lexer (| a b))))
   (lambda [input]
     (case (left input)
-      (#;Left msg)
+      (#E;Error msg)
       (case (right input)
-        (#;Left msg)
-        (#;Left msg)
+        (#E;Error msg)
+        (#E;Error msg)
 
-        (#;Right [input' output])
-        (#;Right [input' (+1 output)]))
+        (#E;Success [input' output])
+        (#E;Success [input' (+1 output)]))
 
-      (#;Right [input' output])
-      (#;Right [input' (+0 output)]))))
+      (#E;Success [input' output])
+      (#E;Success [input' (+0 output)]))))
 
 (def: #export (not! p)
   {#;doc "Ensure a lexer fails."}
   (All [a] (-> (Lexer a) (Lexer Unit)))
   (lambda [input]
     (case (p input)
-      (#;Left msg)
-      (#;Right [input []])
+      (#E;Error msg)
+      (#E;Success [input []])
       
       _
-      (#;Left "Expected to fail; yet succeeded."))))
+      (#E;Error "Expected to fail; yet succeeded."))))
 
 (def: #export (not p)
   {#;doc "Produce a character if the lexer fails."}
   (All [a] (-> (Lexer a) (Lexer Char)))
   (lambda [input]
     (case (p input)
-      (#;Left msg)
+      (#E;Error msg)
       (any input)
       
       _
-      (#;Left "Expected to fail; yet succeeded."))))
+      (#E;Error "Expected to fail; yet succeeded."))))
 
 (def: #export (either left right)
   {#;doc "Homogeneous alternative combinator."}
   (All [a] (-> (Lexer a) (Lexer a) (Lexer a)))
   (lambda [input]
     (case (left input)
-      (#;Left msg)
+      (#E;Error msg)
       (right input)
 
       output
@@ -158,22 +158,22 @@
   (-> Text Bool (Lexer Unit))
   (lambda [input]
     (if test
-      (#;Right [input []])
-      (#;Left message))))
+      (#E;Success [input []])
+      (#E;Error message))))
 
 (def: #export (some p)
   {#;doc "0-or-more combinator."}
   (All [a] (-> (Lexer a) (Lexer (List a))))
   (lambda [input]
     (case (p input)
-      (#;Left msg)
-      (#;Right [input (list)])
+      (#E;Error msg)
+      (#E;Success [input (list)])
       
-      (#;Right [input' x])
-      (run' (do Monad<Lexer>
+      (#E;Success [input' x])
+      (run' input'
+            (do Monad<Lexer>
               [xs (some p)]
-              (wrap (#;Cons x xs)))
-            input'))
+              (wrap (#;Cons x xs)))))
     ))
 
 (def: #export (many p)
@@ -200,14 +200,14 @@
   (if (n.> +0 n)
     (lambda [input]
       (case (p input)
-        (#;Left msg)
-        (#;Right [input (list)])
+        (#E;Error msg)
+        (#E;Success [input (list)])
 
-        (#;Right [input' x])
-        (run' (do Monad<Lexer>
+        (#E;Success [input' x])
+        (run' input'
+              (do Monad<Lexer>
                 [xs (at-most (n.dec n) p)]
-                (wrap (#;Cons x xs)))
-              input')
+                (wrap (#;Cons x xs))))
         ))
     (:: Monad<Lexer> wrap (list))))
 
@@ -232,11 +232,11 @@
   (All [a] (-> (Lexer a) (Lexer (Maybe a))))
   (lambda [input]
     (case (p input)
-      (#;Left msg)
-      (#;Right [input #;None])
+      (#E;Error msg)
+      (#E;Success [input #;None])
 
-      (#;Right [input value])
-      (#;Right [input (#;Some value)])
+      (#E;Success [input value])
+      (#E;Success [input (#;Some value)])
       )))
 
 (def: #export (text test)
@@ -245,9 +245,9 @@
   (lambda [input]
     (if (text;starts-with? test input)
       (case (text;split (text;size test) input)
-        #;None              (#;Left "")
-        (#;Some [_ input']) (#;Right [input' test]))
-      (#;Left (format "Invalid match: " test " @ " (:: text;Codec<Text,Text> encode input))))
+        #;None              (#E;Error "")
+        (#;Some [_ input']) (#E;Success [input' test]))
+      (#E;Error (format "Invalid match: " test " @ " (:: text;Codec<Text,Text> encode input))))
     ))
 
 (def: #export (sep-by sep lexer)
@@ -270,8 +270,8 @@
   (Lexer Unit)
   (lambda [input]
     (case input
-      "" (#;Right [input []])
-      _  (#;Left (format "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
+      "" (#E;Success [input []])
+      _  (#E;Error (format "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
       )))
 
 (def: #export peek
@@ -280,10 +280,10 @@
   (lambda [input]
     (case (text;at +0 input)
       (#;Some output)
-      (#;Right [input output])
+      (#E;Success [input output])
 
       _
-      (#;Left "Can't peek character from empty text."))
+      (#E;Error "Can't peek character from empty text."))
     ))
 
 (def: #export (char test)
@@ -293,19 +293,19 @@
     (case [(text;at +0 input) (text;split +1 input)]
       [(#;Some char') (#;Some [_ input'])]
       (if (Char/= test char')
-        (#;Right [input' test])
-        (#;Left (format "Expected " (:: char;Codec<Text,Char> encode test) " @ " (:: text;Codec<Text,Text> encode input)
-                        " " (Int/encode (c2l test))" " (Int/encode (c2l [char'])))))
+        (#E;Success [input' test])
+        (#E;Error (format "Expected " (:: char;Codec<Text,Char> encode test) " @ " (:: text;Codec<Text,Text> encode input)
+                          " " (Int/encode (c2l test))" " (Int/encode (c2l [char'])))))
 
       _
-      (#;Left "Can't parse character from empty text."))
+      (#E;Error "Can't parse character from empty text."))
     ))
 
 (def: #export get-input
   {#;doc "Get all of the remaining input (without consuming it)."}
   (Lexer Text)
   (lambda [input]
-    (#;Right [input input])))
+    (#E;Success [input input])))
 
 (def: #export (char-range bottom top)
   {#;doc "Only lex characters within a range."}
@@ -357,14 +357,14 @@
       (if (text;contains? init options)
         (case (text;at +0 init)
           (#;Some output)
-          (#;Right [input' output])
+          (#E;Success [input' output])
 
           _
-          (#;Left ""))
-        (#;Left (format "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+          (#E;Error ""))
+        (#E;Error (format "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
-      (#;Left "Can't parse character from empty text."))))
+      (#E;Error "Can't parse character from empty text."))))
 
 (def: #export (none-of options)
   {#;doc "Only lex characters that aren't part of a piece of text."}
@@ -375,14 +375,14 @@
       (if (;not (text;contains? init options))
         (case (text;at +0 init)
           (#;Some output)
-          (#;Right [input' output])
+          (#E;Success [input' output])
 
           _
-          (#;Left ""))
-        (#;Left (format "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+          (#E;Error ""))
+        (#E;Error (format "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
-      (#;Left "Can't parse character from empty text."))))
+      (#E;Error "Can't parse character from empty text."))))
 
 (def: #export (satisfies p)
   {#;doc "Only lex characters that satisfy a predicate."}
@@ -395,11 +395,11 @@
                (wrap [input' output])))
       (#;Some [input' output])
       (if (p output)
-        (#;Right [input' output])
-        (#;Left (format "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
+        (#E;Success [input' output])
+        (#E;Error (format "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
 
       _
-      (#;Left "Can't parse character from empty text."))))
+      (#E;Error "Can't parse character from empty text."))))
 
 (def: #export space
   {#;doc "Only lex white-space."}
@@ -424,7 +424,7 @@
   {#;doc "Ask if the lexer's input is empty."}
   (Lexer Bool)
   (lambda [input]
-    (#;Right [input (text;empty? input)])))
+    (#E;Success [input (text;empty? input)])))
 
 (def: #export (_& left right)
   (All [a b] (-> (Lexer a) (Lexer b) (Lexer b)))
@@ -444,30 +444,49 @@
   (All [a] (-> a (Lexer a) (Lexer a)))
   (lambda [input]
     (case (lexer input)
-      (#;Left error)
-      (#;Right [input value])
+      (#E;Error error)
+      (#E;Success [input value])
 
-      (#;Right input'+value)
-      (#;Right input'+value))))
+      (#E;Success input'+value)
+      (#E;Success input'+value))))
 
 (def: #export (codec codec lexer)
   {#;doc "Lex a token by means of a codec."}
   (All [a] (-> (Codec Text a) (Lexer Text) (Lexer a)))
   (lambda [input]
     (case (lexer input)
-      (#;Left error)
-      (#;Left error)
+      (#E;Error error)
+      (#E;Error error)
 
-      (#;Right [input' to-decode])
+      (#E;Success [input' to-decode])
       (case (:: codec decode to-decode)
-        (#;Left error)
-        (#;Left error)
+        (#E;Error error)
+        (#E;Error error)
         
-        (#;Right value)
-        (#;Right [input' value])))))
+        (#E;Success value)
+        (#E;Success [input' value])))))
 
 (def: #export (enclosed [start end] lexer)
   (All [a] (-> [Text Text] (Lexer a) (Lexer a)))
   (_& (text start)
       (&_ lexer
           (text end))))
+
+(def: #export (rec lexer)
+  (All [a] (-> (-> (Lexer a) (Lexer a))
+               (Lexer a)))
+  (lambda [input]
+    (run' input (lexer (rec lexer)))))
+
+(def: #export (local local-input lexer)
+  {#;doc "Run a lexer with the given input, instead of the real one."}
+  (All [a] (-> Text (Lexer a) (Lexer a)))
+  (lambda [real-input]
+    (case (run' local-input lexer)
+      (#E;Error error)
+      (#E;Error error)
+
+      (#E;Success [unconsumed value])
+      (if (Text/= "" unconsumed)
+        (#E;Success [real-input value])
+        (#E;Error (format "Unconsumed input: " unconsumed))))))
