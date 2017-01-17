@@ -9,15 +9,13 @@
                 applicative
                 monad
                 codec)
-       (data [text "Text/" Eq<Text>]
-             text/format
+       (data [text "Text/" Eq<Text> Monoid<Text>]
              [number "Int/" Codec<Text,Int>]
              [product]
              [char "Char/" Ord<Char>]
              maybe
              ["E" error #- fail]
-             (struct [list "" Functor<List>]))
-       host))
+             (struct [list "" Functor<List>]))))
 
 ## [Types]
 (type: #export (Lexer a)
@@ -247,7 +245,7 @@
       (case (text;split (text;size test) input)
         #;None              (#E;Error "")
         (#;Some [_ input']) (#E;Success [input' test]))
-      (#E;Error (format "Invalid match: " test " @ " (:: text;Codec<Text,Text> encode input))))
+      (#E;Error ($_ Text/append "Invalid match: " test " @ " (:: text;Codec<Text,Text> encode input))))
     ))
 
 (def: #export (sep-by sep lexer)
@@ -271,7 +269,7 @@
   (lambda [input]
     (case input
       "" (#E;Success [input []])
-      _  (#E;Error (format "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
+      _  (#E;Error ($_ Text/append "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
       )))
 
 (def: #export peek
@@ -294,8 +292,7 @@
       [(#;Some char') (#;Some [_ input'])]
       (if (Char/= test char')
         (#E;Success [input' test])
-        (#E;Error (format "Expected " (:: char;Codec<Text,Char> encode test) " @ " (:: text;Codec<Text,Text> encode input)
-                          " " (Int/encode (c2l test))" " (Int/encode (c2l [char'])))))
+        (#E;Error ($_ Text/append "Expected " (:: char;Codec<Text,Char> encode test) " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#E;Error "Can't parse character from empty text."))
@@ -313,14 +310,14 @@
   (do Monad<Lexer>
     [input get-input
      char any
-     _ (assert (format "Character is not within range: " (:: char;Codec<Text,Char> encode bottom) "-" (:: char;Codec<Text,Char> encode top) " @ " (:: text;Codec<Text,Text> encode input))
+     _ (assert ($_ Text/append "Character is not within range: " (:: char;Codec<Text,Char> encode bottom) "-" (:: char;Codec<Text,Char> encode top) " @ " (:: text;Codec<Text,Text> encode input))
                (and (Char/>= bottom char)
                     (Char/<= top char)))]
     (wrap char)))
 
 (do-template [<name> <bottom> <top> <desc>]
   [(def: #export <name>
-     {#;doc (#;TextM (format "Only lex " <desc> " characters."))}
+     {#;doc (#;TextM ($_ Text/append "Only lex " <desc> " characters."))}
      (Lexer Char)
      (char-range <bottom> <top>))]
 
@@ -361,7 +358,7 @@
 
           _
           (#E;Error ""))
-        (#E;Error (format "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+        (#E;Error ($_ Text/append "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#E;Error "Can't parse character from empty text."))))
@@ -379,7 +376,7 @@
 
           _
           (#E;Error ""))
-        (#E;Error (format "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+        (#E;Error ($_ Text/append "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#E;Error "Can't parse character from empty text."))))
@@ -396,7 +393,7 @@
       (#;Some [input' output])
       (if (p output)
         (#E;Success [input' output])
-        (#E;Error (format "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
+        (#E;Error ($_ Text/append "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#E;Error "Can't parse character from empty text."))))
@@ -406,18 +403,36 @@
   (Lexer Char)
   (satisfies char;space?))
 
-(def: #export (some' p)
-  {#;doc "Lex some characters as a single continuous text."}
-  (-> (Lexer Char) (Lexer Text))
-  (do Monad<Lexer>
-    [cs (some p)]
-    (wrap (text;concat (map char;as-text cs)))))
+(do-template [<name> <base> <doc>]
+  [(def: #export (<name> p)
+     {#;doc <doc>}
+     (-> (Lexer Char) (Lexer Text))
+     (do Monad<Lexer>
+       [cs (<base> p)]
+       (wrap (text;concat (map char;as-text cs)))))]
 
-(def: #export (many' p)
-  {#;doc "Lex many characters as a single continuous text."}
-  (-> (Lexer Char) (Lexer Text))
+  [some' some "Lex some characters as a single continuous text."]
+  [many' many "Lex many characters as a single continuous text."]
+  )
+
+(do-template [<name> <base> <doc>]
+  [(def: #export (<name> n p)
+     {#;doc <doc>}
+     (-> Nat (Lexer Char) (Lexer Text))
+     (do Monad<Lexer>
+       [cs (<base> n p)]
+       (wrap (text;concat (map char;as-text cs)))))]
+
+  [exactly'  exactly  "Lex exactly N characters."]
+  [at-most'  at-most  "Lex at most N characters."]
+  [at-least' at-least "Lex at least N characters."]
+  )
+
+(def: #export (between' from to p)
+  {#;doc "Lex between N and M characters."}
+  (-> Nat Nat (Lexer Char) (Lexer Text))
   (do Monad<Lexer>
-    [cs (many p)]
+    [cs (between from to p)]
     (wrap (text;concat (map char;as-text cs)))))
 
 (def: #export end?
@@ -489,4 +504,4 @@
       (#E;Success [unconsumed value])
       (if (Text/= "" unconsumed)
         (#E;Success [real-input value])
-        (#E;Error (format "Unconsumed input: " unconsumed))))))
+        (#E;Error ($_ Text/append "Unconsumed input: " unconsumed))))))
