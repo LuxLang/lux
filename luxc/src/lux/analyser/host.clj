@@ -1074,23 +1074,23 @@
   ^:private analyse-nat-eq   ["nat" "="]  &type/Nat  &type/Bool
   ^:private analyse-nat-lt   ["nat" "<"]  &type/Nat  &type/Bool
 
-  ^:private analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
-  ^:private analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
-  ^:private analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
-  ^:private analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
-  ^:private analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
-  ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bool
-  ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bool
+  ^:private analyse-deg-add ["deg" "+"] &type/Deg &type/Deg
+  ^:private analyse-deg-sub ["deg" "-"] &type/Deg &type/Deg
+  ^:private analyse-deg-mul ["deg" "*"] &type/Deg &type/Deg
+  ^:private analyse-deg-div ["deg" "/"] &type/Deg &type/Deg
+  ^:private analyse-deg-rem ["deg" "%"] &type/Deg &type/Deg
+  ^:private analyse-deg-eq  ["deg" "="] &type/Deg &type/Bool
+  ^:private analyse-deg-lt  ["deg" "<"] &type/Deg &type/Bool
   )
 
-(defn ^:private analyse-frac-scale [analyse exo-type ?values]
+(defn ^:private analyse-deg-scale [analyse exo-type ?values]
   (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
-        =x (&&/analyse-1 analyse &type/Frac x)
+        =x (&&/analyse-1 analyse &type/Deg x)
         =y (&&/analyse-1 analyse &type/Nat y)
-        _ (&type/check exo-type &type/Frac)
+        _ (&type/check exo-type &type/Deg)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta &type/Frac _cursor
-                               (&&/$proc (&/T ["frac" "scale"]) (&/|list =x =y) (&/|list)))))))
+    (return (&/|list (&&/|meta &type/Deg _cursor
+                               (&&/$proc (&/T ["deg" "scale"]) (&/|list =x =y) (&/|list)))))))
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
   (do (defn <encode> [analyse exo-type ?values]
@@ -1111,7 +1111,7 @@
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
   ^:private analyse-nat-encode  ["nat"  "encode"] ^:private analyse-nat-decode  ["nat"  "decode"] &type/Nat
-  ^:private analyse-frac-encode ["frac" "encode"] ^:private analyse-frac-decode ["frac" "decode"] &type/Frac
+  ^:private analyse-deg-encode ["deg" "encode"] ^:private analyse-deg-decode ["deg" "decode"] &type/Deg
   )
 
 (do-template [<name> <type> <op>]
@@ -1125,8 +1125,8 @@
   ^:private analyse-nat-min-value  &type/Nat  ["nat"  "min-value"]
   ^:private analyse-nat-max-value  &type/Nat  ["nat"  "max-value"]
 
-  ^:private analyse-frac-min-value &type/Frac ["frac" "min-value"]
-  ^:private analyse-frac-max-value &type/Frac ["frac" "max-value"]
+  ^:private analyse-deg-min-value &type/Deg ["deg" "min-value"]
+  ^:private analyse-deg-max-value &type/Deg ["deg" "max-value"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -1143,8 +1143,8 @@
   ^:private analyse-int-to-nat   &type/Int  &type/Nat  ["int" "to-nat"]
   ^:private analyse-char-to-nat  &type/Char &type/Nat  ["char" "to-nat"]
 
-  ^:private analyse-frac-to-real &type/Frac &type/Real ["frac" "to-real"]
-  ^:private analyse-real-to-frac &type/Real &type/Frac ["real" "to-frac"]
+  ^:private analyse-deg-to-real &type/Deg &type/Real ["deg" "to-real"]
+  ^:private analyse-real-to-deg &type/Real &type/Deg ["real" "to-deg"]
   )
 
 (defn analyse-host [analyse exo-type compilers category proc ?values]
@@ -1189,21 +1189,21 @@
         "to-char" (analyse-nat-to-char analyse exo-type ?values)
         )
 
-      "frac"
+      "deg"
       (case proc
-        "+" (analyse-frac-add analyse exo-type ?values)
-        "-" (analyse-frac-sub analyse exo-type ?values)
-        "*" (analyse-frac-mul analyse exo-type ?values)
-        "/" (analyse-frac-div analyse exo-type ?values)
-        "%" (analyse-frac-rem analyse exo-type ?values)
-        "=" (analyse-frac-eq analyse exo-type ?values)
-        "<" (analyse-frac-lt analyse exo-type ?values)
-        "encode" (analyse-frac-encode analyse exo-type ?values)
-        "decode" (analyse-frac-decode analyse exo-type ?values)
-        "min-value" (analyse-frac-min-value analyse exo-type ?values)
-        "max-value" (analyse-frac-max-value analyse exo-type ?values)
-        "to-real" (analyse-frac-to-real analyse exo-type ?values)
-        "scale" (analyse-frac-scale analyse exo-type ?values)
+        "+" (analyse-deg-add analyse exo-type ?values)
+        "-" (analyse-deg-sub analyse exo-type ?values)
+        "*" (analyse-deg-mul analyse exo-type ?values)
+        "/" (analyse-deg-div analyse exo-type ?values)
+        "%" (analyse-deg-rem analyse exo-type ?values)
+        "=" (analyse-deg-eq analyse exo-type ?values)
+        "<" (analyse-deg-lt analyse exo-type ?values)
+        "encode" (analyse-deg-encode analyse exo-type ?values)
+        "decode" (analyse-deg-decode analyse exo-type ?values)
+        "min-value" (analyse-deg-min-value analyse exo-type ?values)
+        "max-value" (analyse-deg-max-value analyse exo-type ?values)
+        "to-real" (analyse-deg-to-real analyse exo-type ?values)
+        "scale" (analyse-deg-scale analyse exo-type ?values)
         )
 
       "int"
@@ -1213,7 +1213,7 @@
 
       "real"
       (case proc
-        "to-frac" (analyse-real-to-frac analyse exo-type ?values)
+        "to-deg" (analyse-real-to-deg analyse exo-type ?values)
         )
 
       "char"

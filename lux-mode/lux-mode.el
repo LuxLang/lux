@@ -248,7 +248,7 @@ Called by `imenu--generic-function'."
       ("\\<\\+\\(0\\|[1-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
       ; Int|Real literals
       ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\)?\\>" 0 font-lock-constant-face)
-      ; Frac literals
+      ; Deg literals
       ("\\<\\(\\.[0-9_]+\\)\\>" 0 font-lock-constant-face)
       ; Tags
       ("#;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)

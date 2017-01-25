@@ -44,7 +44,7 @@
 
   compile-nat  "java/lang/Long"      "J" long
   compile-int  "java/lang/Long"      "J" long
-  compile-frac "java/lang/Long"      "J" long
+  compile-deg "java/lang/Long"      "J" long
   compile-real "java/lang/Double"    "D" double
   compile-char "java/lang/Character" "C" char
   )
@@ -260,7 +260,7 @@
     (|do [module-name &/get-module-name
           class-loader &/loader]
       (|case (&a-meta/meta-get &a-meta/alias-tag ?meta)
-        (&/$Some (&/$IdentM [r-module r-name]))
+        (&/$Some (&/$IdentA [r-module r-name]))
         (if (= 1 (&/|length ?meta))
           (|do [:let [current-class (&host-generics/->class-name (str (&host/->module-class r-module) "/" (&host/def-name r-name)))
                       def-class (&&/load-class! class-loader current-class)
@@ -311,7 +311,7 @@
                   :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
                         def-type (&a/expr-type* ?body)
                         is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                                   (&/$Some (&/$BoolM true))
+                                   (&/$Some (&/$BoolA true))
                                    true
 
                                    _
@@ -323,7 +323,7 @@
                   _ (&/without-repl-closure
                      (&a-module/define module-name ?name def-type def-meta def-value))
                   _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                      [true (&/$Some (&/$ListM tags*))]
+                      [true (&/$Some (&/$ListA tags*))]
                       (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
                                                   (&/$Some _)
                                                   true
@@ -332,7 +332,7 @@
                                                   false)]
                             tags (&/map% (fn [tag*]
                                            (|case tag*
-                                             (&/$TextM tag)
+                                             (&/$TextA tag)
                                              (return tag)
 
                                              _
@@ -382,7 +382,7 @@
                 :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
                       def-type (&a/expr-type* ?body)
                       is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                                 (&/$Some (&/$BoolM true))
+                                 (&/$Some (&/$BoolA true))
                                  true
 
                                  _
@@ -394,7 +394,7 @@
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))
                 _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                    [true (&/$Some (&/$ListM tags*))]
+                    [true (&/$Some (&/$ListA tags*))]
                     (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
                                                 (&/$Some _)
                                                 true
@@ -403,7 +403,7 @@
                                                 false)]
                           tags (&/map% (fn [tag*]
                                          (|case tag*
-                                           (&/$TextM tag)
+                                           (&/$TextA tag)
                                            (return tag)
 
                                            _

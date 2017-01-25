@@ -30,7 +30,7 @@
 
 (def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$HostT "java.lang.Boolean" &/$Nil)))
 (def Nat (&/$NamedT (&/T ["lux" "Nat"]) (&/$HostT &&host/nat-data-tag &/$Nil)))
-(def Frac (&/$NamedT (&/T ["lux" "Frac"]) (&/$HostT &&host/frac-data-tag &/$Nil)))
+(def Deg (&/$NamedT (&/T ["lux" "Deg"]) (&/$HostT &&host/deg-data-tag &/$Nil)))
 (def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$HostT "java.lang.Long" &/$Nil)))
 (def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$HostT "java.lang.Double" &/$Nil)))
 (def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$HostT "java.lang.Character" &/$Nil)))
@@ -120,33 +120,33 @@
              (let [Ann-Value (&/$AppT (&/$BoundT 0) (&/$BoundT 1))]
                (&/$AppT (&/$UnivQ empty-env
                                   (&/$SumT
-                                   ;; BoolM
+                                   ;; BoolA
                                    Bool
                                    (&/$SumT
-                                    ;; NatM
+                                    ;; NatA
                                     Nat
                                     (&/$SumT
-                                     ;; IntM
+                                     ;; IntA
                                      Int
                                      (&/$SumT
-                                      ;; FracM
-                                      Frac
+                                      ;; DegA
+                                      Deg
                                       (&/$SumT
-                                       ;; RealM
+                                       ;; RealA
                                        Real
                                        (&/$SumT
-                                        ;; CharM
+                                        ;; CharA
                                         Char
                                         (&/$SumT
-                                         ;; TextM
+                                         ;; TextA
                                          Text
                                          (&/$SumT
-                                          ;; IdentM
+                                          ;; IdentA
                                           Ident
                                           (&/$SumT
-                                           ;; ListM
+                                           ;; ListA
                                            (&/$AppT List Ann-Value)
-                                           ;; DictM
+                                           ;; DictA
                                            (&/$AppT List (&/$ProdT Text Ann-Value)))))))))))
                                   )
                         &/$VoidT))))

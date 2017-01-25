@@ -33,34 +33,34 @@
   "(-> Ann-Value Text)"
   [ann]
   (|case ann
-    (&/$BoolM value)
+    (&/$BoolA value)
     (str "B" value stop)
 
-    (&/$NatM value)
+    (&/$NatA value)
     (str "N" value stop)
 
-    (&/$IntM value)
+    (&/$IntA value)
     (str "I" value stop)
 
-    (&/$FracM value)
-    (str "F" value stop)
+    (&/$DegA value)
+    (str "D" value stop)
 
-    (&/$RealM value)
+    (&/$RealA value)
     (str "R" value stop)
 
-    (&/$CharM value)
+    (&/$CharA value)
     (str "C" value stop)
 
-    (&/$TextM value)
+    (&/$TextA value)
     (serialize-text value)
 
-    (&/$IdentM ident)
+    (&/$IdentA ident)
     (serialize-ident ident)
 
-    (&/$ListM elems)
+    (&/$ListA elems)
     (str "L" (serialize-seq serialize-ann elems))
 
-    (&/$DictM kvs)
+    (&/$DictA kvs)
     (str "D" (serialize-seq (fn [kv]
                               (|let [[k v] kv]
                                 (str (serialize-text k)
@@ -88,13 +88,13 @@
       (let [[value* ^String input*] (.split (.substring input 1) stop 2)]
         [(<ctor> (<parser> value*)) input*])))
 
-  ^:private deserialize-bool "B" &/$BoolM Boolean/parseBoolean
-  ^:private deserialize-nat  "N" &/$NatM  Long/parseLong
-  ^:private deserialize-int  "I" &/$IntM  Long/parseLong
-  ^:private deserialize-frac "F" &/$FracM Long/parseLong
-  ^:private deserialize-real "R" &/$RealM Double/parseDouble
-  ^:private deserialize-char "C" &/$CharM (fn [^String input] (.charAt input 0))
-  ^:private deserialize-text "T" &/$TextM identity
+  ^:private deserialize-bool "B" &/$BoolA Boolean/parseBoolean
+  ^:private deserialize-nat  "N" &/$NatA  Long/parseLong
+  ^:private deserialize-int  "I" &/$IntA  Long/parseLong
+  ^:private deserialize-deg "D" &/$DegA Long/parseLong
+  ^:private deserialize-real "R" &/$RealA Double/parseDouble
+  ^:private deserialize-char "C" &/$CharA (fn [^String input] (.charAt input 0))
+  ^:private deserialize-text "T" &/$TextA identity
   )
 
 (defn ^:private deserialize-ident* [^String input]
@@ -107,7 +107,7 @@
   (when (.startsWith input "@")
     (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
           [_module _name] (.split ident* ident-separator 2)]
-      [(&/$IdentM (&/T [_module _name])) input*])))
+      [(&/$IdentA (&/T [_module _name])) input*])))
 
 (defn ^:private deserialize-seq [deserializer ^String input]
   (cond (.startsWith input nil-signal)
@@ -136,8 +136,8 @@
                                                          (.substring input 1))]
         [(<type> elems) input*])))
 
-  ^:private deserialize-list "L" &/$ListM deserialize-ann
-  ^:private deserialize-dict "D" &/$DictM deserialize-kv
+  ^:private deserialize-list "L" &/$ListA deserialize-ann
+  ^:private deserialize-dict "D" &/$DictA deserialize-kv
   )
 
 (defn ^:private deserialize-ann
@@ -146,7 +146,7 @@
   (or (deserialize-bool input)
       (deserialize-nat input)
       (deserialize-int input)
-      (deserialize-frac input)
+      (deserialize-deg input)
       (deserialize-real input)
       (deserialize-char input)
       (deserialize-text input)

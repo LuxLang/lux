@@ -13,7 +13,7 @@
   ("bool" 1)
   ("nat" 1)
   ("int" 1)
-  ("frac" 1)
+  ("deg" 1)
   ("real" 1)
   ("char" 1)
   ("text" 1)
@@ -75,8 +75,8 @@
   ("NatPM" 1)
   ;; Compare the CDN with an integer value.
   ("IntPM" 1)
-  ;; Compare the CDN with a fractional value.
-  ("FracPM" 1)
+  ;; Compare the CDN with a degree value.
+  ("DegPM" 1)
   ;; Compare the CDN with a real value.
   ("RealPM" 1)
   ;; Compare the CDN with a character value.
@@ -192,8 +192,8 @@
     (&/|list ($IntPM _value)
              $PopPM)
 
-    (&a-case/$FracTestAC _value)
-    (&/|list ($FracPM _value)
+    (&a-case/$DegTestAC _value)
+    (&/|list ($DegPM _value)
              $PopPM)
 
     (&a-case/$RealTestAC _value)
@@ -287,8 +287,8 @@
     ($IntPM _value)
     (str "($IntPM " (pr-str _value) ")")
 
-    ($FracPM _value)
-    (str "($FracPM " (pr-str _value) ")")
+    ($DegPM _value)
+    (str "($DegPM " (pr-str _value) ")")
 
     ($RealPM _value)
     (str "($RealPM " (pr-str _value) ")")
@@ -351,9 +351,9 @@
       ($IntPM _pre-value)
       ($AltPM pre post))
 
-    [($FracPM _pre-value) ($FracPM _post-value)]
+    [($DegPM _pre-value) ($DegPM _post-value)]
     (if (= _pre-value _post-value)
-      ($FracPM _pre-value)
+      ($DegPM _pre-value)
       ($AltPM pre post))
 
     [($RealPM _pre-value) ($RealPM _post-value)]
@@ -1079,8 +1079,8 @@
         (&a/$int value)
         (&/T [meta ($int value)])
 
-        (&a/$frac value)
-        (&/T [meta ($frac value)])
+        (&a/$deg value)
+        (&/T [meta ($deg value)])
         
         (&a/$real value)
         (&/T [meta ($real value)])

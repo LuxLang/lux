@@ -136,7 +136,7 @@
       2 (let [[_name _alias] parts
               [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
               def-class (&&/load-class! loader (str (&host-generics/->class-name __module) "." (&host/def-name __name)))
-              def-anns (&/|list (&/T [&a-meta/alias-tag (&/$IdentM (&/T [__module __name]))]))
+              def-anns (&/|list (&/T [&a-meta/alias-tag (&/$IdentA (&/T [__module __name]))]))
               def-value (get-field &/value-field def-class)]
           (|do [def-type (&a-module/def-type __module __name)]
             (&a-module/define module _name def-type def-anns def-value)))

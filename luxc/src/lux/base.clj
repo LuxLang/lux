@@ -74,7 +74,7 @@
   ("BoolS" 1)
   ("NatS" 1)
   ("IntS" 1)
-  ("FracS" 1)
+  ("DegS" 1)
   ("RealS" 1)
   ("CharS" 1)
   ("TextS" 1)
@@ -216,16 +216,16 @@
 
 ;; Meta-data
 (defvariant
-  ("BoolM" 1)
-  ("NatM" 1)
-  ("IntM" 1)
-  ("FracM" 1)
-  ("RealM" 1)
-  ("CharM" 1)
-  ("TextM" 1)
-  ("IdentM" 1)
-  ("ListM" 1)
-  ("DictM" 1))
+  ("BoolA" 1)
+  ("NatA" 1)
+  ("IntA" 1)
+  ("DegA" 1)
+  ("RealA" 1)
+  ("CharA" 1)
+  ("TextA" 1)
+  ("IdentA" 1)
+  ("ListA" 1)
+  ("DictA" 1))
 
 ;; [Exports]
 (def ^:const name-field "_name")
@@ -1059,12 +1059,12 @@
   (fn [state]
     (return* state (get$ $cursor state))))
 
-(def frac-bits 64)
+(def deg-bits 64)
 
 (let [clean-separators (fn [^String input]
                          (.replaceAll input "_" ""))
-      frac-text-to-digits (fn [^String input]
-                            (loop [output (vec (repeat frac-bits 0))
+      deg-text-to-digits (fn [^String input]
+                            (loop [output (vec (repeat deg-bits 0))
                                    index (dec (.length input))]
                               (if (>= index 0)
                                 (let [digit (Byte/parseByte (.substring input index (inc index)))]
@@ -1081,50 +1081,50 @@
                             (int (/ raw 10))
                             (assoc digits index (rem raw 10))))
                    digits)))
-      frac-digit-power (fn [level]
-                         (loop [output (-> (vec (repeat frac-bits 0))
+      deg-digit-power (fn [level]
+                         (loop [output (-> (vec (repeat deg-bits 0))
                                            (assoc level 1))
                                 times level]
                            (if (>= times 0)
                              (recur (times5 level output)
                                     (dec times))
                              output)))
-      frac-digits-lt (fn frac-digits-lt
+      deg-digits-lt (fn deg-digits-lt
                        ([subject param index]
-                          (and (< index frac-bits)
+                          (and (< index deg-bits)
                                (or (< (get subject index)
                                       (get param index))
                                    (and (= (get subject index)
                                            (get param index))
-                                        (frac-digits-lt subject param (inc index))))))
+                                        (deg-digits-lt subject param (inc index))))))
                        ([subject param]
-                          (frac-digits-lt subject param 0)))
-      frac-digits-sub-once (fn [subject param-digit index]
+                          (deg-digits-lt subject param 0)))
+      deg-digits-sub-once (fn [subject param-digit index]
                              (if (>= (get subject index)
                                      param-digit)
                                (update-in subject [index] #(- % param-digit))
                                (recur (update-in subject [index] #(- 10 (- param-digit %)))
                                       1
                                       (dec index))))
-      frac-digits-sub (fn [subject param]
+      deg-digits-sub (fn [subject param]
                         (loop [target subject
-                               index (dec frac-bits)]
+                               index (dec deg-bits)]
                           (if (>= index 0)
-                            (recur (frac-digits-sub-once target (get param index) index)
+                            (recur (deg-digits-sub-once target (get param index) index)
                                    (dec index))
                             target)))
-      frac-digits-to-text (fn [digits]
+      deg-digits-to-text (fn [digits]
                             (loop [output ""
-                                   index (dec frac-bits)]
+                                   index (dec deg-bits)]
                               (if (>= index 0)
                                 (recur (-> (get digits index)
                                            (Character/forDigit 10)
                                            (str output))
                                        (dec index))
                                 output)))
-      add-frac-digit-powers (fn [dl dr]
-                              (loop [index (dec frac-bits)
-                                     output (vec (repeat frac-bits 0))
+      add-deg-digit-powers (fn [dl dr]
+                              (loop [index (dec deg-bits)
+                                     output (vec (repeat deg-bits 0))
                                      carry 0]
                                 (if (>= index 0)
                                   (let [raw (+ carry
@@ -1134,45 +1134,45 @@
                                            (assoc output index (rem raw 10))
                                            (int (/ raw 10))))
                                   output)))]
-  ;; Based on the LuxRT.encode_frac method
-  (defn encode-frac [input]
+  ;; Based on the LuxRT.encode_deg method
+  (defn encode-deg [input]
     (if (= 0 input)
       ".0"
-      (loop [index (dec frac-bits)
-             output (vec (repeat frac-bits 0))]
+      (loop [index (dec deg-bits)
+             output (vec (repeat deg-bits 0))]
         (if (>= index 0)
           (recur (dec index)
                  (if (bit-test input index)
-                   (->> (- (dec frac-bits) index)
-                        frac-digit-power
-                        (add-frac-digit-powers output))
+                   (->> (- (dec deg-bits) index)
+                        deg-digit-power
+                        (add-deg-digit-powers output))
                    output))
-          (-> output frac-digits-to-text
+          (-> output deg-digits-to-text
               (->> (str "."))
               (.split "0*$")
               (aget 0))))))
 
-  ;; Based on the LuxRT.decode_frac method
-  (defn decode-frac [^String input]
+  ;; Based on the LuxRT.decode_deg method
+  (defn decode-deg [^String input]
     (if (and (.startsWith input ".")
-             (< (.length input) (inc frac-bits)))
+             (< (.length input) (inc deg-bits)))
       (loop [digits-left (-> input
                              (.substring 1)
                              clean-separators
-                             frac-text-to-digits)
+                             deg-text-to-digits)
              index 0
              ouput 0]
-        (if (< index frac-bits)
-          (let [power-slice (frac-digit-power index)]
-            (if (not (frac-digits-lt digits-left power-slice))
-              (recur (frac-digits-sub digits-left power-slice)
+        (if (< index deg-bits)
+          (let [power-slice (deg-digit-power index)]
+            (if (not (deg-digits-lt digits-left power-slice))
+              (recur (deg-digits-sub digits-left power-slice)
                      (inc index)
-                     (bit-set ouput (- (dec frac-bits) index)))
+                     (bit-set ouput (- (dec deg-bits) index)))
               (recur digits-left
                      (inc index)
                      ouput)))
           ouput))
-      (throw (str "Bad format for Frac number: " input))))
+      (throw (str "Bad format for Deg number: " input))))
   )
 
 (defn show-ast [ast]
@@ -1186,8 +1186,8 @@
     [_ ($IntS ?value)]
     (pr-str ?value)
 
-    [_ ($FracS ?value)]
-    (encode-frac ?value)
+    [_ ($DegS ?value)]
+    (encode-deg ?value)
 
     [_ ($RealS ?value)]
     (pr-str ?value)

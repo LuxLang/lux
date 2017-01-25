@@ -90,7 +90,7 @@
       (.visitInsn Opcodes/LCMP)
       (.visitJumpInsn Opcodes/IFNE $else))
 
-    (&o/$FracPM _value)
+    (&o/$DegPM _value)
     (doto writer
       stack-peek
       &&/unwrap-long

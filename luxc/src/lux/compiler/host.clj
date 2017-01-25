@@ -777,9 +777,9 @@
     (.visitInsn Opcodes/LCMP) ;; I
     ))
 
-(defn ^:private compile-LuxRT-frac-methods [^ClassWriter =class]
-  (|let [frac-bits 64
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "mul_frac" "(JJ)J" nil nil)
+(defn ^:private compile-LuxRT-deg-methods [^ClassWriter =class]
+  (|let [deg-bits 64
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "mul_deg" "(JJ)J" nil nil)
              ;; Based on: http://stackoverflow.com/a/31629280/6823464
              (.visitCode)
              ;; Bottom part
@@ -810,7 +810,7 @@
              (.visitInsn Opcodes/LRETURN)
              (.visitMaxs 0 0)
              (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "div_frac" "(JJ)J" nil nil)
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "div_deg" "(JJ)J" nil nil)
              (.visitCode)
              ;; Based on: http://stackoverflow.com/a/8510587/6823464
              (.visitVarInsn Opcodes/LLOAD 0)
@@ -821,7 +821,7 @@
              (.visitInsn Opcodes/LRETURN)
              (.visitMaxs 0 0)
              (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac-to-real" "(J)D" nil nil)
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg-to-real" "(J)D" nil nil)
              (.visitCode)
              ;; Translate high bytes
              (.visitVarInsn Opcodes/LLOAD 0) high-4b
@@ -840,7 +840,7 @@
              (.visitInsn Opcodes/DRETURN)
              (.visitMaxs 0 0)
              (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "real-to-frac" "(D)J" nil nil)
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "real-to-deg" "(D)J" nil nil)
              (.visitCode)
              ;; Drop any excess
              (.visitVarInsn Opcodes/DLOAD 0)
@@ -856,9 +856,9 @@
              (.visitInsn Opcodes/DREM)
              (.visitLdcInsn (double (Math/pow 2 32)))
              (.visitInsn Opcodes/DMUL)
-             ;; Turn it into a frac
+             ;; Turn it into a deg
              (.visitInsn Opcodes/D2L)
-             ;; Turn the upper half into frac too
+             ;; Turn the upper half into deg too
              swap2
              (.visitInsn Opcodes/D2L)
              ;; Combine both pieces
@@ -908,10 +908,10 @@
                (.visitEnd)))
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digit_power" "(I)[B" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digit_power" "(I)[B" nil nil)
                (.visitCode)
                ;; Initialize digits array.
-               (.visitLdcInsn (int frac-bits))
+               (.visitLdcInsn (int deg-bits))
                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE) ;; {digits}
                (.visitInsn Opcodes/DUP)
                (.visitVarInsn Opcodes/ILOAD 0)
@@ -945,11 +945,11 @@
                (.visitEnd)))
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "add_frac_digit_powers" "([B[B)[B" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "add_deg_digit_powers" "([B[B)[B" nil nil)
                (.visitCode)
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitLdcInsn (int (dec deg-bits)))
                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
-               (.visitLdcInsn (int frac-bits))
+               (.visitLdcInsn (int deg-bits))
                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
                (.visitVarInsn Opcodes/ASTORE 3) ;; added_digits
                (.visitLdcInsn (int 0)) ;; {carry}
@@ -996,9 +996,9 @@
                (.visitEnd)))
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_to_text" "([B)Ljava/lang/String;" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digits_to_text" "([B)Ljava/lang/String;" nil nil)
                (.visitCode)
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitLdcInsn (int (dec deg-bits)))
                (.visitVarInsn Opcodes/ISTORE 1) ;; Index
                (.visitLdcInsn "") ;; {text}
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1034,7 +1034,7 @@
                  $not-set (new Label)
                  $next-iteration (new Label)
                  $normal-path (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_frac" "(J)Ljava/lang/String;" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_deg" "(J)Ljava/lang/String;" nil nil)
                (.visitCode)
                ;; A quick corner-case to handle.
                (.visitVarInsn Opcodes/LLOAD 0)
@@ -1045,9 +1045,9 @@
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $normal-path)
                ;; Normal case
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitLdcInsn (int (dec deg-bits)))
                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
-               (.visitLdcInsn (int frac-bits))
+               (.visitLdcInsn (int deg-bits))
                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
                (.visitVarInsn Opcodes/ASTORE 3) ;; digits
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1058,7 +1058,7 @@
                (.visitJumpInsn Opcodes/IFGE $do-a-round)
                ;; Prepare text to return.
                (.visitVarInsn Opcodes/ALOAD 3)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_to_text" "([B)Ljava/lang/String;")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digits_to_text" "([B)Ljava/lang/String;")
                (.visitLdcInsn ".")
                (.visitInsn Opcodes/SWAP)
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
@@ -1076,12 +1076,12 @@
                (.visitVarInsn Opcodes/ILOAD 2)
                bit-set-64?
                (.visitJumpInsn Opcodes/IFEQ $next-iteration)
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitLdcInsn (int (dec deg-bits)))
                (.visitVarInsn Opcodes/ILOAD 2)
                (.visitInsn Opcodes/ISUB)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digit_power" "(I)[B")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digit_power" "(I)[B")
                (.visitVarInsn Opcodes/ALOAD 3)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "add_frac_digit_powers" "([B[B)[B")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "add_deg_digit_powers" "([B[B)[B")
                (.visitVarInsn Opcodes/ASTORE 3)
                (.visitJumpInsn Opcodes/GOTO $next-iteration)
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1104,14 +1104,14 @@
                  $do-a-round (new Label)
                  $not-set (new Label)
                  $next-iteration (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_text_to_digits" "(Ljava/lang/String;)[B" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_text_to_digits" "(Ljava/lang/String;)[B" nil nil)
                (.visitCode)
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
                (.visitLdcInsn (int 1))
                (.visitInsn Opcodes/ISUB)
                (.visitVarInsn Opcodes/ISTORE 1) ;; Index
-               (.visitLdcInsn (int frac-bits))
+               (.visitLdcInsn (int deg-bits))
                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
                (.visitVarInsn Opcodes/ASTORE 2) ;; digits
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1152,7 +1152,7 @@
                  $is-less-than (new Label)
                  $is-equal (new Label)]
              ;; [B0 <= [B1
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_lt" "([B[B)Z" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digits_lt" "([B[B)Z" nil nil)
                (.visitCode)
                (.visitLdcInsn (int 0))
                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
@@ -1161,7 +1161,7 @@
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                (.visitLabel $loop-start)
                (.visitVarInsn Opcodes/ILOAD 2)
-               (.visitLdcInsn (int frac-bits))
+               (.visitLdcInsn (int deg-bits))
                (.visitJumpInsn Opcodes/IF_ICMPLT $do-a-round)
                (.visitLdcInsn false)
                (.visitInsn Opcodes/IRETURN)
@@ -1204,7 +1204,7 @@
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)
                  $simple-sub (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_sub_once" "([BBI)[B" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digits_sub_once" "([BBI)[B" nil nil)
                (.visitCode)
                (.visitLabel $loop-start)
                (.visitVarInsn Opcodes/ALOAD 0)
@@ -1252,9 +1252,9 @@
                (.visitEnd)))
          _ (let [$loop-start (new Label)
                  $do-a-round (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac_digits_sub" "([B[B)[B" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digits_sub" "([B[B)[B" nil nil)
                (.visitCode)
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitLdcInsn (int (dec deg-bits)))
                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1273,7 +1273,7 @@
                (.visitVarInsn Opcodes/ILOAD 2)
                (.visitInsn Opcodes/BALOAD) ;; {target-digits, param-digit}
                (.visitVarInsn Opcodes/ILOAD 2) ;; {target-digits, param-digit, idx}
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_sub_once" "([BBI)[B")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digits_sub_once" "([BBI)[B")
                (.visitVarInsn Opcodes/ASTORE 0) ;; Update target digits
                ;; Decrement index
                (.visitVarInsn Opcodes/ILOAD 2)
@@ -1292,7 +1292,7 @@
                  $skip-power (new Label)
                  $iterate (new Label)
                  $bad-format (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_frac" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_deg" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
                (.visitCode)
                ;; Check prefix
                (.visitVarInsn Opcodes/ALOAD 0)
@@ -1302,7 +1302,7 @@
                ;; Check if size is valid
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
-               (.visitLdcInsn (int (inc frac-bits))) ;; It's increased, to account for the prefix .
+               (.visitLdcInsn (int (inc deg-bits))) ;; It's increased, to account for the prefix .
                (.visitJumpInsn Opcodes/IF_ICMPGT $bad-format)
                ;; Initialization
                (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
@@ -1311,7 +1311,7 @@
                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(I)Ljava/lang/String;")
                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "clean_separators" "(Ljava/lang/String;)Ljava/lang/String;")
                (.visitLabel $from)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_text_to_digits" "(Ljava/lang/String;)[B")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_text_to_digits" "(Ljava/lang/String;)[B")
                (.visitLabel $to)
                (.visitVarInsn Opcodes/ASTORE 0) ;; From test to digits...
                (.visitLdcInsn (int 0))
@@ -1323,7 +1323,7 @@
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                (.visitLabel $loop-start)
                (.visitVarInsn Opcodes/ILOAD 1)
-               (.visitLdcInsn (int frac-bits))
+               (.visitLdcInsn (int deg-bits))
                (.visitJumpInsn Opcodes/IF_ICMPLT $do-a-round)
                (.visitVarInsn Opcodes/LLOAD 2)
                &&/wrap-long
@@ -1335,18 +1335,18 @@
                (.visitLabel $do-a-round)
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitVarInsn Opcodes/ILOAD 1)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digit_power" "(I)[B")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digit_power" "(I)[B")
                (.visitInsn Opcodes/DUP2)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_lt" "([B[B)Z")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digits_lt" "([B[B)Z")
                (.visitJumpInsn Opcodes/IFNE $skip-power)
                ;; Subtract power
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "frac_digits_sub" "([B[B)[B")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digits_sub" "([B[B)[B")
                (.visitVarInsn Opcodes/ASTORE 0)
                ;; Set bit on output
                (.visitVarInsn Opcodes/LLOAD 2)
                (.visitLdcInsn (long 1))
                (.visitVarInsn Opcodes/ILOAD 1)
-               (.visitLdcInsn (int (dec frac-bits)))
+               (.visitLdcInsn (int (dec deg-bits)))
                (.visitInsn Opcodes/SWAP)
                (.visitInsn Opcodes/ISUB)
                (.visitInsn Opcodes/LSHL)
@@ -1760,7 +1760,7 @@
                   (compile-LuxRT-pm-methods)
                   (compile-LuxRT-adt-methods)
                   (compile-LuxRT-nat-methods)
-                  (compile-LuxRT-frac-methods))]]
+                  (compile-LuxRT-deg-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
@@ -2441,10 +2441,10 @@
   ^:private compile-nat-sub    Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
   ^:private compile-nat-mul    Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
 
-  ^:private compile-frac-add   Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-frac-sub   Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-frac-rem   Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-frac-scale Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-deg-add   Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-deg-sub   Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-deg-rem   Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-deg-scale Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
   )
 
 (do-template [<name> <comp-method>]
@@ -2497,8 +2497,8 @@
 
   ^:private compile-nat-eq   0
   
-  ^:private compile-frac-eq  0
-  ^:private compile-frac-lt -1
+  ^:private compile-deg-eq  0
+  ^:private compile-deg-lt -1
   )
 
 (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
@@ -2538,8 +2538,8 @@
   ^:private compile-nat-min-value (.visitLdcInsn 0)  &&/wrap-long
   ^:private compile-nat-max-value (.visitLdcInsn -1) &&/wrap-long
 
-  ^:private compile-frac-min-value (.visitLdcInsn 0)  &&/wrap-long
-  ^:private compile-frac-max-value (.visitLdcInsn -1) &&/wrap-long
+  ^:private compile-deg-min-value (.visitLdcInsn 0)  &&/wrap-long
+  ^:private compile-deg-max-value (.visitLdcInsn -1) &&/wrap-long
   )
 
 (do-template [<encode-name> <encode-method> <decode-name> <decode-method>]
@@ -2563,7 +2563,7 @@
           (return nil)))))
 
   ^:private compile-nat-encode  "encode_nat"  ^:private compile-nat-decode  "decode_nat"
-  ^:private compile-frac-encode "encode_frac" ^:private compile-frac-decode "decode_frac"
+  ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
   )
 
 (do-template [<name> <method>]
@@ -2584,8 +2584,8 @@
                     &&/wrap-long)]]
       (return nil)))
 
-  ^:private compile-frac-mul   "mul_frac"
-  ^:private compile-frac-div   "div_frac"
+  ^:private compile-deg-mul   "mul_deg"
+  ^:private compile-deg-div   "div_deg"
   )
 
 (do-template [<name> <class> <method> <sig> <unwrap> <wrap>]
@@ -2600,8 +2600,8 @@
                       <wrap>)]]
         (return nil))))
 
-  ^:private compile-frac-to-real "java.lang.Long"   "frac-to-real" "(J)D" &&/unwrap-long   &&/wrap-double
-  ^:private compile-real-to-frac "java.lang.Double" "real-to-frac" "(D)J" &&/unwrap-double &&/wrap-long
+  ^:private compile-deg-to-real "java.lang.Long"   "deg-to-real" "(J)D" &&/unwrap-long   &&/wrap-double
+  ^:private compile-real-to-deg "java.lang.Double" "real-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
 (let [widen (fn [^MethodVisitor *writer*]
@@ -2674,21 +2674,21 @@
       "to-char"   (compile-nat-to-char compile ?values special-args)
       )
     
-    "frac"
+    "deg"
     (case proc-name
-      "+"         (compile-frac-add compile ?values special-args)
-      "-"         (compile-frac-sub compile ?values special-args)
-      "*"         (compile-frac-mul compile ?values special-args)
-      "/"         (compile-frac-div compile ?values special-args)
-      "%"         (compile-frac-rem compile ?values special-args)
-      "="         (compile-frac-eq compile ?values special-args)
-      "<"         (compile-frac-lt compile ?values special-args)
-      "encode"    (compile-frac-encode compile ?values special-args)
-      "decode"    (compile-frac-decode compile ?values special-args)
-      "max-value" (compile-frac-max-value compile ?values special-args)
-      "min-value" (compile-frac-min-value compile ?values special-args)
-      "to-real"   (compile-frac-to-real compile ?values special-args)
-      "scale"     (compile-frac-scale compile ?values special-args)
+      "+"         (compile-deg-add compile ?values special-args)
+      "-"         (compile-deg-sub compile ?values special-args)
+      "*"         (compile-deg-mul compile ?values special-args)
+      "/"         (compile-deg-div compile ?values special-args)
+      "%"         (compile-deg-rem compile ?values special-args)
+      "="         (compile-deg-eq compile ?values special-args)
+      "<"         (compile-deg-lt compile ?values special-args)
+      "encode"    (compile-deg-encode compile ?values special-args)
+      "decode"    (compile-deg-decode compile ?values special-args)
+      "max-value" (compile-deg-max-value compile ?values special-args)
+      "min-value" (compile-deg-min-value compile ?values special-args)
+      "to-real"   (compile-deg-to-real compile ?values special-args)
+      "scale"     (compile-deg-scale compile ?values special-args)
       )
 
     "int"
@@ -2698,7 +2698,7 @@
 
     "real"
     (case proc-name
-      "to-frac"    (compile-real-to-frac compile ?values special-args)
+      "to-deg"    (compile-real-to-deg compile ?values special-args)
       )
 
     "char"

@@ -17,7 +17,7 @@
 (def array-data-tag "#Array")
 (def null-data-tag "#Null")
 (def nat-data-tag "#Nat")
-(def frac-data-tag "#Frac")
+(def deg-data-tag "#Deg")
 
 ;; [Utils]
 (defn ^:private trace-lineage* [^Class super-class ^Class sub-class]
@@ -262,8 +262,8 @@
     (try (cond (or (= "java.lang.Object" e!name)
                    (and (= nat-data-tag e!name)
                         (= nat-data-tag a!name))
-                   (and (= frac-data-tag e!name)
-                        (= frac-data-tag a!name))
+                   (and (= deg-data-tag e!name)
+                        (= deg-data-tag a!name))
                    (and (= null-data-tag e!name)
                         (= null-data-tag a!name))
                    (and (not (primitive-type? e!name))
@@ -273,7 +273,7 @@
                (or (and (= array-data-tag e!name)
                         (not= array-data-tag a!name))
                    (= nat-data-tag  e!name) (= nat-data-tag  a!name)
-                   (= frac-data-tag e!name) (= frac-data-tag a!name)
+                   (= deg-data-tag e!name) (= deg-data-tag a!name)
                    (= null-data-tag e!name) (= null-data-tag a!name))
                (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
 

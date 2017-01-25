@@ -82,8 +82,8 @@
       (&lexer/$Int ?value)
       (return (&/|list (&/T [meta (&/$IntS (Long/parseLong ?value))])))
 
-      (&lexer/$Frac ?value)
-      (return (&/|list (&/T [meta (&/$FracS (&/decode-frac ?value))])))
+      (&lexer/$Deg ?value)
+      (return (&/|list (&/T [meta (&/$DegS (&/decode-deg ?value))])))
 
       (&lexer/$Real ?value)
       (return (&/|list (&/T [meta (&/$RealS (Double/parseDouble ?value))])))

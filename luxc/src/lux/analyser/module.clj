@@ -204,14 +204,14 @@
             (|let [[?type ?meta ?value] $def]
               (if (.equals ^Object current-module module)
                 (|case (&meta/meta-get &meta/alias-tag ?meta)
-                  (&/$Some (&/$IdentM [?r-module ?r-name]))
+                  (&/$Some (&/$IdentA [?r-module ?r-name]))
                   ((find-def ?r-module ?r-name)
                    state)
 
                   _
                   (return* state (&/T [(&/T [module name]) $def])))
                 (|case (&meta/meta-get &meta/export?-tag ?meta)
-                  (&/$Some (&/$BoolM true))
+                  (&/$Some (&/$BoolA true))
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
@@ -364,7 +364,7 @@
                               (|let [[k _def-data] kv
                                      [_ ?def-meta _] _def-data]
                                 (|case (&meta/meta-get &meta/alias-tag ?def-meta)
-                                  (&/$Some (&/$IdentM [?r-module ?r-name]))
+                                  (&/$Some (&/$IdentA [?r-module ?r-name]))
                                   (&/T [k (str ?r-module ";" ?r-name) _def-data])
                                   
                                   _
@@ -374,7 +374,7 @@
 (do-template [<name> <type> <tag> <desc>]
   (defn <name> [module name meta type]
     (|case (&meta/meta-get <tag> meta)
-      (&/$Some (&/$BoolM true))
+      (&/$Some (&/$BoolA true))
       (&/try-all% (&/|list (&type/check <type> type)
                            (&/fail-with-loc (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
 
@@ -387,11 +387,11 @@
 
 (defn fetch-imports [meta]
   (|case (&meta/meta-get &meta/imports-tag meta)
-    (&/$Some (&/$ListM _parts))
+    (&/$Some (&/$ListA _parts))
     (&/map% (fn [_part]
               (|case _part
-                (&/$ListM (&/$Cons [(&/$TextM _module)
-                                    (&/$Cons [(&/$TextM _alias)
+                (&/$ListA (&/$Cons [(&/$TextA _module)
+                                    (&/$Cons [(&/$TextA _alias)
                                               (&/$Nil)])]))
                 (return (&/T [_module _alias]))
 

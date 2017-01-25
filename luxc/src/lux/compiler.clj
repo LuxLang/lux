@@ -60,8 +60,8 @@
         (&o/$int ?value)
         (&&lux/compile-int ?value)
 
-        (&o/$frac ?value)
-        (&&lux/compile-frac ?value)
+        (&o/$deg ?value)
+        (&&lux/compile-deg ?value)
 
         (&o/$real ?value)
         (&&lux/compile-real ?value)
