@@ -17,7 +17,7 @@
                               "[BUILD END]")
       (let [java-cmd (get project :java-cmd "java")
             jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
-            output-package (str (get-in project [:lux :target] &utils/output-dir) "/"
+            output-package (str (get-in project [:lux :target] &utils/default-output-dir) "/"
                                 (get project :jar-name &utils/output-package))]
         (do (&packager/package project tests-module (get project :resource-paths (list)))
           (&utils/run-process (str java-cmd " " jvm-opts " -jar " output-package)

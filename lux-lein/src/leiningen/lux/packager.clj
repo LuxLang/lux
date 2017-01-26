@@ -131,9 +131,9 @@
 (defn package
   "(-> Text (List Text) Null)"
   [project module resources-dirs]
-  (let [output-dir (get-in project [:lux :target] &utils/output-dir)
+  (let [output-dir (get-in project [:lux :target] &utils/default-output-dir)
         output-package-name (get project :jar-name &utils/output-package)
-        output-dir (get-in project [:lux :target] &utils/output-dir)
+        output-dir (get-in project [:lux :target] &utils/default-output-dir)
         output-package (str output-dir java.io.File/separator output-package-name)
         !all-jar-files (atom {})
         includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
@@ -167,7 +167,7 @@
               (.closeEntry)))
           nil))
       (when (get-in project [:lux :android])
-        (let [output-dir-context (new File (get-in project [:lux :target] &utils/output-dir))
+        (let [output-dir-context (new File (get-in project [:lux :target] &utils/default-output-dir))
               output-dex "classes.dex"
               _ (do (.delete (new File output-dex))
                   (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)

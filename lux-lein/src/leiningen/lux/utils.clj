@@ -4,12 +4,13 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns leiningen.lux.utils
-  (:require [leiningen.core.classpath :as classpath])
+  (:require (clojure [template :refer [do-template]])
+            [leiningen.core.classpath :as classpath])
   (:import (java.io File
                     InputStreamReader
                     BufferedReader)))
 
-(def ^:const ^String output-dir (str "target" java.io.File/separator "jvm"))
+(def ^:const ^String default-output-dir (str "target" java.io.File/separator "jvm"))
 (def ^:const ^String output-package "program.jar")
 
 (def ^:private unit-separator (str (char 31)))
@@ -27,83 +28,75 @@
         path (.replace path "/" java.io.File/separator)]
     path))
 
-(defn compile-path [project module source-paths]
-  (let [output-dir (get-in project [:lux :target] output-dir)
-        jar-paths (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
-                       (.getURLs)
-                       (map #(.getFile ^java.net.URL %))
-                       (filter #(.endsWith ^String % ".jar")))
-        compiler-path (prepare-path (some (fn [^:private path]
-                                            (if (.contains path "com/github/luxlang/luxc-jvm")
-                                              path
-                                              nil))
-                                          jar-paths))
-        stdlib-path (prepare-path (some (fn [^:private path]
-                                          (if (.contains path "com/github/luxlang/stdlib")
-                                            path
-                                            nil))
-                                        jar-paths))
-        deps-paths (map prepare-path
-                        (filter (fn [^:private path]
-                                  (or (.contains path "org/ow2/asm/asm-all")
-                                      (.contains path "org/clojure/core.match")
-                                      (.contains path "org/clojure/clojure")))
-                                jar-paths))
-        sdk-path (get-in project [:lux :android :sdk])
-        android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
-        deps-paths (if (.exists (new File android-path))
-                     (cons android-path deps-paths)
-                     deps-paths)]
-    (let [class-path (->> (classpath/get-classpath project)
-                          (filter #(.endsWith % ".jar"))
-                          (concat deps-paths)
-                          (list* stdlib-path)
-                          (interpose java.io.File/pathSeparator)
-                          (reduce str ""))
-          class-path (.replace class-path "/" java.io.File/separator)
-          java-cmd (get project :java-cmd "java")
-          jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))]
-      (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path java.io.File/pathSeparator class-path)
-           " lux release " module
-           " " (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
-           " " (->> source-paths (interpose unit-separator) (apply str))
-           " " output-dir))))
+(def ^:private stdlib-id ["com.github.luxlang" "stdlib"])
 
-(defn repl-path [project source-paths]
-  (let [output-dir (get-in project [:lux :target] output-dir)
-        jar-paths (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
-                       (.getURLs)
-                       (map #(.getFile ^java.net.URL %))
-                       (filter #(.endsWith ^String % ".jar")))
-        compiler-path (prepare-path (some (fn [^:private path]
-                                            (if (.contains path "com/github/luxlang/luxc-jvm")
-                                              path
-                                              nil))
-                                          jar-paths))
-        stdlib-path (prepare-path (some (fn [^:private path]
-                                          (if (.contains path "com/github/luxlang/stdlib")
-                                            path
-                                            nil))
-                                        jar-paths))
-        deps-paths (map prepare-path
-                        (filter (fn [^:private path]
-                                  (or (.contains path "org/ow2/asm/asm-all")
-                                      (.contains path "org/clojure/core.match")
-                                      (.contains path "org/clojure/clojure")))
-                                jar-paths))]
-    (let [class-path (->> (classpath/get-classpath project)
+(defn ^:private all-jars-in-classloader []
+  (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
+       (.getURLs)
+       (map #(.getFile ^java.net.URL %))
+       (filter #(.endsWith ^String % ".jar"))))
+
+(do-template [<name> <signal>]
+  (defn <name> [jar-paths]
+    {:post [(not (nil? %))]}
+    (some (fn [^:private path]
+            (if (.contains path <signal>)
+              path
+              nil))
+          jar-paths))
+
+  ^:private find-compiler-path "com/github/luxlang/luxc-jvm"
+  ^:private find-stdlib-path   "com/github/luxlang/stdlib"
+  )
+
+(defn ^:private filter-deps [jar-paths]
+  (filter (fn [^:private path]
+            (or (.contains path "org/ow2/asm/asm-all")
+                (.contains path "org/clojure/core.match")
+                (.contains path "org/clojure/clojure")))
+          jar-paths))
+
+(defn ^:private java-command [project]
+  (str (get project :java-cmd "java")
+       " " (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
+       " " vm-options))
+
+(defn ^:private lux-command [project mode source-paths]
+  (str "lux " mode
+       " " (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
+       " " (->> source-paths (interpose unit-separator) (apply str))
+       " " (get-in project [:lux :target] default-output-dir)))
+
+(do-template [<name> <mode>]
+  (defn <name> [project module source-paths]
+    (let [is-stdlib? (= stdlib-id [(get project :group) (get project :name)])
+          jar-paths (all-jars-in-classloader)
+          compiler-path (prepare-path (find-compiler-path jar-paths))
+          stdlib-path (prepare-path (find-stdlib-path jar-paths))
+          sdk-path (get-in project [:lux :android :sdk])
+          android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
+          deps-paths (let [deps (map prepare-path
+                                     (filter-deps jar-paths))
+                           with-android (if (.exists (new File android-path))
+                                          (cons android-path deps)
+                                          deps)
+                           with-stdlib (if is-stdlib?
+                                         with-android
+                                         (list* stdlib-path with-android))]
+                       with-stdlib)
+          class-path (->> (classpath/get-classpath project)
                           (filter #(.endsWith % ".jar"))
                           (concat deps-paths)
-                          (list* stdlib-path)
+                          (list* compiler-path)
                           (interpose java.io.File/pathSeparator)
                           (reduce str ""))
-          java-cmd (get project :java-cmd "java")
-          jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))]
-      (str java-cmd " " jvm-opts " " vm-options " -cp " (str compiler-path java.io.File/pathSeparator class-path)
-           " lux repl "
-           (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
-           " " (->> source-paths (interpose unit-separator) (apply str))
-           " " output-dir))))
+          class-path (.replace class-path "/" java.io.File/separator)]
+      (str (java-command project) " -cp " class-path
+           " " (lux-command project <mode> source-paths))))
+
+  compile-path (str "release " module)
+  repl-path    "repl"
+  )
 
 (defn run-process [command working-directory pre post]
   (let [process (.exec (Runtime/getRuntime) command nil working-directory)]
