@@ -6,7 +6,7 @@
 (ns lux.analyser.base
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [defvariant |let |do return* return fail |case]]
+            (lux [base :as & :refer [defvariant |let |do return* return |case]]
                  [type :as &type])))
 
 ;; [Tags]
@@ -60,7 +60,7 @@
       (return x)
 
       _
-      (fail "[Analyser Error] Can't expand to other than 1 element."))))
+      (&/fail-with-loc "[Analyser Error] Can't expand to other than 1 element."))))
 
 (defn analyse-1 [analyse exo-type elem]
   (&/with-expected-type exo-type

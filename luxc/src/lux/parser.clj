@@ -18,14 +18,10 @@
   (fn [state]
     (|case (action state)
       (&/$Left ^String error)
-      (cond (.contains error base-uneven-record-error)
-            (&/$Left error)
-
-            (not (.contains error "[Parser Error]"))
-            (&/$Left error)
-
-            :else
-            (&/$Right (&/T [state &/$Nil])))
+      (if (or (.contains error base-uneven-record-error)
+              (not (.contains error "[Parser Error]")))
+        (&/$Left error)
+        (&/$Right (&/T [state &/$Nil])))
 
       (&/$Right state* head)
       ((|do [tail (repeat% action)]

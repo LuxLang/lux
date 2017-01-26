@@ -7,7 +7,7 @@
   (:require [clojure.string :as string]
             clojure.core.match
             clojure.core.match.array
-            [lux.base :as & :refer [defvariant |do return* return fail* |let |case]]))
+            [lux.base :as & :refer [defvariant |do return* return |let |case]]))
 
 ;; [Tags]
 (defvariant
@@ -20,8 +20,8 @@
   (fn [state]
     (|case (&/get$ &/$source state)
       (&/$Nil)
-      (fail* "[Reader Error] EOF")
-
+      ((&/fail-with-loc "[Reader Error] EOF") state)
+      
       (&/$Cons [[file-name line-num column-num] line]
                more)
       (|case (body file-name line-num column-num line)
@@ -135,7 +135,7 @@
     (|let [old-source (&/get$ &/$source state)]
       (|case (body (&/set$ &/$source (from name content) state))
         (&/$Left error)
-        (&/$Left error)
+        ((&/fail-with-loc error) state)
 
         (&/$Right state* output)
         (&/$Right (&/T [(&/set$ &/$source old-source state*) output]))))))

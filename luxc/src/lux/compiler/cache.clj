@@ -9,7 +9,7 @@
             [clojure.java.io :as io]
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |case |let]]
+            (lux [base :as & :refer [|do return* return |case |let]]
                  [type :as &type]
                  [host :as &host])
             [lux.host.generics :as &host-generics]
@@ -276,4 +276,4 @@
     (|do [_ (inject-module module-name module-struct)
           _ (&/flag-cached-module module-name)]
       (return nil))
-    (fail (str "[Cache Error] Module is not cached: " module-name))))
+    (&/fail (str "[Cache Error] Module is not cached: " module-name))))

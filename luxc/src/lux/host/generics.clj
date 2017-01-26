@@ -8,7 +8,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case]]))
+            (lux [base :as & :refer [|do return* return |let |case]]))
   (:import java.util.regex.Pattern))
 
 (declare gclass->signature)

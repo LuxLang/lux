@@ -10,7 +10,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail fail* |case]]
+            (lux [base :as & :refer [|let |do return* return |case]]
                  [type :as &type]
                  [reader :as &reader]
                  [lexer :as &lexer]
@@ -186,7 +186,7 @@
                     (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
                       (|do [module-exists? (&a-module/exists? name)]
                         (if module-exists?
-                          (fail "[Compiler Error] Can't redefine a module!")
+                          (&/fail-with-loc "[Compiler Error] Can't redefine a module!")
                           (|do [_ (&&cache/delete name)
                                 _ (&a-module/create-module name file-hash)
                                 _ (&/flag-active-module name)
@@ -250,7 +250,7 @@
                                              ?state)
                                 
                                 (&/$Left ?message)
-                                (fail* ?message))))))))
+                                (&/fail* ?message))))))))
         )
       )))
 

@@ -7,7 +7,7 @@
   (:require (clojure [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail return* fail* |case]]
+            (lux [base :as & :refer [|let |do return return* |case]]
                  [reader :as &reader]
                  [parser :as &parser]
                  [type :as &type]

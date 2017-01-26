@@ -6,7 +6,7 @@
 (ns lux.analyser.case
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [defvariant |do return fail |let |case]]
+            (lux [base :as & :refer [defvariant |do return |let |case]]
                  [parser :as &parser]
                  [type :as &type])
             (lux.analyser [base :as &&]
@@ -48,7 +48,7 @@
   (|case type
     (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail "##1##")))]
+                                     (&/fail-with-loc "##1##")))]
       (resolve-type type*))
 
     (&/$UnivQ _)
@@ -185,7 +185,7 @@
       (apply-type! =type-fun param))
     
     _
-    (fail (str "[Type System] Not a type function:\n" (&type/show-type type-fn) "\n"))))
+    (&/fail-with-loc (str "[Type System] Not a type function:\n" (&type/show-type type-fn) "\n"))))
 
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
@@ -240,7 +240,7 @@
 
     (&/$VarT ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (fail (str "##2##: " ?id))))]
+                                     (&/fail-with-loc (str "##2##: " ?id))))]
       (adjust-type* up type*))
 
     (&/$NamedT ?name ?type)
@@ -250,7 +250,7 @@
     (return type)
 
     _
-    (fail (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
+    (&/fail-with-loc (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
     ))
 
 (defn adjust-type [type]
@@ -274,7 +274,7 @@
           (return (&/T [($StoreTestAC idx) =kont]))))
       
       (&/$SymbolS ident)
-      (fail (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
+      (&/fail-with-loc (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
       (&/$BoolS ?value)
       (|do [_ (&type/check value-type &type/Bool)
@@ -340,12 +340,12 @@
                                                (return (&/T [&/$Nil =kont])))
                                              (&/|reverse (&/zip2 _tuple-types ?members)))]
                   (return (&/T [($TupleTestAC =tests) =kont])))
-                (fail (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]"
-                           " -- " (&/show-ast pattern)
-                           " " (&type/show-type value-type*) " " (&type/show-type value-type)))))
+                (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]"
+                                      " -- " (&/show-ast pattern)
+                                      " " (&type/show-type value-type*) " " (&type/show-type value-type)))))
 
             _
-            (fail (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
+            (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
 
       (&/$RecordS pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)
@@ -403,7 +403,7 @@
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
       _
-      (fail (str "[Pattern-matching Error] Unrecognized pattern syntax: " (&/show-ast pattern)))
+      (&/fail-with-loc (str "[Pattern-matching Error] Unrecognized pattern syntax: " (&/show-ast pattern)))
       )))
 
 (defn ^:private analyse-branch [analyse exo-type var?? value-type pattern body patterns]
@@ -528,7 +528,7 @@
                                  (merge-total v (&/T [t ?body])))
                                ?values ?tests)]
           (return ($TupleTotal total? structs)))
-        (fail "[Pattern-matching Error] Inconsistent tuple-size."))
+        (&/fail-with-loc "[Pattern-matching Error] Inconsistent tuple-size."))
 
       [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
       (|do [sub-struct (merge-total ($DefaultTotal total?)
@@ -538,7 +538,7 @@
                       (return list)
 
                       (&/$None)
-                      (fail "[Pattern-matching Error] YOLO"))]
+                      (&/fail-with-loc "[Pattern-matching Error] YOLO"))]
         (return ($VariantTotal total? structs)))
 
       [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
@@ -554,7 +554,7 @@
                       (return list)
 
                       (&/$None)
-                      (fail "[Pattern-matching Error] YOLO"))]
+                      (&/fail-with-loc "[Pattern-matching Error] YOLO"))]
         (return ($VariantTotal total? structs)))
       )))
 
@@ -610,7 +610,7 @@
           (return true)
 
           _
-          (fail "[Pattern-maching Error] Unit is not total.")))
+          (&/fail-with-loc "[Pattern-maching Error] Unit is not total.")))
       
       _
       (|do [unknown? (&type/unknown? value-type)]
@@ -632,10 +632,10 @@
                   (if (= num-elems _shorter)
                     (|do [totals (&/map2% check-totality _tuple-types ?structs)]
                       (return (&/fold #(and %1 %2) true totals)))
-                    (fail (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]"))))
+                    (&/fail-with-loc (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]"))))
                 
                 _
-                (fail (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
+                (&/fail-with-loc (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
 
     ($VariantTotal ?total ?structs)
     (if ?total
@@ -649,7 +649,7 @@
             (return (&/fold #(and %1 %2) true totals)))
 
           _
-          (fail "[Pattern-maching Error] Variant is not total."))))
+          (&/fail-with-loc "[Pattern-maching Error] Variant is not total."))))
     ))
 
 ;; [Exports]
@@ -663,4 +663,4 @@
         ? (check-totality value-type struct)]
     (if ?
       (return patterns)
-      (fail "[Pattern-maching Error] Pattern-matching is non-total."))))
+      (&/fail-with-loc "[Pattern-maching Error] Pattern-matching is non-total."))))

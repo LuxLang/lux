@@ -6,7 +6,7 @@
 (ns lux.analyser.record
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail |case]]
+            (lux [base :as & :refer [|let |do return |case]]
                  [type :as &type])
             (lux.analyser [base :as &&]
                           [module :as &&module])))

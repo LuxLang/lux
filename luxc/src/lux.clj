@@ -5,7 +5,7 @@
 
 (ns lux
   (:gen-class)
-  (:require [lux.base :as & :refer [|let |do return fail return* fail* |case]]
+  (:require [lux.base :as & :refer [|let |do return return* |case]]
             [lux.compiler.base :as &compiler-base]
             [lux.compiler :as &compiler]
             [lux.repl :as &repl]

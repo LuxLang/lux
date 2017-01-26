@@ -8,7 +8,7 @@
   (:require [clojure.template :refer [do-template]]
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
+            (lux [base :as & :refer [|do return* return assert! |let |case]])
             [lux.type.host :as &&host]))
 
 (declare show-type
@@ -170,7 +170,8 @@
         
         (&/$None)
         (return* state false))
-      (fail* (str "[Type Error] <bound?> Unknown type-var: " id)))))
+      ((&/fail-with-loc (str "[Type Error] <bound?> Unknown type-var: " id))
+       state))))
 
 (defn deref [id]
   (fn [state]
@@ -180,8 +181,10 @@
         (return* state type)
         
         (&/$None)
-        (fail* (str "[Type Error] Unbound type-var: " id)))
-      (fail* (str "[Type Error] <deref> Unknown type-var: " id)))))
+        ((&/fail-with-loc (str "[Type Error] Unbound type-var: " id))
+         state))
+      ((&/fail-with-loc (str "[Type Error] <deref> Unknown type-var: " id))
+       state))))
 
 (defn deref+ [type]
   (|case type
@@ -189,7 +192,7 @@
     (deref id)
 
     _
-    (fail (str "[Type Error] Type is not a variable: " (show-type type)))
+    (&/fail-with-loc (str "[Type Error] Type is not a variable: " (show-type type)))
     ))
 
 (defn set-var [id type]
@@ -199,14 +202,16 @@
         (&/$Some bound)
         (if (type= type bound)
           (return* state nil)
-          (fail* (str "[Type Error] Can't re-bind type var: " id " | Current type: " (show-type bound))))
+          ((&/fail-with-loc (str "[Type Error] Can't re-bind type var: " id " | Current type: " (show-type bound)))
+           state))
         
         (&/$None)
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
                                                             ts))
                             state)
                  nil))
-      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
+      ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+       state))))
 
 (defn reset-var [id type]
   (fn [state]
@@ -215,7 +220,8 @@
                                                           ts))
                           state)
                nil)
-      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
+      ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+       state))))
 
 (defn unset-var [id]
   (fn [state]
@@ -224,7 +230,8 @@
                                                           ts))
                           state)
                nil)
-      (fail* (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length))))))
+      ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+       state))))
 
 ;; [Exports]
 ;; Type vars
@@ -352,7 +359,7 @@
     (clean* ?id type)
     
     _
-    (fail (str "[Type Error] Not type-var: " (show-type tvar)))))
+    (&/fail-with-loc (str "[Type Error] Not type-var: " (show-type tvar)))))
 
 (defn ^:private unravel-fun [type]
   (|case type
@@ -394,10 +401,10 @@
           [1 (<tag> ?left* _)] (return ?left*)
           [1 _]                (return ?right)
           [_ (<tag> _ _)]      (<at> (dec tag) ?right)
-          _                    (fail (str "[Type Error] " <desc> " lacks member: " tag " | " (show-type type))))
+          _                    (&/fail-with-loc (str "[Type Error] " <desc> " lacks member: " tag " | " (show-type type))))
 
         _
-        (fail (str "[Type Error] Type is not a " <desc> ": " (show-type type))))))
+        (&/fail-with-loc (str "[Type Error] Type is not a " <desc> ": " (show-type type))))))
 
   &/$SumT  flatten-sum  sum-at "Sum"
   &/$ProdT flatten-prod prod-at "Product"
@@ -640,7 +647,7 @@
       (apply-type =type-fun param))
     
     _
-    (fail (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
+    (&/fail-with-loc (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"))))
 
 (def ^:private init-fixpoints &/$Nil)
 
@@ -843,7 +850,7 @@
         (check* class-loader fixpoints invariant?? expected ?atype)
 
         [_ _]
-        (fail ""))
+        (&/fail ""))
       (fn [err]
         (check-error err expected actual)))))
 
@@ -877,7 +884,7 @@
     (return name)
     
     _
-    (fail (str "[Type Error] Type is not named: " (show-type type)))
+    (&/fail-with-loc (str "[Type Error] Type is not named: " (show-type type)))
     ))
 
 (defn unknown? [type]

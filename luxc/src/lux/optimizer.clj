@@ -3,7 +3,7 @@
 ;;  If a copy of the MPL was not distributed with this file,
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 (ns lux.optimizer
-  (:require (lux [base :as & :refer [|let |do return fail return* fail* |case defvariant]])
+  (:require (lux [base :as & :refer [|let |do return return* |case defvariant]])
             (lux.analyser [base :as &a]
                           [case :as &a-case])))
 

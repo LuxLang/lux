@@ -8,7 +8,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
+            (lux [base :as & :refer [|do return* return |let |case]]
                  [type :as &type])
             [lux.type.host :as &host-type]
             [lux.host.generics :as &host-generics])

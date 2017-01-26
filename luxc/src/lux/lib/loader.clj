@@ -5,7 +5,7 @@
 
 (ns lux.lib.loader
   (:refer-clojure :exclude [load])
-  (:require (lux [base :as & :refer [|let |do return fail return* fail* |case]]))
+  (:require (lux [base :as & :refer [|let |do return return* |case]]))
   (:import (java.io InputStream
                     File
                     FileInputStream

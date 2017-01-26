@@ -8,7 +8,7 @@
                      [string :as string])
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail fail* |case]]
+            (lux [base :as & :refer [|let |do return* return |case]]
                  [type :as &type])))
 
 (def ^:private stop (->> 7 char str))

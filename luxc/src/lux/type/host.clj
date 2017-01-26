@@ -6,7 +6,7 @@
 (ns lux.type.host
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* assert! |let |case]])
+            (lux [base :as & :refer [|do return* return assert! |let |case]])
             [lux.host.generics :as &host-generics])
   (:import (java.lang.reflect GenericArrayType
                               ParameterizedType
@@ -119,7 +119,7 @@
         (let [gvar (.getName ^TypeVariable refl-type)]
           (if-let [m-type (&/|get gvar matchings)]
             (return m-type)
-            (fail (str "[Type Error] Unknown generic type variable: " gvar " -- " (->> matchings
+            (&/fail-with-loc (str "[Type Error] Unknown generic type variable: " gvar " -- " (->> matchings
                                                                                        (&/|map &/|first)
                                                                                        &/->seq)))))
         
@@ -180,7 +180,7 @@
     (&/$GenericTypeVar var-name)
     (if-let [m-type (&/|get var-name matchings)]
       (return m-type)
-      (fail (str "[Type Error] Unknown generic type variable: " var-name " -- " (->> matchings
+      (&/fail-with-loc (str "[Type Error] Unknown generic type variable: " var-name " -- " (->> matchings
                                                                                      (&/|map &/|first)
                                                                                      &/->seq))))
     
@@ -236,7 +236,7 @@
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
           (return (&/$HostT (.getName sub-class*) sub-params*))))
-      (fail (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </= " super-class)))))
+      (&/fail-with-loc (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </= " super-class)))))
 
 (defn as-obj [class]
   (case class
@@ -284,14 +284,14 @@
                        (if (= (&/|length e!params) (&/|length a!params))
                          (|do [_ (&/map2% check e!params a!params)]
                            (return fixpoints))
-                         (fail (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
+                         (&/fail-with-loc (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
 
                        (not invariant??)
                        (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
                          (check (&/$HostT e!name e!params) actual*))
 
                        :else
-                       (fail (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
+                       (&/fail-with-loc (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
       (catch Exception e
         (prn 'check-host-types e [e!name a!name])
         (throw e)))))

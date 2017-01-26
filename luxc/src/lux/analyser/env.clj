@@ -6,7 +6,7 @@
 (ns lux.analyser.env
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return return* fail fail* |case]])
+            (lux [base :as & :refer [|do return return* |case]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
@@ -67,7 +67,8 @@
   (fn [state]
     (|case (&/get$ &/$scopes state)
       (&/$Nil)
-      (fail* "[Analyser Error] Can't obtain captured vars without environments.")
+      ((&/fail-with-loc "[Analyser Error] Can't obtain captured vars without environments.")
+       state)
 
       (&/$Cons env _)
       (return* state (->> env (&/get$ &/$closure) (&/get$ &/$mappings))))

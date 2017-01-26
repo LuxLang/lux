@@ -9,7 +9,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail fail* |case]])))
+            (lux [base :as & :refer [|let |do return* return |case]])))
 
 ;; [Utils]
 (def ^:private !state! (ref {}))

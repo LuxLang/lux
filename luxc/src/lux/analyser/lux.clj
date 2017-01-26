@@ -8,7 +8,7 @@
                      [set :as set])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return return* fail fail* |let |list |case]]
+            (lux [base :as & :refer [|do return return* |let |list |case]]
                  [parser :as &parser]
                  [type :as &type]
                  [host :as &host])
@@ -298,8 +298,10 @@
                          state)
 
             _
-            (fail* "[Analyser Error] Can't have anything other than a global def in the global environment."))
-          (fail* (str "[Analyser Error] Unknown global definition: " name)))
+            ((&/fail-with-loc "[Analyser Error] Can't have anything other than a global def in the global environment.")
+             state))
+          ((&/fail-with-loc (str "[Analyser Error] Unknown global definition: " name))
+           state))
         
         (&/$Cons bottom-outer _)
         (|let [scopes (&/|map #(&/get$ &/$name %) (&/|reverse inner))
@@ -524,7 +526,7 @@
                               (&&/$lambda register-offset =scope =captured =body))))
 
           _
-          (fail "")))
+          (&/fail "")))
       (fn [err]
         (&/fail-with-loc (str err "\n" "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
     ))
@@ -675,7 +677,7 @@
                        (set-compiler (merge-compilers current-module _new-compiler compiler))
 
                        (&/$Left ?error)
-                       (fail ?error)))
+                       (&/fail ?error)))
                    _compiler
                    =asyncs)]
     (return &/$Nil)))

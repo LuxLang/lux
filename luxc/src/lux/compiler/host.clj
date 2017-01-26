@@ -9,7 +9,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
+            (lux [base :as & :refer [|do return* return |let |case]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -2807,7 +2807,7 @@
       "s2l"             (compile-jvm-s2l compile ?values special-args)
       "b2l"             (compile-jvm-b2l compile ?values special-args)
       ;; else
-      (fail (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name])))
+      (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name])))
 
     ;; else
-    (fail (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name]))))
+    (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name]))))

@@ -4,7 +4,7 @@
 ;;  You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns lux.compiler.io
-  (:require (lux [base :as & :refer [|case |let |do return* return fail fail*]])
+  (:require (lux [base :as & :refer [|case |let |do return* return fail*]])
             (lux.compiler [base :as &&])
             [lux.lib.loader :as &lib]))
 

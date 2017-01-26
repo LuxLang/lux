@@ -6,7 +6,7 @@
 (ns lux.repl
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail fail* |case]]
+            (lux [base :as & :refer [|let |do return* return |case]]
                  [type :as &type]
                  [analyser :as &analyser]
                  [optimizer :as &optimizer]
@@ -46,7 +46,9 @@
         ?state)
 
       (&/$Left ?message)
-      (assert false ?message))
+      (do (println (str "Initialization failed:\n" ?message))
+        (flush)
+        (System/exit 1)))
     ))
 
 ;; [Values]

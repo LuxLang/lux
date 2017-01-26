@@ -9,7 +9,7 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return* return fail fail* |let |case]]
+            (lux [base :as & :refer [|do return* return |let |case]]
                  [type :as &type]
                  [lexer :as &lexer]
                  [parser :as &parser]
@@ -270,10 +270,10 @@
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))]
             (return nil))
-          (fail (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name)))
+          (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name)))
 
         (&/$Some _)
-        (fail "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an Ident.")
+        (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an Ident.")
         
         _
         (|case (de-ann ?body)
@@ -336,16 +336,16 @@
                                              (return tag)
 
                                              _
-                                             (fail "[Compiler Error] Incorrect format for tags.")))
+                                             (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")))
                                          tags*)
                             _ (&a-module/declare-tags module-name tags was-exported? def-value)]
                         (return nil))
 
                       [false (&/$Some _)]
-                      (fail "[Compiler Error] Can't define tags for non-type.")
+                      (&/fail-with-loc "[Compiler Error] Can't define tags for non-type.")
 
                       [true (&/$Some _)]
-                      (fail "[Compiler Error] Incorrect format for tags.")
+                      (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
 
                       [_ (&/$None)]
                       (return nil))
@@ -407,16 +407,16 @@
                                            (return tag)
 
                                            _
-                                           (fail "[Compiler Error] Incorrect format for tags.")))
+                                           (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")))
                                        tags*)
                           _ (&a-module/declare-tags module-name tags was-exported? def-value)]
                       (return nil))
 
                     [false (&/$Some _)]
-                    (fail "[Compiler Error] Can't define tags for non-type.")
+                    (&/fail-with-loc "[Compiler Error] Can't define tags for non-type.")
 
                     [true (&/$Some _)]
-                    (fail "[Compiler Error] Incorrect format for tags.")
+                    (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
 
                     [_ (&/$None)]
                     (return nil))

@@ -6,7 +6,7 @@
 (ns lux.analyser.lambda
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return fail |case]]
+            (lux [base :as & :refer [|let |do return |case]]
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [env :as &env])))

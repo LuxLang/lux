@@ -667,7 +667,7 @@
       ((exhaust% step) state*)
 
       ($Left msg)
-      (if (.equals "[Reader Error] EOF" msg)
+      (if (.contains msg "[Reader Error] EOF")
         (return* state unit-tag)
         (fail* msg)))))
 

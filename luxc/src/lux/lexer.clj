@@ -6,7 +6,7 @@
 (ns lux.lexer
   (:require (clojure [template :refer [do-template]]
                      [string :as string])
-            (lux [base :as & :refer [defvariant |do return* return fail fail* |case]]
+            (lux [base :as & :refer [defvariant |do return* return |case]]
                  [reader :as &reader])
             [lux.analyser.module :as &module]))
 
