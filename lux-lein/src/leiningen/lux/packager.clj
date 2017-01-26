@@ -131,9 +131,8 @@
 (defn package
   "(-> Text (List Text) Null)"
   [project module resources-dirs]
-  (let [output-dir (get-in project [:lux :target] &utils/default-output-dir)
-        output-package-name (get project :jar-name &utils/output-package)
-        output-dir (get-in project [:lux :target] &utils/default-output-dir)
+  (let [output-package-name (get project :jar-name &utils/output-package)
+        output-dir (&utils/prepare-path (get-in project [:lux :target] &utils/default-output-dir))
         output-package (str output-dir java.io.File/separator output-package-name)
         !all-jar-files (atom {})
         includes-android? (boolean (some #(-> % first (= 'com.google.android/android))

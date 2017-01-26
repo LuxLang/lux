@@ -20,9 +20,10 @@
   ;; "-server -Xms2048m -Xmx2048m -XX:+OptimizeStringConcat"
   )
 
-(defn ^:private prepare-path [path]
-  (let [path (if (and (.startsWith path "/")
-                      (= "\\" java.io.File/separator))
+(defn prepare-path [path]
+  (let [is-windows? (and (.startsWith path "/")
+                         (= "\\" java.io.File/separator))
+        path (if is-windows?
                (.substring path 1)
                path)
         path (.replace path "/" java.io.File/separator)]
@@ -98,6 +99,8 @@
   repl-path    "repl"
   )
 
+(def ^:private normal-exit 0)
+
 (defn run-process [command working-directory pre post]
   (let [process (.exec (Runtime/getRuntime) command nil working-directory)]
     (with-open [std-out (->> process .getInputStream (new InputStreamReader) (new BufferedReader))
@@ -107,10 +110,9 @@
         (when line
           (println line)
           (recur (.readLine std-out))))
-      (let [first-error-line (.readLine std-err)]
-        (do (loop [line first-error-line]
-              (when line
-                (println line)
-                (recur (.readLine std-err))))
-          (println post)
-          (nil? first-error-line))))))
+      (loop [line (.readLine std-err)]
+        (when line
+          (println line)
+          (recur (.readLine std-err))))
+      (println post)
+      (= normal-exit (.waitFor process)))))
