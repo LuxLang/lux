@@ -3,7 +3,7 @@
 ;; Copyright © 2014-2017 Eduardo Julian
 ;;
 ;; Authors: Eduardo Julian <eduardoejp@gmail.com>
-;; URL: http://github.com/lux/lux-mode
+;; URL: https://github.com/LuxLang/lux/tree/master/lux-mode
 ;; Keywords: languages lisp lux
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "24.1"))

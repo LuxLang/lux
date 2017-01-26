@@ -1,8 +1,3 @@
-;;  Copyright (c) Eduardo Julian. All rights reserved.
-;;  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
-;;  If a copy of the MPL was not distributed with this file,
-;;  You can obtain one at http://mozilla.org/MPL/2.0/.
-
 (defproject com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"
   :description "The Leiningen plugin for the Lux programming language."
   :url "https://github.com/LuxLang/lein-luxc"
