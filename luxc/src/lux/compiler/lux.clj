@@ -294,8 +294,7 @@
                       (|do [^MethodVisitor **writer** &/get-writer
                             :let [_ (.visitCode **writer**)]
                             _ instancer
-                            :let [_ (.visitTypeInsn **writer** Opcodes/CHECKCAST "java/lang/Object")
-                                  _ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
+                            :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
                             :let [_ (doto **writer**
                                       (.visitInsn Opcodes/RETURN)
                                       (.visitMaxs 0 0)
@@ -365,8 +364,7 @@
                     (|do [^MethodVisitor **writer** &/get-writer
                           :let [_ (.visitCode **writer**)]
                           _ (compile nil ?body)
-                          :let [_ (.visitTypeInsn **writer** Opcodes/CHECKCAST "java/lang/Object")
-                                _ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
+                          :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
                           :let [_ (doto **writer**
                                     (.visitInsn Opcodes/RETURN)
                                     (.visitMaxs 0 0)

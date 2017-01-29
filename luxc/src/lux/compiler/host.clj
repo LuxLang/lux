@@ -24,19 +24,18 @@
 ;; [Utils]
 (def init-method "<init>")
 
-(let [class+method+sig {"boolean" [(&host-generics/->bytecode-class-name "java.lang.Boolean")   "booleanValue" "()Z"]
-                        "byte"    [(&host-generics/->bytecode-class-name "java.lang.Byte")      "byteValue"    "()B"]
-                        "short"   [(&host-generics/->bytecode-class-name "java.lang.Short")     "shortValue"   "()S"]
-                        "int"     [(&host-generics/->bytecode-class-name "java.lang.Integer")   "intValue"     "()I"]
-                        "long"    [(&host-generics/->bytecode-class-name "java.lang.Long")      "longValue"    "()J"]
-                        "float"   [(&host-generics/->bytecode-class-name "java.lang.Float")     "floatValue"   "()F"]
-                        "double"  [(&host-generics/->bytecode-class-name "java.lang.Double")    "doubleValue"  "()D"]
-                        "char"    [(&host-generics/->bytecode-class-name "java.lang.Character") "charValue"    "()C"]}]
+(let [class+method+sig {"boolean" &&/unwrap-boolean
+                        "byte"    &&/unwrap-byte
+                        "short"   &&/unwrap-short
+                        "int"     &&/unwrap-int
+                        "long"    &&/unwrap-long
+                        "float"   &&/unwrap-float
+                        "double"  &&/unwrap-double
+                        "char"    &&/unwrap-char}]
   (defn ^:private prepare-arg! [^MethodVisitor *writer* class-name]
-    (if-let [[class method sig] (get class+method+sig class-name)]
+    (if-let [unwrap (get class+method+sig class-name)]
       (doto *writer*
-        (.visitTypeInsn Opcodes/CHECKCAST class)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL class method sig))
+        unwrap)
       (.visitTypeInsn *writer* Opcodes/CHECKCAST (&host-generics/->bytecode-class-name class-name)))))
 
 (let [boolean-class "java.lang.Boolean"
@@ -385,28 +384,20 @@
 (defn ^:private prepare-ctor-arg [^MethodVisitor writer type]
   (case type
     "boolean" (doto writer
-                (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Boolean"))
                 &&/unwrap-boolean)
     "byte" (doto writer
-             (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Byte"))
              &&/unwrap-byte)
     "short" (doto writer
-              (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Short"))
               &&/unwrap-short)
     "int" (doto writer
-            (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Integer"))
             &&/unwrap-int)
     "long" (doto writer
-             (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Long"))
              &&/unwrap-long)
     "float" (doto writer
-              (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Float"))
               &&/unwrap-float)
     "double" (doto writer
-               (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Double"))
                &&/unwrap-double)
     "char" (doto writer
-             (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name "java.lang.Character"))
              &&/unwrap-char)
     ;; else
     (doto writer
@@ -1784,161 +1775,142 @@
         :let [_ (.visitLabel *writer* $end)]]
     (return nil)))
 
-(do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
+(do-template [<name> <op> <unwrap> <wrap>]
   (defn <name> [compile _?value special-args]
     (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
           ^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
-                    (.visitInsn Opcodes/DUP))]
           _ (compile ?value)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from-class>) <from-method> <from-sig>)
+                    <unwrap>
                     (.visitInsn <op>)
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
+                    <wrap>)]]
       (return nil)))
 
-  ^:private compile-jvm-d2f Opcodes/D2F "java.lang.Double"  "doubleValue"  "()D" "java.lang.Float"     "(F)V"
-  ^:private compile-jvm-d2i Opcodes/D2I "java.lang.Double"  "doubleValue"  "()D" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-d2l Opcodes/D2L "java.lang.Double"  "doubleValue"  "()D" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-d2f Opcodes/D2F &&/unwrap-double &&/wrap-float
+  ^:private compile-jvm-d2i Opcodes/D2I &&/unwrap-double &&/wrap-int
+  ^:private compile-jvm-d2l Opcodes/D2L &&/unwrap-double &&/wrap-long
 
-  ^:private compile-jvm-f2d Opcodes/F2D "java.lang.Float"   "floatValue"   "()F" "java.lang.Double"    "(D)V"
-  ^:private compile-jvm-f2i Opcodes/F2I "java.lang.Float"   "floatValue"   "()F" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-f2l Opcodes/F2L "java.lang.Float"   "floatValue"   "()F" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-f2d Opcodes/F2D &&/unwrap-float &&/wrap-double
+  ^:private compile-jvm-f2i Opcodes/F2I &&/unwrap-float &&/wrap-int
+  ^:private compile-jvm-f2l Opcodes/F2L &&/unwrap-float &&/wrap-long
 
-  ^:private compile-jvm-i2b Opcodes/I2B "java.lang.Integer" "intValue"     "()I" "java.lang.Byte"      "(B)V"
-  ^:private compile-jvm-i2c Opcodes/I2C "java.lang.Integer" "intValue"     "()I" "java.lang.Character" "(C)V"
-  ^:private compile-jvm-i2d Opcodes/I2D "java.lang.Integer" "intValue"     "()I" "java.lang.Double"    "(D)V"
-  ^:private compile-jvm-i2f Opcodes/I2F "java.lang.Integer" "intValue"     "()I" "java.lang.Float"     "(F)V"
-  ^:private compile-jvm-i2l Opcodes/I2L "java.lang.Integer" "intValue"     "()I" "java.lang.Long"      "(J)V"
-  ^:private compile-jvm-i2s Opcodes/I2S "java.lang.Integer" "intValue"     "()I" "java.lang.Short"     "(S)V"
+  ^:private compile-jvm-i2b Opcodes/I2B &&/unwrap-int &&/wrap-byte
+  ^:private compile-jvm-i2c Opcodes/I2C &&/unwrap-int &&/wrap-char
+  ^:private compile-jvm-i2d Opcodes/I2D &&/unwrap-int &&/wrap-double
+  ^:private compile-jvm-i2f Opcodes/I2F &&/unwrap-int &&/wrap-float
+  ^:private compile-jvm-i2l Opcodes/I2L &&/unwrap-int &&/wrap-long
+  ^:private compile-jvm-i2s Opcodes/I2S &&/unwrap-int &&/wrap-short
 
-  ^:private compile-jvm-l2d Opcodes/L2D "java.lang.Long"    "longValue"    "()J" "java.lang.Double"    "(D)V"
-  ^:private compile-jvm-l2f Opcodes/L2F "java.lang.Long"    "longValue"    "()J" "java.lang.Float"     "(F)V"
-  ^:private compile-jvm-l2i Opcodes/L2I "java.lang.Long"    "longValue"    "()J" "java.lang.Integer"   "(I)V"
+  ^:private compile-jvm-l2d Opcodes/L2D &&/unwrap-long &&/wrap-double
+  ^:private compile-jvm-l2f Opcodes/L2F &&/unwrap-long &&/wrap-float
+  ^:private compile-jvm-l2i Opcodes/L2I &&/unwrap-long &&/wrap-int
 
-  ^:private compile-jvm-c2b Opcodes/I2B "java.lang.Character" "charValue"  "()C" "java.lang.Byte"      "(B)V"
-  ^:private compile-jvm-c2s Opcodes/I2S "java.lang.Character" "charValue"  "()C" "java.lang.Short"     "(S)V"
-  ^:private compile-jvm-c2i Opcodes/NOP "java.lang.Character" "charValue"  "()C" "java.lang.Integer"   "(I)V"
-  ^:private compile-jvm-c2l Opcodes/I2L "java.lang.Character" "charValue"  "()C" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-c2b Opcodes/I2B &&/unwrap-char &&/wrap-byte
+  ^:private compile-jvm-c2s Opcodes/I2S &&/unwrap-char &&/wrap-short
+  ^:private compile-jvm-c2i Opcodes/NOP &&/unwrap-char &&/wrap-int
+  ^:private compile-jvm-c2l Opcodes/I2L &&/unwrap-char &&/wrap-long
 
-  ^:private compile-jvm-s2l Opcodes/I2L "java.lang.Short"     "shortValue" "()S" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-s2l Opcodes/I2L &&/unwrap-short &&/wrap-long
   
-  ^:private compile-jvm-b2l Opcodes/I2L "java.lang.Byte"      "byteValue"  "()B" "java.lang.Long"      "(J)V"
+  ^:private compile-jvm-b2l Opcodes/I2L &&/unwrap-byte &&/wrap-long
   )
 
-(do-template [<name> <op> <from-class> <from-method> <from-sig> <to-class> <to-sig>]
+(do-template [<name> <op> <wrap>]
   (defn <name> [compile _?value special-args]
     (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
           ^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
-                    (.visitInsn Opcodes/DUP))]
           _ (compile ?value)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from-class>) <from-method> <from-sig>)
+                    &&/unwrap-long
                     (.visitInsn Opcodes/L2I)
                     (.visitInsn <op>)
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
+                    <wrap>)]]
       (return nil)))
 
-  ^:private compile-jvm-l2s Opcodes/I2S "java.lang.Long"    "longValue"    "()J" "java.lang.Short"     "(S)V"
-  ^:private compile-jvm-l2b Opcodes/I2B "java.lang.Long"    "longValue"    "()J" "java.lang.Byte"      "(B)V"
+  ^:private compile-jvm-l2s Opcodes/I2S &&/wrap-short
+  ^:private compile-jvm-l2b Opcodes/I2B &&/wrap-byte
   )
 
-(do-template [<name> <op> <from1-method> <from1-sig> <from1-class> <from2-method> <from2-sig> <from2-class> <to-class> <to-sig>]
+(do-template [<name> <op> <unwrap-left> <unwrap-right> <wrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           ^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/NEW (&host-generics/->bytecode-class-name <to-class>))
-                    (.visitInsn Opcodes/DUP))]
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from1-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from1-class>) <from1-method> <from1-sig>))]
+                    <unwrap-left>)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name <from2-class>))
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL (&host-generics/->bytecode-class-name <from2-class>) <from2-method> <from2-sig>))]
+                    <unwrap-right>)]
           :let [_ (doto *writer*
                     (.visitInsn <op>)
-                    (.visitMethodInsn Opcodes/INVOKESPECIAL (&host-generics/->bytecode-class-name <to-class>) init-method <to-sig>))]]
+                    <wrap>)]]
       (return nil)))
 
-  ^:private compile-jvm-iand  Opcodes/IAND  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  ^:private compile-jvm-ior   Opcodes/IOR   "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  ^:private compile-jvm-ixor  Opcodes/IXOR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  ^:private compile-jvm-ishl  Opcodes/ISHL  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  ^:private compile-jvm-ishr  Opcodes/ISHR  "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
-  ^:private compile-jvm-iushr Opcodes/IUSHR "intValue"  "()I" "java.lang.Integer" "intValue"  "()I" "java.lang.Integer" "java.lang.Integer" "(I)V"
+  ^:private compile-jvm-iand  Opcodes/IAND  &&/unwrap-int  &&/unwrap-int  &&/wrap-int
+  ^:private compile-jvm-ior   Opcodes/IOR   &&/unwrap-int  &&/unwrap-int  &&/wrap-int
+  ^:private compile-jvm-ixor  Opcodes/IXOR  &&/unwrap-int  &&/unwrap-int  &&/wrap-int
+  ^:private compile-jvm-ishl  Opcodes/ISHL  &&/unwrap-int  &&/unwrap-int  &&/wrap-int
+  ^:private compile-jvm-ishr  Opcodes/ISHR  &&/unwrap-int  &&/unwrap-int  &&/wrap-int
+  ^:private compile-jvm-iushr Opcodes/IUSHR &&/unwrap-int  &&/unwrap-int  &&/wrap-int
   
-  ^:private compile-jvm-land  Opcodes/LAND  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-  ^:private compile-jvm-lor   Opcodes/LOR   "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-  ^:private compile-jvm-lxor  Opcodes/LXOR  "longValue" "()J" "java.lang.Long"    "longValue" "()J" "java.lang.Long"    "java.lang.Long"    "(J)V"
-  ^:private compile-jvm-lshl  Opcodes/LSHL  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
-  ^:private compile-jvm-lshr  Opcodes/LSHR  "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
-  ^:private compile-jvm-lushr Opcodes/LUSHR "longValue" "()J" "java.lang.Long"    "intValue"  "()I" "java.lang.Integer" "java.lang.Long"    "(J)V"
+  ^:private compile-jvm-land  Opcodes/LAND  &&/unwrap-long &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-lor   Opcodes/LOR   &&/unwrap-long &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-lxor  Opcodes/LXOR  &&/unwrap-long &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-lshl  Opcodes/LSHL  &&/unwrap-long &&/unwrap-int  &&/wrap-long
+  ^:private compile-jvm-lshr  Opcodes/LSHR  &&/unwrap-long &&/unwrap-int  &&/wrap-long
+  ^:private compile-jvm-lushr Opcodes/LUSHR &&/unwrap-long &&/unwrap-int  &&/wrap-long
   )
 
-(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
+(do-template [<name> <opcode> <unwrap> <wrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+                    <unwrap>)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                    <unwrap>)
                 _ (doto *writer*
                     (.visitInsn <opcode>)
                     (<wrap>))]]
       (return nil)))
 
-  ^:private compile-jvm-iadd Opcodes/IADD "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  ^:private compile-jvm-isub Opcodes/ISUB "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  ^:private compile-jvm-imul Opcodes/IMUL "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  ^:private compile-jvm-idiv Opcodes/IDIV "java.lang.Integer" "intValue"    "()I" &&/wrap-int
-  ^:private compile-jvm-irem Opcodes/IREM "java.lang.Integer" "intValue"    "()I" &&/wrap-int
+  ^:private compile-jvm-iadd Opcodes/IADD &&/unwrap-int &&/wrap-int
+  ^:private compile-jvm-isub Opcodes/ISUB &&/unwrap-int &&/wrap-int
+  ^:private compile-jvm-imul Opcodes/IMUL &&/unwrap-int &&/wrap-int
+  ^:private compile-jvm-idiv Opcodes/IDIV &&/unwrap-int &&/wrap-int
+  ^:private compile-jvm-irem Opcodes/IREM &&/unwrap-int &&/wrap-int
   
-  ^:private compile-jvm-ladd Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-jvm-lsub Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-jvm-lmul Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-jvm-ldiv Opcodes/LDIV "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-jvm-lrem Opcodes/LREM "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-jvm-ladd Opcodes/LADD &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-lsub Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-lmul Opcodes/LMUL &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-ldiv Opcodes/LDIV &&/unwrap-long &&/wrap-long
+  ^:private compile-jvm-lrem Opcodes/LREM &&/unwrap-long &&/wrap-long
 
-  ^:private compile-jvm-fadd Opcodes/FADD "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  ^:private compile-jvm-fsub Opcodes/FSUB "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  ^:private compile-jvm-fmul Opcodes/FMUL "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  ^:private compile-jvm-fdiv Opcodes/FDIV "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
-  ^:private compile-jvm-frem Opcodes/FREM "java.lang.Float"   "floatValue"  "()F" &&/wrap-float
+  ^:private compile-jvm-fadd Opcodes/FADD &&/unwrap-float &&/wrap-float
+  ^:private compile-jvm-fsub Opcodes/FSUB &&/unwrap-float &&/wrap-float
+  ^:private compile-jvm-fmul Opcodes/FMUL &&/unwrap-float &&/wrap-float
+  ^:private compile-jvm-fdiv Opcodes/FDIV &&/unwrap-float &&/wrap-float
+  ^:private compile-jvm-frem Opcodes/FREM &&/unwrap-float &&/wrap-float
   
-  ^:private compile-jvm-dadd Opcodes/DADD "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  ^:private compile-jvm-dsub Opcodes/DSUB "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  ^:private compile-jvm-dmul Opcodes/DMUL "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  ^:private compile-jvm-ddiv Opcodes/DDIV "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
-  ^:private compile-jvm-drem Opcodes/DREM "java.lang.Double"  "doubleValue" "()D" &&/wrap-double
+  ^:private compile-jvm-dadd Opcodes/DADD &&/unwrap-double &&/wrap-double
+  ^:private compile-jvm-dsub Opcodes/DSUB &&/unwrap-double &&/wrap-double
+  ^:private compile-jvm-dmul Opcodes/DMUL &&/unwrap-double &&/wrap-double
+  ^:private compile-jvm-ddiv Opcodes/DDIV &&/unwrap-double &&/wrap-double
+  ^:private compile-jvm-drem Opcodes/DREM &&/unwrap-double &&/wrap-double
   )
 
-(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig>]
+(do-template [<name> <opcode> <unwrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+                    <unwrap>)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                    <unwrap>)
                 $then (new Label)
                 $end (new Label)
                 _ (doto *writer*
@@ -1950,28 +1922,25 @@
                     (.visitLabel $end))]]
       (return nil)))
 
-  ^:private compile-jvm-ieq Opcodes/IF_ICMPEQ "java.lang.Integer" "intValue" "()I"
-  ^:private compile-jvm-ilt Opcodes/IF_ICMPLT "java.lang.Integer" "intValue" "()I"
-  ^:private compile-jvm-igt Opcodes/IF_ICMPGT "java.lang.Integer" "intValue" "()I"
+  ^:private compile-jvm-ieq Opcodes/IF_ICMPEQ &&/unwrap-int
+  ^:private compile-jvm-ilt Opcodes/IF_ICMPLT &&/unwrap-int
+  ^:private compile-jvm-igt Opcodes/IF_ICMPGT &&/unwrap-int
 
-  ^:private compile-jvm-ceq Opcodes/IF_ICMPEQ "java.lang.Character" "charValue" "()C"
-  ^:private compile-jvm-clt Opcodes/IF_ICMPLT "java.lang.Character" "charValue" "()C"
-  ^:private compile-jvm-cgt Opcodes/IF_ICMPGT "java.lang.Character" "charValue" "()C"
+  ^:private compile-jvm-ceq Opcodes/IF_ICMPEQ &&/unwrap-char
+  ^:private compile-jvm-clt Opcodes/IF_ICMPLT &&/unwrap-char
+  ^:private compile-jvm-cgt Opcodes/IF_ICMPGT &&/unwrap-char
   )
 
-(do-template [<name> <cmpcode> <cmp-output> <wrapper-class> <value-method> <value-method-sig>]
+(do-template [<name> <cmpcode> <cmp-output> <unwrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+                    <unwrap>)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                    <unwrap>)
                 $then (new Label)
                 $end (new Label)
                 _ (doto *writer*
@@ -1985,17 +1954,17 @@
                     (.visitLabel $end))]]
       (return nil)))
 
-  ^:private compile-jvm-leq Opcodes/LCMP   0 "java.lang.Long"   "longValue"   "()J"
-  ^:private compile-jvm-llt Opcodes/LCMP  -1 "java.lang.Long"   "longValue"   "()J"
-  ^:private compile-jvm-lgt Opcodes/LCMP   1 "java.lang.Long"   "longValue"   "()J"
+  ^:private compile-jvm-leq Opcodes/LCMP   0 &&/unwrap-long
+  ^:private compile-jvm-llt Opcodes/LCMP  -1 &&/unwrap-long
+  ^:private compile-jvm-lgt Opcodes/LCMP   1 &&/unwrap-long
 
-  ^:private compile-jvm-feq Opcodes/FCMPG  0 "java.lang.Float"  "floatValue"  "()F"
-  ^:private compile-jvm-flt Opcodes/FCMPG -1 "java.lang.Float"  "floatValue"  "()F"
-  ^:private compile-jvm-fgt Opcodes/FCMPG  1 "java.lang.Float"  "floatValue"  "()F"
+  ^:private compile-jvm-feq Opcodes/FCMPG  0 &&/unwrap-float
+  ^:private compile-jvm-flt Opcodes/FCMPG -1 &&/unwrap-float
+  ^:private compile-jvm-fgt Opcodes/FCMPG  1 &&/unwrap-float
   
-  ^:private compile-jvm-deq Opcodes/DCMPG  0 "java.lang.Double" "doubleValue" "()D"
-  ^:private compile-jvm-dlt Opcodes/DCMPG -1 "java.lang.Double" "doubleValue" "()D"
-  ^:private compile-jvm-dgt Opcodes/DCMPG  1 "java.lang.Double" "doubleValue" "()D"
+  ^:private compile-jvm-deq Opcodes/DCMPG  0 &&/unwrap-double
+  ^:private compile-jvm-dlt Opcodes/DCMPG -1 &&/unwrap-double
+  ^:private compile-jvm-dgt Opcodes/DCMPG  1 &&/unwrap-double
   )
 
 (do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
@@ -2414,47 +2383,41 @@
                   (.visitLabel $end))]]
     (return nil)))
 
-(do-template [<name> <opcode> <wrapper-class> <value-method> <value-method-sig> <wrap>]
+(do-template [<name> <opcode>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name <wrapper-class>)]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))]
+                    &&/unwrap-long)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ <value-method> <value-method-sig>))
+                    &&/unwrap-long)
                 _ (doto *writer*
                     (.visitInsn <opcode>)
-                    (<wrap>))]]
+                    &&/wrap-long)]]
       (return nil)))
 
-  ^:private compile-nat-add    Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-nat-sub    Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-nat-mul    Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-nat-add   Opcodes/LADD
+  ^:private compile-nat-sub   Opcodes/LSUB
+  ^:private compile-nat-mul   Opcodes/LMUL
 
-  ^:private compile-deg-add   Opcodes/LADD "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-deg-sub   Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-deg-rem   Opcodes/LSUB "java.lang.Long"    "longValue"   "()J" &&/wrap-long
-  ^:private compile-deg-scale Opcodes/LMUL "java.lang.Long"    "longValue"   "()J" &&/wrap-long
+  ^:private compile-deg-add   Opcodes/LADD
+  ^:private compile-deg-sub   Opcodes/LSUB
+  ^:private compile-deg-rem   Opcodes/LSUB
+  ^:private compile-deg-scale Opcodes/LMUL
   )
 
 (do-template [<name> <comp-method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
+                    &&/unwrap-long)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))
+                    &&/unwrap-long)
                 _ (doto *writer*
                     (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <comp-method> "(JJ)J")
                     (&&/wrap-long))]]
@@ -2467,16 +2430,13 @@
 (do-template [<name> <cmp-output>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
+                    &&/unwrap-long)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))
+                    &&/unwrap-long)
                 $then (new Label)
                 $end (new Label)
                 _ (doto *writer*
@@ -2496,30 +2456,27 @@
   ^:private compile-deg-lt -1
   )
 
-(let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
-  (defn ^:private compile-nat-lt [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL +wrapper-class+ "longValue" "()J"))
-                $then (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-                    (.visitLdcInsn (int -1))
-                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitLabel $end))]]
-      (return nil))))
+(defn ^:private compile-nat-lt [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  &&/unwrap-long)]
+        _ (compile ?y)
+        :let [_ (doto *writer*
+                  &&/unwrap-long)
+              $then (new Label)
+              $end (new Label)
+              _ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
+                  (.visitLdcInsn (int -1))
+                  (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $then)
+                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
+                  (.visitLabel $end))]]
+    (return nil)))
 
 (do-template [<name> <instr> <wrapper>]
   (defn <name> [compile ?values special-args]
@@ -2557,22 +2514,19 @@
                         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <decode-method> "(Ljava/lang/String;)Ljava/lang/Object;"))]]
           (return nil)))))
 
-  ^:private compile-nat-encode  "encode_nat"  ^:private compile-nat-decode  "decode_nat"
+  ^:private compile-nat-encode "encode_nat" ^:private compile-nat-decode "decode_nat"
   ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
   )
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          :let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     &&/unwrap-long)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
                     &&/unwrap-long)]
           :let [_ (doto *writer*
                     (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> "(JJ)J")

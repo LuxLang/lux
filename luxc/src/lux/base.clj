@@ -661,7 +661,7 @@
       ($Right state* _)
       ((exhaust% step) state*)
 
-      ($Left msg)
+      ($Left ^String msg)
       (if (.contains msg "[Reader Error] EOF")
         (return* state unit-tag)
         (fail* msg)))))
