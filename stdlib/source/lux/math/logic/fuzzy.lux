@@ -1,0 +1,150 @@
+(;module:
+  lux
+  (lux (data [number "Deg/" Interval<Deg>]
+             (coll [list]
+                   [set])
+             text/format)
+       [math])
+  (.. ["&" continuous]))
+
+(type: #export (Fuzzy a)
+  (-> a Deg))
+
+(def: #export (membership elem set)
+  (All [a] (-> a (Fuzzy a) Deg))
+  (set elem))
+
+(def: #export (union left right)
+  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
+  (lambda [elem]
+    (&;~or (membership elem left)
+           (membership elem right))))
+
+(def: #export (intersection left right)
+  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
+  (lambda [elem]
+    (&;~and (membership elem left)
+            (membership elem right))))
+
+(def: #export (complement set)
+  (All [a] (-> (Fuzzy a) (Fuzzy a)))
+  (lambda [elem]
+    (&;~not (membership elem set))))
+
+(def: #export (difference sub base)
+  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
+  (lambda [elem]
+    (&;~and (membership elem base)
+            (&;~not (membership elem sub)))))
+
+(def: #export (from-predicate predicate)
+  (All [a] (-> (-> a Bool) (Fuzzy a)))
+  (lambda [elem]
+    (if (predicate elem)
+      &;~true
+      &;~false)))
+
+(def: #export (from-set set)
+  (All [a] (-> (set;Set a) (Fuzzy a)))
+  (from-predicate (set;member? set)))
+
+(do-template [<ascending> <descending> <gradient> <type> <lt> <gt> <lte> <gte> <sub> <div> <post>]
+  [(def: (<ascending> from to)
+     (-> <type> <type> (Fuzzy <type>))
+     (lambda [elem]
+       (cond (<lte> from elem)
+             &;~false
+
+             (<gte> to elem)
+             &;~true
+
+             ## in the middle...
+             (<post> (<div> (<sub> from to)
+                            (<sub> from elem))))))
+
+   (def: (<descending> from to)
+     (-> <type> <type> (Fuzzy <type>))
+     (lambda [elem]
+       (cond (<lte> from elem)
+             &;~true
+
+             (<gte> to elem)
+             &;~false
+
+             ## in the middle...
+             (<post> (<div> (<sub> from to)
+                            (<sub> elem to))))))
+
+   (def: #export (<gradient> from to)
+     (-> <type> <type> (Fuzzy <type>))
+     (if (<lt> to from)
+       (<ascending> from to)
+       (<descending> from to)))]
+
+  [d.ascending d.descending d.gradient Deg  d.< d.> d.<= d.>= d.- d./ id]
+  [r.ascending r.descending r.gradient Real r.< r.> r.<= r.>= r.- r./ real-to-deg]
+  )
+
+(do-template [<triangle> <trapezoid> <type> <ascending> <descending> <lt>]
+  [(def: #export (<triangle> bottom middle top)
+     (-> <type> <type> <type> (Fuzzy <type>))
+     (case (list;sort <lt> (list bottom middle top))
+       (^ (list bottom middle top))
+       (intersection (<ascending> bottom middle)
+                     (<descending> middle top))
+
+       _
+       (undefined)))
+
+   (def: #export (<trapezoid> bottom middle-bottom middle-top top)
+     (-> <type> <type> <type> <type> (Fuzzy <type>))
+     (case (list;sort <lt> (list bottom middle-bottom middle-top top))
+       (^ (list bottom middle-bottom middle-top top))
+       (intersection (<ascending> bottom middle-bottom)
+                     (<descending> middle-top top))
+
+       _
+       (undefined)))]
+
+  [d.triangle d.trapezoid Deg  d.ascending d.descending d.<]
+  [r.triangle r.trapezoid Real r.ascending r.descending r.<]
+  )
+
+(def: #export (gaussian deviation center)
+  (-> Real Real (Fuzzy Real))
+  (lambda [elem]
+    (let [scale (|> deviation math;square (r.* 2.0))
+          membership (|> elem
+                         (r.- center)
+                         math;square
+                         (r.* -1.0)
+                         (r./ scale)
+                         math;exp)]
+      (if (r.= 1.0 membership)
+        &;~true
+        (real-to-deg membership)))))
+
+(def: #export (cut treshold set)
+  (All [a] (-> Deg (Fuzzy a) (Fuzzy a)))
+  (lambda [elem]
+    (let [membership (set elem)]
+      (if (d.> treshold membership)
+        (|> membership (d.- treshold) (d.* &;~true))
+        &;~false))))
+
+(def: #export (to-predicate treshold set)
+  (All [a] (-> Deg (Fuzzy a) (-> a Bool)))
+  (lambda [elem]
+    (d.> treshold (set elem))))
+
+(type: #export (Fuzzy2 a)
+  (-> a [Deg Deg]))
+
+(def: #export (type-2 lower upper)
+  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy2 a)))
+  (lambda [elem]
+    (let [l-deg (lower elem)
+          u-deg (upper elem)]
+      [(d.min l-deg
+              u-deg)
+       u-deg])))

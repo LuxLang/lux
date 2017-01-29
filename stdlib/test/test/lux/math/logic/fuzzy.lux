@@ -1,0 +1,175 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad)
+       (codata function)
+       (data (coll [list]
+                   [set])
+             [bool "B/" Eq<Bool>]
+             [number]
+             text/format)
+       ["R" random]
+       pipe
+       (math/logic ["&" fuzzy]
+                   continuous))
+  lux/test)
+
+(do-template [<desc> <gen> <triangle> <lt> <lte> <gt> <gte>]
+  [(test: (format "[" <desc> "] " "Triangles")
+     [x <gen>
+      y <gen>
+      z <gen>
+      sample <gen>
+      #let [[bottom middle top] (case (list;sort <lt> (list x y z))
+                                  (^ (list bottom middle top))
+                                  [bottom middle top]
+
+                                  _
+                                  (undefined))
+            triangle (<triangle> x y z)]]
+     ($_ seq
+         (assert "The middle value will always have maximum membership."
+                 (d.= ~true (&;membership middle triangle)))
+         
+         (assert "Boundary values will always have 0 membership."
+                 (and (d.= ~false (&;membership bottom triangle))
+                      (d.= ~false (&;membership top triangle))))
+
+         (assert "Values within range, will have membership > 0."
+                 (B/= (d.> ~false (&;membership sample triangle))
+                      (and (<gt> bottom sample)
+                           (<lt> top sample))))
+
+         (assert "Values outside of range, will have membership = 0."
+                 (B/= (d.= ~false (&;membership sample triangle))
+                      (or (<lte> bottom sample)
+                          (<gte> top sample))))
+         ))]
+
+  ["Real" R;real &;r.triangle r.< r.<= r.> r.>=]
+  ["Deg"  R;deg  &;d.triangle d.< d.<= d.> d.>=]
+  )
+
+(do-template [<desc> <gen> <trapezoid> <lt> <lte> <gt> <gte>]
+  [(test: (format "[" <desc> "] " "Trapezoids")
+     [w <gen>
+      x <gen>
+      y <gen>
+      z <gen>
+      sample <gen>
+      #let [[bottom middle-bottom middle-top top] (case (list;sort <lt> (list w x y z))
+                                                    (^ (list bottom middle-bottom middle-top top))
+                                                    [bottom middle-bottom middle-top top]
+
+                                                    _
+                                                    (undefined))
+            trapezoid (<trapezoid> w x y z)]]
+     ($_ seq
+         (assert "The middle values will always have maximum membership."
+                 (and (d.= ~true (&;membership middle-bottom trapezoid))
+                      (d.= ~true (&;membership middle-top trapezoid))))
+         
+         (assert "Boundary values will always have 0 membership."
+                 (and (d.= ~false (&;membership bottom trapezoid))
+                      (d.= ~false (&;membership top trapezoid))))
+
+         (assert "Values within inner range will have membership = 1"
+                 (B/= (d.= ~true (&;membership sample trapezoid))
+                      (and (<gte> middle-bottom sample)
+                           (<lte> middle-top sample))))
+
+         (assert "Values within range, will have membership > 0."
+                 (B/= (d.> ~false (&;membership sample trapezoid))
+                      (and (<gt> bottom sample)
+                           (<lt> top sample))))
+
+         (assert "Values outside of range, will have membership = 0."
+                 (B/= (d.= ~false (&;membership sample trapezoid))
+                      (or (<lte> bottom sample)
+                          (<gte> top sample))))
+         ))]
+
+  ["Real" R;real &;r.trapezoid r.< r.<= r.> r.>=]
+  ["Deg"  R;deg  &;d.trapezoid d.< d.<= d.> d.>=]
+  )
+
+(test: "Gaussian"
+  #seed +1485654865687
+  [deviation R;real
+   center R;real
+   #let [gaussian (&;gaussian deviation center)]]
+  ($_ seq
+      (assert "The center value will always have maximum membership."
+              (d.= ~true (&;membership center gaussian)))
+      ))
+
+(def: gen-triangle
+  (R;Random (&;Fuzzy Real))
+  (do R;Monad<Random>
+    [x R;real
+     y R;real
+     z R;real]
+    (wrap (&;r.triangle x y z))))
+
+(test: "Combinators"
+  [left gen-triangle
+   right gen-triangle
+   sample R;real]
+  ($_ seq
+      (assert "Union membership as as high as membership in any of its members."
+              (let [combined (&;union left right)
+                    combined-membership (&;membership sample combined)]
+                (and (d.>= (&;membership sample left)
+                           combined-membership)
+                     (d.>= (&;membership sample right)
+                           combined-membership))))
+      
+      (assert "Intersection membership as as low as membership in any of its members."
+              (let [combined (&;intersection left right)
+                    combined-membership (&;membership sample combined)]
+                (and (d.<= (&;membership sample left)
+                           combined-membership)
+                     (d.<= (&;membership sample right)
+                           combined-membership))))
+      
+      (assert "Complement membership is the opposite of normal membership."
+              (d.= (&;membership sample left)
+                   (~not (&;membership sample (&;complement left)))))
+
+      (assert "Membership in the difference will never be higher than in the set being subtracted."
+              (B/= (d.> (&;membership sample right)
+                        (&;membership sample left))
+                   (d.< (&;membership sample left)
+                        (&;membership sample (&;difference left right)))))
+      ))
+
+(test: "From predicates and sets"
+  [#let [set-10 (set;from-list number;Hash<Nat> (list;n.range +0 +10))]
+   sample (|> R;nat (:: @ map (n.% +20)))]
+  ($_ seq
+      (assert "Values that satisfy a predicate have membership = 1.
+               Values that don't have membership = 0."
+              (B/= (d.= ~true (&;membership sample (&;from-predicate n.even?)))
+                   (n.even? sample)))
+
+      (assert "Values that belong to a set have membership = 1.
+               Values that don't have membership = 0."
+              (B/= (d.= ~true (&;membership sample (&;from-set set-10)))
+                   (set;member? set-10 sample)))
+      ))
+
+(test: "Thresholds"
+  [fuzzy gen-triangle
+   sample R;real
+   threshold R;deg
+   #let [vip-fuzzy (&;cut threshold fuzzy)
+         member? (&;to-predicate threshold fuzzy)]]
+  ($_ seq
+      (assert "Can increase the threshold of membership of a fuzzy set."
+              (B/= (d.> ~false (&;membership sample vip-fuzzy))
+                   (d.> threshold (&;membership sample fuzzy))))
+
+      (assert "Can turn fuzzy sets into predicates through a threshold."
+              (B/= (member? sample)
+                   (d.> threshold (&;membership sample fuzzy))))
+      ))
