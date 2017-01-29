@@ -1,7 +1,6 @@
 (ns lux
   (:gen-class)
   (:require [lux.base :as & :refer [|let |do return return* |case]]
-            [lux.compiler.base :as &compiler-base]
             [lux.compiler :as &compiler]
             [lux.repl :as &repl]
             [clojure.string :as string]

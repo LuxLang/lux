@@ -6,7 +6,7 @@
                  [analyser :as &analyser]
                  [optimizer :as &optimizer]
                  [compiler :as &compiler])
-            [lux.compiler.cache :as &cache]
+            [lux.compiler.jvm.cache :as &cache]
             [lux.analyser.base :as &a-base]
             [lux.analyser.lux :as &a-lux]
             [lux.analyser.module :as &module])

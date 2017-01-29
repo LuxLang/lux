@@ -1,4 +1,4 @@
-(ns lux.compiler.host
+(ns lux.compiler.jvm.host
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
@@ -14,7 +14,7 @@
             [lux.type.host :as &host-type]
             [lux.host.generics :as &host-generics]
             [lux.analyser.base :as &a]
-            [lux.compiler.base :as &&])
+            [lux.compiler.jvm.base :as &&])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter

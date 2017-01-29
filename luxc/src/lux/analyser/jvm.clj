@@ -1,4 +1,4 @@
-(ns lux.analyser.host
+(ns lux.analyser.jvm
   (:require (clojure [template :refer [do-template]]
                      [string :as string])
             clojure.core.match
@@ -15,7 +15,7 @@
                           [lambda :as &&lambda]
                           [env :as &&env]
                           [parser :as &&a-parser])
-            [lux.compiler.base :as &c!base])
+            [lux.compiler.jvm.base :as &c!base])
   (:import (java.lang.reflect Type TypeVariable)))
 
 ;; [Utils]

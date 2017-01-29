@@ -396,3 +396,16 @@
 
     _
     (&/fail-with-loc "[Analyser Error] No import meta-data.")))
+
+(def tag-groups
+  "(Lux (List [Text (List Text)]))"
+  (|do [module &/get-current-module]
+    (return (&/|map (fn [pair]
+                      (|case pair
+                        [name [tags exported? _]]
+                        (&/T [name (&/|map (fn [tag]
+                                             (|let [[t-prefix t-name] tag]
+                                               t-name))
+                                           tags)])))
+                    (&/get$ $types module)))
+    ))

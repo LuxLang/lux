@@ -1,4 +1,4 @@
-(ns lux.compiler.cache
+(ns lux.compiler.jvm.cache
   (:refer-clojure :exclude [load])
   (:require [clojure.string :as string]
             [clojure.java.io :as io]
@@ -11,10 +11,11 @@
             (lux.analyser [base :as &a]
                           [module :as &a-module]
                           [meta :as &a-meta])
-            (lux.compiler [base :as &&]
+            (lux.compiler [core :as &&core]
                           [io :as &&io])
             (lux.compiler.cache [type :as &&&type]
-                                [ann :as &&&ann]))
+                                [ann :as &&&ann])
+            (lux.compiler.jvm [base :as &&]))
   (:import (java.io File
                     BufferedOutputStream
                     FileOutputStream)
@@ -44,7 +45,7 @@
 
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str @&&/!output-dir
+  (.exists (new File (str @&&core/!output-dir
                           java.io.File/separator
                           (.replace ^String (&host/->module-class module) "/" java.io.File/separator)
                           java.io.File/separator
@@ -53,7 +54,7 @@
 (defn delete [module]
   "(-> Text (Lux Null))"
   (fn [state]
-    (do (clean-file (new File (str @&&/!output-dir
+    (do (clean-file (new File (str @&&core/!output-dir
                                    java.io.File/separator
                                    (.replace ^String (&host/->module-class module) "/" java.io.File/separator))))
       (return* state nil))))
@@ -71,9 +72,9 @@
 (defn clean [state]
   "(-> Compiler Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
-        output-dir-prefix (str (.getAbsolutePath (new File ^String @&&/!output-dir)) java.io.File/separator)
+        output-dir-prefix (str (.getAbsolutePath (new File ^String @&&core/!output-dir)) java.io.File/separator)
         outdated? #(->> % (contains? needed-modules) not)
-        outdated-modules (->> (new File ^String @&&/!output-dir)
+        outdated-modules (->> (new File ^String @&&core/!output-dir)
                               .listFiles (filter #(.isDirectory ^File %))
                               (map module-dirs) doall (apply concat)
                               (map (fn [^File dir-file]
@@ -113,10 +114,10 @@
   (if (= "" tags-section)
     &/$Nil
     (-> tags-section
-        (.split &&/entry-separator)
+        (.split &&core/entry-separator)
         seq
         (->> (map (fn [^String _group]
-                    (let [[_type & _tags] (.split _group &&/datum-separator)]
+                    (let [[_type & _tags] (.split _group &&core/datum-separator)]
                       (&/T [_type (->> _tags seq &/->list)])))))
         &/->list)))
 
@@ -126,7 +127,7 @@
       (&a-module/declare-tags module _tags was-exported? =type))))
 
 (defn ^:private process-def-entry [loader module ^String _def-entry]
-  (let [parts (.split _def-entry &&/datum-separator)]
+  (let [parts (.split _def-entry &&core/datum-separator)]
     (case (alength parts)
       2 (let [[_name _alias] parts
               [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
@@ -156,13 +157,13 @@
     (return nil)))
 
 (defn ^:private process-module [pre-load! source-dirs cache-table module-name module-hash loader]
-  (|do [^String descriptor (&&/read-module-descriptor! module-name)
-        :let [[imports-section tags-section module-anns-section defs-section] (.split descriptor &&/section-separator)
-              imports (let [imports (vec (.split ^String imports-section &&/entry-separator))
+  (|do [^String descriptor (&&core/read-module-descriptor! module-name)
+        :let [[imports-section tags-section module-anns-section defs-section] (.split descriptor &&core/section-separator)
+              imports (let [imports (vec (.split ^String imports-section &&core/entry-separator))
                             imports (if (= [""] imports)
                                       &/$Nil
                                       (&/->list imports))]
-                        (&/|map #(.split ^String % &&/datum-separator 2) imports))]
+                        (&/|map #(.split ^String % &&core/datum-separator 2) imports))]
         cache-table* (&/fold% (fn [cache-table* _import]
                                 (|do [:let [[_module _hash] _import]
                                       file-content (&&io/read-file source-dirs (str _module ".lux"))
@@ -176,7 +177,7 @@
                    imports)
       (let [tag-groups (parse-tag-groups tags-section)
             module-anns (&&&ann/deserialize-anns module-anns-section)
-            def-entries (let [def-entries (vec (.split ^String defs-section &&/entry-separator))]
+            def-entries (let [def-entries (vec (.split ^String defs-section &&core/entry-separator))]
                           (if (= [""] def-entries)
                             &/$Nil
                             (&/->list def-entries)))]
@@ -198,7 +199,7 @@
     (list)))
 
 (defn ^:private enumerate-cached-modules! []
-  (let [output-dir (new File ^String @&&/!output-dir)
+  (let [output-dir (new File ^String @&&core/!output-dir)
         prefix-to-subtract (inc (.length (.getAbsolutePath output-dir)))]
     (->> output-dir
          enumerate-cached-modules!*
@@ -219,7 +220,7 @@
         (|do [loader &/loader
               !classes &/classes
               :let [module* (&host-generics/->class-name module)
-                    module-path (str @&&/!output-dir java.io.File/separator module)
+                    module-path (str @&&core/!output-dir java.io.File/separator module)
                     class-name (str module* "." &/module-class-name)
                     ^Class module-class (do (swap! !classes assoc class-name (read-file (new File (str module-path java.io.File/separator module-class-file))))
                                           (&&/load-class! loader class-name))

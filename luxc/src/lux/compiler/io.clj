@@ -1,6 +1,6 @@
 (ns lux.compiler.io
   (:require (lux [base :as & :refer [|case |let |do return* return fail*]])
-            (lux.compiler [base :as &&])
+            (lux.compiler.jvm [base :as &&])
             [lux.lib.loader :as &lib]))
 
 ;; [Utils]

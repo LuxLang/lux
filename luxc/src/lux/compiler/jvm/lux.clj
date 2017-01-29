@@ -1,4 +1,4 @@
-(ns lux.compiler.lux
+(ns lux.compiler.jvm.lux
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
@@ -15,8 +15,8 @@
             (lux.analyser [base :as &a]
                           [module :as &a-module]
                           [meta :as &a-meta])
-            (lux.compiler [base :as &&]
-                          [lambda :as &&lambda]))
+            (lux.compiler.jvm [base :as &&]
+                              [lambda :as &&lambda]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
