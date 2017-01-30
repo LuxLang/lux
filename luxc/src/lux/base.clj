@@ -112,19 +112,12 @@
    "locals"
    "closure"])
 
-;; ModuleState
-(defvariant
-  ("Active" 0)
-  ("Compiled" 0)
-  ("Cached" 0))
-
 ;; Host
 (deftuple
   ["writer"
    "loader"
    "classes"
    "catching"
-   "module-states"
    "type-env"
    "dummy-mappings"
    ])
@@ -137,8 +130,7 @@
   ("REPL" 0))
 
 (deftuple
-  ["compiler-name"
-   "compiler-version"
+  ["compiler-version"
    "compiler-mode"])
 
 (deftuple
@@ -231,7 +223,6 @@
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ";")
 
-(def ^:const ^String compiler-name "Lux/JVM")
 (def ^:const ^String compiler-version "0.6.0")
 
 ;; Constructors
@@ -718,40 +709,9 @@
       +init-bindings+]
      ))
 
-(let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
-                                                                                              (class (byte-array []))
-                                                                                              Integer/TYPE
-                                                                                              Integer/TYPE]))
-                     (.setAccessible true))]
-  (defn memory-class-loader [store]
-    (proxy [java.lang.ClassLoader]
-      []
-      (findClass [^String class-name]
-        (if-let [^bytes bytecode (get @store class-name)]
-          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
-          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
-
 (def loader
   (fn [state]
     (return* state (->> state (get$ $host) (get$ $loader)))))
-
-(defn host [_]
-  (let [store (atom {})]
-    (T [;; "lux;writer"
-        $None
-        ;; "lux;loader"
-        (memory-class-loader store)
-        ;; "lux;classes"
-        store
-        ;; "lux;catching"
-        $Nil
-        ;; "lux;module-states"
-        (|table)
-        ;; lux;type-env
-        (|table)
-        ;; lux;dummy-mappings
-        (|table)
-        ])))
 
 (defn with-no-catches [body]
   "(All [a] (-> (Lux a) (Lux a)))"
@@ -765,15 +725,13 @@
         (fail* msg)))))
 
 (defn default-compiler-info [mode]
-  (T [;; compiler-name
-      compiler-name
-      ;; compiler-version
+  (T [;; compiler-version
       compiler-version
       ;; compiler-mode
       mode]
      ))
 
-(defn init-state [mode]
+(defn init-state [mode host-data]
   (T [;; "lux;info"
       (default-compiler-info mode)
       ;; "lux;source"
@@ -793,7 +751,7 @@
       ;; scope-type-vars
       $Nil
       ;; "lux;host"
-      (host nil)]
+      host-data]
      ))
 
 (defn save-module [body]
@@ -1341,32 +1299,6 @@
         ($None)      $None
         ($Some xs**) ($Some ($Cons x xs**)))
       )))
-
-(do-template [<flagger> <asker> <tag>]
-  (do (defn <flagger> [module]
-        "(-> Text (Lux Unit))"
-        (fn [state]
-          (let [state* (update$ $host (fn [host]
-                                        (update$ $module-states
-                                                 (fn [module-states]
-                                                   (|put module <tag> module-states))
-                                                 host))
-                                state)]
-            ($Right (T [state* unit-tag])))))
-    (defn <asker> [module]
-      "(-> Text (Lux Bool))"
-      (fn [state]
-        (if-let [module-state (->> state (get$ $host) (get$ $module-states) (|get module))]
-          ($Right (T [state (|case module-state
-                              (<tag>) true
-                              _       false)]))
-          ($Right (T [state false])))
-        )))
-
-  flag-active-module   active-module?   $Active
-  flag-compiled-module compiled-module? $Compiled
-  flag-cached-module   cached-module?   $Cached
-  )
 
 (do-template [<name> <default> <op>]
   (defn <name> [p xs]

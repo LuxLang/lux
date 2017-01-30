@@ -149,6 +149,7 @@
 
 (defn ^:private install-module [loader module module-hash imports tag-groups module-anns def-entries]
   (|do [_ (&a-module/create-module module module-hash)
+        _ (&a-module/flag-cached-module module)
         _ (&a-module/set-anns module-anns module)
         _ (&a-module/set-imports imports)
         _ (&/map% (partial process-def-entry loader module)
@@ -269,7 +270,6 @@
 (defn load [module-name]
   "(-> Text (Lux Null))"
   (if-let [module-struct (get @!pre-loaded-cache module-name)]
-    (|do [_ (inject-module module-name module-struct)
-          _ (&/flag-cached-module module-name)]
+    (|do [_ (inject-module module-name module-struct)]
       (return nil))
     (&/fail (str "[Cache Error] Module is not cached: " module-name))))

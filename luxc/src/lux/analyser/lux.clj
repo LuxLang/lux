@@ -560,7 +560,7 @@
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
-      (&/fail-with-loc (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
+      (&/fail-with-loc (str "[Analyser Error] Can't re-define " (str module-name ";" ?name)))
       (|do [=value (&/without-repl-closure
                     (&/with-scope ?name
                       (&&/analyse-1+ analyse ?value)))
@@ -572,24 +572,23 @@
         (return &/$Nil))
       )))
 
-(defn ^:private merge-hosts
+(defn ^:private merge-module-states
   "(-> Host Host Host)"
   [new old]
-  (|let [merged-module-states (&/fold (fn [total m-state]
-                                        (|let [[_name _state] m-state]
-                                          (|case _state
-                                            (&/$Cached)
-                                            (&/|put _name _state total)
+  (|let [merged-module-states (&/fold (fn [total new-module]
+                                        (|let [[_name _module] new-module]
+                                          (|case (&/get$ &&module/$module-state _module)
+                                            (&&module/$Cached)
+                                            (&/|put _name _module total)
                                             
-                                            (&/$Compiled)
-                                            (&/|put _name _state total)
+                                            (&&module/$Compiled)
+                                            (&/|put _name _module total)
 
                                             _
                                             total)))
-                                      (&/get$ &/$module-states old)
-                                      (&/get$ &/$module-states new))]
-    (->> old
-         (&/set$ &/$module-states merged-module-states))))
+                                      (&/get$ &/$modules old)
+                                      (&/get$ &/$modules new))]
+    (&/set$ &/$modules merged-module-states old)))
 
 (defn ^:private merge-modules
   "(-> Text Module Module Module)"
@@ -618,8 +617,7 @@
                                          (&/get$ &/$modules old)))
        (&/set$ &/$seed (max (&/get$ &/$seed new)
                             (&/get$ &/$seed old)))
-       (&/set$ &/$host (merge-hosts (&/get$ &/$host new)
-                                    (&/get$ &/$host old)))))
+       (merge-module-states new)))
 
 (def ^:private get-compiler
   (fn [compiler]
@@ -645,7 +643,7 @@
                                         (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
                                         (return nil))
                                     already-compiled? (&&module/exists? path)
-                                    active? (&/active-module? path)
+                                    active? (&&module/active-module? path)
                                     _ (&/assert! (not active?)
                                                  (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
                                     _ (&&module/add-import path)

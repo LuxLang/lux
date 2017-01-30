@@ -178,7 +178,7 @@
                           (&/fail-with-loc "[Compiler Error] Can't re-define a module!")
                           (|do [_ (&&cache/delete name)
                                 _ (&a-module/create-module name file-hash)
-                                _ (&/flag-active-module name)
+                                _ (&a-module/flag-active-module name)
                                 :let [module-class-name (str (&host/->module-class name) "/_")
                                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                                (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
@@ -199,7 +199,7 @@
                                       (&/set$ &/$source (&reader/from name file-content) state))
                                 (&/$Right ?state _)
                                 (&/run-state (|do [:let [_ (.visitEnd =class)]
-                                                   _ (&/flag-compiled-module name)
+                                                   _ (&a-module/flag-compiled-module name)
                                                    _ (&&/save-class! &/module-class-name (.toByteArray =class))
                                                    module-descriptor &&core/generate-module-descriptor
                                                    _ (&&core/write-module-descriptor! name module-descriptor)]
@@ -211,12 +211,43 @@
         )
       )))
 
+(let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
+                                                                                              (class (byte-array []))
+                                                                                              Integer/TYPE
+                                                                                              Integer/TYPE]))
+                     (.setAccessible true))]
+  (defn memory-class-loader [store]
+    (proxy [java.lang.ClassLoader]
+      []
+      (findClass [^String class-name]
+        (if-let [^bytes bytecode (get @store class-name)]
+          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
+          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
+
+(defn jvm-host []
+  (let [store (atom {})]
+    (&/T [;; "lux;writer"
+          &/$None
+          ;; "lux;loader"
+          (memory-class-loader store)
+          ;; "lux;classes"
+          store
+          ;; "lux;catching"
+          &/$Nil
+          ;; "lux;module-states"
+          (&/|table)
+          ;; lux;type-env
+          (&/|table)
+          ;; lux;dummy-mappings
+          (&/|table)
+          ])))
+
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]
     (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs)
                          _ (compile-module source-dirs "lux")]
                      (compile-module source-dirs program-module))]
-      (|case (m-action (&/init-state mode))
+      (|case (m-action (&/init-state mode (jvm-host)))
         (&/$Right ?state _)
         (do (println "Compilation complete!")
           (&&cache/clean ?state))

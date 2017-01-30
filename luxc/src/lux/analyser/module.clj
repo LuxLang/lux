@@ -4,13 +4,20 @@
                      [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [deftuple |let |do return return* |case]]
+            (lux [base :as & :refer [defvariant deftuple |let |do return return* |case]]
                  [type :as &type]
                  [host :as &host])
             [lux.host.generics :as &host-generics]
             (lux.analyser [meta :as &meta])))
 
 ;; [Utils]
+;; ModuleState
+(defvariant
+  ("Active" 0)
+  ("Compiled" 0)
+  ("Cached" 0))
+
+;; Module
 (deftuple
   ["module-hash"
    "module-aliases"
@@ -18,7 +25,8 @@
    "imports"
    "tags"
    "types"
-   "module-anns"])
+   "module-anns"
+   "module-state"])
 
 (defn ^:private new-module [hash]
   (&/T [;; lux;module-hash
@@ -34,8 +42,37 @@
         ;; "lux;types"
         (&/|table)
         ;; module-anns
-        (&/|list)]
+        (&/|list)
+        ;; "module-state"
+        $Active]
        ))
+
+(do-template [<flagger> <asker> <tag>]
+  (do (defn <flagger> [module-name]
+        "(-> Text (Lux Unit))"
+        (fn [state]
+          (let [state* (&/update$ &/$modules
+                                  (fn [modules]
+                                    (&/|update module-name
+                                               (fn [=module]
+                                                 (&/set$ $module-state <tag> =module))
+                                               modules))
+                                  state)]
+            (&/$Right (&/T [state* &/unit-tag])))))
+    (defn <asker> [module-name]
+      "(-> Text (Lux Bool))"
+      (fn [state]
+        (if-let [=module (->> state (&/get$ &/$modules) (&/|get module-name))]
+          (&/$Right (&/T [state (|case (&/get$ $module-state =module)
+                                  (<tag>) true
+                                  _       false)]))
+          (&/$Right (&/T [state false])))
+        )))
+
+  flag-active-module   active-module?   $Active
+  flag-compiled-module compiled-module? $Compiled
+  flag-cached-module   cached-module?   $Cached
+  )
 
 ;; [Exports]
 (defn add-import

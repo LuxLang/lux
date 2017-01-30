@@ -59,7 +59,8 @@
 (defn ^:private analyse-ast [optimize eval! compile-module compilers exo-type ?token]
   (|let [analyse (partial analyse-ast optimize eval! compile-module compilers)
          [cursor token] ?token
-         [compile-def compile-program compile-class compile-interface] compilers]
+         compile-def (aget compilers 0)
+         compile-program (aget compilers 1)]
     (|case token
       ;; Standard special forms
       (&/$BoolS ?value)
