@@ -232,8 +232,6 @@
           (memory-class-loader store)
           ;; "lux;classes"
           store
-          ;; "lux;catching"
-          &/$Nil
           ;; "lux;module-states"
           (&/|table)
           ;; lux;type-env

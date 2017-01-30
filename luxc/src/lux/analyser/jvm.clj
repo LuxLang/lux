@@ -25,7 +25,6 @@
     (fn [state]
       (|let [exceptions (&/|map #(Class/forName % true class-loader) exceptions*)
              catching (->> state
-                           (&/get$ &/$host)
                            (&/get$ &/$catching)
                            (&/|map #(Class/forName % true class-loader)))]
         (if-let [missing-ex (&/fold (fn [prev ^Class now]
@@ -53,14 +52,14 @@
 (defn ^:private with-catches [catches body]
   "(All [a] (-> (List Text) (Lux a) (Lux a)))"
   (fn [state]
-    (let [old-catches (->> state (&/get$ &/$host) (&/get$ &/$catching))
-          state* (->> state (&/update$ &/$host #(&/update$ &/$catching (partial &/|++ catches) %)))]
+    (let [old-catches (&/get$ &/$catching state)
+          state* (&/update$ &/$catching (partial &/|++ catches) state)]
       (|case (&/run-state body state*)
         (&/$Left msg)
         (&/$Left msg)
 
         (&/$Right state** output)
-        (&/$Right (&/T [(->> state** (&/update$ &/$host #(&/set$ &/$catching old-catches %)))
+        (&/$Right (&/T [(&/set$ &/$catching old-catches state**)
                         output]))))
     ))
 

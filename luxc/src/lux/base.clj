@@ -117,7 +117,6 @@
   ["writer"
    "loader"
    "classes"
-   "catching"
    "type-env"
    "dummy-mappings"
    ])
@@ -143,6 +142,7 @@
    "expected"
    "seed"
    "scope-type-vars"
+   "catching"
    "host"])
 
 ;; Compiler
@@ -716,10 +716,10 @@
 (defn with-no-catches [body]
   "(All [a] (-> (Lux a) (Lux a)))"
   (fn [state]
-    (let [old-catching (->> state (get$ $host) (get$ $catching))]
-      (|case (body (update$ $host #(set$ $catching $Nil %) state))
+    (let [old-catching (->> state (get$ $catching))]
+      (|case (body (set$ $catching $Nil state))
         ($Right state* output)
-        (return* (update$ $host #(set$ $catching old-catching %) state*) output)
+        (return* (set$ $catching old-catching state*) output)
 
         ($Left msg)
         (fail* msg)))))
@@ -749,6 +749,8 @@
       ;; "lux;seed"
       0
       ;; scope-type-vars
+      $Nil
+      ;; catching
       $Nil
       ;; "lux;host"
       host-data]
