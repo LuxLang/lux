@@ -60,7 +60,8 @@
   (|let [analyse (partial analyse-ast optimize eval! compile-module compilers)
          [cursor token] ?token
          compile-def (aget compilers 0)
-         compile-program (aget compilers 1)]
+         compile-program (aget compilers 1)
+         macro-wrapper (aget compilers 2)]
     (|case token
       ;; Standard special forms
       (&/$BoolS ?value)
@@ -171,7 +172,7 @@
           ;; else
           (&/with-cursor cursor
             (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-              (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+              (&&lux/analyse-apply analyse cursor exo-type macro-wrapper =fn parameters))))
 
         (&/$NatS idx)
         (&/with-analysis-meta cursor exo-type
@@ -184,7 +185,7 @@
         _
         (&/with-cursor cursor
           (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-            (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+            (&&lux/analyse-apply analyse cursor exo-type macro-wrapper =fn parameters))))
       
       _
       (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))

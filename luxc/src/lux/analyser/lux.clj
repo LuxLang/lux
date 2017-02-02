@@ -375,7 +375,7 @@
                                (&&/$apply =fn =args)
                                )))))
 
-(defn analyse-apply [analyse cursor exo-type =fn ?args]
+(defn analyse-apply [analyse cursor exo-type macro-wrapper =fn ?args]
   (|do [loader &/loader
         :let [[[=fn-type =fn-cursor] =fn-form] =fn]]
     (|case =fn-form
@@ -384,7 +384,7 @@
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
           (|do [macro-expansion (fn [state]
-                                  (|case (-> ?value (.apply ?args) (.apply state))
+                                  (|case ((macro-wrapper ?value) ?args state)
                                     (&/$Right state* output)
                                     (&/$Right (&/T [state* output]))
 

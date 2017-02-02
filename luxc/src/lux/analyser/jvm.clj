@@ -1142,7 +1142,7 @@
   )
 
 (defn analyse-host [analyse exo-type compilers category proc ?values]
-  (|let [[_ _ compile-class compile-interface] compilers]
+  (|let [[_ _ _ compile-class compile-interface] compilers]
     (case category
       "lux"
       (case proc

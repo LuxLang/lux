@@ -161,6 +161,7 @@
   (let [compile-expression* (partial compile-expression nil)]
     (&/T [(partial &&lux/compile-def compile-expression)
           (partial &&lux/compile-program compile-expression*)
+          (fn [macro] (fn [args state] (-> macro (.apply args) (.apply state))))
           (partial &&host/compile-jvm-class compile-expression*)
           &&host/compile-jvm-interface])))
 
