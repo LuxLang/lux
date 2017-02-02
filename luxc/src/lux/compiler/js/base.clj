@@ -50,7 +50,6 @@
   (reify JSObject
     (isFunction [self] true)
     (call [self this args]
-      (prn '_slice_ (seq args))
       (let [slice (java.util.Arrays/copyOfRange value (aget args 0) (alength value))]
         (wrap-lux-obj slice)))))
 
@@ -62,30 +61,40 @@
       ;; (pr-str this)
       )))
 
+(deftype LuxJsObject [obj]
+  JSObject
+  (isFunction [self] false)
+  (getSlot [self idx]
+    (let [value (aget obj idx)]
+      (if (instance? lux-obj-class value)
+        (new LuxJsObject value)
+        value)))
+  (getMember [self member]
+    (condp = member
+      ;; "valueOf" (_valueOf_ obj)
+      "toString" (_toString_ obj)
+      "length" (alength obj)
+      "slice" (let [wrap-lux-obj #(if (instance? lux-obj-class %)
+                                    (new LuxJsObject %)
+                                    %)]
+                (_slice_ wrap-lux-obj obj))
+      ;; else
+      (assert false (str "wrap-lux-obj#getMember = " member)))))
+
 (defn wrap-lux-obj [obj]
   (if (instance? lux-obj-class obj)
-    (reify JSObject
-      (isFunction [self] false)
-      (getSlot [self idx]
-        (wrap-lux-obj (aget obj idx)))
-      (getMember [self member]
-        (condp = member
-          ;; "valueOf" (_valueOf_ obj)
-          "toString" (_toString_ obj)
-          "length" (alength obj)
-          "slice" (_slice_ wrap-lux-obj obj)
-          ;; else
-          (assert false (str "member = " member)))))
+    (new LuxJsObject obj)
     obj))
 
 (defn js-to-lux [js-object]
-  (cond (instance? java.lang.Integer js-object)
-        (long js-object)
-
-        (or (nil? js-object)
+  (cond (or (nil? js-object)
             (instance? java.lang.Boolean js-object)
+            (instance? java.lang.Integer js-object)
             (instance? java.lang.String js-object))
         js-object
+
+        (instance? LuxJsObject js-object)
+        (.-obj ^LuxJsObject js-object)
 
         ;; (instance? Undefined js-object)
         ;; (assert false "UNDEFINED")

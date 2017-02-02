@@ -102,7 +102,7 @@
       ;; (&&host/compile-host compile-expression ?proc-category ?proc-name ?args special-args)
 
       _
-      (assert false (prn-str 'JS=compile-expression| (&/adt->text syntax))))
+      (assert false (prn-str 'JS=compile-expression (&/adt->text syntax))))
     ))
 
 (defn init!
@@ -119,12 +119,9 @@
 (def all-compilers
   (&/T [(partial &&lux/compile-def compile-expression)
         (partial &&lux/compile-program compile-expression)
-        (fn [^ScriptObjectMirror macro]
-          (fn [args state]
-            (let [output (.call macro nil (to-array [(&&/wrap-lux-obj args)
-                                                     (&&/wrap-lux-obj state)]))]
-              (do (prn 'output output)
-                (assert false "Got macros?")))))]))
+        (fn [^ScriptObjectMirror macro args state]
+          (&&/js-to-lux (.call macro nil (to-array [(&&/wrap-lux-obj args)
+                                                    (&&/wrap-lux-obj state)]))))]))
 
 (defn compile-module [source-dirs name]
   (let [file-name (str name ".lux")]

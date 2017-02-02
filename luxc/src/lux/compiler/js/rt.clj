@@ -973,12 +973,13 @@
                  ;; Must recurse.
                  "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
                  "}"
-                 ;; Not match.
+                 ;; No match.
                  "else { return null; }"
                  "}"
-                 ;; Not match.
+                 ;; No match.
                  "else { return null; }"
-                 "})")})
+                 "})")
+   })
 
 (def LuxRT "LuxRT")
 

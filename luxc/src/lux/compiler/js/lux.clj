@@ -176,13 +176,14 @@
 ;;               _ (.visitLabel *writer* $end)]]
 ;;     (return nil)))
 
-(def ^:private original "pm_stack_original")
-(def ^:private stack "pm_stack")
-(defn ^:private stack-push [value]
-  (str stack ".push(" value ");"))
-(def ^:private stack-init (str stack " = " original ".slice();"))
-(def ^:private stack-peek (str stack "[" stack ".length - 1]"))
-(def ^:private stack-pop (str stack ".pop();"))
+(def ^:private savepoint "pm_cursor_savepoint")
+(def ^:private cursor "pm_cursor")
+(defn ^:private cursor-push [value]
+  (str cursor ".push(" value ");"))
+(def ^:private cursor-save (str savepoint ".push(" cursor ".slice());"))
+(def ^:private cursor-restore (str cursor " = " savepoint ".pop();"))
+(def ^:private cursor-peek (str cursor "[" cursor ".length - 1]"))
+(def ^:private cursor-pop (str cursor ".pop();"))
 (def ^:private pm-error (.intern (pr-str (str (char 0) "PM-ERROR" (char 0)))))
 (def ^:private pm-fail (str "throw " pm-error ";"))
 
@@ -199,32 +200,32 @@
       (assert false))
 
     (&o/$PopPM)
-    (return stack-pop)
+    (return cursor-pop)
 
     (&o/$BindPM _register)
-    (return (str "var " (register-name _register) " = " stack-peek ";"
-                 stack-pop))
+    (return (str "var " (register-name _register) " = " cursor-peek ";"
+                 cursor-pop))
 
     (&o/$BoolPM _value)
-    (return (str "if(" stack-peek "!== " _value ") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$NatPM _value)
-    (return (str "if(" stack-peek "!== " _value ") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$IntPM _value)
-    (return (str "if(" stack-peek "!== " _value ") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$DegPM _value)
-    (return (str "if(" stack-peek "!== " _value ") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$RealPM _value)
-    (return (str "if(" stack-peek "!== " _value ") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$CharPM _value)
-    (return (str "if(" stack-peek "!== \"" _value "\") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " (pr-str (str _value)) ") { " pm-fail " }"))
 
     (&o/$TextPM _value)
-    (return (str "if(" stack-peek "!== \"" _value "\") { " pm-fail " }"))
+    (return (str "if(" cursor-peek " !== " (pr-str _value) ") { " pm-fail " }"))
 
     (&o/$TuplePM _idx+)
     (|let [[_idx is-tail?] (|case _idx+
@@ -234,7 +235,7 @@
                              (&/$Right _idx)
                              (&/T [_idx true]))
            getter (if is-tail? "product_getRight" "product_getLeft")]
-      (return (str (stack-push (str &&rt/LuxRT "." getter "(" stack-peek "," _idx ")")))))
+      (return (str (cursor-push (str &&rt/LuxRT "." getter "(" cursor-peek "," _idx ")")))))
 
     (&o/$VariantPM _idx+)
     (|let [[_idx is-last] (|case _idx+
@@ -243,10 +244,10 @@
 
                             (&/$Right _idx)
                             (&/T [_idx true]))
-           temp-assignment (str "temp = " &&rt/LuxRT "." "sum_get(" stack-peek "," _idx "," (if is-last "\"\"" "null") ");")]
+           temp-assignment (str "temp = " &&rt/LuxRT "." "sum_get(" cursor-peek "," _idx "," (if is-last "\"\"" "null") ");")]
       (return (str temp-assignment
-                   (str "if(temp) {"
-                        (stack-push "temp")
+                   (str "if(temp !== null) {"
+                        (cursor-push "temp")
                         "}"
                         "else {"
                         pm-fail
@@ -260,10 +261,13 @@
     (&o/$AltPM _left-pm _right-pm)
     (|do [=left (compile-pm* compile _left-pm bodies)
           =right (compile-pm* compile _right-pm bodies)]
-      (return (str "try {" =left "}"
+      (return (str "try {"
+                   cursor-save
+                   =left
+                   "}"
                    "catch(ex) {"
                    "if(ex === " pm-error ") {"
-                   stack-init
+                   cursor-restore
                    =right
                    "}"
                    "else {"
@@ -291,8 +295,8 @@
     (return (str "(function() {"
                  "\"use strict\";"
                  "var temp;"
-                 "var " original " = [" =value "];"
-                 "var " stack-init
+                 "var " cursor " = [" =value "];"
+                 "var " savepoint " = [];"
                  =pm
                  "})()"))))
 

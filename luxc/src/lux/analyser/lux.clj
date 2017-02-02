@@ -375,7 +375,7 @@
                                (&&/$apply =fn =args)
                                )))))
 
-(defn analyse-apply [analyse cursor exo-type macro-wrapper =fn ?args]
+(defn analyse-apply [analyse cursor exo-type macro-caller =fn ?args]
   (|do [loader &/loader
         :let [[[=fn-type =fn-cursor] =fn-form] =fn]]
     (|case =fn-form
@@ -384,25 +384,18 @@
         (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
           (&/$Some _)
           (|do [macro-expansion (fn [state]
-                                  (|case ((macro-wrapper ?value) ?args state)
+                                  (|case (macro-caller ?value ?args state)
                                     (&/$Right state* output)
                                     (&/$Right (&/T [state* output]))
 
                                     (&/$Left error)
                                     ((&/fail-with-loc error) state)))
-                module-name &/get-module-name
+                ;; module-name &/get-module-name
                 ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "actor:" r-name)
-                ;;                   ;; (= "|Codec@Json|" r-name)
-                ;;                   ;; (= "|Codec@Json//encode|" r-name)
-                ;;                   ;; (= "|Codec@Json//decode|" r-name)
-                ;;                   ;; (= "derived:" r-name)
-                ;;                   )
-                ;;           (->> (&/|map &/show-ast macro-expansion)
-                ;;                (&/|interpose "\n")
-                ;;                (&/fold str "")
-                ;;                (prn (&/ident->text real-name) module-name)))
-                ;;       ]
+                ;;       _ (->> (&/|map &/show-ast macro-expansion)
+                ;;              (&/|interpose "\n")
+                ;;              (&/fold str "")
+                ;;              (println 'macro-expansion (&/ident->text real-name) "@" module-name))]
                 ]
             (&/flat-map% (partial analyse exo-type) macro-expansion))
 
