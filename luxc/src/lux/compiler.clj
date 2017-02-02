@@ -7,7 +7,7 @@
                           [io :as &&io]
                           [parallel :as &&parallel]
                           [jvm :as &&jvm]
-                          ;; [js :as &&js]
+                          [js :as &&js]
                           )))
 
 (defn init! [resources-dirs ^String target-dir]
