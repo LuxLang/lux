@@ -93,6 +93,9 @@
             (instance? java.lang.String js-object))
         js-object
 
+        (instance? java.lang.Number js-object)
+        (long js-object)
+
         (instance? LuxJsObject js-object)
         (.-obj ^LuxJsObject js-object)
 

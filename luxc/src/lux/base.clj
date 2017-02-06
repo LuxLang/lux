@@ -4,6 +4,11 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
+(def !log! (atom false))
+(defn flag-prn! [& args]
+  (when @!log!
+    (apply prn args)))
+
 ;; [Tags]
 (def unit-tag (.intern (str (char 0) "unit" (char 0))))
 
@@ -1019,13 +1024,13 @@
 (let [clean-separators (fn [^String input]
                          (.replaceAll input "_" ""))
       deg-text-to-digits (fn [^String input]
-                            (loop [output (vec (repeat deg-bits 0))
-                                   index (dec (.length input))]
-                              (if (>= index 0)
-                                (let [digit (Byte/parseByte (.substring input index (inc index)))]
-                                  (recur (assoc output index digit)
-                                         (dec index)))
-                                output)))
+                           (loop [output (vec (repeat deg-bits 0))
+                                  index (dec (.length input))]
+                             (if (>= index 0)
+                               (let [digit (Byte/parseByte (.substring input index (inc index)))]
+                                 (recur (assoc output index digit)
+                                        (dec index)))
+                               output)))
       times5 (fn [index digits]
                (loop [index index
                       carry 0
@@ -1037,58 +1042,58 @@
                             (assoc digits index (rem raw 10))))
                    digits)))
       deg-digit-power (fn [level]
-                         (loop [output (-> (vec (repeat deg-bits 0))
-                                           (assoc level 1))
-                                times level]
-                           (if (>= times 0)
-                             (recur (times5 level output)
-                                    (dec times))
-                             output)))
+                        (loop [output (-> (vec (repeat deg-bits 0))
+                                          (assoc level 1))
+                               times level]
+                          (if (>= times 0)
+                            (recur (times5 level output)
+                                   (dec times))
+                            output)))
       deg-digits-lt (fn deg-digits-lt
-                       ([subject param index]
-                          (and (< index deg-bits)
-                               (or (< (get subject index)
-                                      (get param index))
-                                   (and (= (get subject index)
-                                           (get param index))
-                                        (deg-digits-lt subject param (inc index))))))
-                       ([subject param]
-                          (deg-digits-lt subject param 0)))
+                      ([subject param index]
+                         (and (< index deg-bits)
+                              (or (< (get subject index)
+                                     (get param index))
+                                  (and (= (get subject index)
+                                          (get param index))
+                                       (deg-digits-lt subject param (inc index))))))
+                      ([subject param]
+                         (deg-digits-lt subject param 0)))
       deg-digits-sub-once (fn [subject param-digit index]
-                             (if (>= (get subject index)
-                                     param-digit)
-                               (update-in subject [index] #(- % param-digit))
-                               (recur (update-in subject [index] #(- 10 (- param-digit %)))
-                                      1
-                                      (dec index))))
+                            (if (>= (get subject index)
+                                    param-digit)
+                              (update-in subject [index] #(- % param-digit))
+                              (recur (update-in subject [index] #(- 10 (- param-digit %)))
+                                     1
+                                     (dec index))))
       deg-digits-sub (fn [subject param]
-                        (loop [target subject
-                               index (dec deg-bits)]
-                          (if (>= index 0)
-                            (recur (deg-digits-sub-once target (get param index) index)
-                                   (dec index))
-                            target)))
+                       (loop [target subject
+                              index (dec deg-bits)]
+                         (if (>= index 0)
+                           (recur (deg-digits-sub-once target (get param index) index)
+                                  (dec index))
+                           target)))
       deg-digits-to-text (fn [digits]
-                            (loop [output ""
-                                   index (dec deg-bits)]
-                              (if (>= index 0)
-                                (recur (-> (get digits index)
-                                           (Character/forDigit 10)
-                                           (str output))
-                                       (dec index))
-                                output)))
+                           (loop [output ""
+                                  index (dec deg-bits)]
+                             (if (>= index 0)
+                               (recur (-> (get digits index)
+                                          (Character/forDigit 10)
+                                          (str output))
+                                      (dec index))
+                               output)))
       add-deg-digit-powers (fn [dl dr]
-                              (loop [index (dec deg-bits)
-                                     output (vec (repeat deg-bits 0))
-                                     carry 0]
-                                (if (>= index 0)
-                                  (let [raw (+ carry
-                                               (get dl index)
-                                               (get dr index))]
-                                    (recur (dec index)
-                                           (assoc output index (rem raw 10))
-                                           (int (/ raw 10))))
-                                  output)))]
+                             (loop [index (dec deg-bits)
+                                    output (vec (repeat deg-bits 0))
+                                    carry 0]
+                               (if (>= index 0)
+                                 (let [raw (+ carry
+                                              (get dl index)
+                                              (get dr index))]
+                                   (recur (dec index)
+                                          (assoc output index (rem raw 10))
+                                          (int (/ raw 10))))
+                                 output)))]
   ;; Based on the LuxRT.encode_deg method
   (defn encode-deg [input]
     (if (= 0 input)

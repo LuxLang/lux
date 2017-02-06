@@ -1068,6 +1068,15 @@
   ^:private analyse-nat-eq   ["nat" "="]  &type/Nat  &type/Bool
   ^:private analyse-nat-lt   ["nat" "<"]  &type/Nat  &type/Bool
 
+  ;; TODO: USE COMMON PROC ANALYSIS
+  ^:private analyse-int-add  ["int" "+"]  &type/Int  &type/Int
+  ^:private analyse-int-sub  ["int" "-"]  &type/Int  &type/Int
+  ^:private analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
+  ^:private analyse-int-div  ["int" "/"]  &type/Int  &type/Int
+  ^:private analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
+  ^:private analyse-int-eq   ["int" "="]  &type/Int  &type/Bool
+  ^:private analyse-int-lt   ["int" "<"]  &type/Int  &type/Bool
+
   ^:private analyse-deg-add ["deg" "+"] &type/Deg &type/Deg
   ^:private analyse-deg-sub ["deg" "-"] &type/Deg &type/Deg
   ^:private analyse-deg-mul ["deg" "*"] &type/Deg &type/Deg
@@ -1075,6 +1084,15 @@
   ^:private analyse-deg-rem ["deg" "%"] &type/Deg &type/Deg
   ^:private analyse-deg-eq  ["deg" "="] &type/Deg &type/Bool
   ^:private analyse-deg-lt  ["deg" "<"] &type/Deg &type/Bool
+
+  ;; TODO: USE COMMON PROC ANALYSIS
+  ^:private analyse-real-add  ["real" "+"]  &type/Real  &type/Real
+  ^:private analyse-real-sub  ["real" "-"]  &type/Real  &type/Real
+  ^:private analyse-real-mul  ["real" "*"]  &type/Real  &type/Real
+  ^:private analyse-real-div  ["real" "/"]  &type/Real  &type/Real
+  ^:private analyse-real-rem  ["real" "%"]  &type/Real  &type/Real
+  ^:private analyse-real-eq   ["real" "="]  &type/Real  &type/Bool
+  ^:private analyse-real-lt   ["real" "<"]  &type/Real  &type/Bool
   )
 
 (defn ^:private analyse-deg-scale [analyse exo-type ?values]
@@ -1105,7 +1123,11 @@
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
   ^:private analyse-nat-encode  ["nat"  "encode"] ^:private analyse-nat-decode  ["nat"  "decode"] &type/Nat
+  ;; TODO: USE COMMON PROC ANALYSIS
+  ^:private analyse-int-encode ["int" "encode"] ^:private analyse-int-decode ["int" "decode"] &type/Int
   ^:private analyse-deg-encode ["deg" "encode"] ^:private analyse-deg-decode ["deg" "decode"] &type/Deg
+  ;; TODO: USE COMMON PROC ANALYSIS
+  ^:private analyse-real-encode ["real" "encode"] ^:private analyse-real-decode ["real" "decode"] &type/Real
   )
 
 (do-template [<name> <type> <op>]
@@ -1119,8 +1141,16 @@
   ^:private analyse-nat-min-value  &type/Nat  ["nat"  "min-value"]
   ^:private analyse-nat-max-value  &type/Nat  ["nat"  "max-value"]
 
+  ;; TODO: USE COMMON PROC ANALYSIS
+  ^:private analyse-int-min-value  &type/Int  ["int"  "min-value"]
+  ^:private analyse-int-max-value  &type/Int  ["int"  "max-value"]
+  
   ^:private analyse-deg-min-value &type/Deg ["deg" "min-value"]
   ^:private analyse-deg-max-value &type/Deg ["deg" "max-value"]
+
+  ;; TODO: USE COMMON PROC ANALYSIS
+  ^:private analyse-real-min-value  &type/Real  ["real"  "min-value"]
+  ^:private analyse-real-max-value  &type/Real  ["real"  "max-value"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -1141,6 +1171,22 @@
   ^:private analyse-real-to-deg &type/Real &type/Deg ["real" "to-deg"]
   )
 
+;; TODO: USE COMMON PROC ANALYSIS
+(do-template [<name> <proc> <input-type> <output-type>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
+          =x (&&/analyse-1 analyse <input-type> x)
+          =y (&&/analyse-1 analyse <input-type> y)
+          _ (&type/check exo-type <output-type>)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta <output-type> _cursor
+                                 (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
+
+  ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bool
+  ^:private analyse-text-append ["text" "append"] &type/Text &type/Text
+  )
+;; TODO: USE COMMON PROC ANALYSIS
+
 (defn analyse-host [analyse exo-type compilers category proc ?values]
   (|let [[_ _ _ compile-class compile-interface] compilers]
     (case category
@@ -1148,6 +1194,11 @@
       (case proc
         "=="                   (analyse-lux-== analyse exo-type ?values))
 
+      "text"
+      (case proc
+        "="                    (analyse-text-eq analyse exo-type ?values)
+        "append"               (analyse-text-append analyse exo-type ?values))
+      
       "bit"
       (case proc
         "count"                (analyse-bit-count analyse exo-type ?values)
@@ -1202,11 +1253,33 @@
 
       "int"
       (case proc
+        "+" (analyse-int-add analyse exo-type ?values)
+        "-" (analyse-int-sub analyse exo-type ?values)
+        "*" (analyse-int-mul analyse exo-type ?values)
+        "/" (analyse-int-div analyse exo-type ?values)
+        "%" (analyse-int-rem analyse exo-type ?values)
+        "=" (analyse-int-eq analyse exo-type ?values)
+        "<" (analyse-int-lt analyse exo-type ?values)
+        "encode" (analyse-int-encode analyse exo-type ?values)
+        "decode" (analyse-int-decode analyse exo-type ?values)
+        "min-value" (analyse-int-min-value analyse exo-type ?values)
+        "max-value" (analyse-int-max-value analyse exo-type ?values)
         "to-nat" (analyse-int-to-nat analyse exo-type ?values)
         )
 
       "real"
       (case proc
+        "+" (analyse-real-add analyse exo-type ?values)
+        "-" (analyse-real-sub analyse exo-type ?values)
+        "*" (analyse-real-mul analyse exo-type ?values)
+        "/" (analyse-real-div analyse exo-type ?values)
+        "%" (analyse-real-rem analyse exo-type ?values)
+        "=" (analyse-real-eq analyse exo-type ?values)
+        "<" (analyse-real-lt analyse exo-type ?values)
+        "encode" (analyse-real-encode analyse exo-type ?values)
+        "decode" (analyse-real-decode analyse exo-type ?values)
+        "min-value" (analyse-real-min-value analyse exo-type ?values)
+        "max-value" (analyse-real-max-value analyse exo-type ?values)
         "to-deg" (analyse-real-to-deg analyse exo-type ?values)
         )
 

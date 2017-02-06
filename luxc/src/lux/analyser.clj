@@ -10,6 +10,7 @@
             (lux.analyser [base :as &&]
                           [lux :as &&lux]
                           [jvm :as &&jvm]
+                          [proc :as &&proc]
                           [module :as &&module]
                           [parser :as &&a-parser])))
 
@@ -132,7 +133,9 @@
                           (&/$Cons [_ (&/$TupleS ?args)]
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
-              (&&jvm/analyse-host analyse exo-type compilers ?category ?proc ?args)))
+              (&&jvm/analyse-host analyse exo-type compilers ?category ?proc ?args)
+              ;; (&&proc/analyse-proc analyse exo-type ?category ?proc ?args)
+              ))
 
           "_lux_:"
           (|let [(&/$Cons ?type

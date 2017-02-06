@@ -1954,6 +1954,12 @@
                     (.visitLabel $end))]]
       (return nil)))
 
+  ^:private compile-int-eq  Opcodes/LCMP   0 &&/unwrap-long
+  ^:private compile-int-lt  Opcodes/LCMP  -1 &&/unwrap-long
+
+  ^:private compile-real-eq Opcodes/DCMPG  0 &&/unwrap-double
+  ^:private compile-real-lt Opcodes/DCMPG -1 &&/unwrap-double
+  
   ^:private compile-jvm-leq Opcodes/LCMP   0 &&/unwrap-long
   ^:private compile-jvm-llt Opcodes/LCMP  -1 &&/unwrap-long
   ^:private compile-jvm-lgt Opcodes/LCMP   1 &&/unwrap-long
@@ -2383,29 +2389,41 @@
                   (.visitLabel $end))]]
     (return nil)))
 
-(do-template [<name> <opcode>]
+(do-template [<name> <opcode> <unwrap> <wrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
-                    &&/unwrap-long)]
+                    <unwrap>)]
           _ (compile ?y)
           :let [_ (doto *writer*
-                    &&/unwrap-long)
+                    <unwrap>)
                 _ (doto *writer*
                     (.visitInsn <opcode>)
-                    &&/wrap-long)]]
+                    <wrap>)]]
       (return nil)))
 
-  ^:private compile-nat-add   Opcodes/LADD
-  ^:private compile-nat-sub   Opcodes/LSUB
-  ^:private compile-nat-mul   Opcodes/LMUL
+  ^:private compile-int-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
+  ^:private compile-int-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  ^:private compile-int-mul   Opcodes/LMUL &&/unwrap-long &&/wrap-long
+  ^:private compile-int-div   Opcodes/LDIV &&/unwrap-long &&/wrap-long
+  ^:private compile-int-rem   Opcodes/LREM &&/unwrap-long &&/wrap-long
+  
+  ^:private compile-nat-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
+  ^:private compile-nat-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  ^:private compile-nat-mul   Opcodes/LMUL &&/unwrap-long &&/wrap-long
 
-  ^:private compile-deg-add   Opcodes/LADD
-  ^:private compile-deg-sub   Opcodes/LSUB
-  ^:private compile-deg-rem   Opcodes/LSUB
-  ^:private compile-deg-scale Opcodes/LMUL
+  ^:private compile-deg-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
+  ^:private compile-deg-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  ^:private compile-deg-rem   Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  ^:private compile-deg-scale Opcodes/LMUL &&/unwrap-long &&/wrap-long
+
+  ^:private compile-real-add   Opcodes/DADD &&/unwrap-double &&/wrap-double
+  ^:private compile-real-sub   Opcodes/DSUB &&/unwrap-double &&/wrap-double
+  ^:private compile-real-mul   Opcodes/DMUL &&/unwrap-double &&/wrap-double
+  ^:private compile-real-div   Opcodes/DDIV &&/unwrap-double &&/wrap-double
+  ^:private compile-real-rem   Opcodes/DREM &&/unwrap-double &&/wrap-double
   )
 
 (do-template [<name> <comp-method>]
@@ -2518,6 +2536,24 @@
   ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
   )
 
+(defn ^:private compile-int-encode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;"))]]
+    (return nil)))
+
+(defn ^:private compile-real-encode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  &&/unwrap-double
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "toString" "(D)Ljava/lang/String;"))]]
+    (return nil)))
+
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -2586,11 +2622,39 @@
   ^:private compile-int-to-nat
   )
 
+(defn compile-text-eq [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        _ (compile ?y)
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
+                  (&&/wrap-boolean))]]
+    (return nil)))
+
+(defn compile-text-append [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?y)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;"))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values special-args]
   (case proc-category
     "lux"
     (case proc-name
       "=="                   (compile-lux-== compile ?values special-args))
+
+    "text"
+    (case proc-name
+      "="                    (compile-text-eq compile ?values special-args)
+      "append"               (compile-text-append compile ?values special-args))
     
     "bit"
     (case proc-name
@@ -2642,11 +2706,27 @@
 
     "int"
     (case proc-name
+      "+"         (compile-int-add compile ?values special-args)
+      "-"         (compile-int-sub compile ?values special-args)
+      "*"         (compile-int-mul compile ?values special-args)
+      "/"         (compile-int-div compile ?values special-args)
+      "%"         (compile-int-rem compile ?values special-args)
+      "="         (compile-int-eq compile ?values special-args)
+      "<"         (compile-int-lt compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
+      "encode"    (compile-int-encode compile ?values special-args)
       )
 
     "real"
     (case proc-name
+      "+"         (compile-real-add compile ?values special-args)
+      "-"         (compile-real-sub compile ?values special-args)
+      "*"         (compile-real-mul compile ?values special-args)
+      "/"         (compile-real-div compile ?values special-args)
+      "%"         (compile-real-rem compile ?values special-args)
+      "="         (compile-real-eq compile ?values special-args)
+      "<"         (compile-real-lt compile ?values special-args)
+      "encode"    (compile-real-encode compile ?values special-args)
       "to-deg"    (compile-real-to-deg compile ?values special-args)
       )
 

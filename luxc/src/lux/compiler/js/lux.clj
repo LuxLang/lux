@@ -22,6 +22,9 @@
 (defn ^:private js-var-name [module name]
   (str (string/replace module "/" "$") "$" (&host/def-name name)))
 
+(defn ^:private captured-name [register]
+  (str "$" register))
+
 (defn ^:private register-name [register]
   (str "_" register))
 
@@ -31,7 +34,7 @@
 
 (do-template [<name>]
   (defn <name> [value]
-    (return (str value "|0")))
+    (return (str "(" value "|0)")))
 
   compile-nat
   compile-int
@@ -70,16 +73,8 @@
 (defn compile-local [compile register]
   (return (register-name register)))
 
-;; (defn compile-captured [compile ?scope ?captured-id ?source]
-;;   (|do [:let [??scope (&/|reverse ?scope)]
-;;         ^MethodVisitor *writer* &/get-writer
-;;         :let [_ (doto *writer*
-;;                   (.visitVarInsn Opcodes/ALOAD 0)
-;;                   (.visitFieldInsn Opcodes/GETFIELD
-;;                                    (str (&host/->module-class (&/|head ??scope)) "/" (&host/location (&/|tail ??scope)))
-;;                                    (str &&/closure-prefix ?captured-id)
-;;                                    "Ljava/lang/Object;"))]]
-;;     (return nil)))
+(defn compile-captured [compile ?scope ?captured-id ?source]
+  (return (captured-name ?captured-id)))
 
 (defn compile-global [module name]
   (return (js-var-name module name)))
@@ -105,38 +100,31 @@
 ;;     (compile-expression $begin body)
 ;;     ))
 
-;; (defn compile-iter [compile $begin register-offset ?args]
-;;   (|do [^MethodVisitor *writer* &/get-writer
-;;         :let [idxs+args (&/zip2 (&/|range* 0 (dec (&/|length ?args)))
-;;                                 ?args)]
-;;         _ (&/map% (fn [idx+?arg]
-;;                     (|do [:let [[idx ?arg] idx+?arg
-;;                                 idx+ (+ register-offset idx)
-;;                                 already-set? (|case ?arg
-;;                                                [_ (&o/$var (&/$Local l-idx))]
-;;                                                (= idx+ l-idx)
+(defn compile-iter [compile register-offset ?args]
+  ;; Can only optimize if it is a simple expression.
+  ;; Won't work if it's inside an 'if', unlike on the JVM.
+  ;; (|do [[updates _] (&/fold% (fn [updates+offset ?arg]
+  ;;                              (|let [[updates offset] updates+offset
+  ;;                                     already-set? (|case ?arg
+  ;;                                                    [_ (&o/$var (&/$Local l-idx))]
+  ;;                                                    (= offset l-idx)
 
-;;                                                _
-;;                                                false)]]
-;;                       (if already-set?
-;;                         (return nil)
-;;                         (compile ?arg))))
-;;                   idxs+args)
-;;         _ (&/map% (fn [idx+?arg]
-;;                     (|do [:let [[idx ?arg] idx+?arg
-;;                                 idx+ (+ register-offset idx)
-;;                                 already-set? (|case ?arg
-;;                                                [_ (&o/$var (&/$Local l-idx))]
-;;                                                (= idx+ l-idx)
-
-;;                                                _
-;;                                                false)]
-;;                           :let [_ (when (not already-set?)
-;;                                     (.visitVarInsn *writer* Opcodes/ASTORE idx+))]]
-;;                       (return nil)))
-;;                   (&/|reverse idxs+args))
-;;         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $begin)]]
-;;     (return nil)))
+  ;;                                                    _
+  ;;                                                    false)]
+  ;;                                (if already-set?
+  ;;                                  (return (&/T [updates (inc offset)]))
+  ;;                                  (|do [=arg (compile ?arg)]
+  ;;                                    (return (&/T [(str updates
+  ;;                                                       (register-name offset) " = " =arg ";")
+  ;;                                                  (inc offset)]))))))
+  ;;                            (&/T ["" register-offset])
+  ;;                            ?args)]
+  ;;   (return updates))
+  (|do [=args (&/map% compile ?args)]
+    (return (str "_0("
+                 (->> =args (&/|interpose ",") (&/fold str ""))
+                 ")")))
+  )
 
 (defn compile-let [compile _value _register _body]
   (|do [=value (compile _value)
@@ -146,35 +134,20 @@
                  " return " =body
                  ";})()"))))
 
-;; (defn compile-record-get [compile _value _path]
-;;   (|do [^MethodVisitor *writer* &/get-writer
-;;         _ (compile _value)
-;;         :let [_ (&/|map (fn [step]
-;;                           (|let [[idx tail?] step]
-;;                             (doto *writer*
-;;                               (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-;;                               (.visitLdcInsn (int idx))
-;;                               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT"
-;;                                                 (if tail? "product_getRight" "product_getLeft")
-;;                                                 "([Ljava/lang/Object;I)Ljava/lang/Object;"))))
-;;                         _path)]]
-;;     (return nil)))
+(defn compile-record-get [compile _value _path]
+  (|do [=value (compile _value)]
+    (return (&/fold (fn [source step]
+                      (|let [[idx tail?] step
+                             method (if tail? "product_getRight" "product_getLeft")]
+                        (str &&rt/LuxRT "." method "(" source "," idx ")")))
+                    (str "(" =value ")")
+                    _path))))
 
-;; (defn compile-if [compile _test _then _else]
-;;   (|do [^MethodVisitor *writer* &/get-writer
-;;         _ (compile _test)
-;;         :let [$else (new Label)
-;;               $end (new Label)
-;;               _ (doto *writer*
-;;                   &&/unwrap-boolean
-;;                   (.visitJumpInsn Opcodes/IFEQ $else))]
-;;         _ (compile _then)
-;;         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)]
-;;         :let [_ (.visitLabel *writer* $else)]
-;;         _ (compile _else)
-;;         :let [_ (.visitJumpInsn *writer* Opcodes/GOTO $end)
-;;               _ (.visitLabel *writer* $end)]]
-;;     (return nil)))
+(defn compile-if [compile _test _then _else]
+  (|do [=test (compile _test)
+        =then (compile _then)
+        =else (compile _else)]
+    (return (str "(" =test " ? " =then " : " =else ")"))))
 
 (def ^:private savepoint "pm_cursor_savepoint")
 (def ^:private cursor "pm_cursor")
@@ -307,27 +280,39 @@
               func-args (->> (&/|range* 0 (dec arity))
                              (&/|map (fn [register] (str "var " (register-name (inc register)) " = arguments[" register "];")))
                              (&/fold str ""))]
+        =env (&/map% (fn [=captured]
+                       (|case =captured
+                         [_ (&o/$captured ?scope ?captured-id ?source)]
+                         (|do [=source (compile ?source)]
+                           (return (str "var " (captured-name ?captured-id) " = " =source ";")))))
+                     (&/|vals ?env))
         =body (compile ?body)]
-    (return (str "(function " function-name "() {"
-                 "\"use strict\";"
-                 "var num_args = arguments.length;"
-                 "if(num_args == " arity ") {"
-                 "var " (register-name 0) " = " function-name ";"
-                 func-args
-                 "return " =body ";"
-                 "}"
-                 "else if(num_args > " arity ") {"
-                 "return " function-name ".apply(null, [].slice.call(arguments,0," arity "))"
-                 ".apply(null, [].slice.call(arguments," arity "));"
-                 "}"
-                 ;; Less than arity
-                 "else {"
-                 "var curried = [].slice.call(arguments);"
-                 "return function() { "
-                 "return " function-name ".apply(null, curried.concat([].slice.call(arguments)));"
-                 " };"
-                 "}"
-                 "})"))))
+    (return (str "(function() {"
+                 (->> =env (&/fold str ""))
+                 "return "
+                 (str "(function " function-name "() {"
+                      "\"use strict\";"
+                      "var num_args = arguments.length;"
+                      "if(num_args == " arity ") {"
+                      "var " (register-name 0) " = " function-name ";"
+                      func-args
+                      (str "while(true) {"
+                           "return " =body ";"
+                           "}")
+                      "}"
+                      "else if(num_args > " arity ") {"
+                      "return " function-name ".apply(null, [].slice.call(arguments,0," arity "))"
+                      ".apply(null, [].slice.call(arguments," arity "));"
+                      "}"
+                      ;; Less than arity
+                      "else {"
+                      "var curried = [].slice.call(arguments);"
+                      "return function() { "
+                      "return " function-name ".apply(null, curried.concat([].slice.call(arguments)));"
+                      " };"
+                      "}"
+                      "})")
+                 ";})()"))))
 
 (defn compile-def [compile ?name ?body def-meta]
   (|do [module-name &/get-module-name

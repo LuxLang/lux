@@ -22,7 +22,7 @@
                              ;; [cache :as &&cache]
                              [lux :as &&lux]
                              [rt :as &&rt]
-                             ;; [host :as &&host]
+                             [proc :as &&proc]
                              )
             )
   (:import (jdk.nashorn.api.scripting NashornScriptEngineFactory
@@ -62,8 +62,8 @@
       (&o/$var (&/$Local ?idx))
       (&&lux/compile-local compile-expression ?idx)
 
-      ;; (&o/$captured ?scope ?captured-id ?source)
-      ;; (&&lux/compile-captured compile-expression ?scope ?captured-id ?source)
+      (&o/$captured ?scope ?captured-id ?source)
+      (&&lux/compile-captured compile-expression ?scope ?captured-id ?source)
 
       (&o/$var (&/$Global ?module ?name))
       (&&lux/compile-global ?module ?name)
@@ -74,8 +74,8 @@
       ;; (&o/$loop _register-offset _inits _body)
       ;; (&&lux/compile-loop compile-expression _register-offset _inits _body)
 
-      ;; (&o/$iter _register-offset ?args)
-      ;; (&&lux/compile-iter compile-expression _register-offset ?args)
+      (&o/$iter _register-offset ?args)
+      (&&lux/compile-iter compile-expression _register-offset ?args)
 
       (&o/$variant ?tag ?tail ?members)
       (&&lux/compile-variant compile-expression ?tag ?tail ?members)
@@ -86,11 +86,11 @@
       (&o/$let _value _register _body)
       (&&lux/compile-let compile-expression _value _register _body)
 
-      ;; (&o/$record-get _value _path)
-      ;; (&&lux/compile-record-get compile-expression _value _path)
+      (&o/$record-get _value _path)
+      (&&lux/compile-record-get compile-expression _value _path)
 
-      ;; (&o/$if _test _then _else)
-      ;; (&&lux/compile-if compile-expression _test _then _else)
+      (&o/$if _test _then _else)
+      (&&lux/compile-if compile-expression _test _then _else)
 
       (&o/$function _register-offset ?arity ?scope ?env ?body)
       (&&lux/compile-function compile-expression ?arity ?scope ?env ?body)
@@ -98,8 +98,8 @@
       (&o/$ann ?value-ex ?type-ex)
       (compile-expression ?value-ex)
 
-      ;; (&o/$proc [?proc-category ?proc-name] ?args special-args)
-      ;; (&&host/compile-host compile-expression ?proc-category ?proc-name ?args special-args)
+      (&o/$proc [?proc-category ?proc-name] ?args special-args)
+      (&&proc/compile-proc compile-expression ?proc-category ?proc-name ?args special-args)
 
       _
       (assert false (prn-str 'JS=compile-expression (&/adt->text syntax))))
