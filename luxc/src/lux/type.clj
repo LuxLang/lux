@@ -254,7 +254,7 @@
     (fn [state]
       ((|do [mappings* (&/map% (fn [binding]
                                  (|let [[?id ?type] binding]
-                                   (if (.equals ^Object id ?id)
+                                   (if (= id ?id)
                                      (return binding)
                                      (|case ?type
                                        (&/$None)
@@ -263,7 +263,7 @@
                                        (&/$Some ?type*)
                                        (|case ?type*
                                          (&/$VarT ?id*)
-                                         (if (.equals ^Object id ?id*)
+                                         (if (= id ?id*)
                                            (return (&/T [?id &/$None]))
                                            (return binding))
 
@@ -287,7 +287,7 @@
 (defn clean* [?tid type]
   (|case type
     (&/$VarT ?id)
-    (if (.equals ^Object ?tid ?id)
+    (if (= ?tid ?id)
       (|do [? (bound? ?id)]
         (if ?
           (deref ?id)
@@ -298,7 +298,7 @@
                 ==type (clean* ?tid =type)]
             (|case ==type
               (&/$VarT =id)
-              (if (.equals ^Object ?tid =id)
+              (if (= ?tid =id)
                 (|do [_ (unset-var ?id)]
                   (return type))
                 (|do [_ (reset-var ?id ==type)]
@@ -503,13 +503,13 @@
                           (type= xoutput youtput))
 
                      [(&/$VarT xid) (&/$VarT yid)]
-                     (.equals ^Object xid yid)
+                     (= xid yid)
 
                      [(&/$BoundT xidx) (&/$BoundT yidx)]
                      (= xidx yidx)
 
                      [(&/$ExT xid) (&/$ExT yid)]
-                     (.equals ^Object xid yid)
+                     (= xid yid)
 
                      [(&/$AppT xlambda xparam) (&/$AppT ylambda yparam)]
                      (and (type= xlambda ylambda) (type= xparam yparam))
@@ -652,7 +652,7 @@
     (&/with-attempt
       (|case [expected actual]
         [(&/$VarT ?eid) (&/$VarT ?aid)]
-        (if (.equals ^Object ?eid ?aid)
+        (if (= ?eid ?aid)
           (return fixpoints)
           (|do [ebound (fn [state]
                          (|case ((deref ?eid) state)
@@ -834,7 +834,7 @@
           (check* class-loader fixpoints* invariant?? eR aR))
 
         [(&/$ExT e!id) (&/$ExT a!id)]
-        (if (.equals ^Object e!id a!id)
+        (if (= e!id a!id)
           (return fixpoints)
           (check-error "" expected actual))
 

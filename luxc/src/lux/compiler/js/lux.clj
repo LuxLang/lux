@@ -32,9 +32,13 @@
 (defn compile-bool [?value]
   (return (str ?value)))
 
+(def mask-4b (dec (bit-shift-left 1 32)))
+
 (do-template [<name>]
   (defn <name> [value]
-    (return (str "(" value "|0)")))
+    (let [high (-> value (unsigned-bit-shift-right 32) (bit-and mask-4b))
+          low (-> value (bit-and mask-4b))]
+      (return (str &&rt/LuxRT "." "makeI64" "(" high "," low ")"))))
 
   compile-nat
   compile-int

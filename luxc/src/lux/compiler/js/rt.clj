@@ -936,58 +936,155 @@
 ;;                  (.visitEnd)))]
 ;;       nil)))
 
+(def ^:private i64-methods
+  {"makeI64" (str "(function makeI64(high,low) {"
+                  "return { H: (high|0), L: (low|0)};"
+                  "})")
+   "notI64" (str "(function notI64(i64) {"
+                 "return LuxRT.makeI64(~i64.H,~i64.L);"
+                 "})")
+   "negateI64" (str "(function negateI64(i64) {"
+                    "return LuxRT.addI64(LuxRT.notI64(i64),LuxRT.makeI64(0,1));"
+                    "})")
+   "eqI64" (str "(function eqI64(l,r) {"
+                "return (l.H === r.H) && (l.L === r.L);"
+                "})")
+   "addI64" (str "(function addI64(l,r) {"
+                 "var l48 = l.H >>> 16;"
+                 "var l32 = l.H & 0xFFFF;"
+                 "var l16 = l.L >>> 16;"
+                 "var l00 = l.L & 0xFFFF;"
+
+                 "var r48 = r.H >>> 16;"
+                 "var r32 = r.H & 0xFFFF;"
+                 "var r16 = r.L >>> 16;"
+                 "var r00 = r.L & 0xFFFF;"
+
+                 "var x48 = 0, x32 = 0, x16 = 0, x00 = 0;"
+                 "x00 += l00 + r00;"
+                 "x16 += x00 >>> 16;"
+                 "x00 &= 0xFFFF;"
+                 "x16 += l16 + r16;"
+                 "x32 += x16 >>> 16;"
+                 "x16 &= 0xFFFF;"
+                 "x32 += l32 + r32;"
+                 "x48 += x32 >>> 16;"
+                 "x32 &= 0xFFFF;"
+                 "x48 += l48 + r48;"
+                 "x48 &= 0xFFFF;"
+
+                 "return LuxRT.makeI64((x48 << 16) | x32, (x16 << 16) | x00);"
+                 "})")
+   "subI64" (str "(function subI64(l,r) {"
+                 "return LuxRT.addI64(l,LuxRT.negateI64(r));"
+                 "})")
+   "mulI64" (str "(function mulI64(l,r) {"
+                 "if (l.H < 0) {"
+                 (str "if (r.H < 0) {"
+                      ;; Both are negative
+                      "return mulI64(LuxRT.negateI64(l),LuxRT.negateI64(r));"
+                      "}"
+                      "else {"
+                      ;; Left is negative
+                      "return LuxRT.negateI64(mulI64(LuxRT.negateI64(l),r));"
+                      "}")
+                 "}"
+                 "else if (r.H < 0) {"
+                 ;; Right is negative
+                 "return LuxRT.negateI64(mulI64(l,LuxRT.negateI64(r)));"
+                 "}"
+                 ;; Both are positive
+                 "else {"
+                 "var l48 = l.H >>> 16;"
+                 "var l32 = l.H & 0xFFFF;"
+                 "var l16 = l.L >>> 16;"
+                 "var l00 = l.L & 0xFFFF;"
+
+                 "var r48 = r.H >>> 16;"
+                 "var r32 = r.H & 0xFFFF;"
+                 "var r16 = r.L >>> 16;"
+                 "var r00 = r.L & 0xFFFF;"
+
+                 "var x48 = 0, x32 = 0, x16 = 0, x00 = 0;"
+                 "x00 += l00 * r00;"
+                 "x16 += x00 >>> 16;"
+                 "x00 &= 0xFFFF;"
+                 "x16 += l16 * r00;"
+                 "x32 += x16 >>> 16;"
+                 "x16 &= 0xFFFF;"
+                 "x16 += l00 * r16;"
+                 "x32 += x16 >>> 16;"
+                 "x16 &= 0xFFFF;"
+                 "x32 += l32 * r00;"
+                 "x48 += x32 >>> 16;"
+                 "x32 &= 0xFFFF;"
+                 "x32 += l16 * r16;"
+                 "x48 += x32 >>> 16;"
+                 "x32 &= 0xFFFF;"
+                 "x32 += l00 * r32;"
+                 "x48 += x32 >>> 16;"
+                 "x32 &= 0xFFFF;"
+                 "x48 += (l48 * r00) + (l32 * r16) + (l16 * r32) + (l00 * r48);"
+                 "x48 &= 0xFFFF;"
+
+                 "return LuxRT.makeI64((x48 << 16) | x32, (x16 << 16) | x00);"
+                 "}"
+                 "})")
+   })
+
 (def ^:private adt-methods
-  {:product_getLeft (str "(function product_getLeft(product,index) {"
-                         "var index_min_length = (index+1);"
-                         "if(product.length > index_min_length) {"
-                         ;; No need for recursion
-                         "return product[index];"
-                         "}"
-                         "else {"
-                         ;; Needs recursion
-                         "return product_getLeft(product[product.length - 1], (index_min_length - product.length));"
-                         "}"
-                         "})")
-   :product_getRight (str "(function product_getRight(product,index) {"
+  {"product_getLeft" (str "(function product_getLeft(product,index) {"
                           "var index_min_length = (index+1);"
-                          "if(product.length === index_min_length) {"
-                          ;; Last element.
+                          "if(product.length > index_min_length) {"
+                          ;; No need for recursion
                           "return product[index];"
                           "}"
-                          "else if(product.length < index_min_length) {"
-                          ;; Needs recursion
-                          "return product_getRight(product[product.length - 1], (index_min_length - product.length));"
-                          "}"
                           "else {"
-                          ;; Must slice
-                          "return product.slice(index);"
+                          ;; Needs recursion
+                          "return product_getLeft(product[product.length - 1], (index_min_length - product.length));"
                           "}"
                           "})")
-   :sum_get (str "(function sum_get(sum,wantedTag,wantsLast) {"
-                 "if(sum[0] === wantedTag && sum[1] === wantsLast) {"
-                 ;; Exact match.
-                 "return sum[2];"
-                 "}"
-                 "else if(sum[0] < wantedTag || sum[1] !== wantsLast) {"
-                 "if(sum[1]) {"
-                 ;; Must recurse.
-                 "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
-                 "}"
-                 ;; No match.
-                 "else { return null; }"
-                 "}"
-                 ;; No match.
-                 "else { return null; }"
-                 "})")
+   "product_getRight" (str "(function product_getRight(product,index) {"
+                           "var index_min_length = (index+1);"
+                           "if(product.length === index_min_length) {"
+                           ;; Last element.
+                           "return product[index];"
+                           "}"
+                           "else if(product.length < index_min_length) {"
+                           ;; Needs recursion
+                           "return product_getRight(product[product.length - 1], (index_min_length - product.length));"
+                           "}"
+                           "else {"
+                           ;; Must slice
+                           "return product.slice(index);"
+                           "}"
+                           "})")
+   "sum_get" (str "(function sum_get(sum,wantedTag,wantsLast) {"
+                  "if(sum[0] === wantedTag && sum[1] === wantsLast) {"
+                  ;; Exact match.
+                  "return sum[2];"
+                  "}"
+                  "else if(sum[0] < wantedTag || sum[1] !== wantsLast) {"
+                  "if(sum[1]) {"
+                  ;; Must recurse.
+                  "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
+                  "}"
+                  ;; No match.
+                  "else { return null; }"
+                  "}"
+                  ;; No match.
+                  "else { return null; }"
+                  "})")
    })
 
 (def LuxRT "LuxRT")
 
 (def compile-LuxRT
   (|do [_ (return nil)
-        :let [rt-object (str "{" (->> adt-methods
+        :let [rt-object (str "{" (->> (merge adt-methods
+                                             i64-methods)
                                       (map (fn [[key val]]
-                                             (str (name key) ":" val)))
+                                             (str key ":" val)))
                                       (interpose ",")
                                       (reduce str ""))
                              "}")]]

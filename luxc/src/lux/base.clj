@@ -308,7 +308,7 @@
     nil
     
     ($Cons [k v] table*)
-    (if (.equals ^Object k slot)
+    (if (= k slot)
       v
       (recur slot table*))))
 
@@ -318,7 +318,7 @@
     ($Cons (T [slot value]) $Nil)
     
     ($Cons [k v] table*)
-    (if (.equals ^Object k slot)
+    (if (= k slot)
       ($Cons (T [slot value]) table*)
       ($Cons (T [k v]) (|put slot value table*)))
     ))
@@ -329,7 +329,7 @@
     table
     
     ($Cons [k v] table*)
-    (if (.equals ^Object k slot)
+    (if (= k slot)
       table*
       ($Cons (T [k v]) (|remove slot table*)))))
 
@@ -339,7 +339,7 @@
     table
 
     ($Cons [k* v] table*)
-    (if (.equals ^Object k k*)
+    (if (= k k*)
       ($Cons (T [k* (f v)]) table*)
       ($Cons (T [k* v]) (|update k f table*)))))
 
@@ -465,7 +465,7 @@
     false
 
     ($Cons [k* _] table*)
-    (or (.equals ^Object k k*)
+    (or (= k k*)
         (|contains? k table*))))
 
 (defn |member? [x xs]

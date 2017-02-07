@@ -1,4 +1,4 @@
-(ns lux.compiler.js.proc
+(ns lux.compiler.js.proc.common
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
@@ -9,7 +9,8 @@
                  [analyser :as &analyser]
                  [optimizer :as &o])
             [lux.analyser.base :as &a]
-            [lux.compiler.js.base :as &&]))
+            (lux.compiler.js [base :as &&]
+                             [rt :as &&rt])))
 
 ;; [Resources]
 ;; (do-template [<name> <op>]
@@ -78,37 +79,45 @@
 ;;                   (.visitLabel $end))]]
 ;;     (return nil)))
 
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          =x (compile ?x)
+          =y (compile ?y)]
+      (return (str &&rt/LuxRT "." <method> "(" =x "," =y ")"))))
+
+  ^:private compile-nat-add   "addI64"
+  ^:private compile-nat-sub   "subI64"
+  ^:private compile-nat-mul   "mulI64"
+  ;; ^:private compile-nat-div   "/"
+  ;; ^:private compile-nat-rem   "%"
+  ^:private compile-nat-eq    "eqI64"
+  ;; ^:private compile-nat-lt    "<"
+
+  ^:private compile-int-add   "addI64"
+  ^:private compile-int-sub   "subI64"
+  ^:private compile-int-mul   "mulI64"
+  ;; ^:private compile-int-div   "/"
+  ;; ^:private compile-int-rem   "%"
+  ^:private compile-int-eq    "eqI64"
+  ;; ^:private compile-int-lt    "<"
+
+  ^:private compile-deg-add   "addI64"
+  ^:private compile-deg-sub   "subI64"
+  ;; ^:private compile-deg-mul   "*"
+  ;; ^:private compile-deg-div   "/"
+  ^:private compile-deg-rem   "subI64"
+  ^:private compile-deg-eq    "eqI64"
+  ;; ^:private compile-deg-lt    "<"
+  ^:private compile-deg-scale "mulI64"
+  )
+
 (do-template [<name> <opcode>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           =x (compile ?x)
           =y (compile ?y)]
       (return (str "(" =x " " <opcode> " " =y ")"))))
-
-  ^:private compile-nat-add   "+"
-  ^:private compile-nat-sub   "-"
-  ^:private compile-nat-mul   "*"
-  ^:private compile-nat-div   "/"
-  ^:private compile-nat-rem   "%"
-  ^:private compile-nat-eq    "==="
-  ^:private compile-nat-lt    "<"
-
-  ^:private compile-int-add   "+"
-  ^:private compile-int-sub   "-"
-  ^:private compile-int-mul   "*"
-  ^:private compile-int-div   "/"
-  ^:private compile-int-rem   "%"
-  ^:private compile-int-eq    "==="
-  ^:private compile-int-lt    "<"
-
-  ^:private compile-deg-add   "+"
-  ^:private compile-deg-sub   "-"
-  ^:private compile-deg-mul   "*"
-  ^:private compile-deg-div   "/"
-  ^:private compile-deg-rem   "%"
-  ^:private compile-deg-eq    "==="
-  ^:private compile-deg-lt    "<"
-  ^:private compile-deg-scale "*"
 
   ^:private compile-real-add   "+"
   ^:private compile-real-sub   "-"
@@ -294,10 +303,10 @@
       "+"         (compile-nat-add compile ?values special-args)
       "-"         (compile-nat-sub compile ?values special-args)
       "*"         (compile-nat-mul compile ?values special-args)
-      "/"         (compile-nat-div compile ?values special-args)
-      "%"         (compile-nat-rem compile ?values special-args)
+      ;; "/"         (compile-nat-div compile ?values special-args)
+      ;; "%"         (compile-nat-rem compile ?values special-args)
       "="         (compile-nat-eq compile ?values special-args)
-      "<"         (compile-nat-lt compile ?values special-args)
+      ;; "<"         (compile-nat-lt compile ?values special-args)
       ;; "encode"    (compile-nat-encode compile ?values special-args)
       ;; "decode"    (compile-nat-decode compile ?values special-args)
       ;; "max-value" (compile-nat-max-value compile ?values special-args)
@@ -311,11 +320,11 @@
       "+"         (compile-int-add compile ?values special-args)
       "-"         (compile-int-sub compile ?values special-args)
       "*"         (compile-int-mul compile ?values special-args)
-      "/"         (compile-int-div compile ?values special-args)
-      "%"         (compile-int-rem compile ?values special-args)
+      ;; "/"         (compile-int-div compile ?values special-args)
+      ;; "%"         (compile-int-rem compile ?values special-args)
       "="         (compile-int-eq compile ?values special-args)
-      "<"         (compile-int-lt compile ?values special-args)
-      "encode"    (compile-int-encode compile ?values special-args)
+      ;; "<"         (compile-int-lt compile ?values special-args)
+      ;; "encode"    (compile-int-encode compile ?values special-args)
       ;; "decode"    (compile-int-decode compile ?values special-args)
       ;; "max-value" (compile-int-max-value compile ?values special-args)
       ;; "min-value" (compile-int-min-value compile ?values special-args)
@@ -326,11 +335,11 @@
     (case proc-name
       "+"         (compile-deg-add compile ?values special-args)
       "-"         (compile-deg-sub compile ?values special-args)
-      "*"         (compile-deg-mul compile ?values special-args)
-      "/"         (compile-deg-div compile ?values special-args)
+      ;; "*"         (compile-deg-mul compile ?values special-args)
+      ;; "/"         (compile-deg-div compile ?values special-args)
       "%"         (compile-deg-rem compile ?values special-args)
       "="         (compile-deg-eq compile ?values special-args)
-      "<"         (compile-deg-lt compile ?values special-args)
+      ;; "<"         (compile-deg-lt compile ?values special-args)
       ;; "encode"    (compile-deg-encode compile ?values special-args)
       ;; "decode"    (compile-deg-decode compile ?values special-args)
       ;; "max-value" (compile-deg-max-value compile ?values special-args)

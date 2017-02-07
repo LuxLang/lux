@@ -1,4 +1,4 @@
-(ns lux.analyser.proc
+(ns lux.analyser.proc.common
   (:require (clojure [template :refer [do-template]])
             clojure.core.match
             clojure.core.match.array
@@ -31,43 +31,43 @@
   ^:private analyse-text-append ["text" "append"] &type/Text &type/Text
   )
 
-;; (do-template [<name> <op>]
-;;   (defn <name> [analyse exo-type ?values]
-;;     (|do [:let [(&/$Cons input (&/$Cons mask (&/$Nil))) ?values]
-;;           =mask (&&/analyse-1 analyse &type/Nat mask)
-;;           =input (&&/analyse-1 analyse &type/Nat input)
-;;           _ (&type/check exo-type &type/Nat)
-;;           _cursor &/cursor]
-;;       (return (&/|list (&&/|meta exo-type _cursor
-;;                                  (&&/$proc (&/T ["bit" <op>]) (&/|list =input =mask) (&/|list)))))))
+(do-template [<name> <op>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons input (&/$Cons mask (&/$Nil))) ?values]
+          =mask (&&/analyse-1 analyse &type/Nat mask)
+          =input (&&/analyse-1 analyse &type/Nat input)
+          _ (&type/check exo-type &type/Nat)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["bit" <op>]) (&/|list =input =mask) (&/|list)))))))
 
-;;   ^:private analyse-bit-and "and"
-;;   ^:private analyse-bit-or  "or"
-;;   ^:private analyse-bit-xor "xor"
-;;   )
+  ^:private analyse-bit-and "and"
+  ^:private analyse-bit-or  "or"
+  ^:private analyse-bit-xor "xor"
+  )
 
-;; (defn ^:private analyse-bit-count [analyse exo-type ?values]
-;;   (|do [:let [(&/$Cons input (&/$Nil)) ?values]
-;;         =input (&&/analyse-1 analyse &type/Nat input)
-;;         _ (&type/check exo-type &type/Nat)
-;;         _cursor &/cursor]
-;;     (return (&/|list (&&/|meta exo-type _cursor
-;;                                (&&/$proc (&/T ["bit" "count"]) (&/|list =input) (&/|list)))))))
+(defn ^:private analyse-bit-count [analyse exo-type ?values]
+  (|do [:let [(&/$Cons input (&/$Nil)) ?values]
+        =input (&&/analyse-1 analyse &type/Nat input)
+        _ (&type/check exo-type &type/Nat)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["bit" "count"]) (&/|list =input) (&/|list)))))))
 
-;; (do-template [<name> <op> <type>]
-;;   (defn <name> [analyse exo-type ?values]
-;;     (|do [:let [(&/$Cons input (&/$Cons shift (&/$Nil))) ?values]
-;;           =shift (&&/analyse-1 analyse &type/Nat shift)
-;;           =input (&&/analyse-1 analyse <type> input)
-;;           _ (&type/check exo-type <type>)
-;;           _cursor &/cursor]
-;;       (return (&/|list (&&/|meta exo-type _cursor
-;;                                  (&&/$proc (&/T ["bit" <op>]) (&/|list =input =shift) (&/|list)))))))
+(do-template [<name> <op> <type>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons input (&/$Cons shift (&/$Nil))) ?values]
+          =shift (&&/analyse-1 analyse &type/Nat shift)
+          =input (&&/analyse-1 analyse <type> input)
+          _ (&type/check exo-type <type>)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["bit" <op>]) (&/|list =input =shift) (&/|list)))))))
 
-;;   ^:private analyse-bit-shift-left           "shift-left"           &type/Nat
-;;   ^:private analyse-bit-shift-right          "shift-right"          &type/Int
-;;   ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right" &type/Nat
-;;   )
+  ^:private analyse-bit-shift-left           "shift-left"           &type/Nat
+  ^:private analyse-bit-shift-right          "shift-right"          &type/Int
+  ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right" &type/Nat
+  )
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn <name> [analyse exo-type ?values]
@@ -161,6 +161,9 @@
 
   ^:private analyse-deg-min-value &type/Deg ["deg" "min-value"]
   ^:private analyse-deg-max-value &type/Deg ["deg" "max-value"]
+
+  ^:private analyse-real-min-value  &type/Real  ["real"  "min-value"]
+  ^:private analyse-real-max-value  &type/Real  ["real"  "max-value"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -183,24 +186,24 @@
 
 (defn analyse-proc [analyse exo-type category proc ?values]
   (case category
-    ;; "lux"
-    ;; (case proc
-    ;;   "=="                   (analyse-lux-== analyse exo-type ?values))
+    "lux"
+    (case proc
+      "=="                   (analyse-lux-== analyse exo-type ?values))
 
     "text"
     (case proc
       "="                    (analyse-text-eq analyse exo-type ?values)
       "append"               (analyse-text-append analyse exo-type ?values))
 
-    ;; "bit"
-    ;; (case proc
-    ;;   "count"                (analyse-bit-count analyse exo-type ?values)
-    ;;   "and"                  (analyse-bit-and analyse exo-type ?values)
-    ;;   "or"                   (analyse-bit-or analyse exo-type ?values)
-    ;;   "xor"                  (analyse-bit-xor analyse exo-type ?values)
-    ;;   "shift-left"           (analyse-bit-shift-left analyse exo-type ?values)
-    ;;   "shift-right"          (analyse-bit-shift-right analyse exo-type ?values)
-    ;;   "unsigned-shift-right" (analyse-bit-unsigned-shift-right analyse exo-type ?values))
+    "bit"
+    (case proc
+      "count"                (analyse-bit-count analyse exo-type ?values)
+      "and"                  (analyse-bit-and analyse exo-type ?values)
+      "or"                   (analyse-bit-or analyse exo-type ?values)
+      "xor"                  (analyse-bit-xor analyse exo-type ?values)
+      "shift-left"           (analyse-bit-shift-left analyse exo-type ?values)
+      "shift-right"          (analyse-bit-shift-right analyse exo-type ?values)
+      "unsigned-shift-right" (analyse-bit-unsigned-shift-right analyse exo-type ?values))
     
     ;; "array"
     ;; (case proc
@@ -208,7 +211,7 @@
     ;;   "get"    (analyse-array-get analyse exo-type ?values)
     ;;   "put"    (analyse-jvm-aastore analyse exo-type ?values)
     ;;   "remove" (analyse-array-remove analyse exo-type ?values)
-    ;;   "size"   (analyse-jvm-arraylength analyse exo-type ?values))
+    ;;   "size"   (analyse-array-size analyse exo-type ?values))
 
     "nat"
     (case proc
@@ -252,12 +255,12 @@
       "%" (analyse-deg-rem analyse exo-type ?values)
       "=" (analyse-deg-eq analyse exo-type ?values)
       "<" (analyse-deg-lt analyse exo-type ?values)
-      ;; "encode" (analyse-deg-encode analyse exo-type ?values)
-      ;; "decode" (analyse-deg-decode analyse exo-type ?values)
-      ;; "min-value" (analyse-deg-min-value analyse exo-type ?values)
-      ;; "max-value" (analyse-deg-max-value analyse exo-type ?values)
-      ;; "to-real" (analyse-deg-to-real analyse exo-type ?values)
-      ;; "scale" (analyse-deg-scale analyse exo-type ?values)
+      "encode" (analyse-deg-encode analyse exo-type ?values)
+      "decode" (analyse-deg-decode analyse exo-type ?values)
+      "min-value" (analyse-deg-min-value analyse exo-type ?values)
+      "max-value" (analyse-deg-max-value analyse exo-type ?values)
+      "to-real" (analyse-deg-to-real analyse exo-type ?values)
+      "scale" (analyse-deg-scale analyse exo-type ?values)
       )
 
     "real"
@@ -270,16 +273,16 @@
       "=" (analyse-real-eq analyse exo-type ?values)
       "<" (analyse-real-lt analyse exo-type ?values)
       "encode" (analyse-real-encode analyse exo-type ?values)
-      ;; "decode" (analyse-real-decode analyse exo-type ?values)
-      ;; "min-value" (analyse-real-min-value analyse exo-type ?values)
-      ;; "max-value" (analyse-real-max-value analyse exo-type ?values)
-      ;; "to-deg" (analyse-real-to-real analyse exo-type ?values)
+      "decode" (analyse-real-decode analyse exo-type ?values)
+      "min-value" (analyse-real-min-value analyse exo-type ?values)
+      "max-value" (analyse-real-max-value analyse exo-type ?values)
+      "to-deg" (analyse-real-to-deg analyse exo-type ?values)
       )
 
-    ;; "char"
-    ;; (case proc
-    ;;   "to-nat" (analyse-char-to-nat analyse exo-type ?values)
-    ;;   )
+    "char"
+    (case proc
+      "to-nat" (analyse-char-to-nat analyse exo-type ?values)
+      )
     
     ;; else
     (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " [category proc]))))

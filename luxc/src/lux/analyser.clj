@@ -9,10 +9,10 @@
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [lux :as &&lux]
-                          [jvm :as &&jvm]
-                          [proc :as &&proc]
                           [module :as &&module]
-                          [parser :as &&a-parser])))
+                          [parser :as &&a-parser])
+            (lux.analyser.proc [common :as &&common]
+                               [jvm :as &&jvm])))
 
 ;; [Utils]
 (defn analyse-variant+ [analyse exo-type ident values]
@@ -133,8 +133,11 @@
                           (&/$Cons [_ (&/$TupleS ?args)]
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
-              (&&jvm/analyse-host analyse exo-type compilers ?category ?proc ?args)
-              ;; (&&proc/analyse-proc analyse exo-type ?category ?proc ?args)
+              (case ?category
+                "jvm" (&&jvm/analyse-host analyse exo-type compilers ?category ?proc ?args)
+                ;; "js"
+                ;; common
+                (&&common/analyse-proc analyse exo-type ?category ?proc ?args))
               ))
 
           "_lux_:"

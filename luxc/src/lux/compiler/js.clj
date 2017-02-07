@@ -22,8 +22,8 @@
                              ;; [cache :as &&cache]
                              [lux :as &&lux]
                              [rt :as &&rt]
-                             [proc :as &&proc]
                              )
+            (lux.compiler.js.proc [common :as &&common])
             )
   (:import (jdk.nashorn.api.scripting NashornScriptEngineFactory
                                       NashornScriptEngine
@@ -99,7 +99,10 @@
       (compile-expression ?value-ex)
 
       (&o/$proc [?proc-category ?proc-name] ?args special-args)
-      (&&proc/compile-proc compile-expression ?proc-category ?proc-name ?args special-args)
+      (case ?proc-category
+        ;; "js" ...
+        ;; common
+        (&&common/compile-proc compile-expression ?proc-category ?proc-name ?args special-args))
 
       _
       (assert false (prn-str 'JS=compile-expression (&/adt->text syntax))))
@@ -174,6 +177,7 @@
           (&/$Left ?message)
           (binding [*out* !err!]
             (do (println (str "Compilation failed:\n" ?message))
-              ;; (flush)
-              ;; (System/exit 1)
-              )))))))
+              (flush)
+              (System/exit 1)
+              ))
+          )))))

@@ -40,12 +40,6 @@
 
 (def ^:private lux-obj-class (Class/forName "[Ljava.lang.Object;"))
 
-(defn ^:private _valueOf_ [value]
-  (reify JSObject
-    (isFunction [self] true)
-    (call [self this args]
-      value)))
-
 (defn ^:private _slice_ [wrap-lux-obj value]
   (reify JSObject
     (isFunction [self] true)
@@ -58,25 +52,43 @@
     (isFunction [self] true)
     (call [self this args]
       (&/adt->text obj)
-      ;; (pr-str this)
       )))
+
+(def ^:private i64-mask (dec (bit-shift-left 1 32)))
+(defn ^:private to-i64 [value]
+  (reify JSObject
+    (getMember [self member]
+      (condp = member
+        "H" (-> value (unsigned-bit-shift-right 32) (bit-and i64-mask) int)
+        "L" (-> value (bit-and i64-mask) int)
+        ;; else
+        (assert false (str "to-i64#getMember = " member))))))
 
 (deftype LuxJsObject [obj]
   JSObject
   (isFunction [self] false)
   (getSlot [self idx]
     (let [value (aget obj idx)]
-      (if (instance? lux-obj-class value)
-        (new LuxJsObject value)
-        value)))
+      (cond (instance? lux-obj-class value)
+            (new LuxJsObject value)
+
+            (instance? java.lang.Long value)
+            (to-i64 value)
+
+            :else
+            value)))
   (getMember [self member]
     (condp = member
-      ;; "valueOf" (_valueOf_ obj)
       "toString" (_toString_ obj)
       "length" (alength obj)
-      "slice" (let [wrap-lux-obj #(if (instance? lux-obj-class %)
-                                    (new LuxJsObject %)
-                                    %)]
+      "slice" (let [wrap-lux-obj #(cond (instance? lux-obj-class %)
+                                        (new LuxJsObject %)
+
+                                        (instance? java.lang.Long %)
+                                        (to-i64 %)
+
+                                        :else
+                                        %)]
                 (_slice_ wrap-lux-obj obj))
       ;; else
       (assert false (str "wrap-lux-obj#getMember = " member)))))
@@ -86,6 +98,17 @@
     (new LuxJsObject obj)
     obj))
 
+(defn ^:private int64? [^ScriptObjectMirror js-object]
+  (and (.hasMember js-object "H")
+       (.hasMember js-object "L")))
+
+(defn ^:private parse-int64 [^ScriptObjectMirror js-object]
+  (+ (-> (.getMember js-object "H")
+         long
+         (bit-shift-left 32))
+     (-> (.getMember js-object "L")
+         long)))
+
 (defn js-to-lux [js-object]
   (cond (or (nil? js-object)
             (instance? java.lang.Boolean js-object)
@@ -94,7 +117,7 @@
         js-object
 
         (instance? java.lang.Number js-object)
-        (long js-object)
+        (double js-object)
 
         (instance? LuxJsObject js-object)
         (.-obj ^LuxJsObject js-object)
@@ -122,6 +145,9 @@
 
                 (.isFunction js-object)
                 js-object
+
+                (int64? js-object)
+                (parse-int64 js-object)
 
                 :else
                 (assert false (str "Unknown kind of JS object: " js-object))))
