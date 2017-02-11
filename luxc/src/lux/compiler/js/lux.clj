@@ -284,15 +284,18 @@
               func-args (->> (&/|range* 0 (dec arity))
                              (&/|map (fn [register] (str "var " (register-name (inc register)) " = arguments[" register "];")))
                              (&/fold str ""))]
-        =env (&/map% (fn [=captured]
-                       (|case =captured
-                         [_ (&o/$captured ?scope ?captured-id ?source)]
-                         (|do [=source (compile ?source)]
-                           (return (str "var " (captured-name ?captured-id) " = " =source ";")))))
-                     (&/|vals ?env))
+        =env-vars (&/map% (fn [=captured]
+                            (|case =captured
+                              [_ (&o/$captured ?scope ?captured-id ?source)]
+                              (return (captured-name ?captured-id))))
+                          (&/|vals ?env))
+        =env-values (&/map% (fn [=captured]
+                              (|case =captured
+                                [_ (&o/$captured ?scope ?captured-id ?source)]
+                                (compile ?source)))
+                            (&/|vals ?env))
         =body (compile ?body)]
-    (return (str "(function() {"
-                 (->> =env (&/fold str ""))
+    (return (str "(function(" (->> =env-vars (&/|interpose ",") (&/fold str "")) ") {"
                  "return "
                  (str "(function " function-name "() {"
                       "\"use strict\";"
@@ -316,7 +319,7 @@
                       " };"
                       "}"
                       "})")
-                 ";})()"))))
+                 ";})(" (->> =env-values (&/|interpose ",") (&/fold str "")) ")"))))
 
 (defn compile-def [compile ?name ?body def-meta]
   (|do [module-name &/get-module-name
@@ -345,8 +348,7 @@
                              _
                              false)
                   def-type (&a/expr-type* ?body)
-                  _ (&/|log! (str "def-js >>\n"
-                                  (string/replace def-js " " "^@")))]
+                  _ (&/|log! (string/replace def-js " " "^@"))]
             _ (&&/run-js! def-js)
             def-value (&&/run-js!+ var-name)
             _ (&/without-repl-closure

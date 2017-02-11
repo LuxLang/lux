@@ -881,46 +881,6 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "load-class"]) (&/|list) (&/|list _class-name output-type)))))))
 
-(let [length-type &type/Nat
-      idx-type &type/Nat]
-  (defn ^:private analyse-array-new [analyse exo-type ?values]
-    (|do [:let [(&/$Cons length (&/$Nil)) ?values]
-          :let [gclass (&/$GenericClass "java.lang.Object" (&/|list))
-                array-type (&/$UnivQ (&/|list) (&/$HostT &host-type/array-data-tag (&/|list (&/$BoundT 1))))]
-          gtype-env &/get-type-env
-          =length (&&/analyse-1 analyse length-type length)
-          _ (&type/check exo-type array-type)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["jvm" "anewarray"]) (&/|list =length) (&/|list gclass gtype-env)))))))
-
-  (defn ^:private analyse-array-get [analyse exo-type ?values]
-    (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
-          =array (&&/analyse-1+ analyse array)
-          [arr-class arr-params] (ensure-object (&&/expr-type* =array))
-          _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
-          :let [(&/$Cons inner-arr-type (&/$Nil)) arr-params]
-          =idx (&&/analyse-1 analyse idx-type idx)
-          _ (&type/check exo-type (&/$AppT &type/Maybe inner-arr-type))
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["array" "get"]) (&/|list =array =idx) (&/|list)))))))
-
-  (defn ^:private analyse-array-remove [analyse exo-type ?values]
-    (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
-          =array (&&/analyse-1+ analyse array)
-          :let [array-type (&&/expr-type* =array)]
-          [arr-class arr-params] (ensure-object array-type)
-          _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
-          :let [(&/$Cons inner-arr-type (&/$Nil)) arr-params]
-          =idx (&&/analyse-1 analyse idx-type idx)
-          _cursor &/cursor
-          :let [=elem (&&/|meta inner-arr-type _cursor
-                                (&&/$proc (&/T ["jvm" "null"]) (&/|list) (&/|list)))]
-          _ (&type/check exo-type array-type)]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["jvm" "aastore"]) (&/|list =array =idx =elem) (&/|list))))))))
-
 (defn ^:private analyse-jvm-interface [analyse compile-interface interface-decl supers =anns =methods]
   (|do [module &/get-module-name
         _ (compile-interface interface-decl supers =anns =methods)

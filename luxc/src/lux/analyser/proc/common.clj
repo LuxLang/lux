@@ -179,16 +179,77 @@
   ^:private analyse-nat-to-char  &type/Nat  &type/Char ["nat" "to-char"]
   ^:private analyse-int-to-nat   &type/Int  &type/Nat  ["int" "to-nat"]
   ^:private analyse-char-to-nat  &type/Char &type/Nat  ["char" "to-nat"]
+  ^:private analyse-char-to-text &type/Char &type/Text ["char" "to-text"]
 
-  ^:private analyse-deg-to-real &type/Deg &type/Real ["deg" "to-real"]
-  ^:private analyse-real-to-deg &type/Real &type/Deg ["real" "to-deg"]
+  ^:private analyse-deg-to-real  &type/Deg  &type/Real ["deg" "to-real"]
+  ^:private analyse-real-to-deg  &type/Real &type/Deg  ["real" "to-deg"]
+  
+  ^:private analyse-lux-log!     &type/Text &/$UnitT   ["io" "log!"]
   )
+
+(defn ^:private analyse-array-new [analyse exo-type ?values]
+  (|do [:let [(&/$Cons length (&/$Nil)) ?values]
+        =length (&&/analyse-1 analyse &type/Nat length)
+        _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Array (&/$BoundT 1))))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["array" "new"]) (&/|list =length) (&/|list)))))))
+
+(defn ^:private analyse-array-get [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
+            =array (&&/analyse-1 analyse (&type/Array $var) array)
+            =idx (&&/analyse-1 analyse &type/Nat idx)
+            _ (&type/check exo-type (&/$AppT &type/Maybe $var))
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["array" "get"]) (&/|list =array =idx) (&/|list)))))))))
+
+(defn ^:private analyse-array-put [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons array (&/$Cons idx (&/$Cons elem (&/$Nil)))) ?values]
+            :let [array-type (&type/Array $var)]
+            =array (&&/analyse-1 analyse array-type array)
+            =idx (&&/analyse-1 analyse &type/Nat idx)
+            =elem (&&/analyse-1 analyse $var elem)
+            _ (&type/check exo-type array-type)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["array" "put"]) (&/|list =array =idx =elem) (&/|list)))))))))
+
+(defn ^:private analyse-array-remove [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
+            :let [array-type (&type/Array $var)]
+            =array (&&/analyse-1 analyse array-type array)
+            =idx (&&/analyse-1 analyse &type/Nat idx)
+            _ (&type/check exo-type array-type)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["array" "remove"]) (&/|list =array =idx) (&/|list)))))))))
+
+(defn ^:private analyse-array-size [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons array (&/$Nil)) ?values]
+            =array (&&/analyse-1 analyse (&type/Array $var) array)
+            _ (&type/check exo-type &type/Nat)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["array" "size"]) (&/|list =array) (&/|list)))))))))
 
 (defn analyse-proc [analyse exo-type category proc ?values]
   (case category
     "lux"
     (case proc
       "=="                   (analyse-lux-== analyse exo-type ?values))
+
+    "io"
+    (case proc
+      "log!"                 (analyse-lux-log! analyse exo-type ?values))
 
     "text"
     (case proc
@@ -205,13 +266,13 @@
       "shift-right"          (analyse-bit-shift-right analyse exo-type ?values)
       "unsigned-shift-right" (analyse-bit-unsigned-shift-right analyse exo-type ?values))
     
-    ;; "array"
-    ;; (case proc
-    ;;   "new"    (analyse-array-new analyse exo-type ?values)
-    ;;   "get"    (analyse-array-get analyse exo-type ?values)
-    ;;   "put"    (analyse-jvm-aastore analyse exo-type ?values)
-    ;;   "remove" (analyse-array-remove analyse exo-type ?values)
-    ;;   "size"   (analyse-array-size analyse exo-type ?values))
+    "array"
+    (case proc
+      "new"    (analyse-array-new analyse exo-type ?values)
+      "get"    (analyse-array-get analyse exo-type ?values)
+      "put"    (analyse-array-put analyse exo-type ?values)
+      "remove" (analyse-array-remove analyse exo-type ?values)
+      "size"   (analyse-array-size analyse exo-type ?values))
 
     "nat"
     (case proc
@@ -281,6 +342,7 @@
 
     "char"
     (case proc
+      "to-text" (analyse-char-to-text analyse exo-type ?values)
       "to-nat" (analyse-char-to-nat analyse exo-type ?values)
       )
     

@@ -89,26 +89,26 @@
   ^:private compile-nat-add   "addI64"
   ^:private compile-nat-sub   "subI64"
   ^:private compile-nat-mul   "mulI64"
-  ;; ^:private compile-nat-div   "/"
-  ;; ^:private compile-nat-rem   "%"
+  ^:private compile-nat-div   "divN64"
+  ^:private compile-nat-rem   "remN64"
   ^:private compile-nat-eq    "eqI64"
-  ;; ^:private compile-nat-lt    "<"
+  ^:private compile-nat-lt    "ltN64"
 
   ^:private compile-int-add   "addI64"
   ^:private compile-int-sub   "subI64"
   ^:private compile-int-mul   "mulI64"
-  ;; ^:private compile-int-div   "/"
-  ;; ^:private compile-int-rem   "%"
+  ^:private compile-int-div   "divI64"
+  ^:private compile-int-rem   "remI64"
   ^:private compile-int-eq    "eqI64"
-  ;; ^:private compile-int-lt    "<"
+  ^:private compile-int-lt    "ltI64"
 
   ^:private compile-deg-add   "addI64"
   ^:private compile-deg-sub   "subI64"
-  ;; ^:private compile-deg-mul   "*"
-  ;; ^:private compile-deg-div   "/"
+  ^:private compile-deg-mul   "mulD64"
+  ^:private compile-deg-div   "divD64"
   ^:private compile-deg-rem   "subI64"
   ^:private compile-deg-eq    "eqI64"
-  ;; ^:private compile-deg-lt    "<"
+  ^:private compile-deg-lt    "ltD64"
   ^:private compile-deg-scale "mulI64"
   )
 
@@ -127,6 +127,22 @@
   ^:private compile-real-eq    "==="
   ^:private compile-real-lt    "<"
   )
+
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+          =x (compile ?x)]
+      (return (str &&rt/LuxRT "." <method> "(" =x ")"))))
+
+  ^:private compile-int-encode "encodeI64"
+  ^:private compile-nat-encode "encodeN64"
+  ^:private compile-deg-encode "encodeD64"
+  )
+
+(defn ^:private compile-real-encode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "(" =x ")" ".toString()"))))
 
 ;; (defn ^:private compile-nat-lt [compile ?values special-args]
 ;;   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -165,35 +181,6 @@
 ;;   ^:private compile-deg-min-value (.visitLdcInsn 0)  &&/wrap-long
 ;;   ^:private compile-deg-max-value (.visitLdcInsn -1) &&/wrap-long
 ;;   )
-
-;; (do-template [<encode-name> <encode-method> <decode-name> <decode-method>]
-;;   (do (defn <encode-name> [compile ?values special-args]
-;;         (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-;;               ^MethodVisitor *writer* &/get-writer
-;;               _ (compile ?x)
-;;               :let [_ (doto *writer*
-;;                         &&/unwrap-long
-;;                         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <encode-method> "(J)Ljava/lang/String;"))]]
-;;           (return nil)))
-
-;;     (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.String")]
-;;       (defn <decode-name> [compile ?values special-args]
-;;         (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-;;               ^MethodVisitor *writer* &/get-writer
-;;               _ (compile ?x)
-;;               :let [_ (doto *writer*
-;;                         (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-;;                         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <decode-method> "(Ljava/lang/String;)Ljava/lang/Object;"))]]
-;;           (return nil)))))
-
-;;   ^:private compile-nat-encode "encode_nat" ^:private compile-nat-decode "decode_nat"
-;;   ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
-;;   )
-
-(defn compile-int-encode [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-        =x (compile ?x)]
-    (return (str "(" =x ").toString()"))))
 
 ;; (do-template [<name> <method>]
 ;;   (defn <name> [compile ?values special-args]
@@ -261,23 +248,36 @@
   ^:private compile-int-to-nat
   )
 
-(defn compile-text-eq [compile ?values special-args]
+(defn ^:private compile-text-eq [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
         =x (compile ?x)
         =y (compile ?y)]
     (return (str "(" =x "===" =y ")"))))
 
-(defn compile-text-append [compile ?values special-args]
+(defn ^:private compile-text-append [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
         =x (compile ?x)
         =y (compile ?y)]
     (return (str =x ".concat(" =y ")"))))
+
+(defn ^:private compile-char-to-text [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]]
+    (compile ?x)))
+
+(defn ^:private compile-lux-log! [compile ?values special-args]
+  (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
+        =message (compile ?message)]
+    (return (str "LuxRT.log(" =message ")"))))
 
 (defn compile-proc [compile proc-category proc-name ?values special-args]
   (case proc-category
     ;; "lux"
     ;; (case proc-name
     ;;   "=="                   (compile-lux-== compile ?values special-args))
+
+    "io"
+    (case proc-name
+      "log!"                   (compile-lux-log! compile ?values special-args))
 
     "text"
     (case proc-name
@@ -303,11 +303,11 @@
       "+"         (compile-nat-add compile ?values special-args)
       "-"         (compile-nat-sub compile ?values special-args)
       "*"         (compile-nat-mul compile ?values special-args)
-      ;; "/"         (compile-nat-div compile ?values special-args)
-      ;; "%"         (compile-nat-rem compile ?values special-args)
+      "/"         (compile-nat-div compile ?values special-args)
+      "%"         (compile-nat-rem compile ?values special-args)
       "="         (compile-nat-eq compile ?values special-args)
-      ;; "<"         (compile-nat-lt compile ?values special-args)
-      ;; "encode"    (compile-nat-encode compile ?values special-args)
+      "<"         (compile-nat-lt compile ?values special-args)
+      "encode"    (compile-nat-encode compile ?values special-args)
       ;; "decode"    (compile-nat-decode compile ?values special-args)
       ;; "max-value" (compile-nat-max-value compile ?values special-args)
       ;; "min-value" (compile-nat-min-value compile ?values special-args)
@@ -320,11 +320,11 @@
       "+"         (compile-int-add compile ?values special-args)
       "-"         (compile-int-sub compile ?values special-args)
       "*"         (compile-int-mul compile ?values special-args)
-      ;; "/"         (compile-int-div compile ?values special-args)
-      ;; "%"         (compile-int-rem compile ?values special-args)
+      "/"         (compile-int-div compile ?values special-args)
+      "%"         (compile-int-rem compile ?values special-args)
       "="         (compile-int-eq compile ?values special-args)
-      ;; "<"         (compile-int-lt compile ?values special-args)
-      ;; "encode"    (compile-int-encode compile ?values special-args)
+      "<"         (compile-int-lt compile ?values special-args)
+      "encode"    (compile-int-encode compile ?values special-args)
       ;; "decode"    (compile-int-decode compile ?values special-args)
       ;; "max-value" (compile-int-max-value compile ?values special-args)
       ;; "min-value" (compile-int-min-value compile ?values special-args)
@@ -335,12 +335,12 @@
     (case proc-name
       "+"         (compile-deg-add compile ?values special-args)
       "-"         (compile-deg-sub compile ?values special-args)
-      ;; "*"         (compile-deg-mul compile ?values special-args)
-      ;; "/"         (compile-deg-div compile ?values special-args)
+      "*"         (compile-deg-mul compile ?values special-args)
+      "/"         (compile-deg-div compile ?values special-args)
       "%"         (compile-deg-rem compile ?values special-args)
       "="         (compile-deg-eq compile ?values special-args)
-      ;; "<"         (compile-deg-lt compile ?values special-args)
-      ;; "encode"    (compile-deg-encode compile ?values special-args)
+      "<"         (compile-deg-lt compile ?values special-args)
+      "encode"    (compile-deg-encode compile ?values special-args)
       ;; "decode"    (compile-deg-decode compile ?values special-args)
       ;; "max-value" (compile-deg-max-value compile ?values special-args)
       ;; "min-value" (compile-deg-min-value compile ?values special-args)
@@ -357,17 +357,18 @@
       "%"         (compile-real-rem compile ?values special-args)
       "="         (compile-real-eq compile ?values special-args)
       "<"         (compile-real-lt compile ?values special-args)
-      ;; "encode"    (compile-real-encode compile ?values special-args)
+      "encode"    (compile-real-encode compile ?values special-args)
       ;; "decode"    (compile-real-decode compile ?values special-args)
       ;; "max-value" (compile-real-max-value compile ?values special-args)
       ;; "min-value" (compile-real-min-value compile ?values special-args)
       ;; "to-deg"    (compile-real-to-deg compile ?values special-args)
       )
 
-    ;; "char"
-    ;; (case proc-name
-    ;;   "to-nat"    (compile-char-to-nat compile ?values special-args)
-    ;;   )
+    "char"
+    (case proc-name
+      "to-text" (compile-char-to-text compile ?values special-args)
+      ;; "to-nat"    (compile-char-to-nat compile ?values special-args)
+      )
     
     ;; else
     (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name]))))

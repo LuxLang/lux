@@ -765,47 +765,6 @@
 ;;                  (.visitInsn Opcodes/ARETURN)
 ;;                  (.visitMaxs 0 0)
 ;;                  (.visitEnd)))
-;;            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#172
-;;            _ (let [$too-big (new Label)]
-;;                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_nat" "(J)Ljava/lang/String;" nil nil)
-;;                  (.visitCode)
-;;                  (.visitLdcInsn "+")
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LCMP)
-;;                  (.visitJumpInsn Opcodes/IFLT $too-big)
-;;                  ;; then
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  ;; else
-;;                  (.visitLabel $too-big)
-;;                  ;; Set up parts of the number string...
-;;                  ;; First digits
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (int 1))
-;;                  (.visitInsn Opcodes/LUSHR)
-;;                  (.visitLdcInsn (long 5))
-;;                  (.visitInsn Opcodes/LDIV) ;; quot
-;;                  ;; Last digit
-;;                  (.visitInsn Opcodes/DUP2)
-;;                  (.visitLdcInsn (long 10))
-;;                  (.visitInsn Opcodes/LMUL)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  swap2
-;;                  (.visitInsn Opcodes/LSUB) ;; quot, rem
-;;                  ;; Conversion to string...
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;") ;; quot, rem*
-;;                  (.visitInsn Opcodes/DUP_X2);; rem*, quot, rem*
-;;                  (.visitInsn Opcodes/POP) ;; rem*, quot
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;") ;; rem*, quot*
-;;                  (.visitInsn Opcodes/SWAP) ;; quot*, rem*
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  (.visitMaxs 0 0)
-;;                  (.visitEnd)))
 ;;            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#215
 ;;            _ (let [$simple-case (new Label)]
 ;;                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;" nil nil)
@@ -936,10 +895,57 @@
 ;;                  (.visitEnd)))]
 ;;       nil)))
 
+(def ^:private adt-methods
+  {"product_getLeft" (str "(function product_getLeft(product,index) {"
+                          "var index_min_length = (index+1);"
+                          "if(product.length > index_min_length) {"
+                          ;; No need for recursion
+                          "return product[index];"
+                          "}"
+                          "else {"
+                          ;; Needs recursion
+                          "return product_getLeft(product[product.length - 1], (index_min_length - product.length));"
+                          "}"
+                          "})")
+   "product_getRight" (str "(function product_getRight(product,index) {"
+                           "var index_min_length = (index+1);"
+                           "if(product.length === index_min_length) {"
+                           ;; Last element.
+                           "return product[index];"
+                           "}"
+                           "else if(product.length < index_min_length) {"
+                           ;; Needs recursion
+                           "return product_getRight(product[product.length - 1], (index_min_length - product.length));"
+                           "}"
+                           "else {"
+                           ;; Must slice
+                           "return product.slice(index);"
+                           "}"
+                           "})")
+   "sum_get" (str "(function sum_get(sum,wantedTag,wantsLast) {"
+                  "if(sum[0] === wantedTag && sum[1] === wantsLast) {"
+                  ;; Exact match.
+                  "return sum[2];"
+                  "}"
+                  "else if(sum[0] < wantedTag || sum[1] !== wantsLast) {"
+                  "if(sum[1]) {"
+                  ;; Must recurse.
+                  "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
+                  "}"
+                  ;; No match.
+                  "else { return null; }"
+                  "}"
+                  ;; No match.
+                  "else { return null; }"
+                  "})")
+   })
+
 (def ^:private i64-methods
   {"makeI64" (str "(function makeI64(high,low) {"
                   "return { H: (high|0), L: (low|0)};"
                   "})")
+   "MIN_VALUE" "{ H: 0x80000000, L: 0}"
+   "ONE" "{ H: 0, L: 1}"
    "notI64" (str "(function notI64(i64) {"
                  "return LuxRT.makeI64(~i64.H,~i64.L);"
                  "})")
@@ -1030,59 +1036,163 @@
                  "return LuxRT.makeI64((x48 << 16) | x32, (x16 << 16) | x00);"
                  "}"
                  "})")
-   })
-
-(def ^:private adt-methods
-  {"product_getLeft" (str "(function product_getLeft(product,index) {"
-                          "var index_min_length = (index+1);"
-                          "if(product.length > index_min_length) {"
-                          ;; No need for recursion
-                          "return product[index];"
-                          "}"
-                          "else {"
-                          ;; Needs recursion
-                          "return product_getLeft(product[product.length - 1], (index_min_length - product.length));"
-                          "}"
-                          "})")
-   "product_getRight" (str "(function product_getRight(product,index) {"
-                           "var index_min_length = (index+1);"
-                           "if(product.length === index_min_length) {"
-                           ;; Last element.
-                           "return product[index];"
+   "divI64" (str "(function divI64(l,r) {"
+                 (str "if((r.H === 0) && (r.L === 0)) {"
+                      ;; Special case: R = 0
+                      "throw Error('division by zero');"
+                      "}"
+                      "else if((l.H === 0) && (l.L === 0)) {"
+                      ;; Special case: L = 0
+                      "return l;"
+                      "}")
+                 (str "if(LuxRT.eqI64(l,LuxRT.MIN_VALUE)) {"
+                      ;; Special case: L = MIN
+                      (str "if(LuxRT.eqI64(r,LuxRT.ONE) || LuxRT.eqI64(r,LuxRT.negateI64(LuxRT.ONE))) {"
+                           ;; Special case: L = MIN, R = 1|-1
+                           "return LuxRT.MIN_VALUE;"
                            "}"
-                           "else if(product.length < index_min_length) {"
-                           ;; Needs recursion
-                           "return product_getRight(product[product.length - 1], (index_min_length - product.length));"
+                           ;; Special case: L = R = MIN
+                           "else if(LuxRT.eqI64(r,LuxRT.MIN_VALUE)) {"
+                           "return LuxRT.ONE;"
+                           "}"
+                           ;; Special case: L = MIN
+                           "else {"
+                           "var halfL = LuxRT.shrI64(l,LuxRT.ONE);"
+                           "var approx = LuxRT.shlI64(LuxRT.divI64(halfL,r),LuxRT.ONE);"
+                           (str "if((approx.H === 0) && (approx.L === 0)) {"
+                                (str "if(r.H < 0) {"
+                                     "return LuxRT.ONE;"
+                                     "}"
+                                     "else {"
+                                     "return LuxRT.negateI64(LuxRT.ONE);"
+                                     "}")
+                                "}"
+                                "else {"
+                                "var rem = LuxRT.subI64(l,LuxRT.mulI64(r,approx));"
+                                "return LuxRT.addI64(approx,LuxRT.divI64(rem,r));"
+                                "}")
+                           "}")
+                      "}"
+                      "else if(LuxRT.eqI64(r,LuxRT.MIN_VALUE)) {"
+                      ;; Special case: R = MIN
+                      "return LuxRT.makeI64(0,0);"
+                      "}")
+                 ;; Special case: negatives
+                 (str "if(l.H < 0) {"
+                      (str "if(r.H < 0) {"
+                           ;; Both are negative
+                           "return LuxRT.divI64(LuxRT.negateI64(l),LuxRT.negateI64(r));"
                            "}"
                            "else {"
-                           ;; Must slice
-                           "return product.slice(index);"
-                           "}"
-                           "})")
-   "sum_get" (str "(function sum_get(sum,wantedTag,wantsLast) {"
-                  "if(sum[0] === wantedTag && sum[1] === wantsLast) {"
-                  ;; Exact match.
-                  "return sum[2];"
-                  "}"
-                  "else if(sum[0] < wantedTag || sum[1] !== wantsLast) {"
-                  "if(sum[1]) {"
-                  ;; Must recurse.
-                  "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
-                  "}"
-                  ;; No match.
-                  "else { return null; }"
-                  "}"
-                  ;; No match.
-                  "else { return null; }"
-                  "})")
+                           ;; Only L is negative
+                           "return LuxRT.negateI64(LuxRT.divI64(LuxRT.negateI64(l),r));"
+                           "}")
+                      "}"
+                      "else if(r.H < 0) {"
+                      ;; R is negative
+                      "return LuxRT.negateI64(LuxRT.divI64(l,LuxRT.negateI64(r)));"
+                      "}")
+                 ;; Common case
+                 (str "var res = { H: 0, L: 0};"
+                      "var rem = l;"
+                      (str "while(LuxRT.ltI64(r,rem) || LuxRT.eqI64(r,rem)) {"
+                           "var approx = Math.max(1, Math.floor(LuxRT.toNumberI64(rem) / LuxRT.toNumberI64(r)));"
+                           "var log2 = Math.ceil(Math.log(approx) / Math.LN2);"
+                           "var delta = (log2 <= 48) ? 1 : Math.pow(2, log2 - 48);"
+                           "var approxRes = LuxRT.fromNumberI64(approx);"
+                           "var approxRem = LuxRT.mulI64(approxRes,r);"
+                           (str "while((approxRem.H < 0) || LuxRT.ltI64(rem,approxRem)) {"
+                                "approx -= delta;"
+                                "approxRes = LuxRT.fromNumberI64(approx);"
+                                "approxRem = LuxRT.mulI64(approxRes,r);"
+                                "}")
+                           (str "if((approxRes.H === 0) && (approxRes.L === 0)) {"
+                                "approxRes = LuxRT.ONE;"
+                                "}")
+                           "res = LuxRT.addI64(res,approxRes);"
+                           "rem = LuxRT.subI64(rem,approxRem);"
+                           "}")
+                      "return res;")
+                 "})")
+   "remI64" (str "(function remI64(l,r) {"
+                 "return LuxRT.subI64(l,LuxRT.mulI64(LuxRT.divI64(l,r),r));"
+                 "})")
+   "encodeI64" (str "(function encodeI64(input) {"
+                    ;; If input = 0
+                    (str "if((input.H === 0) && (input.L === 0)) {"
+                         "return '0';"
+                         "}")
+                    ;; If input < 0
+                    (str "if(input.H < 0) {"
+                         (str "if(LuxRT.eqI64(input,LuxRT.MIN_VALUE)) {"
+                              "var radix = LuxRT.makeI64(0,10);"
+                              "var div = LuxRT.divI64(input,radix);"
+                              "var rem = LuxRT.subI64(LuxRT.mulI64(div,radix),input);"
+                              "return LuxRT.encodeI64(div).concat(rem.L+'');"
+                              "}")
+                         "}"
+                         "else {"
+                         "return '-'.concat(LuxRT.encodeI64(LuxRT.negateI64(input)));"
+                         "}")
+                    ;; If input > 0
+                    (str "var chunker = LuxRT.makeI64(0,1000000);"
+                         "var rem = input;"
+                         "var result = '';"
+                         "while (true) {"
+                         (str "var remDiv = LuxRT.divI64(rem,chunker);"
+                              "var chunk = LuxRT.subI64(rem,LuxRT.mulI64(remDiv,chunker));"
+                              "var digits = (chunk.L >>> 0)+'';"
+                              "rem = remDiv;"
+                              (str "if((rem.H === 0) && (rem.L === 0)) {"
+                                   "return digits.concat(result);"
+                                   "}"
+                                   "else {"
+                                   (str "while (digits.length < 6) {"
+                                        "digits = '0' + digits;"
+                                        "}")
+                                   "result = '' + digits + result;"
+                                   "}"))
+                         "}")
+                    "})")
+   "ltI64" (str "(function ltI64(l,r) {"
+                "var ln = l.H < 0;"
+                "var rn = r.H < 0;"
+                "if(ln && !rn) { return true; }"
+                "if(!ln && rn) { return false; }"
+                "return (LuxRT.subI64(l,r).H < 0);"
+                "})")
+   })
+
+(def ^:private n64-methods
+  {"encodeN64" (str "(function encodeN64(input) {"
+                    (str "if(input.H < 0) {"
+                         ;; Too big
+                         "var lastDigit = LuxRT.remI64(input, LuxRT.makeI64(0,10));"
+                         "var minusLastDigit = LuxRT.divI64(input, LuxRT.makeI64(0,10));"
+                         "return '+'.concat(LuxRT.encodeI64(minusLastDigit)).concat(LuxRT.encodeI64(lastDigit));"
+                         "}"
+                         "else {"
+                         ;; Small enough
+                         "return '+'.concat(LuxRT.encodeI64(input));"
+                         "}")
+                    "})")
+   })
+
+(def ^:private io-methods
+  {"log" (str "(function log(message) {"
+              "console.log(message);"
+              (str "return " &&/unit ";")
+              "})")
    })
 
 (def LuxRT "LuxRT")
 
 (def compile-LuxRT
-  (|do [_ (return nil)
+  (|do [_ (&&/run-js! "var console = { log: print };")
         :let [rt-object (str "{" (->> (merge adt-methods
-                                             i64-methods)
+                                             i64-methods
+                                             n64-methods
+                                             io-methods)
                                       (map (fn [[key val]]
                                              (str key ":" val)))
                                       (interpose ",")

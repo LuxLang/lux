@@ -32,6 +32,9 @@
 (def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$HostT "java.lang.String" &/$Nil)))
 (def Ident (&/$NamedT (&/T ["lux" "Ident"]) (&/$ProdT Text Text)))
 
+(defn Array [elem-type]
+  (&/$HostT "#Array" (&/|list elem-type)))
+
 (def Bottom
   (&/$NamedT (&/T ["lux" "Bottom"])
              (&/$UnivQ empty-env

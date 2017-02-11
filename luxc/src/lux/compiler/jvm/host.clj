@@ -2290,6 +2290,16 @@
                   (&&/wrap-boolean))]]
     (return nil)))
 
+(defn ^:private compile-array-new [compile ?values special-args]
+  (|do [:let [(&/$Cons ?length (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?length)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (.visitTypeInsn *writer* Opcodes/ANEWARRAY "java/lang/Object")]]
+    (return nil)))
+
 (defn ^:private compile-array-get [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
               ;; (&/$Nil) special-args
@@ -2321,6 +2331,54 @@
                   (.visitLdcInsn &/unit-tag)
                   (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitLabel $end))]]
+    (return nil)))
+
+(defn ^:private compile-array-put [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?array)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                  (.visitInsn Opcodes/DUP))]
+        _ (compile ?idx)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        _ (compile ?elem)
+        :let [_ (.visitInsn *writer* Opcodes/AASTORE)]]
+    (return nil)))
+
+(defn ^:private compile-array-remove [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?array)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                  (.visitInsn Opcodes/DUP))]
+        _ (compile ?idx)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/ACONST_NULL)
+                  (.visitInsn Opcodes/AASTORE))]]
+    (return nil)))
+
+(defn ^:private compile-array-size [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Nil)) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?array)
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/ARRAYLENGTH)
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long)]]
     (return nil)))
 
 (do-template [<name> <op>]
@@ -2611,6 +2669,14 @@
     ^:private compile-char-to-nat &&/unwrap-char &&/wrap-long widen
     ))
 
+(defn ^:private compile-char-to-text [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "toString" "()Ljava/lang/String;"))]]
+    (return nil)))
+
 (do-template [<name>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
@@ -2645,11 +2711,27 @@
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;"))]]
     (return nil)))
 
+(defn compile-io-log! [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (doto *writer*
+                  (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;"))]
+        _ (compile ?x)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "println" "(Ljava/lang/String;)V")
+                  (.visitLdcInsn &/unit-tag))]]
+    (return nil)))
+
 (defn compile-host [compile proc-category proc-name ?values special-args]
   (case proc-category
     "lux"
     (case proc-name
       "=="                   (compile-lux-== compile ?values special-args))
+
+    "io"
+    (case proc-name
+      "log!"                 (compile-io-log! compile ?values special-args))
 
     "text"
     (case proc-name
@@ -2668,7 +2750,11 @@
     
     "array"
     (case proc-name
-      "get" (compile-array-get compile ?values special-args))
+      "new" (compile-array-new compile ?values special-args)
+      "get" (compile-array-get compile ?values special-args)
+      "put" (compile-array-put compile ?values special-args)
+      "remove" (compile-array-remove compile ?values special-args)
+      "size" (compile-array-size compile ?values special-args))
 
     "nat"
     (case proc-name
@@ -2733,6 +2819,7 @@
     "char"
     (case proc-name
       "to-nat"    (compile-char-to-nat compile ?values special-args)
+      "to-text"   (compile-char-to-text compile ?values special-args)
       )
     
     "jvm"
