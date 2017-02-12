@@ -23,9 +23,11 @@
             (lux.compiler.jvm [base :as &&]
                               [cache :as &&cache]
                               [lux :as &&lux]
-                              [host :as &&host]
                               [case :as &&case]
-                              [lambda :as &&lambda]))
+                              [lambda :as &&lambda]
+                              [rt :as &&rt])
+            (lux.compiler.jvm.proc [common :as &&proc-common]
+                                   [host :as &&proc-host]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -108,7 +110,9 @@
         (compile-expression $begin ?value-ex)
 
         (&o/$proc [?proc-category ?proc-name] ?args special-args)
-        (&&host/compile-host (partial compile-expression $begin) ?proc-category ?proc-name ?args special-args)
+        (if (= "jvm" ?proc-category)
+          (&&proc-host/compile-proc (partial compile-expression $begin) ?proc-name ?args special-args)
+          (&&proc-common/compile-proc (partial compile-expression $begin) ?proc-category ?proc-name ?args special-args))
         
         _
         (assert false (prn-str 'compile-expression (&/adt->text syntax)))
@@ -162,8 +166,8 @@
     (&/T [(partial &&lux/compile-def compile-expression)
           (partial &&lux/compile-program compile-expression*)
           (fn [macro args state] (-> macro (.apply args) (.apply state)))
-          (partial &&host/compile-jvm-class compile-expression*)
-          &&host/compile-jvm-interface])))
+          (partial &&proc-host/compile-jvm-class compile-expression*)
+          &&proc-host/compile-jvm-interface])))
 
 (let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
       +datum-sig+ "Ljava/lang/Object;"]
@@ -190,8 +194,8 @@
                                                    .visitEnd)
                                                (.visitSource file-name nil))]
                                 _ (if (= "lux" name)
-                                    (|do [_ &&host/compile-Function-class
-                                          _ &&host/compile-LuxRT-class]
+                                    (|do [_ &&rt/compile-Function-class
+                                          _ &&rt/compile-LuxRT-class]
                                       (return nil))
                                     (return nil))]
                             (fn [state]
@@ -255,4 +259,5 @@
         (binding [*out* !err!]
           (do (println (str "Compilation failed:\n" ?message))
             (flush)
-            (System/exit 1)))))))
+            (System/exit 1)))
+        ))))
