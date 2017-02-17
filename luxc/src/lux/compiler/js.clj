@@ -71,8 +71,8 @@
       (&o/$apply ?fn ?args)
       (&&lux/compile-apply compile-expression ?fn ?args)
 
-      ;; (&o/$loop _register-offset _inits _body)
-      ;; (&&lux/compile-loop compile-expression _register-offset _inits _body)
+      (&o/$loop _register-offset _inits _body)
+      (&&lux/compile-loop compile-expression _register-offset _inits _body)
 
       (&o/$iter _register-offset ?args)
       (&&lux/compile-iter compile-expression _register-offset ?args)
@@ -157,8 +157,7 @@
                                ?state)
 
                   (&/$Left ?message)
-                  (&/fail* ?message)))))))
-      )
+                  (&/fail* ?message))))))))
     ))
 
 (let [!err! *err*]

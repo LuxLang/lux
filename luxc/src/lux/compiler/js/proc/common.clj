@@ -310,15 +310,27 @@
         =replace-with (compile ?replace-with)]
     (return (str "LuxRT.replaceAll(" (str =text "," =to-find "," =replace-with) ")"))))
 
-(defn ^:private compile-text-trim [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
-        =text (compile ?text)]
-    (return (str "(" =text ").trim()"))))
-
 (defn ^:private compile-text-size [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
         =text (compile ?text)]
     (return (str "LuxRT.fromNumberI64(" =text ".length" ")"))))
+
+(defn ^:private compile-text-char [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
+        =text (compile ?text)
+        =idx (compile ?idx)]
+    (return (str "LuxRT.textChar(" (str =text "," =idx) ")"))))
+
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+          =text (compile ?text)]
+      (return (str "(" =text ")." <method> "()"))))
+
+  ^:private compile-text-trim       "trim"
+  ^:private compile-text-upper-case "toUpperCase"
+  ^:private compile-text-lower-case "toLowerCase"
+  )
 
 (defn ^:private compile-char-to-text [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
@@ -356,6 +368,9 @@
       "size"                 (compile-text-size compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)
       "trim"                 (compile-text-trim compile ?values special-args)
+      "char"                 (compile-text-char compile ?values special-args)
+      "upper-case"           (compile-text-upper-case compile ?values special-args)
+      "lower-case"           (compile-text-lower-case compile ?values special-args)
       )
     
     ;; "bit"

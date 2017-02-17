@@ -24,7 +24,7 @@
           =y (&&/analyse-1 analyse <input-type> y)
           _ (&type/check exo-type <output-type>)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta <output-type> _cursor
+      (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
   ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bool
@@ -38,7 +38,7 @@
           =part (&&/analyse-1 analyse &type/Text part)
           _ (&type/check exo-type (&/$AppT &type/Maybe &type/Nat))
           _cursor &/cursor]
-      (return (&/|list (&&/|meta &type/Text _cursor
+      (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["text" <proc-name>])
                                            (&/|list =text =part)
                                            (&/|list)))))))
@@ -71,24 +71,41 @@
                                          (&/|list =text =to-find =replace-with)
                                          (&/|list)))))))
 
-(defn ^:private analyse-text-trim [analyse exo-type ?values]
-  (|do [:let [(&/$Cons text (&/$Nil)) ?values]
-        =text (&&/analyse-1 analyse &type/Text text)
-        _ (&type/check exo-type &type/Text)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["text" "trim"])
-                                         (&/|list =text)
-                                         (&/|list)))))))
-
 (defn ^:private analyse-text-size [analyse exo-type ?values]
   (|do [:let [(&/$Cons text (&/$Nil)) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta &type/Text _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "size"])
                                          (&/|list =text)
+                                         (&/|list)))))))
+
+(do-template [<name> <proc>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons text (&/$Nil)) ?values]
+          =text (&&/analyse-1 analyse &type/Text text)
+          _ (&type/check exo-type &type/Text)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["text" <proc>])
+                                           (&/|list =text)
+                                           (&/|list)))))))
+
+  ^:private analyse-text-trim "trim"
+  ^:private analyse-text-upper-case "upper-case"
+  ^:private analyse-text-lower-case "lower-case"
+  )
+
+(defn ^:private analyse-text-char [analyse exo-type ?values]
+  (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
+        =text (&&/analyse-1 analyse &type/Text text)
+        =idx (&&/analyse-1 analyse &type/Nat idx)
+        _ (&type/check exo-type (&/$AppT &type/Maybe &type/Char))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "char"])
+                                         (&/|list =text =idx)
                                          (&/|list)))))))
 
 (do-template [<name> <op>]
@@ -136,7 +153,7 @@
           =y (&&/analyse-1 analyse <input-type> y)
           _ (&type/check exo-type <output-type>)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta <output-type> _cursor
+      (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
   ^:private analyse-nat-add  ["nat" "+"]  &type/Nat  &type/Nat
@@ -178,7 +195,7 @@
         =y (&&/analyse-1 analyse &type/Nat y)
         _ (&type/check exo-type &type/Deg)
         _cursor &/cursor]
-    (return (&/|list (&&/|meta &type/Deg _cursor
+    (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["deg" "scale"]) (&/|list =x =y) (&/|list)))))))
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -187,7 +204,7 @@
               =x (&&/analyse-1 analyse <type> x)
               _ (&type/check exo-type &type/Text)
               _cursor &/cursor]
-          (return (&/|list (&&/|meta &type/Text _cursor
+          (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <encode-op>) (&/|list =x) (&/|list)))))))
 
     (let [decode-type (&/$AppT &type/Maybe <type>)]
@@ -196,7 +213,7 @@
               =x (&&/analyse-1 analyse &type/Text x)
               _ (&type/check exo-type decode-type)
               _cursor &/cursor]
-          (return (&/|list (&&/|meta decode-type _cursor
+          (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
   ^:private analyse-nat-encode ["nat" "encode"] ^:private analyse-nat-decode ["nat" "decode"] &type/Nat
@@ -210,7 +227,7 @@
     (|do [:let [(&/$Nil) ?values]
           _ (&type/check exo-type <type>)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta <type> _cursor
+      (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
   ^:private analyse-nat-min-value            &type/Nat  ["nat"  "min-value"]
@@ -235,7 +252,7 @@
           =x (&&/analyse-1 analyse <from-type> x)
           _ (&type/check exo-type <to-type>)
           _cursor &/cursor]
-      (return (&/|list (&&/|meta <to-type> _cursor
+      (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
   ^:private analyse-nat-to-int   &type/Nat  &type/Int    ["nat" "to-int"]
@@ -331,7 +348,10 @@
       "last-index"           (analyse-text-last-index analyse exo-type ?values)
       "size"                 (analyse-text-size analyse exo-type ?values)
       "replace-all"          (analyse-text-replace-all analyse exo-type ?values)
-      "trim"                 (analyse-text-trim analyse exo-type ?values))
+      "trim"                 (analyse-text-trim analyse exo-type ?values)
+      "char"                 (analyse-text-char analyse exo-type ?values)
+      "upper-case"           (analyse-text-upper-case analyse exo-type ?values)
+      "lower-case"           (analyse-text-lower-case analyse exo-type ?values))
 
     "bit"
     (case proc

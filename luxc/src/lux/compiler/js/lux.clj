@@ -91,21 +91,15 @@
         =args (&/map% compile ?args)]
     (return (str =fn "(" (->> =args (&/|interpose ",") (&/fold str "")) ")"))))
 
-;; (defn compile-loop [compile-expression register-offset inits body]
-;;   (|do [^MethodVisitor *writer* &/get-writer
-;;         :let [idxs+inits (&/zip2 (&/|range* 0 (dec (&/|length inits)))
-;;                                  inits)]
-;;         _ (&/map% (fn [idx+_init]
-;;                     (|do [:let [[idx _init] idx+_init
-;;                                 idx+ (+ register-offset idx)]
-;;                           _ (compile-expression nil _init)
-;;                           :let [_ (.visitVarInsn *writer* Opcodes/ASTORE idx+)]]
-;;                       (return nil)))
-;;                   idxs+inits)
-;;         :let [$begin (new Label)
-;;               _ (.visitLabel *writer* $begin)]]
-;;     (compile-expression $begin body)
-;;     ))
+(defn compile-loop [compile register-offset inits body]
+  (|do [:let [registers (&/|map #(->> % (+ register-offset) register-name)
+                                (&/|range* 0 (dec (&/|length inits))))]
+        register-inits (&/map% compile inits)
+        =body (compile body)]
+    (return (str "(function _loop(" (->> registers (&/|interpose ",") (&/fold str "")) ") {"
+                 =body
+                 "})(" (->> register-inits (&/|interpose ",") (&/fold str "")) ")"))
+    ))
 
 (defn compile-iter [compile register-offset ?args]
   ;; Can only optimize if it is a simple expression.
@@ -128,7 +122,7 @@
   ;;                            ?args)]
   ;;   (return updates))
   (|do [=args (&/map% compile ?args)]
-    (return (str "_0("
+    (return (str "_loop("
                  (->> =args (&/|interpose ",") (&/fold str ""))
                  ")")))
   )
@@ -304,7 +298,8 @@
                       "\"use strict\";"
                       "var num_args = arguments.length;"
                       "if(num_args == " arity ") {"
-                      "var " (register-name 0) " = " function-name ";"
+                      (str "var " (register-name 0) " = " function-name ";")
+                      (str "var _loop = " function-name ";")
                       func-args
                       (str "while(true) {"
                            "return " =body ";"

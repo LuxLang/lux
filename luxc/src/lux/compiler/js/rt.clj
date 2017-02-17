@@ -1264,6 +1264,17 @@
                      "var reEscaped = toFind.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');"
                      "return text.replace(new RegExp(reEscaped, 'g'), replaceWith);"
                      "})")
+   "textChar" (str "(function textChar(text,idx) {"
+                   "var result = text.charAt(idx);"
+                   (str "if(result === '') {"
+                        (str "return " (make-some "result") ";")
+                        "}"
+                        "else {"
+                        (str "return " const-none ";")
+                        "}")
+                   "var reEscaped = toFind.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');"
+                   "return text.replace(new RegExp(reEscaped, 'g'), replaceWith);"
+                   "})")
    })
 
 (def LuxRT "LuxRT")

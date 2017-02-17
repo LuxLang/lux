@@ -283,8 +283,6 @@
                         =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                  (.visit &host/bytecode-version class-flags
                                          current-class nil &&/function-class (into-array String []))
-                                 (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
-                                     (doto (.visitEnd)))
                                  (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                      (doto (.visitEnd)))
                                  (.visitSource file-name nil))]
@@ -353,8 +351,6 @@
                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                (.visit &host/bytecode-version class-flags
                                        current-class nil "java/lang/Object" (into-array String []))
-                               (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
-                                   (doto (.visitEnd)))
                                (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                    (doto (.visitEnd)))
                                (.visitSource file-name nil))]

@@ -178,15 +178,38 @@
   (not (r.= number number)))
 
 ## [Values & Syntax]
-(do-template [<struct> <to-proc> <radix> <macro> <error> <doc>]
+(do-template [<struct> <base> <macro> <error> <char-set> <doc>]
   [(struct: #export <struct> (Codec Text Nat)
      (def: (encode value)
-       (_lux_proc ["jvm" <to-proc>] [(nat-to-int value)]))
+       (loop [input value
+              output ""]
+         (let [digit (assume (_lux_proc ["text" "char"] [<char-set> (n.% <base> input)]))
+               output' (_lux_proc ["text" "append"] [(_lux_proc ["char" "to-text"] [digit])
+                                                     output])
+               input' (n./ <base> input)]
+           (if (n.= +0 input')
+             output'
+             (recur input' output')))))
 
      (def: (decode repr)
-       (_lux_proc ["jvm" "try"]
-                  [(#;Right (int-to-nat (_lux_proc ["jvm" "invokestatic:java.lang.Long:parseUnsignedLong:java.lang.String,int"] [repr (_lux_proc ["jvm" "l2i"] [<radix>])])))
-                   (lambda [ex] (#;Left <error>))])))
+       (let [input-size (_lux_proc ["text" "size"] [repr])]
+         (if (n.= +0 input-size)
+           (#;Left "Empty input.")
+           (let [input (_lux_proc ["text" "upper-case"] [repr])]
+             (loop [idx +0
+                    output +0]
+               (if (n.< input-size idx)
+                 (let [digit (assume (_lux_proc ["text" "char"] [input idx]))]
+                   (case (_lux_proc ["text" "index"]
+                                    [input
+                                     (_lux_proc ["char" "to-text"] [digit])])
+                     #;None
+                     (#;Left <error>)
+
+                     (#;Some index)
+                     (recur (n.inc idx)
+                            (|> output (n.* <base>) (n.* index)))))
+                 (#;Right output))))))))
 
    (macro: #export (<macro> tokens state)
      {#;doc <doc>}
@@ -202,13 +225,16 @@
        _
        (#;Left <error>)))]
 
-  [Binary@Codec<Text,Nat> "invokestatic:java.lang.Long:toBinaryString:long" 2  bin "Invalid binary syntax."
+  [Binary@Codec<Text,Nat> +2  bin "Invalid binary syntax."
+   "01"
    (doc "Given syntax for a binary number, generates a Nat."
         (bin "11001001"))]
-  [Octal@Codec<Text,Nat>  "invokestatic:java.lang.Long:toOctalString:long"  8  oct "Invalid octal syntax."
+  [Octal@Codec<Text,Nat>  +8  oct "Invalid octal syntax."
+   "01234567"
    (doc "Given syntax for an octal number, generates a Nat."
         (oct "615243"))]
-  [Hex@Codec<Text,Nat>    "invokestatic:java.lang.Long:toHexString:long"    16 hex "Invalid hexadecimal syntax."
+  [Hex@Codec<Text,Nat>    +16 hex "Invalid hexadecimal syntax."
+   "0123456789ABCDEF"
    (doc "Given syntax for a hexadecimal number, generates a Nat."
         (hex "deadBEEF"))]
   )

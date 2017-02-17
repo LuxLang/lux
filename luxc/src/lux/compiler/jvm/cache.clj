@@ -19,7 +19,8 @@
   (:import (java.io File
                     BufferedOutputStream
                     FileOutputStream)
-           (java.lang.reflect Field)))
+           (java.lang.reflect Field)
+           ))
 
 ;; [Utils]
 (defn ^:private read-file [^File file]
@@ -30,12 +31,6 @@
       (.read reader buffer 0 length)
       buffer)))
 
-(defn ^:private clean-file [^File file]
-  "(-> File (,))"
-  (doseq [^File f (seq (.listFiles file))
-          :when (not (.isDirectory f))]
-    (.delete f)))
-
 (defn ^:private get-field [^String field-name ^Class class]
   "(-> Text Class Object)"
   (-> class ^Field (.getField field-name) (.get nil)))
@@ -43,20 +38,24 @@
 ;; [Resources]
 (def module-class-file (str &/module-class-name ".class"))
 
+(defn ^:private delete-all-module-files [^File file]
+  (doseq [^File f (seq (.listFiles file))
+          :when (not (.isDirectory f))]
+    (.delete f)))
+
+(defn ^:private module-path [module]
+  (str @&&core/!output-dir
+       java.io.File/separator
+       (.replace ^String (&host/->module-class module) "/" java.io.File/separator)))
+
 (defn cached? [module]
   "(-> Text Bool)"
-  (.exists (new File (str @&&core/!output-dir
-                          java.io.File/separator
-                          (.replace ^String (&host/->module-class module) "/" java.io.File/separator)
-                          java.io.File/separator
-                          module-class-file))))
+  (.exists (new File (str (module-path module) java.io.File/separator &&core/lux-module-descriptor-name))))
 
 (defn delete [module]
   "(-> Text (Lux Null))"
   (fn [state]
-    (do (clean-file (new File (str @&&core/!output-dir
-                                   java.io.File/separator
-                                   (.replace ^String (&host/->module-class module) "/" java.io.File/separator))))
+    (do (delete-all-module-files (new File (module-path module)))
       (return* state nil))))
 
 (defn ^:private module-dirs
@@ -85,30 +84,19 @@
                                        corrected-dir-module)))
                               (filter outdated?))]
     (doseq [^String f outdated-modules]
-      (clean-file (new File (str output-dir-prefix f))))
+      (delete-all-module-files (new File (str output-dir-prefix f))))
     nil))
 
-(defn ^:private install-all-classes-in-module [!classes module* ^String module-path]
-  (let [classes+bytecode (for [^File file (seq (.listFiles (File. module-path)))
-                               :when (not (.isDirectory file))
-                               :let [file-name (.getName file)]
-                               :when (not= module-class-file file-name)]
-                           [(second (re-find #"^(.*)\.class$" file-name))
-                            (read-file file)])
-        _ (doseq [[class-name bytecode] classes+bytecode]
-            (swap! !classes assoc (str module* "." class-name) bytecode))]
-    (map first classes+bytecode)))
-
-(defn ^:private assume-async-result
-  "(-> (Error Compiler) (Lux Null))"
-  [result]
-  (fn [_]
-    (|case result
-      (&/$Left error)
-      (&/$Left error)
-
-      (&/$Right compiler)
-      (return* compiler nil))))
+(defn ^:private install-all-defs-in-module [!classes module* ^String module-path]
+  (let [file-name+content (for [^File file (seq (.listFiles (File. module-path)))
+                                :when (not (.isDirectory file))
+                                :let [file-name (.getName file)]
+                                :when (not= module-class-file file-name)]
+                            [(second (re-find #"^(.*)\.class$" file-name))
+                             (read-file file)])
+        _ (doseq [[file-name content] file-name+content]
+            (swap! !classes assoc (str module* "." file-name) content))]
+    (map first file-name+content)))
 
 (defn ^:private parse-tag-groups [^String tags-section]
   (if (= "" tags-section)
@@ -225,7 +213,7 @@
                     class-name (str module* "." &/module-class-name)
                     ^Class module-class (do (swap! !classes assoc class-name (read-file (new File (str module-path java.io.File/separator module-class-file))))
                                           (&&/load-class! loader class-name))
-                    installed-classes (install-all-classes-in-module !classes module* module-path)
+                    installed-classes (install-all-defs-in-module !classes module* module-path)
                     valid-cache? (and (= module-hash (get-field &/hash-field module-class))
                                       (= &/compiler-version (get-field &/compiler-field module-class)))
                     drop-cache! (|do [_ (uninstall-cache module)
@@ -240,7 +228,7 @@
               (return cache-table*))
             drop-cache!))))
 
-(def !pre-loaded-cache (atom nil))
+(def ^:private !pre-loaded-cache (atom nil))
 (defn pre-load-cache! [source-dirs]
   (|do [:let [fs-cached-modules (enumerate-cached-modules!)]
         pre-loaded-modules (&/fold% (fn [cache-table module-name]
