@@ -54,15 +54,31 @@
       (&/adt->text obj)
       )))
 
+(defn ^:private _toString_simple [^String obj]
+  (reify JSObject
+    (isFunction [self] true)
+    (call [self this args]
+      obj
+      )))
+
 (def ^:private i64-mask (dec (bit-shift-left 1 32)))
-(defn ^:private to-i64 [value]
+(deftype I64 [value]
+  JSObject
+  (getMember [self member]
+    (condp = member
+      "H" (-> value (unsigned-bit-shift-right 32) (bit-and i64-mask) int)
+      "L" (-> value (bit-and i64-mask) int)
+      ;; else
+      (assert false (str "I64#getMember = " member)))))
+
+(defn ^:private encode-char [value]
   (reify JSObject
     (getMember [self member]
       (condp = member
-        "H" (-> value (unsigned-bit-shift-right 32) (bit-and i64-mask) int)
-        "L" (-> value (bit-and i64-mask) int)
+        "C" value
+        ;; "toString" (_toString_simple value)
         ;; else
-        (assert false (str "to-i64#getMember = " member))))))
+        (assert false (str "encode-char#getMember = " member))))))
 
 (deftype LuxJsObject [obj]
   JSObject
@@ -73,7 +89,10 @@
             (new LuxJsObject value)
 
             (instance? java.lang.Long value)
-            (to-i64 value)
+            (new I64 value)
+
+            (instance? java.lang.Character value)
+            (encode-char (str value))
 
             :else
             value)))
@@ -81,15 +100,7 @@
     (condp = member
       "toString" (_toString_ obj)
       "length" (alength obj)
-      "slice" (let [wrap-lux-obj #(cond (instance? lux-obj-class %)
-                                        (new LuxJsObject %)
-
-                                        (instance? java.lang.Long %)
-                                        (to-i64 %)
-
-                                        :else
-                                        %)]
-                (_slice_ wrap-lux-obj obj))
+      "slice" (_slice_ #(new LuxJsObject %) obj)
       ;; else
       (assert false (str "wrap-lux-obj#getMember = " member)))))
 
@@ -101,6 +112,13 @@
 (defn ^:private int64? [^ScriptObjectMirror js-object]
   (and (.hasMember js-object "H")
        (.hasMember js-object "L")))
+
+(defn ^:private encoded-char? [^ScriptObjectMirror js-object]
+  (.hasMember js-object "C"))
+
+(defn ^:private decode-char [^ScriptObjectMirror js-object]
+  (-> (.getMember js-object "C")
+      (.charAt 0)))
 
 (defn ^:private parse-int64 [^ScriptObjectMirror js-object]
   (+ (-> (.getMember js-object "H")
@@ -121,6 +139,9 @@
 
         (instance? LuxJsObject js-object)
         (.-obj ^LuxJsObject js-object)
+
+        (instance? I64 js-object)
+        (.-value ^I64 js-object)
 
         ;; (instance? Undefined js-object)
         ;; (assert false "UNDEFINED")
@@ -149,6 +170,9 @@
                 (int64? js-object)
                 (parse-int64 js-object)
 
+                (encoded-char? js-object)
+                (decode-char js-object)
+
                 :else
                 (assert false (str "Unknown kind of JS object: " js-object))))
 
@@ -169,5 +193,5 @@
                   (let [^String module* (&host/->module-class module)
                         module-dir (str @&&/!output-dir java.io.File/separator (.replace module* "/" java.io.File/separator))]
                     (do (.mkdirs (File. module-dir))
-                      (&&/write-file (str module-dir java.io.File/separator name ".js") (.getBytes script)))))]]
+                      (&&/write-file (str module-dir java.io.File/separator (&host/def-name name) ".js") (.getBytes script)))))]]
     (return nil)))

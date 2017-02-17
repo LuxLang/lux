@@ -6,7 +6,7 @@
                  [type :as &type])
             (lux.analyser [base :as &&])))
 
-(defn ^:private analyse-lux-== [analyse exo-type ?values]
+(defn ^:private analyse-lux-is [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
       (|do [:let [(&/$Cons left (&/$Cons right (&/$Nil))) ?values]
@@ -15,7 +15,7 @@
             _ (&type/check exo-type &type/Bool)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["lux" "=="]) (&/|list =left =right) (&/|list)))))))))
+                                   (&&/$proc (&/T ["lux" "is"]) (&/|list =left =right) (&/|list)))))))))
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn <name> [analyse exo-type ?values]
@@ -30,6 +30,66 @@
   ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bool
   ^:private analyse-text-append ["text" "append"] &type/Text &type/Text
   )
+
+(do-template [<name> <proc-name>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons text (&/$Cons part (&/$Nil))) ?values]
+          =text (&&/analyse-1 analyse &type/Text text)
+          =part (&&/analyse-1 analyse &type/Text part)
+          _ (&type/check exo-type (&/$AppT &type/Maybe &type/Nat))
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta &type/Text _cursor
+                                 (&&/$proc (&/T ["text" <proc-name>])
+                                           (&/|list =text =part)
+                                           (&/|list)))))))
+
+  ^:private analyse-text-index      "index"
+  ^:private analyse-text-last-index "last-index"
+  )
+
+(defn ^:private analyse-text-clip [analyse exo-type ?values]
+  (|do [:let [(&/$Cons text (&/$Cons from (&/$Cons to (&/$Nil)))) ?values]
+        =text (&&/analyse-1 analyse &type/Text text)
+        =from (&&/analyse-1 analyse &type/Nat from)
+        =to (&&/analyse-1 analyse &type/Nat to)
+        _ (&type/check exo-type (&/$AppT &type/Maybe &type/Text))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "clip"])
+                                         (&/|list =text =from =to)
+                                         (&/|list)))))))
+
+(defn ^:private analyse-text-replace-all [analyse exo-type ?values]
+  (|do [:let [(&/$Cons text (&/$Cons to-find (&/$Cons replace-with (&/$Nil)))) ?values]
+        =text (&&/analyse-1 analyse &type/Text text)
+        =to-find (&&/analyse-1 analyse &type/Text to-find)
+        =replace-with (&&/analyse-1 analyse &type/Text replace-with)
+        _ (&type/check exo-type &type/Text)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "replace-all"])
+                                         (&/|list =text =to-find =replace-with)
+                                         (&/|list)))))))
+
+(defn ^:private analyse-text-trim [analyse exo-type ?values]
+  (|do [:let [(&/$Cons text (&/$Nil)) ?values]
+        =text (&&/analyse-1 analyse &type/Text text)
+        _ (&type/check exo-type &type/Text)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "trim"])
+                                         (&/|list =text)
+                                         (&/|list)))))))
+
+(defn ^:private analyse-text-size [analyse exo-type ?values]
+  (|do [:let [(&/$Cons text (&/$Nil)) ?values]
+        =text (&&/analyse-1 analyse &type/Text text)
+        _ (&type/check exo-type &type/Nat)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta &type/Text _cursor
+                               (&&/$proc (&/T ["text" "size"])
+                                         (&/|list =text)
+                                         (&/|list)))))))
 
 (do-template [<name> <op>]
   (defn <name> [analyse exo-type ?values]
@@ -153,17 +213,20 @@
       (return (&/|list (&&/|meta <type> _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
-  ^:private analyse-nat-min-value  &type/Nat  ["nat"  "min-value"]
-  ^:private analyse-nat-max-value  &type/Nat  ["nat"  "max-value"]
+  ^:private analyse-nat-min-value            &type/Nat  ["nat"  "min-value"]
+  ^:private analyse-nat-max-value            &type/Nat  ["nat"  "max-value"]
 
-  ^:private analyse-int-min-value  &type/Int  ["int"  "min-value"]
-  ^:private analyse-int-max-value  &type/Int  ["int"  "max-value"]
+  ^:private analyse-int-min-value            &type/Int  ["int"  "min-value"]
+  ^:private analyse-int-max-value            &type/Int  ["int"  "max-value"]
 
-  ^:private analyse-deg-min-value &type/Deg ["deg" "min-value"]
-  ^:private analyse-deg-max-value &type/Deg ["deg" "max-value"]
+  ^:private analyse-deg-min-value           &type/Deg ["deg" "min-value"]
+  ^:private analyse-deg-max-value           &type/Deg ["deg" "max-value"]
 
-  ^:private analyse-real-min-value  &type/Real  ["real"  "min-value"]
-  ^:private analyse-real-max-value  &type/Real  ["real"  "max-value"]
+  ^:private analyse-real-min-value          &type/Real  ["real"  "min-value"]
+  ^:private analyse-real-max-value          &type/Real  ["real"  "max-value"]
+  ^:private analyse-real-not-a-number       &type/Real  ["real"  "not-a-number"]
+  ^:private analyse-real-positive-infinity  &type/Real  ["real"  "positive-infinity"]
+  ^:private analyse-real-negative-infinity  &type/Real  ["real"  "negative-infinity"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -175,16 +238,23 @@
       (return (&/|list (&&/|meta <to-type> _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  ^:private analyse-nat-to-int   &type/Nat  &type/Int  ["nat" "to-int"]
-  ^:private analyse-nat-to-char  &type/Nat  &type/Char ["nat" "to-char"]
-  ^:private analyse-int-to-nat   &type/Int  &type/Nat  ["int" "to-nat"]
-  ^:private analyse-char-to-nat  &type/Char &type/Nat  ["char" "to-nat"]
-  ^:private analyse-char-to-text &type/Char &type/Text ["char" "to-text"]
-
-  ^:private analyse-deg-to-real  &type/Deg  &type/Real ["deg" "to-real"]
-  ^:private analyse-real-to-deg  &type/Real &type/Deg  ["real" "to-deg"]
+  ^:private analyse-nat-to-int   &type/Nat  &type/Int    ["nat" "to-int"]
+  ^:private analyse-int-to-nat   &type/Int  &type/Nat    ["int" "to-nat"]
   
-  ^:private analyse-lux-log!     &type/Text &/$UnitT   ["io" "log!"]
+  ^:private analyse-nat-to-char  &type/Nat  &type/Char   ["nat" "to-char"]
+  ^:private analyse-char-to-nat  &type/Char &type/Nat    ["char" "to-nat"]
+  
+  ^:private analyse-int-to-real  &type/Int  &type/Real   ["int" "to-real"]
+  ^:private analyse-real-to-int  &type/Real &type/Int    ["real" "to-int"]
+  ^:private analyse-real-hash    &type/Real &type/Nat    ["real" "hash"]
+  
+  ^:private analyse-char-to-text &type/Char &type/Text   ["char" "to-text"]
+
+  ^:private analyse-deg-to-real  &type/Deg  &type/Real   ["deg" "to-real"]
+  ^:private analyse-real-to-deg  &type/Real &type/Deg    ["real" "to-deg"]
+  
+  ^:private analyse-lux-log      &type/Text &/$UnitT     ["io" "log"]
+  ^:private analyse-lux-error    &type/Text &type/Bottom ["io" "error"]
   )
 
 (defn ^:private analyse-array-new [analyse exo-type ?values]
@@ -245,16 +315,23 @@
   (case category
     "lux"
     (case proc
-      "=="                   (analyse-lux-== analyse exo-type ?values))
+      "is"                   (analyse-lux-is analyse exo-type ?values))
 
     "io"
     (case proc
-      "log!"                 (analyse-lux-log! analyse exo-type ?values))
+      "log"                  (analyse-lux-log analyse exo-type ?values)
+      "error"                (analyse-lux-error analyse exo-type ?values))
 
     "text"
     (case proc
       "="                    (analyse-text-eq analyse exo-type ?values)
-      "append"               (analyse-text-append analyse exo-type ?values))
+      "append"               (analyse-text-append analyse exo-type ?values)
+      "clip"                 (analyse-text-clip analyse exo-type ?values)
+      "index"                (analyse-text-index analyse exo-type ?values)
+      "last-index"           (analyse-text-last-index analyse exo-type ?values)
+      "size"                 (analyse-text-size analyse exo-type ?values)
+      "replace-all"          (analyse-text-replace-all analyse exo-type ?values)
+      "trim"                 (analyse-text-trim analyse exo-type ?values))
 
     "bit"
     (case proc
@@ -305,6 +382,7 @@
       "min-value" (analyse-int-min-value analyse exo-type ?values)
       "max-value" (analyse-int-max-value analyse exo-type ?values)
       "to-nat" (analyse-int-to-nat analyse exo-type ?values)
+      "to-real" (analyse-int-to-real analyse exo-type ?values)
       )
 
     "deg"
@@ -337,7 +415,12 @@
       "decode" (analyse-real-decode analyse exo-type ?values)
       "min-value" (analyse-real-min-value analyse exo-type ?values)
       "max-value" (analyse-real-max-value analyse exo-type ?values)
+      "not-a-number" (analyse-real-not-a-number analyse exo-type ?values)
+      "positive-infinity" (analyse-real-positive-infinity analyse exo-type ?values)
+      "negative-infinity" (analyse-real-negative-infinity analyse exo-type ?values)
       "to-deg" (analyse-real-to-deg analyse exo-type ?values)
+      "to-int" (analyse-real-to-int analyse exo-type ?values)
+      "hash" (analyse-real-hash analyse exo-type ?values)
       )
 
     "char"

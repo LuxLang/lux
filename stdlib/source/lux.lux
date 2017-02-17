@@ -1666,6 +1666,13 @@
       (#Cons [[k' v] dict'])
       (#Cons [[k' v'] (put k v dict')]))))
 
+(def:''' #export (log! message)
+  (list [["lux" "doc"] (#TextA "Logs message to standard output.
+
+                                Useful for debugging.")])
+  (-> Text Unit)
+  (_lux_proc ["io" "log"] [message]))
+
 (def:''' (Text/append x y)
   #Nil
   (-> Text Text Text)
@@ -2241,13 +2248,6 @@
   (-> Bool Bool)
   (if x false true))
 
-(def:''' #export (log! message)
-  (list [["lux" "doc"] (#TextA "Logs message to standard output.
-
-                                Useful for debugging.")])
-  (-> Text Unit)
-  (_lux_proc ["io" "log!"] [message]))
-
 (def:''' (find-macro' modules current-module module name)
   #Nil
   (-> ($' List (& Text Module))
@@ -2568,7 +2568,7 @@
 
 (macro:' #export (Rec tokens)
   (list [["lux" "doc"] (#TextA "## Parameter-less recursive types.
-                                ## A name has to be given to the whole type, to use it within it's body.
+                                ## A name has to be given to the whole type, to use it within its body.
                                 (Rec Self
                                   [Int (List Self)])")])
   (_lux_case tokens
@@ -3223,42 +3223,81 @@
       (#Some y))))
 
 (def: (last-index-of part text)
-  (-> Text Text Int)
-  (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" "invokevirtual:java.lang.String:lastIndexOf:java.lang.String"] [text part])]))
+  (-> Text Text (Maybe Nat))
+  (_lux_proc ["text" "last-index"] [text part]))
 
 (def: (index-of part text)
-  (-> Text Text Int)
-  (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" "invokevirtual:java.lang.String:indexOf:java.lang.String"] [text part])]))
+  (-> Text Text (Maybe Nat))
+  (_lux_proc ["text" "index"] [text part]))
 
-(def: (substring1 idx text)
-  (-> Int Text Text)
-  (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int"] [text (_lux_proc ["jvm" "l2i"] [idx])]))
+(def: (clip1 from text)
+  (-> Nat Text (Maybe Text))
+  (_lux_proc ["text" "clip"] [text from (_lux_proc ["text" "size"] [text])]))
 
-(def: (substring2 idx1 idx2 text)
-  (-> Int Int Text Text)
-  (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int,int"] [text (_lux_proc ["jvm" "l2i"] [idx1]) (_lux_proc ["jvm" "l2i"] [idx2])]))
+(def: (clip2 from to text)
+  (-> Nat Nat Text (Maybe Text))
+  (_lux_proc ["text" "clip"] [text from to]))
+
+(def: #export (error! message)
+  {#;doc "## Causes an error, with the given error message.
+          (error! \"OH NO!\")"}
+  (-> Text Bottom)
+  (_lux_proc ["io" "error"] [message]))
+
+(macro: #export (default tokens state)
+  {#;doc "## Allows you to provide a default value that will be used
+          ## if a (Maybe x) value turns out to be #;None.
+          (default 20 (#;Some 10)) => 10
+
+          (default 20 #;None) => 20"}
+  (case tokens
+    (^ (list else maybe))
+    (let [g!temp (: AST [_cursor (#;SymbolS ["" ""])])
+          code (` (case (~ maybe)
+                    (#;Some (~ g!temp))
+                    (~ g!temp)
+
+                    #;None
+                    (~ else)))]
+      (#;Right [state (list code)]))
+
+    _
+    (#;Left "Wrong syntax for ?")))
 
 (def: (split-text splitter input)
   (-> Text Text (List Text))
-  (let [idx (index-of splitter input)]
-    (if (i.< 0 idx)
-      (#Cons input #Nil)
-      (#Cons (substring2 0 idx input)
-             (split-text splitter (substring1 (i.+ 1 idx) input))))))
+  (case (index-of splitter input)
+    #;None
+    (#Cons input #Nil)
+
+    (#;Some idx)
+    (#Cons (default (error! "UNDEFINED")
+             (clip2 +0 idx input))
+           (split-text splitter
+                       (default (error! "UNDEFINED")
+                         (clip1 (n.+ +1 idx) input))))))
 
 (def: (split-module-contexts module)
   (-> Text (List Text))
-  (#Cons module (let [idx (last-index-of "/" module)]
-                  (if (i.< 0 idx)
-                    #Nil
-                    (split-module-contexts (substring2 0 idx module))))))
+  (#Cons module (case (last-index-of "/" module)
+                  #;None
+                  #Nil
+
+                  (#;Some idx)
+                  (split-module-contexts (default (error! "UNDEFINED")
+                                           (clip2 +0 idx module))))))
 
 (def: (split-module module)
   (-> Text (List Text))
-  (let [idx (index-of "/" module)]
-    (if (i.< 0 idx)
-      (list module)
-      (list& (substring2 0 idx module) (split-module (substring1 (i.+ 1 idx) module))))))
+  (case (index-of "/" module)
+    #;None
+    (list module)
+
+    (#;Some idx)
+    (list& (default (error! "UNDEFINED")
+             (clip2 +0 idx module))
+           (split-module (default (error! "UNDEFINED")
+                           (clip1 (n.+ +1 idx) module))))))
 
 (def: (nth idx xs)
   (All [a]
@@ -3881,22 +3920,22 @@
 
 (def: (replace pattern value template)
   (-> Text Text Text Text)
-  (_lux_proc ["jvm" "invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"] [template pattern value]))
+  (_lux_proc ["text" "replace-all"] [template pattern value]))
 
 (def: (clean-module module)
   (-> Text (Lux Text))
   (do Monad<Lux>
-    [module-name current-module-name]
+    [current-module current-module-name]
     (case (split-module module)
       (^ (list& "." parts))
-      (return (|> (list& module-name parts) (interpose "/") reverse (fold Text/append "")))
+      (return (|> (list& current-module parts) (interpose "/") reverse (fold Text/append "")))
 
       parts
       (let [[ups parts'] (split-with (Text/= "..") parts)
             num-ups (length ups)]
         (if (i.= num-ups 0)
           (return module)
-          (case (nth num-ups (split-module-contexts module-name))
+          (case (nth num-ups (split-module-contexts current-module))
             #None
             (fail (Text/append "Can't clean module: " module))
 
@@ -4378,26 +4417,6 @@
      #let [{#module-hash _ #module-aliases _ #defs _ #imports imports #tags _ #types _ #module-anns _ #module-state _} module]]
     (wrap (is-member? imports import-name))))
 
-(macro: #export (default tokens state)
-  {#;doc "## Allows you to provide a default value that will be used
-          ## if a (Maybe x) value turns out to be #;None.
-          (default 20 (#;Some 10)) => 10
-
-          (default 20 #;None) => 20"}
-  (case tokens
-    (^ (list else maybe))
-    (let [g!temp (: AST [_cursor (#;SymbolS ["" ""])])
-          code (` (case (~ maybe)
-                    (#;Some (~ g!temp))
-                    (~ g!temp)
-
-                    #;None
-                    (~ else)))]
-      (#;Right [state (list code)]))
-
-    _
-    (#;Left "Wrong syntax for ?")))
-
 (def: (read-refer module-name options)
   (-> Text (List AST) (Lux Refer))
   (do Monad<Lux>
@@ -4790,13 +4809,13 @@
     _
     (fail "Wrong syntax for ^template")))
 
-(do-template [<name> <from> <to> <converter>]
+(do-template [<name> <from> <to> <proc>]
   [(def: #export (<name> n)
      (-> <from> <to>)
-     (_lux_proc ["jvm" <converter>] [n]))]
+     (_lux_proc <proc> [n]))]
 
-  [real-to-int Real Int  "d2l"]
-  [int-to-real Int  Real "l2d"]
+  [real-to-int Real Int  ["real" "to-int"]]
+  [int-to-real Int  Real ["int" "to-real"]]
   )
 
 (def: (find-baseline-column ast)
@@ -4874,11 +4893,10 @@
      (-> <from> <to>)
      (_lux_proc <op> [input]))]
 
-  [int-to-nat  ["int"  "to-nat"] Int  Nat]
-  [nat-to-int  ["nat"  "to-int"] Nat  Int]
-
+  [int-to-nat ["int" "to-nat"] Int Nat]
+  [nat-to-int ["nat" "to-int"] Nat Int]
   [real-to-deg ["real" "to-deg"] Real Deg]
-  [deg-to-real ["deg" "to-real"] Deg  Real]
+  [deg-to-real ["deg" "to-real"] Deg Real]
   )
 
 (def: (repeat n x)
@@ -4897,13 +4915,11 @@
 
 (def: (Text/size x)
   (-> Text Nat)
-  (:! Nat
-      (_lux_proc ["jvm" "i2l"]
-                 [(_lux_proc ["jvm" "invokevirtual:java.lang.String:length:"] [x])])))
+  (_lux_proc ["text" "size"] [x]))
 
 (def: (Text/trim x)
   (-> Text Text)
-  (_lux_proc ["jvm" "invokevirtual:java.lang.String:trim:"] [x]))
+  (_lux_proc ["text" "trim"] [x]))
 
 (def: (update-cursor [file line column] ast-text)
   (-> Cursor Text Cursor)
@@ -5468,7 +5484,7 @@
               "This one should fail:"
               (is 5 (i.+ 2 3)))}
   (All [a] (-> a a Bool))
-  (_lux_proc ["lux" "=="] [left right]))
+  (_lux_proc ["lux" "is"] [left right]))
 
 (macro: #export (^@ tokens)
   {#;doc (doc "Allows you to simultaneously bind and de-structure a value."
@@ -5513,12 +5529,6 @@
     
     _
     (fail "Wrong syntax for :!!")))
-
-(def: #export (error! message)
-  {#;doc (doc "Causes an error, with the given error message."
-              (error! "OH NO!"))}
-  (-> Text Bottom)
-  (_lux_proc ["jvm" "throw"] [(_lux_proc ["jvm" "new:java.lang.Error:java.lang.String"] [message])]))
 
 (def: #hidden hack_Text/append
   (-> Text Text Text)
@@ -5735,3 +5745,7 @@
 
 (type: #export (<.> f g)
   (All [a] (f (g a))))
+
+(def: #export (assume mx)
+  (All [a] (-> (Maybe a) a))
+  (default (undefined) mx))

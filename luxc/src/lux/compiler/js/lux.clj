@@ -19,8 +19,11 @@
             ))
 
 ;; [Utils]
+(defn ^:private js-module [module]
+  (string/replace module "/" "$"))
+
 (defn ^:private js-var-name [module name]
-  (str (string/replace module "/" "$") "$" (&host/def-name name)))
+  (str (js-module module) "$" (&host/def-name name)))
 
 (defn ^:private captured-name [register]
   (str "$" register))
@@ -49,7 +52,7 @@
   (return (str value)))
 
 (defn compile-char [value]
-  (return (str "\"" value "\"")))
+  (return (str "{C:\"" value "\"}")))
 
 (defn compile-text [?value]
   (return (pr-str ?value)))
@@ -279,7 +282,7 @@
 
 (defn compile-function [compile arity ?scope ?env ?body]
   (|do [:let [??scope (&/|reverse ?scope)
-              function-name (str (&host/->module-class (&/|head ??scope))
+              function-name (str (js-module (&/|head ??scope))
                                  "$" (&host/location (&/|tail ??scope)))
               func-args (->> (&/|range* 0 (dec arity))
                              (&/|map (fn [register] (str "var " (register-name (inc register)) " = arguments[" register "];")))
@@ -323,12 +326,11 @@
 
 (defn compile-def [compile ?name ?body def-meta]
   (|do [module-name &/get-module-name
-        class-loader &/loader
-        :let [var-name (js-var-name module-name ?name)]]
+        class-loader &/loader]
     (|case (&a-meta/meta-get &a-meta/alias-tag def-meta)
       (&/$Some (&/$IdentA [r-module r-name]))
       (if (= 1 (&/|length def-meta))
-        (|do [def-value (&&/run-js! var-name)
+        (|do [def-value (&&/run-js! (js-var-name r-module r-name))
               def-type (&a-module/def-type r-module r-name)
               _ (&/without-repl-closure
                  (&a-module/define module-name ?name def-type def-meta def-value))]
@@ -339,7 +341,8 @@
       (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an Ident.")
       
       _
-      (|do [=body (compile ?body)
+      (|do [:let [var-name (js-var-name module-name ?name)]
+            =body (compile ?body)
             :let [def-js (str "var " var-name " = " =body ";")
                   is-type? (|case (&a-meta/meta-get &a-meta/type?-tag def-meta)
                              (&/$Some (&/$BoolA true))
@@ -348,8 +351,9 @@
                              _
                              false)
                   def-type (&a/expr-type* ?body)
-                  _ (&/|log! (string/replace def-js " " "^@"))]
-            _ (&&/run-js! def-js)
+                  ;; _ (&/|log! (string/replace def-js " " "^@"))
+                  ]
+            _ (&&/save-js! ?name def-js)
             def-value (&&/run-js!+ var-name)
             _ (&/without-repl-closure
                (&a-module/define module-name ?name def-type def-meta def-value))

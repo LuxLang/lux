@@ -162,7 +162,7 @@
   ^:private compile-bit-unsigned-shift-right Opcodes/LUSHR
   )
 
-(defn ^:private compile-lux-== [compile ?values special-args]
+(defn ^:private compile-lux-is [compile ?values special-args]
   (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?left)
@@ -209,11 +209,11 @@
   ^:private compile-deg-rem   Opcodes/LSUB &&/unwrap-long &&/wrap-long
   ^:private compile-deg-scale Opcodes/LMUL &&/unwrap-long &&/wrap-long
 
-  ^:private compile-real-add   Opcodes/DADD &&/unwrap-double &&/wrap-double
-  ^:private compile-real-sub   Opcodes/DSUB &&/unwrap-double &&/wrap-double
-  ^:private compile-real-mul   Opcodes/DMUL &&/unwrap-double &&/wrap-double
-  ^:private compile-real-div   Opcodes/DDIV &&/unwrap-double &&/wrap-double
-  ^:private compile-real-rem   Opcodes/DREM &&/unwrap-double &&/wrap-double
+  ^:private compile-real-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
+  ^:private compile-real-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
+  ^:private compile-real-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
+  ^:private compile-real-div  Opcodes/DDIV &&/unwrap-double &&/wrap-double
+  ^:private compile-real-rem  Opcodes/DREM &&/unwrap-double &&/wrap-double
   )
 
 (do-template [<name> <comp-method>]
@@ -450,6 +450,21 @@
   ^:private compile-int-to-nat
   )
 
+(do-template [<name> <unwrap> <op> <wrap>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?input)
+          :let [_ (doto *writer*
+                    <unwrap>
+                    (.visitInsn <op>)
+                    <wrap>)]]
+      (return nil)))
+
+  ^:private compile-real-to-int &&/unwrap-double Opcodes/D2L &&/wrap-long
+  ^:private compile-int-to-real &&/unwrap-long   Opcodes/L2D &&/wrap-double
+  )
+
 (defn compile-text-eq [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -473,7 +488,93 @@
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;"))]]
     (return nil)))
 
-(defn compile-io-log! [compile ?values special-args]
+(defn compile-text-clip [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?from (&/$Cons ?to (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?text)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?from)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        _ (compile ?to)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;"))]]
+    (return nil)))
+
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Nil))) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?text)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+          _ (compile ?part)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+          :let [_ (doto *writer*
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" <method> "(Ljava/lang/String;)I"))]
+          :let [$not-found (new Label)
+                $end (new Label)
+                _ (doto *writer*
+                    (.visitInsn Opcodes/DUP)
+                    (.visitLdcInsn (int -1))
+                    (.visitJumpInsn Opcodes/IF_ICMPEQ $not-found)
+                    (.visitInsn Opcodes/I2L)
+                    &&/wrap-long
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $not-found)
+                    (.visitInsn Opcodes/POP)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                    (.visitLabel $end))]]
+      (return nil)))
+
+  ^:private compile-text-index      "indexOf"
+  ^:private compile-text-last-index "lastIndexOf"
+  )
+
+(defn ^:private compile-text-size [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?text)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long)]]
+    (return nil)))
+
+(defn ^:private compile-text-replace-all [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?pattern (&/$Cons ?replacement (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?text)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?pattern)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?replacement)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "replace" "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;"))]]
+    (return nil)))
+
+(defn ^:private compile-text-trim [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?text)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "trim" "()Ljava/lang/String;"))]]
+    (return nil)))
+
+(defn compile-io-log [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
@@ -485,20 +586,41 @@
                   (.visitLdcInsn &/unit-tag))]]
     (return nil)))
 
+(defn compile-io-error [compile ?values special-args]
+  (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/NEW "java/lang/Error")
+                  (.visitInsn Opcodes/DUP))]
+        _ (compile ?message)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                  (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Error" "<init>" "(Ljava/lang/String;)V")
+                  (.visitInsn Opcodes/ATHROW))]]
+    (return nil)))
+
 (defn compile-proc [compile proc-category proc-name ?values special-args]
   (case proc-category
     "lux"
     (case proc-name
-      "=="                   (compile-lux-== compile ?values special-args))
+      "is"                   (compile-lux-is compile ?values special-args))
 
     "io"
     (case proc-name
-      "log!"                 (compile-io-log! compile ?values special-args))
+      "log"                  (compile-io-log compile ?values special-args)
+      "error"                (compile-io-error compile ?values special-args))
 
     "text"
     (case proc-name
       "="                    (compile-text-eq compile ?values special-args)
-      "append"               (compile-text-append compile ?values special-args))
+      "append"               (compile-text-append compile ?values special-args)
+      "clip"                 (compile-text-clip compile ?values special-args)
+      "index"                (compile-text-index compile ?values special-args)
+      "last-index"           (compile-text-last-index compile ?values special-args)
+      "size"                 (compile-text-size compile ?values special-args)
+      "replace-all"          (compile-text-replace-all compile ?values special-args)
+      "trim"                 (compile-text-trim compile ?values special-args)
+      )
     
     "bit"
     (case proc-name
@@ -562,6 +684,7 @@
       "="         (compile-int-eq compile ?values special-args)
       "<"         (compile-int-lt compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
+      "to-real"   (compile-int-to-real compile ?values special-args)
       "encode"    (compile-int-encode compile ?values special-args)
       )
 
@@ -575,6 +698,7 @@
       "="         (compile-real-eq compile ?values special-args)
       "<"         (compile-real-lt compile ?values special-args)
       "encode"    (compile-real-encode compile ?values special-args)
+      "to-int"    (compile-real-to-int compile ?values special-args)
       "to-deg"    (compile-real-to-deg compile ?values special-args)
       )
 

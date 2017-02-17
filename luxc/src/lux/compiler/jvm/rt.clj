@@ -1204,6 +1204,33 @@
              (.visitEnd))]
     nil))
 
+(defn ^:private compile-LuxRT-text-methods [^ClassWriter =class]
+  (|do [:let [_ (let [$from (new Label)
+                      $to (new Label)
+                      $handler (new Label)
+                      $end (new Label)]
+                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;" nil nil)
+                    (.visitCode)
+                    (.visitTryCatchBlock $from $to $handler "java/lang/IndexOutOfBoundsException")
+                    (.visitLabel $from)
+                    (.visitVarInsn Opcodes/ALOAD 0)
+                    (.visitVarInsn Opcodes/ILOAD 1)
+                    (.visitVarInsn Opcodes/ILOAD 2)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                    (.visitJumpInsn Opcodes/GOTO $end)
+                    (.visitLabel $to)
+                    (.visitLabel $handler)
+                    (.visitInsn Opcodes/POP)
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                    (.visitLabel $end)
+                    (.visitInsn Opcodes/ARETURN)
+                    (.visitMaxs 0 0)
+                    (.visitEnd)))]]
+    (return nil)))
+
 (def compile-LuxRT-class
   (|do [_ (return nil)
         :let [full-name &&/lux-utils-class
@@ -1264,6 +1291,7 @@
                   (compile-LuxRT-pm-methods)
                   (compile-LuxRT-adt-methods)
                   (compile-LuxRT-nat-methods)
-                  (compile-LuxRT-deg-methods))]]
+                  (compile-LuxRT-deg-methods)
+                  (compile-LuxRT-text-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))

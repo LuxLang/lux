@@ -10,7 +10,8 @@
                  [optimizer :as &o])
             [lux.analyser.base :as &a]
             (lux.compiler.js [base :as &&]
-                             [rt :as &&rt])))
+                             [rt :as &&rt]
+                             [lux :as &&lux])))
 
 ;; [Resources]
 ;; (do-template [<name> <op>]
@@ -62,22 +63,11 @@
 ;;   ^:private compile-bit-unsigned-shift-right Opcodes/LUSHR
 ;;   )
 
-;; (defn ^:private compile-lux-== [compile ?values special-args]
-;;   (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
-;;         ^MethodVisitor *writer* &/get-writer
-;;         _ (compile ?left)
-;;         _ (compile ?right)
-;;         :let [$then (new Label)
-;;               $end (new Label)
-;;               _ (doto *writer*
-;;                   (.visitJumpInsn Opcodes/IF_ACMPEQ $then)
-;;                   ;; else
-;;                   (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" "FALSE" "Ljava/lang/Boolean;")
-;;                   (.visitJumpInsn Opcodes/GOTO $end)
-;;                   (.visitLabel $then)
-;;                   (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Boolean" "TRUE" "Ljava/lang/Boolean;")
-;;                   (.visitLabel $end))]]
-;;     (return nil)))
+(defn ^:private compile-lux-is [compile ?values special-args]
+  (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
+        =left (compile ?left)
+        =right (compile ?right)]
+    (return (str "(" =left " === " =right ")"))))
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
@@ -132,11 +122,42 @@
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
           =x (compile ?x)]
-      (return (str &&rt/LuxRT "." <method> "(" =x ")"))))
+      (return (str &&rt/LuxRT "." <method> "(" =x ")"))
+      ))
 
   ^:private compile-int-encode "encodeI64"
   ^:private compile-nat-encode "encodeN64"
   ^:private compile-deg-encode "encodeD64"
+
+  ^:private compile-int-decode "decodeI64"
+  ^:private compile-nat-decode "decodeN64"
+  ^:private compile-deg-decode "decodeD64"
+
+  ^:private compile-real-decode "decodeReal"
+
+  ^:private compile-real-hash "hashReal"
+  )
+
+(do-template [<name> <compiler> <value>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Nil) ?values]]
+      (<compiler> <value>)))
+
+  ^:private compile-nat-min-value &&lux/compile-nat  0
+  ^:private compile-nat-max-value &&lux/compile-nat -1
+
+  ^:private compile-int-min-value &&lux/compile-int Long/MIN_VALUE
+  ^:private compile-int-max-value &&lux/compile-int Long/MAX_VALUE
+  
+  ^:private compile-deg-min-value &&lux/compile-deg  0
+  ^:private compile-deg-max-value &&lux/compile-deg -1
+
+  ^:private compile-real-min-value &&lux/compile-real (* -1.0 Double/MAX_VALUE)
+  ^:private compile-real-max-value &&lux/compile-real Double/MAX_VALUE
+
+  ^:private compile-real-not-a-number      &&lux/compile-real "NaN" 
+  ^:private compile-real-positive-infinity &&lux/compile-real "Infinity"
+  ^:private compile-real-negative-infinity &&lux/compile-real "-Infinity"
   )
 
 (defn ^:private compile-real-encode [compile ?values special-args]
@@ -165,22 +186,6 @@
 ;;                   (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
 ;;                   (.visitLabel $end))]]
 ;;     (return nil)))
-
-;; (do-template [<name> <instr> <wrapper>]
-;;   (defn <name> [compile ?values special-args]
-;;     (|do [:let [(&/$Nil) ?values]
-;;           ^MethodVisitor *writer* &/get-writer
-;;           :let [_ (doto *writer*
-;;                     <instr>
-;;                     <wrapper>)]]
-;;       (return nil)))
-
-;;   ^:private compile-nat-min-value (.visitLdcInsn 0)  &&/wrap-long
-;;   ^:private compile-nat-max-value (.visitLdcInsn -1) &&/wrap-long
-
-;;   ^:private compile-deg-min-value (.visitLdcInsn 0)  &&/wrap-long
-;;   ^:private compile-deg-max-value (.visitLdcInsn -1) &&/wrap-long
-;;   )
 
 ;; (do-template [<name> <method>]
 ;;   (defn <name> [compile ?values special-args]
@@ -248,6 +253,26 @@
   ^:private compile-int-to-nat
   )
 
+(defn ^:private compile-int-to-real [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "LuxRT.toNumberI64(" =x ")"))))
+
+(defn ^:private compile-real-to-int [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "LuxRT.fromNumberI64(" =x ")"))))
+
+(defn ^:private compile-deg-to-real [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "LuxRT.degToReal(" =x ")"))))
+
+(defn ^:private compile-real-to-deg [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "LuxRT.realToDeg(" =x ")"))))
+
 (defn ^:private compile-text-eq [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
         =x (compile ?x)
@@ -260,29 +285,78 @@
         =y (compile ?y)]
     (return (str =x ".concat(" =y ")"))))
 
-(defn ^:private compile-char-to-text [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]]
-    (compile ?x)))
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Nil))) ?values]
+          =text (compile ?text)
+          =part (compile ?part)]
+      (return (str "LuxRT" "." <method> "(" =text "," =part ")"))))
 
-(defn ^:private compile-lux-log! [compile ?values special-args]
+  ^:private compile-text-last-index "lastIndex"
+  ^:private compile-text-index      "index"
+  )
+
+(defn ^:private compile-text-clip [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?from (&/$Cons ?to (&/$Nil)))) ?values]
+        =text (compile ?text)
+        =from (compile ?from)
+        =to (compile ?to)]
+    (return (str "LuxRT.clip(" (str =text "," =from "," =to) ")"))))
+
+(defn ^:private compile-text-replace-all [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?to-find (&/$Cons ?replace-with (&/$Nil)))) ?values]
+        =text (compile ?text)
+        =to-find (compile ?to-find)
+        =replace-with (compile ?replace-with)]
+    (return (str "LuxRT.replaceAll(" (str =text "," =to-find "," =replace-with) ")"))))
+
+(defn ^:private compile-text-trim [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+        =text (compile ?text)]
+    (return (str "(" =text ").trim()"))))
+
+(defn ^:private compile-text-size [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+        =text (compile ?text)]
+    (return (str "LuxRT.fromNumberI64(" =text ".length" ")"))))
+
+(defn ^:private compile-char-to-text [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "(" =x ").C"))))
+
+(defn ^:private compile-lux-log [compile ?values special-args]
   (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
         =message (compile ?message)]
     (return (str "LuxRT.log(" =message ")"))))
 
+(defn ^:private compile-lux-error [compile ?values special-args]
+  (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
+        =message (compile ?message)]
+    (return (str "LuxRT.error(" =message ")"))))
+
 (defn compile-proc [compile proc-category proc-name ?values special-args]
   (case proc-category
-    ;; "lux"
-    ;; (case proc-name
-    ;;   "=="                   (compile-lux-== compile ?values special-args))
+    "lux"
+    (case proc-name
+      "is"                   (compile-lux-is compile ?values special-args))
 
     "io"
     (case proc-name
-      "log!"                   (compile-lux-log! compile ?values special-args))
+      "log"                  (compile-lux-log compile ?values special-args)
+      "error"                (compile-lux-error compile ?values special-args))
 
     "text"
     (case proc-name
       "="                    (compile-text-eq compile ?values special-args)
-      "append"               (compile-text-append compile ?values special-args))
+      "append"               (compile-text-append compile ?values special-args)
+      "clip"                 (compile-text-clip compile ?values special-args)
+      "index"                (compile-text-index compile ?values special-args)
+      "last-index"           (compile-text-last-index compile ?values special-args)
+      "size"                 (compile-text-size compile ?values special-args)
+      "replace-all"          (compile-text-replace-all compile ?values special-args)
+      "trim"                 (compile-text-trim compile ?values special-args)
+      )
     
     ;; "bit"
     ;; (case proc-name
@@ -308,9 +382,9 @@
       "="         (compile-nat-eq compile ?values special-args)
       "<"         (compile-nat-lt compile ?values special-args)
       "encode"    (compile-nat-encode compile ?values special-args)
-      ;; "decode"    (compile-nat-decode compile ?values special-args)
-      ;; "max-value" (compile-nat-max-value compile ?values special-args)
-      ;; "min-value" (compile-nat-min-value compile ?values special-args)
+      "decode"    (compile-nat-decode compile ?values special-args)
+      "max-value" (compile-nat-max-value compile ?values special-args)
+      "min-value" (compile-nat-min-value compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)
       ;; "to-char"   (compile-nat-to-char compile ?values special-args)
       )
@@ -325,10 +399,11 @@
       "="         (compile-int-eq compile ?values special-args)
       "<"         (compile-int-lt compile ?values special-args)
       "encode"    (compile-int-encode compile ?values special-args)
-      ;; "decode"    (compile-int-decode compile ?values special-args)
-      ;; "max-value" (compile-int-max-value compile ?values special-args)
-      ;; "min-value" (compile-int-min-value compile ?values special-args)
+      "decode"    (compile-int-decode compile ?values special-args)
+      "max-value" (compile-int-max-value compile ?values special-args)
+      "min-value" (compile-int-min-value compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
+      "to-real"   (compile-int-to-real compile ?values special-args)
       )
     
     "deg"
@@ -341,10 +416,10 @@
       "="         (compile-deg-eq compile ?values special-args)
       "<"         (compile-deg-lt compile ?values special-args)
       "encode"    (compile-deg-encode compile ?values special-args)
-      ;; "decode"    (compile-deg-decode compile ?values special-args)
-      ;; "max-value" (compile-deg-max-value compile ?values special-args)
-      ;; "min-value" (compile-deg-min-value compile ?values special-args)
-      ;; "to-real"   (compile-deg-to-real compile ?values special-args)
+      "decode"    (compile-deg-decode compile ?values special-args)
+      "max-value" (compile-deg-max-value compile ?values special-args)
+      "min-value" (compile-deg-min-value compile ?values special-args)
+      "to-real"   (compile-deg-to-real compile ?values special-args)
       "scale"     (compile-deg-scale compile ?values special-args)
       )
 
@@ -358,10 +433,15 @@
       "="         (compile-real-eq compile ?values special-args)
       "<"         (compile-real-lt compile ?values special-args)
       "encode"    (compile-real-encode compile ?values special-args)
-      ;; "decode"    (compile-real-decode compile ?values special-args)
-      ;; "max-value" (compile-real-max-value compile ?values special-args)
-      ;; "min-value" (compile-real-min-value compile ?values special-args)
-      ;; "to-deg"    (compile-real-to-deg compile ?values special-args)
+      "decode"    (compile-real-decode compile ?values special-args)
+      "max-value" (compile-real-max-value compile ?values special-args)
+      "min-value" (compile-real-min-value compile ?values special-args)
+      "not-a-number" (compile-real-not-a-number compile ?values special-args)
+      "positive-infinity" (compile-real-positive-infinity compile ?values special-args)
+      "negative-infinity" (compile-real-negative-infinity compile ?values special-args)
+      "to-deg"    (compile-real-to-deg compile ?values special-args)
+      "to-int"    (compile-real-to-int compile ?values special-args)
+      "hash"      (compile-real-hash compile ?values special-args)
       )
 
     "char"

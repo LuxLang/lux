@@ -941,16 +941,50 @@
    })
 
 (def ^:private i64-methods
-  {"makeI64" (str "(function makeI64(high,low) {"
+  {"TWO_PWR_16" "(1 << 16)"
+   "TWO_PWR_32" "((1 << 16) * (1 << 16))"
+   "TWO_PWR_64" "(((1 << 16) * (1 << 16)) * ((1 << 16) * (1 << 16)))"
+   "TWO_PWR_63" "((((1 << 16) * (1 << 16)) * ((1 << 16) * (1 << 16))) / 2)"
+   "getLowBitsUnsigned" (str "(function getLowBitsUnsigned(i64) {"
+                             "return (i64.L >= 0) ? i64.L : (LuxRT.TWO_PWR_32 + i64.L);"
+                             "})")
+   "toNumberI64" (str "(function toNumberI64(i64) {"
+                      "return (i64.H * LuxRT.TWO_PWR_32) + LuxRT.getLowBitsUnsigned(i64);"
+                      "})")
+   "fromNumberI64" (str "(function fromNumberI64(num) {"
+                        (str "if (isNaN(num)) {"
+                             "return LuxRT.ZERO;"
+                             "}")
+                        (str "else if (num <= -LuxRT.TWO_PWR_63) {"
+                             "return LuxRT.MIN_VALUE_I64;"
+                             "}")
+                        (str "else if ((num + 1) >= LuxRT.TWO_PWR_63) {"
+                             "return LuxRT.MAX_VALUE_I64;"
+                             "}")
+                        (str "else if (num < 0) {"
+                             "return LuxRT.negateI64(LuxRT.fromNumberI64(-num));"
+                             "}")
+                        (str "else {"
+                             "return LuxRT.makeI64((num / LuxRT.TWO_PWR_32), (num % LuxRT.TWO_PWR_32));"
+                             "}")
+                        "})")
+   "makeI64" (str "(function makeI64(high,low) {"
                   "return { H: (high|0), L: (low|0)};"
                   "})")
-   "MIN_VALUE" "{ H: 0x80000000, L: 0}"
-   "ONE" "{ H: 0, L: 1}"
+   "MIN_VALUE_I64" "{ H: (0x80000000|0), L: (0|0)}"
+   "MAX_VALUE_I64" "{ H: (0x7FFFFFFF|0), L: (0xFFFFFFFF|0)}"
+   "ONE" "{ H: (0|0), L: (1|0)}"
+   "ZERO" "{ H: (0|0), L: (0|0)}"
    "notI64" (str "(function notI64(i64) {"
                  "return LuxRT.makeI64(~i64.H,~i64.L);"
                  "})")
    "negateI64" (str "(function negateI64(i64) {"
-                    "return LuxRT.addI64(LuxRT.notI64(i64),LuxRT.makeI64(0,1));"
+                    (str "if(LuxRT.eqI64(LuxRT.MIN_VALUE_I64,i64)) {"
+                         "return LuxRT.MIN_VALUE_I64;"
+                         "}")
+                    (str "else {"
+                         "return LuxRT.addI64(LuxRT.notI64(i64),LuxRT.ONE);"
+                         "}")
                     "})")
    "eqI64" (str "(function eqI64(l,r) {"
                 "return (l.H === r.H) && (l.L === r.L);"
@@ -1045,14 +1079,14 @@
                       ;; Special case: L = 0
                       "return l;"
                       "}")
-                 (str "if(LuxRT.eqI64(l,LuxRT.MIN_VALUE)) {"
+                 (str "if(LuxRT.eqI64(l,LuxRT.MIN_VALUE_I64)) {"
                       ;; Special case: L = MIN
                       (str "if(LuxRT.eqI64(r,LuxRT.ONE) || LuxRT.eqI64(r,LuxRT.negateI64(LuxRT.ONE))) {"
                            ;; Special case: L = MIN, R = 1|-1
-                           "return LuxRT.MIN_VALUE;"
+                           "return LuxRT.MIN_VALUE_I64;"
                            "}"
                            ;; Special case: L = R = MIN
-                           "else if(LuxRT.eqI64(r,LuxRT.MIN_VALUE)) {"
+                           "else if(LuxRT.eqI64(r,LuxRT.MIN_VALUE_I64)) {"
                            "return LuxRT.ONE;"
                            "}"
                            ;; Special case: L = MIN
@@ -1073,7 +1107,7 @@
                                 "}")
                            "}")
                       "}"
-                      "else if(LuxRT.eqI64(r,LuxRT.MIN_VALUE)) {"
+                      "else if(LuxRT.eqI64(r,LuxRT.MIN_VALUE_I64)) {"
                       ;; Special case: R = MIN
                       "return LuxRT.makeI64(0,0);"
                       "}")
@@ -1093,7 +1127,7 @@
                       "return LuxRT.negateI64(LuxRT.divI64(l,LuxRT.negateI64(r)));"
                       "}")
                  ;; Common case
-                 (str "var res = { H: 0, L: 0};"
+                 (str "var res = LuxRT.ZERO;"
                       "var rem = l;"
                       (str "while(LuxRT.ltI64(r,rem) || LuxRT.eqI64(r,rem)) {"
                            "var approx = Math.max(1, Math.floor(LuxRT.toNumberI64(rem) / LuxRT.toNumberI64(r)));"
@@ -1124,16 +1158,16 @@
                          "}")
                     ;; If input < 0
                     (str "if(input.H < 0) {"
-                         (str "if(LuxRT.eqI64(input,LuxRT.MIN_VALUE)) {"
+                         (str "if(LuxRT.eqI64(input,LuxRT.MIN_VALUE_I64)) {"
                               "var radix = LuxRT.makeI64(0,10);"
                               "var div = LuxRT.divI64(input,radix);"
                               "var rem = LuxRT.subI64(LuxRT.mulI64(div,radix),input);"
                               "return LuxRT.encodeI64(div).concat(rem.L+'');"
                               "}")
                          "}"
-                         "else {"
-                         "return '-'.concat(LuxRT.encodeI64(LuxRT.negateI64(input)));"
-                         "}")
+                         (str "else {"
+                              "return '-'.concat(LuxRT.encodeI64(LuxRT.negateI64(input)));"
+                              "}"))
                     ;; If input > 0
                     (str "var chunker = LuxRT.makeI64(0,1000000);"
                          "var rem = input;"
@@ -1176,6 +1210,11 @@
                          "return '+'.concat(LuxRT.encodeI64(input));"
                          "}")
                     "})")
+   "ltN64" (str "(function ltN64(l,r) {"
+                "var li = LuxRT.addI64(l,LuxRT.MIN_VALUE_I64);"
+                "var ri = LuxRT.addI64(r,LuxRT.MIN_VALUE_I64);"
+                "return LuxRT.ltI64(li,ri);"
+                "})")
    })
 
 (def ^:private io-methods
@@ -1183,6 +1222,48 @@
               "console.log(message);"
               (str "return " &&/unit ";")
               "})")
+   "error" (str "(function error(message) {"
+                "throw new Error(message);"
+                (str "return null;")
+                "})")
+   })
+
+(def ^:private const-none (str "[0,null," &&/unit "]"))
+(defn ^:private make-some [value]
+  (str "[1,''," value "]"))
+
+(def ^:private text-methods
+  {"index" (str "(function index(text,part) {"
+                "var idx = text.indexOf(part);"
+                (str (str "if(idx === -1) {"
+                          "return " const-none ";"
+                          "}")
+                     (str "else {"
+                          (str "return " (make-some "LuxRT.fromNumberI64(idx)") ";")
+                          "}"))
+                "})")
+   "lastIndex" (str "(function lastIndex(text,part) {"
+                    "var idx = text.lastIndexOf(part);"
+                    (str (str "if(idx === -1) {"
+                              "return " const-none ";"
+                              "}")
+                         (str "else {"
+                              (str "return " (make-some "LuxRT.fromNumberI64(idx)") ";")
+                              "}"))
+                    "})")
+   "clip" (str "(function clip(text,from,to) {"
+               "var clip = text.substring(from.L,to.L);"
+               (str (str "if(clip === '') {"
+                         "return " const-none ";"
+                         "}")
+                    (str "else {"
+                         "return " (make-some "clip") ";"
+                         "}"))
+               "})")
+   "replaceAll" (str "(function replaceAll(text,toFind,replaceWith) {"
+                     "var reEscaped = toFind.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');"
+                     "return text.replace(new RegExp(reEscaped, 'g'), replaceWith);"
+                     "})")
    })
 
 (def LuxRT "LuxRT")
@@ -1192,6 +1273,7 @@
         :let [rt-object (str "{" (->> (merge adt-methods
                                              i64-methods
                                              n64-methods
+                                             text-methods
                                              io-methods)
                                       (map (fn [[key val]]
                                              (str key ":" val)))
