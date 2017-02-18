@@ -265,6 +265,16 @@
   ^:private compile-real-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
+(defn ^:private compile-real-hash [compile ?values special-args]
+  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?input)
+        :let [_ (doto *writer*
+                  &&/unwrap-double
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "doubleToRawLongBits" "(D)J")
+                  &&/wrap-long)]]
+    (return nil)))
+
 (do-template [<name> <cmp-output>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -328,8 +338,18 @@
   ^:private compile-nat-min-value (.visitLdcInsn 0)  &&/wrap-long
   ^:private compile-nat-max-value (.visitLdcInsn -1) &&/wrap-long
 
+  ^:private compile-int-min-value (.visitLdcInsn Long/MIN_VALUE)  &&/wrap-long
+  ^:private compile-int-max-value (.visitLdcInsn Long/MAX_VALUE) &&/wrap-long
+  
   ^:private compile-deg-min-value (.visitLdcInsn 0)  &&/wrap-long
   ^:private compile-deg-max-value (.visitLdcInsn -1) &&/wrap-long
+
+  ^:private compile-real-min-value (.visitLdcInsn (* -1.0 Double/MAX_VALUE))  &&/wrap-double
+  ^:private compile-real-max-value (.visitLdcInsn Double/MAX_VALUE) &&/wrap-double
+
+  ^:private compile-real-not-a-number (.visitLdcInsn Double/NaN) &&/wrap-double
+  ^:private compile-real-positive-infinity (.visitLdcInsn Double/POSITIVE_INFINITY) &&/wrap-double
+  ^:private compile-real-negative-infinity (.visitLdcInsn Double/NEGATIVE_INFINITY) &&/wrap-double
   )
 
 (do-template [<encode-name> <encode-method> <decode-name> <decode-method>]
@@ -356,23 +376,34 @@
   ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
   )
 
-(defn ^:private compile-int-encode [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?x)
-        :let [_ (doto *writer*
-                  &&/unwrap-long
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "toString" "(J)Ljava/lang/String;"))]]
-    (return nil)))
+(do-template [<name> <class> <signature> <unwrap>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?input)
+          :let [_ (doto *writer*
+                    <unwrap>
+                    (.visitMethodInsn Opcodes/INVOKESTATIC <class> "toString" <signature>))]]
+      (return nil)))
 
-(defn ^:private compile-real-encode [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?x)
-        :let [_ (doto *writer*
-                  &&/unwrap-double
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "toString" "(D)Ljava/lang/String;"))]]
-    (return nil)))
+  ^:private compile-int-encode  "java/lang/Long"   "(J)Ljava/lang/String;" &&/unwrap-long
+  ^:private compile-real-encode "java/lang/Double" "(D)Ljava/lang/String;" &&/unwrap-double
+  )
+
+
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?input)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
+      (return nil)))
+
+  ^:private compile-int-decode  "decode_int"
+  ^:private compile-real-decode "decode_real"
+  )
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
@@ -565,13 +596,32 @@
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "replace" "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;"))]]
     (return nil)))
 
-(defn ^:private compile-text-trim [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+          ^MethodVisitor *writer* &/get-writer
+          _ (compile ?text)
+          :let [_ (doto *writer*
+                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" <method> "()Ljava/lang/String;"))]]
+      (return nil)))
+
+  ^:private compile-text-trim       "trim"
+  ^:private compile-text-upper-case "toUpperCase"
+  ^:private compile-text-lower-case "toLowerCase"
+  )
+
+(defn ^:private compile-text-char [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?text)
         :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "trim" "()Ljava/lang/String;"))]]
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?idx)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_char" "(Ljava/lang/String;I)[Ljava/lang/Object;"))]]
     (return nil)))
 
 (defn compile-io-log [compile ?values special-args]
@@ -620,6 +670,9 @@
       "size"                 (compile-text-size compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)
       "trim"                 (compile-text-trim compile ?values special-args)
+      "upper-case"           (compile-text-upper-case compile ?values special-args)
+      "lower-case"           (compile-text-lower-case compile ?values special-args)
+      "char"                 (compile-text-char compile ?values special-args)
       )
     
     "bit"
@@ -683,9 +736,12 @@
       "%"         (compile-int-rem compile ?values special-args)
       "="         (compile-int-eq compile ?values special-args)
       "<"         (compile-int-lt compile ?values special-args)
+      "max-value" (compile-int-max-value compile ?values special-args)
+      "min-value" (compile-int-min-value compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
       "to-real"   (compile-int-to-real compile ?values special-args)
       "encode"    (compile-int-encode compile ?values special-args)
+      "decode"    (compile-int-decode compile ?values special-args)
       )
 
     "real"
@@ -697,9 +753,16 @@
       "%"         (compile-real-rem compile ?values special-args)
       "="         (compile-real-eq compile ?values special-args)
       "<"         (compile-real-lt compile ?values special-args)
-      "encode"    (compile-real-encode compile ?values special-args)
+      "hash"      (compile-real-hash compile ?values special-args)
+      "max-value" (compile-real-max-value compile ?values special-args)
+      "min-value" (compile-real-min-value compile ?values special-args)
+      "not-a-number" (compile-real-not-a-number compile ?values special-args)
+      "positive-infinity" (compile-real-positive-infinity compile ?values special-args)
+      "negative-infinity" (compile-real-negative-infinity compile ?values special-args)
       "to-int"    (compile-real-to-int compile ?values special-args)
       "to-deg"    (compile-real-to-deg compile ?values special-args)
+      "encode"    (compile-real-encode compile ?values special-args)
+      "decode"    (compile-real-decode compile ?values special-args)
       )
 
     "char"

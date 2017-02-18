@@ -1160,6 +1160,34 @@
                  (.visitEnd)))]
       nil)))
 
+(do-template [<name> <method> <class> <parse-method> <signature> <wrapper>]
+  (defn <name> [^ClassWriter =class]
+    (do (let [$from (new Label)
+              $to (new Label)
+              $handler (new Label)]
+          (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) <method> "(Ljava/lang/String;)[Ljava/lang/Object;" nil nil)
+            (.visitCode)
+            (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
+            (.visitLabel $from)
+            (.visitVarInsn Opcodes/ALOAD 0)
+            (.visitMethodInsn Opcodes/INVOKESTATIC <class> <parse-method> <signature>)
+            <wrapper>
+            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+            (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+            (.visitInsn Opcodes/ARETURN)
+            (.visitLabel $to)
+            (.visitLabel $handler)
+            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+            (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+            (.visitInsn Opcodes/ARETURN)
+            (.visitMaxs 0 0)
+            (.visitEnd)))
+      nil))
+
+  ^:private compile-LuxRT-int-methods  "decode_int"  "java/lang/Long"   "parseLong"   "(Ljava/lang/String;)J" &&/wrap-long
+  ^:private compile-LuxRT-real-methods "decode_real" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
+  )
+
 (defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
   (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_fail" "()V" nil nil)
              (.visitCode)
@@ -1205,31 +1233,53 @@
     nil))
 
 (defn ^:private compile-LuxRT-text-methods [^ClassWriter =class]
-  (|do [:let [_ (let [$from (new Label)
-                      $to (new Label)
-                      $handler (new Label)
-                      $end (new Label)]
-                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;" nil nil)
-                    (.visitCode)
-                    (.visitTryCatchBlock $from $to $handler "java/lang/IndexOutOfBoundsException")
-                    (.visitLabel $from)
-                    (.visitVarInsn Opcodes/ALOAD 0)
-                    (.visitVarInsn Opcodes/ILOAD 1)
-                    (.visitVarInsn Opcodes/ILOAD 2)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $to)
-                    (.visitLabel $handler)
-                    (.visitInsn Opcodes/POP)
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                    (.visitLabel $end)
-                    (.visitInsn Opcodes/ARETURN)
-                    (.visitMaxs 0 0)
-                    (.visitEnd)))]]
-    (return nil)))
+  (do (let [$from (new Label)
+            $to (new Label)
+            $handler (new Label)
+            $end (new Label)]
+        (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;" nil nil)
+          (.visitCode)
+          (.visitTryCatchBlock $from $to $handler "java/lang/IndexOutOfBoundsException")
+          (.visitLabel $from)
+          (.visitVarInsn Opcodes/ALOAD 0)
+          (.visitVarInsn Opcodes/ILOAD 1)
+          (.visitVarInsn Opcodes/ILOAD 2)
+          (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitJumpInsn Opcodes/GOTO $end)
+          (.visitLabel $to)
+          (.visitLabel $handler)
+          (.visitInsn Opcodes/POP)
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitLabel $end)
+          (.visitInsn Opcodes/ARETURN)
+          (.visitMaxs 0 0)
+          (.visitEnd)))
+    (let [$from (new Label)
+          $to (new Label)
+          $handler (new Label)]
+      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "text_char" "(Ljava/lang/String;I)[Ljava/lang/Object;" nil nil)
+        (.visitCode)
+        (.visitTryCatchBlock $from $to $handler "java/lang/IndexOutOfBoundsException")
+        (.visitLabel $from)
+        (.visitVarInsn Opcodes/ALOAD 0)
+        (.visitVarInsn Opcodes/ILOAD 1)
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
+        &&/wrap-char
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (.visitInsn Opcodes/ARETURN)
+        (.visitLabel $to)
+        (.visitLabel $handler)
+        (.visitInsn Opcodes/POP)
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (.visitInsn Opcodes/ARETURN)
+        (.visitMaxs 0 0)
+        (.visitEnd)))
+    nil))
 
 (def compile-LuxRT-class
   (|do [_ (return nil)
@@ -1291,7 +1341,9 @@
                   (compile-LuxRT-pm-methods)
                   (compile-LuxRT-adt-methods)
                   (compile-LuxRT-nat-methods)
+                  (compile-LuxRT-int-methods)
                   (compile-LuxRT-deg-methods)
+                  (compile-LuxRT-real-methods)
                   (compile-LuxRT-text-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
