@@ -145,10 +145,10 @@
         _ (&/map% (partial process-tag-group module) tag-groups)]
     (return nil)))
 
-(defn ^:private process-module [pre-load! source-dirs cache-table module-name module-hash loader]
+(defn ^:private process-module [pre-load! source-dirs cache-table module-name module-hash loader
+                                _imports-section _tags-section _module-anns-section _defs-section]
   (|do [^String descriptor (&&core/read-module-descriptor! module-name)
-        :let [[imports-section tags-section module-anns-section defs-section] (.split descriptor &&core/section-separator)
-              imports (let [imports (vec (.split ^String imports-section &&core/entry-separator))
+        :let [imports (let [imports (vec (.split ^String _imports-section &&core/entry-separator))
                             imports (if (= [""] imports)
                                       &/$Nil
                                       (&/->list imports))]
@@ -164,9 +164,9 @@
                      (|let [[_module _hash] _import]
                        (contains? cache-table* _module)))
                    imports)
-      (let [tag-groups (parse-tag-groups tags-section)
-            module-anns (&&&ann/deserialize-anns module-anns-section)
-            def-entries (let [def-entries (vec (.split ^String defs-section &&core/entry-separator))]
+      (let [tag-groups (parse-tag-groups _tags-section)
+            module-anns (&&&ann/deserialize-anns _module-anns-section)
+            def-entries (let [def-entries (vec (.split ^String _defs-section &&core/entry-separator))]
                           (if (= [""] def-entries)
                             &/$Nil
                             (&/->list def-entries)))]
@@ -198,30 +198,32 @@
                    (.substring prefix-to-subtract)))
          &/->list)))
 
-(defn ^:private pre-load! [source-dirs cache-table module module-hash]
-  (cond (contains? cache-table module)
+(defn ^:private pre-load! [source-dirs cache-table module-name module-hash]
+  (cond (contains? cache-table module-name)
         (return cache-table)
 
-        (not (cached? module))
+        (not (cached? module-name))
         (return cache-table)
 
         :else
         (|do [loader &/loader
               !classes &/classes
-              :let [module* (&host-generics/->class-name module)
-                    module-path (str @&&core/!output-dir java.io.File/separator module)
+              ^String descriptor (&&core/read-module-descriptor! module-name)
+              :let [module* (&host-generics/->class-name module-name)
+                    module-path (str @&&core/!output-dir java.io.File/separator module-name)
                     class-name (str module* "." &/module-class-name)
                     ^Class module-class (do (swap! !classes assoc class-name (read-file (new File (str module-path java.io.File/separator module-class-file))))
                                           (&&/load-class! loader class-name))
                     installed-classes (install-all-defs-in-module !classes module* module-path)
-                    valid-cache? (and (= module-hash (get-field &/hash-field module-class))
-                                      (= &/compiler-version (get-field &/compiler-field module-class)))
-                    drop-cache! (|do [_ (uninstall-cache module)
+                    [_compiler _hash _imports-section _tags-section _module-anns-section _defs-section] (.split descriptor &&core/section-separator)
+                    drop-cache! (|do [_ (uninstall-cache module-name)
                                       :let [_ (swap! !classes (fn [_classes-dict]
                                                                 (reduce dissoc _classes-dict installed-classes)))]]
                                   (return cache-table))]]
-          (if valid-cache?
-            (|do [[success? cache-table*] (process-module pre-load! source-dirs cache-table module module-hash loader)
+          (if (and (= module-hash (Long/parseUnsignedLong ^String _hash))
+                   (= &/compiler-version _compiler))
+            (|do [[success? cache-table*] (process-module pre-load! source-dirs cache-table module-name module-hash loader
+                                                          _imports-section _tags-section _module-anns-section _defs-section)
                   _ (if success?
                       (return nil)
                       drop-cache!)]

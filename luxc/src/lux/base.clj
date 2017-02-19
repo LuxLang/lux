@@ -220,9 +220,7 @@
   ("DictA" 1))
 
 ;; [Exports]
-(def ^:const hash-field "_hash")
 (def ^:const value-field "_value")
-(def ^:const compiler-field "_compiler")
 (def ^:const eval-field "_eval")
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ";")

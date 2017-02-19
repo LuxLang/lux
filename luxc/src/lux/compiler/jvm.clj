@@ -188,10 +188,6 @@
                                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                                (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                                        module-class-name nil "java/lang/Object" nil)
-                                               (-> (.visitField +field-flags+ &/hash-field "I" nil file-hash)
-                                                   .visitEnd)
-                                               (-> (.visitField +field-flags+ &/compiler-field "Ljava/lang/String;" nil &/compiler-version)
-                                                   .visitEnd)
                                                (.visitSource file-name nil))]
                                 _ (if (= "lux" name)
                                     (|do [_ &&rt/compile-Function-class
@@ -206,7 +202,7 @@
                                 (&/run-state (|do [:let [_ (.visitEnd =class)]
                                                    _ (&a-module/flag-compiled-module name)
                                                    _ (&&/save-class! &/module-class-name (.toByteArray =class))
-                                                   module-descriptor &&core/generate-module-descriptor
+                                                   module-descriptor (&&core/generate-module-descriptor file-hash)
                                                    _ (&&core/write-module-descriptor! name module-descriptor)]
                                                (return file-hash))
                                              ?state)

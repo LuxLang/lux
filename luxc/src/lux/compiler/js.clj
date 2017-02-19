@@ -151,7 +151,7 @@
                   (&/$Right ?state _)
                   (&/run-state (|do [_ (&a-module/flag-compiled-module name)
                                      ;; _ (&&/save-class! &/module-class-name (.toByteArray =class))
-                                     module-descriptor &&core/generate-module-descriptor
+                                     module-descriptor (&&core/generate-module-descriptor file-hash)
                                      _ (&&core/write-module-descriptor! name module-descriptor)]
                                  (return file-hash))
                                ?state)

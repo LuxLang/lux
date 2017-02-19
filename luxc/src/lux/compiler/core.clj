@@ -44,7 +44,7 @@
     (return (slurp (str @!output-dir java.io.File/separator (.replace name "/" java.io.File/separator) java.io.File/separator lux-module-descriptor-name)
                    :encoding "UTF-8"))))
 
-(def generate-module-descriptor
+(defn generate-module-descriptor [file-hash]
   (|do [module-name &/get-module-name
         module-anns (&a-module/get-anns module-name)
         defs &a-module/defs
@@ -73,7 +73,9 @@
                                                 (str type datum-separator)))))
                                (&/|interpose entry-separator)
                                (&/fold str ""))
-              module-descriptor (->> (&/|list import-entries
+              module-descriptor (->> (&/|list &/compiler-version
+                                              (Long/toUnsignedString file-hash)
+                                              import-entries
                                               tag-entries
                                               (&&&ann/serialize-anns module-anns)
                                               def-entries)
