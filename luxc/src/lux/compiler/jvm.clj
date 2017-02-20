@@ -19,13 +19,14 @@
             [lux.analyser.module :as &a-module]
             (lux.compiler [core :as &&core]
                           [io :as &&io]
+                          [cache :as &&cache]
                           [parallel :as &&parallel])
             (lux.compiler.jvm [base :as &&]
-                              [cache :as &&cache]
                               [lux :as &&lux]
                               [case :as &&case]
                               [lambda :as &&lambda]
-                              [rt :as &&rt])
+                              [rt :as &&rt]
+                              [cache :as &&jvm-cache])
             (lux.compiler.jvm.proc [common :as &&proc-common]
                                    [host :as &&proc-host]))
   (:import (org.objectweb.asm Opcodes
@@ -243,7 +244,10 @@
 
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]
-    (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs)
+    (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs
+                                                    &&jvm-cache/load-def-value
+                                                    &&jvm-cache/install-all-defs-in-module
+                                                    &&jvm-cache/uninstall-all-defs-in-module)
                          _ (compile-module source-dirs "lux")]
                      (compile-module source-dirs program-module))]
       (|case (m-action (&/init-state mode (jvm-host)))
