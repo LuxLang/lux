@@ -139,7 +139,8 @@
                           (if (= [""] def-entries)
                             &/$Nil
                             (&/->list def-entries)))]
-        (|do [_ (install-module load-def-value module-name module-hash
+        (|do [_ (install-all-defs-in-module module-name)
+              _ (install-module load-def-value module-name module-hash
                                 imports tag-groups module-anns def-entries)
               =module (&/find-module module-name)]
           (return (&/T [true (assoc cache-table* module-name =module)]))))
@@ -150,7 +151,7 @@
     (let [children (for [^File child (seq (.listFiles parent))
                          entry (enumerate-cached-modules!* child)]
                      entry)]
-      (if (.exists (new File parent "_.class"))
+      (if (.exists (new File parent &&core/lux-module-descriptor-name))
         (list* (.getAbsolutePath parent)
                children)
         children))
@@ -177,7 +178,6 @@
 
         :else
         (|do [^String descriptor (&&core/read-module-descriptor! module-name)
-              installed-classes (install-all-defs-in-module module-name)
               :let [[_compiler _hash _imports-section _tags-section _module-anns-section _defs-section] (.split descriptor &&core/section-separator)
                     drop-cache! (|do [_ (uninstall-cache module-name)
                                       _ (uninstall-all-defs-in-module module-name)]
