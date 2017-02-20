@@ -17,12 +17,12 @@
             [lux.analyser.module :as &a-module]
             (lux.compiler [core :as &&core]
                           [io :as &&io]
-                          [parallel :as &&parallel])
+                          [parallel :as &&parallel]
+                          [cache :as &&cache])
             (lux.compiler.js [base :as &&]
-                             ;; [cache :as &&cache]
                              [lux :as &&lux]
                              [rt :as &&rt]
-                             )
+                             [cache :as &&js-cache])
             (lux.compiler.js.proc [common :as &&common])
             )
   (:import (jdk.nashorn.api.scripting NashornScriptEngineFactory
@@ -131,46 +131,46 @@
     (|do [file-content (&&io/read-file source-dirs file-name)
           :let [file-hash (hash file-content)
                 compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
-      ;; (&/|eitherL (&&cache/load name))
-      (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
-        (|do [module-exists? (&a-module/exists? name)]
-          (if module-exists?
-            (&/fail-with-loc (str "[Compiler Error] Can't re-define a module: " name))
-            (|do [;; _ (&&cache/delete name)
-                  _ (&a-module/create-module name file-hash)
-                  _ (&a-module/flag-active-module name)
-                  _ (if (= "lux" name)
-                      &&rt/compile-LuxRT
-                      (return nil))
-                  ]
-              (fn [state]
-                (|case ((&/exhaust% compiler-step)
-                        ;; (&/with-writer =class
-                        ;;   (&/exhaust% compiler-step))
-                        (&/set$ &/$source (&reader/from name file-content) state))
-                  (&/$Right ?state _)
-                  (&/run-state (|do [_ (&a-module/flag-compiled-module name)
-                                     ;; _ (&&/save-class! &/module-class-name (.toByteArray =class))
-                                     module-descriptor (&&core/generate-module-descriptor file-hash)
-                                     _ (&&core/write-module-descriptor! name module-descriptor)]
-                                 (return file-hash))
-                               ?state)
+      (&/|eitherL (&&cache/load name)
+                  (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
+                    (|do [module-exists? (&a-module/exists? name)]
+                      (if module-exists?
+                        (&/fail-with-loc (str "[Compiler Error] Can't re-define a module: " name))
+                        (|do [_ (&&cache/delete name)
+                              _ &&/init-buffer
+                              _ (&a-module/create-module name file-hash)
+                              _ (&a-module/flag-active-module name)
+                              _ (if (= "lux" name)
+                                  &&rt/compile-LuxRT
+                                  (return nil))]
+                          (fn [state]
+                            (|case ((&/exhaust% compiler-step)
+                                    (&/set$ &/$source (&reader/from name file-content) state))
+                              (&/$Right ?state _)
+                              (&/run-state (|do [_ (&a-module/flag-compiled-module name)
+                                                 _ &&/save-module-js!
+                                                 module-descriptor (&&core/generate-module-descriptor file-hash)
+                                                 _ (&&core/write-module-descriptor! name module-descriptor)]
+                                             (return file-hash))
+                                           ?state)
 
-                  (&/$Left ?message)
-                  (&/fail* ?message))))))))
+                              (&/$Left ?message)
+                              (&/fail* ?message)))))))))
     ))
 
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]
     (do (init! resources-dir target-dir)
-      (let [m-action (|do [;; _ (&&cache/pre-load-cache! source-dirs)
+      (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs
+                                                      &&js-cache/load-def-value
+                                                      &&js-cache/install-all-defs-in-module
+                                                      &&js-cache/uninstall-all-defs-in-module)
                            _ (compile-module source-dirs "lux")]
                        (compile-module source-dirs program-module))]
         (|case (m-action (&/init-state mode (&&/js-host)))
           (&/$Right ?state _)
           (do (println "Compilation complete!")
-            ;; (&&cache/clean ?state)
-            )
+            (&&cache/clean ?state))
 
           (&/$Left ?message)
           (binding [*out* !err!]
