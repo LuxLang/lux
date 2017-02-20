@@ -30,6 +30,28 @@
         &/$None
         ]))
 
+(def ^String module-js-name "module.js")
+
+(def init-buffer
+  (fn [compiler-state]
+    (&/$Right (&/T [(&/update$ &/$host
+                               (fn [host]
+                                 (&/set$ $buffer
+                                         (&/$Some (new StringBuilder))
+                                         host))
+                               compiler-state)
+                    nil]))))
+
+(def get-buffer
+  (fn [compiler-state]
+    (|case (->> compiler-state (&/get$ &/$host) (&/get$ $buffer))
+      (&/$Some _buffer)
+      (&/$Right (&/T [compiler-state
+                      _buffer]))
+
+      (&/$None)
+      (&/$Left "[Error] No buffer available."))))
+
 (defn run-js! [^String js-code]
   (fn [compiler-state]
     (|let [^NashornScriptEngine interpreter (->> compiler-state (&/get$ &/$host) (&/get$ $interpreter))]
@@ -189,11 +211,21 @@
   (|do [_ (run-js! script)
         eval? &/get-eval
         module &/get-module-name
+        ^StringBuilder buffer get-buffer
+        :let [_ (when (not eval?)
+                  (.append buffer ^String (str script "\n")))]]
+    (return nil)))
+
+(def save-module-js!
+  (|do [eval? &/get-eval
+        module &/get-module-name
+        ^StringBuilder buffer get-buffer
         :let [_ (when (not eval?)
                   (let [^String module* (&host/->module-class module)
                         module-dir (str @&&/!output-dir java.io.File/separator (.replace module* "/" java.io.File/separator))]
                     (do (.mkdirs (File. module-dir))
-                      (&&/write-file (str module-dir java.io.File/separator (&host/def-name name) ".js") (.getBytes script)))))]]
+                      (&&/write-file (str module-dir java.io.File/separator module-js-name)
+                                     (.getBytes (.toString buffer))))))]]
     (return nil)))
 
 (defn js-module [module]
