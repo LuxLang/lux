@@ -195,3 +195,9 @@
                     (do (.mkdirs (File. module-dir))
                       (&&/write-file (str module-dir java.io.File/separator (&host/def-name name) ".js") (.getBytes script)))))]]
     (return nil)))
+
+(defn js-module [module]
+  (string/replace module "/" "$"))
+
+(defn js-var-name [module name]
+  (str (js-module module) "$" (&host/def-name name)))

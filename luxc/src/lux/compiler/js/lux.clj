@@ -19,12 +19,6 @@
             ))
 
 ;; [Utils]
-(defn ^:private js-module [module]
-  (string/replace module "/" "$"))
-
-(defn ^:private js-var-name [module name]
-  (str (js-module module) "$" (&host/def-name name)))
-
 (defn ^:private captured-name [register]
   (str "$" register))
 
@@ -84,7 +78,7 @@
   (return (captured-name ?captured-id)))
 
 (defn compile-global [module name]
-  (return (js-var-name module name)))
+  (return (&&/js-var-name module name)))
 
 (defn compile-apply [compile ?fn ?args]
   (|do [=fn (compile ?fn)
@@ -276,7 +270,7 @@
 
 (defn compile-function [compile arity ?scope ?env ?body]
   (|do [:let [??scope (&/|reverse ?scope)
-              function-name (str (js-module (&/|head ??scope))
+              function-name (str (&&/js-module (&/|head ??scope))
                                  "$" (&host/location (&/|tail ??scope)))
               func-args (->> (&/|range* 0 (dec arity))
                              (&/|map (fn [register] (str "var " (register-name (inc register)) " = arguments[" register "];")))
@@ -325,7 +319,7 @@
     (|case (&a-meta/meta-get &a-meta/alias-tag def-meta)
       (&/$Some (&/$IdentA [r-module r-name]))
       (if (= 1 (&/|length def-meta))
-        (|do [def-value (&&/run-js! (js-var-name r-module r-name))
+        (|do [def-value (&&/run-js! (&&/js-var-name r-module r-name))
               def-type (&a-module/def-type r-module r-name)
               _ (&/without-repl-closure
                  (&a-module/define module-name ?name def-type def-meta def-value))]
@@ -336,7 +330,7 @@
       (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an Ident.")
       
       _
-      (|do [:let [var-name (js-var-name module-name ?name)]
+      (|do [:let [var-name (&&/js-var-name module-name ?name)]
             =body (compile ?body)
             :let [def-js (str "var " var-name " = " =body ";")
                   is-type? (|case (&a-meta/meta-get &a-meta/type?-tag def-meta)

@@ -31,8 +31,6 @@
   "(-> Text Class Object)"
   (-> class ^Field (.getField field-name) (.get nil)))
 
-(def ^:private module-class-file (str &/module-class-name ".class"))
-
 ;; [Resources]
 (defn load-def-value [module name]
   (|do [loader &/loader
