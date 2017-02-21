@@ -140,7 +140,7 @@
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                  class-name nil "java/lang/Object" nil)
-                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/eval-field "Ljava/lang/Object;" nil nil)
+                         (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC) &/value-field "Ljava/lang/Object;" nil nil)
                              (doto (.visitEnd)))
                          (.visitSource file-name nil))]
           _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
@@ -148,7 +148,7 @@
                     :let [_ (.visitCode *writer*)]
                     _ (compile-expression nil expr)
                     :let [_ (doto *writer*
-                              (.visitFieldInsn Opcodes/PUTSTATIC class-name &/eval-field "Ljava/lang/Object;")
+                              (.visitFieldInsn Opcodes/PUTSTATIC class-name &/value-field "Ljava/lang/Object;")
                               (.visitInsn Opcodes/RETURN)
                               (.visitMaxs 0 0)
                               (.visitEnd))]]
@@ -158,7 +158,7 @@
           _ (&&/save-class! (str id) bytecode)
           loader &/loader]
       (-> (.loadClass ^ClassLoader loader (str (&host-generics/->class-name module) "." id))
-          (.getField &/eval-field)
+          (.getField &/value-field)
           (.get nil)
           return))))
 
@@ -228,19 +228,19 @@
 
 (defn jvm-host []
   (let [store (atom {})]
-    (&/T [;; "lux;writer"
-          &/$None
-          ;; "lux;loader"
-          (memory-class-loader store)
-          ;; "lux;classes"
-          store
-          ;; "lux;module-states"
-          (&/|table)
-          ;; lux;type-env
-          (&/|table)
-          ;; lux;dummy-mappings
-          (&/|table)
-          ])))
+    (&/$Jvm (&/T [;; "lux;writer"
+                  &/$None
+                  ;; "lux;loader"
+                  (memory-class-loader store)
+                  ;; "lux;classes"
+                  store
+                  ;; "lux;module-states"
+                  (&/|table)
+                  ;; lux;type-env
+                  (&/|table)
+                  ;; lux;dummy-mappings
+                  (&/|table)
+                  ]))))
 
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]

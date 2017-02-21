@@ -314,8 +314,7 @@
                  ";})(" (->> =env-values (&/|interpose ",") (&/fold str "")) ")"))))
 
 (defn compile-def [compile ?name ?body def-meta]
-  (|do [module-name &/get-module-name
-        class-loader &/loader]
+  (|do [module-name &/get-module-name]
     (|case (&a-meta/meta-get &a-meta/alias-tag def-meta)
       (&/$Some (&/$IdentA [r-module r-name]))
       (if (= 1 (&/|length def-meta))

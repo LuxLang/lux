@@ -24,49 +24,40 @@
    "buffer"])
 
 (defn js-host []
-  (&/T [;; "interpreter"
-        (.getScriptEngine (new NashornScriptEngineFactory))
-        ;; "buffer"
-        &/$None
-        ]))
+  (&/$Js (&/T [;; "interpreter"
+               (.getScriptEngine (new NashornScriptEngineFactory))
+               ;; "buffer"
+               &/$None
+               ])))
 
 (def ^String module-js-name "module.js")
 
-(def init-buffer
-  (fn [compiler-state]
-    (&/$Right (&/T [(&/update$ &/$host
-                               (fn [host]
-                                 (&/set$ $buffer
-                                         (&/$Some (new StringBuilder))
-                                         host))
-                               compiler-state)
-                    nil]))))
+(defn init-buffer []
+  (&/change-js-host-slot $buffer (fn [_] (&/$Some (new StringBuilder)))))
 
 (def get-buffer
-  (fn [compiler-state]
-    (|case (->> compiler-state (&/get$ &/$host) (&/get$ $buffer))
+  (|do [host &/js-host]
+    (|case (&/get$ $buffer host)
       (&/$Some _buffer)
-      (&/$Right (&/T [compiler-state
-                      _buffer]))
+      (return _buffer)
 
       (&/$None)
-      (&/$Left "[Error] No buffer available."))))
+      (&/fail-with-loc "[Error] No buffer available."))))
 
 (defn run-js! [^String js-code]
-  (fn [compiler-state]
-    (|let [^NashornScriptEngine interpreter (->> compiler-state (&/get$ &/$host) (&/get$ $interpreter))]
-      (try (&/$Right (&/T [compiler-state
-                           (.eval interpreter js-code)]))
-        (catch Exception ex
-          (&/$Left (str ex)))))))
+  (|do [host &/js-host
+        :let [interpreter ^NashornScriptEngine (&/get$ $interpreter host)]]
+    (try (return (.eval interpreter js-code))
+      (catch Exception ex
+        (&/fail-with-loc (str ex))))))
 
 (def ^:private lux-obj-class (Class/forName "[Ljava.lang.Object;"))
 
-(defn ^:private _slice_ [wrap-lux-obj value]
+(defn ^:private _slice_ [wrap-lux-obj ^"[Ljava.lang.Object;" value]
   (reify JSObject
     (isFunction [self] true)
     (call [self this args]
-      (let [slice (java.util.Arrays/copyOfRange value (aget args 0) (alength value))]
+      (let [slice (java.util.Arrays/copyOfRange value ^int (aget args 0) ^int (alength value))]
         (wrap-lux-obj slice)))))
 
 (defn ^:private _toString_ [obj]
@@ -102,7 +93,7 @@
         ;; else
         (assert false (str "encode-char#getMember = " member))))))
 
-(deftype LuxJsObject [obj]
+(deftype LuxJsObject [^"[Ljava.lang.Object;" obj]
   JSObject
   (isFunction [self] false)
   (getSlot [self idx]
@@ -139,7 +130,7 @@
   (.hasMember js-object "C"))
 
 (defn ^:private decode-char [^ScriptObjectMirror js-object]
-  (-> (.getMember js-object "C")
+  (-> ^String (.getMember js-object "C")
       (.charAt 0)))
 
 (defn ^:private parse-int64 [^ScriptObjectMirror js-object]

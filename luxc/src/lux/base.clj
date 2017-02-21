@@ -137,6 +137,11 @@
   ["compiler-version"
    "compiler-mode"])
 
+;; Hosts
+(defvariant
+  ("Jvm" 1)
+  ("Js" 1))
+
 (deftuple
   ["info"
    "source"
@@ -221,7 +226,6 @@
 
 ;; [Exports]
 (def ^:const value-field "_value")
-(def ^:const eval-field "_eval")
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ";")
 
@@ -659,6 +663,18 @@
         (return* state unit-tag)
         (fail* msg)))))
 
+(defn |some [f xs]
+  "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
+  (|case xs
+    ($Nil)
+    $None
+
+    ($Cons x xs*)
+    (|case (f x)
+      ($None) (|some f xs*)
+      output  output)
+    ))
+
 (defn ^:private normalize-char [char]
   (case char
     \* "_ASTER_"
@@ -690,10 +706,6 @@
 (defn normalize-name [ident]
   (reduce str "" (map normalize-char ident)))
 
-(def classes
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $classes)))))
-
 (def +init-bindings+
   (T [;; "lux;counter"
       0
@@ -711,9 +723,85 @@
       +init-bindings+]
      ))
 
-(def loader
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $loader)))))
+(do-template [<tag> <host> <ask> <change> <with>]
+  (do (def <host>
+        (fn [compiler]
+          (|case (get$ $host compiler)
+            (<tag> host-data)
+            (return* compiler host-data)
+
+            _
+            (fail* "[Error] Wrong host."))))
+
+    (def <ask>
+      (fn [compiler]
+        (|case (get$ $host compiler)
+          (<tag> host-data)
+          (return* compiler true)
+
+          _
+          (return* compiler false))))
+
+    (defn <change> [slot updater]
+      (|do [host <host>]
+        (fn [compiler]
+          (return* (set$ $host (<tag> (update$ slot updater host)) compiler)
+                   (get$ slot host)))))
+
+    (defn <with> [slot updater body]
+      (|do [old-val (<change> slot updater)
+            ?output-val body
+            new-val (<change> slot (fn [_] old-val))]
+        (return ?output-val))))
+
+  $Jvm jvm-host jvm? change-jvm-host-slot with-jvm-host-slot
+  $Js  js-host  js?  change-js-host-slot  with-js-host-slot
+  )
+
+(do-template [<name> <slot>]
+  (def <name>
+    (|do [host jvm-host]
+      (return (get$ <slot> host))))
+
+  loader       $loader
+  classes      $classes
+  get-type-env $type-env
+  )
+
+(def get-writer
+  (|do [host jvm-host]
+    (|case (get$ $writer host)
+      ($Some writer)
+      (return writer)
+
+      _
+      (fail-with-loc "[Error] Writer hasn't been set."))))
+
+(defn with-writer [writer body]
+  (with-jvm-host-slot $writer (fn [_] ($Some writer)) body))
+
+(defn with-type-env [type-env body]
+  "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
+  (with-jvm-host-slot $type-env (partial |++ type-env) body))
+
+(defn push-dummy-name [real-name store-name]
+  (change-jvm-host-slot $dummy-mappings (partial $Cons (T [real-name store-name]))))
+
+(def pop-dummy-name
+  (change-jvm-host-slot $dummy-mappings |tail))
+
+(defn de-alias-class [class-name]
+  (|do [host jvm-host]
+    (return (|case (|some #(|let [[real-name store-name] %]
+                             (if (= real-name class-name)
+                               ($Some store-name)
+                               $None))
+                          (get$ $dummy-mappings host))
+              ($Some store-name)
+              store-name
+
+              _
+              class-name))))
 
 (defn with-no-catches [body]
   "(All [a] (-> (Lux a) (Lux a)))"
@@ -799,16 +887,6 @@
 (def get-mode
   (fn [state]
     (return* state (->> state (get$ $info) (get$ $compiler-mode)))))
-
-(def get-writer
-  (fn [state]
-    (let [writer* (->> state (get$ $host) (get$ $writer))]
-      (|case writer*
-        ($Some datum)
-        (return* state datum)
-
-        _
-        ((fail-with-loc "[Error] Writer hasn't been set.") state)))))
 
 (def get-top-local-env
   (fn [state]
@@ -932,18 +1010,6 @@
           
           _
           output)))))
-
-(defn with-writer [writer body]
-  (fn [state]
-    (let [old-writer (->> state (get$ $host) (get$ $writer))
-          output (body (update$ $host #(set$ $writer ($Some writer) %) state))]
-      (|case output
-        ($Right ?state ?value)
-        (return* (update$ $host #(set$ $writer old-writer %) ?state)
-                 ?value)
-
-        _
-        output))))
 
 (defn with-expected-type [type body]
   "(All [a] (-> Type (Lux a)))"
@@ -1333,40 +1399,6 @@
       output
       output)))
 
-(defn |some [f xs]
-  "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
-  (|case xs
-    ($Nil)
-    $None
-
-    ($Cons x xs*)
-    (|case (f x)
-      ($None) (|some f xs*)
-      output  output)
-    ))
-
-(def get-type-env
-  "(Lux TypeEnv)"
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $type-env)))))
-
-(defn with-type-env [type-env body]
-  "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
-  (fn [state]
-    (|let [state* (update$ $host #(update$ $type-env (partial |++ type-env) %)
-                           state)]
-      (|case (body state*)
-        ($Right [state** output])
-        ($Right (T [(update$ $host
-                             #(set$ $type-env
-                                    (->> state (get$ $host) (get$ $type-env))
-                                    %)
-                             state**)
-                    output]))
-
-        ($Left msg)
-        ($Left msg)))))
-
 (defn |take [n xs]
   (|case (T [n xs])
     [0 _]             $Nil
@@ -1411,38 +1443,6 @@
 
       ($Left msg)
       ($Left msg))))
-
-(defn push-dummy-name [real-name store-name]
-  (fn [state]
-    ($Right (T [(update$ $host
-                         #(update$ $dummy-mappings
-                                   (partial $Cons (T [real-name store-name]))
-                                   %)
-                         state)
-                nil]))))
-
-(def pop-dummy-name
-  (fn [state]
-    ($Right (T [(update$ $host
-                         #(update$ $dummy-mappings
-                                   |tail
-                                   %)
-                         state)
-                nil]))))
-
-(defn de-alias-class [class-name]
-  (fn [state]
-    ($Right (T [state
-                (|case (|some #(|let [[real-name store-name] %]
-                                 (if (= real-name class-name)
-                                   ($Some store-name)
-                                   $None))
-                              (->> state (get$ $host) (get$ $dummy-mappings)))
-                  ($Some store-name)
-                  store-name
-
-                  _
-                  class-name)]))))
 
 (defn |eitherL [left right]
   (fn [compiler]

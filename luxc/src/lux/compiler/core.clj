@@ -4,9 +4,7 @@
             [clojure.java.io :as io]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail*]]
-                 [type :as &type]
-                 [host :as &host])
+            (lux [base :as & :refer [|let |do return* return fail*]])
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler.cache [type :as &&&type]

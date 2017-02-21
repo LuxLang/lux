@@ -137,7 +137,7 @@
                       (if module-exists?
                         (&/fail-with-loc (str "[Compiler Error] Can't re-define a module: " name))
                         (|do [_ (&&cache/delete name)
-                              _ &&/init-buffer
+                              _ (&&/init-buffer)
                               _ (&a-module/create-module name file-hash)
                               _ (&a-module/flag-active-module name)
                               _ (if (= "lux" name)

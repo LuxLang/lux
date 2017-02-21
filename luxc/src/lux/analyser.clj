@@ -57,7 +57,7 @@
             (return (&&/|meta =output-type ?output-cursor ?output-term))))
         ))))
 
-(defn ^:private analyse-ast [optimize eval! compile-module compilers exo-type ?token]
+(defn ^:private analyse-ast [optimize eval! compile-module ^"[Ljava.lang.Object;" compilers exo-type ?token]
   (|let [analyse (partial analyse-ast optimize eval! compile-module compilers)
          [cursor token] ?token
          compile-def (aget compilers 0)

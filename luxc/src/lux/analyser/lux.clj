@@ -376,35 +376,33 @@
                                )))))
 
 (defn analyse-apply [analyse cursor exo-type macro-caller =fn ?args]
-  (|do [loader &/loader
-        :let [[[=fn-type =fn-cursor] =fn-form] =fn]]
-    (|case =fn-form
-      (&&/$var (&/$Global ?module ?name))
-      (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
-        (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
-          (&/$Some _)
-          (|do [macro-expansion (fn [state]
-                                  (|case (macro-caller ?value ?args state)
-                                    (&/$Right state* output)
-                                    (&/$Right (&/T [state* output]))
+  (|case =fn
+    [_ (&&/$var (&/$Global ?module ?name))]
+    (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
+      (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
+        (&/$Some _)
+        (|do [macro-expansion (fn [state]
+                                (|case (macro-caller ?value ?args state)
+                                  (&/$Right state* output)
+                                  (&/$Right (&/T [state* output]))
 
-                                    (&/$Left error)
-                                    ((&/fail-with-loc error) state)))
-                ;; module-name &/get-module-name
-                ;; :let [[r-prefix r-name] real-name
-                ;;       _ (->> (&/|map &/show-ast macro-expansion)
-                ;;              (&/|interpose "\n")
-                ;;              (&/fold str "")
-                ;;              (println 'macro-expansion (&/ident->text real-name) "@" module-name))]
-                ]
-            (&/flat-map% (partial analyse exo-type) macro-expansion))
+                                  (&/$Left error)
+                                  ((&/fail-with-loc error) state)))
+              ;; module-name &/get-module-name
+              ;; :let [[r-prefix r-name] real-name
+              ;;       _ (->> (&/|map &/show-ast macro-expansion)
+              ;;              (&/|interpose "\n")
+              ;;              (&/fold str "")
+              ;;              (println 'macro-expansion (&/ident->text real-name) "@" module-name))]
+              ]
+          (&/flat-map% (partial analyse exo-type) macro-expansion))
 
-          _
-          (do-analyse-apply analyse exo-type =fn ?args)))
-      
-      _
-      (do-analyse-apply analyse exo-type =fn ?args))
-    ))
+        _
+        (do-analyse-apply analyse exo-type =fn ?args)))
+    
+    _
+    (do-analyse-apply analyse exo-type =fn ?args))
+  )
 
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [:let [num-branches (&/|length ?branches)]

@@ -23,7 +23,7 @@
           :when (not (.isDirectory f))]
     (.delete f)))
 
-(defn ^:private module-path [module]
+(defn ^:private ^String module-path [module]
   (str @&&core/!output-dir
        java.io.File/separator
        (.replace ^String (&host/->module-class module) "/" java.io.File/separator)))
