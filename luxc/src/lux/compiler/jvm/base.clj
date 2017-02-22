@@ -52,7 +52,6 @@
 
 ;; [Exports]
 (defn ^Class load-class! [^ClassLoader loader name]
-  ;; (prn 'load-class! name)
   (.loadClass loader name))
 
 (defn save-class! [name bytecode]
@@ -64,7 +63,8 @@
               _ (swap! !classes assoc real-name bytecode)
               _ (when (not eval?)
                   (write-output module name bytecode))
-              _ (load-class! loader real-name)]]
+              ;; _ (load-class! loader real-name)
+              ]]
     (return nil)))
 
 (do-template [<wrap-name> <unwrap-name> <class> <unwrap-method> <prim> <dup>]
