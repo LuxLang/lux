@@ -28,24 +28,37 @@
                                  (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
   ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bool
+  ^:private analyse-text-lt     ["text" "<"]      &type/Text &type/Bool
   ^:private analyse-text-append ["text" "append"] &type/Text &type/Text
   )
 
-(do-template [<name> <proc-name>]
+(do-template [<name> <proc-name> <output-type>]
   (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons text (&/$Cons part (&/$Nil))) ?values]
+    (|do [:let [(&/$Cons text (&/$Cons part (&/$Cons start (&/$Nil)))) ?values]
           =text (&&/analyse-1 analyse &type/Text text)
           =part (&&/analyse-1 analyse &type/Text part)
-          _ (&type/check exo-type (&/$AppT &type/Maybe &type/Nat))
+          =start (&&/analyse-1 analyse &type/Nat start)
+          _ (&type/check exo-type <output-type>)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["text" <proc-name>])
-                                           (&/|list =text =part)
+                                           (&/|list =text =part =start)
                                            (&/|list)))))))
 
-  ^:private analyse-text-index      "index"
-  ^:private analyse-text-last-index "last-index"
+  ^:private analyse-text-index      "index"      (&/$AppT &type/Maybe &type/Nat)
+  ^:private analyse-text-last-index "last-index" (&/$AppT &type/Maybe &type/Nat)
   )
+
+(defn ^:private analyse-text-contains? [analyse exo-type ?values]
+  (|do [:let [(&/$Cons text (&/$Cons part (&/$Nil))) ?values]
+        =text (&&/analyse-1 analyse &type/Text text)
+        =part (&&/analyse-1 analyse &type/Text part)
+        _ (&type/check exo-type &type/Bool)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "contains?"])
+                                         (&/|list =text =part)
+                                         (&/|list)))))))
 
 (defn ^:private analyse-text-clip [analyse exo-type ?values]
   (|do [:let [(&/$Cons text (&/$Cons from (&/$Cons to (&/$Nil)))) ?values]
@@ -71,15 +84,20 @@
                                          (&/|list =text =to-find =replace-with)
                                          (&/|list)))))))
 
-(defn ^:private analyse-text-size [analyse exo-type ?values]
-  (|do [:let [(&/$Cons text (&/$Nil)) ?values]
-        =text (&&/analyse-1 analyse &type/Text text)
-        _ (&type/check exo-type &type/Nat)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["text" "size"])
-                                         (&/|list =text)
-                                         (&/|list)))))))
+(do-template [<name> <proc>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons text (&/$Nil)) ?values]
+          =text (&&/analyse-1 analyse &type/Text text)
+          _ (&type/check exo-type &type/Nat)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["text" <proc>])
+                                           (&/|list =text)
+                                           (&/|list)))))))
+
+  ^:private analyse-text-size "size"
+  ^:private analyse-text-hash "hash"
+  )
 
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
@@ -187,6 +205,9 @@
   ^:private analyse-real-rem ["real" "%"] &type/Real &type/Real
   ^:private analyse-real-eq  ["real" "="] &type/Real &type/Bool
   ^:private analyse-real-lt  ["real" "<"] &type/Real &type/Bool
+
+  ^:private analyse-char-eq  ["char" "="] &type/Char &type/Bool
+  ^:private analyse-char-lt  ["char" "<"] &type/Char &type/Bool
   )
 
 (defn ^:private analyse-deg-scale [analyse exo-type ?values]
@@ -328,6 +349,61 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["array" "size"]) (&/|list =array) (&/|list)))))))))
 
+(do-template [<name> <proc>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Nil) ?values]
+          _ (&type/check exo-type &type/Real)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["math" <proc>]) (&/|list) (&/|list)))))))
+
+  ^:private analyse-math-e  "e"
+  ^:private analyse-math-pi "pi"
+  )
+
+(do-template [<name> <proc>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+          =input (&&/analyse-1 analyse &type/Real ?input)
+          _ (&type/check exo-type &type/Real)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["math" <proc>]) (&/|list =input) (&/|list)))))))
+
+  ^:private analyse-math-cos "cos"
+  ^:private analyse-math-sin "sin"
+  ^:private analyse-math-tan "tan"
+  ^:private analyse-math-acos "acos"
+  ^:private analyse-math-asin "asin"
+  ^:private analyse-math-atan "atan"
+  ^:private analyse-math-cosh "cosh"
+  ^:private analyse-math-sinh "sinh"
+  ^:private analyse-math-tanh "tanh"
+  ^:private analyse-math-exp "exp"
+  ^:private analyse-math-log "log"
+  ^:private analyse-math-root2 "root2"
+  ^:private analyse-math-root3 "root3"
+  ^:private analyse-math-degrees "degrees"
+  ^:private analyse-math-radians "radians"
+  ^:private analyse-math-ceil "ceil"
+  ^:private analyse-math-floor "floor"
+  ^:private analyse-math-round "round"
+  )
+
+(do-template [<name> <proc>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
+          =input (&&/analyse-1 analyse &type/Real ?input)
+          =param (&&/analyse-1 analyse &type/Real ?param)
+          _ (&type/check exo-type &type/Real)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T ["math" <proc>]) (&/|list =input =param) (&/|list)))))))
+
+  ^:private analyse-math-atan2 "atan2"
+  ^:private analyse-math-pow "pow"
+  )
+
 (defn analyse-proc [analyse exo-type category proc ?values]
   (case category
     "lux"
@@ -342,16 +418,20 @@
     "text"
     (case proc
       "="                    (analyse-text-eq analyse exo-type ?values)
+      "<"                    (analyse-text-lt analyse exo-type ?values)
       "append"               (analyse-text-append analyse exo-type ?values)
       "clip"                 (analyse-text-clip analyse exo-type ?values)
       "index"                (analyse-text-index analyse exo-type ?values)
       "last-index"           (analyse-text-last-index analyse exo-type ?values)
       "size"                 (analyse-text-size analyse exo-type ?values)
+      "hash"                 (analyse-text-hash analyse exo-type ?values)
       "replace-all"          (analyse-text-replace-all analyse exo-type ?values)
       "trim"                 (analyse-text-trim analyse exo-type ?values)
       "char"                 (analyse-text-char analyse exo-type ?values)
       "upper-case"           (analyse-text-upper-case analyse exo-type ?values)
-      "lower-case"           (analyse-text-lower-case analyse exo-type ?values))
+      "lower-case"           (analyse-text-lower-case analyse exo-type ?values)
+      "contains?"            (analyse-text-contains? analyse exo-type ?values)
+      )
 
     "bit"
     (case proc
@@ -445,8 +525,36 @@
 
     "char"
     (case proc
+      "=" (analyse-char-eq analyse exo-type ?values)
+      "<" (analyse-char-lt analyse exo-type ?values)
       "to-text" (analyse-char-to-text analyse exo-type ?values)
       "to-nat" (analyse-char-to-nat analyse exo-type ?values)
+      )
+
+    "math"
+    (case proc
+      "e" (analyse-math-e analyse exo-type ?values)
+      "pi" (analyse-math-pi analyse exo-type ?values)
+      "cos" (analyse-math-cos analyse exo-type ?values)
+      "sin" (analyse-math-sin analyse exo-type ?values)
+      "tan" (analyse-math-tan analyse exo-type ?values)
+      "acos" (analyse-math-acos analyse exo-type ?values)
+      "asin" (analyse-math-asin analyse exo-type ?values)
+      "atan" (analyse-math-atan analyse exo-type ?values)
+      "cosh" (analyse-math-cosh analyse exo-type ?values)
+      "sinh" (analyse-math-sinh analyse exo-type ?values)
+      "tanh" (analyse-math-tanh analyse exo-type ?values)
+      "exp" (analyse-math-exp analyse exo-type ?values)
+      "log" (analyse-math-log analyse exo-type ?values)
+      "root2" (analyse-math-root2 analyse exo-type ?values)
+      "root3" (analyse-math-root3 analyse exo-type ?values)
+      "degrees" (analyse-math-degrees analyse exo-type ?values)
+      "radians" (analyse-math-radians analyse exo-type ?values)
+      "ceil" (analyse-math-ceil analyse exo-type ?values)
+      "floor" (analyse-math-floor analyse exo-type ?values)
+      "round" (analyse-math-round analyse exo-type ?values)
+      "atan2" (analyse-math-atan2 analyse exo-type ?values)
+      "pow" (analyse-math-pow analyse exo-type ?values)
       )
     
     ;; else

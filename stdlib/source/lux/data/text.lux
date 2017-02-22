@@ -20,7 +20,7 @@
 
 (def: #export (contains? sub text)
   (-> Text Text Bool)
-  (_lux_proc ["jvm" "invokevirtual:java.lang.String:contains:java.lang.CharSequence"] [text sub]))
+  (_lux_proc ["text" "contains?"] [text sub]))
 
 (do-template [<name> <proc>]
   [(def: #export (<name> input)
@@ -33,13 +33,7 @@
 
 (def: #export (clip from to input)
   (-> Nat Nat Text (Maybe Text))
-  (if (and (n.< to from)
-           (n.<= (size input) to))
-    (#;Some (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int,int"]
-                       [input
-                        (_lux_proc ["jvm" "l2i"] [(nat-to-int from)])
-                        (_lux_proc ["jvm" "l2i"] [(nat-to-int to)])]))
-    #;None))
+  (_lux_proc ["text" "clip"] [input from to]))
 
 (def: #export (clip' from input)
   (-> Nat Text (Maybe Text))
@@ -47,30 +41,24 @@
 
 (def: #export (replace pattern value template)
   (-> Text Text Text Text)
-  (_lux_proc ["jvm" "invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"] [template pattern value]))
+  (_lux_proc ["text" "replace-all"] [template pattern value]))
 
-(do-template [<common> <common-proc> <general> <general-proc>]
-  [(def: #export (<common> pattern x)
+(do-template [<general> <common> <proc> <start>]
+  [(def: #export (<common> pattern input)
      (-> Text Text (Maybe Nat))
-     (case (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" <common-proc>] [x pattern])])
-       -1  #;None
-       idx (#;Some (int-to-nat idx))))
+     (_lux_proc ["text" <proc>] [input pattern <start>]))
 
-   (def: #export (<general> pattern from x)
+   (def: #export (<general> pattern from input)
      (-> Text Nat Text (Maybe Nat))
-     (if (n.< (size x) from)
-       (case (_lux_proc ["jvm" "i2l"] [(_lux_proc ["jvm" <general-proc>] [x pattern (_lux_proc ["jvm" "l2i"] [(nat-to-int from)])])])
-         -1  #;None
-         idx (#;Some (int-to-nat idx)))
-       #;None))]
+     (_lux_proc ["text" <proc>] [input pattern from]))]
 
-  [index-of      "invokevirtual:java.lang.String:indexOf:java.lang.String"     index-of'      "invokevirtual:java.lang.String:indexOf:java.lang.String,int"]
-  [last-index-of "invokevirtual:java.lang.String:lastIndexOf:java.lang.String" last-index-of' "invokevirtual:java.lang.String:lastIndexOf:java.lang.String,int"]
+  [index-of      index-of'      "index"      +0]
+  [last-index-of last-index-of' "last-index" (size input)]
   )
 
 (def: #export (starts-with? prefix x)
   (-> Text Text Bool)
-  (case (index-of prefix x)
+  (case (index-of' prefix x)
     (#;Some +0)
     true
 
@@ -79,7 +67,7 @@
 
 (def: #export (ends-with? postfix x)
   (-> Text Text Bool)
-  (case (last-index-of postfix x)
+  (case (last-index-of' postfix x)
     (#;Some n)
     (n.= (size x)
          (n.+ (size postfix) n))
@@ -89,16 +77,17 @@
 
 (def: #export (split at x)
   (-> Nat Text (Maybe [Text Text]))
-  (if (n.<= (size x) at)
-    (let [pre (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int,int"] [x (_lux_proc ["jvm" "l2i"] [0]) (_lux_proc ["jvm" "l2i"] [(nat-to-int at)])])
-          post (_lux_proc ["jvm" "invokevirtual:java.lang.String:substring:int"] [x (_lux_proc ["jvm" "l2i"] [(nat-to-int at)])])]
-      (#;Some [pre post]))
+  (case [(clip +0 at x) (clip' at x)]
+    [(#;Some pre) (#;Some post)]
+    (#;Some [pre post])
+
+    _
     #;None))
 
 (def: #export (split-with token sample)
   (-> Text Text (Maybe [Text Text]))
   (do Monad<Maybe>
-    [index (index-of token sample)
+    [index (index-of' token sample)
      [pre post'] (split index sample)
      [_ post] (split (size token) post')]
     (wrap [pre post])))
@@ -123,20 +112,25 @@
 (struct: #export _ (ord;Ord Text)
   (def: eq Eq<Text>)
 
-  (do-template [<name> <op>]
-    [(def: (<name> test subject)
-       (<op> 0
-             (_lux_proc ["jvm" "i2l"]  [(_lux_proc ["jvm" "invokevirtual:java.lang.String:compareTo:java.lang.String"] [subject test])])))]
+  (def: (< test subject)
+    (_lux_proc ["text" "<"] [subject test]))
 
-    [<  i.<]
-    [<= i.<=]
-    [>  i.>]
-    [>= i.>=]))
+  (def: (<= test subject)
+    (or (_lux_proc ["text" "<"] [subject test])
+        (_lux_proc ["text" "="] [subject test])))
+
+  (def: (> test subject)
+    (_lux_proc ["text" "<"] [test subject]))
+
+  (def: (>= test subject)
+    (or (_lux_proc ["text" "<"] [test subject])
+        (_lux_proc ["text" "="] [test subject])))
+  )
 
 (struct: #export _ (Monoid Text)
   (def: unit "")
-  (def: (append x y)
-    (_lux_proc ["jvm" "invokevirtual:java.lang.String:concat:java.lang.String"] [x y])))
+  (def: (append left right)
+    (_lux_proc ["text" "append"] [left right])))
 
 (open Monoid<Text>)
 
@@ -145,6 +139,7 @@
     (let [escaped (|> original
                       (replace "\\" "\\\\")
                       (replace "\t" "\\t")
+                      (replace "\v" "\\v")
                       (replace "\b" "\\b")
                       (replace "\n" "\\n")
                       (replace "\r" "\\r")
@@ -161,6 +156,7 @@
         (|> input'
             (replace "\\\\" "\\")
             (replace "\\t" "\t")
+            (replace "\\v" "\v")
             (replace "\\b" "\b")
             (replace "\\n" "\n")
             (replace "\\r" "\r")
@@ -175,12 +171,8 @@
 (struct: #export _ (Hash Text)
   (def: eq Eq<Text>)
   
-  (def: hash
-    (|>. []
-         (_lux_proc ["jvm" "invokevirtual:java.lang.Object:hashCode:"])
-         []
-         (_lux_proc ["jvm" "i2l"])
-         int-to-nat)))
+  (def: (hash input)
+    (_lux_proc ["text" "hash"] [input])))
 
 (def: #export concat
   (-> (List Text) Text)

@@ -69,6 +69,43 @@
         =right (compile ?right)]
     (return (str "(" =left " === " =right ")"))))
 
+(defn ^:private compile-array-new [compile ?values special-args]
+  (|do [:let [(&/$Cons ?length (&/$Nil)) ?values]
+        =length (compile ?length)]
+    (return (str "new Array(" (str "LuxRT.toNumberI64(" =length ")") ")"))))
+
+(defn ^:private compile-array-get [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        =array (compile ?array)
+        =idx (compile ?idx)]
+    (return (str "LuxRT.arrayGet(" =array "," =idx ")"))))
+
+(defn ^:private compile-array-put [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        =array (compile ?array)
+        =idx (compile ?idx)
+        =elem (compile ?elem)]
+    (return (str "LuxRT.arrayPut(" =array "," =idx "," =elem ")"))))
+
+(defn ^:private compile-array-remove [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        =array (compile ?array)
+        =idx (compile ?idx)]
+    (return (str "LuxRT.arrayRemove(" =array "," =idx ")"))))
+
+(defn ^:private compile-array-size [compile ?values special-args]
+  (|do [:let [(&/$Cons ?array (&/$Nil)) ?values
+              ;; (&/$Nil) special-args
+              ]
+        =array (compile ?array)]
+    (return (str =array ".length"))))
+
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -134,9 +171,13 @@
   ^:private compile-deg-decode "decodeD64"
 
   ^:private compile-real-decode "decodeReal"
-
-  ^:private compile-real-hash "hashReal"
   )
+
+(defn ^:private compile-real-hash [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str &&rt/LuxRT ".textHash(''+" =x ")"))
+    ))
 
 (do-template [<name> <compiler> <value>]
   (defn <name> [compile ?values special-args]
@@ -222,28 +263,6 @@
 ;;   ^:private compile-real-to-deg "java.lang.Double" "real-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
 ;;   )
 
-;; (let [widen (fn [^MethodVisitor *writer*]
-;;               (doto *writer*
-;;                 (.visitInsn Opcodes/I2L)))
-;;       shrink (fn [^MethodVisitor *writer*]
-;;                (doto *writer*
-;;                  (.visitInsn Opcodes/L2I)
-;;                  (.visitInsn Opcodes/I2C)))]
-;;   (do-template [<name> <unwrap> <wrap> <adjust>]
-;;     (defn <name> [compile ?values special-args]
-;;       (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-;;             ^MethodVisitor *writer* &/get-writer
-;;             _ (compile ?x)
-;;             :let [_ (doto *writer*
-;;                       <unwrap>
-;;                       <adjust>
-;;                       <wrap>)]]
-;;         (return nil)))
-
-;;     ^:private compile-nat-to-char &&/unwrap-long &&/wrap-char shrink
-;;     ^:private compile-char-to-nat &&/unwrap-char &&/wrap-long widen
-;;     ))
-
 (do-template [<name>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]]
@@ -273,11 +292,27 @@
         =x (compile ?x)]
     (return (str "LuxRT.realToDeg(" =x ")"))))
 
-(defn ^:private compile-text-eq [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-        =x (compile ?x)
-        =y (compile ?y)]
-    (return (str "(" =x "===" =y ")"))))
+(do-template [<name> <op>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          =x (compile ?x)
+          =y (compile ?y)]
+      (return (str "(" =x <op> =y ")"))))
+
+  ^:private compile-text-eq "==="
+  ^:private compile-text-lt "<"
+  )
+
+(do-template [<name> <op>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+          =x (compile ?x)
+          =y (compile ?y)]
+      (return (str "(" =x ".C" " " <op> " " =y ".C" ")"))))
+
+  ^:private compile-char-eq "==="
+  ^:private compile-char-lt "<"
+  )
 
 (defn ^:private compile-text-append [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -287,14 +322,25 @@
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Nil))) ?values]
+    (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Cons ?start (&/$Nil)))) ?values]
           =text (compile ?text)
-          =part (compile ?part)]
-      (return (str "LuxRT" "." <method> "(" =text "," =part ")"))))
+          =part (compile ?part)
+          =start (compile ?start)]
+      (return (str "LuxRT" "." <method> "(" =text "," =part "," =start ")"))))
 
   ^:private compile-text-last-index "lastIndex"
   ^:private compile-text-index      "index"
   )
+
+(defn ^:private compile-text-contains? [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Nil))) ?values]
+        =text (compile ?text)
+        =part (compile ?part)]
+    (return (str "(" (str (str "(" =text ")")
+                          ".indexOf"
+                          (str "(" =part ")"))
+                 " !== " "-1"
+                 ")"))))
 
 (defn ^:private compile-text-clip [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Cons ?from (&/$Cons ?to (&/$Nil)))) ?values]
@@ -314,6 +360,11 @@
   (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
         =text (compile ?text)]
     (return (str "LuxRT.fromNumberI64(" =text ".length" ")"))))
+
+(defn ^:private compile-text-hash [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+        =text (compile ?text)]
+    (return (str "LuxRT.textHash(" =text ")"))))
 
 (defn ^:private compile-text-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
@@ -336,6 +387,20 @@
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
     (return (str "(" =x ").C"))))
+
+(defn ^:private compile-char-to-nat [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "LuxRT.fromNumberI64(" (str "(" =x ").C" ".charCodeAt(0)") ")"))))
+
+(defn ^:private compile-nat-to-char [compile ?values special-args]
+  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+        =x (compile ?x)]
+    (return (str "{C:"
+                 (str "String.fromCharCode("
+                      (str "LuxRT.toNumberI64(" =x ")")
+                      ")")
+                 "}"))))
 
 (defn ^:private compile-lux-log [compile ?values special-args]
   (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
@@ -361,16 +426,19 @@
     "text"
     (case proc-name
       "="                    (compile-text-eq compile ?values special-args)
+      "<"                    (compile-text-lt compile ?values special-args)
       "append"               (compile-text-append compile ?values special-args)
       "clip"                 (compile-text-clip compile ?values special-args)
       "index"                (compile-text-index compile ?values special-args)
       "last-index"           (compile-text-last-index compile ?values special-args)
       "size"                 (compile-text-size compile ?values special-args)
+      "hash"                 (compile-text-hash compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)
       "trim"                 (compile-text-trim compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
       "upper-case"           (compile-text-upper-case compile ?values special-args)
       "lower-case"           (compile-text-lower-case compile ?values special-args)
+      "contains?"            (compile-text-contains? compile ?values special-args)
       )
     
     ;; "bit"
@@ -383,9 +451,13 @@
     ;;   "shift-right"          (compile-bit-shift-right compile ?values special-args)
     ;;   "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
     
-    ;; "array"
-    ;; (case proc-name
-    ;;   "get" (compile-array-get compile ?values special-args))
+    "array"
+    (case proc-name
+      "new" (compile-array-new compile ?values special-args)
+      "get" (compile-array-get compile ?values special-args)
+      "put" (compile-array-put compile ?values special-args)
+      "remove" (compile-array-remove compile ?values special-args)
+      "size" (compile-array-size compile ?values special-args))
 
     "nat"
     (case proc-name
@@ -401,7 +473,7 @@
       "max-value" (compile-nat-max-value compile ?values special-args)
       "min-value" (compile-nat-min-value compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)
-      ;; "to-char"   (compile-nat-to-char compile ?values special-args)
+      "to-char"   (compile-nat-to-char compile ?values special-args)
       )
 
     "int"
@@ -461,8 +533,10 @@
 
     "char"
     (case proc-name
-      "to-text" (compile-char-to-text compile ?values special-args)
-      ;; "to-nat"    (compile-char-to-nat compile ?values special-args)
+      "="         (compile-char-eq compile ?values special-args)
+      "<"         (compile-char-lt compile ?values special-args)
+      "to-text"   (compile-char-to-text compile ?values special-args)
+      "to-nat"    (compile-char-to-nat compile ?values special-args)
       )
     
     ;; else

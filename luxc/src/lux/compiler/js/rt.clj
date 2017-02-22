@@ -1233,8 +1233,8 @@
   (str "[1,''," value "]"))
 
 (def ^:private text-methods
-  {"index" (str "(function index(text,part) {"
-                "var idx = text.indexOf(part);"
+  {"index" (str "(function index(text,part,start) {"
+                "var idx = text.indexOf(part,LuxRT.toNumberI64(start));"
                 (str (str "if(idx === -1) {"
                           "return " const-none ";"
                           "}")
@@ -1242,8 +1242,8 @@
                           (str "return " (make-some "LuxRT.fromNumberI64(idx)") ";")
                           "}"))
                 "})")
-   "lastIndex" (str "(function lastIndex(text,part) {"
-                    "var idx = text.lastIndexOf(part);"
+   "lastIndex" (str "(function lastIndex(text,part,start) {"
+                    "var idx = text.lastIndexOf(part,LuxRT.toNumberI64(start));"
                     (str (str "if(idx === -1) {"
                               "return " const-none ";"
                               "}")
@@ -1275,6 +1275,33 @@
                    "var reEscaped = toFind.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');"
                    "return text.replace(new RegExp(reEscaped, 'g'), replaceWith);"
                    "})")
+   "textHash" (str "(function(input) {"
+                   "var hash = 0;"
+                   (str "for(var i = 0; i < input.length; i++) {"
+                        "hash = (((hash << 5) - hash) + input.charCodeAt(i)) & 0xFFFFFFFF;"
+                        "}")
+                   "return LuxRT.fromNumberI64(hash);"
+                   "})")
+   })
+
+(def ^:private array-methods
+  {"arrayGet" (str "(function arrayGet(arr,idx) {"
+                   "var temp = arr[LuxRT.toNumberI64(idx)];"
+                   (str "if(temp !== undefined) {"
+                        (str "return " (make-some "temp") ";")
+                        "}"
+                        "else {"
+                        (str "return " const-none ";")
+                        "}")
+                   "})")
+   "arrayPut" (str "(function arrayPut(arr,idx,val) {"
+                   "arr[LuxRT.toNumberI64(idx)] = val;"
+                   "return arr;"
+                   "})")
+   "arrayRemove" (str "(function arrayRemove(arr,idx) {"
+                      "delete arr[LuxRT.toNumberI64(idx)];"
+                      "return arr;"
+                      "})")
    })
 
 (def LuxRT "LuxRT")
@@ -1285,6 +1312,7 @@
                                              i64-methods
                                              n64-methods
                                              text-methods
+                                             array-methods
                                              io-methods)
                                       (map (fn [[key val]]
                                              (str key ":" val)))
