@@ -30,6 +30,7 @@
 (defn ^:private escape-char [escaped]
   "(-> Text (Lux Text))"
   (cond (.equals ^Object escaped "\\t")  (return "\t")
+        (.equals ^Object escaped "\\v")  (return "\u000B")
         (.equals ^Object escaped "\\b")  (return "\b")
         (.equals ^Object escaped "\\n")  (return "\n")
         (.equals ^Object escaped "\\r")  (return "\r")
@@ -42,6 +43,7 @@
 (defn ^:private escape-char* [escaped]
   "(-> Text Text)"
   (cond (.equals ^Object escaped "\\t")  "\t"
+        (.equals ^Object escaped "\\v")  "\u000B"
         (.equals ^Object escaped "\\b")  "\b"
         (.equals ^Object escaped "\\n")  "\n"
         (.equals ^Object escaped "\\r")  "\r"
@@ -62,6 +64,8 @@
             (do (assert (< (+ 1 idx) line-length) (str "[Lexer Error] Text is too short for escaping: " raw-line " " idx))
               (case (.charAt raw-line (+ 1 idx))
                 \t (do (.append buffer "\t")
+                     (recur (+ 2 idx)))
+                \v (do (.append buffer "\u000B")
                      (recur (+ 2 idx)))
                 \b (do (.append buffer "\b")
                      (recur (+ 2 idx)))
