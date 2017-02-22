@@ -46,7 +46,7 @@
   (return (str value)))
 
 (defn compile-char [value]
-  (return (str "{C:\"" value "\"}")))
+  (return (str "{C:" (pr-str (str value)) "}")))
 
 (defn compile-text [?value]
   (return (pr-str ?value)))
