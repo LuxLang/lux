@@ -731,7 +731,7 @@
             (return* compiler host-data)
 
             _
-            (fail* "[Error] Wrong host."))))
+            ((fail-with-loc "[Error] Wrong host.") compiler))))
 
     (def <ask>
       (fn [compiler]

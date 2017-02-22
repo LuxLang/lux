@@ -134,7 +134,8 @@
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
               (case ?category
-                "jvm" (&&jvm/analyse-host analyse exo-type compilers ?proc ?args)
+                "jvm" (|do [_ &/jvm-host]
+                        (&&jvm/analyse-host analyse exo-type compilers ?proc ?args))
                 ;; "js"
                 ;; common
                 (&&common/analyse-proc analyse exo-type ?category ?proc ?args))
