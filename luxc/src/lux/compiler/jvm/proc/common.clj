@@ -792,19 +792,53 @@
                   &&/wrap-double)]]
     (return nil)))
 
-(defn compile-proc [compile proc-category proc-name ?values special-args]
-  (case proc-category
+(defn ^:private compile-atom-new [compile ?values special-args]
+  (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/NEW "java/util/concurrent/atomic/AtomicReference")
+                  (.visitInsn Opcodes/DUP))]
+        _ (compile ?init)
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESPECIAL "java/util/concurrent/atomic/AtomicReference" "<init>" "(Ljava/lang/Object;)V"))]]
+    (return nil)))
+
+(defn ^:private compile-atom-get [compile ?values special-args]
+  (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?atom)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/util/concurrent/atomic/AtomicReference"))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/util/concurrent/atomic/AtomicReference" "get" "()Ljava/lang/Object;"))]]
+    (return nil)))
+
+(defn ^:private compile-atom-compare-and-swap [compile ?values special-args]
+  (|do [:let [(&/$Cons ?atom (&/$Cons ?old (&/$Cons ?new (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?atom)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/util/concurrent/atomic/AtomicReference"))]
+        _ (compile ?old)
+        _ (compile ?new)
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/util/concurrent/atomic/AtomicReference" "compareAndSet" "(Ljava/lang/Object;Ljava/lang/Object;)Z")
+                  &&/wrap-boolean)]]
+    (return nil)))
+
+(defn compile-proc [compile category proc ?values special-args]
+  (case category
     "lux"
-    (case proc-name
+    (case proc
       "is"                   (compile-lux-is compile ?values special-args))
 
     "io"
-    (case proc-name
+    (case proc
       "log"                  (compile-io-log compile ?values special-args)
       "error"                (compile-io-error compile ?values special-args))
 
     "text"
-    (case proc-name
+    (case proc
       "="                    (compile-text-eq compile ?values special-args)
       "<"                    (compile-text-lt compile ?values special-args)
       "append"               (compile-text-append compile ?values special-args)
@@ -822,7 +856,7 @@
       )
     
     "bit"
-    (case proc-name
+    (case proc
       "count"                (compile-bit-count compile ?values special-args)
       "and"                  (compile-bit-and compile ?values special-args)
       "or"                   (compile-bit-or compile ?values special-args)
@@ -832,7 +866,7 @@
       "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
     
     "array"
-    (case proc-name
+    (case proc
       "new" (compile-array-new compile ?values special-args)
       "get" (compile-array-get compile ?values special-args)
       "put" (compile-array-put compile ?values special-args)
@@ -840,7 +874,7 @@
       "size" (compile-array-size compile ?values special-args))
 
     "nat"
-    (case proc-name
+    (case proc
       "+"         (compile-nat-add compile ?values special-args)
       "-"         (compile-nat-sub compile ?values special-args)
       "*"         (compile-nat-mul compile ?values special-args)
@@ -857,7 +891,7 @@
       )
     
     "deg"
-    (case proc-name
+    (case proc
       "+"         (compile-deg-add compile ?values special-args)
       "-"         (compile-deg-sub compile ?values special-args)
       "*"         (compile-deg-mul compile ?values special-args)
@@ -874,7 +908,7 @@
       )
 
     "int"
-    (case proc-name
+    (case proc
       "+"         (compile-int-add compile ?values special-args)
       "-"         (compile-int-sub compile ?values special-args)
       "*"         (compile-int-mul compile ?values special-args)
@@ -891,7 +925,7 @@
       )
 
     "real"
-    (case proc-name
+    (case proc
       "+"         (compile-real-add compile ?values special-args)
       "-"         (compile-real-sub compile ?values special-args)
       "*"         (compile-real-mul compile ?values special-args)
@@ -912,7 +946,7 @@
       )
 
     "char"
-    (case proc-name
+    (case proc
       "="         (compile-char-eq compile ?values special-args)
       "<"         (compile-char-lt compile ?values special-args)
       "to-nat"    (compile-char-to-nat compile ?values special-args)
@@ -920,7 +954,7 @@
       )
 
     "math"
-    (case proc-name
+    (case proc
       "e" (compile-math-e compile ?values special-args)
       "pi" (compile-math-pi compile ?values special-args)
       "cos" (compile-math-cos compile ?values special-args)
@@ -944,6 +978,13 @@
       "atan2" (compile-math-atan2 compile ?values special-args)
       "pow" (compile-math-pow compile ?values special-args)
       )
+
+    "atom"
+    (case proc
+      "new" (compile-atom-new compile ?values special-args)
+      "get" (compile-atom-get compile ?values special-args)
+      "compare-and-swap" (compile-atom-compare-and-swap compile ?values special-args)
+      )
     
     ;; else
-    (&/fail-with-loc (str "[Compiler Error] Unknown procedure: " [proc-category proc-name]))))
+    (&/fail-with-loc (str "[Compiler Error] Unknown procedure: " [category proc]))))

@@ -404,6 +404,38 @@
   ^:private analyse-math-pow "pow"
   )
 
+(defn ^:private analyse-atom-new [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
+            =init (&&/analyse-1 analyse $var ?init)
+            _ (&type/check exo-type (&type/Atom $var))
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["atom" "new"]) (&/|list =init) (&/|list)))))))))
+
+(defn ^:private analyse-atom-get [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
+            =atom (&&/analyse-1 analyse (&type/Atom $var) ?atom)
+            _ (&type/check exo-type $var)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["atom" "get"]) (&/|list =atom) (&/|list)))))))))
+
+(defn ^:private analyse-atom-compare-and-swap [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons ?atom (&/$Cons ?old (&/$Cons ?new (&/$Nil)))) ?values]
+            =atom (&&/analyse-1 analyse (&type/Atom $var) ?atom)
+            =old (&&/analyse-1 analyse $var ?old)
+            =new (&&/analyse-1 analyse $var ?new)
+            _ (&type/check exo-type &type/Bool)
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["atom" "compare-and-swap"]) (&/|list =atom =old =new) (&/|list)))))))))
+
 (defn analyse-proc [analyse exo-type category proc ?values]
   (case category
     "lux"
@@ -555,6 +587,13 @@
       "round" (analyse-math-round analyse exo-type ?values)
       "atan2" (analyse-math-atan2 analyse exo-type ?values)
       "pow" (analyse-math-pow analyse exo-type ?values)
+      )
+
+    "atom"
+    (case proc
+      "new" (analyse-atom-new analyse exo-type ?values)
+      "get" (analyse-atom-get analyse exo-type ?values)
+      "compare-and-swap" (analyse-atom-compare-and-swap analyse exo-type ?values)
       )
     
     ;; else

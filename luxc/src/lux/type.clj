@@ -23,17 +23,22 @@
 
 (def empty-env &/$Nil)
 
-(def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$HostT "java.lang.Boolean" &/$Nil)))
+(def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$HostT "#Bool" &/$Nil)))
 (def Nat (&/$NamedT (&/T ["lux" "Nat"]) (&/$HostT &&host/nat-data-tag &/$Nil)))
 (def Deg (&/$NamedT (&/T ["lux" "Deg"]) (&/$HostT &&host/deg-data-tag &/$Nil)))
-(def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$HostT "java.lang.Long" &/$Nil)))
-(def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$HostT "java.lang.Double" &/$Nil)))
-(def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$HostT "java.lang.Character" &/$Nil)))
-(def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$HostT "java.lang.String" &/$Nil)))
+(def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$HostT "#Int" &/$Nil)))
+(def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$HostT "#Real" &/$Nil)))
+(def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$HostT "#Char" &/$Nil)))
+(def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$HostT "#Text" &/$Nil)))
 (def Ident (&/$NamedT (&/T ["lux" "Ident"]) (&/$ProdT Text Text)))
 
-(defn Array [elem-type]
-  (&/$HostT "#Array" (&/|list elem-type)))
+(do-template [<name> <tag>]
+  (defn <name> [elem-type]
+    (&/$HostT <tag> (&/|list elem-type)))
+
+  Array "#Array"
+  Atom  "#Atom"
+  )
 
 (def Bottom
   (&/$NamedT (&/T ["lux" "Bottom"])
@@ -205,7 +210,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
-                                                            ts))
+                                                             ts))
                             state)
                  nil))
       ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
@@ -215,7 +220,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
-                                                          ts))
+                                                           ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
@@ -225,7 +230,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id &/$None %)
-                                                          ts))
+                                                           ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
