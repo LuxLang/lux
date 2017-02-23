@@ -79,8 +79,8 @@
   JSObject
   (getMember [self member]
     (condp = member
-      "H" (-> value (unsigned-bit-shift-right 32) (bit-and i64-mask) int)
-      "L" (-> value (bit-and i64-mask) int)
+      "H" (-> value (bit-shift-right 32) int)
+      "L" (-> value (bit-and i64-mask) (bit-shift-left 32) (bit-shift-right 32) int)
       ;; else
       (assert false (str "I64#getMember = " member)))))
 
