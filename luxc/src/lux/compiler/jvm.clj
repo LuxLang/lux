@@ -192,7 +192,8 @@
                                                (.visitSource file-name nil))]
                                 _ (if (= "lux" name)
                                     (|do [_ &&rt/compile-Function-class
-                                          _ &&rt/compile-LuxRT-class]
+                                          _ &&rt/compile-LuxRT-class
+                                          _ &&rt/compile-LuxRunnable-class]
                                       (return nil))
                                     (return nil))]
                             (fn [state]

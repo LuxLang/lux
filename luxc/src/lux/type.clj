@@ -45,6 +45,11 @@
              (&/$UnivQ empty-env
                        (&/$BoundT 1))))
 
+(def Top
+  (&/$NamedT (&/T ["lux" "Top"])
+             (&/$ExQ empty-env
+                     (&/$BoundT 1))))
+
 (def IO
   (&/$NamedT (&/T ["lux/codata" "IO"])
              (&/$UnivQ empty-env

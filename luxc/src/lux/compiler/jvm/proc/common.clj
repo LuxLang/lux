@@ -826,6 +826,38 @@
                   &&/wrap-boolean)]]
     (return nil)))
 
+(defn ^:private compile-process-concurrency-level [compile ?values special-args]
+  (|do [:let [(&/$Nil) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (doto *writer*
+                  (.visitFieldInsn Opcodes/GETSTATIC "lux/LuxRT" "concurrency_level" "I")
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long)]]
+    (return nil)))
+
+(defn ^:private compile-process-future [compile ?values special-args]
+  (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?procedure)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "lux/Function"))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "future" "(Llux/Function;)Ljava/lang/Object;"))]]
+    (return nil)))
+
+(defn ^:private compile-process-schedule [compile ?values special-args]
+  (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?milliseconds)
+        :let [_ (doto *writer*
+                  &&/unwrap-long)]
+        _ (compile ?procedure)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "lux/Function"))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "schedule" "(JLlux/Function;)Ljava/lang/Object;"))]]
+    (return nil)))
+
 (defn compile-proc [compile category proc ?values special-args]
   (case category
     "lux"
@@ -984,6 +1016,13 @@
       "new" (compile-atom-new compile ?values special-args)
       "get" (compile-atom-get compile ?values special-args)
       "compare-and-swap" (compile-atom-compare-and-swap compile ?values special-args)
+      )
+
+    "process"
+    (case proc
+      "concurrency-level" (compile-process-concurrency-level compile ?values special-args)
+      "future" (compile-process-future compile ?values special-args)
+      "schedule" (compile-process-schedule compile ?values special-args)
       )
     
     ;; else

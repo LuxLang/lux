@@ -436,6 +436,30 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["atom" "compare-and-swap"]) (&/|list =atom =old =new) (&/|list)))))))))
 
+(defn ^:private analyse-process-concurrency-level [analyse exo-type ?values]
+  (|do [:let [(&/$Nil) ?values]
+        _ (&type/check exo-type &type/Nat)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["process" "concurrency-level"]) (&/|list) (&/|list)))))))
+
+(defn ^:private analyse-process-future [analyse exo-type ?values]
+  (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
+        =procedure (&&/analyse-1 analyse (&/$AppT &type/IO &type/Top) ?procedure)
+        _ (&type/check exo-type &/$UnitT)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["process" "future"]) (&/|list =procedure) (&/|list)))))))
+
+(defn ^:private analyse-process-schedule [analyse exo-type ?values]
+  (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
+        =milliseconds (&&/analyse-1 analyse &type/Nat ?milliseconds)
+        =procedure (&&/analyse-1 analyse (&/$AppT &type/IO &type/Top) ?procedure)
+        _ (&type/check exo-type &/$UnitT)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["process" "schedule"]) (&/|list =milliseconds =procedure) (&/|list)))))))
+
 (defn analyse-proc [analyse exo-type category proc ?values]
   (case category
     "lux"
@@ -594,6 +618,13 @@
       "new" (analyse-atom-new analyse exo-type ?values)
       "get" (analyse-atom-get analyse exo-type ?values)
       "compare-and-swap" (analyse-atom-compare-and-swap analyse exo-type ?values)
+      )
+
+    "process"
+    (case proc
+      "concurrency-level" (analyse-process-concurrency-level analyse exo-type ?values)
+      "future" (analyse-process-future analyse exo-type ?values)
+      "schedule" (analyse-process-schedule analyse exo-type ?values)
       )
     
     ;; else
