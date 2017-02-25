@@ -291,9 +291,17 @@
   ^:private analyse-deg-to-real  &type/Deg  &type/Real   ["deg" "to-real"]
   ^:private analyse-real-to-deg  &type/Real &type/Deg    ["real" "to-deg"]
   
-  ^:private analyse-lux-log      &type/Text &/$UnitT     ["io" "log"]
-  ^:private analyse-lux-error    &type/Text &type/Bottom ["io" "error"]
+  ^:private analyse-io-log       &type/Text &/$UnitT     ["io" "log"]
+  ^:private analyse-io-error     &type/Text &type/Bottom ["io" "error"]
+  ^:private analyse-io-exit      &type/Int  &type/Bottom ["io" "exit"]
   )
+
+(defn ^:private analyse-io-current-time [analyse exo-type ?values]
+  (|do [:let [(&/$Nil) ?values]
+        _ (&type/check exo-type &type/Int)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["io" "current-time"]) (&/|list) (&/|list)))))))
 
 (defn ^:private analyse-array-new [analyse exo-type ?values]
   (|do [:let [(&/$Cons length (&/$Nil)) ?values]
@@ -468,8 +476,11 @@
 
     "io"
     (case proc
-      "log"                  (analyse-lux-log analyse exo-type ?values)
-      "error"                (analyse-lux-error analyse exo-type ?values))
+      "log"                  (analyse-io-log analyse exo-type ?values)
+      "error"                (analyse-io-error analyse exo-type ?values)
+      "exit"                 (analyse-io-exit analyse exo-type ?values)
+      "current-time"         (analyse-io-current-time analyse exo-type ?values)
+      )
 
     "text"
     (case proc

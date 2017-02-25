@@ -402,12 +402,12 @@
                       ")")
                  "}"))))
 
-(defn ^:private compile-lux-log [compile ?values special-args]
+(defn ^:private compile-io-log [compile ?values special-args]
   (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
         =message (compile ?message)]
     (return (str "LuxRT.log(" =message ")"))))
 
-(defn ^:private compile-lux-error [compile ?values special-args]
+(defn ^:private compile-io-error [compile ?values special-args]
   (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
         =message (compile ?message)]
     (return (str "LuxRT.error(" =message ")"))))
@@ -420,8 +420,8 @@
 
     "io"
     (case proc-name
-      "log"                  (compile-lux-log compile ?values special-args)
-      "error"                (compile-lux-error compile ?values special-args))
+      "log"                  (compile-io-log compile ?values special-args)
+      "error"                (compile-io-error compile ?values special-args))
 
     "text"
     (case proc-name
