@@ -766,14 +766,14 @@
         
         [(&/$AppT F A) _]
         (let [fp-pair (&/T [expected actual])
-              _ (when (> (&/|length fixpoints) 40)
-                  (println 'FIXPOINTS (->> (&/|keys fixpoints)
-                                           (&/|map (fn [pair]
-                                                     (|let [[e a] pair]
-                                                       (str (show-type e) ":+:"
-                                                            (show-type a)))))
-                                           (&/|interpose "\n\n")
-                                           (&/fold str "")))
+              _ (when (> (&/|length fixpoints) 64)
+                  (&/|log! (println-str 'FIXPOINTS (->> (&/|keys fixpoints)
+                                                        (&/|map (fn [pair]
+                                                                  (|let [[e a] pair]
+                                                                    (str (show-type e) ":+:"
+                                                                         (show-type a)))))
+                                                        (&/|interpose "\n\n")
+                                                        (&/fold str ""))))
                   (assert false (prn-str 'check* '[(&/$AppT F A) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
