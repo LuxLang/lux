@@ -1304,6 +1304,77 @@
                       "})")
    })
 
+(def ^:private bit-methods
+  (let [make-basic-op (fn [op]
+                        (str "(function andI64(input,mask) {"
+                             "return LuxRT.makeI64(input.H " op " mask.H, input.L " op " mask.L);"
+                             "})"))]
+    {"andI64" (make-basic-op "&")
+     "orI64" (make-basic-op "|")
+     "xorI64" (make-basic-op "^")
+     "countI64" (str "(function countI64(input) {"
+                     "var hs = (input.H).toString(2);"
+                     "var ls = (input.L).toString(2);"
+                     "var num1s = hs.concat(ls).replace('0','').length;"
+                     "return LuxRT.fromNumberI64(num1s);"
+                     "})")
+     "shlI64" (str "(function shlI64(input,shift) {"
+                   "shift &= 63;"
+                   (str "if(shift === 0) {"
+                        "return input;"
+                        "}"
+                        "else {"
+                        (str "if (shift < 32) {"
+                             "var high = (input.H << shift) | (input.L >>> (32 - shift));"
+                             "var low = input.L << shift;"
+                             "return LuxRT.makeI64(high, low);"
+                             "}"
+                             "else {"
+                             "var high = (input.L << (shift - 32));"
+                             "return LuxRT.makeI64(high, 0);"
+                             "}")
+                        "}")
+                   "})")
+     "shrI64" (str "(function shrI64(input,shift) {"
+                   "shift &= 63;"
+                   (str "if(shift === 0) {"
+                        "return input;"
+                        "}"
+                        "else {"
+                        (str "if (shift < 32) {"
+                             "var high = input.H >> shift;"
+                             "var low = (input.L >>> shift) | (input.H << (32 - shift));"
+                             "return LuxRT.makeI64(high, low);"
+                             "}"
+                             "else {"
+                             "var low = (input.H >> (shift - 32));"
+                             "var high = input.H >= 0 ? 0 : -1;"
+                             "return LuxRT.makeI64(high, low);"
+                             "}")
+                        "}")
+                   "})")
+     "ushrI64" (str "(function ushrI64(input,shift) {"
+                    "shift &= 63;"
+                    (str "if(shift === 0) {"
+                         "return input;"
+                         "}"
+                         "else {"
+                         (str "if (shift < 32) {"
+                              "var high = input.H >>> shift;"
+                              "var low = (input.L >>> shift) | (input.H << (32 - shift));"
+                              "return LuxRT.makeI64(high, low);"
+                              "}"
+                              "else if(shift === 32) {"
+                              "return LuxRT.makeI64(0, input.H);"
+                              "}"
+                              "else {"
+                              "var low = (input.H >>> (shift - 32));"
+                              "return LuxRT.makeI64(0, low);"
+                              "}")
+                         "}")
+                    "})")
+     }))
+
 (def LuxRT "LuxRT")
 
 (def compile-LuxRT
@@ -1313,6 +1384,7 @@
                                              n64-methods
                                              text-methods
                                              array-methods
+                                             bit-methods
                                              io-methods)
                                       (map (fn [[key val]]
                                              (str key ":" val)))

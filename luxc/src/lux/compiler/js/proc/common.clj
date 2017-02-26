@@ -14,54 +14,34 @@
                              [lux :as &&lux])))
 
 ;; [Resources]
-;; (do-template [<name> <op>]
-;;   (defn <name> [compile ?values special-args]
-;;     (|do [:let [(&/$Cons ?input (&/$Cons ?mask (&/$Nil))) ?values]
-;;           ^MethodVisitor *writer* &/get-writer
-;;           _ (compile ?input)
-;;           :let [_ (&&/unwrap-long *writer*)]
-;;           _ (compile ?mask)
-;;           :let [_ (&&/unwrap-long *writer*)]
-;;           :let [_ (doto *writer*
-;;                     (.visitInsn <op>)
-;;                     &&/wrap-long)]]
-;;       (return nil)))
+(do-template [<name> <op>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
+          =input (compile ?input)
+          =param (compile ?param)]
+      (return (str "LuxRT." <op> "(" =input "," =param ")"))))
 
-;;   ^:private compile-bit-and Opcodes/LAND
-;;   ^:private compile-bit-or  Opcodes/LOR
-;;   ^:private compile-bit-xor Opcodes/LXOR
-;;   )
+  ^:private compile-bit-and "andI64"
+  ^:private compile-bit-or  "orI64"
+  ^:private compile-bit-xor "xorI64"
+  )
 
-;; (defn ^:private compile-bit-count [compile ?values special-args]
-;;   (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-;;         ^MethodVisitor *writer* &/get-writer
-;;         _ (compile ?input)
-;;         :let [_ (&&/unwrap-long *writer*)]
-;;         :let [_ (doto *writer*
-;;                   (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "bitCount" "(J)I")
-;;                   (.visitInsn Opcodes/I2L)
-;;                   &&/wrap-long)]]
-;;     (return nil)))
+(do-template [<name> <op>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
+          =input (compile ?input)
+          =param (compile ?param)]
+      (return (str "LuxRT." <op> "(" =input "," =param ".L)"))))
 
-;; (do-template [<name> <op>]
-;;   (defn <name> [compile ?values special-args]
-;;     (|do [:let [(&/$Cons ?input (&/$Cons ?shift (&/$Nil))) ?values]
-;;           ^MethodVisitor *writer* &/get-writer
-;;           _ (compile ?input)
-;;           :let [_ (&&/unwrap-long *writer*)]
-;;           _ (compile ?shift)
-;;           :let [_ (doto *writer*
-;;                     &&/unwrap-long
-;;                     (.visitInsn Opcodes/L2I))]
-;;           :let [_ (doto *writer*
-;;                     (.visitInsn <op>)
-;;                     &&/wrap-long)]]
-;;       (return nil)))
+  ^:private compile-bit-shift-left           "shlI64"
+  ^:private compile-bit-shift-right          "shrI64"
+  ^:private compile-bit-unsigned-shift-right "ushlI64"
+  )
 
-;;   ^:private compile-bit-shift-left           Opcodes/LSHL
-;;   ^:private compile-bit-shift-right          Opcodes/LSHR
-;;   ^:private compile-bit-unsigned-shift-right Opcodes/LUSHR
-;;   )
+(defn ^:private compile-bit-count [compile ?values special-args]
+  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+        =input (compile ?input)]
+    (return (str "LuxRT.countI64(" =input ")"))))
 
 (defn ^:private compile-lux-is [compile ?values special-args]
   (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
@@ -488,15 +468,15 @@
       "contains?"            (compile-text-contains? compile ?values special-args)
       )
     
-    ;; "bit"
-    ;; (case proc
-    ;;   "count"                (compile-bit-count compile ?values special-args)
-    ;;   "and"                  (compile-bit-and compile ?values special-args)
-    ;;   "or"                   (compile-bit-or compile ?values special-args)
-    ;;   "xor"                  (compile-bit-xor compile ?values special-args)
-    ;;   "shift-left"           (compile-bit-shift-left compile ?values special-args)
-    ;;   "shift-right"          (compile-bit-shift-right compile ?values special-args)
-    ;;   "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
+    "bit"
+    (case proc
+      "count"                (compile-bit-count compile ?values special-args)
+      "and"                  (compile-bit-and compile ?values special-args)
+      "or"                   (compile-bit-or compile ?values special-args)
+      "xor"                  (compile-bit-xor compile ?values special-args)
+      "shift-left"           (compile-bit-shift-left compile ?values special-args)
+      "shift-right"          (compile-bit-shift-right compile ?values special-args)
+      "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
     
     "array"
     (case proc
