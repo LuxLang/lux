@@ -17,6 +17,18 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["lux" "is"]) (&/|list =left =right) (&/|list)))))))))
 
+(defn ^:private analyse-lux-try [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons op (&/$Nil)) ?values]
+            =op (&&/analyse-1 analyse (&/$AppT &type/IO $var) op)
+            _ (&type/check exo-type (&/$SumT &type/Text ;; lux;Left
+                                             $var ;; lux;Right
+                                             ))
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
+
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
@@ -470,7 +482,8 @@
   (case category
     "lux"
     (case proc
-      "is"                   (analyse-lux-is analyse exo-type ?values))
+      "is"                   (analyse-lux-is analyse exo-type ?values)
+      "try"                  (analyse-lux-try analyse exo-type ?values))
 
     "io"
     (case proc

@@ -1440,6 +1440,29 @@
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
+              _ (let [$from (new Label)
+                      $to (new Label)
+                      $handler (new Label)]
+                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "runTry" "(Llux/Function;)[Ljava/lang/Object;" nil nil)
+                    (.visitCode)
+                    (.visitTryCatchBlock $from $to $handler "java/lang/Throwable")
+                    (.visitLabel $from)
+                    (.visitVarInsn Opcodes/ALOAD 0)
+                    (.visitInsn Opcodes/ACONST_NULL)
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "lux/Function" &&/apply-method (&&/apply-signature 1))
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                    (.visitInsn Opcodes/ARETURN)
+                    (.visitLabel $to)
+                    (.visitLabel $handler) ;; T
+                    (.visitLdcInsn (->> #'&/$None meta ::&/idx int)) ;; TI
+                    (.visitInsn Opcodes/ACONST_NULL) ;; TI?
+                    swap2x1 ;; I?T
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "toString" "()Ljava/lang/String;") ;; I?S
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                    (.visitInsn Opcodes/ARETURN)
+                    (.visitMaxs 0 0)
+                    (.visitEnd)))
               _ (doto =class
                   (compile-LuxRT-pm-methods)
                   (compile-LuxRT-adt-methods)

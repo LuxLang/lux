@@ -179,6 +179,15 @@
                   (.visitLabel $end))]]
     (return nil)))
 
+(defn ^:private compile-lux-try [compile ?values special-args]
+  (|do [:let [(&/$Cons ?op (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?op)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "lux/Function")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "runTry" "(Llux/Function;)[Ljava/lang/Object;"))]]
+    (return nil)))
+
 (do-template [<name> <opcode> <unwrap> <wrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -878,7 +887,8 @@
   (case category
     "lux"
     (case proc
-      "is"                   (compile-lux-is compile ?values special-args))
+      "is"                   (compile-lux-is compile ?values special-args)
+      "try"                  (compile-lux-try compile ?values special-args))
 
     "io"
     (case proc
