@@ -392,6 +392,15 @@
         =message (compile ?message)]
     (return (str "LuxRT.error(" =message ")"))))
 
+(defn ^:private compile-io-exit [compile ?values special-args]
+  (|do [:let [(&/$Cons ?code (&/$Nil)) ?values]
+        =code (compile ?code)]
+    (return (str "(process && process.exit && process.exit(LuxRT.fromNumberI64(" =code ")))"))))
+
+(defn ^:private compile-io-current-time [compile ?values special-args]
+  (|do [:let [(&/$Nil) ?values]]
+    (return (str "LuxRT.toNumberI64(" "(new Date()).getTime()" ")"))))
+
 (defn ^:private compile-atom-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
         =init (compile ?init)]
@@ -492,7 +501,9 @@
     "io"
     (case proc
       "log"                  (compile-io-log compile ?values special-args)
-      "error"                (compile-io-error compile ?values special-args))
+      "error"                (compile-io-error compile ?values special-args)
+      "exit"                 (compile-io-exit compile ?values special-args)
+      "current-time"         (compile-io-current-time compile ?values special-args))
 
     "text"
     (case proc
