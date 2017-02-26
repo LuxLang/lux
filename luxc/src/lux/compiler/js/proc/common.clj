@@ -412,19 +412,66 @@
         =message (compile ?message)]
     (return (str "LuxRT.error(" =message ")"))))
 
-(defn compile-proc [compile proc-category proc-name ?values special-args]
-  (case proc-category
+(defn ^:private compile-atom-new [compile ?values special-args]
+  (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
+        =init (compile ?init)]
+    (return (str "{V: " =init "}"))))
+
+(defn ^:private compile-atom-get [compile ?values special-args]
+  (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
+        =atom (compile ?atom)]
+    (return (str =atom ".V"))))
+
+(defn ^:private compile-atom-compare-and-swap [compile ?values special-args]
+  (|do [:let [(&/$Cons ?atom (&/$Cons ?old (&/$Cons ?new (&/$Nil)))) ?values]
+        =atom (compile ?atom)
+        =old (compile ?old)
+        =new (compile ?new)]
+    (return (str "(function() {"
+                 (str "var atom = " =atom ";")
+                 (str "if(" (str "(atom.V === " =old ")") ") {"
+                      (str "atom.V = " =new ";")
+                      "return true;"
+                      "}"
+                      "else {"
+                      "return false;"
+                      "}")
+                 "})()"))))
+
+(defn ^:private compile-process-concurrency-level [compile ?values special-args]
+  (|do [:let [(&/$Nil) ?values]]
+    (return (str "LuxRT.fromNumberI64(1)"))))
+
+(defn ^:private compile-process-future [compile ?values special-args]
+  (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
+        =procedure (compile ?procedure)]
+    (return (str "setTimeout("
+                 (str "function() {" =procedure "(null)" "}")
+                 ",0)"))))
+
+(defn ^:private compile-process-schedule [compile ?values special-args]
+  (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
+        =milliseconds (compile ?milliseconds)
+        =procedure (compile ?procedure)]
+    (return (str "setTimeout("
+                 (str "function() {" =procedure "(null)" "}")
+                 ","
+                 (str "LuxRT.toNumberI64(" =milliseconds ")")
+                 ")"))))
+
+(defn compile-proc [compile category proc ?values special-args]
+  (case category
     "lux"
-    (case proc-name
+    (case proc
       "is"                   (compile-lux-is compile ?values special-args))
 
     "io"
-    (case proc-name
+    (case proc
       "log"                  (compile-io-log compile ?values special-args)
       "error"                (compile-io-error compile ?values special-args))
 
     "text"
-    (case proc-name
+    (case proc
       "="                    (compile-text-eq compile ?values special-args)
       "<"                    (compile-text-lt compile ?values special-args)
       "append"               (compile-text-append compile ?values special-args)
@@ -442,7 +489,7 @@
       )
     
     ;; "bit"
-    ;; (case proc-name
+    ;; (case proc
     ;;   "count"                (compile-bit-count compile ?values special-args)
     ;;   "and"                  (compile-bit-and compile ?values special-args)
     ;;   "or"                   (compile-bit-or compile ?values special-args)
@@ -452,7 +499,7 @@
     ;;   "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
     
     "array"
-    (case proc-name
+    (case proc
       "new" (compile-array-new compile ?values special-args)
       "get" (compile-array-get compile ?values special-args)
       "put" (compile-array-put compile ?values special-args)
@@ -460,7 +507,7 @@
       "size" (compile-array-size compile ?values special-args))
 
     "nat"
-    (case proc-name
+    (case proc
       "+"         (compile-nat-add compile ?values special-args)
       "-"         (compile-nat-sub compile ?values special-args)
       "*"         (compile-nat-mul compile ?values special-args)
@@ -477,7 +524,7 @@
       )
 
     "int"
-    (case proc-name
+    (case proc
       "+"         (compile-int-add compile ?values special-args)
       "-"         (compile-int-sub compile ?values special-args)
       "*"         (compile-int-mul compile ?values special-args)
@@ -494,7 +541,7 @@
       )
     
     "deg"
-    (case proc-name
+    (case proc
       "+"         (compile-deg-add compile ?values special-args)
       "-"         (compile-deg-sub compile ?values special-args)
       "*"         (compile-deg-mul compile ?values special-args)
@@ -511,7 +558,7 @@
       )
 
     "real"
-    (case proc-name
+    (case proc
       "+"         (compile-real-add compile ?values special-args)
       "-"         (compile-real-sub compile ?values special-args)
       "*"         (compile-real-mul compile ?values special-args)
@@ -532,12 +579,26 @@
       )
 
     "char"
-    (case proc-name
+    (case proc
       "="         (compile-char-eq compile ?values special-args)
       "<"         (compile-char-lt compile ?values special-args)
       "to-text"   (compile-char-to-text compile ?values special-args)
       "to-nat"    (compile-char-to-nat compile ?values special-args)
       )
+
+    "atom"
+    (case proc
+      "new" (compile-atom-new compile ?values special-args)
+      "get" (compile-atom-get compile ?values special-args)
+      "compare-and-swap" (compile-atom-compare-and-swap compile ?values special-args)
+      )
+
+    "process"
+    (case proc
+      "concurrency-level" (compile-process-concurrency-level compile ?values special-args)
+      "future" (compile-process-future compile ?values special-args)
+      "schedule" (compile-process-schedule compile ?values special-args)
+      )
     
     ;; else
-    (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " [proc-category proc-name]))))
+    (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " [category proc]))))
