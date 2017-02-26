@@ -439,6 +439,50 @@
                  (str "LuxRT.toNumberI64(" =milliseconds ")")
                  ")"))))
 
+(do-template [<name> <field>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Nil) ?values]]
+      (return (str "Math." <field>))))
+
+  ^:private compile-math-e  "E"
+  ^:private compile-math-pi "PI"
+  )
+
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+          =input (compile ?input)]
+      (return (str "Math." <method> "(" =input ")"))))
+
+  ^:private compile-math-cos "cos"
+  ^:private compile-math-sin "sin"
+  ^:private compile-math-tan "tan"
+  ^:private compile-math-acos "acos"
+  ^:private compile-math-asin "asin"
+  ^:private compile-math-atan "atan"
+  ^:private compile-math-cosh "cosh"
+  ^:private compile-math-sinh "sinh"
+  ^:private compile-math-tanh "tanh"
+  ^:private compile-math-exp "exp"
+  ^:private compile-math-log "log"
+  ^:private compile-math-root2 "sqrt"
+  ^:private compile-math-root3 "cbrt"
+  ^:private compile-math-ceil "ceil"
+  ^:private compile-math-floor "floor"
+  ^:private compile-math-round "round"
+  )
+
+(do-template [<name> <method>]
+  (defn <name> [compile ?values special-args]
+    (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
+          =input (compile ?input)
+          =param (compile ?param)]
+      (return (str "Math." <method> "(" =input "," =param ")"))))
+
+  ^:private compile-math-atan2 "atan2"
+  ^:private compile-math-pow "pow"
+  )
+
 (defn compile-proc [compile category proc ?values special-args]
   (case category
     "lux"
@@ -564,6 +608,30 @@
       "<"         (compile-char-lt compile ?values special-args)
       "to-text"   (compile-char-to-text compile ?values special-args)
       "to-nat"    (compile-char-to-nat compile ?values special-args)
+      )
+
+    "math"
+    (case proc
+      "e" (compile-math-e compile ?values special-args)
+      "pi" (compile-math-pi compile ?values special-args)
+      "cos" (compile-math-cos compile ?values special-args)
+      "sin" (compile-math-sin compile ?values special-args)
+      "tan" (compile-math-tan compile ?values special-args)
+      "acos" (compile-math-acos compile ?values special-args)
+      "asin" (compile-math-asin compile ?values special-args)
+      "atan" (compile-math-atan compile ?values special-args)
+      "cosh" (compile-math-cosh compile ?values special-args)
+      "sinh" (compile-math-sinh compile ?values special-args)
+      "tanh" (compile-math-tanh compile ?values special-args)
+      "exp" (compile-math-exp compile ?values special-args)
+      "log" (compile-math-log compile ?values special-args)
+      "root2" (compile-math-root2 compile ?values special-args)
+      "root3" (compile-math-root3 compile ?values special-args)
+      "ceil" (compile-math-ceil compile ?values special-args)
+      "floor" (compile-math-floor compile ?values special-args)
+      "round" (compile-math-round compile ?values special-args)
+      "atan2" (compile-math-atan2 compile ?values special-args)
+      "pow" (compile-math-pow compile ?values special-args)
       )
 
     "atom"

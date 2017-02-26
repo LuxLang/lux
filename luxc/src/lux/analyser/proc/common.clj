@@ -391,8 +391,6 @@
   ^:private analyse-math-log "log"
   ^:private analyse-math-root2 "root2"
   ^:private analyse-math-root3 "root3"
-  ^:private analyse-math-degrees "degrees"
-  ^:private analyse-math-radians "radians"
   ^:private analyse-math-ceil "ceil"
   ^:private analyse-math-floor "floor"
   ^:private analyse-math-round "round"
@@ -615,8 +613,6 @@
       "log" (analyse-math-log analyse exo-type ?values)
       "root2" (analyse-math-root2 analyse exo-type ?values)
       "root3" (analyse-math-root3 analyse exo-type ?values)
-      "degrees" (analyse-math-degrees analyse exo-type ?values)
-      "radians" (analyse-math-radians analyse exo-type ?values)
       "ceil" (analyse-math-ceil analyse exo-type ?values)
       "floor" (analyse-math-floor analyse exo-type ?values)
       "round" (analyse-math-round analyse exo-type ?values)

@@ -774,8 +774,6 @@
   ^:private compile-math-log "log"
   ^:private compile-math-root2 "sqrt"
   ^:private compile-math-root3 "cbrt"
-  ^:private compile-math-degrees "toDegrees"
-  ^:private compile-math-radians "toRadians"
   ^:private compile-math-ceil "ceil"
   ^:private compile-math-floor "floor"
   )
@@ -1023,8 +1021,6 @@
       "log" (compile-math-log compile ?values special-args)
       "root2" (compile-math-root2 compile ?values special-args)
       "root3" (compile-math-root3 compile ?values special-args)
-      "degrees" (compile-math-degrees compile ?values special-args)
-      "radians" (compile-math-radians compile ?values special-args)
       "ceil" (compile-math-ceil compile ?values special-args)
       "floor" (compile-math-floor compile ?values special-args)
       "round" (compile-math-round compile ?values special-args)
