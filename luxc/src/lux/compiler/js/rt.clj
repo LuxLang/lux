@@ -45,18 +45,6 @@
 ;;     (.visitInsn Opcodes/POP2) ;; Y2, X1
 ;;     ))
 
-;; (defn ^:private bit-set-64? [^MethodVisitor =method]
-;;   (doto =method
-;;     ;; L, I
-;;     (.visitLdcInsn (long 1)) ;; L, I, L
-;;     (.visitInsn Opcodes/DUP2_X1) ;; L, L, I, L
-;;     (.visitInsn Opcodes/POP2) ;; L, L, I
-;;     (.visitInsn Opcodes/LSHL) ;; L, L
-;;     (.visitInsn Opcodes/LAND) ;; L
-;;     (.visitLdcInsn (long 0)) ;; L, L
-;;     (.visitInsn Opcodes/LCMP) ;; I
-;;     ))
-
 ;; (defn ^:private compile-LuxRT-deg-methods [^ClassWriter =class]
 ;;   (|let [deg-bits 64
 ;;          _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "mul_deg" "(JJ)J" nil nil)
@@ -147,239 +135,6 @@
 ;;              (.visitInsn Opcodes/LRETURN)
 ;;              (.visitMaxs 0 0)
 ;;              (.visitEnd))
-;;          _ (let [$loop-start (new Label)
-;;                  $do-a-round (new Label)]
-;;              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "times5" "(I[B)[B" nil nil)
-;;                (.visitCode)
-;;                (.visitLdcInsn (int 0)) ;; {carry}
-;;                (.visitLabel $loop-start)
-;;                (.visitVarInsn Opcodes/ILOAD 0)
-;;                (.visitJumpInsn Opcodes/IFGE $do-a-round)
-;;                (.visitVarInsn Opcodes/ALOAD 1)
-;;                (.visitInsn Opcodes/ARETURN)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;; {carry}
-;;                (.visitLabel $do-a-round)
-;;                (.visitVarInsn Opcodes/ALOAD 1)
-;;                (.visitVarInsn Opcodes/ILOAD 0)
-;;                (.visitInsn Opcodes/BALOAD) ;; {carry, current-digit}
-;;                (.visitLdcInsn (int 5))
-;;                (.visitInsn Opcodes/IMUL)
-;;                (.visitInsn Opcodes/IADD) ;; {next-raw-digit}
-;;                (.visitInsn Opcodes/DUP)
-;;                (.visitLdcInsn (int 10))
-;;                (.visitInsn Opcodes/IREM) ;; {next-raw-digit, next-digit}
-;;                (.visitVarInsn Opcodes/ALOAD 1)
-;;                (.visitVarInsn Opcodes/ILOAD 0)
-;;                swap2x1
-;;                (.visitInsn Opcodes/BASTORE) ;; {next-raw-digit}
-;;                (.visitLdcInsn (int 10))
-;;                (.visitInsn Opcodes/IDIV) ;; {next-carry}
-;;                ;; Decrement index
-;;                (.visitVarInsn Opcodes/ILOAD 0)
-;;                (.visitLdcInsn (int 1))
-;;                (.visitInsn Opcodes/ISUB)
-;;                (.visitVarInsn Opcodes/ISTORE 0)
-;;                ;; Iterate
-;;                (.visitJumpInsn Opcodes/GOTO $loop-start)
-;;                (.visitMaxs 0 0)
-;;                (.visitEnd)))
-;;          _ (let [$loop-start (new Label)
-;;                  $do-a-round (new Label)]
-;;              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digit_power" "(I)[B" nil nil)
-;;                (.visitCode)
-;;                ;; Initialize digits array.
-;;                (.visitLdcInsn (int deg-bits))
-;;                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE) ;; {digits}
-;;                (.visitInsn Opcodes/DUP)
-;;                (.visitVarInsn Opcodes/ILOAD 0)
-;;                (.visitLdcInsn (int 1))
-;;                (.visitInsn Opcodes/BASTORE) ;; digits = 5^0
-;;                (.visitVarInsn Opcodes/ASTORE 1)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitVarInsn Opcodes/ILOAD 0) ;; {times}
-;;                (.visitLabel $loop-start)
-;;                (.visitInsn Opcodes/DUP)
-;;                (.visitJumpInsn Opcodes/IFGE $do-a-round)
-;;                (.visitVarInsn Opcodes/ALOAD 1)
-;;                (.visitInsn Opcodes/ARETURN)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitLabel $do-a-round)
-;;                ;; {times}
-;;                (.visitVarInsn Opcodes/ILOAD 0)
-;;                (.visitVarInsn Opcodes/ALOAD 1)
-;;                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "times5" "(I[B)[B") ;; {digits*5, times}
-;;                (.visitVarInsn Opcodes/ASTORE 1) ;; {times}
-;;                ;; Decrement index
-;;                (.visitLdcInsn (int 1))
-;;                (.visitInsn Opcodes/ISUB)
-;;                ;; {times-1}
-;;                (.visitJumpInsn Opcodes/GOTO $loop-start)
-;;                (.visitMaxs 0 0)
-;;                (.visitEnd)))
-;;          _ (let [$loop-start (new Label)
-;;                  $do-a-round (new Label)]
-;;              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "add_deg_digit_powers" "([B[B)[B" nil nil)
-;;                (.visitCode)
-;;                (.visitLdcInsn (int (dec deg-bits)))
-;;                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
-;;                (.visitLdcInsn (int deg-bits))
-;;                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
-;;                (.visitVarInsn Opcodes/ASTORE 3) ;; added_digits
-;;                (.visitLdcInsn (int 0)) ;; {carry}
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;; {carry}
-;;                (.visitLabel $loop-start)
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitJumpInsn Opcodes/IFGE $do-a-round)
-;;                ;; {carry}
-;;                (.visitVarInsn Opcodes/ALOAD 3)
-;;                (.visitInsn Opcodes/ARETURN)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;; {carry}
-;;                (.visitLabel $do-a-round)
-;;                (.visitVarInsn Opcodes/ALOAD 0)
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitInsn Opcodes/BALOAD) ;; {carry, dL}
-;;                (.visitVarInsn Opcodes/ALOAD 1)
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitInsn Opcodes/BALOAD) ;; {carry, dL, dR}
-;;                (.visitInsn Opcodes/IADD)
-;;                (.visitInsn Opcodes/IADD) ;; {raw-next-digit}
-;;                (.visitInsn Opcodes/DUP)
-;;                (.visitLdcInsn (int 10))
-;;                (.visitInsn Opcodes/IREM) ;; {raw-next-digit, next-digit}
-;;                (.visitVarInsn Opcodes/ALOAD 3)
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                swap2x1
-;;                (.visitInsn Opcodes/BASTORE) ;; {raw-next-digit}
-;;                (.visitLdcInsn (int 10))
-;;                (.visitInsn Opcodes/IDIV) ;; {next-carry}
-;;                ;; Decrement index
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitLdcInsn (int 1))
-;;                (.visitInsn Opcodes/ISUB)
-;;                (.visitVarInsn Opcodes/ISTORE 2)
-;;                ;; Iterate
-;;                (.visitJumpInsn Opcodes/GOTO $loop-start)
-;;                (.visitMaxs 0 0)
-;;                (.visitEnd)))
-;;          _ (let [$loop-start (new Label)
-;;                  $do-a-round (new Label)]
-;;              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg_digits_to_text" "([B)Ljava/lang/String;" nil nil)
-;;                (.visitCode)
-;;                (.visitLdcInsn (int (dec deg-bits)))
-;;                (.visitVarInsn Opcodes/ISTORE 1) ;; Index
-;;                (.visitLdcInsn "") ;; {text}
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitLabel $loop-start)
-;;                (.visitVarInsn Opcodes/ILOAD 1)
-;;                (.visitJumpInsn Opcodes/IFGE $do-a-round)
-;;                (.visitInsn Opcodes/ARETURN)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitLabel $do-a-round)
-;;                (.visitVarInsn Opcodes/ALOAD 0)
-;;                (.visitVarInsn Opcodes/ILOAD 1)
-;;                (.visitInsn Opcodes/BALOAD) ;; {text, digit}
-;;                (.visitLdcInsn (int 10)) ;; {text, digit, radix}
-;;                (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Character" "forDigit" "(II)C") ;; {text, digit-char}
-;;                (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Character" "toString" "(C)Ljava/lang/String;") ;; {text, digit-char-text}
-;;                (.visitInsn Opcodes/SWAP)
-;;                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-;;                ;; Decrement index
-;;                (.visitVarInsn Opcodes/ILOAD 1)
-;;                (.visitLdcInsn (int 1))
-;;                (.visitInsn Opcodes/ISUB)
-;;                (.visitVarInsn Opcodes/ISTORE 1)
-;;                ;; Iterate
-;;                (.visitJumpInsn Opcodes/GOTO $loop-start)
-;;                (.visitMaxs 0 0)
-;;                (.visitEnd)))
-;;          _ (let [$loop-start (new Label)
-;;                  $do-a-round (new Label)
-;;                  $not-set (new Label)
-;;                  $next-iteration (new Label)
-;;                  $normal-path (new Label)]
-;;              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "encode_deg" "(J)Ljava/lang/String;" nil nil)
-;;                (.visitCode)
-;;                ;; A quick corner-case to handle.
-;;                (.visitVarInsn Opcodes/LLOAD 0)
-;;                (.visitLdcInsn (long 0))
-;;                (.visitInsn Opcodes/LCMP)
-;;                (.visitJumpInsn Opcodes/IFNE $normal-path)
-;;                (.visitLdcInsn ".0")
-;;                (.visitInsn Opcodes/ARETURN)
-;;                (.visitLabel $normal-path)
-;;                ;; Normal case
-;;                (.visitLdcInsn (int (dec deg-bits)))
-;;                (.visitVarInsn Opcodes/ISTORE 2) ;; Index
-;;                (.visitLdcInsn (int deg-bits))
-;;                (.visitIntInsn Opcodes/NEWARRAY Opcodes/T_BYTE)
-;;                (.visitVarInsn Opcodes/ASTORE 3) ;; digits
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitLabel $loop-start)
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitJumpInsn Opcodes/IFGE $do-a-round)
-;;                ;; Prepare text to return.
-;;                (.visitVarInsn Opcodes/ALOAD 3)
-;;                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digits_to_text" "([B)Ljava/lang/String;")
-;;                (.visitLdcInsn ".")
-;;                (.visitInsn Opcodes/SWAP)
-;;                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
-;;                ;; Trim unnecessary 0s at the end...
-;;                (.visitLdcInsn "0*$")
-;;                (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "split" "(Ljava/lang/String;)[Ljava/lang/String;")
-;;                (.visitLdcInsn (int 0))
-;;                (.visitInsn Opcodes/AALOAD)
-;;                (.visitInsn Opcodes/ARETURN)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitLabel $do-a-round)
-;;                (.visitVarInsn Opcodes/LLOAD 0)
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                bit-set-64?
-;;                (.visitJumpInsn Opcodes/IFEQ $next-iteration)
-;;                (.visitLdcInsn (int (dec deg-bits)))
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitInsn Opcodes/ISUB)
-;;                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "deg_digit_power" "(I)[B")
-;;                (.visitVarInsn Opcodes/ALOAD 3)
-;;                (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "add_deg_digit_powers" "([B[B)[B")
-;;                (.visitVarInsn Opcodes/ASTORE 3)
-;;                (.visitJumpInsn Opcodes/GOTO $next-iteration)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitLabel $next-iteration)
-;;                ;; Decrement index
-;;                (.visitVarInsn Opcodes/ILOAD 2)
-;;                (.visitLdcInsn (int 1))
-;;                (.visitInsn Opcodes/ISUB)
-;;                (.visitVarInsn Opcodes/ISTORE 2)
-;;                ;; Iterate
-;;                (.visitJumpInsn Opcodes/GOTO $loop-start)
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                (.visitMaxs 0 0)
-;;                (.visitEnd)))
 ;;          _ (let [$loop-start (new Label)
 ;;                  $do-a-round (new Label)
 ;;                  $not-set (new Label)
@@ -1217,6 +972,59 @@
                 "})")
    })
 
+(def ^:private d64-methods
+  {"_add_deg_digit_powers" (str "(function _add_deg_digit_powers(left,right) {"
+                                "var output = new Array(64);"
+                                "var carry = 0;"
+                                (str "for(var idx = 63; idx >= 0; idx--) {"
+                                     "var raw = left[idx] + right[idx] + carry;"
+                                     "output[idx] = raw % 10;"
+                                     "raw = (raw / 10)|0;"
+                                     "}")
+                                "return output;"
+                                "})")
+   "_times5" (str "(function _times5(exp,digits) {"
+                  "var carry = 0;"
+                  (str "for(var idx = exp; idx >= 0; idx--) {"
+                       "var raw = (digits[exp] * 5) + carry;"
+                       "digits[exp] = raw % 10;"
+                       "carry = (raw / 10)|0;"
+                       "}")
+                  "return digits;"
+                  "})")
+   "_deg_digit_power" (str "(function _deg_digit_power(exp) {"
+                           "var digits = new Array(64);"
+                           "digits[exp] = 1;"
+                           (str "for(var idx = exp; idx >= 0; idx--) {"
+                                "digits = LuxRT._times5(exp,digits);"
+                                "}")
+                           "return digits;"
+                           "})")
+   "_bitIsSet" (str "(function _bitIsSet(input,idx) {"
+                    "idx &= 63;"
+                    (str "if(idx < 32) {"
+                         "return (input.L & (1 << idx)) !== 0;"
+                         "}")
+                    (str "else {"
+                         "return (input.H & (1 << (idx - 32))) !== 0;"
+                         "}")
+                    "})")
+   "encodeD64" (str "(function encodeD64(input) {"
+                    (str "if(LuxRT.eqI64(input,LuxRT.ZERO)) {"
+                         "return '.0';"
+                         "}")
+                    "var digits = new Array(64);"
+                    (str "for(var idx = 63; idx >= 0; idx--) {"
+                         (str "if(LuxRT._bitIsSet(input,idx)) {"
+                              "var power = LuxRT._deg_digit_power(63 - idx);"
+                              "digits = LuxRT._add_deg_digit_powers(digits,power);"
+                              "}")
+                         "}")
+                    "var raw = '.'.concat(digits.join(''));"
+                    "return raw.split(/0*$/)[0];"
+                    "})")
+   })
+
 (def ^:private io-methods
   {"log" (str "(function log(message) {"
               "console.log(message);"
@@ -1394,6 +1202,7 @@
                                              adt-methods
                                              i64-methods
                                              n64-methods
+                                             d64-methods
                                              text-methods
                                              array-methods
                                              bit-methods
