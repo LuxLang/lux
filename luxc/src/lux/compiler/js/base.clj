@@ -187,7 +187,9 @@
                 (decode-char js-object)
 
                 :else
-                (assert false (str "Unknown kind of JS object: " js-object))))
+                js-object
+                ;; (assert false (str "Unknown kind of JS object: " js-object))
+                ))
 
         :else
         (assert false (str "Unknown kind of JS object: " (class js-object) " :: " js-object))))
