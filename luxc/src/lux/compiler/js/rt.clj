@@ -1375,11 +1375,23 @@
                     "})")
      }))
 
+(def ^:private lux-methods
+  {"runTry" (str "(function runTry(op) {"
+                 (str "try {"
+                      (str "return [1,'',op(null)];")
+                      "}"
+                      "catch(ex) {"
+                      (str "return [0,null,ex.toString()];")
+                      "}")
+                 "})")
+   })
+
 (def LuxRT "LuxRT")
 
 (def compile-LuxRT
   (|do [_ (&&/run-js! "var console = { log: print };")
-        :let [rt-object (str "{" (->> (merge adt-methods
+        :let [rt-object (str "{" (->> (merge lux-methods
+                                             adt-methods
                                              i64-methods
                                              n64-methods
                                              text-methods

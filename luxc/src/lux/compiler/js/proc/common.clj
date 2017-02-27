@@ -49,6 +49,11 @@
         =right (compile ?right)]
     (return (str "(" =left " === " =right ")"))))
 
+(defn ^:private compile-lux-try [compile ?values special-args]
+  (|do [:let [(&/$Cons ?op (&/$Nil)) ?values]
+        =op (compile ?op)]
+    (return (str "LuxRT.runTry(" =op ")"))))
+
 (defn ^:private compile-array-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?length (&/$Nil)) ?values]
         =length (compile ?length)]
@@ -496,7 +501,8 @@
   (case category
     "lux"
     (case proc
-      "is"                   (compile-lux-is compile ?values special-args))
+      "is"                   (compile-lux-is compile ?values special-args)
+      "try"                  (compile-lux-try compile ?values special-args))
 
     "io"
     (case proc
