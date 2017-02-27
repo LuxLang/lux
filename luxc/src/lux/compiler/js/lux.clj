@@ -178,19 +178,22 @@
     (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$NatPM _value)
-    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
+    (|do [=value (compile-nat _value)]
+      (return (str "if(" (str "LuxRT.eqI64(" cursor-peek "," _value ")") ") { " pm-fail " }")))
 
     (&o/$IntPM _value)
-    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
+    (|do [=value (compile-int _value)]
+      (return (str "if(" (str "LuxRT.eqI64(" cursor-peek "," _value ")") ") { " pm-fail " }")))
 
     (&o/$DegPM _value)
-    (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
+    (|do [=value (compile-deg _value)]
+      (return (str "if(" (str "LuxRT.eqI64(" cursor-peek "," _value ")") ") { " pm-fail " }")))
 
     (&o/$RealPM _value)
     (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$CharPM _value)
-    (return (str "if(" cursor-peek " !== " (pr-str (str _value)) ") { " pm-fail " }"))
+    (return (str "if(" (str "(" cursor-peek ").C") " !== " (pr-str (str _value)) ") { " pm-fail " }"))
 
     (&o/$TextPM _value)
     (return (str "if(" cursor-peek " !== " (pr-str _value) ") { " pm-fail " }"))
