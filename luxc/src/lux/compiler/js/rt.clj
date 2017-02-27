@@ -1197,8 +1197,7 @@
 (def LuxRT "LuxRT")
 
 (def compile-LuxRT
-  (|do [_ (&&/run-js! "var console = { log: print };")
-        :let [rt-object (str "{" (->> (merge lux-methods
+  (|do [:let [rt-object (str "{" (->> (merge lux-methods
                                              adt-methods
                                              i64-methods
                                              n64-methods

@@ -161,7 +161,8 @@
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]
     (do (init! resources-dir target-dir)
-      (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs
+      (let [m-action (|do [_ (&&/run-js! "var console = { log: print };")
+                           _ (&&cache/pre-load-cache! source-dirs
                                                       &&js-cache/load-def-value
                                                       &&js-cache/install-all-defs-in-module
                                                       &&js-cache/uninstall-all-defs-in-module)
