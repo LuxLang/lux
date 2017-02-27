@@ -35,7 +35,7 @@
 
   ^:private compile-bit-shift-left           "shlI64"
   ^:private compile-bit-shift-right          "shrI64"
-  ^:private compile-bit-unsigned-shift-right "ushlI64"
+  ^:private compile-bit-unsigned-shift-right "ushrI64"
   )
 
 (defn ^:private compile-bit-count [compile ?values special-args]
@@ -89,7 +89,7 @@
               ;; (&/$Nil) special-args
               ]
         =array (compile ?array)]
-    (return (str =array ".length"))))
+    (return (str "LuxRT.fromNumberI64(" =array ".length" ")"))))
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
