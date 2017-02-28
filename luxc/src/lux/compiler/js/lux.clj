@@ -33,8 +33,8 @@
 
 (do-template [<name>]
   (defn <name> [value]
-    (let [high (-> value (unsigned-bit-shift-right 32) (bit-and mask-4b))
-          low (-> value (bit-and mask-4b))]
+    (let [high (-> value (bit-shift-right 32) int)
+          low (-> value (bit-and mask-4b) (bit-shift-left 32) (bit-shift-right 32) int)]
       (return (str &&rt/LuxRT "." "makeI64" "(" high "," low ")"))))
 
   compile-nat
@@ -179,24 +179,26 @@
 
     (&o/$NatPM _value)
     (|do [=value (compile-nat _value)]
-      (return (str "if(" (str "LuxRT.eqI64(" cursor-peek "," _value ")") ") { " pm-fail " }")))
+      (return (str "if(!" (str "LuxRT.eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
     (&o/$IntPM _value)
     (|do [=value (compile-int _value)]
-      (return (str "if(" (str "LuxRT.eqI64(" cursor-peek "," _value ")") ") { " pm-fail " }")))
+      (return (str "if(!" (str "LuxRT.eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
     (&o/$DegPM _value)
     (|do [=value (compile-deg _value)]
-      (return (str "if(" (str "LuxRT.eqI64(" cursor-peek "," _value ")") ") { " pm-fail " }")))
+      (return (str "if(!" (str "LuxRT.eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
     (&o/$RealPM _value)
     (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$CharPM _value)
-    (return (str "if(" (str "(" cursor-peek ").C") " !== " (pr-str (str _value)) ") { " pm-fail " }"))
+    (|do [=value (compile-char _value)]
+      (return (str "if(" (str "(" cursor-peek ").C") " !== " (str "(" =value ").C") ") { " pm-fail " }")))
 
     (&o/$TextPM _value)
-    (return (str "if(" cursor-peek " !== " (pr-str _value) ") { " pm-fail " }"))
+    (|do [=value (compile-text _value)]
+      (return (str "if(" cursor-peek " !== " =value ") { " pm-fail " }")))
 
     (&o/$TuplePM _idx+)
     (|let [[_idx is-tail?] (|case _idx+
