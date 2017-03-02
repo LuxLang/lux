@@ -91,7 +91,7 @@
         register-inits (&/map% compile inits)
         =body (compile body)]
     (return (str "(function _loop(" (->> registers (&/|interpose ",") (&/fold str "")) ") {"
-                 =body
+                 (str "return " =body ";")
                  "})(" (->> register-inits (&/|interpose ",") (&/fold str "")) ")"))
     ))
 
@@ -343,9 +343,7 @@
 
                              _
                              false)
-                  def-type (&a/expr-type* ?body)
-                  ;; _ (&/|log! (string/replace def-js " " "^@"))
-                  ]
+                  def-type (&a/expr-type* ?body)]
             _ (&&/save-js! ?name def-js)
             def-value (&&/run-js!+ var-name)
             _ (&/without-repl-closure
