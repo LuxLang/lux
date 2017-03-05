@@ -965,6 +965,45 @@
                          "return '+'.concat(LuxRT.encodeI64(input));"
                          "}")
                     "})")
+   "divN64" (str "(function divN64(l,r) {"
+                 (str "if(LuxRT.ltI64(r,LuxRT.ZERO)) {"
+                      (str "if(LuxRT.ltN64(l,r)) {"
+                           "return LuxRT.ZERO;"
+                           "}"
+                           "else {"
+                           "return LuxRT.ONE;"
+                           "}")
+                      "}"
+                      "else if(LuxRT.ltI64(LuxRT.ZERO,l)) {"
+                      "return LuxRT.divI64(l,r);"
+                      "}"
+                      "else {"
+                      (str "if(LuxRT.eqI64(LuxRT.ZERO,r)) {"
+                           "throw new Error('Cannot divide by zero!');"
+                           "}"
+                           "else {"
+                           (str "if(LuxRT.ltI64(l,r)) {"
+                                "return LuxRT.ZERO;"
+                                "}"
+                                "else {"
+                                "throw new Error('AWAITING BIG-INT DIVISION IMPLEMENTATION!!!');"
+                                "}")
+                           "}")
+                      "}")
+                 "})")
+   "remN64" (str "(function remN64(l,r) {"
+                 (str "if(LuxRT.ltI64(l,LuxRT.ZERO) || LuxRT.ltI64(r,LuxRT.ZERO)) {"
+                      (str "if(LuxRT.ltN64(l,r)) {"
+                           "return l;"
+                           "}"
+                           "else {"
+                           "throw new Error('AWAITING BIG-INT REMAINDER IMPLEMENTATION!!!');"
+                           "}")
+                      "}"
+                      "else {"
+                      "return LuxRT.remI64(l,r);"
+                      "}")
+                 "})")
    "ltN64" (str "(function ltN64(l,r) {"
                 "var li = LuxRT.addI64(l,LuxRT.MIN_VALUE_I64);"
                 "var ri = LuxRT.addI64(r,LuxRT.MIN_VALUE_I64);"
@@ -1123,7 +1162,7 @@
      "countI64" (str "(function countI64(input) {"
                      "var hs = (input.H).toString(2);"
                      "var ls = (input.L).toString(2);"
-                     "var num1s = hs.concat(ls).replace('0','').length;"
+                     "var num1s = hs.concat(ls).replace(/0/g,'').length;"
                      "return LuxRT.fromNumberI64(num1s);"
                      "})")
      "shlI64" (str "(function shlI64(input,shift) {"
