@@ -84,14 +84,14 @@
       ;; else
       (assert false (str "I64#getMember = " member)))))
 
-(defn ^:private encode-char [value]
-  (reify JSObject
-    (getMember [self member]
-      (condp = member
-        "C" value
-        ;; "toString" (_toString_simple value)
-        ;; else
-        (assert false (str "encode-char#getMember = " member))))))
+(deftype EncChar [value]
+  JSObject
+  (getMember [self member]
+    (condp = member
+      "C" value
+      ;; "toString" (_toString_simple value)
+      ;; else
+      (assert false (str "EncChar#getMember = " member)))))
 
 (deftype LuxJsObject [^"[Ljava.lang.Object;" obj]
   JSObject
@@ -105,7 +105,7 @@
             (new I64 value)
 
             (instance? java.lang.Character value)
-            (encode-char (str value))
+            (new EncChar (str value))
 
             :else
             value)))
@@ -155,6 +155,9 @@
 
         (instance? I64 js-object)
         (.-value ^I64 js-object)
+
+        (instance? EncChar js-object)
+        (.charAt ^String (.-value ^EncChar js-object) 0)
 
         ;; (instance? Undefined js-object)
         ;; (assert false "UNDEFINED")
@@ -222,7 +225,9 @@
     (return nil)))
 
 (defn js-module [module]
-  (string/replace module "/" "$"))
+  (-> module
+      (string/replace "/" "$")
+      (string/replace "-" "_")))
 
 (defn js-var-name [module name]
   (str (js-module module) "$" (&host/def-name name)))
