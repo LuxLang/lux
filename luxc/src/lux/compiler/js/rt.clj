@@ -519,136 +519,12 @@
 ;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
 ;;                  (.visitInsn Opcodes/ARETURN)
 ;;                  (.visitMaxs 0 0)
-;;                  (.visitEnd)))
-;;            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#215
-;;            _ (let [$simple-case (new Label)]
-;;                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;" nil nil)
-;;                  (.visitCode)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LCMP)
-;;                  (.visitJumpInsn Opcodes/IFGE $simple-case)
-;;                  ;; else
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (int 32))
-;;                  (.visitInsn Opcodes/LUSHR)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
-;;                  (.visitLdcInsn (int 32))
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "shiftLeft" "(I)Ljava/math/BigInteger;")
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (int 32))
-;;                  (.visitInsn Opcodes/LSHL)
-;;                  (.visitLdcInsn (int 32))
-;;                  (.visitInsn Opcodes/LUSHR)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "add" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  ;; then
-;;                  (.visitLabel $simple-case)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/math/BigInteger" "valueOf" "(J)Ljava/math/BigInteger;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  (.visitMaxs 0 0)
-;;                  (.visitEnd)))
-;;            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java?av=f#1267
-;;            _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "_compareUnsigned" "(JJ)I" nil nil)
-;;                (.visitCode)
-;;                (.visitVarInsn Opcodes/LLOAD 0)
-;;                (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Long" "MIN_VALUE" "J")
-;;                (.visitInsn Opcodes/LADD)
-;;                (.visitVarInsn Opcodes/LLOAD 2)
-;;                (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Long" "MIN_VALUE" "J")
-;;                (.visitInsn Opcodes/LADD)
-;;                (.visitInsn Opcodes/LCMP)
-;;                (.visitInsn Opcodes/IRETURN)
-;;                (.visitMaxs 0 0)
-;;                (.visitEnd))
-;;            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#1290
-;;            _ (let [$case-1 (new Label)
-;;                    $0 (new Label)
-;;                    $case-2 (new Label)]
-;;                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "div_nat" "(JJ)J" nil nil)
-;;                  (.visitCode)
-;;                  ;; Test #1
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LCMP)
-;;                  (.visitJumpInsn Opcodes/IFLT $case-1)
-;;                  ;; Test #2
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LCMP)
-;;                  (.visitJumpInsn Opcodes/IFGT $case-2)
-;;                  ;; Case #3
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "divide" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "longValue" "()J")
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  ;; Case #2
-;;                  (.visitLabel $case-2)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitInsn Opcodes/LDIV)
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  ;; Case #1
-;;                  (.visitLabel $case-1)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-;;                  (.visitJumpInsn Opcodes/IFLT $0)
-;;                  ;; 1
-;;                  (.visitLdcInsn (long 1))
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  ;; 0
-;;                  (.visitLabel $0)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  (.visitMaxs 0 0)
-;;                  (.visitEnd)))
-;;            ;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#1323
-;;            _ (let [$test-2 (new Label)
-;;                    $case-2 (new Label)]
-;;                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "rem_nat" "(JJ)J" nil nil)
-;;                  (.visitCode)
-;;                  ;; Test #1
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LCMP)
-;;                  (.visitJumpInsn Opcodes/IFLE $test-2)
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitLdcInsn (long 0))
-;;                  (.visitInsn Opcodes/LCMP)
-;;                  (.visitJumpInsn Opcodes/IFLE $test-2)
-;;                  ;; Case #1
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitInsn Opcodes/LREM)
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  ;; Test #2
-;;                  (.visitLabel $test-2)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-;;                  (.visitJumpInsn Opcodes/IFLT $case-2)
-;;                  ;; Case #3
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
-;;                  (.visitVarInsn Opcodes/LLOAD 2)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_toUnsignedBigInteger" "(J)Ljava/math/BigInteger;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "remainder" "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/math/BigInteger" "longValue" "()J")
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  ;; Case #2
-;;                  (.visitLabel $case-2)
-;;                  (.visitVarInsn Opcodes/LLOAD 0)
-;;                  (.visitInsn Opcodes/LRETURN)
-;;                  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                  (.visitMaxs 0 0)
 ;;                  (.visitEnd)))]
 ;;       nil)))
+
+(def ^:private const-none (str "[0,null," &&/unit "]"))
+(defn ^:private make-some [value]
+  (str "[1,''," value "]"))
 
 (def ^:private adt-methods
   {"product_getLeft" (str "(function product_getLeft(product,index) {"
@@ -677,22 +553,21 @@
                            "return product.slice(index);"
                            "}"
                            "})")
-   "sum_get" (str "(function sum_get(sum,wantedTag,wantsLast) {"
-                  "if(sum[0] === wantedTag && sum[1] === wantsLast) {"
-                  ;; Exact match.
-                  "return sum[2];"
-                  "}"
-                  "else if(sum[0] < wantedTag || sum[1] !== wantsLast) {"
-                  "if(sum[1]) {"
-                  ;; Must recurse.
-                  "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
-                  "}"
-                  ;; No match.
-                  "else { return null; }"
-                  "}"
-                  ;; No match.
-                  "else { return null; }"
-                  "})")
+   "sum_get" (let [no-match "return null;"
+                   extact-match "return sum[2];"
+                   recursion-test (str (str "if(sum[1] === '') {"
+                                            ;; Must recurse.
+                                            "return sum_get(sum[2], (wantedTag - sum[0]), wantsLast);"
+                                            "}"
+                                            "else { " no-match " }"))]
+               (str "(function sum_get(sum,wantedTag,wantsLast) {"
+                    "if(wantedTag === sum[0]) {"
+                    (str "if(sum[1] === wantsLast) {" extact-match "}"
+                         "else {" recursion-test "}")
+                    "}"
+                    "else if(wantedTag > sum[0]) {" recursion-test "}"
+                    "else { " no-match " }"
+                    "})"))
    })
 
 (def ^:private i64-methods
@@ -906,6 +781,13 @@
    "remI64" (str "(function remI64(l,r) {"
                  "return LuxRT.subI64(l,LuxRT.mulI64(LuxRT.divI64(l,r),r));"
                  "})")
+   "ltI64" (str "(function ltI64(l,r) {"
+                "var ln = l.H < 0;"
+                "var rn = r.H < 0;"
+                "if(ln && !rn) { return true; }"
+                "if(!ln && rn) { return false; }"
+                "return (LuxRT.subI64(l,r).H < 0);"
+                "})")
    "encodeI64" (str "(function encodeI64(input) {"
                     ;; If input = 0
                     (str "if((input.H === 0) && (input.L === 0)) {"
@@ -943,13 +825,33 @@
                                    "}"))
                          "}")
                     "})")
-   "ltI64" (str "(function ltI64(l,r) {"
-                "var ln = l.H < 0;"
-                "var rn = r.H < 0;"
-                "if(ln && !rn) { return true; }"
-                "if(!ln && rn) { return false; }"
-                "return (LuxRT.subI64(l,r).H < 0);"
-                "})")
+   "decodeI64" (str "(function decodeI64(input) {"
+                    (str "if(/^-?\\d+$/.exec(input)) {"
+                         (str "var isNegative = (input.charAt(0) == '-');"
+                              "var sign = isNegative ? -1 : 1;"
+                              "input = isNegative ? input.substring(1) : input;"
+
+                              "var chunkPower = LuxRT.fromNumberI64(Math.pow(10, 8));"
+                              "var result = LuxRT.ZERO;"
+                              (str "for (var i = 0; i < input.length; i += 8) {"
+                                   "var size = Math.min(8, input.length - i);"
+                                   "var value = parseInt(input.substring(i, i + size), 10);"
+                                   (str "if (size < 8) {"
+                                        "var power = LuxRT.fromNumberI64(Math.pow(10, size));"
+                                        "result = LuxRT.addI64(LuxRT.mulI64(result,power),LuxRT.fromNumberI64(value));"
+                                        "}"
+                                        "else {"
+                                        "result = LuxRT.addI64(LuxRT.mulI64(result,chunkPower),LuxRT.fromNumberI64(value));"
+                                        "}")
+                                   "}")
+                              "result = LuxRT.mulI64(result,LuxRT.fromNumberI64(sign));"
+                              (str "return " (make-some "result") ";")
+                              )
+                         "}"
+                         "else {"
+                         (str "return " const-none ";")
+                         "}")
+                    "})")
    })
 
 (def ^:private n64-methods
@@ -1075,10 +977,6 @@
                 "})")
    })
 
-(def ^:private const-none (str "[0,null," &&/unit "]"))
-(defn ^:private make-some [value]
-  (str "[1,''," value "]"))
-
 (def ^:private text-methods
   {"index" (str "(function index(text,part,start) {"
                 "var idx = text.indexOf(part,LuxRT.toNumberI64(start));"
@@ -1099,25 +997,24 @@
                               "}"))
                     "})")
    "clip" (str "(function clip(text,from,to) {"
-               "var clip = text.substring(from.L,to.L);"
-               (str (str "if(clip === '') {"
-                         "return " const-none ";"
-                         "}")
-                    (str "else {"
-                         "return " (make-some "clip") ";"
-                         "}"))
+               (str "if(from.L > text.length || to.L > text.length) {"
+                    (str "return " const-none ";")
+                    "}"
+                    "else {"
+                    (str "return " (make-some "text.substring(from.L,to.L)") ";")
+                    "}")
                "})")
    "replaceAll" (str "(function replaceAll(text,toFind,replaceWith) {"
                      "var reEscaped = toFind.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');"
                      "return text.replace(new RegExp(reEscaped, 'g'), replaceWith);"
                      "})")
    "textChar" (str "(function textChar(text,idx) {"
-                   "var result = text.charAt(idx);"
+                   "var result = text.charAt(idx.L);"
                    (str "if(result === '') {"
-                        (str "return " (make-some "result") ";")
+                        (str "return " const-none ";")
                         "}"
                         "else {"
-                        (str "return " const-none ";")
+                        (str "return " (make-some "{'C':result}") ";")
                         "}")
                    "var reEscaped = toFind.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');"
                    "return text.replace(new RegExp(reEscaped, 'g'), replaceWith);"
