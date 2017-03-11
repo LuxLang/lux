@@ -215,7 +215,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
-                                                             ts))
+                                                            ts))
                             state)
                  nil))
       ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
@@ -225,7 +225,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
-                                                           ts))
+                                                          ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
@@ -235,7 +235,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
       (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id &/$None %)
-                                                           ts))
+                                                          ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
@@ -243,6 +243,14 @@
 
 ;; [Exports]
 ;; Type vars
+(def reset-mappings
+  (fn [state]
+    (return* (&/update$ &/$type-vars #(->> %
+                                           ;; (&/set$ &/$counter 0)
+                                           (&/set$ &/$mappings (&/|table)))
+                        state)
+             nil)))
+
 (def create-var
   (fn [state]
     (let [id (->> state (&/get$ &/$type-vars) (&/get$ &/$counter))]

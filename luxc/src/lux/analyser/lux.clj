@@ -559,7 +559,13 @@
             ==meta (eval! (optimize =meta))
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-def ?name (optimize =value) ==meta)]
+            _ (compile-def ?name (optimize =value) ==meta)
+            ;; TODO: Make the call to &type/reset-mappings unnecessary.
+            ;; It shouldn't be necessary to reset the mappings of the
+            ;; type-vars, because those mappings shouldn't stay around
+            ;; after being cleaned-up.
+            ;; I must figure out why they're staying around.
+            _ &type/reset-mappings]
         (return &/$Nil))
       )))
 
