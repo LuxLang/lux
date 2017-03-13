@@ -127,36 +127,35 @@
                                                     (&&/wrap-lux-obj state)]))))]))
 
 (defn compile-module [source-dirs name]
-  (let [file-name (str name ".lux")]
-    (|do [file-content (&&io/read-file source-dirs file-name)
-          :let [file-hash (hash file-content)
-                compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
-      (&/|eitherL (&&cache/load name)
-                  (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
-                    (|do [module-exists? (&a-module/exists? name)]
-                      (if module-exists?
-                        (&/fail-with-loc (str "[Compiler Error] Can't re-define a module: " name))
-                        (|do [_ (&&cache/delete name)
-                              _ (&&/init-buffer)
-                              _ (&a-module/create-module name file-hash)
-                              _ (&a-module/flag-active-module name)
-                              _ (if (= "lux" name)
-                                  &&rt/compile-LuxRT
-                                  (return nil))]
-                          (fn [state]
-                            (|case ((&/exhaust% compiler-step)
-                                    (&/set$ &/$source (&reader/from name file-content) state))
-                              (&/$Right ?state _)
-                              (&/run-state (|do [_ (&a-module/flag-compiled-module name)
-                                                 _ &&/save-module-js!
-                                                 module-descriptor (&&core/generate-module-descriptor file-hash)
-                                                 _ (&&core/write-module-descriptor! name module-descriptor)]
-                                             (return file-hash))
-                                           ?state)
+  (|do [[file-name file-content] (&&io/read-file source-dirs name)
+        :let [file-hash (hash file-content)
+              compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
+    (&/|eitherL (&&cache/load name)
+                (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
+                  (|do [module-exists? (&a-module/exists? name)]
+                    (if module-exists?
+                      (&/fail-with-loc (str "[Compiler Error] Can't re-define a module: " name))
+                      (|do [_ (&&cache/delete name)
+                            _ (&&/init-buffer)
+                            _ (&a-module/create-module name file-hash)
+                            _ (&a-module/flag-active-module name)
+                            _ (if (= "lux" name)
+                                &&rt/compile-LuxRT
+                                (return nil))]
+                        (fn [state]
+                          (|case ((&/exhaust% compiler-step)
+                                  (&/set$ &/$source (&reader/from name file-content) state))
+                            (&/$Right ?state _)
+                            (&/run-state (|do [_ (&a-module/flag-compiled-module name)
+                                               _ &&/save-module-js!
+                                               module-descriptor (&&core/generate-module-descriptor file-hash)
+                                               _ (&&core/write-module-descriptor! name module-descriptor)]
+                                           (return file-hash))
+                                         ?state)
 
-                              (&/$Left ?message)
-                              (&/fail* ?message)))))))))
-    ))
+                            (&/$Left ?message)
+                            (&/fail* ?message)))))))))
+  )
 
 (let [!err! *err*]
   (defn compile-program [mode program-module resources-dir source-dirs target-dir]

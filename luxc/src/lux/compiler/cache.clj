@@ -123,7 +123,7 @@
                         (&/|map #(.split ^String % &&core/datum-separator 2) imports))]
         cache-table* (&/fold% (fn [cache-table* _import]
                                 (|do [:let [[_module _hash] _import]
-                                      file-content (&&io/read-file source-dirs (str _module ".lux"))
+                                      file-content (&&io/read-file source-dirs _module)
                                       output (pre-load! source-dirs cache-table* _module (hash file-content)
                                                         load-def-value install-all-defs-in-module uninstall-all-defs-in-module)]
                                   (return output)))
@@ -199,7 +199,7 @@
   (|do [:let [fs-cached-modules (enumerate-cached-modules!)]
         pre-loaded-modules (&/fold% (fn [cache-table module-name]
                                       (fn [_compiler]
-                                        (|case ((&&io/read-file source-dirs (str module-name ".lux"))
+                                        (|case ((&&io/read-file source-dirs module-name)
                                                 _compiler)
                                           (&/$Left error)
                                           (return* _compiler cache-table)

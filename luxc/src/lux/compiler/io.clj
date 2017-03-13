@@ -10,17 +10,31 @@
 (defn init-libs! []
   (reset! !libs (&lib/load)))
 
-(defn read-file [source-dirs ^String file-name]
-  (|case (&/|some (fn [^String source-dir]
-                    (let [file (new java.io.File source-dir file-name)]
-                      (if (.exists file)
-                        (&/$Some file)
-                        &/$None)))
-                  source-dirs)
-    (&/$Some file)
-    (return (slurp file))
+(defn read-file [source-dirs module-name]
+  (|do [jvm? &/jvm?
+        js? &/js?
+        :let [^String host-file-name (cond jvm? (str module-name ".jvm.lux")
+                                           js? (str module-name ".js.lux")
+                                           :else (assert false "[I/O Error] Unknown host platform."))
+              ^String lux-file-name (str module-name ".lux")]]
+    (|case (&/|some (fn [^String source-dir]
+                      (let [host-file (new java.io.File source-dir host-file-name)
+                            lux-file (new java.io.File source-dir lux-file-name)]
+                        (cond (.exists host-file)
+                              (&/$Some (&/T [host-file-name host-file]))
 
-    (&/$None)
-    (if-let [code (get @!libs file-name)]
-      (return code)
-      (&/fail-with-loc (str "[I/O Error] File doesn't exist: " file-name)))))
+                              (.exists lux-file)
+                              (&/$Some (&/T [lux-file-name lux-file]))
+
+                              :else
+                              &/$None)))
+                    source-dirs)
+      (&/$Some [file-name file])
+      (return (&/T [file-name (slurp file)]))
+
+      (&/$None)
+      (if-let [code (get @!libs host-file-name)]
+        (return (&/T [host-file-name code]))
+        (if-let [code (get @!libs lux-file-name)]
+          (return (&/T [lux-file-name code]))
+          (&/fail-with-loc (str "[I/O Error] Module doesn't exist: " module-name)))))))
