@@ -420,108 +420,6 @@
 ;;                (.visitEnd)))]
 ;;     nil))
 
-;; (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.Long")]
-;;   (defn ^:private compile-LuxRT-nat-methods [^ClassWriter =class]
-;;     (|let [;; http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#677
-;;            _ (let [$from (new Label)
-;;                    $to (new Label)
-;;                    $handler (new Label)
-
-;;                    $good-start (new Label)
-;;                    $short-enough (new Label)
-;;                    $bad-digit (new Label)
-;;                    $out-of-bounds (new Label)]
-;;                (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "decode_nat" "(Ljava/lang/String;)Ljava/lang/Object;" nil nil)
-;;                  (.visitCode)
-;;                  (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
-;;                  (.visitLabel $from)
-;;                  ;; Remove the + at the beginning...
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitLdcInsn (int 0))
-;;                  (.visitLdcInsn (int 1))
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
-;;                  (.visitLdcInsn "+")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
-;;                  (.visitJumpInsn Opcodes/IFNE $good-start)
-;;                  ;; Doesn't start with +
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  ;; Starts with +
-;;                  (.visitLabel $good-start)
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitLdcInsn (int 1))
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
-;;                  (.visitVarInsn Opcodes/ASTORE 0) ;; Removed the + prefix...
-;;                  ;; Begin parsing processs
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
-;;                  (.visitLdcInsn (int 18))
-;;                  (.visitJumpInsn Opcodes/IF_ICMPLE $short-enough)
-;;                  ;; Too long
-;;                  ;; Get prefix...
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitLdcInsn (int 0))
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
-;;                  (.visitLdcInsn (int 1))
-;;                  (.visitInsn Opcodes/ISUB)
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseLong" "(Ljava/lang/String;)J")
-;;                  (.visitInsn Opcodes/DUP2) ;; Clone prefix, for later...
-;;                  ;; Get last digit...
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "length" "()I")
-;;                  (.visitLdcInsn (int 1))
-;;                  (.visitInsn Opcodes/ISUB)
-;;                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
-;;                  (.visitLdcInsn (int 10))
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Character" "digit" "(CI)I")
-;;                  ;; Test last digit...
-;;                  (.visitInsn Opcodes/DUP)
-;;                  (.visitJumpInsn Opcodes/IFLT $bad-digit)
-;;                  ;; Good digit...
-;;                  ;; Stack: prefix::L, prefix::L, last-digit::I
-;;                  (.visitInsn Opcodes/I2L)
-;;                  ;; Build the result...
-;;                  swap2
-;;                  (.visitLdcInsn (long 10))
-;;                  (.visitInsn Opcodes/LMUL)
-;;                  (.visitInsn Opcodes/LADD) ;; Stack: prefix::L, result::L
-;;                  (.visitInsn Opcodes/DUP2_X2) ;; Stack: result::L, prefix::L, result::L
-;;                  swap2 ;; Stack: result::L, result::L, prefix::L
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-;;                  (.visitJumpInsn Opcodes/IFLT $out-of-bounds)
-;;                  ;; Within bounds
-;;                  ;; Stack: result::L
-;;                  &&/wrap-long
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  ;; Out of bounds
-;;                  (.visitLabel $out-of-bounds)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  ;; Bad digit...
-;;                  (.visitLabel $bad-digit)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  ;; 18 chars or less
-;;                  (.visitLabel $short-enough)
-;;                  (.visitVarInsn Opcodes/ALOAD 0)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "parseLong" "(Ljava/lang/String;)J")
-;;                  &&/wrap-long
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  (.visitLabel $to)
-;;                  (.visitLabel $handler)
-;;                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-;;                  (.visitInsn Opcodes/ARETURN)
-;;                  (.visitMaxs 0 0)
-;;                  (.visitEnd)))]
-;;       nil)))
-
 (def ^:private const-none (str "[0,null," &&/unit "]"))
 (defn ^:private make-some [value]
   (str "[1,''," value "]"))
@@ -867,6 +765,30 @@
                          "return '+'.concat(LuxRT.encodeI64(input));"
                          "}")
                     "})")
+   "decodeN64" (str "(function decodeN64(input) {"
+                    (str "if(/^\\+\\d+$/.exec(input)) {"
+                         (str "input = input.substring(1);")
+                         (str "if(input.length <= 18) {"
+                              ;; Short enough...
+                              "return LuxRT.decodeI64(input);"
+                              "}"
+                              "else {"
+                              ;; Too long
+                              (str "var prefix = LuxRT.decodeI64(input.substring(0, input.length-1))[2];"
+                                   "var suffix = LuxRT.decodeI64(input.charAt(input.length-1))[2];"
+                                   "var total = LuxRT.addI64(LuxRT.mulI64(prefix,LuxRT.fromNumberI64(10)),suffix);"
+                                   (str "if(LuxRT.ltN64(total,prefix)) {"
+                                        (str "return " const-none ";")
+                                        "}"
+                                        "else {"
+                                        (str "return " (make-some "total") ";")
+                                        "}"))
+                              "}")
+                         "}"
+                         "else {"
+                         (str "return " const-none ";")
+                         "}")
+                    "})")
    "divN64" (str "(function divN64(l,r) {"
                  (str "if(LuxRT.ltI64(r,LuxRT.ZERO)) {"
                       (str "if(LuxRT.ltN64(l,r)) {"
@@ -1128,6 +1050,18 @@
                       (str "return [0,null,ex.toString()];")
                       "}")
                  "})")
+   "programArgs" (str "(function programArgs() {"
+                      (str "if(typeof process !== 'undefined' && process.argv) {"
+                           (str (str "var result = " const-none ";")
+                                "for(var idx = process.argv.length-1; idx >= 0; idx--) {"
+                                (str "result = " (make-some "[process.argv[idx],result]") ";")
+                                "}")
+                           (str "return result;")
+                           "}"
+                           "else {"
+                           (str "return " const-none ";")
+                           "}")
+                      "})")
    })
 
 (def LuxRT "LuxRT")
