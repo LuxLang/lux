@@ -1,0 +1,83 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data (coll [list #* "L/" Fold<List>]))
+       [compiler #+ with-gensyms]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])
+       ))
+
+(do-template [<name> <type>]
+  [(type: #export <name> (#;HostT <type> #;Nil))]
+
+  [Object    "object"]
+  [Function  "function"]
+  [Symbol    "symbol"]
+  [Undefined "undefined"]
+  )
+
+(do-template [<name> <type>]
+  [(type: #export <name> <type>)]
+
+  [String  Text]
+  [Number  Real]
+  [Boolean Bool]
+  )
+
+## [Syntax]
+(syntax: #export (set! field-name field-value object)
+  {#;doc (doc "A way to set fields from objects."
+              (set! "foo" 1234 some-object))}
+  (wrap (list (` (;_lux_proc ["js" "set-field"] [(~ object) (~ field-name) (~ field-value)])))))
+
+(syntax: #export (delete! field-name object)
+  {#;doc (doc "A way to delete fields from objects."
+              (delete! "foo" some-object))}
+  (wrap (list (` (;_lux_proc ["js" "delete-field"] [(~ object) (~ field-name)])))))
+
+(syntax: #export (get field-name type object)
+  {#;doc (doc "A way to get fields from objects."
+              (get "ceil" (ref "Math"))
+              (get "ceil" (-> Real Real) (ref "Math")))}
+  (wrap (list (` (:! (~ type)
+                     (;_lux_proc ["js" "get-field"] [(~ object) (~ field-name)]))))))
+
+(syntax: #export (object [kvs (s;some (s;seq s;any s;any))])
+  {#;doc (doc "A way to create JavaScript objects."
+              (object)
+              (object "foo" foo "bar" (inc bar)))}
+  (wrap (list (L/fold (lambda [[k v] object]
+                        (` (set! (~ k) (~ v) (~ object))))
+                      (` (;_lux_proc ["js" "object"] []))
+                      kvs))))
+
+(syntax: #export (ref [name s;text] [type (s;opt s;any)])
+  {#;doc (doc "A way to refer to JavaScript variables."
+              (ref "document")
+              (ref "Math.ceil" (-> Real Real)))}
+  (wrap (list (` (:! (~ (default (' ;;Object) type))
+                     (;_lux_proc ["js" "ref"] [(~ (ast;text name))]))))))
+
+(do-template [<name> <proc> <doc>]
+  [(syntax: #export (<name>)
+     {#;doc (doc <doc>
+                 (<name>))}
+     (wrap (list (` (;_lux_proc ["js" <proc>] [])))))]
+
+  [null  "null"      "Null object reference."]
+  [undef "undefined" "Undefined."]
+  )
+
+(syntax: #export (call! [shape (s;alt ($_ s;seq s;any (s;tuple (s;some s;any)) (s;opt s;any))
+                                      ($_ s;seq s;any s;text (s;tuple (s;some s;any)) (s;opt s;any)))])
+  {#;doc (doc "A way to call JavaScript functions and methods."
+              (call! (ref "Math.ceil") [123.45])
+              (call! (ref "Math") "ceil" [123.45]))}
+  (case shape
+    (#;Left [function args ?type])
+    (wrap (list (` (:! (~ (default (' ;;Object) ?type))
+                       (;_lux_proc ["js" "call"] [(~ function) (~@ args)])))))
+    
+    (#;Right [object field args ?type])
+    (wrap (list (` (:! (~ (default (' ;;Object) ?type))
+                       (;_lux_proc ["js" "object-call"] [(~ object) (~ (ast;text field)) (~@ args)])))))))

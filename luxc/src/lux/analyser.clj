@@ -12,7 +12,8 @@
                           [module :as &&module]
                           [parser :as &&a-parser])
             (lux.analyser.proc [common :as &&common]
-                               [jvm :as &&jvm])))
+                               [jvm :as &&jvm]
+                               [js :as &&js])))
 
 ;; [Utils]
 (defn analyse-variant+ [analyse exo-type ident values]
@@ -136,7 +137,8 @@
               (case ?category
                 "jvm" (|do [_ &/jvm-host]
                         (&&jvm/analyse-host analyse exo-type compilers ?proc ?args))
-                ;; "js"
+                "js" (|do [_ &/js-host]
+                       (&&js/analyse-host analyse exo-type ?proc ?args))
                 ;; common
                 (&&common/analyse-proc analyse exo-type ?category ?proc ?args))
               ))

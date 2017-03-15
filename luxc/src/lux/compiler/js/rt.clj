@@ -755,6 +755,20 @@
                       "})")
    })
 
+(def ^:private js-methods
+  {"jsSetField" (str "(function jsSetField(object, field, input) {"
+                     "object[field] = input;"
+                     "return object;"
+                     "})")
+   "jsDeleteField" (str "(function jsDeleteField(object, field) {"
+                        "delete object[field];"
+                        "return object;"
+                        "})")
+   "jsObjectCall" (str "(function jsObjectCall(object, method, args) {"
+                       "return object[method].apply(object, args);"
+                       "})")
+   })
+
 (def LuxRT "LuxRT")
 
 (def compile-LuxRT
@@ -766,7 +780,8 @@
                                              text-methods
                                              array-methods
                                              bit-methods
-                                             io-methods)
+                                             io-methods
+                                             js-methods)
                                       (map (fn [[key val]]
                                              (str key ":" val)))
                                       (interpose ",")

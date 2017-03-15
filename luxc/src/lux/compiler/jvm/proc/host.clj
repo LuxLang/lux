@@ -1042,7 +1042,6 @@
     (return nil)))
 
 (defn compile-proc [compile proc-name ?values special-args]
-  "jvm"
   (case proc-name
     "synchronized"    (compile-jvm-synchronized compile ?values special-args)
     "load-class"      (compile-jvm-load-class compile ?values special-args)

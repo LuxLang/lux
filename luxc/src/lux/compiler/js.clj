@@ -23,7 +23,8 @@
                              [lux :as &&lux]
                              [rt :as &&rt]
                              [cache :as &&js-cache])
-            (lux.compiler.js.proc [common :as &&common])
+            (lux.compiler.js.proc [common :as &&common]
+                                  [host :as &&host])
             )
   (:import (jdk.nashorn.api.scripting NashornScriptEngineFactory
                                       NashornScriptEngine
@@ -100,7 +101,7 @@
 
       (&o/$proc [?proc-category ?proc-name] ?args special-args)
       (case ?proc-category
-        ;; "js" ...
+        "js" (&&host/compile-proc compile-expression ?proc-name ?args special-args)
         ;; common
         (&&common/compile-proc compile-expression ?proc-category ?proc-name ?args special-args))
 
