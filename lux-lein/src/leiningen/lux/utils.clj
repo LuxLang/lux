@@ -90,7 +90,7 @@
       (str (java-command project) " -cp " class-path
            " " (lux-command project <mode> source-paths))))
 
-  compile-path (str "release " module)
+  compile-path (str "release jvm " module)
   repl-path    "repl"
   )
 
