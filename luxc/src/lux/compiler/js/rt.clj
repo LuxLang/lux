@@ -195,7 +195,7 @@
    "divI64" (str "(function divI64(l,r) {"
                  (str "if((r.H === 0) && (r.L === 0)) {"
                       ;; Special case: R = 0
-                      "throw Error('division by zero');"
+                      "throw new Error('Cannot divide by zero!');"
                       "}"
                       "else if((l.H === 0) && (l.L === 0)) {"
                       ;; Special case: L = 0
@@ -348,7 +348,223 @@
    })
 
 (def ^:private n64-methods
-  {"encodeN64" (str "(function encodeN64(input) {"
+  {"divWord" (str "(function divWord(result, n, d) {"
+                  "var dLong = LuxRT.makeI64(0,d);"
+                  (str "if (LuxRT.eqI64(dLong,LuxRT.ONE)) {"
+                       (str "result[0] = n.L;"
+                            "result[1] = 0;"
+                            "return")
+                       "}"
+                       "else {"
+                       ;; Approximate the quotient and remainder
+                       (str "var q = LuxRT.divI64(LuxRT.ushrI64(n,1),LuxRT.ushrI64(dLong,1));"
+                            "var r = LuxRT.subI64(n,LuxRT.mulI64(q,dLong));"
+                            ;; Correct the approximation
+                            (str "while(LuxRT.ltI64(r,LuxRT.ZERO)) {"
+                                 "r = LuxRT.addI64(r,dLong);"
+                                 "q = LuxRT.subI64(q,LuxRT.ONE);"
+                                 "}")
+                            (str "while(LuxRT.ltI64(dLong,r) || LuxRT.eqI64(dLong,r)) {"
+                                 "r = LuxRT.subI64(r,dLong);"
+                                 "q = LuxRT.addI64(q,LuxRT.ONE);"
+                                 "}")
+                            "result[0] = q.L;"
+                            "result[1] = r.L;"
+                            )
+                       "}")
+                  "})")
+   "primitiveShiftLeftBigInt" (str "(function primitiveShiftLeftBigInt(input,shift) {"
+                                   "var output = input.slice();"
+                                   "var shift2 = 32 - shift;"
+                                   (str "for(var i = 0, c = output[i], m = (i + (input.length - 1)); i < m; i++) {"
+                                        "var b = c;"
+                                        "c = output[i+1];"
+                                        "output[i] = (b << shift) | (c >>> shift2);"
+                                        "}")
+                                   "output[(input.length - 1)] <<= shift;"
+                                   "return output;"
+                                   "})")
+   "primitiveShiftRightBigInt" (str "(function primitiveShiftRightBigInt(input,shift) {"
+                                    "var output = input.slice();"
+                                    "var shift2 = 32 - shift;"
+                                    (str "for(var i = (input.length - 1), c = output[i]; i > 0; i--) {"
+                                         "var b = c;"
+                                         "c = output[i-1];"
+                                         "output[i] = (c << shift2) | (b >>> shift);"
+                                         "}")
+                                    "output[0] >>>= shift;"
+                                    "return output;"
+                                    "})")
+   "shiftLeftBigInt" (str "(function shiftLeftBigInt(input,shift) {"
+                          "var shiftInts = shift >>> 5;"
+                          "var shiftBits = shift & 0x1F;"
+                          "var bitsInHighWord = LuxRT.countI64(LuxRT.makeI64(input[0],0));"
+                          (str "if(shift <= (32 - bitsInHighWord)) {"
+                               "var shifted = LuxRT.shlI64(LuxRT.makeI64(input[0],input[1]),shiftBits);"
+                               "return [shifted.H,shifted.L];"
+                               "}")
+                          "var inputLen = input[0] === 0 ? 1 : 2;"
+                          "var newLen = inputLen + shiftInts + 1;"
+                          (str "if(shiftBits <= (32 - bitsInHighWord)) {"
+                               "newLen--;"
+                               "}")
+                          (str "if(input.length < newLen) {"
+                               ;; The array must grow
+                               "input = [0|0,input[0],input[1]];"
+                               "}")
+                          (str "if(nBits == 0) {"
+                               "return input;"
+                               "}")
+                          (str "if(shiftBits <= (32 - bitsInHighWord)) {"
+                               "return LuxRT.primitiveShiftLeftBigInt(input,shiftBits);"
+                               "}"
+                               "else {"
+                               "return LuxRT.primitiveShiftRightBigInt(input,(32 - shiftBits));"
+                               "}")
+                          "})")
+   "shiftRightBigInt" (str "(function shiftRightBigInt(input,shift) {"
+                           "var shiftInts = shift >>> 5;"
+                           "var shiftBits = shift & 0x1F;"
+                           "if(shiftBits === 0) { return input; }"
+                           "var bitsInHighWord = LuxRT.countI64(LuxRT.makeI64(input[0],0));"
+                           (str "if(shiftBits >= bitsInHighWord) {"
+                                "return LuxRT.primitiveShiftLeftBigInt(input,(32-shiftBits));"
+                                "}"
+                                "else {"
+                                "return LuxRT.primitiveShiftRightBigInt(input,shiftBits);"
+                                "}")
+                           "})")
+   "mulsubBigInt" (str "(function mulsubBigInt(q, a, x, len, offset) {"
+                       "var xLong = LuxRT.makeI64(0,x);"
+                       "var carry = LuxRT.ZERO;"
+                       "offset += len;"
+                       (str "for (var j = len-1; j >= 0; j--) {"
+                            "var product = LuxRT.addI64(LuxRT.mulI64(LuxRT.makeI64(0,a[j]),xLong),carry);"
+                            "var difference = LuxRT.subI64(LuxRT.makeI64(0,q[offset]),product);"
+                            "carry = LuxRT.addI64(LuxRT.ushrI64(product,32),((difference.L > ~product.L) ? LuxRT.ONE : LuxRT.ZERO));"
+                            "}")
+                       "return carry.L;"
+                       "})")
+   "divadd" (str "(function divadd(a, result, offset) {"
+                 "var carry = LuxRT.ZERO;"
+                 (str "for (var j = a.length - 1; j >= 0; j--) {"
+                      "var sum = LuxRT.addI64(LuxRT.addI64(LuxRT.makeI64(0,a[j]),LuxRT.makeI64(0,result[j+offset])),carry);"
+                      "result[j+offset] = sum.L;"
+                      "carry = LuxRT.ushrI64(sum,32);"
+                      "}")
+                 "return carry.L;"
+                 "})")
+   "normalizeBigInt" (str "(function normalizeBigInt(input) {"
+                          (str "if(input[0] !== 0) {"
+                               "return LuxRT.makeI64(input[0],input[1]);"
+                               "}"
+                               "else {"
+                               (str "var numZeros = 0;"
+                                    (str "do {"
+                                         "numZeros++;"
+                                         "} while(numZeros < input.length && input[numZeros] == 0);")
+                                    "var tempInput = input.slice(input.length-Math.max(2,input.length-numZeros));"
+                                    "return LuxRT.makeI64(tempInput[0],tempInput[1]);")
+                               "}")
+                          "})")
+   "divmodBigInt" (str "(function divmodBigInt(subject,param) {"
+                       (str "if(LuxRT.eqI64(param,LuxRT.ZERO)) {"
+                            "throw new Error('Cannot divide by zero!');"
+                            "}")
+                       (str "if(LuxRT.eqI64(subject,LuxRT.ZERO)) {"
+                            "return [LuxRT.ZERO, LuxRT.ZERO];"
+                            "}")
+                       (str "if(LuxRT.ltN64(subject,param)) {"
+                            "return [LuxRT.ZERO, subject];"
+                            "}")
+                       (str "if(LuxRT.eqI64(subject,param)) {"
+                            "return [LuxRT.ONE, LuxRT.ZERO];"
+                            "}")
+                       ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                       "var divisor = param;"
+                       "var remainder = subject.H === 0 ? [0|0,subject.L] : [0|0,subject.H,subject.L];"
+                       "var paramLength = param.H === 0 ? 1 : 2;"
+                       "var subjLength = subject.H === 0 ? 1 : 2;"
+                       "var limit = subjLength - paramLength + 1;"
+                       "var quotient = (limit === 1) ? [0|0] : [0|0,0|0];"
+                       ;; Normalize the divisor
+                       "var shift = 32 - LuxRT.countI64(LuxRT.makeI64(divisor.H,0));"
+                       (str "if (shift > 0) {"
+                            "divisor = LuxRT.shlI64(divisor,shift);"
+                            "remainder = LuxRT.shiftLeftBigInt(remainder,shift);"
+                            "}")
+                       (str "if((remainder.length-1) === subjLength) {"
+                            "remainder[0] = 0;"
+                            "}")
+                       "var dh = divisor.H;"
+                       "var dhLong = LuxRT.makeI64(0,dh);"
+                       "var dl = divisor.L;"
+                       "var qWord = [0|0,0|0];"
+                       ;; D2 Initialize j
+                       (str "for(var j = 0; j < limit; j++) {"
+                            ;; D3 Calculate qhat
+                            ;; estimate qhat
+                            "var qhat = 0;"
+                            "var qrem = 0;"
+                            "var skipCorrection = false;"
+                            "var nh = remainder[j];"
+                            "var nh2 = nh + 0x80000000;"
+                            "var nm = remainder[j+1];"
+                            (str "if(nh == dh) {"
+                                 (str "qhat = ~0;"
+                                      "qrem = nh + nm;"
+                                      "skipCorrection = (qrem + 0x80000000) < nh2;")
+                                 "}"
+                                 "else {"
+                                 (str "var nChunk = LuxRT.orI64(LuxRT.shlI64(LuxRT.fromNumberI64(nh),32),LuxRT.fromNumberI64(nm));")
+                                 (str "if(LuxRT.ltI64(LuxRT.ZERO,nChunk) || LuxRT.eqI64(LuxRT.ZERO,nChunk)) {"
+                                      (str "qhat = LuxRT.divI64(nChunk,dhLong).L;"
+                                           "qrem = LuxRT.subI64(nChunk,LuxRT.mulI64(qhat, dhLong)).L;")
+                                      "}"
+                                      "else {"
+                                      (str "LuxRT.divWord(qWord, nChunk, dh);"
+                                           "qhat = qWord[0];"
+                                           "qrem = qWord[1];"
+                                           )
+                                      "}")
+                                 "if(qhat == 0) { continue; }"
+                                 (str "if(!skipCorrection) {"
+                                      ;; Correct qhat
+                                      (str "var qremLong = LuxRT.makeI64(0,qrem);"
+                                           "var dlLong = LuxRT.makeI64(0,dl);"
+                                           "var nl = LuxRT.makeI64(0,remainder[j+2]);"
+                                           "var rs = LuxRT.orI64(LuxRT.shlI64(qremLong,32),nl);"
+                                           "var estProduct = LuxRT.mulI64(dlLong,LuxRT.makeI64(0,qhat));"
+                                           (str "if(LuxRT.ltN64(rs,estProduct)) {"
+                                                (str "qhat--;"
+                                                     "qrem = LuxRT.addI64(qremLong,dhLong).L;"
+                                                     "qremLong = LuxRT.makeI64(0,qrem);"
+                                                     (str "if(LuxRT.ltI64(dhLong,qremLong) || LuxRT.eqI64(dhLong,qremLong)) {"
+                                                          (str "estProduct = LuxRT.mulI64(dlLong,LuxRT.makeI64(0,qhat));"
+                                                               "rs = LuxRT.orI64(LuxRT.shlI64(qremLong,32),nl);"
+                                                               "if(LuxRT.ltN64(rs,estProduct)) { qhat--; }")
+                                                          "}"))
+                                                "}")
+                                           )
+                                      "}")
+                                 ;; D4 Multiply and subtract
+                                 "remainder[j] = 0;"
+                                 "var borrow = LuxRT.mulsubBigInt(remainder, divisor, qhat, paramLength, j);"
+                                 ;; D5 Test remainder
+                                 (str "if (borrow + 0x80000000 > nh2) {"
+                                      ;; D6 Add back
+                                      "LuxRT.divadd(divisor, remainder, j+1);"
+                                      "qhat--;"
+                                      "}")
+                                 ;; Store the quotient digit
+                                 "quotient[j] = qhat;"
+                                 "}")
+                            "}") ;; D7 loop on j
+                       ;; D8 Unnormalize
+                       "if(shift > 0) { remainder = LuxRT.shiftRightBigInt(remainder,shift); }"
+                       "return [LuxRT.normalizeBigInt(quotient), LuxRT.normalizeBigInt(remainder)];"
+                       "})")
+   "encodeN64" (str "(function encodeN64(input) {"
                     (str "if(input.H < 0) {"
                          ;; Too big
                          "var lastDigit = LuxRT.remI64(input, LuxRT.makeI64(0,10));"
@@ -406,7 +622,7 @@
                                 "return LuxRT.ZERO;"
                                 "}"
                                 "else {"
-                                "throw new Error('AWAITING BIG-INT DIVISION IMPLEMENTATION!!!');"
+                                "return LuxRT.divmodBigInt(l,r)[0];"
                                 "}")
                            "}")
                       "}")
@@ -417,7 +633,7 @@
                            "return l;"
                            "}"
                            "else {"
-                           "throw new Error('AWAITING BIG-INT REMAINDER IMPLEMENTATION!!!');"
+                           "return LuxRT.divmodBigInt(l,r)[1];"
                            "}")
                       "}"
                       "else {"
