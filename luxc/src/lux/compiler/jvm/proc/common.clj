@@ -735,7 +735,8 @@
         :let [_ (doto *writer*
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I)
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/System" "exit" "(I)V"))]]
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/System" "exit" "(I)V")
+                  (.visitInsn Opcodes/ACONST_NULL))]]
     (return nil)))
 
 (defn ^:private compile-io-current-time [compile ?values special-args]
