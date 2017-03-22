@@ -35,7 +35,7 @@
   (defn <name> [value]
     (let [high (-> value (bit-shift-right 32) int)
           low (-> value (bit-and mask-4b) (bit-shift-left 32) (bit-shift-right 32) int)]
-      (return (str &&rt/LuxRT "." "makeI64" "(" high "," low ")"))))
+      (return (str "LuxRT$makeI64" "(" high "," low ")"))))
 
   compile-nat
   compile-int
@@ -134,7 +134,7 @@
     (return (&/fold (fn [source step]
                       (|let [[idx tail?] step
                              method (if tail? "product_getRight" "product_getLeft")]
-                        (str &&rt/LuxRT "." method "(" source "," idx ")")))
+                        (str "LuxRT$" method "(" source "," idx ")")))
                     (str "(" =value ")")
                     _path))))
 
@@ -179,15 +179,15 @@
 
     (&o/$NatPM _value)
     (|do [=value (compile-nat _value)]
-      (return (str "if(!" (str "LuxRT.eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
+      (return (str "if(!" (str "LuxRT$eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
     (&o/$IntPM _value)
     (|do [=value (compile-int _value)]
-      (return (str "if(!" (str "LuxRT.eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
+      (return (str "if(!" (str "LuxRT$eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
     (&o/$DegPM _value)
     (|do [=value (compile-deg _value)]
-      (return (str "if(!" (str "LuxRT.eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
+      (return (str "if(!" (str "LuxRT$eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
     (&o/$RealPM _value)
     (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
@@ -208,7 +208,7 @@
                              (&/$Right _idx)
                              (&/T [_idx true]))
            getter (if is-tail? "product_getRight" "product_getLeft")]
-      (return (str (cursor-push (str &&rt/LuxRT "." getter "(" cursor-peek "," _idx ")")))))
+      (return (str (cursor-push (str "LuxRT$" getter "(" cursor-peek "," _idx ")")))))
 
     (&o/$VariantPM _idx+)
     (|let [[_idx is-last] (|case _idx+
@@ -217,7 +217,7 @@
 
                             (&/$Right _idx)
                             (&/T [_idx true]))
-           temp-assignment (str "temp = " &&rt/LuxRT "." "sum_get(" cursor-peek "," _idx "," (if is-last "\"\"" "null") ");")]
+           temp-assignment (str "temp = LuxRT$sum_get(" cursor-peek "," _idx "," (if is-last "\"\"" "null") ");")]
       (return (str temp-assignment
                    (str "if(temp !== null) {"
                         (cursor-push "temp")
@@ -382,7 +382,7 @@
 
 (defn compile-program [compile ?body]
   (|do [=body (compile ?body)
-        :let [program-js (str (str "var " (register-name 0) " = LuxRT.programArgs();")
+        :let [program-js (str (str "var " (register-name 0) " = LuxRT$programArgs();")
                               (str "(" =body ")(null);"))]
         eval? &/get-eval
         ^StringBuilder buffer &&/get-buffer

@@ -33,7 +33,7 @@
         =object (compile ?object)
         =field (compile ?field)
         =args (&/map% compile ?args)]
-    (return (str "LuxRT." "jsObjectCall"
+    (return (str "LuxRT$" "jsObjectCall"
                  "(" =object
                  "," =field
                  "," (str "[" (->> =args (&/|interpose ",") (&/fold str "")) "]")
@@ -54,13 +54,13 @@
         =object (compile ?object)
         =field (compile ?field)
         =input (compile ?input)]
-    (return (str "LuxRT." "jsSetField" "(" =object "," =field "," =input ")"))))
+    (return (str "LuxRT$" "jsSetField" "(" =object "," =field "," =input ")"))))
 
 (defn ^:private compile-js-delete-field [compile ?values special-args]
   (|do [:let [(&/$Cons ?object (&/$Cons ?field (&/$Nil))) ?values]
         =object (compile ?object)
         =field (compile ?field)]
-    (return (str "LuxRT." "jsDeleteField" "(" =object "," =field ")"))))
+    (return (str "LuxRT$" "jsDeleteField" "(" =object "," =field ")"))))
 
 (do-template [<name> <value>]
   (defn <name> [compile ?values special-args]

@@ -19,7 +19,7 @@
     (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
           =input (compile ?input)
           =param (compile ?param)]
-      (return (str "LuxRT." <op> "(" =input "," =param ")"))))
+      (return (str "LuxRT$" <op> "(" =input "," =param ")"))))
 
   ^:private compile-bit-and "andI64"
   ^:private compile-bit-or  "orI64"
@@ -31,7 +31,7 @@
     (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
           =input (compile ?input)
           =param (compile ?param)]
-      (return (str "LuxRT." <op> "(" =input "," =param ".L)"))))
+      (return (str "LuxRT$" <op> "(" =input "," =param ".L)"))))
 
   ^:private compile-bit-shift-left           "shlI64"
   ^:private compile-bit-shift-right          "shrI64"
@@ -41,7 +41,7 @@
 (defn ^:private compile-bit-count [compile ?values special-args]
   (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
         =input (compile ?input)]
-    (return (str "LuxRT.countI64(" =input ")"))))
+    (return (str "LuxRT$countI64(" =input ")"))))
 
 (defn ^:private compile-lux-is [compile ?values special-args]
   (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
@@ -52,12 +52,12 @@
 (defn ^:private compile-lux-try [compile ?values special-args]
   (|do [:let [(&/$Cons ?op (&/$Nil)) ?values]
         =op (compile ?op)]
-    (return (str "LuxRT.runTry(" =op ")"))))
+    (return (str "LuxRT$runTry(" =op ")"))))
 
 (defn ^:private compile-array-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?length (&/$Nil)) ?values]
         =length (compile ?length)]
-    (return (str "new Array(" (str "LuxRT.toNumberI64(" =length ")") ")"))))
+    (return (str "new Array(" (str "LuxRT$toNumberI64(" =length ")") ")"))))
 
 (defn ^:private compile-array-get [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
@@ -65,7 +65,7 @@
               ]
         =array (compile ?array)
         =idx (compile ?idx)]
-    (return (str "LuxRT.arrayGet(" =array "," =idx ")"))))
+    (return (str "LuxRT$arrayGet(" =array "," =idx ")"))))
 
 (defn ^:private compile-array-put [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
@@ -74,7 +74,7 @@
         =array (compile ?array)
         =idx (compile ?idx)
         =elem (compile ?elem)]
-    (return (str "LuxRT.arrayPut(" =array "," =idx "," =elem ")"))))
+    (return (str "LuxRT$arrayPut(" =array "," =idx "," =elem ")"))))
 
 (defn ^:private compile-array-remove [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
@@ -82,21 +82,21 @@
               ]
         =array (compile ?array)
         =idx (compile ?idx)]
-    (return (str "LuxRT.arrayRemove(" =array "," =idx ")"))))
+    (return (str "LuxRT$arrayRemove(" =array "," =idx ")"))))
 
 (defn ^:private compile-array-size [compile ?values special-args]
   (|do [:let [(&/$Cons ?array (&/$Nil)) ?values
               ;; (&/$Nil) special-args
               ]
         =array (compile ?array)]
-    (return (str "LuxRT.fromNumberI64(" =array ".length" ")"))))
+    (return (str "LuxRT$fromNumberI64(" =array ".length" ")"))))
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
           =x (compile ?x)
           =y (compile ?y)]
-      (return (str &&rt/LuxRT "." <method> "(" =x "," =y ")"))))
+      (return (str "LuxRT$" <method> "(" =x "," =y ")"))))
 
   ^:private compile-nat-add   "addI64"
   ^:private compile-nat-sub   "subI64"
@@ -144,7 +144,7 @@
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
           =x (compile ?x)]
-      (return (str &&rt/LuxRT "." <method> "(" =x ")"))
+      (return (str "LuxRT$" <method> "(" =x ")"))
       ))
 
   ^:private compile-int-encode "encodeI64"
@@ -161,7 +161,7 @@
 (defn ^:private compile-real-hash [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str &&rt/LuxRT ".textHash(''+" =x ")"))
+    (return (str "LuxRT$textHash(''+" =x ")"))
     ))
 
 (do-template [<name> <compiler> <value>]
@@ -191,63 +191,6 @@
         =x (compile ?x)]
     (return (str "(" =x ")" ".toString()"))))
 
-;; (defn ^:private compile-nat-lt [compile ?values special-args]
-;;   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-;;         ^MethodVisitor *writer* &/get-writer
-;;         _ (compile ?x)
-;;         :let [_ (doto *writer*
-;;                   &&/unwrap-long)]
-;;         _ (compile ?y)
-;;         :let [_ (doto *writer*
-;;                   &&/unwrap-long)
-;;               $then (new Label)
-;;               $end (new Label)
-;;               _ (doto *writer*
-;;                   (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-;;                   (.visitLdcInsn (int -1))
-;;                   (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
-;;                   (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
-;;                   (.visitJumpInsn Opcodes/GOTO $end)
-;;                   (.visitLabel $then)
-;;                   (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
-;;                   (.visitLabel $end))]]
-;;     (return nil)))
-
-;; (do-template [<name> <method>]
-;;   (defn <name> [compile ?values special-args]
-;;     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-;;           ^MethodVisitor *writer* &/get-writer
-;;           _ (compile ?x)
-;;           :let [_ (doto *writer*
-;;                     &&/unwrap-long)]
-;;           _ (compile ?y)
-;;           :let [_ (doto *writer*
-;;                     &&/unwrap-long)]
-;;           :let [_ (doto *writer*
-;;                     (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> "(JJ)J")
-;;                     &&/wrap-long)]]
-;;       (return nil)))
-
-;;   ^:private compile-deg-mul   "mul_deg"
-;;   ^:private compile-deg-div   "div_deg"
-;;   )
-
-;; (do-template [<name> <class> <method> <sig> <unwrap> <wrap>]
-;;   (let [+wrapper-class+ (&host-generics/->bytecode-class-name <class>)]
-;;     (defn <name> [compile ?values special-args]
-;;       (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-;;             ^MethodVisitor *writer* &/get-writer
-;;             _ (compile ?x)
-;;             :let [_ (doto *writer*
-;;                       <unwrap>
-;;                       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> <sig>)
-;;                       <wrap>)]]
-;;         (return nil))))
-
-;;   ^:private compile-deg-to-real "java.lang.Long"   "deg-to-real" "(J)D" &&/unwrap-long   &&/wrap-double
-;;   ^:private compile-real-to-deg "java.lang.Double" "real-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
-;;   )
-
 (do-template [<name>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]]
@@ -260,22 +203,22 @@
 (defn ^:private compile-int-to-real [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT.toNumberI64(" =x ")"))))
+    (return (str "LuxRT$toNumberI64(" =x ")"))))
 
 (defn ^:private compile-real-to-int [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT.fromNumberI64(" =x ")"))))
+    (return (str "LuxRT$fromNumberI64(" =x ")"))))
 
 (defn ^:private compile-deg-to-real [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT.degToReal(" =x ")"))))
+    (return (str "LuxRT$degToReal(" =x ")"))))
 
 (defn ^:private compile-real-to-deg [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT.realToDeg(" =x ")"))))
+    (return (str "LuxRT$realToDeg(" =x ")"))))
 
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
@@ -311,7 +254,7 @@
           =text (compile ?text)
           =part (compile ?part)
           =start (compile ?start)]
-      (return (str "LuxRT" "." <method> "(" =text "," =part "," =start ")"))))
+      (return (str "LuxRT$" <method> "(" =text "," =part "," =start ")"))))
 
   ^:private compile-text-last-index "lastIndex"
   ^:private compile-text-index      "index"
@@ -332,30 +275,30 @@
         =text (compile ?text)
         =from (compile ?from)
         =to (compile ?to)]
-    (return (str "LuxRT.clip(" (str =text "," =from "," =to) ")"))))
+    (return (str "LuxRT$clip(" (str =text "," =from "," =to) ")"))))
 
 (defn ^:private compile-text-replace-all [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Cons ?to-find (&/$Cons ?replace-with (&/$Nil)))) ?values]
         =text (compile ?text)
         =to-find (compile ?to-find)
         =replace-with (compile ?replace-with)]
-    (return (str "LuxRT.replaceAll(" (str =text "," =to-find "," =replace-with) ")"))))
+    (return (str "LuxRT$replaceAll(" (str =text "," =to-find "," =replace-with) ")"))))
 
 (defn ^:private compile-text-size [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
         =text (compile ?text)]
-    (return (str "LuxRT.fromNumberI64(" =text ".length" ")"))))
+    (return (str "LuxRT$fromNumberI64(" =text ".length" ")"))))
 
 (defn ^:private compile-text-hash [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
         =text (compile ?text)]
-    (return (str "LuxRT.textHash(" =text ")"))))
+    (return (str "LuxRT$textHash(" =text ")"))))
 
 (defn ^:private compile-text-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
         =text (compile ?text)
         =idx (compile ?idx)]
-    (return (str "LuxRT.textChar(" (str =text "," =idx) ")"))))
+    (return (str "LuxRT$textChar(" (str =text "," =idx) ")"))))
 
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
@@ -376,35 +319,35 @@
 (defn ^:private compile-char-to-nat [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT.fromNumberI64(" (str "(" =x ").C" ".charCodeAt(0)") ")"))))
+    (return (str "LuxRT$fromNumberI64(" (str "(" =x ").C" ".charCodeAt(0)") ")"))))
 
 (defn ^:private compile-nat-to-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
     (return (str "{C:"
                  (str "String.fromCharCode("
-                      (str "LuxRT.toNumberI64(" =x ")")
+                      (str "LuxRT$toNumberI64(" =x ")")
                       ")")
                  "}"))))
 
 (defn ^:private compile-io-log [compile ?values special-args]
   (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
         =message (compile ?message)]
-    (return (str "LuxRT.log(" =message ")"))))
+    (return (str "LuxRT$log(" =message ")"))))
 
 (defn ^:private compile-io-error [compile ?values special-args]
   (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
         =message (compile ?message)]
-    (return (str "LuxRT.error(" =message ")"))))
+    (return (str "LuxRT$error(" =message ")"))))
 
 (defn ^:private compile-io-exit [compile ?values special-args]
   (|do [:let [(&/$Cons ?code (&/$Nil)) ?values]
         =code (compile ?code)]
-    (return (str "(process && process.exit && process.exit(LuxRT.fromNumberI64(" =code ")))"))))
+    (return (str "(process && process.exit && process.exit(LuxRT$fromNumberI64(" =code ")))"))))
 
 (defn ^:private compile-io-current-time [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]]
-    (return (str "LuxRT.toNumberI64(" "(new Date()).getTime()" ")"))))
+    (return (str "LuxRT$toNumberI64(" "(new Date()).getTime()" ")"))))
 
 (defn ^:private compile-atom-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
@@ -434,7 +377,7 @@
 
 (defn ^:private compile-process-concurrency-level [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]]
-    (return (str "LuxRT.fromNumberI64(1)"))))
+    (return (str "LuxRT$fromNumberI64(1)"))))
 
 (defn ^:private compile-process-future [compile ?values special-args]
   (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
@@ -450,7 +393,7 @@
     (return (str "setTimeout("
                  (str "function() {" =procedure "(null)" "}")
                  ","
-                 (str "LuxRT.toNumberI64(" =milliseconds ")")
+                 (str "LuxRT$toNumberI64(" =milliseconds ")")
                  ")"))))
 
 (do-template [<name> <field>]
