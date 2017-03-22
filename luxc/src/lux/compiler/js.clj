@@ -131,7 +131,11 @@
   (|do [[file-name file-content] (&&io/read-file source-dirs name)
         :let [file-hash (hash file-content)
               compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
-    (&/|eitherL (&&cache/load name)
+    (&/|eitherL (|do [output (&&cache/load name)
+                      ^StringBuilder total-buffer &&/get-total-buffer
+                      :let [module-code-path (str @&&core/!output-dir java.io.File/separator name java.io.File/separator &&/module-js-name)
+                            _ (.append total-buffer ^String (str (slurp module-code-path) "\n"))]]
+                  (return output))
                 (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
                   (|do [module-exists? (&a-module/exists? name)]
                     (if module-exists?
@@ -166,8 +170,12 @@
                                                       &&js-cache/load-def-value
                                                       &&js-cache/install-all-defs-in-module
                                                       &&js-cache/uninstall-all-defs-in-module)
-                           _ (compile-module source-dirs "lux")]
-                       (compile-module source-dirs program-module))]
+                           _ (compile-module source-dirs "lux")
+                           _ (compile-module source-dirs program-module)
+                           ^StringBuilder total-buffer &&/get-total-buffer
+                           :let [full-program-file (str @&&core/!output-dir java.io.File/separator "program.js")
+                                 _ (&&core/write-file full-program-file (.getBytes (.toString total-buffer)))]]
+                       (return nil))]
         (|case (m-action (&/init-state mode (&&/js-host)))
           (&/$Right ?state _)
           (do (println "Compilation complete!")

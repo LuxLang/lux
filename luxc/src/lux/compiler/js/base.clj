@@ -21,13 +21,16 @@
 
 (deftuple
   ["interpreter"
-   "buffer"])
+   "buffer"
+   "total-buffer"])
 
 (defn js-host []
   (&/$Js (&/T [;; "interpreter"
                (.getScriptEngine (new NashornScriptEngineFactory))
                ;; "buffer"
                &/$None
+               ;; "total-buffer"
+               (new StringBuilder)
                ])))
 
 (def ^String module-js-name "module.js")
@@ -43,6 +46,10 @@
 
       (&/$None)
       (&/fail-with-loc "[Error] No buffer available."))))
+
+(def get-total-buffer
+  (|do [host &/js-host]
+    (return (&/get$ $total-buffer host))))
 
 (defn run-js! [^String js-code]
   (|do [host &/js-host
@@ -216,12 +223,15 @@
   (|do [eval? &/get-eval
         module &/get-module-name
         ^StringBuilder buffer get-buffer
+        ^StringBuilder total-buffer get-total-buffer
+        :let [buffer-code (.toString buffer)
+              _ (.append total-buffer ^String (str buffer-code "\n"))]
         :let [_ (when (not eval?)
                   (let [^String module* (&host/->module-class module)
                         module-dir (str @&&/!output-dir java.io.File/separator (.replace module* "/" java.io.File/separator))]
                     (do (.mkdirs (File. module-dir))
                       (&&/write-file (str module-dir java.io.File/separator module-js-name)
-                                     (.getBytes (.toString buffer))))))]]
+                                     (.getBytes buffer-code)))))]]
     (return nil)))
 
 (defn js-module [module]

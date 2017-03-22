@@ -5,7 +5,8 @@
                     InputStreamReader
                     BufferedReader)))
 
-(def ^:const ^String default-output-dir (str "target" java.io.File/separator "jvm"))
+(def ^:const ^String default-jvm-output-dir (str "target" java.io.File/separator "jvm"))
+(def ^:const ^String default-js-output-dir (str "target" java.io.File/separator "js"))
 (def ^:const ^String output-package "program.jar")
 
 (def ^:private unit-separator (str (char 31)))
@@ -61,10 +62,17 @@
   (str "lux " mode
        " " (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
        " " (->> source-paths (interpose unit-separator) (apply str))
-       " " (get-in project [:lux :target] default-output-dir)))
+       " " (get-in project [:lux :target] (cond (.contains mode "jvm")
+                                                default-jvm-output-dir
+
+                                                (.contains mode "js")
+                                                default-js-output-dir
+
+                                                :else
+                                                (assert false)))))
 
 (do-template [<name> <mode>]
-  (defn <name> [project module source-paths]
+  (defn <name> [project platform module source-paths]
     (let [is-stdlib? (= stdlib-id [(get project :group) (get project :name)])
           jar-paths (all-jars-in-classloader)
           compiler-path (prepare-path (find-compiler-path jar-paths))
@@ -90,7 +98,7 @@
       (str (java-command project) " -cp " class-path
            " " (lux-command project <mode> source-paths))))
 
-  compile-path (str "release jvm " module)
+  compile-path (str "release " platform " " module)
   repl-path    "repl"
   )
 
