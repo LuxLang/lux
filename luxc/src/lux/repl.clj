@@ -7,9 +7,9 @@
                  [optimizer :as &optimizer]
                  [compiler :as &compiler])
             [lux.compiler.cache :as &cache]
-            [lux.analyser.base :as &a-base]
-            [lux.analyser.lux :as &a-lux]
-            [lux.analyser.module :as &module])
+            (lux.analyser [base :as &a-base]
+                          [lux :as &a-lux]
+                          [module :as &module]))
   (:import (java.io InputStreamReader
                     BufferedReader)))
 

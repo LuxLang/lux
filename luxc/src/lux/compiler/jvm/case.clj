@@ -1,4 +1,4 @@
-(ns lux.compiler.case
+(ns lux.compiler.jvm.case
   (:require (clojure [set :as set]
                      [template :refer [do-template]])
             clojure.core.match
@@ -11,7 +11,7 @@
                  [host :as &host]
                  [optimizer :as &o])
             [lux.analyser.case :as &a-case]
-            [lux.compiler.base :as &&])
+            [lux.compiler.jvm.base :as &&])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter

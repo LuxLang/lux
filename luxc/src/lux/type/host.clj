@@ -250,45 +250,43 @@
   (defn primitive-type? [type-name]
     (contains? primitive-types type-name)))
 
+(def ^:private lux-jvm-type-combos
+  #{#{"java.lang.Boolean" "#Bool"}
+    #{"java.lang.Long" "#Int"}
+    #{"java.lang.Double" "#Real"}
+    #{"java.lang.Character" "#Char"}
+    #{"java.lang.String" "#Text"}})
+
+(defn ^:private lux-type? [^String class-name]
+  (.startsWith class-name "#"))
+
 (defn check-host-types [check check-error fixpoints existential class-loader invariant?? expected actual]
-  (|let [[e!name e!params] expected
-         [a!name a!params] actual]
-    ;; TODO: Delete first branch. It smells like a hack...
-    (try (cond (or (= "java.lang.Object" e!name)
-                   (and (= nat-data-tag e!name)
-                        (= nat-data-tag a!name))
-                   (and (= deg-data-tag e!name)
-                        (= deg-data-tag a!name))
-                   (and (= null-data-tag e!name)
-                        (= null-data-tag a!name))
-                   (and (not (primitive-type? e!name))
-                        (= null-data-tag a!name)))
-               (return fixpoints)
+  (|let [[^String e!name e!params] expected
+         [^String a!name a!params] actual]
+    (try (let [e!name (as-obj e!name)
+               a!name (as-obj a!name)]
+           (cond (= e!name a!name)
+                 (if (= (&/|length e!params) (&/|length a!params))
+                   (|do [_ (&/map2% check e!params a!params)]
+                     (return fixpoints))
+                   (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params)))
 
-               (or (and (= array-data-tag e!name)
-                        (not= array-data-tag a!name))
-                   (= nat-data-tag  e!name) (= nat-data-tag  a!name)
-                   (= deg-data-tag e!name) (= deg-data-tag a!name)
-                   (= null-data-tag e!name) (= null-data-tag a!name))
-               (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))
+                 (or (lux-type? e!name)
+                     (lux-type? a!name))
+                 (if (or (= "java.lang.Object" e!name)
+                         (contains? lux-jvm-type-combos #{e!name a!name})
+                         (and (not (primitive-type? e!name))
+                              (= null-data-tag a!name)))
+                   (return fixpoints)
+                   (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params)))
 
-               :else
-               (let [e!name (as-obj e!name)
-                     a!name (as-obj a!name)]
-                 (cond (= e!name a!name)
-                       (if (= (&/|length e!params) (&/|length a!params))
-                         (|do [_ (&/map2% check e!params a!params)]
-                           (return fixpoints))
-                         (&/fail-with-loc (str "[Type Error] Amounts of generic parameters don't match: " e!name "(" (&/|length e!params) ")" " vs " a!name "(" (&/|length a!params) ")")))
+                 (not invariant??)
+                 (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
+                   (check (&/$HostT e!name e!params) actual*))
 
-                       (not invariant??)
-                       (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
-                         (check (&/$HostT e!name e!params) actual*))
-
-                       :else
-                       (&/fail-with-loc (str "[Type Error] Names don't match: " e!name " =/= " a!name)))))
+                 :else
+                 (check-error "" (&/$HostT e!name e!params) (&/$HostT a!name a!params))))
       (catch Exception e
-        (prn 'check-host-types e [e!name a!name])
         (throw e)))))
 
 (defn gtype->gclass [gtype]

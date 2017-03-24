@@ -375,43 +375,34 @@
                                (&&/$apply =fn =args)
                                )))))
 
-(defn analyse-apply [analyse cursor exo-type =fn ?args]
-  (|do [loader &/loader
-        :let [[[=fn-type =fn-cursor] =fn-form] =fn]]
-    (|case =fn-form
-      (&&/$var (&/$Global ?module ?name))
-      (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
-        (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
-          (&/$Some _)
-          (|do [macro-expansion (fn [state]
-                                  (|case (-> ?value (.apply ?args) (.apply state))
-                                    (&/$Right state* output)
-                                    (&/$Right (&/T [state* output]))
+(defn analyse-apply [analyse cursor exo-type macro-caller =fn ?args]
+  (|case =fn
+    [_ (&&/$var (&/$Global ?module ?name))]
+    (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
+      (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
+        (&/$Some _)
+        (|do [macro-expansion (fn [state]
+                                (|case (macro-caller ?value ?args state)
+                                  (&/$Right state* output)
+                                  (&/$Right (&/T [state* output]))
 
-                                    (&/$Left error)
-                                    ((&/fail-with-loc error) state)))
-                module-name &/get-module-name
-                ;; :let [[r-prefix r-name] real-name
-                ;;       _ (when (or (= "actor:" r-name)
-                ;;                   ;; (= "|Codec@Json|" r-name)
-                ;;                   ;; (= "|Codec@Json//encode|" r-name)
-                ;;                   ;; (= "|Codec@Json//decode|" r-name)
-                ;;                   ;; (= "derived:" r-name)
-                ;;                   )
-                ;;           (->> (&/|map &/show-ast macro-expansion)
-                ;;                (&/|interpose "\n")
-                ;;                (&/fold str "")
-                ;;                (prn (&/ident->text real-name) module-name)))
-                ;;       ]
-                ]
-            (&/flat-map% (partial analyse exo-type) macro-expansion))
+                                  (&/$Left error)
+                                  ((&/fail-with-loc error) state)))
+              ;; module-name &/get-module-name
+              ;; :let [[r-prefix r-name] real-name
+              ;;       _ (->> (&/|map &/show-ast macro-expansion)
+              ;;              (&/|interpose "\n")
+              ;;              (&/fold str "")
+              ;;              (println 'macro-expansion (&/ident->text real-name) "@" module-name))]
+              ]
+          (&/flat-map% (partial analyse exo-type) macro-expansion))
 
-          _
-          (do-analyse-apply analyse exo-type =fn ?args)))
-      
-      _
-      (do-analyse-apply analyse exo-type =fn ?args))
-    ))
+        _
+        (do-analyse-apply analyse exo-type =fn ?args)))
+    
+    _
+    (do-analyse-apply analyse exo-type =fn ?args))
+  )
 
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [:let [num-branches (&/|length ?branches)]
@@ -560,7 +551,7 @@
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)]
     (if ?
-      (&/fail-with-loc (str "[Analyser Error] Can't redefine " (str module-name ";" ?name)))
+      (&/fail-with-loc (str "[Analyser Error] Can't re-define " (str module-name ";" ?name)))
       (|do [=value (&/without-repl-closure
                     (&/with-scope ?name
                       (&&/analyse-1+ analyse ?value)))
@@ -568,28 +559,33 @@
             ==meta (eval! (optimize =meta))
             _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
             _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-def ?name (optimize =value) ==meta)]
+            _ (compile-def ?name (optimize =value) ==meta)
+            ;; TODO: Make the call to &type/reset-mappings unnecessary.
+            ;; It shouldn't be necessary to reset the mappings of the
+            ;; type-vars, because those mappings shouldn't stay around
+            ;; after being cleaned-up.
+            ;; I must figure out why they're staying around.
+            _ &type/reset-mappings]
         (return &/$Nil))
       )))
 
-(defn ^:private merge-hosts
+(defn ^:private merge-module-states
   "(-> Host Host Host)"
   [new old]
-  (|let [merged-module-states (&/fold (fn [total m-state]
-                                        (|let [[_name _state] m-state]
-                                          (|case _state
-                                            (&/$Cached)
-                                            (&/|put _name _state total)
+  (|let [merged-module-states (&/fold (fn [total new-module]
+                                        (|let [[_name _module] new-module]
+                                          (|case (&/get$ &&module/$module-state _module)
+                                            (&&module/$Cached)
+                                            (&/|put _name _module total)
                                             
-                                            (&/$Compiled)
-                                            (&/|put _name _state total)
+                                            (&&module/$Compiled)
+                                            (&/|put _name _module total)
 
                                             _
                                             total)))
-                                      (&/get$ &/$module-states old)
-                                      (&/get$ &/$module-states new))]
-    (->> old
-         (&/set$ &/$module-states merged-module-states))))
+                                      (&/get$ &/$modules old)
+                                      (&/get$ &/$modules new))]
+    (&/set$ &/$modules merged-module-states old)))
 
 (defn ^:private merge-modules
   "(-> Text Module Module Module)"
@@ -618,8 +614,7 @@
                                          (&/get$ &/$modules old)))
        (&/set$ &/$seed (max (&/get$ &/$seed new)
                             (&/get$ &/$seed old)))
-       (&/set$ &/$host (merge-hosts (&/get$ &/$host new)
-                                    (&/get$ &/$host old)))))
+       (merge-module-states new)))
 
 (def ^:private get-compiler
   (fn [compiler]
@@ -645,7 +640,7 @@
                                         (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
                                         (return nil))
                                     already-compiled? (&&module/exists? path)
-                                    active? (&/active-module? path)
+                                    active? (&&module/active-module? path)
                                     _ (&/assert! (not active?)
                                                  (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
                                     _ (&&module/add-import path)

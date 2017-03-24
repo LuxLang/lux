@@ -123,11 +123,11 @@
 (def default-manifest-file (str "." java.io.File/separator "AndroidManifest.xml"))
 
 ;; [Resources]
-(defn package
+(defn ^:private package-jvm
   "(-> Text (List Text) Null)"
   [project module resources-dirs]
   (let [output-package-name (get project :jar-name &utils/output-package)
-        output-dir (&utils/prepare-path (get-in project [:lux :target] &utils/default-output-dir))
+        output-dir (&utils/prepare-path (get-in project [:lux :target] &utils/default-jvm-output-dir))
         output-package (str output-dir java.io.File/separator output-package-name)
         !all-jar-files (atom {})
         includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
@@ -161,7 +161,7 @@
               (.closeEntry)))
           nil))
       (when (get-in project [:lux :android])
-        (let [output-dir-context (new File (get-in project [:lux :target] &utils/default-output-dir))
+        (let [output-dir-context (new File (get-in project [:lux :target] &utils/default-jvm-output-dir))
               output-dex "classes.dex"
               _ (do (.delete (new File output-dex))
                   (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)
@@ -206,7 +206,13 @@
                     (&utils/run-process (str "zipalign 4 " output-apk-unaligned-path " " output-apk-path)
                                         nil
                                         "[ZIPALIGN BEGIN]"
-                                        "[ZIPALIGN END]"))
-                  )
-              ]
+                                        "[ZIPALIGN END]")))]
           nil)))))
+
+(defn package
+  "(-> Text Text (List Text) Null)"
+  [project platform module resources-dirs]
+  (case platform
+    "jvm" (package-jvm project module resources-dirs)
+    "js" nil)
+  )

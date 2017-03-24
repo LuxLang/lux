@@ -4,6 +4,11 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
+(def !log! (atom false))
+(defn flag-prn! [& args]
+  (when @!log!
+    (apply prn args)))
+
 ;; [Tags]
 (def unit-tag (.intern (str (char 0) "unit" (char 0))))
 
@@ -112,19 +117,11 @@
    "locals"
    "closure"])
 
-;; ModuleState
-(defvariant
-  ("Active" 0)
-  ("Compiled" 0)
-  ("Cached" 0))
-
 ;; Host
 (deftuple
   ["writer"
    "loader"
    "classes"
-   "catching"
-   "module-states"
    "type-env"
    "dummy-mappings"
    ])
@@ -137,9 +134,13 @@
   ("REPL" 0))
 
 (deftuple
-  ["compiler-name"
-   "compiler-version"
+  ["compiler-version"
    "compiler-mode"])
+
+;; Hosts
+(defvariant
+  ("Jvm" 1)
+  ("Js" 1))
 
 (deftuple
   ["info"
@@ -151,6 +152,7 @@
    "expected"
    "seed"
    "scope-type-vars"
+   "catching"
    "host"])
 
 ;; Compiler
@@ -223,15 +225,10 @@
   ("DictA" 1))
 
 ;; [Exports]
-(def ^:const name-field "_name")
-(def ^:const hash-field "_hash")
 (def ^:const value-field "_value")
-(def ^:const compiler-field "_compiler")
-(def ^:const eval-field "_eval")
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ";")
 
-(def ^:const ^String compiler-name "Lux/JVM")
 (def ^:const ^String compiler-version "0.6.0")
 
 ;; Constructors
@@ -312,7 +309,7 @@
     nil
     
     ($Cons [k v] table*)
-    (if (.equals ^Object k slot)
+    (if (= k slot)
       v
       (recur slot table*))))
 
@@ -322,7 +319,7 @@
     ($Cons (T [slot value]) $Nil)
     
     ($Cons [k v] table*)
-    (if (.equals ^Object k slot)
+    (if (= k slot)
       ($Cons (T [slot value]) table*)
       ($Cons (T [k v]) (|put slot value table*)))
     ))
@@ -333,7 +330,7 @@
     table
     
     ($Cons [k v] table*)
-    (if (.equals ^Object k slot)
+    (if (= k slot)
       table*
       ($Cons (T [k v]) (|remove slot table*)))))
 
@@ -343,7 +340,7 @@
     table
 
     ($Cons [k* v] table*)
-    (if (.equals ^Object k k*)
+    (if (= k k*)
       ($Cons (T [k* (f v)]) table*)
       ($Cons (T [k* v]) (|update k f table*)))))
 
@@ -469,7 +466,7 @@
     false
 
     ($Cons [k* _] table*)
-    (or (.equals ^Object k k*)
+    (or (= k k*)
         (|contains? k table*))))
 
 (defn |member? [x xs]
@@ -666,6 +663,18 @@
         (return* state unit-tag)
         (fail* msg)))))
 
+(defn |some [f xs]
+  "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
+  (|case xs
+    ($Nil)
+    $None
+
+    ($Cons x xs*)
+    (|case (f x)
+      ($None) (|some f xs*)
+      output  output)
+    ))
+
 (defn ^:private normalize-char [char]
   (case char
     \* "_ASTER_"
@@ -697,10 +706,6 @@
 (defn normalize-name [ident]
   (reduce str "" (map normalize-char ident)))
 
-(def classes
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $classes)))))
-
 (def +init-bindings+
   (T [;; "lux;counter"
       0
@@ -718,62 +723,105 @@
       +init-bindings+]
      ))
 
-(let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
-                                                                                              (class (byte-array []))
-                                                                                              Integer/TYPE
-                                                                                              Integer/TYPE]))
-                     (.setAccessible true))]
-  (defn memory-class-loader [store]
-    (proxy [java.lang.ClassLoader]
-      []
-      (findClass [^String class-name]
-        (if-let [^bytes bytecode (get @store class-name)]
-          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
-          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
+(do-template [<tag> <host> <ask> <change> <with>]
+  (do (def <host>
+        (fn [compiler]
+          (|case (get$ $host compiler)
+            (<tag> host-data)
+            (return* compiler host-data)
 
-(def loader
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $loader)))))
+            _
+            ((fail-with-loc "[Error] Wrong host.") compiler))))
 
-(defn host [_]
-  (let [store (atom {})]
-    (T [;; "lux;writer"
-        $None
-        ;; "lux;loader"
-        (memory-class-loader store)
-        ;; "lux;classes"
-        store
-        ;; "lux;catching"
-        $Nil
-        ;; "lux;module-states"
-        (|table)
-        ;; lux;type-env
-        (|table)
-        ;; lux;dummy-mappings
-        (|table)
-        ])))
+    (def <ask>
+      (fn [compiler]
+        (|case (get$ $host compiler)
+          (<tag> host-data)
+          (return* compiler true)
+
+          _
+          (return* compiler false))))
+
+    (defn <change> [slot updater]
+      (|do [host <host>]
+        (fn [compiler]
+          (return* (set$ $host (<tag> (update$ slot updater host)) compiler)
+                   (get$ slot host)))))
+
+    (defn <with> [slot updater body]
+      (|do [old-val (<change> slot updater)
+            ?output-val body
+            new-val (<change> slot (fn [_] old-val))]
+        (return ?output-val))))
+
+  $Jvm jvm-host jvm? change-jvm-host-slot with-jvm-host-slot
+  $Js  js-host  js?  change-js-host-slot  with-js-host-slot
+  )
+
+(do-template [<name> <slot>]
+  (def <name>
+    (|do [host jvm-host]
+      (return (get$ <slot> host))))
+
+  loader       $loader
+  classes      $classes
+  get-type-env $type-env
+  )
+
+(def get-writer
+  (|do [host jvm-host]
+    (|case (get$ $writer host)
+      ($Some writer)
+      (return writer)
+
+      _
+      (fail-with-loc "[Error] Writer hasn't been set."))))
+
+(defn with-writer [writer body]
+  (with-jvm-host-slot $writer (fn [_] ($Some writer)) body))
+
+(defn with-type-env [type-env body]
+  "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
+  (with-jvm-host-slot $type-env (partial |++ type-env) body))
+
+(defn push-dummy-name [real-name store-name]
+  (change-jvm-host-slot $dummy-mappings (partial $Cons (T [real-name store-name]))))
+
+(def pop-dummy-name
+  (change-jvm-host-slot $dummy-mappings |tail))
+
+(defn de-alias-class [class-name]
+  (|do [host jvm-host]
+    (return (|case (|some #(|let [[real-name store-name] %]
+                             (if (= real-name class-name)
+                               ($Some store-name)
+                               $None))
+                          (get$ $dummy-mappings host))
+              ($Some store-name)
+              store-name
+
+              _
+              class-name))))
 
 (defn with-no-catches [body]
   "(All [a] (-> (Lux a) (Lux a)))"
   (fn [state]
-    (let [old-catching (->> state (get$ $host) (get$ $catching))]
-      (|case (body (update$ $host #(set$ $catching $Nil %) state))
+    (let [old-catching (->> state (get$ $catching))]
+      (|case (body (set$ $catching $Nil state))
         ($Right state* output)
-        (return* (update$ $host #(set$ $catching old-catching %) state*) output)
+        (return* (set$ $catching old-catching state*) output)
 
         ($Left msg)
         (fail* msg)))))
 
 (defn default-compiler-info [mode]
-  (T [;; compiler-name
-      compiler-name
-      ;; compiler-version
+  (T [;; compiler-version
       compiler-version
       ;; compiler-mode
       mode]
      ))
 
-(defn init-state [mode]
+(defn init-state [mode host-data]
   (T [;; "lux;info"
       (default-compiler-info mode)
       ;; "lux;source"
@@ -792,8 +840,10 @@
       0
       ;; scope-type-vars
       $Nil
+      ;; catching
+      $Nil
       ;; "lux;host"
-      (host nil)]
+      host-data]
      ))
 
 (defn save-module [body]
@@ -837,16 +887,6 @@
 (def get-mode
   (fn [state]
     (return* state (->> state (get$ $info) (get$ $compiler-mode)))))
-
-(def get-writer
-  (fn [state]
-    (let [writer* (->> state (get$ $host) (get$ $writer))]
-      (|case writer*
-        ($Some datum)
-        (return* state datum)
-
-        _
-        ((fail-with-loc "[Error] Writer hasn't been set.") state)))))
 
 (def get-top-local-env
   (fn [state]
@@ -971,18 +1011,6 @@
           _
           output)))))
 
-(defn with-writer [writer body]
-  (fn [state]
-    (let [old-writer (->> state (get$ $host) (get$ $writer))
-          output (body (update$ $host #(set$ $writer ($Some writer) %) state))]
-      (|case output
-        ($Right ?state ?value)
-        (return* (update$ $host #(set$ $writer old-writer %) ?state)
-                 ?value)
-
-        _
-        output))))
-
 (defn with-expected-type [type body]
   "(All [a] (-> Type (Lux a)))"
   (fn [state]
@@ -1059,13 +1087,13 @@
 (let [clean-separators (fn [^String input]
                          (.replaceAll input "_" ""))
       deg-text-to-digits (fn [^String input]
-                            (loop [output (vec (repeat deg-bits 0))
-                                   index (dec (.length input))]
-                              (if (>= index 0)
-                                (let [digit (Byte/parseByte (.substring input index (inc index)))]
-                                  (recur (assoc output index digit)
-                                         (dec index)))
-                                output)))
+                           (loop [output (vec (repeat deg-bits 0))
+                                  index (dec (.length input))]
+                             (if (>= index 0)
+                               (let [digit (Byte/parseByte (.substring input index (inc index)))]
+                                 (recur (assoc output index digit)
+                                        (dec index)))
+                               output)))
       times5 (fn [index digits]
                (loop [index index
                       carry 0
@@ -1077,58 +1105,58 @@
                             (assoc digits index (rem raw 10))))
                    digits)))
       deg-digit-power (fn [level]
-                         (loop [output (-> (vec (repeat deg-bits 0))
-                                           (assoc level 1))
-                                times level]
-                           (if (>= times 0)
-                             (recur (times5 level output)
-                                    (dec times))
-                             output)))
+                        (loop [output (-> (vec (repeat deg-bits 0))
+                                          (assoc level 1))
+                               times level]
+                          (if (>= times 0)
+                            (recur (times5 level output)
+                                   (dec times))
+                            output)))
       deg-digits-lt (fn deg-digits-lt
-                       ([subject param index]
-                          (and (< index deg-bits)
-                               (or (< (get subject index)
-                                      (get param index))
-                                   (and (= (get subject index)
-                                           (get param index))
-                                        (deg-digits-lt subject param (inc index))))))
-                       ([subject param]
-                          (deg-digits-lt subject param 0)))
+                      ([subject param index]
+                         (and (< index deg-bits)
+                              (or (< (get subject index)
+                                     (get param index))
+                                  (and (= (get subject index)
+                                          (get param index))
+                                       (deg-digits-lt subject param (inc index))))))
+                      ([subject param]
+                         (deg-digits-lt subject param 0)))
       deg-digits-sub-once (fn [subject param-digit index]
-                             (if (>= (get subject index)
-                                     param-digit)
-                               (update-in subject [index] #(- % param-digit))
-                               (recur (update-in subject [index] #(- 10 (- param-digit %)))
-                                      1
-                                      (dec index))))
+                            (if (>= (get subject index)
+                                    param-digit)
+                              (update-in subject [index] #(- % param-digit))
+                              (recur (update-in subject [index] #(- 10 (- param-digit %)))
+                                     1
+                                     (dec index))))
       deg-digits-sub (fn [subject param]
-                        (loop [target subject
-                               index (dec deg-bits)]
-                          (if (>= index 0)
-                            (recur (deg-digits-sub-once target (get param index) index)
-                                   (dec index))
-                            target)))
+                       (loop [target subject
+                              index (dec deg-bits)]
+                         (if (>= index 0)
+                           (recur (deg-digits-sub-once target (get param index) index)
+                                  (dec index))
+                           target)))
       deg-digits-to-text (fn [digits]
-                            (loop [output ""
-                                   index (dec deg-bits)]
-                              (if (>= index 0)
-                                (recur (-> (get digits index)
-                                           (Character/forDigit 10)
-                                           (str output))
-                                       (dec index))
-                                output)))
+                           (loop [output ""
+                                  index (dec deg-bits)]
+                             (if (>= index 0)
+                               (recur (-> (get digits index)
+                                          (Character/forDigit 10)
+                                          (str output))
+                                      (dec index))
+                               output)))
       add-deg-digit-powers (fn [dl dr]
-                              (loop [index (dec deg-bits)
-                                     output (vec (repeat deg-bits 0))
-                                     carry 0]
-                                (if (>= index 0)
-                                  (let [raw (+ carry
-                                               (get dl index)
-                                               (get dr index))]
-                                    (recur (dec index)
-                                           (assoc output index (rem raw 10))
-                                           (int (/ raw 10))))
-                                  output)))]
+                             (loop [index (dec deg-bits)
+                                    output (vec (repeat deg-bits 0))
+                                    carry 0]
+                               (if (>= index 0)
+                                 (let [raw (+ carry
+                                              (get dl index)
+                                              (get dr index))]
+                                   (recur (dec index)
+                                          (assoc output index (rem raw 10))
+                                          (int (/ raw 10))))
+                                 output)))]
   ;; Based on the LuxRT.encode_deg method
   (defn encode-deg [input]
     (if (= 0 input)
@@ -1342,32 +1370,6 @@
         ($Some xs**) ($Some ($Cons x xs**)))
       )))
 
-(do-template [<flagger> <asker> <tag>]
-  (do (defn <flagger> [module]
-        "(-> Text (Lux Unit))"
-        (fn [state]
-          (let [state* (update$ $host (fn [host]
-                                        (update$ $module-states
-                                                 (fn [module-states]
-                                                   (|put module <tag> module-states))
-                                                 host))
-                                state)]
-            ($Right (T [state* unit-tag])))))
-    (defn <asker> [module]
-      "(-> Text (Lux Bool))"
-      (fn [state]
-        (if-let [module-state (->> state (get$ $host) (get$ $module-states) (|get module))]
-          ($Right (T [state (|case module-state
-                              (<tag>) true
-                              _       false)]))
-          ($Right (T [state false])))
-        )))
-
-  flag-active-module   active-module?   $Active
-  flag-compiled-module compiled-module? $Compiled
-  flag-cached-module   cached-module?   $Cached
-  )
-
 (do-template [<name> <default> <op>]
   (defn <name> [p xs]
     "(All [a] (-> (-> a Bool) (List a) Bool))"
@@ -1396,40 +1398,6 @@
       
       output
       output)))
-
-(defn |some [f xs]
-  "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
-  (|case xs
-    ($Nil)
-    $None
-
-    ($Cons x xs*)
-    (|case (f x)
-      ($None) (|some f xs*)
-      output  output)
-    ))
-
-(def get-type-env
-  "(Lux TypeEnv)"
-  (fn [state]
-    (return* state (->> state (get$ $host) (get$ $type-env)))))
-
-(defn with-type-env [type-env body]
-  "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
-  (fn [state]
-    (|let [state* (update$ $host #(update$ $type-env (partial |++ type-env) %)
-                           state)]
-      (|case (body state*)
-        ($Right [state** output])
-        ($Right (T [(update$ $host
-                             #(set$ $type-env
-                                    (->> state (get$ $host) (get$ $type-env))
-                                    %)
-                             state**)
-                    output]))
-
-        ($Left msg)
-        ($Left msg)))))
 
 (defn |take [n xs]
   (|case (T [n xs])
@@ -1475,38 +1443,6 @@
 
       ($Left msg)
       ($Left msg))))
-
-(defn push-dummy-name [real-name store-name]
-  (fn [state]
-    ($Right (T [(update$ $host
-                         #(update$ $dummy-mappings
-                                   (partial $Cons (T [real-name store-name]))
-                                   %)
-                         state)
-                nil]))))
-
-(def pop-dummy-name
-  (fn [state]
-    ($Right (T [(update$ $host
-                         #(update$ $dummy-mappings
-                                   |tail
-                                   %)
-                         state)
-                nil]))))
-
-(defn de-alias-class [class-name]
-  (fn [state]
-    ($Right (T [state
-                (|case (|some #(|let [[real-name store-name] %]
-                                 (if (= real-name class-name)
-                                   ($Some store-name)
-                                   $None))
-                              (->> state (get$ $host) (get$ $dummy-mappings)))
-                  ($Some store-name)
-                  store-name
-
-                  _
-                  class-name)]))))
 
 (defn |eitherL [left right]
   (fn [compiler]

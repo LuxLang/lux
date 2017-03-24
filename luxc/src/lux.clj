@@ -1,7 +1,6 @@
 (ns lux
   (:gen-class)
   (:require [lux.base :as & :refer [|let |do return return* |case]]
-            [lux.compiler.base :as &compiler-base]
             [lux.compiler :as &compiler]
             [lux.repl :as &repl]
             [clojure.string :as string]
@@ -20,11 +19,11 @@
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Cons "release" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
-    (time (&compiler/compile-program &/$Release program-module (separate-paths resources-dirs) (separate-paths source-dirs) target-dir))
+    (&/$Cons "release" (&/$Cons platform (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))))
+    (time (&compiler/compile-program platform &/$Release program-module (separate-paths resources-dirs) (separate-paths source-dirs) target-dir))
 
-    (&/$Cons "debug" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
-    (time (&compiler/compile-program &/$Debug program-module (separate-paths resources-dirs) (separate-paths source-dirs) target-dir))
+    (&/$Cons "debug" (&/$Cons platform (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))))
+    (time (&compiler/compile-program platform &/$Debug program-module (separate-paths resources-dirs) (separate-paths source-dirs) target-dir))
 
     (&/$Cons "repl" (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))
     (&repl/repl (separate-paths resources-dirs)

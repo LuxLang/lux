@@ -1,4 +1,4 @@
-(ns lux.compiler.lux
+(ns lux.compiler.jvm.lux
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
@@ -15,8 +15,8 @@
             (lux.analyser [base :as &a]
                           [module :as &a-module]
                           [meta :as &a-meta])
-            (lux.compiler [base :as &&]
-                          [lambda :as &&lambda]))
+            (lux.compiler.jvm [base :as &&]
+                              [lambda :as &&lambda]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -276,16 +276,13 @@
           (|let [[_ (&o/$function _ _arity _scope _captured ?body+)] (&o/shift-function-body (&/|tail __scope) __scope
                                                                                              false
                                                                                              (de-ann ?body))]
-            (|do [:let [=value-type (&a/expr-type* ?body)]
-                  [file-name _ _] &/cursor
+            (|do [[file-name _ _] &/cursor
                   :let [datum-sig "Ljava/lang/Object;"
                         def-name (&host/def-name ?name)
                         current-class (str (&host/->module-class module-name) "/" def-name)
                         =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                  (.visit &host/bytecode-version class-flags
                                          current-class nil &&/function-class (into-array String []))
-                                 (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
-                                     (doto (.visitEnd)))
                                  (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                      (doto (.visitEnd)))
                                  (.visitSource file-name nil))]
@@ -347,16 +344,13 @@
               (return nil)))
 
           _
-          (|do [:let [=value-type (&a/expr-type* ?body)]
-                [file-name _ _] &/cursor
+          (|do [[file-name _ _] &/cursor
                 :let [datum-sig "Ljava/lang/Object;"
                       def-name (&host/def-name ?name)
                       current-class (str (&host/->module-class module-name) "/" def-name)
                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                (.visit &host/bytecode-version class-flags
                                        current-class nil "java/lang/Object" (into-array String []))
-                               (-> (.visitField field-flags &/name-field "Ljava/lang/String;" nil ?name)
-                                   (doto (.visitEnd)))
                                (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                    (doto (.visitEnd)))
                                (.visitSource file-name nil))]

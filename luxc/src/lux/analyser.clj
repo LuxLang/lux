@@ -9,9 +9,11 @@
                  [host :as &host])
             (lux.analyser [base :as &&]
                           [lux :as &&lux]
-                          [host :as &&host]
                           [module :as &&module]
-                          [parser :as &&a-parser])))
+                          [parser :as &&a-parser])
+            (lux.analyser.proc [common :as &&common]
+                               [jvm :as &&jvm]
+                               [js :as &&js])))
 
 ;; [Utils]
 (defn analyse-variant+ [analyse exo-type ident values]
@@ -56,10 +58,12 @@
             (return (&&/|meta =output-type ?output-cursor ?output-term))))
         ))))
 
-(defn ^:private analyse-ast [optimize eval! compile-module compilers exo-type ?token]
+(defn ^:private analyse-ast [optimize eval! compile-module ^"[Ljava.lang.Object;" compilers exo-type ?token]
   (|let [analyse (partial analyse-ast optimize eval! compile-module compilers)
          [cursor token] ?token
-         [compile-def compile-program compile-class compile-interface] compilers]
+         compile-def (aget compilers 0)
+         compile-program (aget compilers 1)
+         macro-caller (aget compilers 2)]
     (|case token
       ;; Standard special forms
       (&/$BoolS ?value)
@@ -130,7 +134,14 @@
                           (&/$Cons [_ (&/$TupleS ?args)]
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
-              (&&host/analyse-host analyse exo-type compilers ?category ?proc ?args)))
+              (case ?category
+                "jvm" (|do [_ &/jvm-host]
+                        (&&jvm/analyse-host analyse exo-type compilers ?proc ?args))
+                "js" (|do [_ &/js-host]
+                       (&&js/analyse-host analyse exo-type ?proc ?args))
+                ;; common
+                (&&common/analyse-proc analyse exo-type ?category ?proc ?args))
+              ))
 
           "_lux_:"
           (|let [(&/$Cons ?type
@@ -170,7 +181,7 @@
           ;; else
           (&/with-cursor cursor
             (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-              (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+              (&&lux/analyse-apply analyse cursor exo-type macro-caller =fn parameters))))
 
         (&/$NatS idx)
         (&/with-analysis-meta cursor exo-type
@@ -183,7 +194,7 @@
         _
         (&/with-cursor cursor
           (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-            (&&lux/analyse-apply analyse cursor exo-type =fn parameters))))
+            (&&lux/analyse-apply analyse cursor exo-type macro-caller =fn parameters))))
       
       _
       (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
