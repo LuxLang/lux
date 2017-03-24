@@ -1,8 +1,8 @@
 (defproject com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"
   :description "The Leiningen plugin for the Lux programming language."
   :url "https://github.com/LuxLang/lein-luxc"
-  :license {:name "Mozilla Public License"
-            :url "https://www.mozilla.org/en-US/MPL/2.0/"}
+  :license {:name "MIT License"
+            :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [com.github.luxlang/luxc-jvm "0.6.0-SNAPSHOT"]
                  [com.github.luxlang/stdlib "0.6.0-SNAPSHOT"]]

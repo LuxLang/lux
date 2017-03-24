@@ -2,8 +2,8 @@
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
   :description "The JVM compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
-  :license {:name "Mozilla Public License (Version 2.0)"
-            :url "https://www.mozilla.org/en-US/MPL/2.0/"}
+  :license {:name "MIT License"
+            :url "https://opensource.org/licenses/MIT"}
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                                      :creds :gpg}]
                         ["snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
@@ -29,5 +29,6 @@
   :aot [lux]
   
   :jvm-opts ^:replace ["-server" "-Xms2048m" "-Xmx2048m"
+                       "-Xss4m"
                        "-XX:+OptimizeStringConcat"]
   )
