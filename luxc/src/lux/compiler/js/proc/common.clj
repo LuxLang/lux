@@ -343,11 +343,11 @@
 (defn ^:private compile-io-exit [compile ?values special-args]
   (|do [:let [(&/$Cons ?code (&/$Nil)) ?values]
         =code (compile ?code)]
-    (return (str "(process && process.exit && process.exit(LuxRT$fromNumberI64(" =code ")))"))))
+    (return (str "(process && process.exit && process.exit(LuxRT$toNumberI64(" =code ")))"))))
 
 (defn ^:private compile-io-current-time [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]]
-    (return (str "LuxRT$toNumberI64(" "(new Date()).getTime()" ")"))))
+    (return (str "LuxRT$fromNumberI64(" "(new Date()).getTime()" ")"))))
 
 (defn ^:private compile-atom-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
@@ -377,7 +377,7 @@
 
 (defn ^:private compile-process-concurrency-level [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]]
-    (return (str "LuxRT$fromNumberI64(1)"))))
+    (return (str "LuxRT$ONE"))))
 
 (defn ^:private compile-process-future [compile ?values special-args]
   (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
