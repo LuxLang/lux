@@ -74,16 +74,16 @@
                       "return (i64.H * LuxRT$TWO_PWR_32) + LuxRT$getLowBitsUnsigned(i64);"
                       "})")
    "fromNumberI64" (str "(function LuxRT$fromNumberI64(num) {"
-                        (str "if (isNaN(num)) {"
+                        (str "if(isNaN(num)) {"
                              "return LuxRT$ZERO;"
                              "}")
-                        (str "else if (num <= -LuxRT$TWO_PWR_63) {"
+                        (str "else if(num <= -LuxRT$TWO_PWR_63) {"
                              "return LuxRT$MIN_VALUE_I64;"
                              "}")
-                        (str "else if ((num + 1) >= LuxRT$TWO_PWR_63) {"
+                        (str "else if((num + 1) >= LuxRT$TWO_PWR_63) {"
                              "return LuxRT$MAX_VALUE_I64;"
                              "}")
-                        (str "else if (num < 0) {"
+                        (str "else if(num < 0) {"
                              "return LuxRT$negateI64(LuxRT$fromNumberI64(-num));"
                              "}")
                         (str "else {"
@@ -293,15 +293,15 @@
                               "var rem = LuxRT$subI64(LuxRT$mulI64(div,radix),input);"
                               "return LuxRT$encodeI64(div).concat(rem.L+'');"
                               "}")
-                         "}"
                          (str "else {"
                               "return '-'.concat(LuxRT$encodeI64(LuxRT$negateI64(input)));"
-                              "}"))
+                              "}")
+                         "}")
                     ;; If input > 0
                     (str "var chunker = LuxRT$makeI64(0,1000000);"
                          "var rem = input;"
                          "var result = '';"
-                         "while (true) {"
+                         "while(true) {"
                          (str "var remDiv = LuxRT$divI64(rem,chunker);"
                               "var chunk = LuxRT$subI64(rem,LuxRT$mulI64(remDiv,chunker));"
                               "var digits = (chunk.L >>> 0)+'';"
@@ -310,7 +310,7 @@
                                    "return digits.concat(result);"
                                    "}"
                                    "else {"
-                                   (str "while (digits.length < 6) {"
+                                   (str "while(digits.length < 6) {"
                                         "digits = '0' + digits;"
                                         "}")
                                    "result = '' + digits + result;"
@@ -467,6 +467,57 @@
                                     "return LuxRT$makeI64(tempInput[0],tempInput[1]);")
                                "}")
                           "})")
+   "divideOneWord" (str "(function LuxRT$divideOneWord(subject,param) {"
+                        (str "var divLong = LuxRT$makeI64(0,param);"
+                             ;; Special case of one word dividend
+                             (str "if(subject.H === 0) {"
+                                  (str "var remValue = LuxRT$makeI64(0,subject.L);"
+                                       "var quotient = LuxRT$divI64(remValue,divLong);"
+                                       "var remainder = LuxRT$subI64(remValue,LuxRT$mulI64(quotient.L,divLong));"
+                                       "return [quotient,remainder];")
+                                  "}")
+                             "var quotient = [0|0,0|0];"
+                             ;; Normalize the divisor
+                             "var shift = 32 - LuxRT$countI64(LuxRT$makeI64(0,param));"
+                             "var rem = subject.H;"
+                             "var remLong = LuxRT$makeI64(0,rem);"
+                             (str "if(LuxRT$ltI64(remLong,divLong)) {"
+                                  "quotient[0] = 0|0;"
+                                  "}"
+                                  "else {"
+                                  "quotient[0] = LuxRT$divI64(remLong,divLong).L;"
+                                  "rem = LuxRT$subI64(remLong,LuxRT$mulI64(quotient[0],divLong)).L;"
+                                  "remLong = LuxRT$makeI64(0,rem);"
+                                  "}")
+                             "var remBI = [subject.H,subject.L];"
+                             "var xlen = 2;"
+                             "var qWord = [0|0,0|0];"
+                             (str "while(--xlen > 0) {"
+                                  "var dividendEstimate = LuxRT$orI64(LuxRT$shlI64(remLong,32),LuxRT$makeI64(0,remBI[2 - xlen]));"
+                                  (str "if(dividendEstimate >= 0) {"
+                                       "var highWord = LuxRT$divI64(dividendEstimate,divLong);"
+                                       "qWord[0] = highWord.L;"
+                                       "qWord[1] = LuxRT$subI64(dividendEstimate,LuxRT$mulI64(highWord,divLong)).L;"
+                                       "}"
+                                       "else {"
+                                       "LuxRT$divWord(qWord, dividendEstimate, param);"
+                                       "}")
+                                  "quotient[2 - xlen] = qWord[0];"
+                                  "rem = qWord[1];"
+                                  "remLong = LuxRT$makeI64(0,rem);"
+                                  "}")
+                             ;; Unnormalize
+                             (str "if(shift > 0) {"
+                                  "rem %= divisor;"
+                                  "remBI[0] = rem;"
+                                  "}"
+                                  "else {"
+                                  "remBI[0] = rem;"
+                                  "}")
+                             "var quotI64 = LuxRT$normalizeBigInt(quotient);"
+                             "var remI64 = LuxRT$makeI64(remBI[0],remBI[1]);"
+                             "return [quotI64,remI64];")
+                        "})")
    "divmodBigInt" (str "(function LuxRT$divmodBigInt(subject,param) {"
                        (str "if(LuxRT$eqI64(param,LuxRT$ZERO)) {"
                             "throw new Error('Cannot divide by zero!');"
@@ -481,6 +532,10 @@
                             "return [LuxRT$ONE, LuxRT$ZERO];"
                             "}")
                        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                       (str "if (param.H === 0) {"
+                            "return LuxRT$divideOneWord(subject,param.L);;"
+                            "}")
+                       ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                        "var divisor = param;"
                        "var remainder = subject.H === 0 ? [0|0,subject.L] : [0|0,subject.H,subject.L];"
                        "var paramLength = param.H === 0 ? 1 : 2;"
@@ -489,7 +544,7 @@
                        "var quotient = (limit === 1) ? [0|0] : [0|0,0|0];"
                        ;; Normalize the divisor
                        "var shift = 32 - LuxRT$countI64(LuxRT$makeI64(divisor.H,0));"
-                       (str "if (shift > 0) {"
+                       (str "if(shift > 0) {"
                             "divisor = LuxRT$shlI64(divisor,shift);"
                             "remainder = LuxRT$shiftLeftBigInt(remainder,shift);"
                             "}")
@@ -551,7 +606,7 @@
                                  "remainder[j] = 0;"
                                  "var borrow = LuxRT$mulsubBigInt(remainder, divisor, qhat, paramLength, j);"
                                  ;; D5 Test remainder
-                                 (str "if (borrow + 0x80000000 > nh2) {"
+                                 (str "if((borrow + 0x80000000) > nh2) {"
                                       ;; D6 Add back
                                       "LuxRT$divadd(divisor, remainder, j+1);"
                                       "qhat--;"
