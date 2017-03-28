@@ -178,6 +178,7 @@
   ^:private compile-deg-min-value &&lux/compile-deg  0
   ^:private compile-deg-max-value &&lux/compile-deg -1
 
+  ^:private compile-real-smallest-value &&lux/compile-real Double/MIN_VALUE
   ^:private compile-real-min-value &&lux/compile-real (* -1.0 Double/MAX_VALUE)
   ^:private compile-real-max-value &&lux/compile-real Double/MAX_VALUE
 
@@ -552,6 +553,7 @@
       "<"         (compile-real-lt compile ?values special-args)
       "encode"    (compile-real-encode compile ?values special-args)
       "decode"    (compile-real-decode compile ?values special-args)
+      "smallest-value" (compile-real-smallest-value compile ?values special-args)
       "max-value" (compile-real-max-value compile ?values special-args)
       "min-value" (compile-real-min-value compile ?values special-args)
       "not-a-number" (compile-real-not-a-number compile ?values special-args)

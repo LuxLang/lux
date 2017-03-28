@@ -272,6 +272,7 @@
   ^:private analyse-deg-min-value           &type/Deg ["deg" "min-value"]
   ^:private analyse-deg-max-value           &type/Deg ["deg" "max-value"]
 
+  ^:private analyse-real-smallest-value     &type/Real  ["real"  "smallest-value"]
   ^:private analyse-real-min-value          &type/Real  ["real"  "min-value"]
   ^:private analyse-real-max-value          &type/Real  ["real"  "max-value"]
   ^:private analyse-real-not-a-number       &type/Real  ["real"  "not-a-number"]
@@ -591,6 +592,7 @@
       "<" (analyse-real-lt analyse exo-type ?values)
       "encode" (analyse-real-encode analyse exo-type ?values)
       "decode" (analyse-real-decode analyse exo-type ?values)
+      "smallest-value" (analyse-real-smallest-value analyse exo-type ?values)
       "min-value" (analyse-real-min-value analyse exo-type ?values)
       "max-value" (analyse-real-max-value analyse exo-type ?values)
       "not-a-number" (analyse-real-not-a-number analyse exo-type ?values)

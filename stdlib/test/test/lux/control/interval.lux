@@ -1,0 +1,217 @@
+(;module:
+  lux
+  lux/test
+  (lux (control monad
+                ["&" interval])
+       [io]
+       ["R" math/random]
+       (data text/format
+             [number]
+             ["S" coll/set]
+             ["L" coll/list])
+       pipe))
+
+(test: "Equality."
+  [bottom R;int
+   top R;int
+   #let [(^open "&/") &;Eq<Interval>]]
+  ($_ seq
+      (assert "Every interval is equal to itself."
+              (and (let [self (&;between number;Enum<Int> bottom top)]
+                     (&/= self self))
+                   (let [self (&;between number;Enum<Int> top bottom)]
+                     (&/= self self))
+                   (let [self (&;singleton number;Enum<Int> bottom)]
+                     (&/= self self))))))
+
+(test: "Boundaries"
+  [bottom R;int
+   top R;int
+   #let [interval (&;between number;Enum<Int> bottom top)]]
+  ($_ seq
+      (assert "Every boundary value belongs to it's interval."
+              (and (&;within? interval bottom)
+                   (&;within? interval top)))
+      (assert "Every interval starts with its bottom."
+              (&;starts-with? bottom interval))
+      (assert "Every interval ends with its top."
+              (&;ends-with? top interval))
+      (assert "The boundary values border the interval."
+              (and (&;borders? interval bottom)
+                   (&;borders? interval top)))
+      ))
+
+(def: (list-to-4tuple list)
+  (-> (List Int) [Int Int Int Int])
+  (case list
+    (^ (list x0 x1 x2 x3))
+    [x0 x1 x2 x3]
+
+    _
+    (undefined)))
+
+
+(do-template [<name> <cmp>]
+  [(def: <name>
+     (R;Random (&;Interval Int))
+     (do R;Monad<Random>
+       [bottom R;int
+        top (|> R;int (R;filter (|>. (i.= bottom) not)))]
+       (if (<cmp> top bottom)
+         (wrap (&;between number;Enum<Int> bottom top))
+         (wrap (&;between number;Enum<Int> top bottom)))))]
+
+  [gen-inner i.<]
+  [gen-outer i.>]
+  )
+
+(def: gen-singleton
+  (R;Random (&;Interval Int))
+  (do R;Monad<Random>
+    [point R;int]
+    (wrap (&;singleton number;Enum<Int> point))))
+
+(def: gen-interval
+  (R;Random (&;Interval Int))
+  ($_ R;either
+      gen-inner
+      gen-outer
+      gen-singleton))
+
+(test: "Unions"
+  [some-interval gen-interval
+   left-inner gen-inner
+   right-inner gen-inner
+   left-singleton gen-singleton
+   right-singleton gen-singleton
+   left-outer gen-outer
+   right-outer gen-outer
+   #let [(^open "&/") &;Eq<Interval>]]
+  ($_ seq
+      (assert "The union of an interval to itself yields the same interval."
+              (&/= some-interval (&;union some-interval some-interval)))
+      (assert "The union of 2 inner intervals is another inner interval."
+              (&;inner? (&;union left-inner right-inner)))
+      (assert "The union of 2 outer intervals yields an inner interval when their complements don't overlap, and an outer when they do."
+              (if (&;overlaps? (&;complement left-outer) (&;complement right-outer))
+                (&;outer? (&;union left-outer right-outer))
+                (&;inner? (&;union left-outer right-outer))))
+      ))
+
+(test: "Intersections"
+  [some-interval gen-interval
+   left-inner gen-inner
+   right-inner gen-inner
+   left-singleton gen-singleton
+   right-singleton gen-singleton
+   left-outer gen-outer
+   right-outer gen-outer
+   #let [(^open "&/") &;Eq<Interval>]]
+  ($_ seq
+      (assert "The intersection of an interval to itself yields the same interval."
+              (&/= some-interval (&;intersection some-interval some-interval)))
+      (assert "The intersection of 2 inner intervals yields an inner interval when they overlap, and an outer when they don't."
+              (if (&;overlaps? left-inner right-inner)
+                (&;inner? (&;intersection left-inner right-inner))
+                (&;outer? (&;intersection left-inner right-inner))))
+      (assert "The intersection of 2 outer intervals is another outer interval."
+              (&;outer? (&;intersection left-outer right-outer)))
+      ))
+
+(test: "Complement"
+  [some-interval gen-interval
+   #let [(^open "&/") &;Eq<Interval>]]
+  ($_ seq
+      (assert "The complement of a complement is the same as the original."
+              (&/= some-interval (|> some-interval &;complement &;complement)))
+      (assert "The complement of an interval does not overlap it."
+              (not (&;overlaps? some-interval (&;complement some-interval))))
+      ))
+
+(test: "Positioning/location"
+  [[l m r] (|> (R;set number;Hash<Int> +3 R;int)
+               (:: @ map (|>. S;to-list
+                              (L;sort i.<)
+                              (case> (^ (list b t1 t2))
+                                     [b t1 t2]
+
+                                     _
+                                     (undefined)))))
+   #let [left (&;singleton number;Enum<Int> l)
+         right (&;singleton number;Enum<Int> r)]]
+  ($_ seq
+      (assert "'precedes?' and 'succeeds?' are symetric."
+              (and (&;precedes? right left)
+                   (&;succeeds? left right)))
+      (assert "Can check if an interval is before or after some element."
+              (and (&;before? m left)
+                   (&;after? m right)))
+      ))
+
+(test: "Touching intervals"
+  [[b t1 t2] (|> (R;set number;Hash<Int> +3 R;int)
+                 (:: @ map (|>. S;to-list
+                                (L;sort i.<)
+                                (case> (^ (list b t1 t2))
+                                       [b t1 t2]
+
+                                       _
+                                       (undefined)))))
+   #let [int-left (&;between number;Enum<Int> t1 t2)
+         int-right (&;between number;Enum<Int> b t1)]]
+  ($_ seq
+      (assert "An interval meets another if it's top is the other's bottom."
+              (&;meets? int-left int-right))
+      (assert "Two intervals touch one another if any one meets the other."
+              (&;touches? int-left int-right))
+      (assert "Can check if 2 intervals start together."
+              (&;starts? (&;between number;Enum<Int> b t2)
+                         (&;between number;Enum<Int> b t1)))
+      (assert "Can check if 2 intervals finish together."
+              (&;finishes? (&;between number;Enum<Int> b t2)
+                           (&;between number;Enum<Int> t1 t2)))
+      ))
+
+(test: "Nesting & overlap"
+  [some-interval gen-interval
+   [x0 x1 x2 x3] (|> (R;set number;Hash<Int> +4 R;int)
+                     (:: @ map (|>. S;to-list
+                                    (L;sort i.<)
+                                    (case> (^ (list x0 x1 x2 x3))
+                                           [x0 x1 x2 x3]
+
+                                           _
+                                           (undefined)))))]
+  ($_ seq
+      (assert "Every interval is nested into itself."
+              (&;nested? some-interval some-interval))
+      (assert "No interval overlaps with itself."
+              (not (&;overlaps? some-interval some-interval)))
+      (let [small-inner (&;between number;Enum<Int> x1 x2)
+            large-inner (&;between number;Enum<Int> x0 x3)]
+        (assert "Inner intervals can be nested inside one another."
+                (and (&;nested? large-inner small-inner)
+                     (not (&;nested? small-inner large-inner)))))
+      (let [left-inner (&;between number;Enum<Int> x0 x2)
+            right-inner (&;between number;Enum<Int> x1 x3)]
+        (assert "Inner intervals can overlap one another."
+                (and (&;overlaps? left-inner right-inner)
+                     (&;overlaps? right-inner left-inner))))
+      (let [small-outer (&;between number;Enum<Int> x2 x1)
+            large-outer (&;between number;Enum<Int> x3 x0)]
+        (assert "Outer intervals can be nested inside one another."
+                (and (&;nested? small-outer large-outer)
+                     (not (&;nested? large-outer small-outer)))))
+      (let [left-inner (&;between number;Enum<Int> x0 x1)
+            right-inner (&;between number;Enum<Int> x2 x3)
+            outer (&;between number;Enum<Int> x0 x3)]
+        (assert "Inners can be nested inside outers."
+                (and (&;nested? outer left-inner)
+                     (&;nested? outer right-inner))))
+      (let [left-inner (&;between number;Enum<Int> x0 x2)
+            right-inner (&;between number;Enum<Int> x1 x3)
+            outer (&;between number;Enum<Int> x1 x2)]
+        (assert "Inners can overlap outers."
+                (and (&;overlaps? outer left-inner)
+                     (&;overlaps? outer right-inner))))
+      ))

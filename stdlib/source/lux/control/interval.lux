@@ -1,27 +1,184 @@
 (;module:
   lux
-  (lux (control ord)))
+  (lux (control eq
+                [ord]
+                [enum #+ Enum])))
 
 ## Signatures
 (sig: #export (Interval a)
   {#;doc "A representation of top and bottom boundaries for an ordered type."}
-  (: (Ord a)
-     ord)
+  (: (Enum a)
+     enum)
 
   (: a
-     top)
+     bottom)
 
   (: a
-     bottom))
+     top))
 
-(def: #export (within? Interval<a> elem)
+(def: #export (between Enum<a> bottom top)
+  (All [a] (-> (Enum a) a a (Interval a)))
+  (struct (def: enum Enum<a>)
+          (def: bottom bottom)
+          (def: top top)))
+
+(def: #export (singleton Enum<a> elem)
+  (All [a] (-> (Enum a) a (Interval a)))
+  (struct (def: enum Enum<a>)
+          (def: bottom elem)
+          (def: top elem)))
+
+(do-template [<name> <comp>]
+  [(def: #export (<name> interval)
+     (All [a] (-> (Interval a) Bool))
+     (let [(^open) interval]
+       (<comp> bottom top)))]
+
+  [inner?     >]
+  [outer?     <]
+  [singleton? =]
+  )
+
+(def: #export (within? interval elem)
   (All [a] (-> (Interval a) a Bool))
-  (let [(^open) Interval<a>]
-    (if (>= bottom top)
-      ## Inside order
-      (and (>= bottom elem)
-           (<= top elem))
-      ## Outside order
-      (and (<= bottom elem)
-           (>= top elem))
-      )))
+  (let [(^open) interval]
+    (cond (inner? interval)
+          (and (>= bottom elem)
+               (<= top elem))
+          
+          (outer? interval)
+          (or (>= bottom elem)
+              (<= top elem))
+          
+          ## singleton
+          (and (= bottom elem)
+               (= top elem)))))
+
+(do-template [<name> <limit>]
+  [(def: #export (<name> elem interval)
+     (All [a] (-> a (Interval a) Bool))
+     (let [(^open) interval]
+       (= <limit> elem)))]
+
+  [starts-with? bottom]
+  [ends-with?   top]
+  )
+
+(def: #export (borders? interval elem)
+  (All [a] (-> (Interval a) a Bool))
+  (or (starts-with? elem interval)
+      (ends-with? elem interval)))
+
+(def: #export (union left right)
+  (All [a] (-> (Interval a) (Interval a) (Interval a)))
+  (struct (def: enum (get@ #enum right))
+          (def: bottom (ord;min (get@ [#enum #enum;ord] right) (:: left bottom) (:: right bottom)))
+          (def: top (ord;max (get@ [#enum #enum;ord] right) (:: left top) (:: right top)))))
+
+(def: #export (intersection left right)
+  (All [a] (-> (Interval a) (Interval a) (Interval a)))
+  (struct (def: enum (get@ #enum right))
+          (def: bottom (ord;max (get@ [#enum #enum;ord] right) (:: left bottom) (:: right bottom)))
+          (def: top (ord;min (get@ [#enum #enum;ord] right) (:: left top) (:: right top)))))
+
+(def: #export (complement interval)
+  (All [a] (-> (Interval a) (Interval a)))
+  (let [(^open) interval]
+    (struct (def: enum (get@ #enum interval))
+            (def: bottom (succ top))
+            (def: top (pred bottom)))))
+
+(def: #export (precedes? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bool))
+  (let [(^open) reference
+        limit (:: reference bottom)]
+    (and (< limit (:: sample bottom))
+         (< limit (:: sample top)))))
+
+(def: #export (succeeds? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bool))
+  (precedes? sample reference))
+
+(def: #export (meets? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bool))
+  (let [(^open) reference
+        limit (:: reference bottom)]
+    (and (<= limit (:: sample bottom))
+         (= limit (:: sample top)))))
+
+(def: #export (touches? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bool))
+  (or (meets? reference sample)
+      (meets? sample reference)))
+
+(do-template [<name> <eq-side> <ineq> <ineq-side>]
+  [(def: #export (<name> reference sample)
+     (All [a] (-> (Interval a) (Interval a) Bool))
+     (let [(^open) reference]
+       (and (=      (:: reference <eq-side>)   (:: sample <eq-side>))
+            (<ineq> (:: reference <ineq-side>) (:: sample <ineq-side>)))))]
+
+  [starts?   bottom <= top]
+  [finishes? top    >= bottom]
+  )
+
+(do-template [<name> <comp>]
+  [(def: #export (<name> reference sample)
+     (All [a] (-> a (Interval a) Bool))
+     (let [(^open) sample]
+       (and (<comp> reference bottom)
+            (<comp> reference top))))]
+
+  [before? <]
+  [after?  >]
+  )
+
+(struct: #export Eq<Interval> (All [a] (Eq (Interval a)))
+  (def: (= reference sample)
+    (let [(^open) reference]
+      (and (= bottom (:: sample bottom))
+           (= top (:: sample top))))))
+
+(def: #export (nested? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bool))
+  (cond (or (singleton? sample)
+            (and (inner? reference) (inner? sample))
+            (and (outer? reference) (outer? sample)))
+        (let [(^open) reference]
+          (and (>= (:: reference bottom) (:: sample bottom))
+               (<= (:: reference top) (:: sample top))))
+
+        (or (singleton? reference)
+            (and (inner? reference) (outer? sample)))
+        false
+
+        ## (and (outer? reference) (inner? sample))
+        (let [(^open) reference]
+          (or (and (>= (:: reference bottom) (:: sample bottom))
+                   (> (:: reference bottom) (:: sample top)))
+              (and (< (:: reference top) (:: sample bottom))
+                   (<= (:: reference top) (:: sample top)))))
+        ))
+
+(def: #export (overlaps? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bool))
+  (let [(^open) reference]
+    (cond (singleton? sample)
+          false
+
+          (singleton? reference)
+          (and (>= (:: sample bottom) (:: reference bottom))
+               (<= (:: sample top) (:: reference top)))
+
+          (or (and (inner? sample) (outer? reference))
+              (and (outer? sample) (inner? reference)))
+          (or (>= (:: reference bottom) (:: sample top))
+              (<= (:: reference top) (:: sample bottom)))
+          
+          (inner? sample)
+          (and (not (:: Eq<Interval> = reference sample))
+               (inner? (intersection reference sample)))
+
+          ## (outer? sample)
+          (not (:: Eq<Interval> = reference sample))
+          )))

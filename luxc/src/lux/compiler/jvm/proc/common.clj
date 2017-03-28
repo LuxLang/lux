@@ -378,6 +378,7 @@
   ^:private compile-deg-min-value (.visitLdcInsn 0)  &&/wrap-long
   ^:private compile-deg-max-value (.visitLdcInsn -1) &&/wrap-long
 
+  ^:private compile-real-smallest-value (.visitLdcInsn Double/MIN_VALUE)  &&/wrap-double
   ^:private compile-real-min-value (.visitLdcInsn (* -1.0 Double/MAX_VALUE))  &&/wrap-double
   ^:private compile-real-max-value (.visitLdcInsn Double/MAX_VALUE) &&/wrap-double
 
@@ -996,6 +997,7 @@
       "="         (compile-real-eq compile ?values special-args)
       "<"         (compile-real-lt compile ?values special-args)
       "hash"      (compile-real-hash compile ?values special-args)
+      "smallest-value" (compile-real-smallest-value compile ?values special-args)
       "max-value" (compile-real-max-value compile ?values special-args)
       "min-value" (compile-real-min-value compile ?values special-args)
       "not-a-number" (compile-real-not-a-number compile ?values special-args)
