@@ -1,0 +1,208 @@
+(;module:
+  lux
+  (lux (control functor
+                applicative
+                monad
+                eq
+                [ord #+ Ord]
+                fold)
+       (data (coll ["L" list "L/" Monoid<List> Fold<List>]
+                   (tree ["F" finger]))
+             [number]
+             maybe)
+       [compiler]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+(type: #export (Seq a)
+  (F;Fingers Nat a))
+
+(def: default-size Nat +1)
+
+(def: #export (new value)
+  (All [a] (-> a (Seq a)))
+  {#F;monoid number;Add@Monoid<Nat>
+   #F;tree (#F;Leaf default-size value)})
+
+(do-template [<name> <side>]
+  [(def: #export (<name> seq)
+     (All [a] (-> (Seq a) a))
+     (case (get@ #F;tree seq)
+       (#F;Leaf tag value)
+       value
+       
+       (#F;Branch tag left right)
+       (<name> (set@ #F;tree <side> seq))))]
+
+  [first left]
+  [last right]
+  )
+
+(def: #export (prepend prefix subject)
+  (All [a] (-> a (Seq a) (Seq a)))
+  (F;branch (new prefix) subject))
+
+(def: #export (append suffix subject)
+  (All [a] (-> a (Seq a) (Seq a)))
+  (F;branch subject (new suffix)))
+
+(def: #export (nth idx seq)
+  (All [a] (-> Nat (Seq a) (Maybe a)))
+  (F;search (n.> idx) seq))
+
+(def: #export (size seq)
+  (All [a] (-> (Seq a) Nat))
+  (case (get@ #F;tree seq)
+    (^or (#F;Leaf tag value) (#F;Branch tag left right))
+    tag))
+
+(def: #export (to-list seq)
+  (All [a] (-> (Seq a) (List a)))
+  (loop [node (get@ #F;tree seq)]
+    (case node
+      (#F;Leaf tag value)
+      (list value)
+      
+      (#F;Branch tag left right)
+      (L/append (recur left) (recur right)))))
+
+(def: #export (from-list xs)
+  (All [a] (-> (List a) (Maybe (Seq a))))
+  (loop [xs xs]
+    (do Monad<Maybe>
+      [[_ tree] (loop [xs xs]
+                  (case xs
+                    #;Nil
+                    #;None
+
+                    (#;Cons x #;Nil)
+                    (wrap [default-size
+                           (#F;Leaf default-size x)])
+
+                    (#;Cons x xs')
+                    (do @
+                      [[sub-size right] (recur xs')
+                       #let [branch-size (n.+ default-size sub-size)]]
+                      (wrap [branch-size
+                             (#F;Branch branch-size
+                                        (#F;Leaf default-size x)
+                                        right)]))
+                    ))]
+      (wrap {#F;monoid number;Add@Monoid<Nat>
+             #F;tree tree}))))
+
+(def: #export (reverse seq)
+  (All [a] (-> (Seq a) (Seq a)))
+  (|> seq to-list L;reverse from-list (default (undefined))))
+
+(def: #export (member? Eq<a> xs x)
+  (All [a] (-> (Eq a) (Seq a) a Bool))
+  (loop [xs (get@ #F;tree xs)]
+    (case xs
+      (#F;Leaf tag reference)
+      (:: Eq<a> = reference x)
+
+      (#F;Branch tag left right)
+      (or (recur left)
+          (recur right)))))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> pred seq)
+     (All [a] (-> (-> a Bool) (Seq a) Bool))
+     (loop [seq (get@ #F;tree seq)]
+       (case seq
+         (#F;Leaf tag reference)
+         (pred reference)
+
+         (#F;Branch tag left right)
+         (<op> (recur left)
+               (recur right)))))]
+
+  [every? and]
+  [any?   or]
+  )
+
+(def: #export (sort < seq)
+  (All [a] (-> (-> a a Bool) (Seq a) (Seq a)))
+  (|> seq to-list (L;sort <) from-list (default (undefined))))
+
+(def: #export (find pred seq)
+  {#;doc "Returns the first value in the sequence for which the predicate is true."}
+  (All [a]
+    (-> (-> a Bool) (Seq a) (Maybe a)))
+  (loop [seq (get@ #F;tree seq)]
+    (case seq
+      (#F;Leaf tag value)
+      (if (pred value)
+        (#;Some value)
+        #;None)
+
+      (#F;Branch tag left right)
+      
+      (case (recur left)
+        #;None
+        (recur right)
+
+        output
+        output))))
+
+(struct: #export _ (Fold Seq)
+  (def: (fold f init seq)
+    (loop [init init
+           node (get@ #F;tree seq)]
+      (case node
+        (#F;Leaf tag value)
+        (f value init)
+        
+        (#F;Branch tag left right)
+        (recur (recur init left)
+               right)
+        ))))
+
+(struct: #export (Eq<Seq> Eq<a>)
+  (All [a] (-> (Eq a) (Eq (Seq a))))
+  (def: (= xs ys)
+    (:: (L;Eq<List> Eq<a>) =
+        (to-list xs)
+        (to-list ys))))
+
+(struct: #export _ (Functor Seq)
+  (def: (map f ma)
+    {#F;monoid number;Add@Monoid<Nat>
+     #F;tree (loop [tree (get@ #F;tree ma)]
+               (case tree
+                 (#F;Leaf tag value)
+                 (#F;Leaf tag (f value))
+                 
+                 (#F;Branch tag left right)
+                 (#F;Branch tag (recur left) (recur right))))}))
+
+(struct: #export _ (Applicative Seq)
+  (def: functor Functor<Seq>)
+
+  (def: wrap new)
+
+  (def: (apply ff fa)
+    (case (get@ #F;tree ff)
+      (#F;Leaf tag f)
+      (:: Functor<Seq> map f fa)
+
+      (#F;Branch tag lfs rfs)
+      (F;branch (apply (set@ #F;tree lfs ff) fa)
+                (apply (set@ #F;tree rfs ff) fa)))))
+
+(struct: #export _ (Monad Seq)
+  (def: applicative Applicative<Seq>)
+
+  (def: (join ffa)
+    (case (get@ #F;tree ffa)
+      (#F;Leaf tag fa)
+      fa
+      
+      (#F;Branch tag left right)
+      (F;branch (join (set@ #F;tree left ffa))
+                (join (set@ #F;tree right ffa))))))
+
+(syntax: #export (seq [elems (s;many s;any)])
+  (wrap (list (` (default (undefined)
+                   (;;from-list (list (~@ elems))))))))

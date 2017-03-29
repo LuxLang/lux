@@ -231,7 +231,7 @@ Called by `imenu--generic-function'."
             "object" "jvm-import" "do-to" "with-open" "synchronized" "class-for"
             "doc"
             "|E" "|F" "|H" "effect:" "handler:" "with-handler" "doE" "lift"
-            "regex"
+            "regex" "seq"
             ) t)
          "\\>")
        1 font-lock-builtin-face)
