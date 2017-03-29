@@ -57,7 +57,10 @@
                     (str "if(sum[1] === wantsLast) {" extact-match "}"
                          "else {" recursion-test "}")
                     "}"
-                    "else if(wantedTag > sum[0]) {" recursion-test "}"
+                    (str "else if(wantedTag > sum[0]) {" recursion-test "}")
+                    (str "else if(wantedTag < sum[0] && wantsLast === '') {"
+                         "return [(sum[0]-wantedTag),sum[1],sum[2]];"
+                         "}")
                     "else { " no-match " }"
                     "})"))
    })

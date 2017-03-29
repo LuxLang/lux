@@ -19,50 +19,6 @@
   (:import (java.lang.reflect Type TypeVariable)))
 
 ;; [Utils]
-(defn ^:private ensure-catching [exceptions*]
-  "(-> (List Text) (Lux Null))"
-  (|do [class-loader &/loader]
-    (fn [state]
-      (|let [exceptions (&/|map #(Class/forName % true class-loader) exceptions*)
-             catching (->> state
-                           (&/get$ &/$catching)
-                           (&/|map #(Class/forName % true class-loader)))]
-        (if-let [missing-ex (&/fold (fn [prev ^Class now]
-                                      (or prev
-                                          (cond (or (.isAssignableFrom java.lang.RuntimeException now)
-                                                    (.isAssignableFrom java.lang.Error now))
-                                                nil
-
-                                                (&/fold (fn [found? ^Class ex-catch]
-                                                          (or found?
-                                                              (.isAssignableFrom ex-catch now)))
-                                                        false
-                                                        catching)
-                                                nil
-
-                                                :else
-                                                now)))
-                                    nil
-                                    exceptions)]
-          ((&/fail-with-loc (str "[Analyser Error] Unhandled exception: " missing-ex))
-           state)
-          (&/return* state nil)))
-      )))
-
-(defn ^:private with-catches [catches body]
-  "(All [a] (-> (List Text) (Lux a) (Lux a)))"
-  (fn [state]
-    (let [old-catches (&/get$ &/$catching state)
-          state* (&/update$ &/$catching (partial &/|++ catches) state)]
-      (|case (&/run-state body state*)
-        (&/$Left msg)
-        (&/$Left msg)
-
-        (&/$Right state** output)
-        (&/$Right (&/T [(&/set$ &/$catching old-catches state**)
-                        output]))))
-    ))
-
 (defn ^:private ensure-object [type]
   "(-> Type (Lux (, Text (List Type))))"
   (|case type
@@ -317,11 +273,9 @@
                                ?ctor-args)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/with-no-catches
-                        (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                          (&/fold (method-input-folder full-env)
-                                  (&&/analyse-1 analyse output-type ?body)
-                                  (&/|reverse ?inputs))))))]
+                      (&/fold (method-input-folder full-env)
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/$ConstructorMethodAnalysis (&/T [=privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs =ctor-args =body]))))
       
       (&/$VirtualMethodSyntax ?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -330,11 +284,9 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/with-no-catches
-                        (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                          (&/fold (method-input-folder full-env)
-                                  (&&/analyse-1 analyse output-type ?body)
-                                  (&/|reverse ?inputs))))))]
+                      (&/fold (method-input-folder full-env)
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/$VirtualMethodAnalysis (&/T [?name =privacy-modifier =final? ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
       
       (&/$OverridenMethodSyntax ?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -344,11 +296,9 @@
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
                     (&&env/with-local &&/jvm-this class-type
-                      (&/with-no-catches
-                        (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                          (&/fold (method-input-folder full-env)
-                                  (&&/analyse-1 analyse output-type ?body)
-                                  (&/|reverse ?inputs))))))]
+                      (&/fold (method-input-folder full-env)
+                              (&&/analyse-1 analyse output-type ?body)
+                              (&/|reverse ?inputs))))]
         (return (&/$OverridenMethodAnalysis (&/T [?class-decl ?name ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$StaticMethodSyntax ?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output ?body)
@@ -356,11 +306,9 @@
             :let [full-env method-env]
             output-type (generic-class->type full-env ?output)
             =body (&/with-type-env full-env
-                    (&/with-no-catches
-                      (with-catches (&/|map &host-generics/gclass->class-name ?exceptions)
-                        (&/fold (method-input-folder full-env)
-                                (&&/analyse-1 analyse output-type ?body)
-                                (&/|reverse ?inputs)))))]
+                    (&/fold (method-input-folder full-env)
+                            (&&/analyse-1 analyse output-type ?body)
+                            (&/|reverse ?inputs)))]
         (return (&/$StaticMethodAnalysis (&/T [?name =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?output =body]))))
 
       (&/$AbstractMethodSyntax ?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output)
@@ -685,7 +633,6 @@
         =ex (&&/analyse-1+ analyse ?ex)
         _ (&type/check (&/$HostT "java.lang.Throwable" &/$Nil) (&&/expr-type* =ex))
         [throw-class throw-params] (ensure-object (&&/expr-type* =ex))
-        _ (ensure-catching (&/|list throw-class))
         _cursor &/cursor
         _ (&type/check exo-type &type/Bottom)]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -785,7 +732,6 @@
             [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
                                                          (return (&/T [Void/TYPE &/$Nil &/$Nil &/$Nil &/$Nil]))
                                                          (&host/lookup-virtual-method class-loader !class! method classes))
-            _ (ensure-catching exceptions)
             =object (&&/analyse-1+ analyse object)
             [sub-class sub-params] (ensure-object (&&/expr-type* =object))
             (&/$HostT super-class* super-params*) (&host-type/->super-type &type/existential class-loader !class! (if (= sub-class class)
@@ -811,7 +757,6 @@
         :let [args ?values]
         class-loader &/loader
         [gret exceptions parent-gvars gvars gargs] (&host/lookup-static-method class-loader !class! method classes)
-        _ (ensure-catching exceptions)
         :let [gtype-env (&/|table)]
         [output-type =args] (analyse-method-call-helper analyse exo-type gret gtype-env gvars gargs args)
         _cursor &/cursor]
@@ -842,21 +787,11 @@
         :let [args ?values]
         class-loader &/loader
         [exceptions gvars gargs] (&host/lookup-constructor class-loader !class! classes)
-        _ (ensure-catching exceptions)
         [output-type =args] (analyse-jvm-new-helper analyse class (&/|table) gvars gargs args)
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "new"]) =args (&/|list class classes)))))))
-
-(defn ^:private analyse-jvm-try [analyse exo-type ?values]
-  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values]
-        =body (with-catches (&/|list "java.lang.Exception")
-                (&&/analyse-1 analyse exo-type ?body))
-        =catch (&&/analyse-1 analyse (&/$LambdaT (&/$HostT "java.lang.Exception" &/$Nil) exo-type) ?catch)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["jvm" "try"]) (&/|list =body =catch) (&/|list)))))))
 
 (defn ^:private analyse-jvm-instanceof [analyse exo-type class ?values]
   (|do [:let [(&/$Cons object (&/$Nil)) ?values]
@@ -966,7 +901,6 @@
     (case proc
       "synchronized" (analyse-jvm-synchronized analyse exo-type ?values)
       "load-class"   (analyse-jvm-load-class analyse exo-type ?values)
-      "try"          (analyse-jvm-try analyse exo-type ?values)
       "throw"        (analyse-jvm-throw analyse exo-type ?values)
       "null?"        (analyse-jvm-null? analyse exo-type ?values)
       "null"         (analyse-jvm-null analyse exo-type ?values)

@@ -542,8 +542,7 @@
     ))
 
 (defn analyse-lambda [analyse exo-type ?self ?arg ?body]
-  (|do [output (&/with-no-catches
-                 (analyse-lambda** analyse exo-type ?self ?arg ?body))]
+  (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]

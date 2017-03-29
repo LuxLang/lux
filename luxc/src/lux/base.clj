@@ -152,7 +152,6 @@
    "expected"
    "seed"
    "scope-type-vars"
-   "catching"
    "host"])
 
 ;; Compiler
@@ -803,17 +802,6 @@
               _
               class-name))))
 
-(defn with-no-catches [body]
-  "(All [a] (-> (Lux a) (Lux a)))"
-  (fn [state]
-    (let [old-catching (->> state (get$ $catching))]
-      (|case (body (set$ $catching $Nil state))
-        ($Right state* output)
-        (return* (set$ $catching old-catching state*) output)
-
-        ($Left msg)
-        (fail* msg)))))
-
 (defn default-compiler-info [mode]
   (T [;; compiler-version
       compiler-version
@@ -839,8 +827,6 @@
       ;; "lux;seed"
       0
       ;; scope-type-vars
-      $Nil
-      ;; catching
       $Nil
       ;; "lux;host"
       host-data]

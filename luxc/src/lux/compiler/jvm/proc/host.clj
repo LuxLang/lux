@@ -507,31 +507,6 @@
                   (.visitEnd =interface))]]
     (&&/save-class! interface-name (.toByteArray =interface))))
 
-(defn ^:private compile-jvm-try [compile ?values special-args]
-  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values
-              ;; (&/$Nil) special-args
-              ]
-        ^MethodVisitor *writer* &/get-writer
-        :let [$from (new Label)
-              $to (new Label)
-              $handler (new Label)
-              $end (new Label)]
-        :let [_ (doto *writer*
-                  (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
-                  (.visitLabel $from))]
-        _ (compile ?body)
-        :let [_ (doto *writer*
-                  (.visitJumpInsn Opcodes/GOTO $end)
-                  (.visitLabel $to)
-                  (.visitLabel $handler))]
-        _ (compile ?catch)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
-                  (.visitInsn Opcodes/SWAP)
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1)))]
-        :let [_ (.visitLabel *writer* $end)]]
-    (return nil)))
-
 (do-template [<name> <op> <unwrap> <wrap>]
   (defn <name> [compile _?value special-args]
     (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
@@ -996,31 +971,6 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
-(defn ^:private compile-jvm-try [compile ?values special-args]
-  (|do [:let [(&/$Cons ?body (&/$Cons ?catch (&/$Nil))) ?values
-              ;; (&/$Nil) special-args
-              ]
-        ^MethodVisitor *writer* &/get-writer
-        :let [$from (new Label)
-              $to (new Label)
-              $handler (new Label)
-              $end (new Label)]
-        :let [_ (doto *writer*
-                  (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
-                  (.visitLabel $from))]
-        _ (compile ?body)
-        :let [_ (doto *writer*
-                  (.visitJumpInsn Opcodes/GOTO $end)
-                  (.visitLabel $to)
-                  (.visitLabel $handler))]
-        _ (compile ?catch)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
-                  (.visitInsn Opcodes/SWAP)
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1)))]
-        :let [_ (.visitLabel *writer* $end)]]
-    (return nil)))
-
 (defn ^:private compile-jvm-load-class [compile ?values special-args]
   (|do [:let [(&/$Cons _class-name (&/$Cons ?output-type (&/$Nil))) special-args]
         ^MethodVisitor *writer* &/get-writer
@@ -1046,7 +996,6 @@
     "synchronized"    (compile-jvm-synchronized compile ?values special-args)
     "load-class"      (compile-jvm-load-class compile ?values special-args)
     "instanceof"      (compile-jvm-instanceof compile ?values special-args)
-    "try"             (compile-jvm-try compile ?values special-args)
     "new"             (compile-jvm-new compile ?values special-args)
     "invokestatic"    (compile-jvm-invokestatic compile ?values special-args)
     "invokeinterface" (compile-jvm-invokeinterface compile ?values special-args)

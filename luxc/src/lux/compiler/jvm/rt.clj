@@ -180,7 +180,25 @@
                  $just-return (new Label)
                  $then (new Label)
                  $further (new Label)
-                 $not-right (new Label)]
+                 $shorten (new Label)
+                 $not-right (new Label)
+                 failure (fn [^MethodVisitor writer]
+                           (doto writer
+                             (.visitInsn Opcodes/POP2)
+                             (.visitInsn Opcodes/ACONST_NULL)
+                             (.visitInsn Opcodes/ARETURN)))
+                 shortened (fn [^MethodVisitor writer]
+                             (doto writer
+                               ;; Get Tag
+                               (.visitVarInsn Opcodes/ALOAD 0) (.visitLdcInsn (int 0)) (.visitInsn Opcodes/AALOAD)
+                               ;; Shorten tag
+                               &&/unwrap-int (.visitVarInsn Opcodes/ILOAD 1) (.visitInsn Opcodes/ISUB)
+                               ;; Get flag
+                               (.visitVarInsn Opcodes/ALOAD 0) (.visitLdcInsn (int 1)) (.visitInsn Opcodes/AALOAD)
+                               ;; Get value
+                               (.visitVarInsn Opcodes/ALOAD 0) (.visitLdcInsn (int 2)) (.visitInsn Opcodes/AALOAD)
+                               ;; Build sum
+                               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
@@ -193,9 +211,9 @@
                (.visitJumpInsn Opcodes/IF_ICMPEQ $then) ;; tag, sum-tag
                (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
                (.visitJumpInsn Opcodes/IF_ICMPGT $further) ;; tag, sum-tag
-               (.visitInsn Opcodes/POP2)
-               (.visitInsn Opcodes/ACONST_NULL)
-               (.visitInsn Opcodes/ARETURN)
+               (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
+               (.visitJumpInsn Opcodes/IF_ICMPLT $shorten) ;; tag, sum-tag
+               failure
                (.visitLabel $then) ;; tag, sum-tag
                (.visitVarInsn Opcodes/ALOAD 2) ;; tag, sum-tag, wants-last?
                (.visitVarInsn Opcodes/ALOAD 0)
@@ -208,6 +226,12 @@
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitLdcInsn (int 2))
                (.visitInsn Opcodes/AALOAD)
+               (.visitInsn Opcodes/ARETURN)
+               (.visitLabel $shorten)
+               (.visitVarInsn Opcodes/ALOAD 2)
+               (.visitJumpInsn Opcodes/IFNULL $not-right)
+               (.visitInsn Opcodes/POP2)
+               shortened
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $further) ;; tag, sum-tag
                (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
@@ -223,9 +247,7 @@
                (.visitVarInsn Opcodes/ISTORE 1) ;;
                (.visitJumpInsn Opcodes/GOTO $begin)
                (.visitLabel $not-right) ;; tag, sum-tag
-               (.visitInsn Opcodes/POP2)
-               (.visitInsn Opcodes/ACONST_NULL)
-               (.visitInsn Opcodes/ARETURN)
+               failure
                (.visitMaxs 0 0)
                (.visitEnd)))
          ;; I commented-out some parts because a null-check was
@@ -1455,7 +1477,7 @@
                     (.visitInsn Opcodes/ARETURN)
                     (.visitLabel $to)
                     (.visitLabel $handler) ;; T
-                    (.visitLdcInsn (->> #'&/$None meta ::&/idx int)) ;; TI
+                    (.visitLdcInsn (->> #'&/$Left meta ::&/idx int)) ;; TI
                     (.visitInsn Opcodes/ACONST_NULL) ;; TI?
                     swap2x1 ;; I?T
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "toString" "()Ljava/lang/String;") ;; I?S
