@@ -222,14 +222,19 @@
   ^:private analyse-char-lt  ["char" "<"] &type/Char &type/Bool
   )
 
-(defn ^:private analyse-deg-scale [analyse exo-type ?values]
-  (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
-        =x (&&/analyse-1 analyse &type/Deg x)
-        =y (&&/analyse-1 analyse &type/Nat y)
-        _ (&type/check exo-type &type/Deg)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["deg" "scale"]) (&/|list =x =y) (&/|list)))))))
+(do-template [<name> <proc>]
+  (defn <name> [analyse exo-type ?values]
+    (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
+          =x (&&/analyse-1 analyse &type/Deg x)
+          =y (&&/analyse-1 analyse &type/Nat y)
+          _ (&type/check exo-type &type/Deg)
+          _cursor &/cursor]
+      (return (&/|list (&&/|meta exo-type _cursor
+                                 (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
+
+  ^:private analyse-deg-scale      ["deg" "scale"]
+  ^:private analyse-deg-reciprocal ["deg" "reciprocal"]
+  )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
   (do (defn <encode> [analyse exo-type ?values]
@@ -579,6 +584,7 @@
       "max-value" (analyse-deg-max-value analyse exo-type ?values)
       "to-real" (analyse-deg-to-real analyse exo-type ?values)
       "scale" (analyse-deg-scale analyse exo-type ?values)
+      "reciprocal" (analyse-deg-reciprocal analyse exo-type ?values)
       )
 
     "real"

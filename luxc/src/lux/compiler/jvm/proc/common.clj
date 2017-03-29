@@ -217,6 +217,7 @@
   ^:private compile-deg-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
   ^:private compile-deg-rem   Opcodes/LSUB &&/unwrap-long &&/wrap-long
   ^:private compile-deg-scale Opcodes/LMUL &&/unwrap-long &&/wrap-long
+  ^:private compile-deg-reciprocal Opcodes/LDIV &&/unwrap-long &&/wrap-long
 
   ^:private compile-real-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
   ^:private compile-real-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
@@ -968,6 +969,7 @@
       "min-value" (compile-deg-min-value compile ?values special-args)
       "to-real"   (compile-deg-to-real compile ?values special-args)
       "scale"     (compile-deg-scale compile ?values special-args)
+      "reciprocal" (compile-deg-reciprocal compile ?values special-args)
       )
 
     "int"

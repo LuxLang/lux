@@ -122,6 +122,7 @@
   ^:private compile-deg-eq    "eqI64"
   ^:private compile-deg-lt    "ltD64"
   ^:private compile-deg-scale "mulI64"
+  ^:private compile-deg-reciprocal "divI64"
   )
 
 (do-template [<name> <opcode>]
@@ -540,6 +541,7 @@
       "min-value" (compile-deg-min-value compile ?values special-args)
       "to-real"   (compile-deg-to-real compile ?values special-args)
       "scale"     (compile-deg-scale compile ?values special-args)
+      "reciprocal" (compile-deg-reciprocal compile ?values special-args)
       )
 
     "real"
