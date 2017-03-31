@@ -1,0 +1,493 @@
+(;module:
+  lux
+  (lux (control monad
+                eq
+                [ord #+ Ord])
+       (data (coll [list "" Monad<List> "L/" Monoid<List> Fold<List>])
+             ["p" product]
+             ["M" maybe #+ Functor<Maybe>])
+       [compiler]
+       (macro [ast]
+              ["s" syntax #+ syntax: Syntax])))
+
+(def: error-message Text "Invariant violation")
+
+(type: Color #Red #Black)
+
+(type: (Node a)
+  {#color Color
+   #value a
+   #left (Maybe (Node a))
+   #right (Maybe (Node a))})
+
+(do-template [<create> <color>]
+  [(def: (<create> value left right)
+     (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+     {#color <color>
+      #value value
+      #left left
+      #right right})]
+
+  [red   #Red]
+  [black #Black]
+  )
+
+(type: #export (Set a)
+  {#order (Ord a)
+   #root (Maybe (Node a))})
+
+(def: #export (new Ord<a>)
+  (All [a] (-> (Ord a) (Set a)))
+  {#order Ord<a>
+   #root #;None})
+
+(def: #export (member? tree elem)
+  (All [a] (-> (Set a) a Bool))
+  (let [(^open "T/") (get@ #order tree)]
+    (loop [node (get@ #root tree)]
+      (case node
+        #;None
+        false
+
+        (#;Some node)
+        (or (T/= elem (get@ #value node))
+            (recur (get@ #left node))
+            (recur (get@ #right node)))))))
+
+(do-template [<name> <side>]
+  [(def: #export (<name> tree)
+     (All [a] (-> (Set a) (Maybe a)))
+     (loop [node (get@ #root tree)]
+       (case node
+         #;None
+         #;None
+
+         (#;Some node)
+         (recur (get@ <side> node)))))]
+
+  [min #left]
+  [max #right]
+  )
+
+(do-template [<name> <op>]
+  [(def: #export (<name> tree)
+     (All [a] (-> (Set a) Nat))
+     (loop [node (get@ #root tree)]
+       (case node
+         #;None
+         +0
+
+         (#;Some node)
+         (n.inc (<op> (recur (get@ #left node))
+                      (recur (get@ #right node)))))))]
+
+  [size  n.+]
+  [depth n.max]
+  )
+
+(do-template [<name> <other-color> <self-color> <no-change>]
+  [(def: (<name> self)
+     (All [a] (-> (Node a) (Node a)))
+     (case (get@ #color self)
+       <other-color>
+       (set@ #color <self-color> self)
+
+       <self-color>
+       <no-change>
+       ))]
+
+  [blacken #Red   #Black self]
+  [redden  #Black #Red   (error! error-message)]
+  )
+
+(syntax: (as-is ast)
+  (wrap (list ast)))
+
+(def: (balance-left-add parent self)
+  (All [a] (-> (Node a) (Node a) (Node a)))
+  (let% [<default-behavior> (as-is (black (get@ #value parent)
+                                          (#;Some self)
+                                          (get@ #right parent)))]
+    (case (get@ #color self)
+      #Red
+      (case (get@ #left self)
+        (^=> (#;Some left)
+             [(get@ #color left) #Red])
+        (red (get@ #value self)
+             (#;Some (blacken left))
+             (#;Some (black (get@ #value parent)
+                            (get@ #right self)
+                            (get@ #right parent))))
+
+        _
+        (case (get@ #right self)
+          (^=> (#;Some right)
+               [(get@ #color right) #Red])
+          (red (get@ #value right)
+               (#;Some (black (get@ #value self)
+                              (get@ #left self)
+                              (get@ #left right)))
+               (#;Some (black (get@ #value parent)
+                              (get@ #right right)
+                              (get@ #right parent))))
+
+          _
+          <default-behavior>))
+      
+      #Black
+      <default-behavior>
+      )))
+
+(def: (balance-right-add parent self)
+  (All [a] (-> (Node a) (Node a) (Node a)))
+  (let% [<default-behavior> (as-is (black (get@ #value parent)
+                                          (get@ #left parent)
+                                          (#;Some self)))]
+    (case (get@ #color self)
+      #Red
+      (case (get@ #right self)
+        (^=> (#;Some right)
+             [(get@ #color right) #Red])
+        (red (get@ #value self)
+             (#;Some (black (get@ #value parent)
+                            (get@ #left parent)
+                            (get@ #left self)))
+             (#;Some (blacken right)))
+
+        _
+        (case (get@ #left self)
+          (^=> (#;Some left)
+               [(get@ #color left) #Red])
+          (red (get@ #value left)
+               (#;Some (black (get@ #value parent)
+                              (get@ #left parent)
+                              (get@ #left left)))
+               (#;Some (black (get@ #value self)
+                              (get@ #right left)
+                              (get@ #right self))))
+
+          _
+          <default-behavior>))
+      
+      #Black
+      <default-behavior>
+      )))
+
+(def: (add-left addition center)
+  (All [a] (-> (Node a) (Node a) (Node a)))
+  (case (get@ #color center)
+    #Red
+    (red (get@ #value center) (#;Some addition) (get@ #right center))
+    
+    #Black
+    (balance-left-add center addition)
+    ))
+
+(def: (add-right addition center)
+  (All [a] (-> (Node a) (Node a) (Node a)))
+  (case (get@ #color center)
+    #Red
+    (red (get@ #value center) (get@ #left center) (#;Some addition))
+    
+    #Black
+    (balance-right-add center addition)
+    ))
+
+(def: #export (add elem tree)
+  (All [a] (-> a (Set a) (Set a)))
+  (let [(^open "T/") (get@ #order tree)
+        root' (loop [?root (get@ #root tree)]
+                (case ?root
+                  #;None
+                  (#;Some (red elem #;None #;None))
+
+                  (#;Some root)
+                  (let [reference (get@ #value root)]
+                    (let% [<sides> (do-template [<comp> <tag> <add>]
+                                     [(<comp> reference elem)
+                                      (let [side-root (get@ <tag> root)
+                                            outcome (recur side-root)]
+                                        (if (is side-root outcome)
+                                          ?root
+                                          (#;Some (<add> (default (undefined) outcome)
+                                                         root))))]
+
+                                     [T/< #left  add-left]
+                                     [T/> #right add-right]
+                                     )]
+                      (cond <sides>
+
+                            ## (T/= reference elem)
+                            ?root
+                            )))
+                  ))]
+    (set@ #root root' tree)))
+
+(def: (left-balance value ?left ?right)
+  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+  (case ?left
+    (^=> (#;Some left)
+         [(get@ #color left) #Red]
+         [(get@ #left left) (#;Some left.left)]
+         [(get@ #color left.left) #Red])
+    (red (get@ #value left)
+         (#;Some (blacken left.left))
+         (#;Some (black value (get@ #right left) ?right)))
+
+    (^=> (#;Some left)
+         [(get@ #color left) #Red]
+         [(get@ #right left) (#;Some left.right)]
+         [(get@ #color left.right) #Red])
+    (red (get@ #value left.right)
+         (#;Some (black (get@ #value left)
+                        (get@ #left left)
+                        (get@ #left left.right)))
+         (#;Some (black value
+                        (get@ #right left.right)
+                        ?right)))
+
+    _
+    (black value ?left ?right)))
+
+(def: (right-balance value ?left ?right)
+  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+  (case ?right
+    (^=> (#;Some right)
+         [(get@ #color right) #Red]
+         [(get@ #right right) (#;Some right.right)]
+         [(get@ #color right.right) #Red])
+    (red (get@ #value right)
+         (#;Some (black value ?left (get@ #left right)))
+         (#;Some (blacken right.right)))
+
+    (^=> (#;Some right)
+         [(get@ #color right) #Red]
+         [(get@ #left right) (#;Some right.left)]
+         [(get@ #color right.left) #Red])
+    (red (get@ #value right.left)
+         (#;Some (black value ?left (get@ #left right.left)))
+         (#;Some (black (get@ #value right)
+                        (get@ #right right.left)
+                        (get@ #right right))))
+
+    _
+    (black value ?left ?right)))
+
+(def: (balance-left-remove value ?left ?right)
+  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+  (case ?left
+    (^=> (#;Some left)
+         [(get@ #color left) #Red])
+    (red value (#;Some (blacken left)) ?right)
+
+    _
+    (case ?right
+      (^=> (#;Some right)
+           [(get@ #color right) #Black])
+      (right-balance value ?left (#;Some (redden right)))
+
+      (^=> (#;Some right)
+           [(get@ #color right) #Red]
+           [(get@ #left right) (#;Some right.left)]
+           [(get@ #color right.left) #Black])
+      (red (get@ #value right.left)
+           (#;Some (black value ?left (get@ #left right.left)))
+           (#;Some (right-balance (get@ #value right)
+                                  (get@ #right right.left)
+                                  (:: Functor<Maybe> map redden (get@ #right right)))))
+
+      _
+      (error! error-message))
+    ))
+
+(def: (balance-right-remove value ?left ?right)
+  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+  (case ?right
+    (^=> (#;Some right)
+         [(get@ #color right) #Red])
+    (red value ?left (#;Some (blacken right)))
+
+    _
+    (case ?left
+      (^=> (#;Some left)
+           [(get@ #color left) #Black])
+      (left-balance value (#;Some (redden left)) ?right)
+
+      (^=> (#;Some left)
+           [(get@ #color left) #Red]
+           [(get@ #right left) (#;Some left.right)]
+           [(get@ #color left.right) #Black])
+      (red (get@ #value left.right)
+           (#;Some (left-balance (get@ #value left)
+                                 (:: Functor<Maybe> map redden (get@ #left left))
+                                 (get@ #left left.right)))
+           (#;Some (black value (get@ #right left.right) ?right)))
+
+      _
+      (error! error-message)
+      )))
+
+(def: (prepend ?left ?right)
+  (All [a] (-> (Maybe (Node a)) (Maybe (Node a)) (Maybe (Node a))))
+  (case [?left ?right]
+    [#;None _]
+    ?right
+
+    [_ #;None]
+    ?left
+
+    [(#;Some left) (#;Some right)]
+    (case [(get@ #color left) (get@ #color right)]
+      [#Red #Red]
+      (do M;Monad<Maybe>
+        [fused (prepend (get@ #right left) (get@ #right right))]
+        (case (get@ #color fused)
+          #Red
+          (wrap (red (get@ #value fused)
+                     (#;Some (red (get@ #value left)
+                                  (get@ #left left)
+                                  (get@ #left fused)))
+                     (#;Some (red (get@ #value right)
+                                  (get@ #right fused)
+                                  (get@ #right right)))))
+
+          #Black
+          (wrap (red (get@ #value left)
+                     (get@ #left left)
+                     (#;Some (red (get@ #value right)
+                                  (#;Some fused)
+                                  (get@ #right right)))))))
+
+      [#Red #Black]
+      (#;Some (red (get@ #value left)
+                   (get@ #left left)
+                   (prepend (get@ #right left)
+                            ?right)))
+      
+      [#Black #Red]
+      (#;Some (red (get@ #value right)
+                   (prepend ?left
+                            (get@ #left right))
+                   (get@ #right right)))
+
+      [#Black #Black]
+      (do M;Monad<Maybe>
+        [fused (prepend (get@ #right left) (get@ #left right))]
+        (case (get@ #color fused)
+          #Red
+          (wrap (red (get@ #value fused)
+                     (#;Some (black (get@ #value left)
+                                    (get@ #left left)
+                                    (get@ #left fused)))
+                     (#;Some (black (get@ #value right)
+                                    (get@ #right fused)
+                                    (get@ #right right)))))
+          
+          #Black
+          (wrap (balance-left-remove (get@ #value left)
+                                     (get@ #left left)
+                                     (#;Some (black (get@ #value right)
+                                                    (#;Some fused)
+                                                    (get@ #right right)))))
+          ))
+      )))
+
+(def: #export (remove elem tree)
+  (All [a] (-> a (Set a) (Set a)))
+  (let [(^open "T/") (get@ #order tree)
+        [?root found?] (loop [?root (get@ #root tree)]
+                         (case ?root
+                           #;None
+                           [#;None false]
+
+                           (#;Some root)
+                           (let [root-val (get@ #value root)]
+                             (if (T/= root-val elem)
+                               [(prepend (get@ #left root)
+                                         (get@ #right root))
+                                true]
+                               (let [go-left? (T/< root-val elem)]
+                                 (case (recur (if go-left?
+                                                (get@ #left root)
+                                                (get@ #right root)))
+                                   [#;None false]
+                                   [#;None false]
+
+                                   [side-outcome _]
+                                   (if go-left?
+                                     (case (get@ #left root)
+                                       (^=> (#;Some left)
+                                            [(get@ #color left) #Black])
+                                       [(#;Some (balance-left-remove root-val side-outcome (get@ #right root)))
+                                        false]
+
+                                       _
+                                       [(#;Some (red root-val side-outcome (get@ #right root)))
+                                        false])
+                                     (case (get@ #right root)
+                                       (^=> (#;Some right)
+                                            [(get@ #color right) #Black])
+                                       [(#;Some (balance-right-remove root-val (get@ #left root) side-outcome))
+                                        false]
+
+                                       _
+                                       [(#;Some (red root-val (get@ #left root) side-outcome))
+                                        false])
+                                     )))
+                               ))
+                           ))]
+    (case ?root
+      #;None
+      (if found?
+        (set@ #root ?root tree)
+        tree)
+
+      (#;Some root)
+      (set@ #root (#;Some (blacken root)) tree)
+      )))
+
+(def: #export (from-list Ord<a> list)
+  (All [a] (-> (Ord a) (List a) (Set a)))
+  (L/fold add (new Ord<a>) list))
+
+(def: #export (to-list tree)
+  (All [a] (-> (Set a) (List a)))
+  (loop [node (get@ #root tree)]
+    (case node
+      #;None
+      (list)
+
+      (#;Some node')
+      ($_ L/append
+          (recur (get@ #left node'))
+          (list (get@ #value node'))
+          (recur (get@ #right node'))))))
+
+(def: #export (union left right)
+  (All [a] (-> (Set a) (Set a) (Set a)))
+  (L/fold add right (to-list left)))
+
+(def: #export (intersection left right)
+  (All [a] (-> (Set a) (Set a) (Set a)))
+  (|> (to-list right)
+      (list;filter (member? left))
+      (from-list (get@ #order right))))
+
+(def: #export (difference param subject)
+  (All [a] (-> (Set a) (Set a) (Set a)))
+  (|> (to-list subject)
+      (list;filter (. not (member? param)))
+      (from-list (get@ #order subject))))
+
+(def: #export (sub? super sub)
+  (All [a] (-> (Set a) (Set a) Bool))
+  (list;every? (member? super) (to-list sub)))
+
+(def: #export (super? sub super)
+  (All [a] (-> (Set a) (Set a) Bool))
+  (sub? super sub))
+
+(struct: #export Eq<Set> (All [a] (Eq (Set a)))
+  (def: (= reference sample)
+    (:: (list;Eq<List> (get@ [#order #ord;eq] sample))
+        = (to-list reference) (to-list sample))))
