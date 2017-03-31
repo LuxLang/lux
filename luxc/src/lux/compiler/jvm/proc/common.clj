@@ -408,7 +408,6 @@
                         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <decode-method> "(Ljava/lang/String;)Ljava/lang/Object;"))]]
           (return nil)))))
 
-  ^:private compile-nat-encode "encode_nat" ^:private compile-nat-decode "decode_nat"
   ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
   )
 
@@ -946,8 +945,6 @@
       "%"         (compile-nat-rem compile ?values special-args)
       "="         (compile-nat-eq compile ?values special-args)
       "<"         (compile-nat-lt compile ?values special-args)
-      "encode"    (compile-nat-encode compile ?values special-args)
-      "decode"    (compile-nat-decode compile ?values special-args)
       "max-value" (compile-nat-max-value compile ?values special-args)
       "min-value" (compile-nat-min-value compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)

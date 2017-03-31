@@ -622,43 +622,6 @@
                        "if(shift > 0) { remainder = LuxRT$shiftRightBigInt(remainder,shift); }"
                        "return [LuxRT$normalizeBigInt(quotient), LuxRT$normalizeBigInt(remainder)];"
                        "})")
-   "encodeN64" (str "(function LuxRT$encodeN64(input) {"
-                    (str "if(input.H < 0) {"
-                         ;; Too big
-                         "var lastDigit = LuxRT$remI64(input, LuxRT$makeI64(0,10));"
-                         "var minusLastDigit = LuxRT$divI64(input, LuxRT$makeI64(0,10));"
-                         "return '+'.concat(LuxRT$encodeI64(minusLastDigit)).concat(LuxRT$encodeI64(lastDigit));"
-                         "}"
-                         "else {"
-                         ;; Small enough
-                         "return '+'.concat(LuxRT$encodeI64(input));"
-                         "}")
-                    "})")
-   "decodeN64" (str "(function LuxRT$decodeN64(input) {"
-                    "input = LuxRT$clean_separators(input);"
-                    (str "if(/^\\+\\d+$/.exec(input)) {"
-                         (str "input = input.substring(1);")
-                         (str "if(input.length <= 18) {"
-                              ;; Short enough...
-                              "return LuxRT$decodeI64(input);"
-                              "}"
-                              "else {"
-                              ;; Too long
-                              (str "var prefix = LuxRT$decodeI64(input.substring(0, input.length-1))[2];"
-                                   "var suffix = LuxRT$decodeI64(input.charAt(input.length-1))[2];"
-                                   "var total = LuxRT$addI64(LuxRT$mulI64(prefix,LuxRT$fromNumberI64(10)),suffix);"
-                                   (str "if(LuxRT$ltN64(total,prefix)) {"
-                                        (str "return " const-none ";")
-                                        "}"
-                                        "else {"
-                                        (str "return " (make-some "total") ";")
-                                        "}"))
-                              "}")
-                         "}"
-                         "else {"
-                         (str "return " const-none ";")
-                         "}")
-                    "})")
    "divN64" (str "(function LuxRT$divN64(l,r) {"
                  (str "if(LuxRT$ltI64(r,LuxRT$ZERO)) {"
                       (str "if(LuxRT$ltN64(l,r)) {"

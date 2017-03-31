@@ -149,11 +149,9 @@
       ))
 
   ^:private compile-int-encode "encodeI64"
-  ^:private compile-nat-encode "encodeN64"
   ^:private compile-deg-encode "encodeD64"
 
   ^:private compile-int-decode "decodeI64"
-  ^:private compile-nat-decode "decodeN64"
   ^:private compile-deg-decode "decodeD64"
 
   ^:private compile-real-decode "decodeReal"
@@ -501,8 +499,6 @@
       "%"         (compile-nat-rem compile ?values special-args)
       "="         (compile-nat-eq compile ?values special-args)
       "<"         (compile-nat-lt compile ?values special-args)
-      "encode"    (compile-nat-encode compile ?values special-args)
-      "decode"    (compile-nat-decode compile ?values special-args)
       "max-value" (compile-nat-max-value compile ?values special-args)
       "min-value" (compile-nat-min-value compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)
