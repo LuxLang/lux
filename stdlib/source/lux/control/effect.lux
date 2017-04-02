@@ -2,7 +2,7 @@
   lux
   (lux (control ["F" functor]
                 applicative
-                monad)
+                ["M" monad #*])
        [io #- run]
        (data (coll [list "List/" Monad<List> Monoid<List>])
              [number "Nat/" Codec<Text,Nat>]
@@ -18,11 +18,6 @@
        [type]))
 
 ## [Type]
-(type: #export (Eff F a)
-  {#;doc "A Free Monad implementation for algebraic effects."}
-  (#Pure a)
-  (#Effect (F (Eff F a))))
-
 (sig: #export (Handler E M)
   {#;doc "A way to interpret effects into arbitrary monads."}
   (: (Monad M)
@@ -31,57 +26,57 @@
      handle))
 
 ## [Values]
-(struct: #export (Functor<Eff> dsl)
-  (All [F] (-> (F;Functor F) (F;Functor (Eff F))))
+(struct: #export (Functor<Free> dsl)
+  (All [F] (-> (F;Functor F) (F;Functor (Free F))))
   (def: (map f ea)
     (case ea
-      (#Pure a)
-      (#Pure (f a))
+      (#M;Pure a)
+      (#M;Pure (f a))
       
-      (#Effect value)
-      (#Effect (:: dsl map (map f) value)))))
+      (#M;Effect value)
+      (#M;Effect (:: dsl map (map f) value)))))
 
-(struct: #export (Applicative<Eff> dsl)
-  (All [F] (-> (F;Functor F) (Applicative (Eff F))))
-  (def: functor (Functor<Eff> dsl))
+(struct: #export (Applicative<Free> dsl)
+  (All [F] (-> (F;Functor F) (Applicative (Free F))))
+  (def: functor (Functor<Free> dsl))
 
   (def: (wrap a)
-    (#Pure a))
+    (#M;Pure a))
   
   (def: (apply ef ea)
     (case [ef ea]
-      [(#Pure f) (#Pure a)]
-      (#Pure (f a))
+      [(#M;Pure f) (#M;Pure a)]
+      (#M;Pure (f a))
 
-      [(#Pure f) (#Effect fa)]
-      (#Effect (:: dsl map
-                   (:: (Functor<Eff> dsl) map f)
-                   fa))
+      [(#M;Pure f) (#M;Effect fa)]
+      (#M;Effect (:: dsl map
+                     (:: (Functor<Free> dsl) map f)
+                     fa))
 
-      [(#Effect ff) _]
-      (#Effect (:: dsl map
-                   (lambda [f] (apply f ea))
-                   ff))
+      [(#M;Effect ff) _]
+      (#M;Effect (:: dsl map
+                     (lambda [f] (apply f ea))
+                     ff))
       )))
 
-(struct: #export (Monad<Eff> dsl)
-  (All [F] (-> (F;Functor F) (Monad (Eff F))))
-  (def: applicative (Applicative<Eff> dsl))
+(struct: #export (Monad<Free> dsl)
+  (All [F] (-> (F;Functor F) (Monad (Free F))))
+  (def: applicative (Applicative<Free> dsl))
 
   (def: (join efefa)
     (case efefa
-      (#Pure efa)
+      (#M;Pure efa)
       (case efa
-        (#Pure a)
-        (#Pure a)
+        (#M;Pure a)
+        (#M;Pure a)
 
-        (#Effect fa)
-        (#Effect fa))
+        (#M;Effect fa)
+        (#M;Effect fa))
       
-      (#Effect fefa)
-      (#Effect (:: dsl map
-                   (:: (Monad<Eff> dsl) join)
-                   fefa))
+      (#M;Effect fefa)
+      (#M;Effect (:: dsl map
+                     (:: (Monad<Free> dsl) join)
+                     fefa))
       )))
 
 (type: #hidden (|@ L R)
@@ -272,12 +267,12 @@
 
 (def: #export (with-handler handler body)
   {#;doc "Handles an effectful computation with the given handler to produce a monadic value."}
-  (All [E M a] (-> (Handler E M) (Eff E a) (M a)))
+  (All [E M a] (-> (Handler E M) (Free E a) (M a)))
   (case body
-    (#Pure value)
+    (#M;Pure value)
     (:: handler wrap value)
 
-    (#Effect effect)
+    (#M;Effect effect)
     (do (get@ #monad handler)
       [result (:: handler handle effect)]
       (with-handler handler result))
@@ -314,10 +309,10 @@
   (do @
     [g!output (compiler;gensym "")]
     (wrap (list (` (let [(~ g!functor) (~ functor)]
-                     (do (Monad<Eff> (~ g!functor))
+                     (do (Monad<Free> (~ g!functor))
                        [(~@ bindings)
                         (~ g!output) (~ body)]
-                       (#;;Pure (~ g!output)))))))))
+                       (#M;Pure (~ g!output)))))))))
 
 (def: (flatten-effect-stack stack)
   (-> Type (List Type))
@@ -334,7 +329,7 @@
                right))
     (#;Cons left (flatten-effect-stack right))
 
-    (^ (#;AppT (#;AppT (#;NamedT (ident-for ;;Eff) _)
+    (^ (#;AppT (#;AppT (#;NamedT (ident-for M;Free) _)
                        effect)
                param))
     (list effect)
@@ -380,7 +375,7 @@
       (case [input output]
         (^=> [(#;AppT eff0 _) (#;AppT stackT0 recT0)]
              [(type;apply-type stackT0 recT0) (#;Some unfoldT0)]
-             [stackT0 (^ (#;AppT (#;NamedT (ident-for ;;Eff) _)
+             [stackT0 (^ (#;AppT (#;NamedT (ident-for M;Free) _)
                                  stackT1))]
              [(type;apply-type stackT1 recT0) (#;Some unfoldT1)]
              [(flatten-effect-stack unfoldT1) stack]
@@ -388,7 +383,7 @@
                   (list;find (lambda [[idx effect]]
                                (same-effect? effect eff0))))
               (#;Some [idx _])])
-        (wrap (list (` (#;;Effect (:: (~ g!functor) (~' map) (~' wrap)
+        (wrap (list (` (#M;Effect (:: (~ g!functor) (~' map) (~' wrap)
                                       (~ (nest-effect idx (list;size stack) (ast;symbol var))))))))
 
         _
