@@ -148,10 +148,7 @@
       (return (str "LuxRT$" <method> "(" =x ")"))
       ))
 
-  ^:private compile-int-encode "encodeI64"
   ^:private compile-deg-encode "encodeD64"
-
-  ^:private compile-int-decode "decodeI64"
   ^:private compile-deg-decode "decodeD64"
 
   ^:private compile-real-decode "decodeReal"
@@ -514,8 +511,6 @@
       "%"         (compile-int-rem compile ?values special-args)
       "="         (compile-int-eq compile ?values special-args)
       "<"         (compile-int-lt compile ?values special-args)
-      "encode"    (compile-int-encode compile ?values special-args)
-      "decode"    (compile-int-decode compile ?values special-args)
       "max-value" (compile-int-max-value compile ?values special-args)
       "min-value" (compile-int-min-value compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)

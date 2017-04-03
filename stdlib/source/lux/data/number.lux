@@ -4,7 +4,7 @@
                 monoid
                 eq
                 hash
-                [ord]
+                [order]
                 enum
                 interval
                 codec)
@@ -22,7 +22,7 @@
   )
 
 (do-template [<type> <eq> <lt> <lte> <gt> <gte>]
-  [(struct: #export _ (ord;Ord <type>)
+  [(struct: #export _ (order;Order <type>)
      (def: eq <eq>)
      (def: < <lt>)
      (def: <= <lte>)
@@ -49,7 +49,7 @@
       _  +1))
   )
 
-(do-template [<type> <ord> <+> <-> <*> </> <%> <=> <<> <0> <1> <-1>]
+(do-template [<type> <order> <+> <-> <*> </> <%> <=> <<> <0> <1> <-1>]
   [(struct: #export _ (Number <type>)
      (def: + <+>)
      (def: - <->)
@@ -68,8 +68,8 @@
              <1>))
      )]
 
-  [ Int  Ord<Int> i.+ i.- i.* i./ i.% i.= i.<   0   1   -1]
-  [Real Ord<Real> r.+ r.- r.* r./ r.% r.= r.< 0.0 1.0 -1.0]
+  [ Int  Order<Int> i.+ i.- i.* i./ i.% i.= i.<   0   1   -1]
+  [Real Order<Real> r.+ r.- r.* r./ r.% r.= r.< 0.0 1.0 -1.0]
   )
 
 (struct: #export _ (Number Deg)
@@ -84,16 +84,16 @@
     (_lux_proc ["deg" "max-value"] []))
   )
 
-(do-template [<type> <ord> <succ> <pred>]
+(do-template [<type> <order> <succ> <pred>]
   [(struct: #export _ (Enum <type>)
-     (def: ord <ord>)
+     (def: order <order>)
      (def: succ <succ>)
      (def: pred <pred>))]
 
-  [Nat Ord<Nat> n.inc n.dec]
-  [Int Ord<Int> i.inc i.dec]
-  [Real Ord<Real> (r.+ (_lux_proc [ "real" "smallest-value"] [])) (r.- (_lux_proc [ "real" "smallest-value"] []))]
-  [Deg Ord<Deg> (d.+ (_lux_proc [ "deg" "min-value"] [])) (d.- (_lux_proc [ "deg" "min-value"] []))]
+  [Nat Order<Nat> n.inc n.dec]
+  [Int Order<Int> i.inc i.dec]
+  [Real Order<Real> (r.+ (_lux_proc [ "real" "smallest-value"] [])) (r.- (_lux_proc [ "real" "smallest-value"] []))]
+  [Deg Order<Deg> (d.+ (_lux_proc [ "deg" "min-value"] [])) (d.- (_lux_proc [ "deg" "min-value"] []))]
   )
 
 (do-template [<type> <enum> <top> <bottom>]
@@ -144,7 +144,6 @@
          #;None
          (#;Left <error>))))]
 
-  [ Int [ "int" "encode"] [ "int" "decode"] "Couldn't decode Int"]
   [ Deg [ "deg" "encode"] [ "deg" "decode"] "Couldn't decode Deg"]
   [Real ["real" "encode"] ["real" "decode"] "Couldn't decode Real"]
   )
@@ -166,6 +165,45 @@
     "4" (#;Some +4) "5" (#;Some +5) "6" (#;Some +6)
     "7" (#;Some +7) "8" (#;Some +8) "9" (#;Some +9)
     _ #;None))
+
+(struct: #export _ (Codec Text Int)
+  (def: (encode value)
+    (if (i.= 0 value)
+      "0"
+      (let [sign (if (i.> 0 value)
+                   ""
+                   "-")]
+        (loop [input (|> value (i./ 10) (:: Number<Int> abs))
+               output (|> value (i.% 10) (:: Number<Int> abs) int-to-nat digit-to-text)]
+          (if (i.= 0 input)
+            (_lux_proc ["text" "append"] [sign output])
+            (recur (i./ 10 input)
+                   (_lux_proc ["text" "append"] [(|> input (i.% 10) int-to-nat digit-to-text)
+                                                 output])))))
+      ))
+
+  (def: (decode repr)
+    (let [input-size (_lux_proc ["text" "size"] [repr])]
+      (if (n.>= +1 input-size)
+        (let [sign (case (_lux_proc ["text" "char"] [repr +0])
+                     (#;Some #"-")
+                     -1
+
+                     _
+                     1)]
+          (loop [idx (if (i.= -1 sign) +1 +0)
+                 output 0]
+            (if (n.< input-size idx)
+              (case (_lux_proc ["text" "char"] [repr idx])
+                (^=> (#;Some sample)
+                     [(text-to-digit (_lux_proc ["char" "to-text"] [sample])) (#;Some digit)])
+                (recur (n.inc idx)
+                       (|> output (i.* 10) (i.+ (nat-to-int digit))))
+
+                _
+                (undefined))
+              (#;Right (i.* sign output)))))
+        (#;Left "Invalid syntax for Int.")))))
 
 (struct: #export _ (Codec Text Nat)
   (def: (encode value)
@@ -200,8 +238,8 @@
               (#;Right output)))
 
           _
-          (#;Left "Invalid binary syntax."))
-        (#;Left "Invalid binary syntax.")))))
+          (#;Left "Invalid syntax for Nat."))
+        (#;Left "Invalid syntax for Nat.")))))
 
 (struct: #export _ (Hash Nat)
   (def: eq Eq<Nat>)

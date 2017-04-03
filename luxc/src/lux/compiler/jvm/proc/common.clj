@@ -421,7 +421,6 @@
                     (.visitMethodInsn Opcodes/INVOKESTATIC <class> "toString" <signature>))]]
       (return nil)))
 
-  ^:private compile-int-encode  "java/lang/Long"   "(J)Ljava/lang/String;" &&/unwrap-long
   ^:private compile-real-encode "java/lang/Double" "(D)Ljava/lang/String;" &&/unwrap-double
   )
 
@@ -982,8 +981,6 @@
       "min-value" (compile-int-min-value compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
       "to-real"   (compile-int-to-real compile ?values special-args)
-      "encode"    (compile-int-encode compile ?values special-args)
-      "decode"    (compile-int-decode compile ?values special-args)
       )
 
     "real"
