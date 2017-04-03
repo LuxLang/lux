@@ -219,7 +219,7 @@ Called by `imenu--generic-function'."
             "lambda" "case" ":" ":!" ":!!" "undefined" "ident-for"
             "and" "or"
             "exec" "let" "let%" "if" "cond" "do" "be" "open" "loop" "recur" "comment" "list" "list&" "io" "vector" "tree"
-            "get@" "set@" "update@" "|>" "|>." "<|" "_$" "$_" "~" "~@" "~'" "::" ":::" "default" "assume"
+            "get@" "set@" "update@" "|>" "|>." "<|" "_$" "$_" "~" "~@" "~'" "::" ":::" "default"
             "|" "&" "->" "All" "Ex" "Rec" "host" "$" "type"
             "^" "^or" "^slots" "^=>" "^~" "^@" "^template" "^open" "^|>" "^stream&" "^regex"
             "bin" "oct" "hex"
@@ -227,7 +227,7 @@ Called by `imenu--generic-function'."
             "sig" "struct" "derive"
             "infix"
             "format"
-            "`" "`'" "'" "do-template" "with-gensyms"
+            "`" "`'" "'" "do-template"
             "object" "jvm-import" "do-to" "with-open" "synchronized" "class-for"
             "doc"
             "|E" "|F" "|H" "effect:" "handler:" "with-handler" "doE" "lift"
@@ -384,7 +384,6 @@ This function also returns nil meaning don't specify the indentation."
   (object 'defun)
   (do-to 'defun)
   (jvm-import 'defun)
-  (with-gensyms 'defun)
   (testing 'defun)
   (comment 'defun)
   (doE 'defun)
