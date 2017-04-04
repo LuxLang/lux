@@ -1,86 +1,103 @@
 (;module:
   lux
-  (lux (control eq)
+  (lux (control eq
+                monad)
        (data (coll (tree ["F" finger]))
-             [number])))
+             [number]
+             maybe)))
 
 (type: #export Priority Nat)
 
 (type: #export (Queue a)
-  (F;Fingers Priority a))
+  (Maybe (F;Fingers Priority a)))
 
 (def: max-priority Priority (_lux_proc [ "nat" "max-value"] []))
 (def: min-priority Priority (_lux_proc [ "nat" "min-value"] []))
 
-(def: #export (new priority value)
-  (All [a] (-> Priority a (Queue a)))
-  {#F;monoid number;Max@Monoid<Nat>
-   #F;tree (#F;Leaf priority value)})
+(def: #export empty
+  Queue
+  #;None)
 
 (def: #export (peek queue)
-  (All [a] (-> (Queue a) a))
-  (default (undefined)
-    (F;search (n.= (F;tag queue)) queue)))
+  (All [a] (-> (Queue a) (Maybe a)))
+  (do Monad<Maybe>
+    [fingers queue]
+    (wrap (default (undefined)
+            (F;search (n.= (F;tag fingers)) fingers)))))
 
 (def: #export (size queue)
   (All [a] (-> (Queue a) Nat))
-  (loop [node (get@ #F;tree queue)]
-    (case node
-      (#F;Leaf _ _)
-      +1
+  (case queue
+    #;None
+    +0
 
-      (#F;Branch _ left right)
-      (n.+ (recur left) (recur right)))))
+    (#;Some fingers)
+    (loop [node (get@ #F;tree fingers)]
+      (case node
+        (#F;Leaf _ _)
+        +1
+
+        (#F;Branch _ left right)
+        (n.+ (recur left) (recur right))))))
 
 (def: #export (member? Eq<a> queue member)
   (All [a] (-> (Eq a) (Queue a) a Bool))
-  (loop [node (get@ #F;tree queue)]
-    (case node
-      (#F;Leaf _ reference)
-      (:: Eq<a> = reference member)
+  (case queue
+    #;None
+    false
 
-      (#F;Branch _ left right)
-      (or (recur left)
-          (recur right)))))
+    (#;Some fingers)
+    (loop [node (get@ #F;tree fingers)]
+      (case node
+        (#F;Leaf _ reference)
+        (:: Eq<a> = reference member)
+
+        (#F;Branch _ left right)
+        (or (recur left)
+            (recur right))))))
 
 (def: #export (pop queue)
   (All [a] (-> (Queue a) (Queue a)))
-  (let [highest-priority (F;tag queue)
-        node' (loop [node (get@ #F;tree queue)]
-                (case node
-                  (#F;Leaf priority reference)
-                  (if (n.= highest-priority priority)
-                    #;None
-                    (#;Some node))
+  (do Monad<Maybe>
+    [fingers queue
+     #let [highest-priority (F;tag fingers)]
+     node' (loop [node (get@ #F;tree fingers)]
+             (case node
+               (#F;Leaf priority reference)
+               (if (n.= highest-priority priority)
+                 #;None
+                 (#;Some node))
 
-                  (#F;Branch priority left right)
-                  (if (n.= highest-priority (F;tag (set@ #F;tree left queue)))
-                    (case (recur left)
-                      #;None
-                      (#;Some right)
+               (#F;Branch priority left right)
+               (if (n.= highest-priority (F;tag (set@ #F;tree left fingers)))
+                 (case (recur left)
+                   #;None
+                   (#;Some right)
 
-                      (#;Some =left)
-                      (|> (F;branch (set@ #F;tree =left queue)
-                                    (set@ #F;tree right queue))
-                          (get@ #F;tree)
-                          #;Some))
-                    (case (recur right)
-                      #;None
-                      (#;Some left)
+                   (#;Some =left)
+                   (|> (F;branch (set@ #F;tree =left fingers)
+                                 (set@ #F;tree right fingers))
+                       (get@ #F;tree)
+                       #;Some))
+                 (case (recur right)
+                   #;None
+                   (#;Some left)
 
-                      (#;Some =right)
-                      (|> (F;branch (set@ #F;tree left queue)
-                                    (set@ #F;tree =right queue))
-                          (get@ #F;tree)
-                          #;Some))
-                    )))]
-    (case node'
-      #;None
-      queue
-      
-      (#;Some node'')
-      (set@ #F;tree node'' queue))))
+                   (#;Some =right)
+                   (|> (F;branch (set@ #F;tree left fingers)
+                                 (set@ #F;tree =right fingers))
+                       (get@ #F;tree)
+                       #;Some))
+                 )))]
+    (wrap (set@ #F;tree node' fingers))))
 
 (def: #export (push priority value queue)
   (All [a] (-> Priority a (Queue a) (Queue a)))
-  (F;branch queue (new priority value)))
+  (let [addition {#F;monoid number;Max@Monoid<Nat>
+                  #F;tree (#F;Leaf priority value)}]
+    (case queue
+      #;None
+      (#;Some addition)
+
+      (#;Some fingers)
+      (#;Some (F;branch fingers addition)))))
