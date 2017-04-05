@@ -2244,11 +2244,11 @@
                   "-")]
           ((_lux_: (-> Int Text Text)
              (lambda' recur [input  output]
-                 (if (i.= 0 input)
-                   (_lux_proc ["text" "append"] [sign output])
-                   (recur (i./ 10 input)
-                          (_lux_proc ["text" "append"] [(|> input (i.% 10) (_lux_:! Nat) digit-to-text)
-                                                        output])))))
+                      (if (i.= 0 input)
+                        (_lux_proc ["text" "append"] [sign output])
+                        (recur (i./ 10 input)
+                               (_lux_proc ["text" "append"] [(|> input (i.% 10) (_lux_:! Nat) digit-to-text)
+                                                             output])))))
            (|> value (i./ 10) Int/abs)
            (|> value (i.% 10) Int/abs (_lux_:! Nat) digit-to-text)))))
 
@@ -4204,24 +4204,6 @@
     _
     (list)))
 
-(def: (use-field prefix [module name] type)
-  (-> Text Ident Type (Lux [AST AST]))
-  (do Monad<Lux>
-    [output (resolve-type-tags type)
-     pattern (: (Lux AST)
-                (case output
-                  (#Some [tags members])
-                  (do Monad<Lux>
-                    [slots (mapM Monad<Lux>
-                                 (: (-> [Ident Type] (Lux [AST AST]))
-                                    (lambda [[sname stype]] (use-field prefix sname stype)))
-                                 (zip2 tags members))]
-                    (return (record$ slots)))
-                  
-                  #None
-                  (return (symbol$ ["" (Text/append prefix name)]))))]
-    (return [(tag$ [module name]) pattern])))
-
 (def: (Type/show type)
   (-> Type Text)
   (case type
@@ -4270,23 +4252,56 @@
     ($_ Text/append prefix ";" name)
     ))
 
+(def: (foldM Monad<m> f init inputs)
+  (All [m o i]
+    (-> (Monad m) (-> i o (m o)) o (List i) (m o)))
+  (case inputs
+    #;Nil
+    (do Monad<m>
+      []
+      (wrap init))
+
+    (#;Cons input inputs')
+    (do Monad<m>
+      [output (f input init)]
+      (foldM Monad<m> f output inputs'))))
+
 (macro: #hidden (^open' tokens)
   (case tokens
     (^ (list [_ (#SymbolS name)] [_ (#TextS prefix)] body))
     (do Monad<Lux>
-      [struct-type (find-type name)
-       output (resolve-type-tags struct-type)]
-      (case output
-        (#Some [tags members])
-        (do Monad<Lux>
-          [slots (mapM Monad<Lux> (: (-> [Ident Type] (Lux [AST AST]))
-                                     (lambda [[sname stype]] (use-field prefix sname stype)))
-                       (zip2 tags members))
-           #let [pattern (record$ slots)]]
-          (return (list (` (;_lux_case (~ (symbol$ name)) (~ pattern) (~ body))))))
+      [init-type (find-type name)
+       struct-evidence (resolve-type-tags init-type)]
+      (case struct-evidence
+        #;None
+        (fail (Text/append "Can only \"open\" structs: " (Type/show init-type)))
 
-        _
-        (fail (Text/append "Can only \"open\" structs: " (Type/show struct-type)))))
+        (#;Some tags&members)
+        (do Monad<Lux>
+          [full-body ((: (-> Ident [(List Ident) (List Type)] AST (Lux AST))
+                         (lambda recur [source [tags members] target]
+                           (let [pattern (record$ (map (lambda [[t-module t-name]]
+                                                         [(tag$ [t-module t-name])
+                                                          (symbol$ ["" (Text/append prefix t-name)])])
+                                                       tags))]
+                             (do Monad<Lux>
+                               [enhanced-target (foldM Monad<Lux>
+                                                       (lambda [[[_ m-name] m-type] enhanced-target]
+                                                         (do Monad<Lux>
+                                                           [m-structure (resolve-type-tags m-type)]
+                                                           (case m-structure
+                                                             (#;Some m-tags&members)
+                                                             (recur ["" (Text/append prefix m-name)]
+                                                                    m-tags&members
+                                                                    enhanced-target)
+
+                                                             #;None
+                                                             (wrap enhanced-target))))
+                                                       target
+                                                       (zip2 tags members))]
+                               (wrap (` (;_lux_case (~ (symbol$ source)) (~ pattern) (~ enhanced-target))))))))
+                      name tags&members body)]
+          (wrap (list full-body)))))
 
     _
     (fail "Wrong syntax for ^open")))
