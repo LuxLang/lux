@@ -45,7 +45,7 @@
       (ensure-object type*))
 
     _
-    (&/fail-with-loc (str "[Analyser Error] Expecting object: " (&type/show-type type)))))
+    (&/fail-with-loc (str "[Analyser Error] Was expecting object type. Instead got: " (&type/show-type type)))))
 
 (defn ^:private as-object [type]
   "(-> Type Type)"
@@ -119,7 +119,9 @@
                                 gvars
                                 targs)]
         (&host-type/instance-param &type/existential gtype-env gtype))
-      (&/fail-with-loc (str "[Type Error] Mismatched number of type-parameters: " (&/|length gvars) " - " (&type/show-type obj-type))))
+      (&/fail-with-loc (str "[Type Error] Mismatched number of type-parameters for " (&type/show-type obj-type) "\n"
+                            "Expected: " (&/|length targs) "\n"
+                            "  Actual: " (&/|length gvars))))
 
     _
     (&/fail-with-loc (str "[Type Error] Type is not an object type: " (&type/show-type obj-type)))))
@@ -181,7 +183,7 @@
     (&/$GenericTypeVar var-name)
     (if-let [ex (&/|get var-name env)]
       (return ex)
-      (&/fail-with-loc (str "[Analysis Error] Unknown type var: " var-name)))
+      (&/fail-with-loc (str "[Analysis Error] Unknown type-var: " var-name)))
     
     (&/$GenericClass name params)
     (case name
@@ -987,7 +989,7 @@
       "b2l"          (analyse-jvm-b2l analyse exo-type ?values)
       "s2l"          (analyse-jvm-s2l analyse exo-type ?values)
       ;; else
-      (->> (&/fail-with-loc (str "[Analyser Error] Unknown JVM procedure: " proc))
+      (->> (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " ["jvm" proc]))
            (if-let [[_ _def-code] (re-find #"^interface:(.*)$" proc)]
              (|do [[_module _line _column] &/cursor]
                (&reader/with-source (str "interface@" "(" _module "," _line "," _column ")") _def-code

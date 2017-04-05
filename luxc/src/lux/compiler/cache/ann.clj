@@ -148,7 +148,7 @@
       (deserialize-ident input)
       (deserialize-list input)
       (deserialize-dict input)
-      (assert false "[Cache error] Can't deserialize annocation.")))
+      (assert false "[Cache error] Cannot deserialize annocation.")))
 
 (defn deserialize-anns
   "(-> Text Text)"

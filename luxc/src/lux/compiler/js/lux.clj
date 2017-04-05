@@ -97,7 +97,7 @@
 
 (defn compile-iter [compile register-offset ?args]
   ;; Can only optimize if it is a simple expression.
-  ;; Won't work if it's inside an 'if', unlike on the JVM.
+  ;; Will not work if it's inside an 'if', unlike on the JVM.
   ;; (|do [[updates _] (&/fold% (fn [updates+offset ?arg]
   ;;                              (|let [[updates offset] updates+offset
   ;;                                     already-set? (|case ?arg
@@ -368,7 +368,7 @@
                   (return nil))
 
                 [false (&/$Some _)]
-                (&/fail-with-loc "[Compiler Error] Can't define tags for non-type.")
+                (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
 
                 [true (&/$Some _)]
                 (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")

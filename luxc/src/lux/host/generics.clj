@@ -172,7 +172,7 @@
         (->bytecode-class-name name))
 
       (&/$GenericArray param)
-      (assert false "gclass->bytecode-class-name* doesn't work on arrays."))))
+      (assert false "gclass->bytecode-class-name* does not work on arrays."))))
 
 (let [object-bc-name (->bytecode-class-name "java.lang.Object")]
   (defn gclass->bytecode-class-name [gclass]
@@ -188,7 +188,7 @@
       (->bytecode-class-name name)
 
       (&/$GenericArray param)
-      (assert false "gclass->bytecode-class-name doesn't work on arrays."))))
+      (assert false "gclass->bytecode-class-name does not work on arrays."))))
 
 (defn method-signatures [method-decl]
   (|let [[=name =anns =gvars =exceptions =inputs =output] method-decl

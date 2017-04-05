@@ -27,7 +27,7 @@
     _
     0))
 
-;; TODO: This technique won't work if the body of the type contains
+;; TODO: This technique will not work if the body of the type contains
 ;; nested quantifications that cannot be directly counted.
 (defn ^:private next-bound-type [type]
   "(-> Type Type)"
@@ -169,7 +169,7 @@
       (return x)
 
       _
-      (&/fail-with-loc "[Analyser Error] Can't expand to other than 1 element."))))
+      (&/fail-with-loc "[Analyser Error] Macro cannot expand to more than 1 output."))))
 
 (defn analyse-variant [analyse ?exo-type idx is-last? ?values]
   (|case ?exo-type
@@ -235,15 +235,15 @@
                 (&/map% (partial &&/clean-analysis $var) =exprs))))
           
           _
-          (&/fail-with-loc (str "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
+          (&/fail-with-loc (str "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
         (fn [err]
           (|case exo-type
             (&/$VarT ?id)
             (|do [=exo-type (&type/deref ?id)]
-              (&/fail-with-loc (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
+              (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
 
             _
-            (&/fail-with-loc (str err "\n" "[Analyser Error] Can't create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+            (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
       )))
 
 (defn analyse-record [analyse exo-type ?elems]
@@ -293,7 +293,7 @@
                          state)
 
             _
-            ((&/fail-with-loc "[Analyser Error] Can't have anything other than a global def in the global environment.")
+            ((&/fail-with-loc "[Analyser Error] Cannot have anything other than a global def in the global environment.")
              state))
           ((&/fail-with-loc (str "[Analyser Error] Unknown global definition: " name))
            state))
@@ -363,9 +363,9 @@
             (return (&/T [=output-t (&/$Cons =arg =args)])))
 
           _
-          (&/fail-with-loc (str "[Analyser Error] Can't apply a non-function: " (&type/show-type ?fun-type*))))
+          (&/fail-with-loc (str "[Analyser Error] Cannot apply a non-function: " (&type/show-type ?fun-type*))))
         (fn [err]
-          (&/fail-with-loc (str err "\n" "[Analyser Error] Can't apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+          (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
     ))
 
 (defn ^:private do-analyse-apply [analyse exo-type =fn ?args]
@@ -390,10 +390,11 @@
                                   ((&/fail-with-loc error) state)))
               ;; module-name &/get-module-name
               ;; :let [[r-prefix r-name] real-name
-              ;;       _ (->> (&/|map &/show-ast macro-expansion)
-              ;;              (&/|interpose "\n")
-              ;;              (&/fold str "")
-              ;;              (println 'macro-expansion (&/ident->text real-name) "@" module-name))]
+              ;;       _ (when (= "syntax:" r-name)
+              ;;           (->> (&/|map &/show-ast macro-expansion)
+              ;;                (&/|interpose "\n")
+              ;;                (&/fold str "")
+              ;;                (println 'macro-expansion (&/ident->text real-name) "@" module-name)))]
               ]
           (&/flat-map% (partial analyse exo-type) macro-expansion))
 
@@ -406,7 +407,7 @@
 
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [:let [num-branches (&/|length ?branches)]
-        _ (&/assert! (> num-branches 0) "[Analyser Error] Can't have empty branches in \"case\" expression.")
+        _ (&/assert! (> num-branches 0) "[Analyser Error] Cannot have empty branches in \"case\" expression.")
         _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case\" expression.")
         =value (&&/analyse-1+ analyse ?value)
         :let [var?? (|case =value
@@ -548,25 +549,24 @@
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]
   (|do [_ &/ensure-statement
         module-name &/get-module-name
-        ? (&&module/defined? module-name ?name)]
-    (if ?
-      (&/fail-with-loc (str "[Analyser Error] Can't re-define " (str module-name ";" ?name)))
-      (|do [=value (&/without-repl-closure
-                    (&/with-scope ?name
-                      (&&/analyse-1+ analyse ?value)))
-            =meta (&&/analyse-1 analyse &type/Anns ?meta)
-            ==meta (eval! (optimize =meta))
-            _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
-            _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
-            _ (compile-def ?name (optimize =value) ==meta)
-            ;; TODO: Make the call to &type/reset-mappings unnecessary.
-            ;; It shouldn't be necessary to reset the mappings of the
-            ;; type-vars, because those mappings shouldn't stay around
-            ;; after being cleaned-up.
-            ;; I must figure out why they're staying around.
-            _ &type/reset-mappings]
-        (return &/$Nil))
-      )))
+        ? (&&module/defined? module-name ?name)
+        _ (&/assert! (not ?)
+                     (&/fail-with-loc (str "[Analyser Error] Cannot re-define " (str module-name ";" ?name))))
+        =value (&/without-repl-closure
+                (&/with-scope ?name
+                  (&&/analyse-1+ analyse ?value)))
+        =meta (&&/analyse-1 analyse &type/Anns ?meta)
+        ==meta (eval! (optimize =meta))
+        _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
+        _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
+        _ (compile-def ?name (optimize =value) ==meta)
+        ;; TODO: Make the call to &type/reset-mappings unnecessary.
+        ;; It should not be necessary to reset the mappings of the
+        ;; type-vars, because those mappings should not stay around
+        ;; after being cleaned-up.
+        ;; I must figure out why they're staying around.
+        _ &type/reset-mappings]
+    (return &/$Nil)))
 
 (defn ^:private merge-module-states
   "(-> Host Host Host)"
@@ -596,7 +596,7 @@
                            (&/get$ &&module/$defs)
                            &/|length
                            (= 0)))
-                ;; Don't modify the entry of the current module, to
+                ;; Do not modify the entry of the current module, to
                 ;; avoid overwritting it's data in improper ways.
                 ;; Since it's assumed the "original" old module
                 ;; contains all the proper own-module information.
@@ -635,13 +635,14 @@
                           (|let [[path alias] _import]
                             (&/without-repl
                              (&/save-module
-                              (|do [_ (if (= current-module path)
-                                        (&/fail-with-loc (str "[Analyser Error] Module can't import itself: " path))
-                                        (return nil))
+                              (|do [_ (&/assert! (not (= current-module path))
+                                                 (&/fail-with-loc (str "[Analyser Error] Module cannot import itself: " path)))
                                     already-compiled? (&&module/exists? path)
                                     active? (&&module/active-module? path)
+                                    ;; TODO: Enrich this error-message
+                                    ;; to explicitly show the cyclic dependency.
                                     _ (&/assert! (not active?)
-                                                 (str "[Analyser Error] Can't import a module that is mid-compilation: " path " @ " current-module))
+                                                 (str "[Analyser Error] Cannot import a module that is mid-compilation { cyclic dependency }: " path " @ " current-module))
                                     _ (&&module/add-import path)
                                     ?async (if (not already-compiled?)
                                              (compile-module path)
@@ -658,7 +659,7 @@
         ;; the environment forever, making type-checking slower.
         ;; The merging process for compilers more-or-less "fixes" the
         ;; problem by resetting the typing enviroment, but ideally
-        ;; those type-vars shouldn't survive in the first place.
+        ;; those type-vars should not survive in the first place.
         ;; TODO: MUST FIX
         _ (&/fold% (fn [compiler _async]
                      (|case @_async

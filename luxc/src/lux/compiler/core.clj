@@ -22,7 +22,7 @@
 
 ;; [Utils]
 (defn write-file [^String file-name ^bytes data]
-  (do (assert (not (.exists (File. file-name))) (str "Can't overwrite file: " file-name))
+  (do (assert (not (.exists (File. file-name))) (str "Cannot overwrite file: " file-name))
     (with-open [stream (BufferedOutputStream. (FileOutputStream. file-name))]
       (.write stream data)
       (.flush stream))))

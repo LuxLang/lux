@@ -310,7 +310,9 @@
                         def-meta ?meta]
                   def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
                               (catch Throwable t
-                                (&/assert! "Error during value initialization." (throwable->text t))))
+                                (&/assert! false
+                                           (str "Error during value initialization:\n"
+                                                (throwable->text t)))))
                   _ (&/without-repl-closure
                      (&a-module/define module-name ?name def-type def-meta def-value))
                   _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
@@ -333,7 +335,7 @@
                         (return nil))
 
                       [false (&/$Some _)]
-                      (&/fail-with-loc "[Compiler Error] Can't define tags for non-type.")
+                      (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
 
                       [true (&/$Some _)]
                       (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
@@ -377,7 +379,9 @@
                       def-meta ?meta]
                 def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
                             (catch Throwable t
-                              (&/assert! "Error during value initialization." (throwable->text t))))
+                              (&/assert! false
+                                         (str "Error during value initialization:\n"
+                                              (throwable->text t)))))
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))
                 _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
@@ -400,7 +404,7 @@
                       (return nil))
 
                     [false (&/$Some _)]
-                    (&/fail-with-loc "[Compiler Error] Can't define tags for non-type.")
+                    (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
 
                     [true (&/$Some _)]
                     (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")

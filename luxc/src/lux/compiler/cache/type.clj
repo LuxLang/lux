@@ -156,4 +156,4 @@
       (deserialize-univq input)
       (deserialize-exq input)
       (deserialize-host input)
-      (assert false (str "[Cache error] Can't deserialize type. --- " input))))
+      (assert false (str "[Cache error] Cannot deserialize type. --- " input))))

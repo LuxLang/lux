@@ -101,7 +101,7 @@
                               (return pre-quotes**))
         [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
                                    (if eol?
-                                     (&/fail-with-loc "[Lexer Error] Can't leave dangling back-slash \\")
+                                     (&/fail-with-loc "[Lexer Error] Cannot leave dangling back-slash \\")
                                      (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
                                            (odd? (.length back-slashes)))
                                        (|do [[_ eol?* _] (&reader/read-regex #"^([\"])")

@@ -197,7 +197,7 @@
             (&&lux/analyse-apply analyse cursor exo-type macro-caller =fn parameters))))
       
       _
-      (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (prn-str (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
+      (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token]))))
       )))
 
 ;; [Resources]

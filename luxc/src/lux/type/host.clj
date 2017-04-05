@@ -114,9 +114,10 @@
         (let [gvar (.getName ^TypeVariable refl-type)]
           (if-let [m-type (&/|get gvar matchings)]
             (return m-type)
-            (&/fail-with-loc (str "[Type Error] Unknown generic type variable: " gvar " -- " (->> matchings
-                                                                                       (&/|map &/|first)
-                                                                                       &/->seq)))))
+            (&/fail-with-loc (str "[Host Error] Unknown generic type-variable: " gvar "\n"
+                                  "Available type-variables: " (->> matchings
+                                                                    (&/|map &/|first)
+                                                                    &/->seq)))))
         
         (instance? WildcardType refl-type)
         (if-let [bound (->> ^WildcardType refl-type .getUpperBounds seq first)]
@@ -175,9 +176,10 @@
     (&/$GenericTypeVar var-name)
     (if-let [m-type (&/|get var-name matchings)]
       (return m-type)
-      (&/fail-with-loc (str "[Type Error] Unknown generic type variable: " var-name " -- " (->> matchings
-                                                                                     (&/|map &/|first)
-                                                                                     &/->seq))))
+      (&/fail-with-loc (str "[Host Error] Unknown generic type-variable: " var-name "\n"
+                            "Available type-variables: " (->> matchings
+                                                              (&/|map &/|first)
+                                                              &/->seq))))
     
     (&/$GenericWildcard)
     existential))
@@ -231,7 +233,7 @@
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
           (return (&/$HostT (.getName sub-class*) sub-params*))))
-      (&/fail-with-loc (str "[Type Error] Classes don't have a subtyping relationship: " sub-class " </= " super-class)))))
+      (&/fail-with-loc (str "[Host Error] Classes do not have a subtyping relationship: " sub-class " </= " super-class)))))
 
 (defn as-obj [class]
   (case class

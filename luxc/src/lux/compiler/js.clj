@@ -139,7 +139,7 @@
                 (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
                   (|do [module-exists? (&a-module/exists? name)]
                     (if module-exists?
-                      (&/fail-with-loc (str "[Compiler Error] Can't re-define a module: " name))
+                      (&/fail-with-loc (str "[Compiler Error] Cannot re-define a module: " name))
                       (|do [_ (&&cache/delete name)
                             _ (&&/init-buffer)
                             _ (&a-module/create-module name file-hash)

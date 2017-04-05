@@ -722,7 +722,7 @@
       +init-bindings+]
      ))
 
-(do-template [<tag> <host> <ask> <change> <with>]
+(do-template [<tag> <host-desc> <host> <ask> <change> <with>]
   (do (def <host>
         (fn [compiler]
           (|case (get$ $host compiler)
@@ -730,7 +730,8 @@
             (return* compiler host-data)
 
             _
-            ((fail-with-loc "[Error] Wrong host.") compiler))))
+            ((fail-with-loc (str "[Error] Wrong host.\nExpected: " <host-desc>))
+             compiler))))
 
     (def <ask>
       (fn [compiler]
@@ -753,8 +754,8 @@
             new-val (<change> slot (fn [_] old-val))]
         (return ?output-val))))
 
-  $Jvm jvm-host jvm? change-jvm-host-slot with-jvm-host-slot
-  $Js  js-host  js?  change-js-host-slot  with-js-host-slot
+  $Jvm "JVM" jvm-host jvm? change-jvm-host-slot with-jvm-host-slot
+  $Js  "JS"  js-host  js?  change-js-host-slot  with-js-host-slot
   )
 
 (do-template [<name> <slot>]
@@ -774,7 +775,7 @@
       (return writer)
 
       _
-      (fail-with-loc "[Error] Writer hasn't been set."))))
+      (fail-with-loc "[Error] Writer has not been set."))))
 
 (defn with-writer [writer body]
   (with-jvm-host-slot $writer (fn [_] ($Some writer)) body))
@@ -879,7 +880,8 @@
     (try (let [top (|head (get$ $scopes state))]
            (return* state top))
       (catch Throwable _
-        ((fail-with-loc "[Error] No local environment.") state)))))
+        ((fail-with-loc "[Error] No local environment.")
+         state)))))
 
 (def gen-id
   (fn [state]
@@ -908,7 +910,8 @@
   (fn [state]
     (|case (|reverse (get$ $scopes state))
       ($Nil)
-      ((fail-with-loc "[Analyser Error] Can't get the module-name without a module.") state)
+      ((fail-with-loc "[Analyser Error] Cannot get the module-name without a module.")
+       state)
 
       ($Cons ?global _)
       (return* state (|head (get$ $name ?global))))))
@@ -918,7 +921,8 @@
   (fn [state]
     (if-let [module (|get name (get$ $modules state))]
       (return* state module)
-      ((fail-with-loc (str "[Error] Unknown module: " name)) state))))
+      ((fail-with-loc (str "[Error] Unknown module: " name))
+       state))))
 
 (def get-current-module
   "(Lux (Module Compiler))"
@@ -1061,7 +1065,8 @@
       (return* state unit-tag)
 
       ($Some _)
-      ((fail-with-loc "[Error] All statements must be top-level forms.") state))))
+      ((fail-with-loc "[Error] All statements must be top-level forms.")
+       state))))
 
 (def cursor
   ;; (Lux Cursor)
@@ -1250,7 +1255,7 @@
     (return init)
 
     [_ _]
-    (assert false "Lists don't match in size.")))
+    (assert false "Lists do not match in size.")))
 
 (defn map2% [f xs ys]
   (|case [xs ys]
@@ -1263,7 +1268,7 @@
     (return $Nil)
 
     [_ _]
-    (assert false "Lists don't match in size.")))
+    (assert false "Lists do not match in size.")))
 
 (defn map2 [f xs ys]
   (|case [xs ys]

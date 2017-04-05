@@ -81,7 +81,7 @@
   (|do [current-module &/get-module-name]
     (fn [state]
       (if (&/|member? module (->> state (&/get$ &/$modules) (&/|get current-module) (&/get$ $imports)))
-        ((&/fail-with-loc (str "[Analyser Error] Can't import module " (pr-str module) " twice @ " current-module))
+        ((&/fail-with-loc (str "[Analyser Error] Cannot import module " (pr-str module) " twice @ " current-module))
          state)
         (return* (&/update$ &/$modules
                             (fn [ms]
@@ -122,7 +122,7 @@
                nil)
       
       _
-      ((&/fail-with-loc (str "[Analyser Error] Can't create a new global definition outside of a global environment: " module ";" name))
+      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " module ";" name))
        state))))
 
 (defn def-type
@@ -182,10 +182,10 @@
   (fn [state]
     (let [_module_ (->> state (&/get$ &/$modules) (&/|get module))]
       (if (&/|member? module (->> _module_ (&/get$ $imports)))
-        ((&/fail-with-loc (str "[Analyser Error] Can't create alias that is the same as a module nameL " (pr-str alias) " for " reference))
+        ((&/fail-with-loc (str "[Analyser Error] Cannot create alias that is the same as a module nameL " (pr-str alias) " for " reference))
          state)
         (if-let [real-name (->> _module_ (&/get$ $module-aliases) (&/|get alias))]
-          ((&/fail-with-loc (str "[Analyser Error] Can't re-use alias \"" alias "\" @ " module))
+          ((&/fail-with-loc (str "[Analyser Error] Cannot re-use alias \"" alias "\" @ " module))
            state)
           (return* (->> state
                         (&/update$ &/$modules
@@ -247,11 +247,11 @@
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
-                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Can't use unexported definition: " (str module &/+name-separator+ name)))
+                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use unexported definition: " (str module &/+name-separator+ name)))
                    state))))
             ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)))
              state))
-          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module doesn't exist: " module))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module))
            state))
         ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module))
          state))
@@ -311,7 +311,7 @@
   (|do [tags-table (tags-by-module module)
         _ (&/map% (fn [tag]
                     (if (&/|get tag tags-table)
-                      (&/fail-with-loc (str "[Analyser Error] Can't re-declare tag: " (&/ident->text (&/T [module tag]))))
+                      (&/fail-with-loc (str "[Analyser Error] Cannot re-declare tag: " (&/ident->text (&/T [module tag]))))
                       (return nil)))
                   tags)]
     (return nil)))
@@ -319,7 +319,7 @@
 (defn ensure-undeclared-type [module name]
   (|do [types-table (types-by-module module)
         _ (&/assert! (nil? (&/|get name types-table))
-                     (str "[Analyser Error] Can't re-declare type: " (&/ident->text (&/T [module name]))))]
+                     (str "[Analyser Error] Cannot re-declare type: " (&/ident->text (&/T [module name]))))]
     (return nil)))
 
 (defn declare-tags
@@ -329,7 +329,7 @@
         type-name (&type/type-name type)
         :let [[_module _name] type-name]
         _ (&/assert! (= module _module)
-                     (str "[Module Error] Can't define tags for a type belonging to a foreign module: " (&/ident->text type-name)))
+                     (str "[Module Error] Cannot define tags for a type belonging to a foreign module: " (&/ident->text type-name)))
         _ (ensure-undeclared-type _module _name)]
     (fn [state]
       (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
@@ -361,7 +361,7 @@
             (if (or ?exported
                     (= module current-module))
               (return* state &/unit-tag)
-              ((&/fail-with-loc (str "[Analyser Error] Can't access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))
+              ((&/fail-with-loc (str "[Analyser Error] Cannot access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))
                state)))
           ((&/fail-with-loc (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name]))))
            state))
@@ -408,7 +408,7 @@
     (|case (&meta/meta-get <tag> meta)
       (&/$Some (&/$BoolA true))
       (&/try-all% (&/|list (&type/check <type> type)
-                           (&/fail-with-loc (str "[Analyser Error] Can't tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
+                           (&/fail-with-loc (str "[Analyser Error] Cannot tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
 
       _
       (return nil)))
@@ -428,7 +428,7 @@
                 (return (&/T [_module _alias]))
 
                 _
-                (&/fail-with-loc "[Analyser Error] Wrong import syntax.")))
+                (&/fail-with-loc "[Analyser Error] Incorrect import syntax.")))
             _parts)
 
     _

@@ -37,4 +37,4 @@
         (return (&/T [host-file-name code]))
         (if-let [code (get @!libs lux-file-name)]
           (return (&/T [lux-file-name code]))
-          (&/fail-with-loc (str "[I/O Error] Module doesn't exist: " module-name)))))))
+          (&/fail-with-loc (str "[I/O Error] Module does not exist: " module-name)))))))

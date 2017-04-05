@@ -62,7 +62,7 @@
   (fn [state]
     (|case (&/get$ &/$scopes state)
       (&/$Nil)
-      ((&/fail-with-loc "[Analyser Error] Can't obtain captured vars without environments.")
+      ((&/fail-with-loc "[Analyser Error] Cannot obtain captured vars without environments.")
        state)
 
       (&/$Cons env _)

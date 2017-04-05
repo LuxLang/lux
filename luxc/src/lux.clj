@@ -31,4 +31,4 @@
                 target-dir)
 
     _
-    (println "Can't understand command.")))
+    (println "Cannot understand command.")))

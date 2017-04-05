@@ -254,7 +254,7 @@
          ;; done to ensure variants were never created with null
          ;; values (this would interfere later with
          ;; pattern-matching).
-         ;; Since Lux itself doesn't have null values as part of
+         ;; Since Lux itself does not have null values as part of
          ;; the language, the burden of ensuring non-nulls was
          ;; shifted to library code dealing with host-interop, to
          ;; ensure variant-making was as fast as possible.
@@ -285,7 +285,7 @@
                ;; (.visitLabel $is-null)
                ;; (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
                ;; (.visitInsn Opcodes/DUP)
-               ;; (.visitLdcInsn "Can't create variant for null pointer")
+               ;; (.visitLdcInsn "Cannot create variant for null pointer")
                ;; (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V")
                ;; (.visitInsn Opcodes/ATHROW)
                (.visitMaxs 0 0)

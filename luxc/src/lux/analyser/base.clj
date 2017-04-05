@@ -55,7 +55,7 @@
       (return x)
 
       _
-      (&/fail-with-loc "[Analyser Error] Can't expand to other than 1 element."))))
+      (&/fail-with-loc "[Analyser Error] Macro cannot expand to more than 1 output."))))
 
 (defn analyse-1 [analyse exo-type elem]
   (&/with-expected-type exo-type

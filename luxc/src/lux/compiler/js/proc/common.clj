@@ -604,4 +604,4 @@
       )
     
     ;; else
-    (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " [category proc]))))
+    (&/fail-with-loc (str "[Compiler Error] Unknown procedure: " [category proc]))))

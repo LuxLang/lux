@@ -180,7 +180,7 @@
       (apply-type! =type-fun param))
     
     _
-    (&/fail-with-loc (str "[Type System] Not a type function:\n" (&type/show-type type-fn) "\n"))))
+    (&/fail-with-loc (str "[Type System] Not a type-function:\n" (&type/show-type type-fn) "\n"))))
 
 (defn adjust-type* [up type]
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
@@ -245,7 +245,7 @@
     (return type)
 
     _
-    (&/fail-with-loc (str "[Pattern-matching Error] Can't adjust type: " (&type/show-type type)))
+    (&/fail-with-loc (str "[Pattern-matching Error] Cannot pattern-match against type: " (&type/show-type type)))
     ))
 
 (defn adjust-type [type]
@@ -335,9 +335,10 @@
                                                (return (&/T [&/$Nil =kont])))
                                              (&/|reverse (&/zip2 _tuple-types ?members)))]
                   (return (&/T [($TupleTestAC =tests) =kont])))
-                (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "]"
-                                      " -- " (&/show-ast pattern)
-                                      " " (&type/show-type value-type*) " " (&type/show-type value-type)))))
+                (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Requires tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "].\n"
+                                      "           At: " (&/show-ast pattern) "\n"
+                                      "Expected type: " (&type/show-type value-type*) "\n"
+                                      "  Actual type: " (&type/show-type value-type)))))
 
             _
             (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
@@ -523,7 +524,9 @@
                                  (merge-total v (&/T [t ?body])))
                                ?values ?tests)]
           (return ($TupleTotal total? structs)))
-        (&/fail-with-loc "[Pattern-matching Error] Inconsistent tuple-size."))
+        (&/fail-with-loc (str "[Pattern-matching Error] Inconsistent tuple-size.\n"
+                              "Expected: " (&/|length ?values) "\n"
+                              "  Actual: " (&/|length ?tests))))
 
       [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
       (|do [sub-struct (merge-total ($DefaultTotal total?)
@@ -533,7 +536,7 @@
                       (return list)
 
                       (&/$None)
-                      (&/fail-with-loc "[Pattern-matching Error] YOLO"))]
+                      (assert false))]
         (return ($VariantTotal total? structs)))
 
       [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
@@ -549,7 +552,7 @@
                       (return list)
 
                       (&/$None)
-                      (&/fail-with-loc "[Pattern-matching Error] YOLO"))]
+                      (assert false))]
         (return ($VariantTotal total? structs)))
       )))
 
@@ -623,11 +626,11 @@
               (|case value-type*
                 (&/$ProdT _)
                 (|let [num-elems (&/|length ?structs)
-                       [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?structs) value-type*)]
-                  (if (= num-elems _shorter)
-                    (|do [totals (&/map2% check-totality _tuple-types ?structs)]
-                      (return (&/fold #(and %1 %2) true totals)))
-                    (&/fail-with-loc (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]"))))
+                       [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?structs) value-type*)
+                       _ (&/assert! (= num-elems _shorter)
+                                    (&/fail-with-loc (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]")))]
+                  (|do [totals (&/map2% check-totality _tuple-types ?structs)]
+                    (return (&/fold #(and %1 %2) true totals))))
                 
                 _
                 (&/fail-with-loc (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
@@ -655,7 +658,6 @@
                           &/$Nil
                           branches)
         struct (&/fold% merge-total ($DefaultTotal false) patterns)
-        ? (check-totality value-type struct)]
-    (if ?
-      (return patterns)
-      (&/fail-with-loc "[Pattern-maching Error] Pattern-matching is non-total."))))
+        ? (check-totality value-type struct)
+        _ (&/assert! ? "[Pattern-maching Error] Pattern-matching is not total.")]
+    (return patterns)))

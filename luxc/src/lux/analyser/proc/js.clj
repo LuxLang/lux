@@ -89,5 +89,5 @@
     "null"         (analyse-js-null analyse exo-type ?values)
     "undefined"    (analyse-js-undefined analyse exo-type ?values)
     ;; else
-    (&/fail-with-loc (str "[Analyser Error] Unknown JS procedure: " proc)))
+    (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " ["js" proc])))
   )

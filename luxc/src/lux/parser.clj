@@ -45,9 +45,9 @@
         :let [elems (&/fold &/|++ &/$Nil elems*)]]
     (|case token
       [meta (&lexer/$Close_Brace _)]
-      (if (even? (&/|length elems))
-        (return (&/$RecordS (&/|as-pairs elems)))
-        (&/fail-with-loc base-uneven-record-error))
+      (|do [_ (&/assert! (even? (&/|length elems))
+                         (&/fail-with-loc base-uneven-record-error))]
+        (return (&/$RecordS (&/|as-pairs elems))))
       
       _
       (&/fail-with-loc "[Parser Error] Unbalanced braces.")

@@ -25,7 +25,7 @@
 
   ;; These other tags represent higher-order constructs that manifest
   ;; themselves as patterns in the code.
-  ;; Lux doesn't formally provide these features, but some macros
+  ;; Lux does not formally provide these features, but some macros
   ;; expose ways to implement them in terms of the other (primitive)
   ;; features.
   ;; The optimizer looks for those usage patterns and transforms them
@@ -59,7 +59,7 @@
 ;; (possibly) branching path, where each step along the path
 ;; corresponds to a value, the ends of the path are the jumping-off
 ;; points for the bodies of branches, and branching decisions can be
-;; backtracked, if they don't result in a valid jump.
+;; backtracked, if they do not result in a valid jump.
 (defvariant
   ;; Throw away the current data-node (CDN). It's useless.
   ("PopPM" 0)
@@ -213,7 +213,7 @@
 
     (&a-case/$TupleTestAC _sub-tests)
     (|case _sub-tests
-      ;; An empty tuple corresponds to unit, which can't be tested in
+      ;; An empty tuple corresponds to unit, which cannot be tested in
       ;; any meaningful way, so it's just popped.
       (&/$Nil)
       (&/|list $PopPM)
@@ -844,7 +844,7 @@
 
 ;; [[Loop Optimizations]]
 
-;; Lux doesn't offer any looping constructs, relying instead on
+;; Lux does not offer any looping constructs, relying instead on
 ;; recursion.
 ;; Some common usages of recursion can be written more efficiently
 ;; just using regular loops/iteration.

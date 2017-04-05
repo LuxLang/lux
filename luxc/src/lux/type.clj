@@ -178,7 +178,7 @@
         
         (&/$None)
         (return* state false))
-      ((&/fail-with-loc (str "[Type Error] <bound?> Unknown type-var: " id))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id))
        state))))
 
 (defn deref [id]
@@ -191,7 +191,7 @@
         (&/$None)
         ((&/fail-with-loc (str "[Type Error] Unbound type-var: " id))
          state))
-      ((&/fail-with-loc (str "[Type Error] <deref> Unknown type-var: " id))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id))
        state))))
 
 (defn deref+ [type]
@@ -210,7 +210,7 @@
         (&/$Some bound)
         (if (type= type bound)
           (return* state nil)
-          ((&/fail-with-loc (str "[Type Error] Can't re-bind type var: " id " | Current type: " (show-type bound)))
+          ((&/fail-with-loc (str "[Type Error] Cannot re-bind type var: " id " | Current type: " (show-type bound)))
            state))
         
         (&/$None)
@@ -218,7 +218,7 @@
                                                             ts))
                             state)
                  nil))
-      ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
        state))))
 
 (defn reset-var [id type]
@@ -228,7 +228,7 @@
                                                           ts))
                           state)
                nil)
-      ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
        state))))
 
 (defn unset-var [id]
@@ -238,7 +238,7 @@
                                                           ts))
                           state)
                nil)
-      ((&/fail-with-loc (str "[Type Error] <set-var> Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
        state))))
 
 ;; [Exports]
@@ -422,7 +422,7 @@
         _
         (&/fail-with-loc (str "[Type Error] Type is not a " <desc> ": " (show-type type))))))
 
-  &/$SumT  flatten-sum  sum-at "Sum"
+  &/$SumT  flatten-sum  sum-at  "Sum"
   &/$ProdT flatten-prod prod-at "Product"
   )
 
@@ -583,9 +583,9 @@
   (|do [=expected (show-type+ expected)
         =actual (show-type+ actual)]
     (&/fail-with-loc (str (if (= "" err) err (str err "\n"))
-                          "[Type Checker]\n"
+                          "[Type Checker Error]\n"
                           "Expected: " =expected "\n\n"
-                          "Actual:   " =actual
+                          "  Actual: " =actual
                           "\n"))))
 
 (defn beta-reduce [env type]
