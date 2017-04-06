@@ -238,13 +238,12 @@
                              assume
                              []
                              (_lux_proc ["char" "to-text"]))]
-             (let [digit (assume (_lux_proc ["text" "char"] [<char-set> (int-to-nat (i.% <base> input))]))
-                   output' (_lux_proc ["text" "append"] [(_lux_proc ["char" "to-text"] [digit])
-                                                         output])
-                   input' (i./ <base> input)]
-               (if (i.= 0 input')
-                 (_lux_proc ["text" "append"] [sign output'])
-                 (recur input' output')))))))
+             (if (i.= 0 input)
+               (_lux_proc ["text" "append"] [sign output])
+               (let [digit (assume (_lux_proc ["text" "char"] [<char-set> (int-to-nat (i.% <base> input))]))]
+                 (recur (i./ <base> input)
+                        (_lux_proc ["text" "append"] [(_lux_proc ["char" "to-text"] [digit])
+                                                      output]))))))))
 
      (def: (decode repr)
        (let [input-size (_lux_proc ["text" "size"] [repr])]
@@ -305,17 +304,253 @@
              (^=> (#;Some #".")
                   [(:: <nat> decode (_lux_proc ["text" "append"] ["+" (de-prefix repr)]))
                    (#;Some output)])
-             (#;Some (:! Deg output))
+             (#;Right (:! Deg output))
 
              _
              (#;Left (_lux_proc ["text" "append"] [<error> repr])))
            (#;Left (_lux_proc ["text" "append"] [<error> repr]))))))]
 
   [Binary@Codec<Text,Deg> Binary@Codec<Text,Nat> +1 "Invalid binary syntax: "]
+  [Octal@Codec<Text,Deg>  Octal@Codec<Text,Nat>  +3 "Invalid octal syntax: "]
   [Hex@Codec<Text,Deg>    Hex@Codec<Text,Nat>    +4 "Invalid hexadecimal syntax: "]
   )
 
-(do-template [<macro> <nat> <int> <error> <doc>]
+(do-template [<struct> <int> <base> <char-set> <error>]
+  [(struct: #export <struct> (Codec Text Real)
+     (def: (encode value)
+       (let [whole (real-to-int value)
+             whole-part (:: <int> encode whole)
+             decimal (:: Number<Real> abs (r.% 1.0 value))
+             decimal-part (if (r.= 0.0 decimal)
+                            ".0"
+                            (loop [dec-left decimal
+                                   output ""]
+                              (if (r.= 0.0 dec-left)
+                                (_lux_proc ["text" "append"] ["." output])
+                                (let [shifted (r.* <base> dec-left)
+                                      digit (|> shifted (r.% <base>) real-to-int int-to-nat
+                                                [<char-set>] (_lux_proc ["text" "char"]) assume
+                                                [] (_lux_proc ["char" "to-text"]))]
+                                  (recur (r.% 1.0 shifted)
+                                         (_lux_proc ["text" "append"] [output digit]))))))]
+         (_lux_proc ["text" "append"] [whole-part decimal-part])))
+
+     (def: (decode repr)
+       (case (_lux_proc ["text" "index"] [repr "." +0])
+         (#;Some split-index)
+         (let [whole-part (assume (_lux_proc ["text" "clip"] [repr +0 split-index]))
+               decimal-part (assume (_lux_proc ["text" "clip"] [repr (n.inc split-index) (_lux_proc ["text" "size"] [repr])]))]
+           (case [(:: <int> decode whole-part)
+                  (:: <int> decode decimal-part)]
+             (^=> [(#;Some whole) (#;Some decimal)]
+                  (i.>= 0 decimal))
+             (let [sign (if (i.< 0 whole)
+                          -1.0
+                          1.0)
+                   div-power (loop [muls-left (_lux_proc ["text" "size"] [decimal-part])
+                                    output 1.0]
+                               (if (n.= +0 muls-left)
+                                 output
+                                 (recur (n.dec muls-left)
+                                        (r.* <base> output))))
+                   adjusted-decimal (|> decimal int-to-real (r./ div-power))
+                   dec-deg (case (:: Hex@Codec<Text,Deg> decode (_lux_proc ["text" "append"] ["." decimal-part]))
+                             (#;Right dec-deg)
+                             dec-deg
+
+                             (#;Left error)
+                             (error! error))]
+               (#;Right (r.+ (int-to-real whole)
+                             (r.* sign adjusted-decimal))))
+
+             _
+             (#;Left (_lux_proc ["text" "append"] [<error> repr]))))
+
+         _
+         (#;Left (_lux_proc ["text" "append"] [<error> repr])))))]
+
+  [Binary@Codec<Text,Real> Binary@Codec<Text,Int> 2.0 "01" "Invalid binary syntax: "]
+  )
+
+(def: (segment-digits chunk-size digits)
+  (-> Nat Text (List Text))
+  (let [num-digits (_lux_proc ["text" "size"] [digits])]
+    (if (n.<= chunk-size num-digits)
+      (list digits)
+      (let [chunk (assume (_lux_proc ["text" "clip"] [digits +0 chunk-size]))
+            remaining (assume (_lux_proc ["text" "clip"] [digits chunk-size num-digits]))]
+        (list& chunk (segment-digits chunk-size remaining))))))
+
+(def: (bin-segment-to-hex input)
+  (-> Text Text)
+  (case input
+    "0000" "0"
+    "0001" "1"
+    "0010" "2"
+    "0011" "3"
+    "0100" "4"
+    "0101" "5"
+    "0110" "6"
+    "0111" "7"
+    "1000" "8"
+    "1001" "9"
+    "1010" "A"
+    "1011" "B"
+    "1100" "C"
+    "1101" "D"
+    "1110" "E"
+    "1111" "F"
+    _ (undefined)))
+
+(def: (hex-segment-to-bin input)
+  (-> Text Text)
+  (case input
+    "0" "0000"
+    "1" "0001"
+    "2" "0010"
+    "3" "0011"
+    "4" "0100"
+    "5" "0101"
+    "6" "0110"
+    "7" "0111"
+    "8" "1000"
+    "9" "1001"
+    "A" "1010"
+    "B" "1011"
+    "C" "1100"
+    "D" "1101"
+    "E" "1110"
+    "F" "1111"
+    _ (undefined)))
+
+(def: (bin-segment-to-octal input)
+  (-> Text Text)
+  (case input
+    "000" "0"
+    "001" "1"
+    "010" "2"
+    "011" "3"
+    "100" "4"
+    "101" "5"
+    "110" "6"
+    "111" "7"
+    _ (undefined)))
+
+(def: (octal-segment-to-bin input)
+  (-> Text Text)
+  (case input
+    "0" "000"
+    "1" "001"
+    "2" "010"
+    "3" "011"
+    "4" "100"
+    "5" "101"
+    "6" "110"
+    "7" "111"
+    _ (undefined)))
+
+(def: (map f xs)
+  (All [a b] (-> (-> a b) (List a) (List b)))
+  (case xs
+    #;Nil
+    #;Nil
+    
+    (#;Cons x xs')
+    (#;Cons (f x) (map f xs'))))
+
+(def: (re-join-chunks xs)
+  (-> (List Text) Text)
+  (case xs
+    #;Nil
+    ""
+
+    (#;Cons x xs')
+    (_lux_proc ["text" "append"] [x (re-join-chunks xs')])))
+
+(do-template [<from> <from-translator> <to> <to-translator> <base-bits>]
+  [(def: (<from> input)
+     (-> Text Text)
+     (let [max-num-chars (n./ <base-bits> +64)
+           input-size (_lux_proc ["text" "size"] [input])
+           zero-padding (let [num-digits-that-need-padding (n.% <base-bits> input-size)]
+                          (if (n.= +0 num-digits-that-need-padding)
+                            ""
+                            (loop [zeroes-left (n.- num-digits-that-need-padding
+                                                    <base-bits>)
+                                   output ""]
+                              (if (n.= +0 zeroes-left)
+                                output
+                                (recur (n.dec zeroes-left)
+                                       (_lux_proc ["text" "append"] ["0" output]))))))
+           padded-input (_lux_proc ["text" "append"] [input zero-padding])]
+       (|> padded-input
+           (segment-digits <base-bits>)
+           (map <from-translator>)
+           re-join-chunks)))
+
+   (def: (<to> input)
+     (-> Text Text)
+     (|> input
+         (segment-digits +1)
+         (map <to-translator>)
+         re-join-chunks))]
+
+  [binary-to-hex   bin-segment-to-hex   hex-to-binary   hex-segment-to-bin   +4]
+  [binary-to-octal bin-segment-to-octal octal-to-binary octal-segment-to-bin +3]
+  )
+
+(do-template [<struct> <error> <from> <to>]
+  [(struct: #export <struct> (Codec Text Real)
+     (def: (encode value)
+       (let [sign (:: Number<Real> signum value)
+             raw-bin (:: Binary@Codec<Text,Real> encode value)
+             dot-idx (assume (_lux_proc ["text" "index"] [raw-bin "." +0]))
+             whole-part (assume (_lux_proc ["text" "clip"] [raw-bin
+                                                            (if (r.= -1.0 sign) +1 +0)
+                                                            dot-idx]))
+             decimal-part (assume (_lux_proc ["text" "clip"] [raw-bin (n.inc dot-idx) (_lux_proc ["text" "size"] [raw-bin])]))
+             hex-output (|> (<from> decimal-part)
+                            ["."]
+                            (_lux_proc ["text" "append"])
+                            [(<from> whole-part)]
+                            (_lux_proc ["text" "append"])
+                            [(if (r.= -1.0 sign) "-" "")]
+                            (_lux_proc ["text" "append"]))]
+         hex-output))
+
+     (def: (decode repr)
+       (let [sign (case (_lux_proc ["text" "index"] [repr "-" +0])
+                    (#;Some +0)
+                    -1.0
+
+                    _
+                    1.0)]
+         (case (_lux_proc ["text" "index"] [repr "." +0])
+           (#;Some split-index)
+           (let [whole-part (assume (_lux_proc ["text" "clip"] [repr (if (r.= -1.0 sign) +1 +0) split-index]))
+                 decimal-part (assume (_lux_proc ["text" "clip"] [repr (n.inc split-index) (_lux_proc ["text" "size"] [repr])]))
+                 as-binary (|> (<to> decimal-part)
+                               ["."]
+                               (_lux_proc ["text" "append"])
+                               [(<to> whole-part)]
+                               (_lux_proc ["text" "append"])
+                               [(if (r.= -1.0 sign) "-" "")]
+                               (_lux_proc ["text" "append"]))]
+             (case (:: Binary@Codec<Text,Real> decode as-binary)
+               (#;Left _)
+               (#;Left (_lux_proc ["text" "append"] [<error> repr]))
+
+               output
+               output))
+
+           _
+           (#;Left (_lux_proc ["text" "append"] [<error> repr]))))))]
+
+  [Octal@Codec<Text,Real> "Invalid octaladecimal syntax: " binary-to-octal octal-to-binary]
+  [Hex@Codec<Text,Real>   "Invalid hexadecimal syntax: "   binary-to-hex   hex-to-binary]
+  )
+
+(do-template [<macro> <nat> <int> <deg> <real> <error> <doc>]
   [(macro: #export (<macro> tokens state)
      {#;doc <doc>}
      (case tokens
@@ -328,22 +563,30 @@
               [(:: <int> decode repr) (#;Right value)])
          (#;Right [state (list [meta (#;IntS value)])])
 
+         (^=> (#;Left _)
+              [(:: <deg> decode repr) (#;Right value)])
+         (#;Right [state (list [meta (#;DegS value)])])
+
+         (^=> (#;Left _)
+              [(:: <real> decode repr) (#;Right value)])
+         (#;Right [state (list [meta (#;RealS value)])])
+
          _
          (#;Left <error>))
 
        _
        (#;Left <error>)))]
 
-  [bin Binary@Codec<Text,Nat> Binary@Codec<Text,Int>
+  [bin Binary@Codec<Text,Nat> Binary@Codec<Text,Int> Binary@Codec<Text,Deg> Binary@Codec<Text,Real>
    "Invalid binary syntax."
-   (doc "Given syntax for a binary number, generates a Nat, an Int, a Real or a Deg."
+   (doc "Given syntax for a binary number, generates a Nat, an Int, a Deg or a Real."
         (bin "11001001"))]
-  [oct Octal@Codec<Text,Nat>  Octal@Codec<Text,Int>
+  [oct Octal@Codec<Text,Nat>  Octal@Codec<Text,Int>  Octal@Codec<Text,Deg>  Octal@Codec<Text,Real>
    "Invalid octal syntax."
-   (doc "Given syntax for an octal number, generates a Nat, an Int, a Real or a Deg."
+   (doc "Given syntax for a octal number, generates a Nat, an Int, a Deg or a Real."
         (oct "615243"))]
-  [hex Hex@Codec<Text,Nat>    Hex@Codec<Text,Int>
+  [hex Hex@Codec<Text,Nat>    Hex@Codec<Text,Int>    Hex@Codec<Text,Deg>    Hex@Codec<Text,Real>
    "Invalid hexadecimal syntax."
-   (doc "Given syntax for a hexadecimal number, generates a Nat, an Int, a Real or a Deg."
+   (doc "Given syntax for a hexadecimal number, generates a Nat, an Int, a Deg or a Real."
         (hex "deadBEEF"))]
   )
