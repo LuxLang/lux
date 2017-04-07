@@ -1,0 +1,264 @@
+(;module: {#;doc "Functionality for reading, generating and processing values in the XML format."}
+  lux
+  (lux (control monad
+                eq
+                codec)
+       (data [text "text/" Eq<Text>]
+             text/format
+             (text ["l" lexer "lex/" Monad<Lexer>])
+             [number]
+             error
+             [char "c/" Eq<Char>]
+             [product]
+             [maybe "m/" Monad<Maybe>]
+             [ident "Ident/" Eq<Ident>]
+             (coll [list "L/" Monad<List>]
+                   ["D" dict]
+                   (tree ["T" rose]
+                         ["Z" zipper])))
+       ))
+
+## [Types]
+(type: #export Tag Ident)
+(type: #export Attrs (D;Dict Ident Text))
+
+(type: #export #rec XML
+  (#Text Text)
+  (#Node Tag Attrs (List XML)))
+
+(def: #export (text value)
+  (-> Text XML)
+  (#Text value))
+
+(def: #export (node tag attrs children)
+  (-> Tag Attrs (List XML) XML)
+  (#Node tag attrs children))
+
+## [Parsing]
+(def: xml-standard-escape-char^
+  (l;Lexer Char)
+  ($_ l;either
+      (l;after (l;text "&lt;") (lex/wrap #"<"))
+      (l;after (l;text "&gt;") (lex/wrap #">"))
+      (l;after (l;text "&amp;") (lex/wrap #"&"))
+      (l;after (l;text "&apos;") (lex/wrap #"'"))
+      (l;after (l;text "&quot;") (lex/wrap #"\""))))
+
+(def: xml-unicode-escape-char^
+  (l;Lexer Char)
+  (|> (do l;Monad<Lexer>
+        [hex? (l;opt (l;text "x"))
+         code (case hex?
+                #;None
+                (l;codec number;Codec<Text,Int> (l;many' l;digit))
+
+                (#;Some _)
+                (l;codec number;Hex@Codec<Text,Int> (l;many' l;hex-digit)))]
+        (wrap (|> code int-to-nat char;char)))
+      (l;before (l;text ";"))
+      (l;after (l;text "&#"))))
+
+(def: xml-escape-char^
+  (l;Lexer Char)
+  (l;either xml-standard-escape-char^
+            xml-unicode-escape-char^))
+
+(def: xml-char^
+  (l;Lexer Char)
+  (l;either (l;none-of "<>&'\"")
+            xml-escape-char^))
+
+(def: xml-identifier
+  (l;Lexer Text)
+  (do l;Monad<Lexer>
+    [head (l;either (l;char #"_")
+                    l;alpha)
+     tail (l;some' (l;either (l;one-of "_.-")
+                             l;alpha-num))]
+    (wrap (format (char;as-text head) tail))))
+
+(def: namespaced-symbol^
+  (l;Lexer Ident)
+  (do l;Monad<Lexer>
+    [first-part xml-identifier
+     ?second-part (<| l;opt (l;after (l;char #":")) xml-identifier)]
+    (case ?second-part
+      #;None
+      (wrap ["" first-part])
+
+      (#;Some second-part)
+      (wrap [first-part second-part]))))
+
+(def: tag^ namespaced-symbol^)
+(def: attr-name^ namespaced-symbol^)
+
+(def: spaced^
+  (All [a] (-> (l;Lexer a) (l;Lexer a)))
+  (let [white-space^ (l;some l;space)]
+    (|>. (l;before white-space^)
+         (l;after white-space^))))
+
+(def: attr-value^
+  (l;Lexer Text)
+  (let [value^ (l;some' xml-char^)]
+    (l;either (l;enclosed ["\"" "\""] value^)
+              (l;enclosed ["'" "'"] value^))))
+
+(def: attrs^
+  (l;Lexer Attrs)
+  (<| (:: l;Monad<Lexer> map (D;from-list ident;Hash<Ident>))
+      l;some
+      (l;seq (spaced^ attr-name^))
+      (l;after (l;char #"="))
+      (spaced^ attr-value^)))
+
+(def: (close-tag^ expected)
+  (-> Tag (l;Lexer []))
+  (do l;Monad<Lexer>
+    [actual (|> tag^
+                spaced^
+                (l;after (l;char #"/"))
+                (l;enclosed ["<" ">"]))]
+    (l;assert (format "Close tag does not match open tag.\n"
+                      "Expected: " (%ident expected) "\n"
+                      "  Actual: " (%ident actual) "\n")
+              (Ident/= expected actual))))
+
+(def: comment^
+  (l;Lexer Text)
+  (|> (l;some' (l;not (l;text "--")))
+      (l;after (l;text "-->"))
+      (l;after (l;text "<--"))
+      spaced^))
+
+(def: xml-header^
+  (l;Lexer Attrs)
+  (|> (spaced^ attrs^)
+      (l;before (l;text "?>"))
+      (l;after (l;text "<?xml"))
+      spaced^))
+
+(def: cdata^
+  (l;Lexer Text)
+  (let [end (l;text "]]>")]
+    (|> (l;some' (l;not end))
+        (l;after end)
+        (l;after (l;text "<![CDATA["))
+        spaced^)))
+
+(def: text^
+  (l;Lexer XML)
+  (|> (l;either cdata^
+                (l;many' xml-char^))
+      (lex/map (|>. text;trim #Text))))
+
+(def: xml^
+  (l;Lexer XML)
+  (|> (l;rec
+       (lambda [node^]
+         (l;either text^
+                   (spaced^
+                    (do l;Monad<Lexer>
+                      [_ (l;char #"<")
+                       tag (spaced^ tag^)
+                       attrs (spaced^ attrs^)
+                       #let [no-children^ (do l;Monad<Lexer>
+                                            [_ (l;text "/>")]
+                                            (wrap (node tag attrs (list))))
+                             with-children^ (do l;Monad<Lexer>
+                                              [_ (l;char #">")
+                                               children (l;some node^)
+                                               _ (close-tag^ tag)]
+                                              (wrap (node tag attrs children)))]]
+                      (l;either no-children^
+                                with-children^))))))
+      ## This is put outside of the call to "rec" because comments
+      ## cannot be located inside of XML nodes.
+      ## This way, the comments can only be before or after the main document.
+      (l;before (l;some comment^))
+      (l;after (l;some comment^))
+      (l;after xml-header^)))
+
+(def: #export (read-xml input)
+  (-> Text (Error XML))
+  (case (l;run' input xml^)
+    (#;Right ["" output])
+    (#;Right output)
+
+    (#;Some [input-left output])
+    (#;Left (format "Unconsumed input: " (%t input-left)))
+
+    (#;Left error)
+    (#;Left error)))
+
+## [Generation]
+(def: (sanitize-value input)
+  (-> Text Text)
+  (|> input
+      (text;replace-all "&" "&amp;")
+      (text;replace-all "<" "&lt;")
+      (text;replace-all ">" "&gt;")
+      (text;replace-all "'" "&apos;")
+      (text;replace-all "\"" "&quot;")))
+
+(def: (write-tag [namespace name])
+  (-> Tag Text)
+  (case namespace
+    "" name
+    _ (format namespace ":" name)))
+
+(def: (write-attrs attrs)
+  (-> Attrs Text)
+  (|> attrs
+      D;entries
+      (L/map (lambda [[key value]]
+               (format (write-tag key) "=" "\""(sanitize-value value) "\"")))
+      (text;join-with " ")))
+
+(def: xml-header
+  Text
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+
+(def: #export (write-xml input)
+  (-> XML Text)
+  (format xml-header
+          (loop [input input]
+            (case input
+              (#Text value)
+              (sanitize-value value)
+              
+              (#Node xml-tag xml-attrs xml-children)
+              (let [tag (write-tag xml-tag)
+                    attrs (if (D;empty? xml-attrs)
+                            ""
+                            (format " " (write-attrs xml-attrs)))]
+                (if (list;empty? xml-children)
+                  (format "<" tag attrs "/>")
+                  (format "<" tag attrs ">"
+                          (|> xml-children
+                              (L/map recur)
+                              (text;join-with ""))
+                          "</" tag ">")))))))
+
+## [Structs]
+(struct: #export _ (Codec Text XML)
+  (def: encode write-xml)
+  (def: decode read-xml))
+
+(struct: #export _ (Eq XML)
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Text reference/value) (#Text sample/value)]
+      (text/= reference/value sample/value)
+
+      [(#Node reference/tag reference/attrs reference/children)
+       (#Node sample/tag sample/attrs sample/children)]
+      (and (Ident/= reference/tag sample/tag)
+           (:: (D;Eq<Dict> text;Eq<Text>) = reference/attrs sample/attrs)
+           (n.= (list;size reference/children)
+                (list;size sample/children))
+           (|> (list;zip2 reference/children sample/children)
+               (list;every? (product;uncurry =))))
+
+      _
+      false)))
