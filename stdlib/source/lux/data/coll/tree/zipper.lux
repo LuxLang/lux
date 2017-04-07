@@ -1,8 +1,11 @@
 (;module:
   lux
-  (lux (data (coll [list "" Monad<List> Fold<List> "List/" Monoid<List>]
-                   (tree [rose #+ Tree])
-                   [stack #+ Stack]))
+  (lux (control functor
+                comonad)
+       (data (coll [list "L/" Monad<List> Fold<List> Monoid<List>]
+                   (tree [rose #+ Tree "T/" Functor<Tree>])
+                   [stack #+ Stack])
+             [maybe "M/" Monad<Maybe>])
        [compiler]
        (macro [ast]
               ["s" syntax #+ syntax: Syntax])))
@@ -71,9 +74,9 @@
     (|> parent
         (update@ #node (: (-> (Tree ($ +0)) (Tree ($ +0)))
                           (lambda [node]
-                            (set@ #rose;children (List/append (list;reverse (get@ #lefts zipper))
-                                                              (#;Cons (get@ #node zipper)
-                                                                      (get@ #rights zipper)))
+                            (set@ #rose;children (L/append (list;reverse (get@ #lefts zipper))
+                                                           (#;Cons (get@ #node zipper)
+                                                                   (get@ #rights zipper)))
                                   node)))))))
 
 (def: #export (root zipper)
@@ -99,7 +102,7 @@
 
    (def: #export (<all-name> zipper)
      (All [a] (-> (Zipper a) (Zipper a)))
-     (fold (lambda [_] <one-name>) zipper (get@ <side> zipper)))]
+     (L/fold (lambda [_] <one-name>) zipper (get@ <side> zipper)))]
 
   [right rightmost #rights #lefts]
   [left  leftmost  #lefts  #rights]
@@ -117,16 +120,18 @@
   (All [a] (-> a (Zipper a) (Zipper a)))
   (update@ [#node #rose;children]
            (lambda [children]
-             (#;Cons (rose;tree ($ +0) {value []})
-                     children))
+             (list& (: (Tree ($ +0))
+                       (rose;tree [value {}]))
+                    children))
            zipper))
 
 (def: #export (append-child value zipper)
   (All [a] (-> a (Zipper a) (Zipper a)))
   (update@ [#node #rose;children]
            (lambda [children]
-             (List/append children
-                          (list (rose;tree ($ +0) {value []}))))
+             (L/append children
+                       (list (: (Tree ($ +0))
+                                (rose;tree [value {}])))))
            zipper))
 
 (def: #export (remove zipper)
@@ -156,7 +161,8 @@
        _
        (#;Some (|> zipper
                    (update@ <side> (lambda [side]
-                                     (#;Cons (rose;tree ($ +0) {value []})
+                                     (#;Cons (: (Tree ($ +0))
+                                                (rose;tree [value {}]))
                                              side)))))))]
 
   [insert-left  #lefts]
@@ -190,3 +196,25 @@
 
     _
     false))
+
+(struct: #export _ (Functor Zipper)
+  (def: (map f fa)
+    {#parent (|> fa (get@ #parent) (M/map (map f)))
+     #lefts (|> fa (get@ #lefts) (L/map (T/map f)))
+     #rights (|> fa (get@ #rights) (L/map (T/map f)))
+     #node (T/map f (get@ #node fa))}))
+
+## (struct: #export _ (CoMonad Zipper)
+##   (def: functor Functor<Zipper>)
+
+##   (def: unwrap (get@ [#node #rose;value]))
+
+##   (def: (split wa)
+##     (let [tree-splitter (lambda tree-splitter [tree]
+##                           {#rose;value (from-tree tree)
+##                            #rose;children (L/map tree-splitter
+##                                                  (get@ #rose;children tree))})]
+##       {#parent (|> wa (get@ #parent) (M/map split))
+##        #lefts (|> wa (get@ #lefts) (L/map tree-splitter))
+##        #rights (|> wa (get@ #rights) (L/map tree-splitter))
+##        #node (|> fa (get@ #node) tree-splitter)})))
