@@ -1,69 +1,75 @@
 (;module:
   lux
-  (lux (macro [ast])
-       (control functor
+  (lux (control functor
                 applicative
                 monad)
-       (data (coll list))
-       function))
+       function
+       [compiler #+ with-gensyms]
+       (macro [ast]
+              [syntax #+ syntax:])))
 
-## [Types]
-(type: #export (Cont a)
-  {#;doc "Delimited continuations."}
-  (All [b]
-    (-> (-> a b) b)))
+(type: #export (Cont i o)
+  {#;doc "Continuations."}
+  (-> (-> i o) o))
 
-## [Syntax]
-(macro: #export (@lazy tokens state)
-  {#;doc (doc "Delays the evaluation of an expression, by wrapping it in a continuation 'thunk'."
-              (@lazy (some-computation some-input)))}
-  (case tokens
-    (^ (list value))
-    (let [blank (ast;symbol ["" ""])]
-      (#;Right [state (list (` (;lambda [(~ blank)] ((~ blank) (~ value)))))]))
-    
-    _
-    (#;Left "Wrong syntax for @lazy")))
+(def: #export (continue k cont)
+  {#;doc "Forces a continuation thunk to be evaluated."}
+  (All [i o] (-> (-> i o) (Cont i o) o))
+  (cont k))
 
-## [Functions]
+(def: #export (run cont)
+  {#;doc "Forces a continuation thunk to be evaluated."}
+  (All [a] (-> (Cont a a) a))
+  (cont id))
+
 (def: #export (call/cc f)
   {#;doc "Call with current continuation."}
-  (All [a b c]
-    (-> (-> (-> a (Cont b c))
-            (Cont a c))
-        (Cont a c)))
+  (All [a b z]
+    (-> (-> (-> a (Cont b z))
+            (Cont a z))
+        (Cont a z)))
   (lambda [k]
-    (f (lambda [a _]
-         (k a))
+    (f (lambda [a] (lambda [_] (k a)))
        k)))
 
-(def: #export (continue f thunk)
-  {#;doc "Forces a continuation thunk to be evaluated."}
-  (All [i o]
-    (-> (-> i o) (Cont i o) o))
-  (thunk f))
+(struct: #export Functor<Cont> (All [o] (Functor (All [i] (Cont i o))))
+  (def: (map f fv)
+    (lambda [k] (fv (. k f)))))
 
-(def: #export (run thunk)
-  {#;doc "Forces a continuation thunk to be evaluated."}
-  (All [a]
-    (-> (Cont a) a))
-  (continue id thunk))
-
-## [Structs]
-(struct: #export _ (Functor Cont)
-  (def: (map f ma)
-    (lambda [k] (ma (. k f)))))
-
-(struct: #export _ (Applicative Cont)
+(struct: #export Applicative<Cont> (All [o] (Applicative (All [i] (Cont i o))))
   (def: functor Functor<Cont>)
 
-  (def: (wrap a)
-    (@lazy a))
+  (def: (wrap value)
+    (lambda [k] (k value)))
 
-  (def: (apply ff fa)
-    (@lazy ((run ff) (run fa)))))
+  (def: (apply ff fv)
+    (lambda [k]
+      (|> (k (f v))
+          (lambda [v]) fv
+          (lambda [f]) ff))))
 
-(struct: #export _ (Monad Cont)
+(struct: #export Monad<Cont> (All [o] (Monad (All [i] (Cont i o))))
   (def: applicative Applicative<Cont>)
 
-  (def: join run))
+  (def: (join ffa)
+    (lambda [k]
+      (ffa (continue k)))))
+
+(syntax: #export (pending expr)
+  {#;doc (doc "Turns any expression into a function that is pending a continuation."
+              (pending (some-computation some-input)))}
+  (with-gensyms [g!k]
+    (wrap (list (` (;lambda [(~ g!k)] ((~ g!k) (~ expr))))))))
+
+(def: #export (portal init)
+  (All [i o z]
+    (-> i
+        (Cont [(-> i (Cont o z))
+               i]
+              z)))
+  (call/cc (lambda [k]
+             (do Monad<Cont>
+               [#let [nexus (lambda nexus [val]
+                              (k [nexus val]))]
+                _ (k [nexus init])]
+               (wrap (undefined))))))
