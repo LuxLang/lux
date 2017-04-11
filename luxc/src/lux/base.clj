@@ -91,7 +91,7 @@
   ("UnitT" 0)
   ("SumT" 2)
   ("ProdT" 2)
-  ("LambdaT" 2)
+  ("FunctionT" 2)
   ("BoundT" 1)
   ("VarT" 1)
   ("ExT" 1)

@@ -53,7 +53,7 @@
 (def IO
   (&/$NamedT (&/T ["lux/codata" "IO"])
              (&/$UnivQ empty-env
-                       (&/$LambdaT &/$VoidT (&/$BoundT 1)))))
+                       (&/$FunctionT &/$VoidT (&/$BoundT 1)))))
 
 (def List
   (&/$NamedT (&/T ["lux" "List"])
@@ -98,7 +98,7 @@
                                        ;; ProdT
                                        TypePair
                                        (&/$SumT
-                                        ;; LambdaT
+                                        ;; FunctionT
                                         TypePair
                                         (&/$SumT
                                          ;; BoundT
@@ -335,10 +335,10 @@
     (|do [=params (&/map% (partial clean* ?tid) ?params)]
       (return (&/$HostT ?name =params)))
     
-    (&/$LambdaT ?arg ?return)
+    (&/$FunctionT ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
           =return (clean* ?tid ?return)]
-      (return (&/$LambdaT =arg =return)))
+      (return (&/$FunctionT =arg =return)))
 
     (&/$AppT ?lambda ?param)
     (|do [=lambda (clean* ?tid ?lambda)
@@ -379,7 +379,7 @@
 
 (defn ^:private unravel-fun [type]
   (|case type
-    (&/$LambdaT ?in ?out)
+    (&/$FunctionT ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
       (&/T [??out (&/$Cons ?in ?args)]))
 
@@ -462,7 +462,7 @@
     (&/$SumT _)
     (str "(| " (->> (flatten-sum type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
     
-    (&/$LambdaT input output)
+    (&/$FunctionT input output)
     (|let [[?out ?ins] (unravel-fun type)]
       (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
 
@@ -519,7 +519,7 @@
                      (and (type= xL yL)
                           (type= xR yR))
 
-                     [(&/$LambdaT xinput xoutput) (&/$LambdaT yinput youtput)]
+                     [(&/$FunctionT xinput xoutput) (&/$FunctionT yinput youtput)]
                      (and (type= xinput yinput)
                           (type= xoutput youtput))
 
@@ -618,8 +618,8 @@
       _
       type)
 
-    (&/$LambdaT ?input ?output)
-    (&/$LambdaT (beta-reduce env ?input) (beta-reduce env ?output))
+    (&/$FunctionT ?input ?output)
+    (&/$FunctionT (beta-reduce env ?input) (beta-reduce env ?output))
 
     (&/$BoundT ?idx)
     (|case (&/|at ?idx env)
@@ -852,7 +852,7 @@
         [(&/$UnitT) (&/$UnitT)]
         (return fixpoints)
 
-        [(&/$LambdaT eI eO) (&/$LambdaT aI aO)]
+        [(&/$FunctionT eI eO) (&/$FunctionT aI aO)]
         (|do [fixpoints* (check* fixpoints invariant?? aI eI)]
           (check* fixpoints* invariant?? eO aO))
 

@@ -55,7 +55,7 @@
             (= &host-type/null-data-tag ?name)  (return (&host-generics/->type-signature "java.lang.Object"))
             :else                               (return (&host-generics/->type-signature ?name)))
 
-      (&/$LambdaT _ _)
+      (&/$FunctionT _ _)
       (return (&host-generics/->type-signature function-class))
 
       (&/$UnitT)

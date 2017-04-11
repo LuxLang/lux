@@ -74,9 +74,9 @@
     (&/$HostT ?name (&/|map (partial clean! level ?tid bound-idx)
                             ?params))
     
-    (&/$LambdaT ?arg ?return)
-    (&/$LambdaT (clean! level ?tid bound-idx ?arg)
-                (clean! level ?tid bound-idx ?return))
+    (&/$FunctionT ?arg ?return)
+    (&/$FunctionT (clean! level ?tid bound-idx ?arg)
+                  (clean! level ?tid bound-idx ?return))
 
     (&/$AppT ?lambda ?param)
     (&/$AppT (clean! level ?tid bound-idx ?lambda)
@@ -135,9 +135,9 @@
       _
       type)
 
-    (&/$LambdaT ?input ?output)
-    (&/$LambdaT (beta-reduce! level env ?input)
-                (beta-reduce! level env ?output))
+    (&/$FunctionT ?input ?output)
+    (&/$FunctionT (beta-reduce! level env ?input)
+                  (beta-reduce! level env ?output))
 
     (&/$BoundT ?idx)
     (|case (&/|at (- ?idx (* 2 level)) env)

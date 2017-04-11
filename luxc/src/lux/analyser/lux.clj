@@ -40,7 +40,7 @@
     (&/$UnivQ env (embed-inferred-input input output*))
 
     _
-    (&/$LambdaT input output)))
+    (&/$FunctionT input output)))
 
 ;; [Exports]
 (defn analyse-unit [analyse ?exo-type]
@@ -354,7 +354,7 @@
                 type* (&type/apply-type ?fun-type* $var)]
             (analyse-apply* analyse exo-type type* ?args))
 
-          (&/$LambdaT ?input-t ?output-t)
+          (&/$FunctionT ?input-t ?output-t)
           (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
                 =arg (&/with-attempt
                        (&&/analyse-1 analyse ?input-t ?arg)
@@ -476,7 +476,7 @@
           (fn [$input]
             (&type/with-var
               (fn [$output]
-                (|do [[[function-type function-cursor] function-analysis] (analyse-function* analyse (&/$LambdaT $input $output) ?self ?arg ?body)
+                (|do [[[function-type function-cursor] function-analysis] (analyse-function* analyse (&/$FunctionT $input $output) ?self ?arg ?body)
                       =input (&type/resolve-type $input)
                       =output (&type/resolve-type $output)
                       inferred-type (clean-func-inference $input $output =input (embed-inferred-input =input =output))
@@ -503,7 +503,7 @@
                     =expr (analyse-function* analyse exo-type** ?self ?arg ?body)]
                 (&&/clean-analysis $var =expr))))
           
-          (&/$LambdaT ?arg-t ?return-t)
+          (&/$FunctionT ?arg-t ?return-t)
           (|do [[=scope =captured =body] (&&function/with-function ?self exo-type*
                                            ?arg ?arg-t
                                            (&&/analyse-1 analyse ?return-t ?body))

@@ -39,7 +39,7 @@
       (&/$SumT left right)
       (str "+" (serialize-type left) (serialize-type right))
 
-      (&/$LambdaT left right)
+      (&/$FunctionT left right)
       (str ">" (serialize-type left) (serialize-type right))
 
       (&/$UnivQ env body)
@@ -100,7 +100,7 @@
 
   ^:private deserialize-sum  "+" &/$SumT
   ^:private deserialize-prod "*" &/$ProdT
-  ^:private deserialize-lambda    ">" &/$LambdaT
+  ^:private deserialize-lambda    ">" &/$FunctionT
   ^:private deserialize-app  "%" &/$AppT
   )
 
