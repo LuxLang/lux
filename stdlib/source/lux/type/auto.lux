@@ -9,7 +9,7 @@
                    [dict])
              [bool]
              [product])
-       [compiler #+ Monad<Lux>]
+       [macro #+ Monad<Lux>]
        (macro [ast]
               ["s" syntax #+ syntax: Syntax])
        [type]
@@ -29,17 +29,17 @@
       (:: Monad<Lux> wrap type))
 
     (#;Some [_ #;None])
-    (compiler;fail (format "Unbound type-var " (%n id)))
+    (macro;fail (format "Unbound type-var " (%n id)))
 
     #;None
-    (compiler;fail (format "Unknown type-var " (%n id)))
+    (macro;fail (format "Unknown type-var " (%n id)))
     ))
 
 (def: (resolve-type var-name)
   (-> Ident (Lux Type))
   (do Monad<Lux>
-    [raw-type (compiler;find-type var-name)
-     compiler compiler;get-compiler]
+    [raw-type (macro;find-type var-name)
+     compiler macro;get-compiler]
     (case raw-type
       (#;VarT id)
       (find-type-var id (get@ #;type-vars compiler))
@@ -75,26 +75,26 @@
   (-> Ident (Lux Ident))
   (case member
     ["" simple-name]
-    (compiler;either (do Monad<Lux>
-                       [member (compiler;normalize member)
-                        _ (compiler;resolve-tag member)]
+    (macro;either (do Monad<Lux>
+                       [member (macro;normalize member)
+                        _ (macro;resolve-tag member)]
                        (wrap member))
                      (do Monad<Lux>
-                       [this-module-name compiler;current-module-name
-                        imp-mods (compiler;imported-modules this-module-name)
-                        tag-lists (mapM @ compiler;tag-lists imp-mods)
+                       [this-module-name macro;current-module-name
+                        imp-mods (macro;imported-modules this-module-name)
+                        tag-lists (mapM @ macro;tag-lists imp-mods)
                         #let [tag-lists (|> tag-lists List/join (List/map product;left) List/join)
                               candidates (list;filter (. (Text/= simple-name) product;right)
                                                       tag-lists)]]
                        (case candidates
                          #;Nil
-                         (compiler;fail (format "Unknown tag: " (%ident member)))
+                         (macro;fail (format "Unknown tag: " (%ident member)))
                          
                          (#;Cons winner #;Nil)
                          (wrap winner)
                          
                          _
-                         (compiler;fail (format "Too many candidate tags: " (%list %ident candidates))))))
+                         (macro;fail (format "Too many candidate tags: " (%list %ident candidates))))))
 
     _
     (:: Monad<Lux> wrap member)))
@@ -103,21 +103,21 @@
   (-> Ident (Lux [Nat Type]))
   (do Monad<Lux>
     [member (find-member-name member)
-     [idx tag-list sig-type] (compiler;resolve-tag member)]
+     [idx tag-list sig-type] (macro;resolve-tag member)]
     (wrap [idx sig-type])))
 
 (def: (prepare-defs this-module-name defs)
   (-> Text (List [Text Def]) (List [Ident Type]))
   (|> defs
       (list;filter (function [[name [def-type def-anns def-value]]]
-                     (compiler;struct? def-anns)))
+                     (macro;struct? def-anns)))
       (List/map (function [[name [def-type def-anns def-value]]]
                   [[this-module-name name] def-type]))))
 
 (def: local-env
   (Lux (List [Ident Type]))
   (do Monad<Lux>
-    [local-batches compiler;locals
+    [local-batches macro;locals
      #let [total-locals (List/fold (function [[name type] table]
                                      (dict;put~ name type table))
                                    (: (dict;Dict Text Type)
@@ -130,18 +130,18 @@
 (def: local-structs
   (Lux (List [Ident Type]))
   (do Monad<Lux>
-    [this-module-name compiler;current-module-name
-     defs (compiler;defs this-module-name)]
+    [this-module-name macro;current-module-name
+     defs (macro;defs this-module-name)]
     (wrap (prepare-defs this-module-name defs))))
 
 (def: import-structs
   (Lux (List [Ident Type]))
   (do Monad<Lux>
-    [this-module-name compiler;current-module-name
-     imp-mods (compiler;imported-modules this-module-name)
+    [this-module-name macro;current-module-name
+     imp-mods (macro;imported-modules this-module-name)
      export-batches (mapM @ (function [imp-mod]
                               (do @
-                                [exports (compiler;exports imp-mod)]
+                                [exports (macro;exports imp-mod)]
                                 (wrap (prepare-defs imp-mod exports))))
                           imp-mods)]
     (wrap (List/join export-batches))))
@@ -209,7 +209,7 @@
       tc;Context Type (List [Ident Type])
       (Lux (List Instance)))
   (do Monad<Lux>
-    [compiler compiler;get-compiler]
+    [compiler macro;get-compiler]
     (case (|> alts
               (List/map (function [[alt-name alt-type]]
                           (case (tc;run context
@@ -227,15 +227,15 @@
                             (list [alt-name =deps]))))
               List/join)
       #;Nil
-      (compiler;fail (format "No candidates for provisioning: " (%type dep)))
+      (macro;fail (format "No candidates for provisioning: " (%type dep)))
 
       found
       (wrap found))))
 
 (def: (provision compiler context dep)
   (-> Compiler tc;Context Type (Check Instance))
-  (case (compiler;run compiler
-                      ($_ compiler;either
+  (case (macro;run compiler
+                      ($_ macro;either
                           (do Monad<Lux> [alts local-env] (test-provision provision context dep alts))
                           (do Monad<Lux> [alts local-structs] (test-provision provision context dep alts))
                           (do Monad<Lux> [alts import-structs] (test-provision provision context dep alts))))
@@ -257,7 +257,7 @@
 (def: (test-alternatives sig-type member-idx input-types output-type alts)
   (-> Type Nat (List Type) Type (List [Ident Type]) (Lux (List Instance)))
   (do Monad<Lux>
-    [compiler compiler;get-compiler
+    [compiler macro;get-compiler
      context compiler-type-context]
     (case (|> alts
               (List/map (function [[alt-name alt-type]]
@@ -278,7 +278,7 @@
                             (list [alt-name =deps]))))
               List/join)
       #;Nil
-      (compiler;fail (format "No alternatives for " (%type (type;function input-types output-type))))
+      (macro;fail (format "No alternatives for " (%type (type;function input-types output-type))))
 
       found
       (wrap found))))
@@ -286,7 +286,7 @@
 (def: (find-alternatives sig-type member-idx input-types output-type)
   (-> Type Nat (List Type) Type (Lux (List Instance)))
   (let [test (test-alternatives sig-type member-idx input-types output-type)]
-    ($_ compiler;either
+    ($_ macro;either
         (do Monad<Lux> [alts local-env] (test alts))
         (do Monad<Lux> [alts local-structs] (test alts))
         (do Monad<Lux> [alts import-structs] (test alts)))))
@@ -344,11 +344,11 @@
     (do @
       [[member-idx sig-type] (resolve-member member)
        input-types (mapM @ resolve-type args)
-       output-type compiler;expected-type
+       output-type macro;expected-type
        chosen-ones (find-alternatives sig-type member-idx input-types output-type)]
       (case chosen-ones
         #;Nil
-        (compiler;fail (format "No structure option could be found for member: " (%ident member)))
+        (macro;fail (format "No structure option could be found for member: " (%ident member)))
 
         (#;Cons chosen #;Nil)
         (wrap (list (` (:: (~ (instance$ chosen))
@@ -356,7 +356,7 @@
                            (~@ (List/map ast;symbol args))))))
 
         _
-        (compiler;fail (format "Too many options available: "
+        (macro;fail (format "Too many options available: "
                                (|> chosen-ones
                                    (List/map (. %ident product;left))
                                    (text;join-with ", "))
@@ -365,7 +365,7 @@
     (#;Right [args _])
     (do @
       [labels (seqM @ (list;repeat (list;size args)
-                                   (compiler;gensym "")))
+                                   (macro;gensym "")))
        #let [retry (` (let [(~@ (|> (list;zip2 labels args) (List/map join-pair) List/join))]
                         (;;::: (~ (ast;symbol member)) (~@ labels))))]]
       (wrap (list retry)))
