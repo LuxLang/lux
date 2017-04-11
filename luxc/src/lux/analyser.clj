@@ -119,13 +119,13 @@
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-case analyse exo-type ?value ?branches)))
 
-          "_lux_lambda"
+          "_lux_function"
           (|let [(&/$Cons [_ (&/$SymbolS "" ?self)]
                           (&/$Cons [_ (&/$SymbolS "" ?arg)]
                                    (&/$Cons ?body
                                             (&/$Nil)))) parameters]
             (&/with-analysis-meta cursor exo-type
-              (&&lux/analyse-lambda analyse exo-type ?self ?arg ?body)))
+              (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
           "_lux_proc"
           (|let [(&/$Cons [_ (&/$TupleS (&/$Cons [_ (&/$TextS ?category)]

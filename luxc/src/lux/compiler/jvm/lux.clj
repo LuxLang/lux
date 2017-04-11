@@ -16,7 +16,7 @@
                           [module :as &a-module]
                           [meta :as &a-meta])
             (lux.compiler.jvm [base :as &&]
-                              [lambda :as &&lambda]))
+                              [function :as &&function]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -286,7 +286,7 @@
                                  (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                      (doto (.visitEnd)))
                                  (.visitSource file-name nil))]
-                  instancer (&&lambda/compile-function compile (&/$Some =class) _arity _scope _captured ?body+)
+                  instancer (&&function/compile-function compile (&/$Some =class) _arity _scope _captured ?body+)
                   _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
                       (|do [^MethodVisitor **writer** &/get-writer
                             :let [_ (.visitCode **writer**)]

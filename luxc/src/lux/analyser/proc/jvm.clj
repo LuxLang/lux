@@ -12,7 +12,6 @@
             [lux.type.host :as &host-type]
             [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &&]
-                          [lambda :as &&lambda]
                           [env :as &&env]
                           [parser :as &&a-parser])
             [lux.compiler.jvm.base :as &c!base])

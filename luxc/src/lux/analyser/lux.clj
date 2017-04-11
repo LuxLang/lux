@@ -8,7 +8,7 @@
                  [type :as &type]
                  [host :as &host])
             (lux.analyser [base :as &&]
-                          [lambda :as &&lambda]
+                          [function :as &&function]
                           [case :as &&case]
                           [env :as &&env]
                           [module :as &&module]
@@ -302,7 +302,7 @@
         (|let [scopes (&/|map #(&/get$ &/$name %) (&/|reverse inner))
                [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                           (|let [[register new-inner] register+new-inner
-                                                 [register* frame*] (&&lambda/close-over in-scope name register frame)]
+                                                 [register* frame*] (&&function/close-over in-scope name register frame)]
                                             (&/T [register* (&/$Cons frame* new-inner)])))
                                         (&/T [(or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
                                                   (->> bottom-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
@@ -464,25 +464,25 @@
           =func** (&type/clean $output =func*)]
       (return =func**))))
 
-(defn analyse-lambda* [analyse exo-type ?self ?arg ?body]
+(defn analyse-function* [analyse exo-type ?self ?arg ?body]
   (|case exo-type
     (&/$VarT id)
     (|do [? (&type/bound? id)]
       (if ?
         (|do [exo-type* (&type/deref id)]
-          (analyse-lambda* analyse exo-type* ?self ?arg ?body))
+          (analyse-function* analyse exo-type* ?self ?arg ?body))
         ;; Inference
         (&type/with-var
           (fn [$input]
             (&type/with-var
               (fn [$output]
-                (|do [[[lambda-type lambda-cursor] lambda-analysis] (analyse-lambda* analyse (&/$LambdaT $input $output) ?self ?arg ?body)
+                (|do [[[function-type function-cursor] function-analysis] (analyse-function* analyse (&/$LambdaT $input $output) ?self ?arg ?body)
                       =input (&type/resolve-type $input)
                       =output (&type/resolve-type $output)
                       inferred-type (clean-func-inference $input $output =input (embed-inferred-input =input =output))
                       _ (&type/check exo-type inferred-type)]
-                  (return (&&/|meta inferred-type lambda-cursor
-                                    lambda-analysis)))
+                  (return (&&/|meta inferred-type function-cursor
+                                    function-analysis)))
                 ))))))
 
     _
@@ -494,23 +494,23 @@
                 :let [(&/$ExT $var-id) $var]
                 exo-type** (&type/apply-type exo-type* $var)]
             (&/with-scope-type-var $var-id
-              (analyse-lambda* analyse exo-type** ?self ?arg ?body)))
+              (analyse-function* analyse exo-type** ?self ?arg ?body)))
 
           (&/$ExQ _)
           (&type/with-var
             (fn [$var]
               (|do [exo-type** (&type/apply-type exo-type* $var)
-                    =expr (analyse-lambda* analyse exo-type** ?self ?arg ?body)]
+                    =expr (analyse-function* analyse exo-type** ?self ?arg ?body)]
                 (&&/clean-analysis $var =expr))))
           
           (&/$LambdaT ?arg-t ?return-t)
-          (|do [[=scope =captured =body] (&&lambda/with-lambda ?self exo-type*
+          (|do [[=scope =captured =body] (&&function/with-function ?self exo-type*
                                            ?arg ?arg-t
                                            (&&/analyse-1 analyse ?return-t ?body))
                 _cursor &/cursor
                 register-offset &&env/next-local-idx]
             (return (&&/|meta exo-type* _cursor
-                              (&&/$lambda register-offset =scope =captured =body))))
+                              (&&/$function register-offset =scope =captured =body))))
 
           _
           (&/fail "")))
@@ -518,14 +518,14 @@
         (&/fail-with-loc (str err "\n" "[Analyser Error] Functions require function types: " (&type/show-type exo-type)))))
     ))
 
-(defn analyse-lambda** [analyse exo-type ?self ?arg ?body]
+(defn analyse-function** [analyse exo-type ?self ?arg ?body]
   (|case exo-type
     (&/$UnivQ _)
     (|do [$var &type/existential
           :let [(&/$ExT $var-id) $var]
           exo-type* (&type/apply-type exo-type $var)
           [_ _expr] (&/with-scope-type-var $var-id
-                      (analyse-lambda** analyse exo-type* ?self ?arg ?body))
+                      (analyse-function** analyse exo-type* ?self ?arg ?body))
           _cursor &/cursor]
       (return (&&/|meta exo-type _cursor _expr)))
     
@@ -533,17 +533,17 @@
     (|do [? (&type/bound? id)]
       (if ?
         (|do [exo-type* (&type/actual-type exo-type)]
-          (analyse-lambda* analyse exo-type* ?self ?arg ?body))
+          (analyse-function* analyse exo-type* ?self ?arg ?body))
         ;; Inference
-        (analyse-lambda* analyse exo-type ?self ?arg ?body)))
+        (analyse-function* analyse exo-type ?self ?arg ?body)))
     
     _
     (|do [exo-type* (&type/actual-type exo-type)]
-      (analyse-lambda* analyse exo-type* ?self ?arg ?body))
+      (analyse-function* analyse exo-type* ?self ?arg ?body))
     ))
 
-(defn analyse-lambda [analyse exo-type ?self ?arg ?body]
-  (|do [output (analyse-lambda** analyse exo-type ?self ?arg ?body)]
+(defn analyse-function [analyse exo-type ?self ?arg ?body]
+  (|do [output (analyse-function** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]

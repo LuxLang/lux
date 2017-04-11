@@ -1,4 +1,4 @@
-(ns lux.compiler.jvm.lambda
+(ns lux.compiler.jvm.function
   (:require (clojure [string :as string]
                      [set :as set]
                      [template :refer [do-template]])
@@ -21,7 +21,7 @@
 
 ;; [Utils]
 (def ^:private field-sig (&host-generics/->type-signature "java.lang.Object"))
-(def ^:private lambda-return-sig (&host-generics/->type-signature "java.lang.Object"))
+(def ^:private function-return-sig (&host-generics/->type-signature "java.lang.Object"))
 (def ^:private <init>-return "V")
 
 (defn ^:private ^String reset-signature [function-class]
@@ -67,10 +67,10 @@
       (-> (consecutive-applys (+ start &&/num-apply-variants) (- amount &&/num-apply-variants))
           (->> (when (> amount &&/num-apply-variants)))))))
 
-(defn ^:private lambda-impl-signature [arity]
-  (str "(" (&/fold str "" (&/|repeat arity field-sig)) ")" lambda-return-sig))
+(defn ^:private function-impl-signature [arity]
+  (str "(" (&/fold str "" (&/|repeat arity field-sig)) ")" function-return-sig))
 
-(defn ^:private lambda-<init>-signature [env arity]
+(defn ^:private function-<init>-signature [env arity]
   (if (> arity 1)
     (str "(" (&/fold str "" (&/|repeat (&/|length env) field-sig)) "I" (&/fold str "" (&/|repeat (dec arity) field-sig)) ")"
          <init>-return)
@@ -86,9 +86,9 @@
       (.visitVarInsn Opcodes/ILOAD (inc closure-length))
       (.visitMethodInsn Opcodes/INVOKESPECIAL &&/function-class "<init>" "(I)V"))))
 
-(defn ^:private add-lambda-<init> [^ClassWriter class class-name arity env]
+(defn ^:private add-function-<init> [^ClassWriter class class-name arity env]
   (let [closure-length (&/|length env)]
-    (doto (.visitMethod class Opcodes/ACC_PUBLIC "<init>" (lambda-<init>-signature env arity) nil nil)
+    (doto (.visitMethod class Opcodes/ACC_PUBLIC "<init>" (function-<init>-signature env arity) nil nil)
       (.visitCode)
       ;; Do normal object initialization
       (.visitVarInsn Opcodes/ALOAD 0)
@@ -107,9 +107,9 @@
       (.visitEnd))))
 
 (let [impl-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL)]
-  (defn ^:private add-lambda-impl [^ClassWriter class class-name compile arity impl-body]
+  (defn ^:private add-function-impl [^ClassWriter class class-name compile arity impl-body]
     (let [$begin (new Label)]
-      (&/with-writer (doto (.visitMethod class impl-flags "impl" (lambda-impl-signature arity) nil nil)
+      (&/with-writer (doto (.visitMethod class impl-flags "impl" (function-impl-signature arity) nil nil)
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
@@ -120,10 +120,10 @@
                         (.visitEnd))]]
           (return ret))))))
 
-(defn ^:private instance-closure [compile lambda-class arity closed-over]
+(defn ^:private instance-closure [compile function-class arity closed-over]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/NEW lambda-class)
+                  (.visitTypeInsn Opcodes/NEW function-class)
                   (.visitInsn Opcodes/DUP))]
         _ (&/map% (fn [?name+?captured]
                     (|case ?name+?captured
@@ -134,10 +134,10 @@
                   (doto *writer*
                     (.visitLdcInsn (int 0))
                     (fill-nulls! (dec arity))))]
-        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL lambda-class "<init>" (lambda-<init>-signature closed-over arity))]]
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESPECIAL function-class "<init>" (function-<init>-signature closed-over arity))]]
     (return nil)))
 
-(defn ^:private add-lambda-reset [^ClassWriter class-writer class-name arity env]
+(defn ^:private add-function-reset [^ClassWriter class-writer class-name arity env]
   (if (> arity 1)
     (doto (.visitMethod class-writer Opcodes/ACC_PUBLIC "reset" (reset-signature class-name) nil nil)
       (.visitCode)
@@ -147,7 +147,7 @@
           (->> (dotimes [cidx (&/|length env)])))
       (.visitLdcInsn (int 0))
       (fill-nulls! (dec arity))
-      (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (lambda-<init>-signature env arity))
+      (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (function-<init>-signature env arity))
       (.visitInsn Opcodes/ARETURN)
       (.visitMaxs 0 0)
       (.visitEnd))
@@ -158,7 +158,7 @@
       (.visitMaxs 0 0)
       (.visitEnd))))
 
-(defn ^:private add-lambda-apply-n [^ClassWriter class-writer +degree+ class-name arity env compile impl-body]
+(defn ^:private add-function-apply-n [^ClassWriter class-writer +degree+ class-name arity env compile impl-body]
   (if (> arity 1)
     (let [num-partials (dec arity)
           $default (new Label)
@@ -185,7 +185,7 @@
                       (->> (dotimes [idx stage])))
                   (consecutive-args 1 +degree+)
                   (fill-nulls! (- (- num-partials +degree+) stage))
-                  (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (lambda-<init>-signature env arity))
+                  (.visitMethodInsn Opcodes/INVOKESPECIAL class-name "<init>" (function-<init>-signature env arity))
                   (.visitJumpInsn Opcodes/GOTO $end))
                 (->> (cond (= stage arity-over-extent)
                            (doto method-writer
@@ -196,7 +196,7 @@
                              (-> (get-field! class-name (str &&/partial-prefix idx))
                                  (->> (dotimes [idx stage])))
                              (consecutive-args 1 +degree+)
-                             (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature arity))
+                             (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (function-impl-signature arity))
                              (.visitJumpInsn Opcodes/GOTO $end))
 
                            (> stage arity-over-extent)
@@ -209,7 +209,7 @@
                                (-> (get-field! class-name (str &&/partial-prefix idx))
                                    (->> (dotimes [idx stage])))
                                (consecutive-args 1 args-to-completion)
-                               (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (lambda-impl-signature arity))
+                               (.visitMethodInsn Opcodes/INVOKEVIRTUAL class-name "impl" (function-impl-signature arity))
                                (consecutive-applys (+ 1 args-to-completion) args-left)
                                (.visitJumpInsn Opcodes/GOTO $end)))
 
@@ -234,7 +234,7 @@
     ))
 
 ;; [Exports]
-(let [lambda-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
+(let [function-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       datum-flags (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL)]
   (defn compile-function [compile ?prev-writer arity ?scope ?env ?body]
     (|do [[file-name _ _] &/cursor
@@ -247,7 +247,7 @@
 
                                               (&/$None)
                                               (&/T [(doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                                      (.visit &host/bytecode-version lambda-flags
+                                                      (.visit &host/bytecode-version function-flags
                                                               class-name nil &&/function-class (into-array String [])))
                                                     true]))
                 _ (doto =class
@@ -264,13 +264,13 @@
                         (->> (dotimes [idx (dec arity)])))
                     (-> (.visitSource file-name nil)
                         (when save?))
-                    (add-lambda-<init> class-name arity ?env)
-                    (add-lambda-reset class-name arity ?env)
+                    (add-function-<init> class-name arity ?env)
+                    (add-function-reset class-name arity ?env)
                     )]
           _ (if (> arity 1)
-              (add-lambda-impl =class class-name compile arity ?body)
+              (add-function-impl =class class-name compile arity ?body)
               (return nil))
-          _ (&/map% #(add-lambda-apply-n =class % class-name arity ?env compile ?body)
+          _ (&/map% #(add-function-apply-n =class % class-name arity ?env compile ?body)
                     (&/|range* 1 (min arity &&/num-apply-variants)))
           :let [_ (.visitEnd =class)]
           _ (if save?

@@ -17,7 +17,7 @@
   ("tuple" 1)
   ("apply" 2)
   ("case" 2)
-  ("lambda" 4)
+  ("function" 4)
   ("ann" 2)
   ("var" 1)
   ("captured" 1)
@@ -104,13 +104,13 @@
                          (&/T [_pattern (de-meta _body)])))
                      branches))
       
-      ($lambda _register-offset scope captured body)
-      ($lambda _register-offset scope
-          (&/|map (fn [branch]
-                    (|let [[_name _captured] branch]
-                      (&/T [_name (de-meta _captured)])))
-                  captured)
-          (de-meta body))
+      ($function _register-offset scope captured body)
+      ($function _register-offset scope
+                 (&/|map (fn [branch]
+                           (|let [[_name _captured] branch]
+                             (&/T [_name (de-meta _captured)])))
+                         captured)
+                 (de-meta body))
 
       ($ann value-expr type-expr)
       (de-meta value-expr)

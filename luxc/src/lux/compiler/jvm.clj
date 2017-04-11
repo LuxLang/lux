@@ -24,7 +24,7 @@
             (lux.compiler.jvm [base :as &&]
                               [lux :as &&lux]
                               [case :as &&case]
-                              [lambda :as &&lambda]
+                              [function :as &&function]
                               [rt :as &&rt]
                               [cache :as &&jvm-cache])
             (lux.compiler.jvm.proc [common :as &&proc-common]
@@ -105,7 +105,7 @@
         (&&lux/compile-if (partial compile-expression $begin) _test _then _else)
         
         (&o/$function _register-offset ?arity ?scope ?env ?body)
-        (&&lambda/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
+        (&&function/compile-function compile-expression &/$None ?arity ?scope ?env ?body)
 
         (&o/$ann ?value-ex ?type-ex)
         (compile-expression $begin ?value-ex)

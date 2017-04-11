@@ -1142,9 +1142,9 @@
             _
             (normal-case-optim)))
         
-        (&a/$lambda _register-offset scope captured body)
+        (&a/$function _register-offset scope captured body)
         (|let [inner-func? (|case body
-                             [_ (&a/$lambda _ _ _ _)]
+                             [_ (&a/$function _ _ _ _)]
                              true
 
                              _

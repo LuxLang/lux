@@ -1,4 +1,4 @@
-(ns lux.analyser.lambda
+(ns lux.analyser.function
   (:require clojure.core.match
             clojure.core.match.array
             (lux [base :as & :refer [|let |do return |case]]
@@ -7,7 +7,7 @@
                           [env :as &env])))
 
 ;; [Resource]
-(defn with-lambda [self self-type arg arg-type body]
+(defn with-function [self self-type arg arg-type body]
   (&/with-closure
     (|do [scope-name &/get-scope-name]
       (&env/with-local self self-type
