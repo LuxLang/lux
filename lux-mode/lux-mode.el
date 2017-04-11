@@ -216,7 +216,7 @@ Called by `imenu--generic-function'."
          (regexp-opt
           '(";module:" "def:" "type:" "sig:" "struct:" "macro:" "syntax:" "program:" "poly:" "derived:" "actor:" "test:" "template:" "class:" "interface:" "model:"
             "exception:"
-            "lambda" "case" ":" ":!" ":!!" "undefined" "ident-for"
+            "function" "case" ":" ":!" ":!!" "undefined" "ident-for"
             "and" "or"
             "exec" "let" "let%" "if" "cond" "do" "be" "open" "loop" "recur" "comment" "list" "list&" "io" "vector" "tree"
             "get@" "set@" "update@" "|>" "|>." "<|" "_$" "$_" "~" "~@" "~'" "::" ":::" "default"
@@ -363,7 +363,7 @@ This function also returns nil meaning don't specify the indentation."
 
 (define-lux-indent
   (def 'defun)
-  (lambda 'defun)
+  (function 'defun)
   (let 'defun)
   (let% 'defun)
   (case 'defun)
@@ -379,7 +379,7 @@ This function also returns nil meaning don't specify the indentation."
   (Rec 'defun)
   (_lux_def 'defun)
   (_lux_case 'defun)
-  (_lux_lambda 'defun)
+  (_lux_function 'defun)
   (synchronized 'defun)
   (object 'defun)
   (do-to 'defun)
