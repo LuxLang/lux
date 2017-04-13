@@ -885,7 +885,7 @@
                (.visitJumpInsn Opcodes/IF_ICMPLT $do-a-round)
                (.visitVarInsn Opcodes/LLOAD 2)
                &&/wrap-long
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
                (.visitInsn Opcodes/ARETURN)
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1087,13 +1087,11 @@
             (.visitVarInsn Opcodes/ALOAD 0)
             (.visitMethodInsn Opcodes/INVOKESTATIC <class> <parse-method> <signature>)
             <wrapper>
-            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-            (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
             (.visitInsn Opcodes/ARETURN)
             (.visitLabel $to)
             (.visitLabel $handler)
-            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-            (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
             (.visitInsn Opcodes/ARETURN)
             (.visitMaxs 0 0)
             (.visitEnd)))
@@ -1160,14 +1158,12 @@
           (.visitVarInsn Opcodes/ILOAD 1)
           (.visitVarInsn Opcodes/ILOAD 2)
           (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;")
-          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
           (.visitJumpInsn Opcodes/GOTO $end)
           (.visitLabel $to)
           (.visitLabel $handler)
           (.visitInsn Opcodes/POP)
-          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
           (.visitLabel $end)
           (.visitInsn Opcodes/ARETURN)
           (.visitMaxs 0 0)
@@ -1183,14 +1179,12 @@
         (.visitVarInsn Opcodes/ILOAD 1)
         (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
         &&/wrap-char
-        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
         (.visitInsn Opcodes/ARETURN)
         (.visitLabel $to)
         (.visitLabel $handler)
         (.visitInsn Opcodes/POP)
-        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
-        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
         (.visitInsn Opcodes/ARETURN)
         (.visitMaxs 0 0)
         (.visitEnd)))
@@ -1296,7 +1290,7 @@
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
-              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_none" "()Ljava/lang/Object;" nil nil)
+              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_none" "()[Ljava/lang/Object;" nil nil)
                   (.visitCode)
                   (.visitLdcInsn (->> #'&/$None meta ::&/idx int)) ;; I
                   (.visitInsn Opcodes/ACONST_NULL) ;; I?
@@ -1305,7 +1299,7 @@
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
-              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
+              _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
                   (.visitCode)
                   (.visitLdcInsn (->> #'&/$Some meta ::&/idx int)) ;; I
                   (.visitLdcInsn "") ;; I?
@@ -1333,8 +1327,7 @@
                     (.visitVarInsn Opcodes/ALOAD 0)
                     (.visitInsn Opcodes/ACONST_NULL)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL "lux/Function" &&/apply-method (&&/apply-signature 1))
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
-                    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitInsn Opcodes/ARETURN)
                     (.visitLabel $to)
                     (.visitLabel $handler) ;; T

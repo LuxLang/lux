@@ -617,11 +617,11 @@
                     (.visitJumpInsn Opcodes/IF_ICMPEQ $not-found)
                     (.visitInsn Opcodes/I2L)
                     &&/wrap-long
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitJumpInsn Opcodes/GOTO $end)
                     (.visitLabel $not-found)
                     (.visitInsn Opcodes/POP)
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
                     (.visitLabel $end))]]
       (return nil)))
 
