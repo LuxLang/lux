@@ -1,0 +1,81 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad
+                pipe)
+       (data [char]
+             [text "T/" Eq<Text>]
+             (text format
+                   ["l" lexer])
+             [number])
+       ["R" math/random "R/" Monad<Random>]
+       (macro [ast])
+       test)
+  (luxc ["&" parser]))
+
+(def: default-cursor
+  Cursor
+  {#;module ""
+   #;line   +0
+   #;column +0})
+
+(def: ident-part^
+  (R;Random Text)
+  (do R;Monad<Random>
+    [#let [digits "0123456789"
+           delimiters "()[]{}#;"
+           space "\t\v \n\r\f"
+           invalid-range (format digits delimiters space)
+           char-gen (|> R;char
+                        (R;filter (function [sample]
+                                    (not (text;contains? (char;as-text sample)
+                                                         invalid-range)))))]
+     size (|> R;nat (:: @ map (n.% +20)))]
+    (R;text' char-gen size)))
+
+(def: ident^
+  (R;Random Ident)
+  (R;seq ident-part^ ident-part^))
+
+(def: ast^
+  (R;Random AST)
+  (let [simple^ (: (R;Random AST)
+                   ($_ R;either
+                       (|> R;bool (R/map (|>. #;BoolS [default-cursor])))
+                       (|> R;nat (R/map (|>. #;NatS [default-cursor])))
+                       (|> R;int (R/map (|>. #;IntS [default-cursor])))
+                       (|> R;deg (R/map (|>. #;DegS [default-cursor])))
+                       (|> R;real (R/map (|>. #;RealS [default-cursor])))
+                       (|> R;char (R/map (|>. #;CharS [default-cursor])))
+                       (do R;Monad<Random>
+                         [size (|> R;nat (R/map (n.% +20)))]
+                         (|> (R;text size) (R/map (|>. #;TextS [default-cursor]))))
+                       (|> ident^ (R/map (|>. #;SymbolS [default-cursor])))
+                       (|> ident^ (R/map (|>. #;TagS [default-cursor])))))]
+    (R;rec
+     (function [ast^]
+       (let [multi^ (do R;Monad<Random>
+                      [size (|> R;nat (R/map (n.% +2)))]
+                      (R;list size ast^))
+             composite^ (: (R;Random AST)
+                           ($_ R;either
+                               (|> multi^ (R/map (|>. #;FormS [default-cursor])))
+                               (|> multi^ (R/map (|>. #;TupleS [default-cursor])))
+                               (do R;Monad<Random>
+                                 [size (|> R;nat (R/map (n.% +2)))]
+                                 (|> (R;list size (R;seq ast^ ast^))
+                                     (R/map (|>. #;RecordS [default-cursor]))))))]
+         (R;either simple^
+                   composite^))))))
+
+(test: "Lux code parser."
+  [sample ast^]
+  (assert "Can parse Lux code."
+          (|> &;ast^
+              (l;run (ast;to-text sample))
+              (case> (#;Left error)
+                     false
+
+                     (#;Right parsed)
+                     (:: ast;Eq<AST> = parsed sample))
+              )))
