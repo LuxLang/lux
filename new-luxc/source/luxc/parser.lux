@@ -11,12 +11,6 @@
              (coll [list "L/" Functor<List> Fold<List>]
                    ["V" vector]))))
 
-(def: default-cursor
-  Cursor
-  {#;module ""
-   #;line   +0
-   #;column +0})
-
 (def: (space^ where)
   (-> Cursor (Lexer [Text Cursor]))
   (do Monad<Lexer>
@@ -128,7 +122,7 @@
          (l;fail error)
 
          (#;Right value)
-         (wrap [[default-cursor (<tag> value)]
+         (wrap [[where (<tag> value)]
                 (|> where
                     (update@ #;column (n.+ (text;size chunk))))]))))]
 
@@ -160,7 +154,7 @@
   (do Monad<Lexer>
     [[chunk value] (l;enclosed ["#\"" "\""]
                                raw-char^)]
-    (wrap [[default-cursor (#;CharS value)]
+    (wrap [[where (#;CharS value)]
            (|> where
                (update@ #;column (function [column]
                                    ($_ n.+
@@ -172,24 +166,57 @@
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
     [_ (l;text "\"")
-     [columns-read text-read] (loop [columns-read +1
-                                     text-read ""]
-                                ($_ l;either
-                                    (do @
-                                      [normal (l;many' (l;none-of "\\\"\n"))]
-                                      (recur (n.+ columns-read (text;size normal))
-                                             (format text-read normal)))
-                                    (do @
-                                      [_ (l;text "\"")]
-                                      (wrap [(n.inc columns-read)
-                                             text-read]))
-                                    (do @
-                                      [[chunk char] escaped-char^]
-                                      (wrap [(n.+ columns-read (text;size chunk))
-                                             (format text-read (char;as-text char))]))))]
-    (wrap [[default-cursor (#;TextS text-read)]
-           (|> where
-               (update@ #;column (n.+ columns-read)))])))
+     #let [offset-column (n.inc (get@ #;column where))]
+     [text-read where'] (: (Lexer [Text Cursor])
+                           (loop [text-read ""
+                                  where (|> where
+                                            (update@ #;column n.inc))
+                                  next-line-start? false]
+                             (let [next-line (do @
+                                               [_ (l;text "\n")]
+                                               (recur text-read
+                                                      (|> where
+                                                          (update@ #;line n.inc)
+                                                          (set@ #;column +0))
+                                                      true))]
+                               (if next-line-start?
+                                 (l;either next-line
+                                           (do @
+                                             [offset (l;many' (l;char #" "))
+                                              #let [offset-size (text;size offset)]]
+                                             (if (n.>= offset-column offset-size)
+                                               (recur (|> offset
+                                                          (text;split offset-column)
+                                                          (default (undefined))
+                                                          product;right
+                                                          (format text-read))
+                                                      (|> where
+                                                          (update@ #;column (n.+ offset-size)))
+                                                      false)
+                                               (l;fail (format "Each line of a multi-line text must have an appropriate offset!\n"
+                                                               "Expected: " (%i (nat-to-int offset-column)) "\n"
+                                                               "  Actual: " (%i (nat-to-int offset-size)) "\n")))))
+                                 ($_ l;either
+                                     (do @
+                                       [normal (l;many' (l;none-of "\\\"\n"))]
+                                       (recur (format text-read normal)
+                                              (|> where
+                                                  (update@ #;column (n.+ (text;size normal))))
+                                              false))
+                                     (do @
+                                       [[chunk char] escaped-char^]
+                                       (recur (format text-read (char;as-text char))
+                                              (|> where
+                                                  (update@ #;column (n.+ (text;size chunk))))
+                                              false))
+                                     next-line
+                                     (do @
+                                       [_ (l;text "\"")]
+                                       (wrap [text-read
+                                              (|> where
+                                                  (update@ #;column n.inc))])))))))]
+    (wrap [[where (#;TextS text-read)]
+           where'])))
 
 (do-template [<name> <tag> <open> <close>]
   [(def: (<name> where ast^)
@@ -212,7 +239,7 @@
                                      (wrap [(V;to-list elems)
                                             (|> where'
                                                 (update@ #;column n.inc))]))))]
-       (wrap [[default-cursor (<tag> elems)]
+       (wrap [[where (<tag> elems)]
               where'])))]
 
   [form^   #;FormS   "(" ")"]
@@ -240,7 +267,7 @@
                                   (wrap [(V;to-list elems)
                                          (|> where'
                                              (update@ #;column n.inc))]))))]
-    (wrap [[default-cursor (#;RecordS elems)]
+    (wrap [[where (#;RecordS elems)]
            where'])))
 
 (def: ident-part^
@@ -281,17 +308,17 @@
                   (wrap [["" first-part]
                          (text;size first-part)])))))
 
-(do-template [<name> <tag> <lexer>]
+(do-template [<name> <tag> <lexer> <extra>]
   [(def: (<name> where)
      (-> Cursor (Lexer [AST Cursor]))
      (do Monad<Lexer>
        [[value length] <lexer>]
-       (wrap [[default-cursor (<tag> value)]
+       (wrap [[where (<tag> value)]
               (|> where
-                  (update@ #;column (n.+ length)))])))]
+                  (update@ #;column (function [column] ($_ n.+ column <extra> length))))])))]
 
-  [symbol^ #;SymbolS ident^]
-  [tag^    #;TagS    (l;after (l;char #"#") ident^)]
+  [symbol^ #;SymbolS ident^                         +0]
+  [tag^    #;TagS    (l;after (l;char #"#") ident^) +1]
   )
 
 (def: #export (ast^ where)
