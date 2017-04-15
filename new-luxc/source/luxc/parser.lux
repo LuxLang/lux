@@ -76,6 +76,16 @@
   (l;either (single-line-comment^ where)
             (multi-line-comment^ where)))
 
+(def: (padding^ where)
+  (-> Cursor (Lexer Cursor))
+  (l;either (do Monad<Lexer>
+              [[comment where] (comment^ where)]
+              (padding^ where))
+            (do Monad<Lexer>
+              [[white-space where] (space^ where)]
+              (wrap where))
+            ))
+
 (def: escaped-char^
   (Lexer [Text Char])
   (l;after (l;char #"\\")
@@ -156,11 +166,7 @@
                                raw-char^)]
     (wrap [[where (#;CharS value)]
            (|> where
-               (update@ #;column (function [column]
-                                   ($_ n.+
-                                       +3
-                                       column
-                                       (text;size chunk)))))])))
+               (update@ #;column (|>. ($_ n.+ +3 (text;size chunk)))))])))
 
 (def: (text^ where)
   (-> Cursor (Lexer [AST Cursor]))
@@ -174,7 +180,7 @@
                                   next-line-start? false]
                              (let [next-line (do @
                                                [_ (l;text "\n")]
-                                               (recur text-read
+                                               (recur (format text-read "\n")
                                                       (|> where
                                                           (update@ #;line n.inc)
                                                           (set@ #;column +0))
@@ -194,8 +200,8 @@
                                                           (update@ #;column (n.+ offset-size)))
                                                       false)
                                                (l;fail (format "Each line of a multi-line text must have an appropriate offset!\n"
-                                                               "Expected: " (%i (nat-to-int offset-column)) "\n"
-                                                               "  Actual: " (%i (nat-to-int offset-size)) "\n")))))
+                                                               "Expected: " (%i (nat-to-int offset-column)) " columns.\n"
+                                                               "  Actual: " (%i (nat-to-int offset-size)) " columns.\n")))))
                                  ($_ l;either
                                      (do @
                                        [normal (l;many' (l;none-of "\\\"\n"))]
@@ -233,8 +239,7 @@
                                      (recur (V;add elem elems)
                                             where'))
                                    (do @
-                                     [[_ where'] (l;either (space^ where)
-                                                           (comment^ where))
+                                     [where' (padding^ where)
                                       _ (l;text <close>)]
                                      (wrap [(V;to-list elems)
                                             (|> where'
@@ -261,8 +266,7 @@
                                   (recur (V;add [key val] elems)
                                          where'))
                                 (do @
-                                  [[_ where'] (l;either (space^ where)
-                                                        (comment^ where))
+                                  [where' (padding^ where)
                                    _ (l;text "}")]
                                   (wrap [(V;to-list elems)
                                          (|> where'
@@ -274,7 +278,7 @@
   (Lexer Text)
   (do Monad<Lexer>
     [#let [digits "0123456789"
-           delimiters "()[]{}#;"
+           delimiters "()[]{}#;\""
            space "\t\v \n\r\f"
            head-lexer (l;none-of (format digits delimiters space))
            tail-lexer (l;some' (l;none-of (format delimiters space)))]
@@ -315,7 +319,7 @@
        [[value length] <lexer>]
        (wrap [[where (<tag> value)]
               (|> where
-                  (update@ #;column (function [column] ($_ n.+ column <extra> length))))])))]
+                  (update@ #;column (|>. ($_ n.+ <extra> length))))])))]
 
   [symbol^ #;SymbolS ident^                         +0]
   [tag^    #;TagS    (l;after (l;char #"#") ident^) +1]
@@ -324,19 +328,18 @@
 (def: #export (ast^ where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
-    [[_ where] (l;either (space^ where)
-                         (comment^ where))]
+    [where (padding^ where)]
     ($_ l;either
+        (form^ where ast^)
+        (tuple^ where ast^)
+        (record^ where ast^)
         (bool^ where)
         (nat^ where)
         (real^ where)
         (int^ where)
         (deg^ where)
-        (char^ where)
-        (text^ where)
         (symbol^ where)
         (tag^ where)
-        (form^ where ast^)
-        (tuple^ where ast^)
-        (record^ where ast^)
+        (char^ where)
+        (text^ where)
         )))

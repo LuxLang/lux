@@ -3,11 +3,12 @@
   (lux [io]
        (control monad
                 pipe)
-       (data [char]
+       (data [char "C/" Eq<Char>]
              [text "T/" Eq<Text>]
              (text format
                    ["l" lexer])
-             [number])
+             [number]
+             (coll [list]))
        ["R" math/random "R/" Monad<Random>]
        (macro [ast])
        test)
@@ -30,7 +31,7 @@
                         (R;filter (function [sample]
                                     (not (text;contains? (char;as-text sample)
                                                          invalid-range)))))]
-     size (|> R;nat (:: @ map (n.% +20)))]
+     size (|> R;nat (:: @ map (|>. (n.% +20) (n.max +1))))]
     (R;text' char-gen size)))
 
 (def: ident^
@@ -39,30 +40,36 @@
 
 (def: ast^
   (R;Random AST)
-  (let [simple^ (: (R;Random AST)
+  (let [numeric^ (: (R;Random AST)
+                    ($_ R;either
+                        (|> R;bool (R/map (|>. #;BoolS [default-cursor])))
+                        (|> R;nat (R/map (|>. #;NatS [default-cursor])))
+                        (|> R;int (R/map (|>. #;IntS [default-cursor])))
+                        (|> R;deg (R/map (|>. #;DegS [default-cursor])))
+                        (|> R;real (R/map (|>. #;RealS [default-cursor])))))
+        textual^ (: (R;Random AST)
+                    ($_ R;either
+                        (|> R;char (R/map (|>. #;CharS [default-cursor])))
+                        (do R;Monad<Random>
+                          [size (|> R;nat (R/map (n.% +20)))]
+                          (|> (R;text size) (R/map (|>. #;TextS [default-cursor]))))
+                        (|> ident^ (R/map (|>. #;SymbolS [default-cursor])))
+                        (|> ident^ (R/map (|>. #;TagS [default-cursor])))))
+        simple^ (: (R;Random AST)
                    ($_ R;either
-                       (|> R;bool (R/map (|>. #;BoolS [default-cursor])))
-                       (|> R;nat (R/map (|>. #;NatS [default-cursor])))
-                       (|> R;int (R/map (|>. #;IntS [default-cursor])))
-                       (|> R;deg (R/map (|>. #;DegS [default-cursor])))
-                       (|> R;real (R/map (|>. #;RealS [default-cursor])))
-                       (|> R;char (R/map (|>. #;CharS [default-cursor])))
-                       (do R;Monad<Random>
-                         [size (|> R;nat (R/map (n.% +20)))]
-                         (|> (R;text size) (R/map (|>. #;TextS [default-cursor]))))
-                       (|> ident^ (R/map (|>. #;SymbolS [default-cursor])))
-                       (|> ident^ (R/map (|>. #;TagS [default-cursor])))))]
+                       numeric^
+                       textual^))]
     (R;rec
      (function [ast^]
        (let [multi^ (do R;Monad<Random>
-                      [size (|> R;nat (R/map (n.% +2)))]
+                      [size (|> R;nat (R/map (n.% +3)))]
                       (R;list size ast^))
              composite^ (: (R;Random AST)
                            ($_ R;either
                                (|> multi^ (R/map (|>. #;FormS [default-cursor])))
                                (|> multi^ (R/map (|>. #;TupleS [default-cursor])))
                                (do R;Monad<Random>
-                                 [size (|> R;nat (R/map (n.% +2)))]
+                                 [size (|> R;nat (R/map (n.% +3)))]
                                  (|> (R;list size (R;seq ast^ ast^))
                                      (R/map (|>. #;RecordS [default-cursor]))))))]
          (R;either simple^
@@ -79,3 +86,61 @@
                      (#;Right [parsed _])
                      (:: ast;Eq<AST> = parsed sample))
               )))
+
+(test: "Multi-line text & comments."
+  #seed +9223374029023245172
+  [#let [char-gen (|> R;char (R;filter (function [value]
+                                         (not (or (char;space? value)
+                                                  (C/= #"\"" value)
+                                                  (C/= #"\n" value))))))]
+   x char-gen
+   y char-gen
+   z char-gen
+   offset-size (|> R;nat (R/map (|>. (n.% +10) (n.max +1))))
+   #let [offset (text;join-with "" (list;repeat offset-size " "))]
+   sample ast^
+   comment (do @
+             [size (|> R;nat (R/map (n.% +20)))]
+             (R;text' char-gen size))]
+  ($_ seq
+      (assert "Can handle multi-line text."
+              (and (let [bad-match (format (char;as-text x) "\n"
+                                           (char;as-text y) "\n"
+                                           (char;as-text z))]
+                     (|> (&;ast^ default-cursor)
+                         (l;run (format "\"" bad-match "\""))
+                         (case> (#;Left error)
+                                true
+
+                                (#;Right [parsed _])
+                                false)
+                         ))
+                   (let [good-input (format (char;as-text x) "\n"
+                                            offset (char;as-text y) "\n"
+                                            offset (char;as-text z))
+                         good-output (format (char;as-text x) "\n"
+                                             (char;as-text y) "\n"
+                                             (char;as-text z))]
+                     (|> (&;ast^ (|> default-cursor
+                                     (update@ #;column (n.+ (n.dec offset-size)))))
+                         (l;run (format "\"" good-input "\""))
+                         (case> (#;Left error)
+                                false
+
+                                (#;Right [parsed _])
+                                (:: ast;Eq<AST> =
+                                    parsed
+                                    (ast;text good-output)))
+                         ))
+                   ))
+      (assert "Can handle single-line comments."
+              (|> (&;ast^ default-cursor)
+                  (l;run (format "## " comment "\n"
+                                 (ast;to-text sample)))
+                  (case> (#;Left error)
+                         false
+
+                         (#;Right [parsed _])
+                         (:: ast;Eq<AST> = parsed sample))
+                  ))
+      ))
