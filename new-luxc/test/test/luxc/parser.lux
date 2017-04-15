@@ -87,8 +87,30 @@
                      (:: ast;Eq<AST> = parsed sample))
               )))
 
+(def: comment-text^
+  (R;Random Text)
+  (let [char-gen (|> R;char (R;filter (function [value]
+                                        (not (or (char;space? value)
+                                                 (C/= #"\n" value)
+                                                 (C/= #"#" value)
+                                                 (C/= #"(" value)
+                                                 (C/= #")" value))))))]
+    (do R;Monad<Random>
+      [size (|> R;nat (R/map (n.% +20)))]
+      (R;text' char-gen size))))
+
+(def: comment^
+  (R;Random Text)
+  (R;either (do R;Monad<Random>
+              [comment comment-text^]
+              (wrap (format "## " comment "\n")))
+            (R;rec (function [nested^]
+                     (do R;Monad<Random>
+                       [comment (R;either comment-text^
+                                          nested^)]
+                       (wrap (format "#( " comment " )#")))))))
+
 (test: "Multi-line text & comments."
-  #seed +9223374029023245172
   [#let [char-gen (|> R;char (R;filter (function [value]
                                          (not (or (char;space? value)
                                                   (C/= #"\"" value)
@@ -99,44 +121,42 @@
    offset-size (|> R;nat (R/map (|>. (n.% +10) (n.max +1))))
    #let [offset (text;join-with "" (list;repeat offset-size " "))]
    sample ast^
-   comment (do @
-             [size (|> R;nat (R/map (n.% +20)))]
-             (R;text' char-gen size))]
+   comment comment^]
   ($_ seq
-      (assert "Can handle multi-line text."
-              (and (let [bad-match (format (char;as-text x) "\n"
-                                           (char;as-text y) "\n"
-                                           (char;as-text z))]
-                     (|> (&;ast^ default-cursor)
-                         (l;run (format "\"" bad-match "\""))
-                         (case> (#;Left error)
-                                true
+      (assert "Will reject invalid multi-line text."
+              (let [bad-match (format (char;as-text x) "\n"
+                                      (char;as-text y) "\n"
+                                      (char;as-text z))]
+                (|> (&;ast^ default-cursor)
+                    (l;run (format "\"" bad-match "\""))
+                    (case> (#;Left error)
+                           true
 
-                                (#;Right [parsed _])
-                                false)
-                         ))
-                   (let [good-input (format (char;as-text x) "\n"
-                                            offset (char;as-text y) "\n"
-                                            offset (char;as-text z))
-                         good-output (format (char;as-text x) "\n"
-                                             (char;as-text y) "\n"
-                                             (char;as-text z))]
-                     (|> (&;ast^ (|> default-cursor
-                                     (update@ #;column (n.+ (n.dec offset-size)))))
-                         (l;run (format "\"" good-input "\""))
-                         (case> (#;Left error)
-                                false
+                           (#;Right [parsed _])
+                           false)
+                    )))
+      (assert "Will accept valid multi-line text"
+              (let [good-input (format (char;as-text x) "\n"
+                                       offset (char;as-text y) "\n"
+                                       offset (char;as-text z))
+                    good-output (format (char;as-text x) "\n"
+                                        (char;as-text y) "\n"
+                                        (char;as-text z))]
+                (|> (&;ast^ (|> default-cursor
+                                (update@ #;column (n.+ (n.dec offset-size)))))
+                    (l;run (format "\"" good-input "\""))
+                    (case> (#;Left error)
+                           false
 
-                                (#;Right [parsed _])
-                                (:: ast;Eq<AST> =
-                                    parsed
-                                    (ast;text good-output)))
-                         ))
-                   ))
-      (assert "Can handle single-line comments."
+                           (#;Right [parsed _])
+                           (:: ast;Eq<AST> =
+                               parsed
+                               (ast;text good-output)))
+                    ))
+              )
+      (assert "Can handle comments."
               (|> (&;ast^ default-cursor)
-                  (l;run (format "## " comment "\n"
-                                 (ast;to-text sample)))
+                  (l;run (format comment (ast;to-text sample)))
                   (case> (#;Left error)
                          false
 
