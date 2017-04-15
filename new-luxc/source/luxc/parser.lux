@@ -1,0 +1,204 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data [char]
+             [text]
+             [number]
+             (text ["l" lexer #+ Lexer Monad<Lexer> "l/" Monad<Lexer>]
+                   format))))
+
+(def: default-cursor
+  Cursor
+  {#;module ""
+   #;line   +0
+   #;column +0})
+
+(def: space^
+  (Lexer Text)
+  (l;some' l;space))
+
+(def: single-line-comment^
+  (Lexer Text)
+  (l;enclosed ["##" "\n"]
+              (l;some' (l;none-of "\n"))))
+
+(def: multi-line-comment^
+  (Lexer Text)
+  (let [bound^ (l;alt (l;text ")#")
+                      (l;text "#("))]
+    (l;rec
+     (function [multi-line-comment^]
+       (do Monad<Lexer>
+         [_ (l;text "#(")
+          chunks (l;some (l;either (l;some' (l;not bound^))
+                                   (do @
+                                     [sub multi-line-comment^]
+                                     (wrap (format "#(" sub ")#")))))
+          _ (l;text ")#")]
+         (wrap (text;join-with "" chunks)))))))
+
+(def: comment^
+  (Lexer Text)
+  (l;either single-line-comment^
+            multi-line-comment^))
+
+(def: padded^
+  (All [a] (-> (Lexer a) (Lexer a)))
+  (let [padding^ (l;either space^ comment^)]
+    (|>. (l;before padding^)
+         (l;after padding^))))
+
+(def: escaped-char^
+  (Lexer Char)
+  (l;after (l;char #"\\")
+           (do Monad<Lexer>
+             [code l;any]
+             (case code
+               #"t" (wrap #"\t")
+               #"v" (wrap #"\v")
+               #"b" (wrap #"\b")
+               #"n" (wrap #"\n")
+               #"r" (wrap #"\r")
+               #"f" (wrap #"\f")
+               #"\"" (wrap #"\"")
+               #"\\" (wrap #"\\")
+
+               #"u"
+               (do Monad<Lexer>
+                 [code (l;between' +1 +4 l;hex-digit)]
+                 (wrap (case (:: number;Hex@Codec<Text,Nat> decode
+                                 (format "+" code))
+                         (#;Right value)
+                         (char;char value)
+
+                         _
+                         (undefined))))
+
+               _
+               (l;fail (format "Invalid escaping syntax: " (%c code)))))))
+
+(def: raw-char^
+  (Lexer Char)
+  (l;either (l;none-of "\\\"\n")
+            escaped-char^))
+
+(do-template [<name> <tag> <lexer>]
+  [(def: <name>
+     (Lexer AST)
+     (do Monad<Lexer>
+       [value <lexer>]
+       (wrap [default-cursor (<tag> value)])))]
+
+  [bool^ #;BoolS
+   (l;either (l;after (l;text "true") (l/wrap true))
+             (l;after (l;text "false") (l/wrap false)))]
+  [nat^ #;NatS
+   (l;codec number;Codec<Text,Nat>
+            (do @
+              [sign (l;text "+")
+               digits (l;many' l;digit)]
+              (wrap (format sign digits))))]
+  [int^ #;IntS
+   (l;codec number;Codec<Text,Int>
+            (do @
+              [sign (l;opt (l;text "-"))
+               digits (l;many' l;digit)]
+              (wrap (format (default "" sign)
+                            digits))))]
+  [real^ #;RealS
+   (l;codec number;Codec<Text,Real>
+            (do @
+              [sign (l;opt (l;text "-"))
+               whole (l;many' l;digit)
+               _ (l;text ".")
+               frac (l;many' l;digit)]
+              (wrap (format (default "" sign)
+                            whole
+                            "."
+                            frac))))]
+  [deg^ #;DegS
+   (l;codec number;Codec<Text,Deg>
+            (do @
+              [_ (l;text ".")
+               frac (l;many' l;digit)]
+              (wrap (format "." frac))))]
+  [char^ #;CharS
+   (l;enclosed ["#\"" "\""] raw-char^)]
+  [text^ #;TextS
+   (l;enclosed ["\"" "\""]
+               (l;some' raw-char^))]
+  )
+
+(do-template [<name> <tag> <open> <close> <lexer>]
+  [(def: (<name> ast^)
+     (-> (Lexer AST) (Lexer AST))
+     (do Monad<Lexer>
+       [elems (l;enclosed [<open> <close>]
+                          (l;some <lexer>))]
+       (wrap [default-cursor (<tag> elems)])))]
+
+  [form^   #;FormS   "(" ")" ast^]
+  [tuple^  #;TupleS  "[" "]" ast^]
+  [record^ #;RecordS "{" "}" (l;seq ast^ ast^)]
+  )
+
+(def: ident-part^
+  (Lexer Text)
+  (do Monad<Lexer>
+    [#let [digits "0123456789"
+           delimiters "()[]{}#;"
+           space "\t\v \n\r\f"
+           head-lexer (l;none-of (format digits delimiters space))
+           tail-lexer (l;some' (l;none-of (format delimiters space)))]
+     head head-lexer
+     tail tail-lexer]
+    (wrap (format (char;as-text head)
+                  tail))))
+
+(def: ident^
+  (Lexer Ident)
+  ($_ l;either
+      (do Monad<Lexer>
+        [_ (l;text ";;")
+         def-name ident-part^]
+        (l;fail "Cannot handle ;; syntax for identifiers."))
+      (l;seq (l;after (l;text ";")
+                      (l/wrap "lux"))
+             ident-part^)
+      (do Monad<Lexer>
+        [first-part ident-part^]
+        (l;either (do @
+                    [_ (l;char #";")
+                     second-part ident-part^]
+                    (wrap [first-part second-part]))
+                  (wrap ["" first-part])))))
+
+(do-template [<name> <tag> <lexer>]
+  [(def: <name>
+     (Lexer AST)
+     (do Monad<Lexer>
+       [value <lexer>]
+       (wrap [default-cursor (<tag> value)])))]
+
+  [symbol^ #;SymbolS ident^]
+  [tag^    #;TagS    (l;after (l;char #"#") ident^)]
+  )
+
+(def: ast^
+  (Lexer AST)
+  (l;rec (function [ast^]
+           (padded^
+            ($_ l;either
+                bool^
+                nat^
+                real^
+                int^
+                deg^
+                char^
+                text^
+                symbol^
+                tag^
+                (form^ ast^)
+                (tuple^ ast^)
+                (record^ ast^)
+                )))))
