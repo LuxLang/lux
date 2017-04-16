@@ -1,8 +1,7 @@
 (;module:
   lux
   (lux [io]
-       (control monad
-                pipe)
+       (control monad)
        (data [char "C/" Eq<Char>]
              [text "T/" Eq<Text>]
              (text format
@@ -78,14 +77,13 @@
 (test: "Lux code parser."
   [sample ast^]
   (assert "Can parse Lux code."
-          (|> (&;ast^ default-cursor)
-              (l;run (ast;to-text sample))
-              (case> (#;Left error)
-                     false
+          (case (&;parse default-cursor (ast;to-text sample))
+            (#;Left error)
+            false
 
-                     (#;Right [parsed _])
-                     (:: ast;Eq<AST> = parsed sample))
-              )))
+            (#;Right [remaining-code parsed _])
+            (:: ast;Eq<AST> = parsed sample))
+          ))
 
 (def: comment-text^
   (R;Random Text)
@@ -121,20 +119,20 @@
    offset-size (|> R;nat (R/map (|>. (n.% +10) (n.max +1))))
    #let [offset (text;join-with "" (list;repeat offset-size " "))]
    sample ast^
-   comment comment^]
+   comment comment^
+   unbalanced-comment comment-text^]
   ($_ seq
       (assert "Will reject invalid multi-line text."
               (let [bad-match (format (char;as-text x) "\n"
                                       (char;as-text y) "\n"
                                       (char;as-text z))]
-                (|> (&;ast^ default-cursor)
-                    (l;run (format "\"" bad-match "\""))
-                    (case> (#;Left error)
-                           true
+                (case (&;parse default-cursor
+                               (format "\"" bad-match "\""))
+                  (#;Left error)
+                  true
 
-                           (#;Right [parsed _])
-                           false)
-                    )))
+                  (#;Right [remaining-code parsed _])
+                  false)))
       (assert "Will accept valid multi-line text"
               (let [good-input (format (char;as-text x) "\n"
                                        offset (char;as-text y) "\n"
@@ -142,25 +140,39 @@
                     good-output (format (char;as-text x) "\n"
                                         (char;as-text y) "\n"
                                         (char;as-text z))]
-                (|> (&;ast^ (|> default-cursor
-                                (update@ #;column (n.+ (n.dec offset-size)))))
-                    (l;run (format "\"" good-input "\""))
-                    (case> (#;Left error)
-                           false
+                (case (&;parse (|> default-cursor
+                                   (update@ #;column (n.+ (n.dec offset-size))))
+                               (format "\"" good-input "\""))
+                  (#;Left error)
+                  false
 
-                           (#;Right [parsed _])
-                           (:: ast;Eq<AST> =
-                               parsed
-                               (ast;text good-output)))
-                    ))
-              )
+                  (#;Right [remaining-code parsed _])
+                  (:: ast;Eq<AST> =
+                      parsed
+                      (ast;text good-output)))))
       (assert "Can handle comments."
-              (|> (&;ast^ default-cursor)
-                  (l;run (format comment (ast;to-text sample)))
-                  (case> (#;Left error)
-                         false
+              (case (&;parse default-cursor
+                             (format comment (ast;to-text sample)))
+                (#;Left error)
+                false
 
-                         (#;Right [parsed _])
-                         (:: ast;Eq<AST> = parsed sample))
-                  ))
+                (#;Right [remaining-code parsed _])
+                (:: ast;Eq<AST> = parsed sample)))
+      (assert "Will reject unbalanced multi-line comments."
+              (and (case (&;parse default-cursor
+                                  (format "#(" "#(" unbalanced-comment ")#"
+                                          (ast;to-text sample)))
+                     (#;Left error)
+                     true
+
+                     (#;Right [remaining-code parsed _])
+                     false)
+                   (case (&;parse default-cursor
+                                  (format "#(" unbalanced-comment ")#" ")#"
+                                          (ast;to-text sample)))
+                     (#;Left error)
+                     true
+
+                     (#;Right [remaining-code parsed _])
+                     false)))
       ))

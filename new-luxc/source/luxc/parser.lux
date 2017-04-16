@@ -1,9 +1,37 @@
+## This is the LuxC's parser.
+## It takes the source code of a Lux file in raw text form and
+## extracts the syntactic structure of the code from it.
+## It only produces Lux AST nodes, and thus removes any white-space
+## and comments while processing its inputs.
+
+## Another important aspect of the parser is that it keeps track of
+## its position within the input data.
+## That is, the parser takes into account the line and column
+## information in the input text (it doesn't really touch the
+## file-name aspect of the cursor, leaving it intact in whatever
+## base-line cursor it is given).
+
+## This particular piece of functionality is not located in one
+## function, but it is instead scattered throughout several parsers,
+## since the logic for how to update the cursor varies, depending on
+## what is being parsed, and the rules involved.
+
+## You will notice that several parsers have a "where" parameter, that
+## tells them the cursor position prior to the parser being run.
+## They are supposed to produce some parsed output, alongside an
+## updated cursor pointing to the end position, after the parser was run.
+
+## Lux AST nodes/tokens are annotated with cursor meta-data
+## (file-name, line, column) to keep track of their provenance and
+## location, which is helpful for documentation and debugging.
+
 (;module:
   lux
   (lux (control monad)
        (data [bool]
              [char]
              [text]
+             ["E" error #*]
              [number]
              (text ["l" lexer #+ Lexer Monad<Lexer> "l/" Monad<Lexer>]
                    format)
@@ -11,11 +39,21 @@
              (coll [list "L/" Functor<List> Fold<List>]
                    ["V" vector]))))
 
+(def: white-space Text "\t\v \r\f")
+(def: new-line "\n")
+
+## This is the parser for white-space.
+## Whenever a new-line is encountered, the column gets reset to 0, and
+## the line gets incremented.
+## It operates recursively in order to produce the longest continuous
+## chunk of white-space.
 (def: (space^ where)
   (-> Cursor (Lexer [Text Cursor]))
   (do Monad<Lexer>
-    [head (l;some' (l;one-of "\t\v \r\f"))]
-    (l;either (l;after (l;one-of "\n")
+    [head (l;some' (l;one-of white-space))]
+    ## New-lines must be handled as a separate case to ensure line
+    ## information is handled properly.
+    (l;either (l;after (l;one-of new-line)
                        (do @
                          [[tail end] (space^ (|> where
                                                  (update@ #;line n.inc)
@@ -26,23 +64,33 @@
                      (|> where
                          (update@ #;column (n.+ (text;size head))))]))))
 
+## Single-line comments can start anywhere, but only go up to the
+## next new-line.
 (def: (single-line-comment^ where)
   (-> Cursor (Lexer [Text Cursor]))
-  (l;enclosed ["##" "\n"]
-              (do Monad<Lexer>
-                [comment (l;some' (l;none-of "\n"))]
-                (wrap [comment
-                       (|> where
-                           (update@ #;line n.inc)
-                           (set@ #;column +0))]))))
+  (do Monad<Lexer>
+    [_ (l;text "##")
+     comment (l;some' (l;none-of new-line))
+     _ (l;text new-line)]
+    (wrap [comment
+           (|> where
+               (update@ #;line n.inc)
+               (set@ #;column +0))])))
 
+## This is just a helper parser to find text which doesn't run into
+## any special character sequences for multi-line comments.
 (def: comment-bound^
   (Lexer Text)
   ($_ l;either
-      (l;text "\n")
+      (l;text new-line)
       (l;text ")#")
       (l;text "#(")))
 
+## Multi-line comments are bounded by #( these delimiters, #(and, they may
+## also be nested)# )#.
+## Multi-line comment syntax must be balanced.
+## That is, any nested comment must have matched delimiters.
+## Unbalanced comments ought to be rejected as invalid code.
 (def: (multi-line-comment^ where)
   (-> Cursor (Lexer [Text Cursor]))
   (do Monad<Lexer>
@@ -51,21 +99,31 @@
            where (|> where
                      (update@ #;column (n.+ +2)))]
       ($_ l;either
+          ## These are normal chunks of commented text.
           (do @
             [chunk (l;many' (l;not comment-bound^))]
             (recur (format comment chunk)
                    (|> where
                        (update@ #;column (n.+ (text;size chunk))))))
+          ## This is a special rule to handle new-lines within
+          ## comments properly.
           (do @
-            [_ (l;one-of "\n")]
-            (recur (format comment "\n")
+            [_ (l;text new-line)]
+            (recur (format comment new-line)
                    (|> where
                        (update@ #;line n.inc)
                        (set@ #;column +0))))
+          ## This is the rule for handling nested sub-comments.
+          ## Ultimately, the whole comment is just treated as text
+          ## (the comment must respect the syntax structure, but the
+          ## output produced is just a block of text).
+          ## That is why the sub-comment is covered in delimiters
+          ## and then appended to the rest of the comment text.
           (do @
             [[sub-comment sub-where] (multi-line-comment^ where)]
             (recur (format comment "#(" sub-comment ")#")
                    sub-where))
+          ## Finally, this is the rule for closing the comment.
           (do @
             [_ (l;text ")#")]
             (wrap [comment
@@ -73,36 +131,53 @@
                        (update@ #;column (n.+ +2)))]))
           ))))
 
+## This is the only parser that should be used directly by other
+## parsers, since all comments must be treated as either being
+## single-line or multi-line.
+## That is, there is no syntactic rule prohibiting one type of comment
+## from being used in any situation (alternatively, forcing one type
+## of comment to be the only usable one).
 (def: (comment^ where)
   (-> Cursor (Lexer [Text Cursor]))
   (l;either (single-line-comment^ where)
             (multi-line-comment^ where)))
 
-(def: (padding^ where)
+## To simplify parsing, I remove any left-padding that an AST token
+## may have prior to parsing the token itself.
+## Left-padding is assumed to be either white-space or a comment.
+## The cursor gets updated, but the padding gets ignored.
+(def: (left-padding^ where)
   (-> Cursor (Lexer Cursor))
   (l;either (do Monad<Lexer>
               [[comment where] (comment^ where)]
-              (padding^ where))
+              (left-padding^ where))
             (do Monad<Lexer>
               [[white-space where] (space^ where)]
               (wrap where))
             ))
 
+## Escaped character sequences follow the usual syntax of
+## back-slash followed by a letter (e.g. \n).
+## Unicode escapes are possible, with hexadecimal sequences between 1
+## and 4 characters long (e.g. \u12aB).
+## Escaped characters may show up in Char and Text literals.
 (def: escaped-char^
   (Lexer [Text Char])
   (l;after (l;char #"\\")
            (do Monad<Lexer>
              [code l;any]
              (case code
-               #"t" (wrap ["\\t" #"\t"])
-               #"v" (wrap ["\\v" #"\v"])
-               #"b" (wrap ["\\b" #"\b"])
-               #"n" (wrap ["\\n" #"\n"])
-               #"r" (wrap ["\\r" #"\r"])
-               #"f" (wrap ["\\f" #"\f"])
+               ## Handle special cases.
+               #"t"  (wrap ["\\t"  #"\t"])
+               #"v"  (wrap ["\\v"  #"\v"])
+               #"b"  (wrap ["\\b"  #"\b"])
+               #"n"  (wrap ["\\n"  #"\n"])
+               #"r"  (wrap ["\\r"  #"\r"])
+               #"f"  (wrap ["\\f"  #"\f"])
                #"\"" (wrap ["\\\"" #"\""])
                #"\\" (wrap ["\\\\" #"\\"])
 
+               ## Handle unicode escapes.
                #"u"
                (do Monad<Lexer>
                  [code (l;between' +1 +4 l;hex-digit)]
@@ -117,6 +192,13 @@
                _
                (l;fail (format "Invalid escaping syntax: " (%c code)))))))
 
+## A character can be either a normal glyph, or a escaped character.
+## The reason why this parser returns both the Char and it's textual
+## representation in the source-code, is for the sake of updating the
+## cursor after parsing the char.
+## A character only represents one glyph, but it's source-code
+## representation may be multi-glyph (e.g. \u1234, \n), in which case,
+## the text that was parsed needs to be counted to update the cursor.
 (def: raw-char^
   (Lexer [Text Char])
   (l;either (do Monad<Lexer>
@@ -124,6 +206,9 @@
               (wrap [(char;as-text char) char]))
             escaped-char^))
 
+## These are very simple parsers that just cut chunks of text in
+## specific shapes and then use decoders already present in the
+## standard library to actually produce the values from the literals.
 (do-template [<name> <tag> <lexer> <codec>]
   [(def: (<name> where)
      (-> Cursor (Lexer [AST Cursor]))
@@ -141,13 +226,16 @@
   [bool^ #;BoolS
    (l;either (l;text "true") (l;text "false"))
    bool;Codec<Text,Bool>]
+  
   [nat^ #;NatS
    (l;seq' (l;text "+") (l;many' l;digit))
    number;Codec<Text,Nat>]
+  
   [int^ #;IntS
    (l;seq' (l;default "" (l;text "-"))
            (l;many' l;digit))
    number;Codec<Text,Int>]
+  
   [real^ #;RealS
    ($_ l;seq'
        (l;default "" (l;text "-"))
@@ -155,12 +243,15 @@
        (l;text ".")
        (l;many' l;digit))
    number;Codec<Text,Real>]
+  
   [deg^ #;DegS
    (l;seq' (l;text ".")
            (l;many' l;digit))
    number;Codec<Text,Deg>]
   )
 
+## This parser doesn't delegate the work of producing the value to a
+## codec, since the raw-char^ parser already takes care of that magic.
 (def: (char^ where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
@@ -170,62 +261,98 @@
            (|> where
                (update@ #;column (|>. ($_ n.+ +3 (text;size chunk)))))])))
 
+## This parser looks so complex because text in Lux can be multi-line
+## and there are rules regarding how this is handled.
 (def: (text^ where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
-    [_ (l;text "\"")
+    [## Lux text "is delimited by double-quotes", as usual in most
+     ## programming languages.
+     _ (l;text "\"")
+     ## I must know what column the text body starts at (which is
+     ## always 1 column after the left-delimiting quote).
+     ## This is important because, when procesing subsequent lines,
+     ## they must all start at the same column, being left-padded with
+     ## as many spaces as necessary to be column-aligned.
+     ## This helps ensure that the formatting on the text in the
+     ## source-code matches the formatting of the Text value.
      #let [offset-column (n.inc (get@ #;column where))]
      [text-read where'] (: (Lexer [Text Cursor])
+                           ## I must keep track of how much of the
+                           ## text body has been read, how far the
+                           ## cursor has progressed, and whether I'm
+                           ## processing a subsequent line, or just
+                           ## processing normal text body.
                            (loop [text-read ""
                                   where (|> where
                                             (update@ #;column n.inc))
-                                  next-line-start? false]
-                             (let [next-line (do @
-                                               [_ (l;text "\n")]
-                                               (recur (format text-read "\n")
+                                  must-have-offset? false]
+                             (l;either (if must-have-offset?
+                                         ## If I'm at the start of a
+                                         ## new line, I must ensure the
+                                         ## space-offset is at least
+                                         ## as great as the column of
+                                         ## the text's body's column,
+                                         ## to ensure they are aligned.
+                                         (do @
+                                           [offset (l;many' (l;char #" "))
+                                            #let [offset-size (text;size offset)]]
+                                           (if (n.>= offset-column offset-size)
+                                             ## Any extra offset
+                                             ## becomes part of the
+                                             ## text's body.
+                                             (recur (|> offset
+                                                        (text;split offset-column)
+                                                        (default (undefined))
+                                                        product;right
+                                                        (format text-read))
+                                                    (|> where
+                                                        (update@ #;column (n.+ offset-size)))
+                                                    false)
+                                             (l;fail (format "Each line of a multi-line text must have an appropriate offset!\n"
+                                                             "Expected: " (%i (nat-to-int offset-column)) " columns.\n"
+                                                             "  Actual: " (%i (nat-to-int offset-size)) " columns.\n"))))
+                                         ($_ l;either
+                                             ## Normal text characters.
+                                             (do @
+                                               [normal (l;many' (l;none-of "\\\"\n"))]
+                                               (recur (format text-read normal)
                                                       (|> where
-                                                          (update@ #;line n.inc)
-                                                          (set@ #;column +0))
-                                                      true))]
-                               (if next-line-start?
-                                 (l;either next-line
-                                           (do @
-                                             [offset (l;many' (l;char #" "))
-                                              #let [offset-size (text;size offset)]]
-                                             (if (n.>= offset-column offset-size)
-                                               (recur (|> offset
-                                                          (text;split offset-column)
-                                                          (default (undefined))
-                                                          product;right
-                                                          (format text-read))
+                                                          (update@ #;column (n.+ (text;size normal))))
+                                                      false))
+                                             ## Must handle escaped
+                                             ## chars separately.
+                                             (do @
+                                               [[chunk char] escaped-char^]
+                                               (recur (format text-read (char;as-text char))
                                                       (|> where
-                                                          (update@ #;column (n.+ offset-size)))
-                                                      false)
-                                               (l;fail (format "Each line of a multi-line text must have an appropriate offset!\n"
-                                                               "Expected: " (%i (nat-to-int offset-column)) " columns.\n"
-                                                               "  Actual: " (%i (nat-to-int offset-size)) " columns.\n")))))
-                                 ($_ l;either
-                                     (do @
-                                       [normal (l;many' (l;none-of "\\\"\n"))]
-                                       (recur (format text-read normal)
-                                              (|> where
-                                                  (update@ #;column (n.+ (text;size normal))))
-                                              false))
-                                     (do @
-                                       [[chunk char] escaped-char^]
-                                       (recur (format text-read (char;as-text char))
-                                              (|> where
-                                                  (update@ #;column (n.+ (text;size chunk))))
-                                              false))
-                                     next-line
-                                     (do @
-                                       [_ (l;text "\"")]
-                                       (wrap [text-read
-                                              (|> where
-                                                  (update@ #;column n.inc))])))))))]
+                                                          (update@ #;column (n.+ (text;size chunk))))
+                                                      false))
+                                             ## The text ends when it
+                                             ## reaches the right-delimiter.
+                                             (do @
+                                               [_ (l;text "\"")]
+                                               (wrap [text-read
+                                                      (|> where
+                                                          (update@ #;column n.inc))]))))
+                                       ## If a new-line is
+                                       ## encountered, it gets
+                                       ## appended to the value and
+                                       ## the loop is alerted that the
+                                       ## next line must have an offset.
+                                       (do @
+                                         [_ (l;text new-line)]
+                                         (recur (format text-read new-line)
+                                                (|> where
+                                                    (update@ #;line n.inc)
+                                                    (set@ #;column +0))
+                                                true)))))]
     (wrap [[where (#;TextS text-read)]
            where'])))
 
+## Form and tuple syntax is mostly the same, differing only in the
+## delimiters involved.
+## They may have an arbitrary number of arbitrary AST nodes as elements.
 (do-template [<name> <tag> <open> <close>]
   [(def: (<name> where ast^)
      (-> Cursor
@@ -237,11 +364,16 @@
                                        V;empty)
                               where where]
                          (l;either (do @
-                                     [[elem where'] (ast^ where)]
+                                     [## Must update the cursor as I
+                                      ## go along, to keep things accurate.
+                                      [elem where'] (ast^ where)]
                                      (recur (V;add elem elems)
                                             where'))
                                    (do @
-                                     [where' (padding^ where)
+                                     [## Must take into account any
+                                      ## padding present before the
+                                      ## end-delimiter.
+                                      where' (left-padding^ where)
                                       _ (l;text <close>)]
                                      (wrap [(V;to-list elems)
                                             (|> where'
@@ -253,6 +385,15 @@
   [tuple^  #;TupleS  "[" "]"]
   )
 
+## Records are almost (syntactically) the same as forms and tuples,
+## with the exception that their elements must come in pairs (as in
+## key-value pairs).
+## Semantically, though, records and tuples are just 2 different
+## representations for the same thing (a tuple).
+## In normal Lux syntax, the key position in the pair will be a tag
+## AST node, however, record AST nodes allow any AST node to occupy
+## this position, since it may be useful when processing AST syntax in
+## macros.
 (def: (record^ where ast^)
   (-> Cursor
       (-> Cursor (Lexer [AST Cursor]))
@@ -263,12 +404,12 @@
                                     V;empty)
                            where where]
                       (l;either (do @
-                                  [[key where] (ast^ where)
-                                   [val where'] (ast^ where)]
+                                  [[key where'] (ast^ where)
+                                   [val where'] (ast^ where')]
                                   (recur (V;add [key val] elems)
                                          where'))
                                 (do @
-                                  [where' (padding^ where)
+                                  [where' (left-padding^ where)
                                    _ (l;text "}")]
                                   (wrap [(V;to-list elems)
                                          (|> where'
@@ -276,12 +417,34 @@
     (wrap [[where (#;RecordS elems)]
            where'])))
 
+## The parts of an identifier are separated by a single mark.
+## E.g. module;name.
+## Only one such mark may be used in an identifier, since there
+## can only be 2 parts to an identifier (the module [before the
+## mark], and the name [after the mark]).
+## There are also some extra rules regarding identifier syntax,
+## encoded on the parser.
+(def: identifier-separator Text ";")
+
+## A Lux identifier is a pair of chunks of text, where the first-part
+## refers to the module that gives context to the identifier, and the
+## second part corresponds to the name of the identifier itself.
+## The module part may be absent (by being the empty text ""), but the
+## name part must always be present.
+## The rules for which characters you may use are specified in terms
+## of which characters you must avoid (to keep things as open-ended as
+## possible).
+## In particular, no white-space can be used, and neither can other
+## characters which are already used by Lux as delimiters for other
+## AST nodes (thereby reducing ambiguity while parsing).
+## Additionally, the first character in an identifier's part cannot be
+## a digit, to avoid confusion with regards to numbers.
 (def: ident-part^
   (Lexer Text)
   (do Monad<Lexer>
     [#let [digits "0123456789"
-           delimiters "()[]{}#;\""
-           space "\t\v \n\r\f"
+           delimiters (format "()[]{}#\"" identifier-separator)
+           space (format white-space new-line)
            head-lexer (l;none-of (format digits delimiters space))
            tail-lexer (l;some' (l;none-of (format delimiters space)))]
      head head-lexer
@@ -292,19 +455,39 @@
 (def: ident^
   (Lexer [Ident Nat])
   ($_ l;either
+      ## When an identifier starts with 2 marks, it's module is
+      ## taken to be the current-module being compiled at the moment.
+      ## This can be useful when mentioning identifiers and tags
+      ## inside quoted/templated code in macros.
       (do Monad<Lexer>
-        [_ (l;text ";;")
+        [#let [current-module-mark (format identifier-separator identifier-separator)]
+         _ (l;text current-module-mark)
          def-name ident-part^]
-        (l;fail "Cannot handle ;; syntax for identifiers."))
+        (l;fail (format "Cannot handle " current-module-mark " syntax for identifiers.")))
+      ## If the identifier is prefixed by the mark, but no module
+      ## part, the module is assumed to be "lux" (otherwise known as
+      ## the 'prelude').
+      ## This makes it easy to refer to definitions in that module,
+      ## since it is the most fundamental module in the entire
+      ## standard library.
       (do Monad<Lexer>
-        [_ (l;text ";")
+        [_ (l;text identifier-separator)
          def-name ident-part^]
         (wrap [["lux" def-name]
                (n.inc (text;size def-name))]))
+      ## Not all identifiers must be specified with a module part.
+      ## If that part is not provided, the identifier will be created
+      ## with the empty "" text as the module.
+      ## During program analysis, such identifiers tend to be treated
+      ## as if their context is the current-module, but this only
+      ## applies to identifiers for tags and module definitions.
+      ## Function arguments and local-variables may not be referred-to
+      ## using identifiers with module parts, so being able to specify
+      ## identifiers with empty modules helps with those use-cases.
       (do Monad<Lexer>
         [first-part ident-part^]
         (l;either (do @
-                    [_ (l;char #";")
+                    [_ (l;text identifier-separator)
                      second-part ident-part^]
                     (wrap [[first-part second-part]
                            ($_ n.+
@@ -314,6 +497,13 @@
                   (wrap [["" first-part]
                          (text;size first-part)])))))
 
+## The only (syntactic) difference between a symbol and a tag (both
+## being identifiers), is that tags must be prefixed with a hash-sign
+## (i.e. #).
+## Semantically, though, they are very different, with symbols being
+## used to refer to module definitions and local variables, while tags
+## provide the compiler with information related to data-structure
+## construction and de-structuring (during pattern-matching).
 (do-template [<name> <tag> <lexer> <extra>]
   [(def: (<name> where)
      (-> Cursor (Lexer [AST Cursor]))
@@ -327,10 +517,10 @@
   [tag^    #;TagS    (l;after (l;char #"#") ident^) +1]
   )
 
-(def: #export (ast^ where)
+(def: (ast^ where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
-    [where (padding^ where)]
+    [where (left-padding^ where)]
     ($_ l;either
         (form^ where ast^)
         (tuple^ where ast^)
@@ -345,3 +535,7 @@
         (char^ where)
         (text^ where)
         )))
+
+(def: #export (parse where code)
+  (-> Cursor Text (Error [Text AST Cursor]))
+  (l;run' code (ast^ where)))
