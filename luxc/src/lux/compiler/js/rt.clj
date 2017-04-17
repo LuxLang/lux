@@ -618,8 +618,24 @@
                  
                  "return LuxRT$addI64(top,bottomAndMiddle);"
                  "})")
+   "countLeadingZeroes" (str "(function LuxRT$countLeadingZeroes(input) {"
+                             "var zeroes = 64;"
+                             (str "while(!LuxRT$eqI64(input,LuxRT$ZERO)) {"
+                                  "zeroes--;"
+                                  "input = LuxRT$ushrI64(input,1);"
+                                  "}")
+                             "return zeroes;"
+                             "})")
    "divD64" (str "(function LuxRT$divD64(l,r) {"
-                 "return LuxRT$shlI64(LuxRT$divI64(l,LuxRT$fromNumberI64(r.H)),32);"
+                 (str "if(LuxRT$eqI64(l,r)) {"
+                      "return LuxRT$negateI64(LuxRT$ONE);" ;; ~= 1.0 DEG
+                      "}"
+                      "else {"
+                      "var minShift = Math.min(LuxRT$countLeadingZeroes(l), LuxRT$countLeadingZeroes(r));"
+                      "l = LuxRT$shlI64(l,minShift);"
+                      "r = LuxRT$shlI64(r,minShift);"
+                      "return LuxRT$shlI64(LuxRT$divI64(l,LuxRT$fromNumberI64(r.H)),32);"
+                      "}")
                  "})")
    "degToReal" (str "(function LuxRT$degToReal(input) {"
                     "var two32 = Math.pow(2,32);"
