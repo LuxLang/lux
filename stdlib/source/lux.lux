@@ -143,7 +143,7 @@
            TypeList
            (_lux_case (+4 Type Type)
              TypePair
-             (+11 (+9 (+0)
+             (+11 (+9 #Nil
                       (+3 ## "lux;HostT"
                        (+4 Text TypeList)
                        (+3 ## "lux;VoidT"
@@ -195,7 +195,7 @@
 ##   (Ex [a] a))
 (_lux_def Top
   (#NamedT ["lux" "Top"]
-           (#ExQ (+0) (#BoundT +1)))
+           (#ExQ #Nil (#BoundT +1)))
   (#Cons [["lux" "type?"] (+0 true)]
          (#Cons [["lux" "export?"] (+0 true)]
                 (#Cons [["lux" "doc"] (+6 "The type of things whose type does not matter.
@@ -207,7 +207,7 @@
 ##   (All [a] a))
 (_lux_def Bottom
   (#NamedT ["lux" "Bottom"]
-           (#UnivQ (+0) (#BoundT +1)))
+           (#UnivQ #Nil (#BoundT +1)))
   (#Cons [["lux" "type?"] (+0 true)]
          (#Cons [["lux" "export?"] (+0 true)]
                 (#Cons [["lux" "doc"] (+6 "The type of things whose type is unknown or undefined.
@@ -351,18 +351,11 @@
                 (#Cons [["lux" "type-args"] (#ListA (#Cons (#TextA "m") (#Cons (#TextA "v") #;Nil)))]
                        default-def-meta-exported))))
 
-(_lux_def Analysis
-  (#NamedT ["lux" "Analysis"]
-           (#AppT (#AppT Meta
-                         (#ProdT Type Cursor))
-                  Void))
-  default-def-meta-exported)
-
 ## (type: Scope
 ##   {#name           (List Text)
 ##    #inner-closures Int
-##    #locals         (Bindings Text Analysis)
-##    #closure        (Bindings Text Analysis)})
+##    #locals         (Bindings Text Void)
+##    #closure        (Bindings Text Void)})
 (_lux_def Scope
   (#NamedT ["lux" "Scope"]
            (#ProdT ## "lux;name"
@@ -370,9 +363,9 @@
             (#ProdT ## "lux;inner-closures"
              Int
              (#ProdT ## "lux;locals"
-              (#AppT (#AppT Bindings Text) Analysis)
+              (#AppT (#AppT Bindings Text) Void)
               ## "lux;closure"
-              (#AppT (#AppT Bindings Text) Analysis)))))
+              (#AppT (#AppT Bindings Text) Void)))))
   (#Cons [["lux" "tags"] (#ListA (#Cons (#TextA "name")
                                         (#Cons (#TextA "inner-closures")
                                                (#Cons (#TextA "locals")
@@ -400,7 +393,7 @@
                                     (#BoundT +1)))
              AST
              (_lux_case (#AppT [List AST])
-               ASTList
+               AST-List
                (#UnivQ #Nil
                        (#SumT ## "lux;BoolS"
                         Bool
@@ -421,9 +414,9 @@
                                (#SumT ## "lux;TagS"
                                 Ident
                                 (#SumT ## "lux;FormS"
-                                 ASTList
+                                 AST-List
                                  (#SumT ## "lux;TupleS"
-                                  ASTList
+                                  AST-List
                                   ## "lux;RecordS"
                                   (#AppT List (#ProdT AST AST))
                                   )))))))))))
@@ -454,7 +447,7 @@
   (#Cons [["lux" "doc"] (#TextA "The type of AST nodes for Lux syntax.")]
          default-def-meta-exported))
 
-(_lux_def ASTList
+(_lux_def AST-List
   (#AppT List AST)
   default-def-meta-unexported)
 
@@ -663,7 +656,7 @@
 ##   (-> (List AST) (Lux (List AST))))
 (_lux_def Macro
   (#NamedT ["lux" "Macro"]
-           (#FunctionT ASTList (#AppT Lux ASTList)))
+           (#FunctionT AST-List (#AppT Lux AST-List)))
   (#Cons [["lux" "doc"] (#TextA "Functions that run at compile-time and allow you to transform and extend the language in powerful ways.")]
          default-def-meta-exported))
 
@@ -3737,7 +3730,7 @@
                        (if rec?
                          (if (empty? args)
                            (let [g!param (symbol$ ["" ""])
-                                 prime-name (symbol$ ["" (Text/append name "'")])
+                                 prime-name (symbol$ ["" name])
                                  type+ (replace-syntax (list [name (` ((~ prime-name) (~ g!param)))]) type)]
                              (#Some (` ((All (~ prime-name) [(~ g!param)] (~ type+))
                                         Void))))
@@ -4118,11 +4111,13 @@
              (function [env]
                (case env
                  {#name _ #inner-closures _ #locals {#counter _ #mappings locals} #closure {#counter _ #mappings closure}}
-                 (try-both (find (: (-> [Text Analysis] (Maybe Type))
-                                    (function [[bname [[type _] _]]]
-                                      (if (Text/= name bname)
-                                        (#Some type)
-                                        #None))))
+                 (try-both (find (: (-> [Text Void] (Maybe Type))
+                                    (function [[bname analysis]]
+                                      (let [[[type _] _] (:! (Meta [Type Cursor] Void)
+                                                             analysis)]
+                                        (if (Text/= name bname)
+                                          (#Some type)
+                                          #None)))))
                            locals
                            closure))))
           scopes)))
@@ -4461,15 +4456,27 @@
 
 (macro: #export (|>. tokens)
   {#;doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
-          (|> (map Int/encode) (interpose \" \") (fold Text/append \"\"))
+          (|>. (map Int/encode) (interpose \" \") (fold Text/append \"\"))
           ## =>
-          (function [<something>]
+          (function [<arg>]
             (fold Text/append \"\"
                    (interpose \" \"
-                              (map Int/encode <something>))))"}
+                              (map Int/encode <arg>))))"}
   (do Monad<Lux>
     [g!arg (gensym "arg")]
     (return (list (` (function [(~ g!arg)] (|> (~ g!arg) (~@ tokens))))))))
+
+(macro: #export (<|. tokens)
+  {#;doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
+          (<|. (fold Text/append \"\") (interpose \" \") (map Int/encode))
+          ## =>
+          (function [<arg>]
+            (fold Text/append \"\"
+                   (interpose \" \"
+                              (map Int/encode <arg>))))"}
+  (do Monad<Lux>
+    [g!arg (gensym "arg")]
+    (return (list (` (function [(~ g!arg)] (<| (~@ tokens) (~ g!arg))))))))
 
 (def: (imported-by? import-name module-name)
   (-> Text Text (Lux Bool))
