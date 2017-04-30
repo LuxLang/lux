@@ -118,6 +118,7 @@
 (def ^:private parse-ctor-arg
   (with-brackets
     (|do [=class parse-gclass
+          _ _space_
           (&/$Cons =term (&/$Nil)) &parser/parse]
       (return (&/T [=class =term])))))
 
