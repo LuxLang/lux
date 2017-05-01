@@ -119,9 +119,9 @@
 ;; Env
 (deftuple
   ["name"
-   "inner-closures"
+   "inner"
    "locals"
-   "closure"])
+   "captured"])
 
 ;; Host
 (deftuple
@@ -726,13 +726,13 @@
       (|table)]))
 
 (defn env [name old-name]
-  (T [;; "lux;name"
+  (T [;; name
       ($Cons name old-name)
-      ;; "lux;inner-closures"
+      ;; inner
       0
-      ;; "lux;locals"
+      ;; locals
       +init-bindings+
-      ;; "lux;closure"
+      ;; captured
       +init-bindings+]
      ))
 
@@ -959,10 +959,10 @@
 
 (defn with-closure [body]
   (|do [closure-name (|do [top get-top-local-env]
-                       (return (->> top (get$ $inner-closures) str)))]
+                       (return (->> top (get$ $inner) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $scopes #($Cons (update$ $inner-closures inc (|head %))
+        (run-state body* (update$ $scopes #($Cons (update$ $inner inc (|head %))
                                                   (|tail %))
                                   state))))))
 

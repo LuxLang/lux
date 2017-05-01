@@ -277,7 +277,7 @@
   (fn [state]
     (|let [stack (&/get$ &/$scopes state)
            no-binding? #(and (->> % (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|contains? name) not)
-                             (->> % (&/get$ &/$closure) (&/get$ &/$mappings) (&/|contains? name) not))
+                             (->> % (&/get$ &/$captured) (&/get$ &/$mappings) (&/|contains? name) not))
            [inner outer] (&/|split-with no-binding? stack)]
       (|case outer
         (&/$Nil)
@@ -292,7 +292,7 @@
                                                  [register* frame*] (&&function/close-over in-scope name register frame)]
                                             (&/T [register* (&/$Cons frame* new-inner)])))
                                         (&/T [(or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
-                                                  (->> bottom-outer (&/get$ &/$closure) (&/get$ &/$mappings) (&/|get name)))
+                                                  (->> bottom-outer (&/get$ &/$captured) (&/get$ &/$mappings) (&/|get name)))
                                               &/$Nil])
                                         (&/|reverse inner) scopes)]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]

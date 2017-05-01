@@ -20,9 +20,9 @@
   (|let [[[register-type register-cursor] _] register
          register* (&&/|meta register-type register-cursor
                              (&&/$captured (&/T [scope
-                                                 (->> frame (&/get$ &/$closure) (&/get$ &/$counter))
+                                                 (->> frame (&/get$ &/$captured) (&/get$ &/$counter))
                                                  register])))]
-    (&/T [register* (&/update$ &/$closure #(->> %
-                                                (&/update$ &/$counter inc)
-                                                (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))
+    (&/T [register* (&/update$ &/$captured #(->> %
+                                                 (&/update$ &/$counter inc)
+                                                 (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))
                                frame)])))

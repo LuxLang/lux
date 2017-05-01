@@ -66,5 +66,5 @@
        state)
 
       (&/$Cons env _)
-      (return* state (->> env (&/get$ &/$closure) (&/get$ &/$mappings))))
+      (return* state (->> env (&/get$ &/$captured) (&/get$ &/$mappings))))
     ))
