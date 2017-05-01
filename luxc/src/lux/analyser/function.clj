@@ -24,5 +24,5 @@
                                                  register])))]
     (&/T [register* (&/update$ &/$captured #(->> %
                                                  (&/update$ &/$counter inc)
-                                                 (&/update$ &/$mappings (fn [mps] (&/|put name register* mps))))
+                                                 (&/update$ &/$mappings (fn [mps] (&/|put name (&/T [register-type register*]) mps))))
                                frame)])))

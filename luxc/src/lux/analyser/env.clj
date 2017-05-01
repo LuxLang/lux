@@ -1,7 +1,7 @@
 (ns lux.analyser.env
   (:require clojure.core.match
             clojure.core.match.array
-            (lux [base :as & :refer [|do return return* |case]])
+            (lux [base :as & :refer [|do return return* |case |let]])
             [lux.analyser.base :as &&]))
 
 ;; [Exports]
@@ -17,7 +17,7 @@
                                      (let [var-analysis (&&/|meta type &/empty-cursor (&&/$var (&/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
                                        (&/$Cons (&/update$ &/$locals #(->> %
                                                                            (&/update$ &/$counter inc)
-                                                                           (&/update$ &/$mappings (fn [m] (&/|put name var-analysis m))))
+                                                                           (&/update$ &/$mappings (fn [m] (&/|put name (&/T [type var-analysis]) m))))
                                                            (&/|head stack))
                                                 (&/|tail stack))))
                                    state))]
@@ -41,7 +41,10 @@
           =return (body (&/update$ &/$scopes
                                    (fn [stack]
                                      (&/$Cons (&/update$ &/$locals #(->> %
-                                                                         (&/update$ &/$mappings (fn [m] (&/|put name var-analysis m))))
+                                                                         (&/update$ &/$mappings (fn [m] (&/|put name
+                                                                                                               (&/T [(&&/expr-type* var-analysis)
+                                                                                                                     var-analysis])
+                                                                                                               m))))
                                                          (&/|head stack))
                                               (&/|tail stack)))
                                    state))]
@@ -66,5 +69,10 @@
        state)
 
       (&/$Cons env _)
-      (return* state (->> env (&/get$ &/$captured) (&/get$ &/$mappings))))
+      (return* state (->> env
+                          (&/get$ &/$captured)
+                          (&/get$ &/$mappings)
+                          (&/|map (fn [mapping]
+                                    (|let [[k v] mapping]
+                                      (&/T [k (&/|second v)])))))))
     ))

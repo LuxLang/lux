@@ -291,8 +291,8 @@
                                           (|let [[register new-inner] register+new-inner
                                                  [register* frame*] (&&function/close-over in-scope name register frame)]
                                             (&/T [register* (&/$Cons frame* new-inner)])))
-                                        (&/T [(or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
-                                                  (->> bottom-outer (&/get$ &/$captured) (&/get$ &/$mappings) (&/|get name)))
+                                        (&/T [(&/|second (or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
+                                                             (->> bottom-outer (&/get$ &/$captured) (&/get$ &/$mappings) (&/|get name))))
                                               &/$Nil])
                                         (&/|reverse inner) scopes)]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
@@ -538,7 +538,7 @@
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)
         _ (&/assert! (not ?)
-                     (&/fail-with-loc (str "[Analyser Error] Cannot re-define " (str module-name ";" ?name))))
+                     (str "[Analyser Error] Cannot re-define " (str module-name ";" ?name)))
         =value (&/without-repl-closure
                 (&/with-scope ?name
                   (&&/analyse-1+ analyse ?value)))
