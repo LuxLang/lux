@@ -7,28 +7,20 @@
                 monad)
        (data [text "Text/" Monoid<Text> Eq<Text>]
              text/format
-             [number]
              maybe
              [product]
-             (coll [list]
-                   [dict])
+             (coll [list])
              [error #- fail])
        [type "Type/" Eq<Type>]
        ))
 
-(type: #export Id Nat)
-
 (type: #export Fixed (List [[Type Type] Bool]))
 
-(type: #export Context
-  {#var-counter Id
-   #ex-counter Id
-   #bindings (dict;Dict Id (Maybe Type))
-   #fixed Fixed
-   })
-
 (type: #export (Check a)
-  (-> Context (Error [Context a])))
+  (-> Type-Context (Error [Type-Context a])))
+
+(type: #export Type-Vars
+  (List [Nat (Maybe Type)]))
 
 (struct: #export _ (Functor Check)
   (def: (map f fa)
@@ -85,9 +77,51 @@
 
 (open Monad<Check> "Check/")
 
+(def: (var::get id plist)
+  (-> Nat Type-Vars (Maybe (Maybe Type)))
+  (case plist
+    #;Nil
+    #;None
+
+    (#;Cons [var-id var-type]
+            plist')
+    (if (n.= id var-id)
+      (#;Some var-type)
+      (var::get id plist'))
+    ))
+
+(def: (var::put id value plist)
+  (-> Nat (Maybe Type) Type-Vars Type-Vars)
+  (case plist
+    #;Nil
+    (list [id value])
+
+    (#;Cons [var-id var-type]
+            plist')
+    (if (n.= id var-id)
+      (#;Cons [var-id value]
+              plist')
+      (#;Cons [var-id var-type]
+              (var::put id value plist')))
+    ))
+
+(def: (var::remove id plist)
+  (-> Nat Type-Vars Type-Vars)
+  (case plist
+    #;Nil
+    #;Nil
+
+    (#;Cons [var-id var-type]
+            plist')
+    (if (n.= id var-id)
+      plist'
+      (#;Cons [var-id var-type]
+              (var::remove id plist')))
+    ))
+
 ## [[Logic]]
 (def: #export (run context proc)
-  (All [a] (-> Context (Check a) (Error a)))
+  (All [a] (-> Type-Context (Check a) (Error a)))
   (case (proc context)
     (#;Left error)
     (#;Left error)
@@ -107,16 +141,16 @@
 
 (def: #export existential
   {#;doc "A producer of existential types."}
-  (Check [Id Type])
+  (Check [Nat Type])
   (function [context]
-    (let [id (get@ #ex-counter context)]
-      (#;Right [(update@ #ex-counter n.inc context)
+    (let [id (get@ #;ex-counter context)]
+      (#;Right [(update@ #;ex-counter n.inc context)
                 [id (#;ExT id)]]))))
 
 (def: #export (bound? id)
-  (-> Id (Check Bool))
+  (-> Nat (Check Bool))
   (function [context]
-    (case (|> context (get@ #bindings) (dict;get id))
+    (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some _))
       (#;Right [context true])
 
@@ -127,9 +161,9 @@
       (#;Left (format "Unknown type-var: " (%n id))))))
 
 (def: #export (read-var id)
-  (-> Id (Check Type))
+  (-> Nat (Check Type))
   (function [context]
-    (case (|> context (get@ #bindings) (dict;get id))
+    (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some type))
       (#;Right [context type])
 
@@ -140,43 +174,43 @@
       (#;Left (format "Unknown type-var: " (%n id))))))
 
 (def: #export (write-var id type)
-  (-> Id Type (Check Unit))
+  (-> Nat Type (Check Unit))
   (function [context]
-    (case (|> context (get@ #bindings) (dict;get id))
+    (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some bound))
       (#;Left (format "Cannot rebind type-var: " (%n id) " | Current type: " (%type bound)))
       
       (#;Some #;None)
-      (#;Right [(update@ #bindings (dict;put id (#;Some type)) context)
+      (#;Right [(update@ #;var-bindings (var::put id (#;Some type)) context)
                 []])
 
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
 (def: (rewrite-var id type)
-  (-> Id Type (Check Unit))
+  (-> Nat Type (Check Unit))
   (function [context]
-    (case (|> context (get@ #bindings) (dict;get id))
+    (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some _)
-      (#;Right [(update@ #bindings (dict;put id (#;Some type)) context)
+      (#;Right [(update@ #;var-bindings (var::put id (#;Some type)) context)
                 []])
       
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
 (def: #export (clear-var id)
-  (-> Id (Check Unit))
+  (-> Nat (Check Unit))
   (function [context]
-    (case (|> context (get@ #bindings) (dict;get id))
+    (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some _)
-      (#;Right [(update@ #bindings (dict;put id #;None) context)
+      (#;Right [(update@ #;var-bindings (var::put id #;None) context)
                 []])
       
       #;None
       (#;Left (format "Unknown type-var: " (%n id))))))
 
 (def: #export (clean t-id type)
-  (-> Id Type (Check Type))
+  (-> Nat Type (Check Type))
   (case type
     (#;VarT id)
     (if (n.= t-id id)
@@ -237,33 +271,28 @@
     ))
 
 (def: #export create-var
-  (Check [Id Type])
+  (Check [Nat Type])
   (function [context]
-    (let [id (get@ #var-counter context)]
+    (let [id (get@ #;var-counter context)]
       (#;Right [(|> context
-                    (update@ #var-counter n.inc)
-                    (update@ #bindings (dict;put id #;None)))
+                    (update@ #;var-counter n.inc)
+                    (update@ #;var-bindings (var::put id #;None)))
                 [id (#;VarT id)]]))))
 
-(do-template [<get> <set> <tag> <type>]
-  [(def: <get>
-     (Check <type>)
-     (function [context]
-       (#;Right [context
-                 (get@ <tag> context)])))
+(def: get-bindings
+  (Check (List [Nat (Maybe Type)]))
+  (function [context]
+    (#;Right [context
+              (get@ #;var-bindings context)])))
 
-   (def: (<set> value)
-     (-> <type> (Check Unit))
-     (function [context]
-       (#;Right [(set@ <tag> value context)
-                 []])))]
-
-  [get-bindings  set-bindings  #bindings  (dict;Dict Id (Maybe Type))]
-  [get-fixed set-fixed #fixed Fixed]
-  )
+(def: (set-bindings value)
+  (-> (List [Nat (Maybe Type)]) (Check Unit))
+  (function [context]
+    (#;Right [(set@ #;var-bindings value context)
+              []])))
 
 (def: #export (delete-var id)
-  (-> Id (Check Unit))
+  (-> Nat (Check Unit))
   (do Monad<Check>
     [? (bound? id)
      _ (if ?
@@ -292,11 +321,11 @@
                                [b-type'' (clean id b-type')]
                                (wrap [b-id (#;Some b-type'')])))
                            )))
-                     (dict;entries bindings))]
-    (set-bindings (|> bindings' (dict;from-list number;Hash<Nat>) (dict;remove id)))))
+                     bindings)]
+    (set-bindings (var::remove id bindings'))))
 
 (def: #export (with-var k)
-  (All [a] (-> (-> [Id Type] (Check a)) (Check a)))
+  (All [a] (-> (-> [Nat Type] (Check a)) (Check a)))
   (do Monad<Check>
     [[id var] create-var
      output (k [id var])
@@ -304,11 +333,10 @@
     (wrap output)))
 
 (def: #export fresh-context
-  Context
-  {#var-counter +0
-   #ex-counter +0
-   #bindings (dict;new number;Hash<Nat>)
-   #fixed (list)
+  Type-Context
+  {#;var-counter +0
+   #;ex-counter +0
+   #;var-bindings (list)
    })
 
 (def: (attempt op)
@@ -327,11 +355,9 @@
     (#;Left message)))
 
 (def: (fail-check expected actual)
-  (-> Type Type (Check Unit))
+  (All [a] (-> Type Type (Check a)))
   (fail (format "Expected: " (%type expected) "\n\n"
                 "Actual:   " (%type actual))))
-
-(def: success (Check Unit) (Check/wrap []))
 
 (def: (either left right)
   (All [a] (-> (Check a) (Check a) (Check a)))
@@ -355,157 +381,170 @@
   (-> [Type Type] Bool Fixed Fixed)
   (#;Cons [ea status] fixed))
 
-(def: #export (check expected actual)
+(def: #export (check' expected actual fixed)
   {#;doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
-  (-> Type Type (Check Unit))
+  (-> Type Type Fixed (Check Fixed))
   (if (is expected actual)
-    success
+    (Check/wrap fixed)
     (case [expected actual]
       [(#;VarT e-id) (#;VarT a-id)]
       (if (n.= e-id a-id)
-        success
+        (Check/wrap fixed)
         (do Monad<Check>
           [ebound (attempt (read-var e-id))
            abound (attempt (read-var a-id))]
           (case [ebound abound]
             [#;None #;None]
-            (write-var e-id actual)
+            (do @
+              [_ (write-var e-id actual)]
+              (wrap fixed))
             
             [(#;Some etype) #;None]
-            (check etype actual)
+            (check' etype actual fixed)
 
             [#;None (#;Some atype)]
-            (check expected atype)
+            (check' expected atype fixed)
 
             [(#;Some etype) (#;Some atype)]
-            (check etype atype))))
+            (check' etype atype fixed))))
       
       [(#;VarT id) _]
-      (either (write-var id actual)
+      (either (do Monad<Check>
+                [_ (write-var id actual)]
+                (wrap fixed))
               (do Monad<Check>
                 [bound (read-var id)]
-                (check bound actual)))
+                (check' bound actual fixed)))
       
       [_ (#;VarT id)]
-      (either (write-var id expected)
+      (either (do Monad<Check>
+                [_ (write-var id expected)]
+                (wrap fixed))
               (do Monad<Check>
                 [bound (read-var id)]
-                (check expected bound)))
+                (check' expected bound fixed)))
 
       [(#;AppT (#;ExT eid) eA) (#;AppT (#;ExT aid) aA)]
       (if (n.= eid aid)
-        (check eA aA)
+        (check' eA aA fixed)
         (fail-check expected actual))
 
       [(#;AppT (#;VarT id) A1) (#;AppT F2 A2)]
       (either (do Monad<Check>
                 [F1 (read-var id)]
-                (check (#;AppT F1 A1) actual))
+                (check' (#;AppT F1 A1) actual fixed))
               (do Monad<Check>
-                [_ (check (#;VarT id) F2)
+                [fixed (check' (#;VarT id) F2 fixed)
                  e' (apply-type! F2 A1)
                  a' (apply-type! F2 A2)]
-                (check e' a')))
+                (check' e' a' fixed)))
       
       [(#;AppT F1 A1) (#;AppT (#;VarT id) A2)]
       (either (do Monad<Check>
                 [F2 (read-var id)]
-                (check expected (#;AppT F2 A2)))
+                (check' expected (#;AppT F2 A2) fixed))
               (do Monad<Check>
-                [_ (check F1 (#;VarT id))
+                [fixed (check' F1 (#;VarT id) fixed)
                  e' (apply-type! F1 A1)
                  a' (apply-type! F1 A2)]
-                (check e' a')))
+                (check' e' a' fixed)))
 
       [(#;AppT F A) _]
-      (do Monad<Check>
-        [#let [fx-pair [expected actual]]
-         fixed get-fixed]
+      (let [fx-pair [expected actual]]
         (case (fx-get fx-pair fixed)
           (#;Some ?)
           (if ?
-            success
+            (Check/wrap fixed)
             (fail-check expected actual))
 
           #;None
           (do Monad<Check>
-            [expected' (apply-type! F A)
-             _ (set-fixed (fx-put fx-pair true fixed))]
-            (check expected' actual))))
+            [expected' (apply-type! F A)]
+            (check' expected' actual (fx-put fx-pair true fixed)))))
 
       [_ (#;AppT F A)]
       (do Monad<Check>
         [actual' (apply-type! F A)]
-        (check expected actual'))
+        (check' expected actual' fixed))
 
       [(#;UnivQ _) _]
       (do Monad<Check>
         [[ex-id ex] existential
          expected' (apply-type! expected ex)]
-        (check expected' actual))
+        (check' expected' actual fixed))
 
       [_ (#;UnivQ _)]
       (with-var
         (function [[var-id var]]
           (do Monad<Check>
             [actual' (apply-type! actual var)
-             =output (check expected actual')
+             fixed (check' expected actual' fixed)
              _ (clean var-id expected)]
-            success)))
+            (Check/wrap fixed))))
 
       [(#;ExQ e!env e!def) _]
       (with-var
         (function [[var-id var]]
           (do Monad<Check>
             [expected' (apply-type! expected var)
-             =output (check expected' actual)
+             fixed (check' expected' actual fixed)
              _ (clean var-id actual)]
-            success)))
+            (Check/wrap fixed))))
 
       [_ (#;ExQ a!env a!def)]
       (do Monad<Check>
         [[ex-id ex] existential
          actual' (apply-type! actual ex)]
-        (check expected actual'))
+        (check' expected actual' fixed))
 
       [(#;HostT e-name e-params) (#;HostT a-name a-params)]
-      (if (Text/= e-name a-name)
+      (if (and (Text/= e-name a-name)
+               (n.= (list;size e-params)
+                    (list;size a-params)))
         (do Monad<Check>
-          [_ (mapM Monad<Check>
-                   (function [[e a]] (check e a))
-                   (list;zip2 e-params a-params))]
-          success)
+          [fixed (foldM Monad<Check>
+                        (function [[e a] fixed] (check' e a fixed))
+                        fixed
+                        (list;zip2 e-params a-params))]
+          (Check/wrap fixed))
         (fail-check expected actual))
 
       (^template [<unit> <append>]
         [<unit> <unit>]
-        success
+        (Check/wrap fixed)
         
         [(<append> eL eR) (<append> aL aR)]
         (do Monad<Check>
-          [_ (check eL aL)]
-          (check eR aR)))
+          [fixed (check' eL aL fixed)]
+          (check' eR aR fixed)))
       ([#;VoidT #;SumT]
        [#;UnitT #;ProdT])
       
       [(#;FunctionT eI eO) (#;FunctionT aI aO)]
       (do Monad<Check>
-        [_ (check aI eI)]
-        (check eO aO))
+        [fixed (check' aI eI fixed)]
+        (check' eO aO fixed))
 
       [(#;ExT e!id) (#;ExT a!id)]
       (if (n.= e!id a!id)
-        success
+        (Check/wrap fixed)
         (fail-check expected actual))
 
       [(#;NamedT _ ?etype) _]
-      (check ?etype actual)
+      (check' ?etype actual fixed)
 
       [_ (#;NamedT _ ?atype)]
-      (check expected ?atype)
+      (check' expected ?atype fixed)
 
       _
       (fail-check expected actual))))
+
+(def: #export (check expected actual)
+  {#;doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
+  (-> Type Type (Check Unit))
+  (do Monad<Check>
+    [fixed (check' expected actual (list))]
+    (wrap [])))
 
 (def: #export (checks? expected actual)
   {#;doc "A simple type-checking function that just returns a yes/no answer."}
@@ -518,6 +557,6 @@
     true))
 
 (def: #export get-context
-  (Check Context)
+  (Check Type-Context)
   (function [context]
     (#;Right [context context])))

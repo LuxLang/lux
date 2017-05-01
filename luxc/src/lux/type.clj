@@ -171,7 +171,7 @@
 
 (defn bound? [id]
   (fn [state]
-    (if-let [type (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+    (if-let [type (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (|case type
         (&/$Some type*)
         (return* state true)
@@ -183,7 +183,7 @@
 
 (defn deref [id]
   (fn [state]
-    (if-let [type* (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+    (if-let [type* (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (|case type*
         (&/$Some type)
         (return* state type)
@@ -205,7 +205,7 @@
 
 (defn set-var [id type]
   (fn [state]
-    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
+    (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (|case tvar
         (&/$Some bound)
         (if (type= type bound)
@@ -214,56 +214,63 @@
            state))
         
         (&/$None)
-        (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
-                                                            ts))
+        (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
+                                                               ts))
                             state)
                  nil))
-      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
        state))))
 
 (defn reset-var [id type]
   (fn [state]
-    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
-      (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id (&/$Some type) %)
-                                                          ts))
+    (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
+      (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
+                                                             ts))
                           state)
                nil)
-      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
        state))))
 
 (defn unset-var [id]
   (fn [state]
-    (if-let [tvar (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) (&/|get id))]
-      (return* (&/update$ &/$type-vars (fn [ts] (&/update$ &/$mappings #(&/|put id &/$None %)
-                                                          ts))
+    (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
+      (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id &/$None %)
+                                                             ts))
                           state)
                nil)
-      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings) &/|length)))
+      ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
        state))))
 
 ;; [Exports]
 ;; Type vars
 (def reset-mappings
   (fn [state]
-    (return* (&/update$ &/$type-vars #(->> %
-                                           ;; (&/set$ &/$counter 0)
-                                           (&/set$ &/$mappings (&/|table)))
+    (return* (&/update$ &/$type-context #(->> %
+                                              ;; (&/set$ &/$var-counter 0)
+                                              (&/set$ &/$var-bindings (&/|table)))
                         state)
              nil)))
 
 (def create-var
   (fn [state]
-    (let [id (->> state (&/get$ &/$type-vars) (&/get$ &/$counter))]
-      (return* (&/update$ &/$type-vars #(->> %
-                                             (&/update$ &/$counter inc)
-                                             (&/update$ &/$mappings (fn [ms] (&/|put id &/$None ms))))
+    (let [id (->> state (&/get$ &/$type-context) (&/get$ &/$var-counter))]
+      (return* (&/update$ &/$type-context #(->> %
+                                                (&/update$ &/$var-counter inc)
+                                                (&/update$ &/$var-bindings (fn [ms] (&/|put id &/$None ms))))
                           state)
                id))))
 
 (def existential
   ;; (Lux Type)
-  (|do [seed &/gen-id]
-    (return (&/$ExT seed))))
+  (fn [compiler]
+    (return* (&/update$ &/$type-context
+                        (fn [context]
+                          (&/update$ &/$ex-counter inc context))
+                        compiler)
+             (->> compiler
+                  (&/get$ &/$type-context)
+                  (&/get$ &/$ex-counter)
+                  &/$ExT))))
 
 (declare clean*)
 (defn delete-var [id]
@@ -292,9 +299,9 @@
                                          (|do [?type** (clean* id ?type*)]
                                            (return (&/T [?id (&/$Some ?type**)]))))
                                        ))))
-                               (->> state (&/get$ &/$type-vars) (&/get$ &/$mappings)))]
+                               (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings)))]
          (fn [state]
-           (return* (&/update$ &/$type-vars #(&/set$ &/$mappings (&/|remove id mappings*) %)
+           (return* (&/update$ &/$type-context #(&/set$ &/$var-bindings (&/|remove id mappings*) %)
                                state)
                     nil)))
        state))))

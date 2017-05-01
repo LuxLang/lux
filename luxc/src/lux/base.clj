@@ -110,6 +110,12 @@
   ["counter"
    "mappings"])
 
+;; Type-Context
+(deftuple
+  ["ex-counter"
+   "var-counter"
+   "var-bindings"])
+
 ;; Env
 (deftuple
   ["name"
@@ -148,7 +154,7 @@
    "cursor"
    "modules"
    "scopes"
-   "type-vars"
+   "type-context"
    "expected"
    "seed"
    "scope-type-vars"
@@ -711,6 +717,14 @@
       ;; "lux;mappings"
       (|table)]))
 
+(def +init-type-context+
+  (T [;; ex-counter
+      0
+      ;; var-counter
+      0
+      ;; var-bindings
+      (|table)]))
+
 (defn env [name old-name]
   (T [;; "lux;name"
       ($Cons name old-name)
@@ -821,8 +835,8 @@
       (|table)
       ;; "lux;scopes"
       $Nil
-      ;; "lux;types"
-      +init-bindings+
+      ;; "lux;type-context"
+      +init-type-context+
       ;; "lux;expected"
       $None
       ;; "lux;seed"
