@@ -1,0 +1,95 @@
+(;module:
+  lux
+  (lux (control monad)
+       [io #- run]
+       (data ["E" error]
+             [text "T/" Eq<Text>]
+             text/format)
+       [macro #+ Monad<Lux>])
+  (luxc ["&" base]
+        ["&;" io]
+        ["&;" module]
+        (compiler ["&&;" runtime]
+                  ["&&;" statement])
+        ))
+
+(def: (compile ast)
+  (-> AST (Lux Unit))
+  (case ast
+    (^ [_ (#;FormS (list [_ (#;SymbolS ["" "_lux_def"])]
+                         [_ (#;SymbolS ["" def-name])]
+                         def-value
+                         def-meta))])
+    (&&statement;compile-def def-name def-value def-meta)
+
+    (^ [_ (#;FormS (list [_ (#;SymbolS ["" "_lux_program"])]
+                         [_ (#;SymbolS ["" prog-args])]
+                         prog-body))])
+    (&&statement;compile-program prog-args prog-body)
+
+    _
+    (&;fail (format "Unrecognized statement: " (%ast ast)))))
+
+(def: (exhaust action)
+  (All [a] (-> (Lux a) (Lux Unit)))
+  (do Monad<Lux>
+    [result action]
+    (exhaust action)))
+
+(def: (compile-module source-dirs module-name compiler-state)
+  (-> (List &;Path) Text Compiler (IO (Error Compiler)))
+  (do Monad<IO>
+    [[file-name file-content] (&io;read-module source-dirs module-name)
+     #let [file-hash (T/hash file-content)]
+     #let [result (macro;run compiler-state
+                             (do Monad<Lux>
+                               [module-exists? (&module;exists? module-name)]
+                               (if module-exists?
+                                 (&;fail (format "Cannot re-define a module: " module-name))
+                                 (wrap []))))]]
+    (case result
+      (#E;Success [compiler-state _])
+      (let [result (macro;run compiler-state
+                              (do Monad<Lux>
+                                [_ (&module;create module-name file-hash)
+                                 _ (&module;flag-active module-name)
+                                 _ (if (T/= "lux" module-name)
+                                     &&runtime;compile-runtime
+                                     (wrap []))
+                                 _ (exhaust
+                                    (do @
+                                      [ast parse]
+                                      (compile ast)))
+                                 _ (&module;flag-compiled module-name)]
+                                (&module;generate-module file-hash module-name)))]
+        (case result
+          (#E;Success [compiler-state module-descriptor])
+          (do @
+            [_ (&io;write-module module-name module-descriptor)]
+            (wrap (#E;Success compiler-state)))
+
+          (#E;Error error)
+          (wrap (#E;Error error))))
+      
+      (#E;Error error)
+      (wrap (#E;Error error)))))
+
+(def: (or-crash! action)
+  (All [a] (-> (IO (E;Error a)) (IO a)))
+  (do Monad<IO>
+    [result action]
+    (case result
+      (#E;Success output)
+      (wrap output)
+
+      (#E;Error error)
+      (error! (format "Compilation failed:\n" error)))))
+
+(def: #export (compile-program mode program target sources)
+  (-> &;Mode &;Path &;Path (List &;Path) (IO Unit))
+  (do Monad<IO>
+    [#let [compiler-state (init-compiler-state mode host-state)]
+     compiler-state (or-crash! (compile-module source-dirs "lux" compiler-state))
+     compiler-state (or-crash! (compile-module source-dirs program compiler-state))
+     #let [_ (log! "Compilation complete!")]]
+    (wrap [])))

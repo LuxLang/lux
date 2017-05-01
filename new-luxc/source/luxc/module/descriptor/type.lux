@@ -1,0 +1,145 @@
+(;module:
+  lux
+  (lux (control codec
+                monad)
+       (data [text]
+             (text format
+                   ["l" lexer "l/" Monad<Lexer>])
+             [char]
+             [number]
+             error
+             (coll [list "L/" Functor<List>]))
+       [type "Type/" Eq<Type>])
+  ["&" ../common])
+
+(do-template [<name> <code>]
+  [(def: <name> &;Signal <code>)]
+
+  [type-signal        "T"]
+  [host-signal        "^"]
+  [void-signal        "0"]
+  [unit-signal        "1"]
+  [product-signal     "*"]
+  [sum-signal         "+"]
+  [function-signal    ">"]
+  [application-signal "%"]
+  [uq-signal          "U"]
+  [eq-signal          "E"]
+  [bound-signal       "$"]
+  [ex-signal          "!"]
+  [var-signal         "?"]
+  [named-signal       "@"]
+  )
+
+(def: (encode-type type)
+  (-> Type Text)
+  (if (or (is Type type)
+          (Type/= Type type))
+    type-signal
+    (case type
+      (#;HostT name params)
+      (format host-signal name &;stop-signal (&;encode-list encode-type params))
+
+      #;VoidT
+      void-signal
+
+      #;UnitT
+      unit-signal
+
+      (^template [<tag> <prefix>]
+        (<tag> left right)
+        (format <prefix> (encode-type left) (encode-type right)))
+      ([#;ProdT     product-signal]
+       [#;SumT      sum-signal]
+       [#;FunctionT function-signal]
+       [#;AppT      application-signal])
+
+
+      (^template [<tag> <prefix>]
+        (<tag> env body)
+        (format <prefix> (&;encode-list encode-type env) (encode-type body)))
+      ([#;UnivQ uq-signal]
+       [#;ExQ   eq-signal])
+
+      (^template [<tag> <prefix>]
+        (<tag> idx)
+        (format <prefix> (%i (nat-to-int idx)) &;stop-signal))
+      ([#;BoundT bound-signal]
+       [#;ExT ex-signal]
+       [#;VarT var-signal])
+
+      (#;NamedT [module name] type*)
+      (format named-signal module &;ident-separator name &;stop-signal (encode-type type*))
+      )))
+
+(def: type-decoder
+  (l;Lexer Type)
+  (l;rec
+   (function [type-decoder]
+     (let% [<simple> (do-template [<type> <signal>]
+                       [(|> (l/wrap <type>) (l;after (l;text <signal>)))]
+
+                       [Type    type-signal]
+                       [#;VoidT void-signal]
+                       [#;UnitT unit-signal])
+            <combinators> (do-template [<tag> <prefix>]
+                            [(do l;Monad<Lexer>
+                               [_ (l;text <prefix>)
+                                left type-decoder
+                                right type-decoder]
+                               (wrap (<tag> left right)))]
+
+                            [#;ProdT     product-signal]
+                            [#;SumT      sum-signal]
+                            [#;FunctionT function-signal]
+                            [#;AppT      application-signal])
+            <abstractions> (do-template [<tag> <prefix>]
+                             [(do l;Monad<Lexer>
+                                [_ (l;text <prefix>)
+                                 env (&;decode-list type-decoder)
+                                 body type-decoder]
+                                (wrap (<tag> env body)))]
+
+                             [#;UnivQ uq-signal]
+                             [#;ExQ   eq-signal])
+            <wildcards> (do-template [<tag> <prefix>]
+                          [(do l;Monad<Lexer>
+                             [_ (l;text <prefix>)
+                              id (l;codec number;Codec<Text,Int>
+                                          (l;some' l;digit))
+                              _ (l;text &;stop-signal)]
+                             (wrap (<tag> (int-to-nat id))))]
+
+                          [#;BoundT bound-signal]
+                          [#;ExT    ex-signal]
+                          [#;VarT   var-signal])]
+       ($_ l;either
+           (do l;Monad<Lexer>
+             [_ (l;text host-signal)
+              name (l;many' (l;none-of &;stop-signal))
+              _ (l;text &;stop-signal)
+              params (&;decode-list type-decoder)]
+             (wrap (#;HostT name params)))
+           <simple>
+           <combinators>
+           <abstractions>
+           <wildcards>
+           (do l;Monad<Lexer>
+             [_ (l;text named-signal)
+              module (l;some' (l;none-of &;ident-separator))
+              _ (l;text &;ident-separator)
+              name (l;many' (l;none-of &;stop-signal))
+              _ (l;text &;stop-signal)
+              unnamed type-decoder]
+             (wrap (#;NamedT [module name] unnamed)))
+           )))))
+
+(def: (decode-type input)
+  (-> Text (Error Type))
+  (|> type-decoder
+      (l;before l;end)
+      (l;run input)))
+
+(struct: #export _ (Codec Text Type)
+  (def: encode encode-type)
+  (def: decode decode-type))

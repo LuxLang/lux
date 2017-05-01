@@ -210,7 +210,7 @@
 ## specific shapes and then use decoders already present in the
 ## standard library to actually produce the values from the literals.
 (do-template [<name> <tag> <lexer> <codec>]
-  [(def: (<name> where)
+  [(def: #export (<name> where)
      (-> Cursor (Lexer [AST Cursor]))
      (do Monad<Lexer>
        [chunk <lexer>]
@@ -223,20 +223,20 @@
                 (|> where
                     (update@ #;column (n.+ (text;size chunk))))]))))]
 
-  [bool^ #;BoolS
+  [parse-bool #;BoolS
    (l;either (l;text "true") (l;text "false"))
    bool;Codec<Text,Bool>]
   
-  [nat^ #;NatS
+  [parse-nat #;NatS
    (l;seq' (l;text "+") (l;many' l;digit))
    number;Codec<Text,Nat>]
   
-  [int^ #;IntS
+  [parse-int #;IntS
    (l;seq' (l;default "" (l;text "-"))
            (l;many' l;digit))
    number;Codec<Text,Int>]
   
-  [real^ #;RealS
+  [parse-real #;RealS
    ($_ l;seq'
        (l;default "" (l;text "-"))
        (l;many' l;digit)
@@ -244,7 +244,7 @@
        (l;many' l;digit))
    number;Codec<Text,Real>]
   
-  [deg^ #;DegS
+  [parse-deg #;DegS
    (l;seq' (l;text ".")
            (l;many' l;digit))
    number;Codec<Text,Deg>]
@@ -252,7 +252,7 @@
 
 ## This parser doesn't delegate the work of producing the value to a
 ## codec, since the raw-char^ parser already takes care of that magic.
-(def: (char^ where)
+(def: #export (parse-char where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
     [[chunk value] (l;enclosed ["#\"" "\""]
@@ -263,7 +263,7 @@
 
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
-(def: (text^ where)
+(def: #export (parse-text where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
     [## Lux text "is delimited by double-quotes", as usual in most
@@ -354,7 +354,7 @@
 ## delimiters involved.
 ## They may have an arbitrary number of arbitrary AST nodes as elements.
 (do-template [<name> <tag> <open> <close>]
-  [(def: (<name> where ast^)
+  [(def: (<name> where parse-ast)
      (-> Cursor
          (-> Cursor (Lexer [AST Cursor]))
          (Lexer [AST Cursor]))
@@ -366,7 +366,7 @@
                          (l;either (do @
                                      [## Must update the cursor as I
                                       ## go along, to keep things accurate.
-                                      [elem where'] (ast^ where)]
+                                      [elem where'] (parse-ast where)]
                                      (recur (V;add elem elems)
                                             where'))
                                    (do @
@@ -381,8 +381,8 @@
        (wrap [[where (<tag> elems)]
               where'])))]
 
-  [form^   #;FormS   "(" ")"]
-  [tuple^  #;TupleS  "[" "]"]
+  [parse-form   #;FormS   "(" ")"]
+  [parse-tuple  #;TupleS  "[" "]"]
   )
 
 ## Records are almost (syntactically) the same as forms and tuples,
@@ -394,7 +394,7 @@
 ## AST node, however, record AST nodes allow any AST node to occupy
 ## this position, since it may be useful when processing AST syntax in
 ## macros.
-(def: (record^ where ast^)
+(def: (parse-record where parse-ast)
   (-> Cursor
       (-> Cursor (Lexer [AST Cursor]))
       (Lexer [AST Cursor]))
@@ -404,8 +404,8 @@
                                     V;empty)
                            where where]
                       (l;either (do @
-                                  [[key where'] (ast^ where)
-                                   [val where'] (ast^ where')]
+                                  [[key where'] (parse-ast where)
+                                   [val where'] (parse-ast where')]
                                   (recur (V;add [key val] elems)
                                          where'))
                                 (do @
@@ -505,7 +505,7 @@
 ## provide the compiler with information related to data-structure
 ## construction and de-structuring (during pattern-matching).
 (do-template [<name> <tag> <lexer> <extra>]
-  [(def: (<name> where)
+  [(def: #export (<name> where)
      (-> Cursor (Lexer [AST Cursor]))
      (do Monad<Lexer>
        [[value length] <lexer>]
@@ -513,29 +513,29 @@
               (|> where
                   (update@ #;column (|>. ($_ n.+ <extra> length))))])))]
 
-  [symbol^ #;SymbolS ident^                         +0]
-  [tag^    #;TagS    (l;after (l;char #"#") ident^) +1]
+  [parse-symbol #;SymbolS ident^                         +0]
+  [parse-tag    #;TagS    (l;after (l;char #"#") ident^) +1]
   )
 
-(def: (ast^ where)
+(def: (parse-ast where)
   (-> Cursor (Lexer [AST Cursor]))
   (do Monad<Lexer>
     [where (left-padding^ where)]
     ($_ l;either
-        (form^ where ast^)
-        (tuple^ where ast^)
-        (record^ where ast^)
-        (bool^ where)
-        (nat^ where)
-        (real^ where)
-        (int^ where)
-        (deg^ where)
-        (symbol^ where)
-        (tag^ where)
-        (char^ where)
-        (text^ where)
+        (parse-form where parse-ast)
+        (parse-tuple where parse-ast)
+        (parse-record where parse-ast)
+        (parse-bool where)
+        (parse-nat where)
+        (parse-real where)
+        (parse-int where)
+        (parse-deg where)
+        (parse-symbol where)
+        (parse-tag where)
+        (parse-char where)
+        (parse-text where)
         )))
 
 (def: #export (parse where code)
   (-> Cursor Text (Error [Text AST Cursor]))
-  (l;run' code (ast^ where)))
+  (l;run' code (parse-ast where)))

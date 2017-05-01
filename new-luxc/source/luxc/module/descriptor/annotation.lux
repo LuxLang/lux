@@ -1,0 +1,83 @@
+(;module:
+  lux
+  (lux (control codec
+                monad)
+       (data [text]
+             (text format
+                   ["l" lexer "l/" Monad<Lexer>])
+             [char]
+             [number]
+             error
+             (coll [list "L/" Functor<List>])))
+  ["&" ../common]
+  [luxc ["&;" parser]])
+
+(def: dummy-cursor Cursor ["" +0 +0])
+
+(do-template [<name> <code>]
+  [(def: <name> &;Signal <code>)]
+
+  [ident-signal "@"]
+  [bool-signal  "B"]
+  [nat-signal   "N"]
+  [int-signal   "I"]
+  [deg-signal   "D"]
+  [real-signal  "R"]
+  [char-signal  "C"]
+  [text-signal  "T"]
+  [list-signal  "%"]
+  [dict-signal  "#"]
+  )
+
+(def: (encode-ident [module name])
+  (-> Ident Text)
+  (format ident-signal
+          module &;ident-separator name
+          &;stop-signal))
+
+(def: (encode-text value)
+  (-> Text Text)
+  (format text-signal
+          (%t value)
+          &;stop-signal))
+
+(def: (encode-ann-value value)
+  (-> Ann-Value Text)
+  (case value
+    (^template [<tag> <signal> <encoder>]
+      (<tag> value)
+      (format <signal>
+              (<encoder> value)
+              &;stop-signal))
+    ([#;BoolA  bool-signal  %b]
+     [#;NatA   nat-signal   %n]
+     [#;IntA   int-signal   %i]
+     [#;DegA   deg-signal   %d]
+     [#;RealA  real-signal  %r]
+     [#;CharA  char-signal  %c]
+     [#;TextA  text-signal  %t]
+     [#;IdentA ident-signal %ident]
+     [#;ListA  list-signal  (&;encode-list encode-ann-value)]
+     [#;DictA  dict-signal  (&;encode-list (function [[k v]]
+                                             (format (encode-text k)
+                                                     (encode-ann-value v))))])))
+
+(def: ann-value-decoder
+  (l;Lexer Ann-Value)
+  (let% [<simple> (do-template [<tag> <lexer> <signal>]
+                    [(do l;Monad<Lexer>
+                       [])])]
+    ($_ l;either
+        <simple>
+        (|> ... (l;after (l;text bool-signal)))
+        )))
+
+(def: encode-anns
+  (-> Anns Text)
+  (&;encode-list (function [[ident value]]
+                   (format (encode-ident ident)
+                           (encode-ann-value value)))))
+
+(struct: #export _ (Codec Text Anns)
+  (def: encode encode-anns)
+  (def: decode decode-anns))

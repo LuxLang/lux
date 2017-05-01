@@ -1,0 +1,368 @@
+(;module:
+  lux
+  (lux (control monad
+                pipe)
+       [io #- run]
+       (concurrency ["A" atom])
+       (data ["E" error]
+             [text "T/" Eq<Text>]
+             text/format
+             (coll [list "L/" Fold<List> Monoid<List> Monad<List>]
+                   ["D" dict])
+             [number]
+             [product])
+       [macro #+ Monad<Lux>]
+       [type]
+       (type ["TC" check]))
+  (luxc ["&" base]
+        ["&;" module]
+        ["&;" env]
+        (module ["&;" def])))
+
+(type: #export Pattern Void)
+
+(type: #export (Analysis' Analysis)
+  (#Bool Bool)
+  (#Nat Nat)
+  (#Int Int)
+  (#Deg Deg)
+  (#Real Real)
+  (#Char Char)
+  (#Text Text)
+  (#Variant Nat Bool Analysis)
+  #Unit
+  (#Tuple (List Analysis))
+  (#Call Analysis (List Analysis))
+  (#Case (List [Pattern Analysis]))
+  (#Function Scope Analysis)
+  (#Var Ref)
+  (#Def Ident)
+  (#Procedure Text (List Analysis))
+  )
+
+(type: #export #rec Analysis
+  (Meta [Type Cursor]
+        (Analysis' Analysis)))
+
+(def: (with-expected-type expected action)
+  (All [a] (-> Type (Lux a) (Lux a)))
+  (function [compiler]
+    (case (action (set@ #;expected (#;Some expected) compiler))
+      (#E;Success [compiler' output])
+      (let [old-expected (get@ #;expected compiler)]
+        (#E;Success [(set@ #;expected old-expected compiler')
+                     output]))
+
+      (#E;Error error)
+      (#E;Error error))))
+
+(def: (analyse-typed-tuple analyse cursor members)
+  (-> (-> AST (Lux Analysis)) Cursor
+      (List AST)
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (let [member-types (type;flatten-tuple expected)
+          num-types (list;size member-types)
+          num-members (list;size members)]
+      (cond (n.= num-types num-members)
+            (do @
+              [=tuple (: (Lux (List Analysis))
+                         (mapM @
+                               (function [[expected member]]
+                                 (with-expected-type expected
+                                   (analyse member)))
+                               (list;zip2 member-types members)))]
+              (wrap [[expected cursor]
+                     (#Tuple =tuple)]))
+
+            (n.< num-types num-members)
+            (do @
+              [#let [[head-ts tail-ts] (list;split (n.- +2 num-members)
+                                                   member-types)]
+               =prevs (mapM @
+                            (function [[expected member]]
+                              (with-expected-type expected
+                                (analyse member)))
+                            (list;zip2 head-ts members))
+               =last (with-expected-type (type;tuple tail-ts)
+                       (analyse (default (undefined)
+                                  (list;last members))))]
+              (wrap [[expected cursor]
+                     (#Tuple (L/append =prevs (list =last)))]))
+
+            ## (n.> num-types num-members)
+            (do @
+              [#let [[head-xs tail-xs] (list;split (n.- +2 num-types)
+                                                   members)]
+               =prevs (mapM @
+                            (function [[expected member]]
+                              (with-expected-type expected
+                                (analyse member)))
+                            (list;zip2 member-types head-xs))
+               =last (with-expected-type (default (undefined)
+                                           (list;last member-types))
+                       (analyse-typed-tuple analyse cursor tail-xs))]
+              (wrap [[expected cursor]
+                     (#Tuple (L/append =prevs (list =last)))]))
+            ))))
+
+(def: (within-type-env action)
+  (All [a] (-> (TC;Check a) (Lux a)))
+  (function [compiler]
+    (case (action (get@ #;type-context compiler))
+      (#E;Error error)
+      (#E;Error error)
+
+      (#E;Success [context' output])
+      (#E;Success [(set@ #;type-context context' compiler)
+                   output]))))
+
+(def: get-type
+  (-> Analysis Type)
+  (|>. product;left
+       product;left))
+
+(def: (replace-type replacement analysis)
+  (-> Type Analysis Analysis)
+  (let [[[_type _cursor] _analysis] analysis]
+    (: Analysis
+       [[(: Type replacement)
+         (: Cursor _cursor)]
+        (: (Analysis' Analysis)
+           _analysis)])))
+
+(def: (clean-analysis type analysis)
+  (-> Type Analysis (Lux Analysis))
+  (case type
+    (#;VarT id)
+    (do Monad<Lux>
+      [=type (within-type-env
+              (TC;clean id type))]
+      (wrap (replace-type =type analysis)))
+    
+    (#;ExT id)
+    (undefined)
+    
+    _
+    (&;fail (format "Cannot clean type: " (%type type)))))
+
+(def: (with-unknown-type action)
+  (All [a] (-> (Lux Analysis) (Lux Analysis)))
+  (do Monad<Lux>
+    [[var-id var-type] (within-type-env
+                        TC;create-var)
+     analysis (|> (wrap action)
+                  (%> @
+                      [(with-expected-type var-type)]
+                      [(clean-analysis var-type)]))
+     _ (within-type-env
+        (TC;delete-var var-id))]
+    (wrap analysis)))
+
+(def: (tuple cursor members)
+  (-> Cursor (List Analysis) Analysis)
+  (let [tuple-type (type;tuple (L/map get-type members))]
+    [[tuple-type cursor]
+     (#Tuple members)]))
+
+(def: (realize expected)
+  (-> Type (TC;Check [(List Type) Type]))
+  (case expected
+    (#;NamedT [module name] _expected)
+    (realize _expected)
+
+    (#;UnivQ env body)
+    (do TC;Monad<Check>
+      [[var-id var-type] TC;create-var
+       [tail =expected] (realize (default (undefined)
+                                   (type;apply-type expected var-type)))]
+      (wrap [(list& var-type tail)
+             =expected]))
+
+    (#;ExQ env body)
+    (do TC;Monad<Check>
+      [[ex-id ex-type] TC;existential
+       [tail =expected] (realize (default (undefined)
+                                   (type;apply-type expected ex-type)))]
+      (wrap [(list& ex-type tail)
+             =expected]))
+
+    _
+    (:: TC;Monad<Check> wrap [(list) expected])))
+
+(def: (analyse-tuple analyse cursor members)
+  (-> (-> AST (Lux Analysis)) Cursor
+      (List AST)
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (case expected
+      (#;ProdT _)
+      (analyse-typed-tuple analyse cursor members)
+
+      (#;VarT id)
+      (do @
+        [bound? (within-type-env
+                 (TC;bound? id))]
+        (if bound?
+          (do @
+            [expected' (within-type-env
+                        (TC;read-var id))
+             =tuple (with-expected-type expected'
+                      (analyse-tuple analyse cursor members))]
+            (wrap (replace-type expected =tuple)))
+          (do @
+            [=members (mapM @ (<|. with-unknown-type
+                                   analyse)
+                            members)
+             #let [=tuple (tuple cursor =members)]
+             _ (within-type-env
+                (TC;check expected (get-type =tuple)))]
+            (wrap (replace-type expected =tuple)))))
+
+      _
+      (if (type;quantified? expected)
+        (do @
+          [[bindings expected'] (within-type-env
+                                 (realize expected))
+           =tuple (with-expected-type expected'
+                    (analyse-tuple analyse cursor members))
+           =tuple (foldM @ clean-analysis =tuple bindings)
+           _ (within-type-env
+              (TC;check expected (get-type =tuple)))]
+          (wrap (replace-type expected =tuple)))
+        (&;fail (format "Invalid type for tuple: " (%type expected))))
+      )))
+
+(def: (analyse-variant analyse cursor tag value)
+  (-> (-> AST (Lux Analysis)) Cursor
+      Nat AST
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (case expected
+      (#;SumT _)
+      (let [flat (type;flatten-variant expected)
+            type-size (list;size flat)]
+        (if (n.< type-size tag)
+          (do @
+            [#let [last? (n.= tag (n.dec type-size))
+                   variant-type (default (undefined)
+                                  (list;nth tag flat))]
+             =value (with-expected-type variant-type
+                      (analyse value))]
+            (wrap [[expected cursor]
+                   (#Variant tag last? =value)]))
+          (&;fail (format "Trying to create variant with tag beyond type's limitations." "\n"
+                          "Tag: " (%n tag) "\n"
+                          "Type size: " (%n type-size) "\n"
+                          "Type: " (%type expected) "\n"))))
+
+      _
+      (if (type;quantified? expected)
+        (do @
+          [[bindings expected'] (within-type-env
+                                 (realize expected))
+           =variant (with-expected-type expected'
+                      (analyse-variant analyse cursor tag value))
+           =variant (foldM @ clean-analysis =variant bindings)
+           _ (within-type-env
+              (TC;check expected (get-type =variant)))]
+          (wrap (replace-type expected =variant)))
+        (&;fail (format "Invalid type for variant: " (%type expected)))))))
+
+(def: (analyse eval ast)
+  (-> (-> Type AST (Lux Top)) AST (Lux Analysis))
+  (do Monad<Lux>
+    []
+    (case ast
+      (^template [<ast-tag> <analysis-tag> <type>]
+        [cursor (<ast-tag> value)]
+        (do @
+          [expected macro;expected-type
+           _ (within-type-env
+              (TC;check expected <type>))]
+          (wrap [[<type> cursor]
+                 (<analysis-tag> value)])))
+      ([#;BoolS #Bool Bool]
+       [#;NatS  #Nat  Nat]
+       [#;IntS  #Int  Int]
+       [#;DegS  #Deg  Deg]
+       [#;RealS #Real Real]
+       [#;CharS #Char Char]
+       [#;TextS #Text Text])
+
+      (^ [cursor (#;TupleS (list))])
+      (do @
+        [expected macro;expected-type
+         _ (within-type-env
+            (TC;check expected Unit))]
+        (wrap [[Unit cursor]
+               #Unit]))
+
+      (^ [cursor (#;TupleS (list singleton))])
+      (analyse eval singleton)
+
+      (^ [cursor (#;TupleS elems)])
+      (do @
+        [expected macro;expected-type]
+        (with-expected-type expected
+          (analyse-tuple (analyse eval) cursor elems)))
+
+      [cursor (#;SymbolS ["" local-name])]
+      (do @
+        [?local (&env;find local-name)]
+        (case ?local
+          (#;Some [actual index])
+          (do @
+            [expected macro;expected-type
+             _ (within-type-env
+                (TC;check expected actual))]
+            (wrap [[expected cursor]
+                   (#Var index)]))
+
+          #;None
+          (do @
+            [this-module macro;current-module-name]
+            (analyse eval [cursor (#;SymbolS [this-module local-name])]))))
+
+      [cursor (#;SymbolS def-name)]
+      (do @
+        [expected macro;expected-type
+         actual (&def;find def-name)
+         _ (within-type-env
+            (TC;check expected actual))]
+        (wrap [[expected cursor]
+               (#Def def-name)]))
+
+      (^ [cursor (#;FormS (list [_ (#;SymbolS ["" "_lux_check"])]
+                                type
+                                value))])
+      (do @
+        [expected macro;expected-type
+         actual (eval Type type)
+         _ (within-type-env
+            (TC;check expected actual))]
+        (with-expected-type actual
+          (analyse eval value)))
+
+      (^ [cursor (#;FormS (list [_ (#;SymbolS ["" "_lux_coerce"])]
+                                type
+                                value))])
+      (do @
+        [expected macro;expected-type
+         actual (eval Type type)
+         _ (within-type-env
+            (TC;check expected actual))
+         =value (with-expected-type Top
+                  (analyse eval value))]
+        (wrap (replace-type actual =value)))
+
+      (^ [cursor (#;FormS (list [_ (#;NatS tag)]
+                                value))])
+      (analyse-variant (analyse eval) cursor tag value)
+
+      _
+      (&;fail (format "Unrecognized syntax: " (%ast ast)))
+      )))
