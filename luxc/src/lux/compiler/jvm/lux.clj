@@ -117,7 +117,7 @@
 
 (defn compile-apply [compile ?fn ?args]
   (|case ?fn
-    [_ (&o/$var (&/$Global ?module ?name))]
+    [_ (&o/$def ?module ?name)]
     (|do [[_ [_ _ func-obj]] (&a-module/find-def ?module ?name)
           class-loader &/loader
           :let [func-class (class func-obj)

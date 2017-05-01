@@ -77,7 +77,7 @@
         (&o/$captured ?scope ?captured-id ?source)
         (&&lux/compile-captured (partial compile-expression $begin) ?scope ?captured-id ?source)
 
-        (&o/$var (&/$Global ?owner-class ?name))
+        (&o/$def ?owner-class ?name)
         (&&lux/compile-global (partial compile-expression $begin) ?owner-class ?name)
 
         (&o/$apply ?fn ?args)

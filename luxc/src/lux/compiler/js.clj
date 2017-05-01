@@ -66,7 +66,7 @@
       (&o/$captured ?scope ?captured-id ?source)
       (&&lux/compile-captured compile-expression ?scope ?captured-id ?source)
 
-      (&o/$var (&/$Global ?module ?name))
+      (&o/$def ?module ?name)
       (&&lux/compile-global ?module ?name)
 
       (&o/$apply ?fn ?args)

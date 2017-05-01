@@ -103,7 +103,7 @@
 ;; Vars
 (defvariant
   ("Local" 1)
-  ("Global" 1))
+  ("Captured" 1))
 
 ;; Binding
 (deftuple

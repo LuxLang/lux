@@ -19,6 +19,7 @@
   ("case" 2)
   ("function" 5)
   ("ann" 2)
+  ("def" 1)
   ("var" 1)
   ("captured" 3)
   ("proc" 3)
@@ -734,10 +735,7 @@
                              (&/|list [meta ($var (&/$Local 1))]))])
           
           (&/$Local idx)
-          (&/T [meta ($var (&/$Local (inc idx)))])
-          
-          (&/$Global ?module ?name)
-          body)
+          (&/T [meta ($var (&/$Local (inc idx)))]))
         body)
 
       ;; This special "apply" rule is for handling recursive calls better.
@@ -1177,6 +1175,9 @@
         (&a/$ann value-expr type-expr)
         (&/T [meta ($ann (pass-0 top-level-func? value-expr) type-expr)])
         
+        (&a/$def def-name)
+        (&/T [meta ($def def-name)])
+
         (&a/$var var-kind)
         (&/T [meta ($var var-kind)])
         

@@ -271,7 +271,7 @@
             (&type/check exo-type endo-type))
         _cursor &/cursor]
     (return (&/|list (&&/|meta endo-type _cursor
-                               (&&/$var (&/$Global (&/T [r-module r-name]))))))))
+                               (&&/$def (&/T [r-module r-name])))))))
 
 (defn ^:private analyse-local [analyse exo-type name]
   (fn [state]
@@ -285,19 +285,6 @@
                        (analyse-global analyse exo-type module-name name))
                      state)
 
-        (&/$Cons ?genv (&/$Nil))
-        (if-let [global (->> ?genv (&/get$ &/$locals) (&/get$ &/$mappings) (&/|get name))]
-          (|case global
-            [(&/$Global ?module* name*) _]
-            (&/run-state (analyse-global analyse exo-type ?module* name*)
-                         state)
-
-            _
-            ((&/fail-with-loc "[Analyser Error] Cannot have anything other than a global def in the global environment.")
-             state))
-          ((&/fail-with-loc (str "[Analyser Error] Unknown global definition: " name))
-           state))
-        
         (&/$Cons bottom-outer _)
         (|let [scopes (&/|map #(&/get$ &/$name %) (&/|reverse inner))
                [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
@@ -377,7 +364,7 @@
 
 (defn analyse-apply [analyse cursor exo-type macro-caller =fn ?args]
   (|case =fn
-    [_ (&&/$var (&/$Global ?module ?name))]
+    [_ (&&/$def ?module ?name)]
     (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
       (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
         (&/$Some _)

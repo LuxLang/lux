@@ -19,6 +19,7 @@
   ("case" 2)
   ("function" 4)
   ("ann" 2)
+  ("def" 1)
   ("var" 1)
   ("captured" 1)
   ("proc" 3)
