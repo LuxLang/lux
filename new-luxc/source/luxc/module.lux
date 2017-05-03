@@ -1,6 +1,59 @@
 (;module:
   lux
   (lux (control monad)
-       (data text/format))
+       (data [text "T/" Eq<Text>]
+             text/format
+             ["E" error]))
   (luxc ["&" base]))
 
+(def: (new-module hash)
+  (-> Nat Module)
+  {#;module-hash    hash
+   #;module-aliases (list)
+   #;defs           (list)
+   #;imports        (list)
+   #;tags           (list)
+   #;types          (list)
+   #;module-anns    (list)
+   #;module-state   #;Active})
+
+(def: #export (create hash name)
+  (-> Nat Text (Lux Module))
+  (function [compiler]
+    (let [module (new-module hash)]
+      (#E;Success [(update@ #;modules
+                            (&;pl::put name module)
+                            compiler)
+                   module]))))
+
+(do-template [<flagger> <asker> <tag>]
+  [(def: #export (<flagger> module-name)
+     (-> Text (Lux Unit))
+     (function [compiler]
+       (case (|> compiler (get@ #;modules) (&;pl::get module-name))
+         (#;Some module)
+         (#E;Success [(update@ #;modules
+                               (&;pl::put module-name (set@ #;module-state <tag> module))
+                               compiler)
+                      []])
+
+         #;None
+         (#E;Error (format "Module does not exist: " module-name)))))
+   (def: #export (<asker> module-name)
+     (-> Text (Lux Bool))
+     (function [compiler]
+       (case (|> compiler (get@ #;modules) (&;pl::get module-name))
+         (#;Some module)
+         (#E;Success [compiler
+                      (case (get@ #;module-state module)
+                        <tag> true
+                        _     false)])
+
+         #;None
+         (#E;Error (format "Module does not exist: " module-name)))
+       ))]
+
+  [flag-active!   active?   #;Active]
+  [flag-compiled! compiled? #;Compiled]
+  [flag-cached!   cached?   #;Cached]
+  )

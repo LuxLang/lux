@@ -1,0 +1,255 @@
+(;module:
+  lux
+  (lux (control monad
+                pipe)
+       [io #- run]
+       (concurrency ["A" atom])
+       (data ["E" error]
+             [text "T/" Eq<Text>]
+             text/format
+             (coll [list "L/" Fold<List> Monoid<List> Monad<List>]
+                   ["D" dict])
+             [number]
+             [product])
+       [macro #+ Monad<Lux>]
+       [type]
+       (type ["TC" check]))
+  (luxc ["&" base]
+        [lang #*]
+        ["&;" module]
+        ["&;" env]
+        (analyser ["&;" common])))
+
+(do-template [<name> <type> <tag>]
+  [(def: #export (<name> cursor value)
+     (-> Cursor <type> (Lux Analysis))
+     (do Monad<Lux>
+       [expected macro;expected-type
+        _ (&;within-type-env
+           (TC;check expected <type>))]
+       (wrap [[expected cursor]
+              (#lang;Primitive (<tag> value))])))]
+
+  [analyse-bool Bool #lang;Bool]
+  [analyse-nat  Nat  #lang;Nat]
+  [analyse-int  Int  #lang;Int]
+  [analyse-deg  Deg  #lang;Deg]
+  [analyse-real Real #lang;Real]
+  [analyse-char Char #lang;Char]
+  [analyse-text Text #lang;Text]
+  )
+
+(def: #export (analyse-unit cursor)
+  (-> Cursor (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type
+     _ (&;within-type-env
+        (TC;check expected Unit))]
+    (wrap [[expected cursor]
+           (#lang;Primitive #lang;Unit)])))
+
+(def: #export (analyse-definition cursor def-name)
+  (-> Cursor Ident (Lux Analysis))
+  (do Monad<Lux>
+    [actual (macro;find-def-type def-name)
+     expected macro;expected-type
+     _ (&;within-type-env
+        (TC;check expected actual))]
+    (wrap [[expected cursor]
+           (#lang;Reference (#lang;Absolute def-name))])))
+
+(def: #export (analyse-variable cursor var-name)
+  (-> Cursor Text (Lux (Maybe Analysis)))
+  (do Monad<Lux>
+    [?var (&env;find var-name)]
+    (case ?var
+      (#;Some [actual ref])
+      (do @
+        [expected macro;expected-type
+         _ (&;within-type-env
+            (TC;check expected actual))
+         #let [analysis [[expected cursor]
+                         (#lang;Reference (#lang;Relative ref))]]]
+        (wrap (#;Some analysis)))
+
+      #;None
+      (wrap #;None))))
+
+(def: #export (analyse-reference cursor reference)
+  (-> Cursor Ident (Lux Analysis))
+  (case reference
+    ["" simple-name]
+    (do Monad<Lux>
+      [?var (analyse-variable cursor simple-name)]
+      (case ?var
+        (#;Some analysis)
+        (wrap analysis)
+
+        #;None
+        (do @
+          [this-module macro;current-module-name]
+          (analyse-definition cursor [this-module simple-name]))))
+
+    _
+    (analyse-definition cursor reference)))
+
+(def: #export (analyse-check analyse eval cursor type value)
+  (-> Analyser Eval Cursor AST AST (Lux Analysis))
+  (do Monad<Lux>
+    [actual (eval Type type)
+     #let [actual (:! Type actual)]
+     expected macro;expected-type
+     _ (&;within-type-env
+        (TC;check expected actual))]
+    (&;with-expected-type actual
+      (analyse eval value))))
+
+(def: #export (analyse-coerce analyse eval cursor type value)
+  (-> Analyser Eval Cursor AST AST (Lux Analysis))
+  (do Monad<Lux>
+    [actual (eval Type type)
+     #let [actual (:! Type actual)]
+     expected macro;expected-type
+     _ (&;within-type-env
+        (TC;check expected actual))
+     =value (&;with-expected-type Top
+              (analyse eval value))]
+    (wrap (&common;replace-type actual =value))))
+
+(def: (analyse-typed-tuple analyse cursor members)
+  (-> (-> AST (Lux Analysis)) Cursor
+      (List AST)
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (let [member-types (type;flatten-tuple expected)
+          num-types (list;size member-types)
+          num-members (list;size members)]
+      (cond (n.= num-types num-members)
+            (do @
+              [=tuple (: (Lux (List Analysis))
+                         (mapM @
+                               (function [[expected member]]
+                                 (&;with-expected-type expected
+                                   (analyse member)))
+                               (list;zip2 member-types members)))]
+              (wrap [[expected cursor]
+                     (#lang;Structure (#lang;Tuple =tuple))]))
+
+            (n.< num-types num-members)
+            (do @
+              [#let [[head-ts tail-ts] (list;split (n.- +2 num-members)
+                                                   member-types)]
+               =prevs (mapM @
+                            (function [[expected member]]
+                              (&;with-expected-type expected
+                                (analyse member)))
+                            (list;zip2 head-ts members))
+               =last (&;with-expected-type (type;tuple tail-ts)
+                       (analyse (default (undefined)
+                                  (list;last members))))]
+              (wrap [[expected cursor]
+                     (#lang;Structure (#lang;Tuple (L/append =prevs (list =last))))]))
+
+            ## (n.> num-types num-members)
+            (do @
+              [#let [[head-xs tail-xs] (list;split (n.- +2 num-types)
+                                                   members)]
+               =prevs (mapM @
+                            (function [[expected member]]
+                              (&;with-expected-type expected
+                                (analyse member)))
+                            (list;zip2 member-types head-xs))
+               =last (&;with-expected-type (default (undefined)
+                                             (list;last member-types))
+                       (analyse-typed-tuple analyse cursor tail-xs))]
+              (wrap [[expected cursor]
+                     (#lang;Structure (#lang;Tuple (L/append =prevs (list =last))))]))
+            ))))
+
+(def: (tuple cursor members)
+  (-> Cursor (List Analysis) Analysis)
+  (let [tuple-type (type;tuple (L/map &common;get-type members))]
+    [[tuple-type cursor]
+     (#lang;Structure (#lang;Tuple members))]))
+
+(def: #export (analyse-tuple analyse cursor members)
+  (-> (-> AST (Lux Analysis)) Cursor
+      (List AST)
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (case expected
+      (#;ProdT _)
+      (analyse-typed-tuple analyse cursor members)
+
+      (#;VarT id)
+      (do @
+        [bound? (&;within-type-env
+                 (TC;bound? id))]
+        (if bound?
+          (do @
+            [expected' (&;within-type-env
+                        (TC;read-var id))
+             =tuple (&;with-expected-type expected'
+                      (analyse-tuple analyse cursor members))]
+            (wrap (&common;replace-type expected =tuple)))
+          (do @
+            [=members (mapM @ (<|. &common;with-unknown-type
+                                   analyse)
+                            members)
+             #let [=tuple (tuple cursor =members)]
+             _ (&;within-type-env
+                (TC;check expected (&common;get-type =tuple)))]
+            (wrap (&common;replace-type expected =tuple)))))
+
+      _
+      (if (type;quantified? expected)
+        (do @
+          [[bindings expected'] (&;within-type-env
+                                 (&common;realize expected))
+           =tuple (&;with-expected-type expected'
+                    (analyse-tuple analyse cursor members))
+           =tuple (foldM @ &common;clean =tuple bindings)
+           _ (&;within-type-env
+              (TC;check expected (&common;get-type =tuple)))]
+          (wrap (&common;replace-type expected =tuple)))
+        (&;fail (format "Invalid type for tuple: " (%type expected))))
+      )))
+
+(def: #export (analyse-variant analyse cursor tag value)
+  (-> (-> AST (Lux Analysis)) Cursor
+      Nat AST
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (case expected
+      (#;SumT _)
+      (let [flat (type;flatten-variant expected)
+            type-size (list;size flat)]
+        (if (n.< type-size tag)
+          (do @
+            [#let [last? (n.= tag (n.dec type-size))
+                   variant-type (default (undefined)
+                                  (list;nth tag flat))]
+             =value (&;with-expected-type variant-type
+                      (analyse value))]
+            (wrap [[expected cursor]
+                   (#lang;Structure (#lang;Variant tag last? =value))]))
+          (&;fail (format "Trying to create variant with tag beyond type's limitations." "\n"
+                          "      Tag: " (%n tag) "\n"
+                          "Type size: " (%n type-size) "\n"
+                          "     Type: " (%type expected) "\n"))))
+
+      _
+      (if (type;quantified? expected)
+        (do @
+          [[bindings expected'] (&;within-type-env
+                                 (&common;realize expected))
+           =variant (&;with-expected-type expected'
+                      (analyse-variant analyse cursor tag value))
+           =variant (foldM @ &common;clean =variant bindings)
+           _ (&;within-type-env
+              (TC;check expected (&common;get-type =variant)))]
+          (wrap (&common;replace-type expected =variant)))
+        (&;fail (format "Invalid type for variant: " (%type expected)))))))

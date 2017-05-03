@@ -1,8 +1,11 @@
 (;module:
   lux
   (lux (control monad)
-       (data text/format)
-       [macro #+ Monad<Lux>]))
+       (data [text "T/" Eq<Text>]
+             text/format
+             ["E" error])
+       [macro #+ Monad<Lux>]
+       (type ["TC" check])))
 
 (type: #export Path Text)
 
@@ -19,3 +22,62 @@
                             "," (|> col nat-to-int %i))]]
     (macro;fail (format "@ " location
                         "\n" message))))
+
+(def: #export (with-expected-type expected action)
+  (All [a] (-> Type (Lux a) (Lux a)))
+  (function [compiler]
+    (case (action (set@ #;expected (#;Some expected) compiler))
+      (#E;Success [compiler' output])
+      (let [old-expected (get@ #;expected compiler)]
+        (#E;Success [(set@ #;expected old-expected compiler')
+                     output]))
+
+      (#E;Error error)
+      (#E;Error error))))
+
+(def: #export (within-type-env action)
+  (All [a] (-> (TC;Check a) (Lux a)))
+  (function [compiler]
+    (case (action (get@ #;type-context compiler))
+      (#E;Error error)
+      (#E;Error error)
+
+      (#E;Success [context' output])
+      (#E;Success [(set@ #;type-context context' compiler)
+                   output]))))
+
+(def: #export (pl::put key val table)
+  (All [a] (-> Text a (List [Text a]) (List [Text a])))
+  (case table
+    #;Nil
+    (list [key val])
+
+    (#;Cons [k' v'] table')
+    (if (T/= key k')
+      (#;Cons [key val]
+              table')
+      (#;Cons [k' v']
+              (pl::put key val table')))))
+
+(def: #export (pl::get key table)
+  (All [a] (-> Text (List [Text a]) (Maybe a)))
+  (case table
+    #;Nil
+    #;None
+
+    (#;Cons [k' v'] table')
+    (if (T/= key k')
+      (#;Some v')
+      (pl::get key table'))))
+
+(def: #export (with-source-code source action)
+  (All [a] (-> [Cursor Text] (Lux a) (Lux a)))
+  (function [compiler]
+    (let [old-source (get@ #;source compiler)]
+      (case (action (set@ #;source source compiler))
+        (#E;Error error)
+        (#E;Error error)
+
+        (#E;Success [compiler' output])
+        (#E;Success [(set@ #;source old-source compiler')
+                     output])))))
