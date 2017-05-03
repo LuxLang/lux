@@ -48,34 +48,33 @@
 ## It operates recursively in order to produce the longest continuous
 ## chunk of white-space.
 (def: (space^ where)
-  (-> Cursor (Lexer [Text Cursor]))
+  (-> Cursor (Lexer [Cursor Text]))
   (do Monad<Lexer>
     [head (l;some' (l;one-of white-space))]
     ## New-lines must be handled as a separate case to ensure line
     ## information is handled properly.
     (l;either (l;after (l;one-of new-line)
                        (do @
-                         [[tail end] (space^ (|> where
+                         [[end tail] (space^ (|> where
                                                  (update@ #;line n.inc)
                                                  (set@ #;column +0)))]
-                         (wrap [(format head tail)
-                                end])))
-              (wrap [head
-                     (|> where
-                         (update@ #;column (n.+ (text;size head))))]))))
+                         (wrap [end
+                                (format head tail)])))
+              (wrap [(update@ #;column (n.+ (text;size head)) where)
+                     head]))))
 
 ## Single-line comments can start anywhere, but only go up to the
 ## next new-line.
 (def: (single-line-comment^ where)
-  (-> Cursor (Lexer [Text Cursor]))
+  (-> Cursor (Lexer [Cursor Text]))
   (do Monad<Lexer>
     [_ (l;text "##")
      comment (l;some' (l;none-of new-line))
      _ (l;text new-line)]
-    (wrap [comment
-           (|> where
+    (wrap [(|> where
                (update@ #;line n.inc)
-               (set@ #;column +0))])))
+               (set@ #;column +0))
+           comment])))
 
 ## This is just a helper parser to find text which doesn't run into
 ## any special character sequences for multi-line comments.
@@ -92,12 +91,11 @@
 ## That is, any nested comment must have matched delimiters.
 ## Unbalanced comments ought to be rejected as invalid code.
 (def: (multi-line-comment^ where)
-  (-> Cursor (Lexer [Text Cursor]))
+  (-> Cursor (Lexer [Cursor Text]))
   (do Monad<Lexer>
     [_ (l;text "#(")]
     (loop [comment ""
-           where (|> where
-                     (update@ #;column (n.+ +2)))]
+           where (update@ #;column (n.+ +2) where)]
       ($_ l;either
           ## These are normal chunks of commented text.
           (do @
@@ -120,15 +118,14 @@
           ## That is why the sub-comment is covered in delimiters
           ## and then appended to the rest of the comment text.
           (do @
-            [[sub-comment sub-where] (multi-line-comment^ where)]
+            [[sub-where sub-comment] (multi-line-comment^ where)]
             (recur (format comment "#(" sub-comment ")#")
                    sub-where))
           ## Finally, this is the rule for closing the comment.
           (do @
             [_ (l;text ")#")]
-            (wrap [comment
-                   (|> where
-                       (update@ #;column (n.+ +2)))]))
+            (wrap [(update@ #;column (n.+ +2) where)
+                   comment]))
           ))))
 
 ## This is the only parser that should be used directly by other
@@ -138,7 +135,7 @@
 ## from being used in any situation (alternatively, forcing one type
 ## of comment to be the only usable one).
 (def: (comment^ where)
-  (-> Cursor (Lexer [Text Cursor]))
+  (-> Cursor (Lexer [Cursor Text]))
   (l;either (single-line-comment^ where)
             (multi-line-comment^ where)))
 
@@ -149,10 +146,10 @@
 (def: (left-padding^ where)
   (-> Cursor (Lexer Cursor))
   (l;either (do Monad<Lexer>
-              [[comment where] (comment^ where)]
+              [[where comment] (comment^ where)]
               (left-padding^ where))
             (do Monad<Lexer>
-              [[white-space where] (space^ where)]
+              [[where white-space] (space^ where)]
               (wrap where))
             ))
 
@@ -211,7 +208,7 @@
 ## standard library to actually produce the values from the literals.
 (do-template [<name> <tag> <lexer> <codec>]
   [(def: #export (<name> where)
-     (-> Cursor (Lexer [AST Cursor]))
+     (-> Cursor (Lexer [Cursor AST]))
      (do Monad<Lexer>
        [chunk <lexer>]
        (case (:: <codec> decode chunk)
@@ -219,9 +216,8 @@
          (l;fail error)
 
          (#;Right value)
-         (wrap [[where (<tag> value)]
-                (|> where
-                    (update@ #;column (n.+ (text;size chunk))))]))))]
+         (wrap [(update@ #;column (n.+ (text;size chunk)) where)
+                [where (<tag> value)]]))))]
 
   [parse-bool #;BoolS
    (l;either (l;text "true") (l;text "false"))
@@ -253,18 +249,17 @@
 ## This parser doesn't delegate the work of producing the value to a
 ## codec, since the raw-char^ parser already takes care of that magic.
 (def: #export (parse-char where)
-  (-> Cursor (Lexer [AST Cursor]))
+  (-> Cursor (Lexer [Cursor AST]))
   (do Monad<Lexer>
     [[chunk value] (l;enclosed ["#\"" "\""]
                                raw-char^)]
-    (wrap [[where (#;CharS value)]
-           (|> where
-               (update@ #;column (|>. ($_ n.+ +3 (text;size chunk)))))])))
+    (wrap [(update@ #;column (|>. ($_ n.+ +3 (text;size chunk))) where)
+           [where (#;CharS value)]])))
 
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
 (def: #export (parse-text where)
-  (-> Cursor (Lexer [AST Cursor]))
+  (-> Cursor (Lexer [Cursor AST]))
   (do Monad<Lexer>
     [## Lux text "is delimited by double-quotes", as usual in most
      ## programming languages.
@@ -277,7 +272,7 @@
      ## This helps ensure that the formatting on the text in the
      ## source-code matches the formatting of the Text value.
      #let [offset-column (n.inc (get@ #;column where))]
-     [text-read where'] (: (Lexer [Text Cursor])
+     [where' text-read] (: (Lexer [Cursor Text])
                            ## I must keep track of how much of the
                            ## text body has been read, how far the
                            ## cursor has progressed, and whether I'm
@@ -332,9 +327,8 @@
                                              ## reaches the right-delimiter.
                                              (do @
                                                [_ (l;text "\"")]
-                                               (wrap [text-read
-                                                      (|> where
-                                                          (update@ #;column n.inc))]))))
+                                               (wrap [(update@ #;column n.inc where)
+                                                      text-read]))))
                                        ## If a new-line is
                                        ## encountered, it gets
                                        ## appended to the value and
@@ -347,8 +341,8 @@
                                                     (update@ #;line n.inc)
                                                     (set@ #;column +0))
                                                 true)))))]
-    (wrap [[where (#;TextS text-read)]
-           where'])))
+    (wrap [where'
+           [where (#;TextS text-read)]])))
 
 ## Form and tuple syntax is mostly the same, differing only in the
 ## delimiters involved.
@@ -356,17 +350,17 @@
 (do-template [<name> <tag> <open> <close>]
   [(def: (<name> where parse-ast)
      (-> Cursor
-         (-> Cursor (Lexer [AST Cursor]))
-         (Lexer [AST Cursor]))
+         (-> Cursor (Lexer [Cursor AST]))
+         (Lexer [Cursor AST]))
      (do Monad<Lexer>
        [_ (l;text <open>)
-        [elems where'] (loop [elems (: (V;Vector AST)
+        [where' elems] (loop [elems (: (V;Vector AST)
                                        V;empty)
                               where where]
                          (l;either (do @
                                      [## Must update the cursor as I
                                       ## go along, to keep things accurate.
-                                      [elem where'] (parse-ast where)]
+                                      [where' elem] (parse-ast where)]
                                      (recur (V;add elem elems)
                                             where'))
                                    (do @
@@ -375,11 +369,10 @@
                                       ## end-delimiter.
                                       where' (left-padding^ where)
                                       _ (l;text <close>)]
-                                     (wrap [(V;to-list elems)
-                                            (|> where'
-                                                (update@ #;column n.inc))]))))]
-       (wrap [[where (<tag> elems)]
-              where'])))]
+                                     (wrap [(update@ #;column n.inc where')
+                                            (V;to-list elems)]))))]
+       (wrap [where'
+              [where (<tag> elems)]])))]
 
   [parse-form   #;FormS   "(" ")"]
   [parse-tuple  #;TupleS  "[" "]"]
@@ -396,26 +389,25 @@
 ## macros.
 (def: (parse-record where parse-ast)
   (-> Cursor
-      (-> Cursor (Lexer [AST Cursor]))
-      (Lexer [AST Cursor]))
+      (-> Cursor (Lexer [Cursor AST]))
+      (Lexer [Cursor AST]))
   (do Monad<Lexer>
     [_ (l;text "{")
-     [elems where'] (loop [elems (: (V;Vector [AST AST])
+     [where' elems] (loop [elems (: (V;Vector [AST AST])
                                     V;empty)
                            where where]
                       (l;either (do @
-                                  [[key where'] (parse-ast where)
-                                   [val where'] (parse-ast where')]
+                                  [[where' key] (parse-ast where)
+                                   [where' val] (parse-ast where')]
                                   (recur (V;add [key val] elems)
                                          where'))
                                 (do @
                                   [where' (left-padding^ where)
                                    _ (l;text "}")]
-                                  (wrap [(V;to-list elems)
-                                         (|> where'
-                                             (update@ #;column n.inc))]))))]
-    (wrap [[where (#;RecordS elems)]
-           where'])))
+                                  (wrap [(update@ #;column n.inc where')
+                                         (V;to-list elems)]))))]
+    (wrap [where'
+           [where (#;RecordS elems)]])))
 
 ## The parts of an identifier are separated by a single mark.
 ## E.g. module;name.
@@ -506,19 +498,18 @@
 ## construction and de-structuring (during pattern-matching).
 (do-template [<name> <tag> <lexer> <extra>]
   [(def: #export (<name> where)
-     (-> Cursor (Lexer [AST Cursor]))
+     (-> Cursor (Lexer [Cursor AST]))
      (do Monad<Lexer>
        [[value length] <lexer>]
-       (wrap [[where (<tag> value)]
-              (|> where
-                  (update@ #;column (|>. ($_ n.+ <extra> length))))])))]
+       (wrap [(update@ #;column (|>. ($_ n.+ <extra> length)) where)
+              [where (<tag> value)]])))]
 
   [parse-symbol #;SymbolS ident^                         +0]
   [parse-tag    #;TagS    (l;after (l;char #"#") ident^) +1]
   )
 
 (def: (parse-ast where)
-  (-> Cursor (Lexer [AST Cursor]))
+  (-> Cursor (Lexer [Cursor AST]))
   (do Monad<Lexer>
     [where (left-padding^ where)]
     ($_ l;either
@@ -536,6 +527,11 @@
         (parse-text where)
         )))
 
-(def: #export (parse where code)
-  (-> Cursor Text (Error [Text AST Cursor]))
-  (l;run' code (parse-ast where)))
+(def: #export (parse [where code])
+  (-> [Cursor Text] (Error [[Cursor Text] AST]))
+  (case (l;run' code (parse-ast where))
+    (#E;Error error)
+    (#E;Error error)
+
+    (#E;Success [remaining [where' output]])
+    (#E;Success [[where' remaining] output])))
