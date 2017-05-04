@@ -71,18 +71,18 @@
 
 ;; AST
 (defvariant
-  ("BoolS" 1)
-  ("NatS" 1)
-  ("IntS" 1)
-  ("DegS" 1)
-  ("RealS" 1)
-  ("CharS" 1)
-  ("TextS" 1)
-  ("SymbolS" 1)
-  ("TagS" 1)
-  ("FormS" 1)
-  ("TupleS" 1)
-  ("RecordS" 1))
+  ("Bool" 1)
+  ("Nat" 1)
+  ("Int" 1)
+  ("Deg" 1)
+  ("Real" 1)
+  ("Char" 1)
+  ("Text" 1)
+  ("Symbol" 1)
+  ("Tag" 1)
+  ("Form" 1)
+  ("Tuple" 1)
+  ("Record" 1))
 
 ;; Type
 (defvariant
@@ -1205,48 +1205,48 @@
 
 (defn show-ast [ast]
   (|case ast
-    [_ ($BoolS ?value)]
+    [_ ($Bool ?value)]
     (pr-str ?value)
 
-    [_ ($NatS ?value)]
+    [_ ($Nat ?value)]
     (str "+" (Long/toUnsignedString ?value))
 
-    [_ ($IntS ?value)]
+    [_ ($Int ?value)]
     (pr-str ?value)
 
-    [_ ($DegS ?value)]
+    [_ ($Deg ?value)]
     (encode-deg ?value)
 
-    [_ ($RealS ?value)]
+    [_ ($Real ?value)]
     (pr-str ?value)
 
-    [_ ($CharS ?value)]
+    [_ ($Char ?value)]
     (str "#\"" (pr-str ?value) "\"")
 
-    [_ ($TextS ?value)]
+    [_ ($Text ?value)]
     (str "\"" ?value "\"")
 
-    [_ ($TagS ?module ?tag)]
+    [_ ($Tag ?module ?tag)]
     (if (.equals "" ?module)
       (str "#" ?tag)
       (str "#" ?module ";" ?tag))
 
-    [_ ($SymbolS ?module ?name)]
+    [_ ($Symbol ?module ?name)]
     (if (.equals "" ?module)
       ?name
       (str ?module ";" ?name))
 
-    [_ ($TupleS ?elems)]
+    [_ ($Tuple ?elems)]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
 
-    [_ ($RecordS ?elems)]
+    [_ ($Record ?elems)]
     (str "{" (->> ?elems
                   (|map (fn [elem]
                           (|let [[k v] elem]
                             (str (show-ast k) " " (show-ast v)))))
                   (|interpose " ") (fold str "")) "}")
 
-    [_ ($FormS ?elems)]
+    [_ ($Form ?elems)]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")
 
     _

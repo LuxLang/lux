@@ -35,8 +35,8 @@
         (&/fail-with-loc (str "[Parser Error] Unbalanced " <description> "."))
         )))
 
-  ^:private parse-form  &lexer/$Close_Paren   "parantheses" &/$FormS
-  ^:private parse-tuple &lexer/$Close_Bracket "brackets"    &/$TupleS
+  ^:private parse-form  &lexer/$Close_Paren   "parantheses" &/$Form
+  ^:private parse-tuple &lexer/$Close_Bracket "brackets"    &/$Tuple
   )
 
 (defn ^:private parse-record [parse]
@@ -47,7 +47,7 @@
       [meta (&lexer/$Close_Brace _)]
       (|do [_ (&/assert! (even? (&/|length elems))
                          (&/fail-with-loc base-uneven-record-error))]
-        (return (&/$RecordS (&/|as-pairs elems))))
+        (return (&/$Record (&/|as-pairs elems))))
       
       _
       (&/fail-with-loc "[Parser Error] Unbalanced braces.")
@@ -65,31 +65,31 @@
       (return &/$Nil)
       
       (&lexer/$Bool ?value)
-      (return (&/|list (&/T [meta (&/$BoolS (Boolean/parseBoolean ?value))])))
+      (return (&/|list (&/T [meta (&/$Bool (Boolean/parseBoolean ?value))])))
 
       (&lexer/$Nat ?value)
-      (return (&/|list (&/T [meta (&/$NatS (Long/parseUnsignedLong ?value))])))
+      (return (&/|list (&/T [meta (&/$Nat (Long/parseUnsignedLong ?value))])))
 
       (&lexer/$Int ?value)
-      (return (&/|list (&/T [meta (&/$IntS (Long/parseLong ?value))])))
+      (return (&/|list (&/T [meta (&/$Int (Long/parseLong ?value))])))
 
       (&lexer/$Deg ?value)
-      (return (&/|list (&/T [meta (&/$DegS (&/decode-deg ?value))])))
+      (return (&/|list (&/T [meta (&/$Deg (&/decode-deg ?value))])))
 
       (&lexer/$Real ?value)
-      (return (&/|list (&/T [meta (&/$RealS (Double/parseDouble ?value))])))
+      (return (&/|list (&/T [meta (&/$Real (Double/parseDouble ?value))])))
 
       (&lexer/$Char ^String ?value)
-      (return (&/|list (&/T [meta (&/$CharS (.charAt ?value 0))])))
+      (return (&/|list (&/T [meta (&/$Char (.charAt ?value 0))])))
 
       (&lexer/$Text ?value)
-      (return (&/|list (&/T [meta (&/$TextS ?value)])))
+      (return (&/|list (&/T [meta (&/$Text ?value)])))
 
       (&lexer/$Symbol ?ident)
-      (return (&/|list (&/T [meta (&/$SymbolS ?ident)])))
+      (return (&/|list (&/T [meta (&/$Symbol ?ident)])))
 
       (&lexer/$Tag ?ident)
-      (return (&/|list (&/T [meta (&/$TagS ?ident)])))
+      (return (&/|list (&/T [meta (&/$Tag ?ident)])))
 
       (&lexer/$Open_Paren _)
       (|do [syntax (parse-form parse)]

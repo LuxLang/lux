@@ -44,7 +44,7 @@
                               output2 &parser/parse]
                           (return (&/|++ output1 output2)))
                         (make-state (str input1 "\n" input2)))
-      (&/$Right state (&/$Cons [_ (&/$BoolS output1)] (&/$Cons [_ (&/$BoolS output2)] (&/$Nil))))
+      (&/$Right state (&/$Cons [_ (&/$Bool output1)] (&/$Cons [_ (&/$Bool output2)] (&/$Nil))))
       (are [input output] (= input output)
            true  output1
            false output2)
@@ -62,7 +62,7 @@
                               output3 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 output3))))
                         (make-state (str input1 "\n" input2 "\n" input3)))
-      (&/$Right state (&/$Cons [_ (&/$IntS output1)] (&/$Cons [_ (&/$IntS output2)] (&/$Cons [_ (&/$IntS output3)] (&/$Nil)))))
+      (&/$Right state (&/$Cons [_ (&/$Int output1)] (&/$Cons [_ (&/$Int output2)] (&/$Cons [_ (&/$Int output3)] (&/$Nil)))))
       (are [input output] (= input output)
            0    output1
            12   output2
@@ -81,7 +81,7 @@
                               output3 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 output3))))
                         (make-state (str input1 "\n" input2 "\n" input3)))
-      (&/$Right state (&/$Cons [_ (&/$RealS output1)] (&/$Cons [_ (&/$RealS output2)] (&/$Cons [_ (&/$RealS output3)] (&/$Nil)))))
+      (&/$Right state (&/$Cons [_ (&/$Real output1)] (&/$Cons [_ (&/$Real output2)] (&/$Cons [_ (&/$Real output3)] (&/$Nil)))))
       (are [input output] (= input output)
            0.00123   output1
            12.010203 output2
@@ -114,15 +114,15 @@
                         (make-state (str "#\"" input1 "\"" "\n" "#\"" input2 "\"" "\n" "#\"" input3 "\""
                                          "\n" "#\"" input4 "\"" "\n" "#\"" input5 "\"" "\n" "#\"" input6 "\""
                                          "\n" "#\"" input7 "\"" "\n" "#\"" input8 "\"" "\n" "#\"" input9 "\"")))
-      (&/$Right state (&/$Cons [_ (&/$CharS output1)]
-                               (&/$Cons [_ (&/$CharS output2)]
-                                        (&/$Cons [_ (&/$CharS output3)]
-                                                 (&/$Cons [_ (&/$CharS output4)]
-                                                          (&/$Cons [_ (&/$CharS output5)]
-                                                                   (&/$Cons [_ (&/$CharS output6)]
-                                                                            (&/$Cons [_ (&/$CharS output7)]
-                                                                                     (&/$Cons [_ (&/$CharS output8)]
-                                                                                              (&/$Cons [_ (&/$CharS output9)]
+      (&/$Right state (&/$Cons [_ (&/$Char output1)]
+                               (&/$Cons [_ (&/$Char output2)]
+                                        (&/$Cons [_ (&/$Char output3)]
+                                                 (&/$Cons [_ (&/$Char output4)]
+                                                          (&/$Cons [_ (&/$Char output5)]
+                                                                   (&/$Cons [_ (&/$Char output6)]
+                                                                            (&/$Cons [_ (&/$Char output7)]
+                                                                                     (&/$Cons [_ (&/$Char output8)]
+                                                                                              (&/$Cons [_ (&/$Char output9)]
                                                                                                        (&/$Nil)))))))))))
       (are [input output] (= input output)
            \a         output1
@@ -150,7 +150,7 @@
                               output4 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 (&/|++ output3 output4)))))
                         (make-state (str "\"" input1 "\"" "\n" "\"" input2 "\"" "\n" "\"" input3 "\"" "\n" "\"" input4 "\"")))
-      (&/$Right state (&/$Cons [_ (&/$TextS output1)] (&/$Cons [_ (&/$TextS output2)] (&/$Cons [_ (&/$TextS output3)] (&/$Cons [_ (&/$TextS output4)] (&/$Nil))))))
+      (&/$Right state (&/$Cons [_ (&/$Text output1)] (&/$Cons [_ (&/$Text output2)] (&/$Cons [_ (&/$Text output3)] (&/$Cons [_ (&/$Text output4)] (&/$Nil))))))
       (are [input output] (= input output)
            input1            output1
            input2            output2
@@ -175,11 +175,11 @@
                               output5 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 (&/|++ output3 (&/|++ output4 output5))))))
                         (make-state (str input1 "\n" input2 "\n" input3 "\n" input4 "\n" input5 " ")))
-      (&/$Right state (&/$Cons [_ (&/$SymbolS output1)]
-                               (&/$Cons [_ (&/$SymbolS output2)]
-                                        (&/$Cons [_ (&/$SymbolS output3)]
-                                                 (&/$Cons [_ (&/$SymbolS output4)]
-                                                          (&/$Cons [_ (&/$SymbolS output5)]
+      (&/$Right state (&/$Cons [_ (&/$Symbol output1)]
+                               (&/$Cons [_ (&/$Symbol output2)]
+                                        (&/$Cons [_ (&/$Symbol output3)]
+                                                 (&/$Cons [_ (&/$Symbol output4)]
+                                                          (&/$Cons [_ (&/$Symbol output5)]
                                                                    (&/$Nil)))))))
       (are [input output] (&/ident= input output)
            (&/T ["" "foo"])                     output1
@@ -206,11 +206,11 @@
                               output5 &parser/parse]
                           (return (&/|++ output1 (&/|++ output2 (&/|++ output3 (&/|++ output4 output5))))))
                         (make-state (str "#" input1 "\n" "#" input2 "\n" "#" input3 "\n" "#" input4 "\n" "#" input5 " ")))
-      (&/$Right state (&/$Cons [_ (&/$TagS output1)]
-                               (&/$Cons [_ (&/$TagS output2)]
-                                        (&/$Cons [_ (&/$TagS output3)]
-                                                 (&/$Cons [_ (&/$TagS output4)]
-                                                          (&/$Cons [_ (&/$TagS output5)]
+      (&/$Right state (&/$Cons [_ (&/$Tag output1)]
+                               (&/$Cons [_ (&/$Tag output2)]
+                                        (&/$Cons [_ (&/$Tag output3)]
+                                                 (&/$Cons [_ (&/$Tag output4)]
+                                                          (&/$Cons [_ (&/$Tag output5)]
                                                                    (&/$Nil)))))))
       (are [input output] (&/ident= input output)
            (&/T ["" "foo"])                     output1
@@ -228,10 +228,10 @@
     (let [input1 "yolo 123 \"lol\" #meme"]
       (|case (&/run-state &parser/parse
                           (make-state (str <open> input1 <close>)))
-        (&/$Right state (&/$Cons [_ (<tag> (&/$Cons [_ (&/$SymbolS symv)]
-                                                    (&/$Cons [_ (&/$IntS intv)]
-                                                             (&/$Cons [_ (&/$TextS textv)]
-                                                                      (&/$Cons [_ (&/$TagS tagv)]
+        (&/$Right state (&/$Cons [_ (<tag> (&/$Cons [_ (&/$Symbol symv)]
+                                                    (&/$Cons [_ (&/$Int intv)]
+                                                             (&/$Cons [_ (&/$Text textv)]
+                                                                      (&/$Cons [_ (&/$Tag tagv)]
                                                                                (&/$Nil))))))]
                                  (&/$Nil)))
         (do (is (&/ident= (&/T ["" "yolo"]) symv))
@@ -243,17 +243,17 @@
         (is false "Couldn't read.")
         )))
 
-  parse-form  &/$FormS  "(" ")"
-  parse-tuple &/$TupleS "[" "]"
+  parse-form  &/$Form  "(" ")"
+  parse-tuple &/$Tuple "[" "]"
   )
 
 (deftest parse-record
   (let [input1 "yolo 123 \"lol\" #meme"]
     (|case (&/run-state &parser/parse
                         (make-state (str "{" input1 "}")))
-      (&/$Right state (&/$Cons [_ (&/$RecordS (&/$Cons [[_ (&/$SymbolS symv)] [_ (&/$IntS intv)]]
-                                                       (&/$Cons [[_ (&/$TextS textv)] [_ (&/$TagS tagv)]]
-                                                                (&/$Nil))))]
+      (&/$Right state (&/$Cons [_ (&/$Record (&/$Cons [[_ (&/$Symbol symv)] [_ (&/$Int intv)]]
+                                                      (&/$Cons [[_ (&/$Text textv)] [_ (&/$Tag tagv)]]
+                                                               (&/$Nil))))]
                                (&/$Nil)))
       (do (is (&/ident= (&/T ["" "yolo"]) symv))
         (is (= 123 intv))

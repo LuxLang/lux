@@ -32,7 +32,7 @@
                                (&&/$proc (&/T ["js" "object-call"]) (&/$Cons =object (&/$Cons =field =args)) (&/|list)))))))
 
 (defn ^:private analyse-js-ref [analyse exo-type ?values]
-  (|do [:let [(&/$Cons [_ (&/$TextS ?ref-name)] (&/$Nil)) ?values]
+  (|do [:let [(&/$Cons [_ (&/$Text ?ref-name)] (&/$Nil)) ?values]
         _ (&type/check exo-type (&/$HostT "object" &/$Nil))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor

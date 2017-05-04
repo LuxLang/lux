@@ -24,7 +24,7 @@
         :let [is-last? (= idx (dec (&/|length group)))]]
     (if (= 1 (&/|length group))
       (|do [_cursor &/cursor]
-        (analyse exo-type (&/T [_cursor (&/$TupleS values)])))
+        (analyse exo-type (&/T [_cursor (&/$Tuple values)])))
       (|case exo-type
         (&/$VarT id)
         (|do [? (&type/bound? id)]
@@ -66,53 +66,53 @@
          macro-caller (aget compilers 2)]
     (|case token
       ;; Standard special forms
-      (&/$BoolS ?value)
+      (&/$Bool ?value)
       (|do [_ (&type/check exo-type &type/Bool)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$bool ?value)))))
 
-      (&/$NatS ?value)
+      (&/$Nat ?value)
       (|do [_ (&type/check exo-type &type/Nat)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$nat ?value)))))
 
-      (&/$IntS ?value)
+      (&/$Int ?value)
       (|do [_ (&type/check exo-type &type/Int)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$int ?value)))))
 
-      (&/$DegS ?value)
+      (&/$Deg ?value)
       (|do [_ (&type/check exo-type &type/Deg)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$deg ?value)))))
 
-      (&/$RealS ?value)
+      (&/$Real ?value)
       (|do [_ (&type/check exo-type &type/Real)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$real ?value)))))
 
-      (&/$CharS ?value)
+      (&/$Char ?value)
       (|do [_ (&type/check exo-type &type/Char)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$char ?value)))))
 
-      (&/$TextS ?value)
+      (&/$Text ?value)
       (|do [_ (&type/check exo-type &type/Text)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$text ?value)))))
 
-      (&/$TupleS ?elems)
+      (&/$Tuple ?elems)
       (&/with-analysis-meta cursor exo-type
         (&&lux/analyse-tuple analyse (&/$Right exo-type) ?elems))
 
-      (&/$RecordS ?elems)
+      (&/$Record ?elems)
       (&/with-analysis-meta cursor exo-type
         (&&lux/analyse-record analyse exo-type ?elems))
 
-      (&/$TagS ?ident)
+      (&/$Tag ?ident)
       (&/with-analysis-meta cursor exo-type
         (analyse-variant+ analyse exo-type ?ident &/$Nil))
 
-      (&/$SymbolS ?ident)
+      (&/$Symbol ?ident)
       (&/with-analysis-meta cursor exo-type
         (&&lux/analyse-symbol analyse exo-type ?ident))
 
-      (&/$FormS (&/$Cons [command-meta command] parameters))
+      (&/$Form (&/$Cons [command-meta command] parameters))
       (|case command
-        (&/$SymbolS _ command-name)
+        (&/$Symbol _ command-name)
         (case command-name
           "_lux_case"
           (|let [(&/$Cons ?value ?branches) parameters]
@@ -120,18 +120,18 @@
               (&&lux/analyse-case analyse exo-type ?value ?branches)))
 
           "_lux_function"
-          (|let [(&/$Cons [_ (&/$SymbolS "" ?self)]
-                          (&/$Cons [_ (&/$SymbolS "" ?arg)]
+          (|let [(&/$Cons [_ (&/$Symbol "" ?self)]
+                          (&/$Cons [_ (&/$Symbol "" ?arg)]
                                    (&/$Cons ?body
                                             (&/$Nil)))) parameters]
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
           "_lux_proc"
-          (|let [(&/$Cons [_ (&/$TupleS (&/$Cons [_ (&/$TextS ?category)]
-                                                 (&/$Cons [_ (&/$TextS ?proc)]
+          (|let [(&/$Cons [_ (&/$Tuple (&/$Cons [_ (&/$Text ?category)]
+                                                 (&/$Cons [_ (&/$Text ?proc)]
                                                           (&/$Nil))))]
-                          (&/$Cons [_ (&/$TupleS ?args)]
+                          (&/$Cons [_ (&/$Tuple ?args)]
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
               (case ?category
@@ -158,7 +158,7 @@
               (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)))
 
           "_lux_def"
-          (|let [(&/$Cons [_ (&/$SymbolS "" ?name)]
+          (|let [(&/$Cons [_ (&/$Symbol "" ?name)]
                           (&/$Cons ?value
                                    (&/$Cons ?meta
                                             (&/$Nil))
@@ -172,7 +172,7 @@
               (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
 
           "_lux_program"
-          (|let [(&/$Cons [_ (&/$SymbolS "" ?args)]
+          (|let [(&/$Cons [_ (&/$Symbol "" ?args)]
                           (&/$Cons ?body
                                    (&/$Nil))) parameters]
             (&/with-cursor cursor
@@ -183,11 +183,11 @@
             (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
               (&&lux/analyse-apply analyse cursor exo-type macro-caller =fn parameters))))
 
-        (&/$NatS idx)
+        (&/$Nat idx)
         (&/with-analysis-meta cursor exo-type
           (&&lux/analyse-variant analyse (&/$Right exo-type) idx nil parameters))
 
-        (&/$TagS ?ident)
+        (&/$Tag ?ident)
         (&/with-analysis-meta cursor exo-type
           (analyse-variant+ analyse exo-type ?ident parameters))
 

@@ -13,7 +13,7 @@
                                (&/$Nil)
                                (return (&/T [&/$Nil &/$UnitT]))
                                
-                               (&/$Cons [[_ (&/$TagS tag1)] _] _)
+                               (&/$Cons [[_ (&/$Tag tag1)] _] _)
                                (|do [[module name] (&&/resolved-ident tag1)
                                      tags (&&module/tag-group module name)
                                      type (&&module/tag-type module name)]
@@ -23,7 +23,7 @@
                                (&/fail-with-loc "[Analyser Error] Wrong syntax for records. Odd elements must be tags."))
         =pairs (&/map% (fn [kv]
                          (|case kv
-                           [[_ (&/$TagS k)] v]
+                           [[_ (&/$Tag k)] v]
                            (|do [=k (&&/resolved-ident k)]
                              (return (&/T [(&/ident->text =k) v])))
 

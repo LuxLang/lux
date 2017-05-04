@@ -37,7 +37,7 @@
 
 ;; [Utils]
 (def ^:private unit-tuple
-  (&/T [(&/T ["" -1 -1]) (&/$TupleS &/$Nil)]))
+  (&/T [(&/T ["" -1 -1]) (&/$Tuple &/$Nil)]))
 
 (defn ^:private resolve-type [type]
   (|case type
@@ -255,7 +255,7 @@
 (defn ^:private analyse-pattern [var?? value-type pattern kont]
   (|let [[meta pattern*] pattern]
     (|case pattern*
-      (&/$SymbolS "" name)
+      (&/$Symbol "" name)
       (|case var??
         (&/$Some var-analysis)
         (|do [=kont (&env/with-alias name var-analysis
@@ -268,45 +268,45 @@
               idx &env/next-local-idx]
           (return (&/T [($StoreTestAC idx) =kont]))))
       
-      (&/$SymbolS ident)
+      (&/$Symbol ident)
       (&/fail-with-loc (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
-      (&/$BoolS ?value)
+      (&/$Bool ?value)
       (|do [_ (&type/check value-type &type/Bool)
             =kont kont]
         (return (&/T [($BoolTestAC ?value) =kont])))
 
-      (&/$NatS ?value)
+      (&/$Nat ?value)
       (|do [_ (&type/check value-type &type/Nat)
             =kont kont]
         (return (&/T [($NatTestAC ?value) =kont])))
 
-      (&/$IntS ?value)
+      (&/$Int ?value)
       (|do [_ (&type/check value-type &type/Int)
             =kont kont]
         (return (&/T [($IntTestAC ?value) =kont])))
 
-      (&/$DegS ?value)
+      (&/$Deg ?value)
       (|do [_ (&type/check value-type &type/Deg)
             =kont kont]
         (return (&/T [($DegTestAC ?value) =kont])))
       
-      (&/$RealS ?value)
+      (&/$Real ?value)
       (|do [_ (&type/check value-type &type/Real)
             =kont kont]
         (return (&/T [($RealTestAC ?value) =kont])))
 
-      (&/$CharS ?value)
+      (&/$Char ?value)
       (|do [_ (&type/check value-type &type/Char)
             =kont kont]
         (return (&/T [($CharTestAC ?value) =kont])))
 
-      (&/$TextS ?value)
+      (&/$Text ?value)
       (|do [_ (&type/check value-type &type/Text)
             =kont kont]
         (return (&/T [($TextTestAC ?value) =kont])))
 
-      (&/$TupleS ?members)
+      (&/$Tuple ?members)
       (|case ?members
         (&/$Nil)
         (|do [_ (&type/check value-type &/$UnitT)
@@ -343,16 +343,16 @@
             _
             (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
 
-      (&/$RecordS pairs)
+      (&/$Record pairs)
       (|do [[rec-members rec-type] (&&record/order-record pairs)
             must-infer? (&type/unknown? value-type)
             rec-type* (if must-infer?
                         (&type/instantiate-inference rec-type)
                         (return value-type))
             _ (&type/check value-type rec-type*)]
-        (analyse-pattern &/$None rec-type* (&/T [meta (&/$TupleS rec-members)]) kont))
+        (analyse-pattern &/$None rec-type* (&/T [meta (&/$Tuple rec-members)]) kont))
 
-      (&/$TagS ?ident)
+      (&/$Tag ?ident)
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
             variant-type (if must-infer?
@@ -368,17 +368,17 @@
             [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
-      (&/$FormS (&/$Cons [_ (&/$NatS idx)] ?values))
+      (&/$Form (&/$Cons [_ (&/$Nat idx)] ?values))
       (|do [value-type* (adjust-type value-type)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (case (int (&/|length ?values))
                             0 (analyse-pattern &/$None case-type unit-tuple kont)
                             1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$TupleS ?values)]) kont))]
+                            (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont])))
 
-      (&/$FormS (&/$Cons [_ (&/$TagS ?ident)] ?values))
+      (&/$Form (&/$Cons [_ (&/$Tag ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
             variant-type (if must-infer?
@@ -395,7 +395,7 @@
                             0 (analyse-pattern &/$None case-type unit-tuple kont)
                             1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
                             ;; 1+
-                            (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$TupleS ?values)]) kont))]
+                            (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
       _

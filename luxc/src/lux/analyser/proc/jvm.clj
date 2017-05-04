@@ -553,7 +553,7 @@
 (let [length-type &type/Nat
       idx-type &type/Nat]
   (defn ^:private analyse-jvm-anewarray [analyse exo-type ?values]
-    (|do [:let [(&/$Cons [_ (&/$TextS _gclass)] (&/$Cons length (&/$Nil))) ?values]
+    (|do [:let [(&/$Cons [_ (&/$Text _gclass)] (&/$Cons length (&/$Nil))) ?values]
           gclass (&reader/with-source "jvm-anewarray" _gclass
                    &&a-parser/parse-gclass)
           gtype-env &/get-type-env
@@ -805,7 +805,7 @@
                                (&&/$proc (&/T ["jvm" "instanceof"]) (&/|list =object) (&/|list class)))))))
 
 (defn ^:private analyse-jvm-load-class [analyse exo-type ?values]
-  (|do [:let [(&/$Cons [_ (&/$TextS _class-name)] (&/$Nil)) ?values]
+  (|do [:let [(&/$Cons [_ (&/$Text _class-name)] (&/$Nil)) ?values]
         ^ClassLoader class-loader &/loader
         _ (try (do (.loadClass class-loader _class-name)
                  (return nil))
@@ -856,7 +856,7 @@
                                                        &/$Nil
                                                        &/$Nil
                                                        &/$Nil
-                                                       (&/$TupleS &/$Nil)]))
+                                                       (&/$Tuple &/$Nil)]))
       captured-slot-class "java.lang.Object"
       captured-slot-type (&/$GenericClass captured-slot-class &/$Nil)]
   (defn ^:private analyse-jvm-anon-class [analyse compile-class exo-type super-class interfaces ctor-args methods]
