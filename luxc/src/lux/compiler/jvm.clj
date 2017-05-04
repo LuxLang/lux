@@ -234,8 +234,6 @@
                   (memory-class-loader store)
                   ;; "lux;classes"
                   store
-                  ;; "lux;module-states"
-                  (&/|table)
                   ;; lux;type-env
                   (&/|table)
                   ;; lux;dummy-mappings
