@@ -8,7 +8,7 @@
                 enum
                 interval
                 codec)
-       (data error)))
+       (data ["E" error])))
 
 ## [Structures]
 (do-template [<type> <test>]
@@ -161,7 +161,6 @@
          (#;Left <error>))))]
 
   [Real ["real" "encode"] ["real" "decode"] "Could not decode Real"]
-  [ Deg [ "deg" "encode"] [ "deg" "decode"] "Could not decode Deg"]
   )
 
 (struct: #export _ (Hash Nat)
@@ -218,10 +217,10 @@
              (#;Left (_lux_proc ["text" "append"] [<error> repr])))
            (#;Left (_lux_proc ["text" "append"] [<error> repr]))))))]
 
-  [Binary@Codec<Text,Nat> +2  "01"               "Invalid binary syntax: "]
-  [Octal@Codec<Text,Nat>  +8  "01234567"         "Invalid octal syntax: "]
+  [Binary@Codec<Text,Nat> +2  "01"               "Invalid binary syntax for Nat: "]
+  [Octal@Codec<Text,Nat>  +8  "01234567"         "Invalid octal syntax for Nat: "]
   [_                      +10 "0123456789"       "Invalid syntax for Nat: "]
-  [Hex@Codec<Text,Nat>    +16 "0123456789ABCDEF" "Invalid hexadecimal syntax: "]
+  [Hex@Codec<Text,Nat>    +16 "0123456789ABCDEF" "Invalid hexadecimal syntax for Nat: "]
   )
 
 (do-template [<struct> <base> <char-set> <error>]
@@ -268,14 +267,14 @@
 
                      (#;Some index)
                      (recur (n.inc idx)
-                            (|> output (i.* <base>) (i.+ (nat-to-int index))))))
+                            (|> output (i.* <base>) (i.+ (:! Int index))))))
                  (#;Right (i.* sign output)))))
            (#;Left <error>)))))]
 
-  [Binary@Codec<Text,Int> 2  "01"               "Invalid binary syntax: "]
-  [Octal@Codec<Text,Int>  8  "01234567"         "Invalid octal syntax: "]
+  [Binary@Codec<Text,Int> 2  "01"               "Invalid binary syntax for Int: "]
+  [Octal@Codec<Text,Int>  8  "01234567"         "Invalid octal syntax for Int: "]
   [_                      10 "0123456789"       "Invalid syntax for Int: "]
-  [Hex@Codec<Text,Int>    16 "0123456789ABCDEF" "Invalid hexadecimal syntax: "]
+  [Hex@Codec<Text,Int>    16 "0123456789ABCDEF" "Invalid hexadecimal syntax for Int: "]
   )
 
 (def: (de-prefix input)
@@ -590,3 +589,165 @@
    (doc "Given syntax for a hexadecimal number, generates a Nat, an Int, a Deg or a Real."
         (hex "deadBEEF"))]
   )
+
+## The following code allows one to encode/decode Deg numbers as text.
+## This is not a simple algorithm, and it requires subverting the Deg
+## abstraction a bit.
+## It takes into account the fact that Deg numbers are represented by
+## Lux as 64-bit integers.
+## A valid way to model them is as Lux's Nat type.
+## This is a somewhat hackish way to do things, but it allows one to
+## write the encoding/decoding algorithm once, in pure Lux, rather
+## than having to implement it on the compiler for every platform
+## targeted by Lux.
+(def: deg-bits Nat +64)
+
+(def: (bit-shift-left param subject)
+  (-> Nat Nat Nat)
+  (_lux_proc ["bit" "shift-left"] [subject param]))
+
+(def: (bit-and param subject)
+  (-> Nat Nat Nat)
+  (_lux_proc ["bit" "and"] [subject param]))
+
+(def: (bit-or param subject)
+  (-> Nat Nat Nat)
+  (_lux_proc ["bit" "or"] [subject param]))
+
+(def: (bit-set? idx input)
+  (-> Nat Nat Bool)
+  (|> input (bit-and (bit-shift-left idx +1)) (n.= +0) ;not))
+
+(def: (bit-set idx input)
+  (-> Nat Nat Nat)
+  (bit-or (bit-shift-left idx +1) input))
+
+(type: Digits (#;HostT "#Array" (#;Cons Nat #;Nil)))
+
+(def: (make-digits _)
+  (-> Top Digits)
+  (_lux_proc ["array" "new"] [deg-bits]))
+
+(def: (digits-get idx digits)
+  (-> Nat Digits (Maybe Nat))
+  (_lux_proc ["array" "get"] [digits idx]))
+
+(def: (digits-put idx digit digits)
+  (-> Nat Nat Digits Digits)
+  (_lux_proc ["array" "put"] [digits idx digit]))
+
+(def: (prepend left right)
+  (-> Text Text Text)
+  (_lux_proc ["text" "append"] [left right]))
+
+(def: (digits-times-5! idx output)
+  (-> Nat Digits Digits)
+  (loop [idx idx
+         carry +0
+         output output]
+    (if (i.>= 0 (:! Int idx))
+      (let [raw (|> (digits-get idx output)
+                    (default +0)
+                    (n.* +5)
+                    (n.+ carry))]
+        (recur (n.dec idx)
+               (n./ +10 raw)
+               (digits-put idx (n.% +10 raw) output)))
+      output)))
+
+(def: (digits-power power)
+  (-> Nat Digits)
+  (loop [times power
+         output (|> (make-digits [])
+                    (digits-put power +1))]
+    (if (i.>= 0 (:! Int times))
+      (recur (n.dec times)
+             (digits-times-5! power output))
+      output)))
+
+(def: (digits-to-text digits)
+  (-> Digits Text)
+  (loop [idx (n.dec deg-bits)
+         all-zeroes? true
+         output ""]
+    (if (i.>= 0 (:! Int idx))
+      (let [digit (default +0 (digits-get idx digits))]
+        (if (and (n.= +0 digit)
+                 all-zeroes?)
+          (recur (n.dec idx) true output)
+          (recur (n.dec idx)
+                 false
+                 (_lux_proc ["text" "append"]
+                            [(:: Codec<Text,Int> encode (:! Int digit))
+                             output]))))
+      (if all-zeroes?
+        "0"
+        output))))
+
+(def: (digits-add param subject)
+  (-> Digits Digits Digits)
+  (loop [idx (n.dec deg-bits)
+         carry +0
+         output (make-digits [])]
+    (if (i.>= 0 (:! Int idx))
+      (let [raw ($_ n.+
+                    carry
+                    (default +0 (digits-get idx param))
+                    (default +0 (digits-get idx subject)))]
+        (recur (n.dec idx)
+               (n./ +10 raw)
+               (digits-put idx (n.% +10 raw) output)))
+      output)))
+
+(struct: #export _ (Codec Text Deg)
+  (def: (encode input)
+    (let [input (:! Nat input)
+          last-idx (n.dec deg-bits)]
+      (if (n.= +0 input)
+        ".0"
+        (loop [idx last-idx
+               digits (make-digits [])]
+          (if (i.>= 0 (:! Int idx))
+            (if (bit-set? idx input)
+              (let [digits' (digits-add (digits-power (n.- idx last-idx))
+                                        digits)]
+                (recur (n.dec idx)
+                       digits'))
+              (recur (n.dec idx)
+                     digits))
+            (_lux_proc ["text" "append"] ["." (digits-to-text digits)])
+            )))))
+
+  (def: (decode input)
+    (case (_lux_proc ["deg" "decode"] [input])
+      (#;Some value)
+      (#;Right value)
+
+      #;None
+      (#;Left (_lux_proc ["text" "append"]
+                         ["Could not decode Deg: " input])))
+    ## (let [length (text-size input)]
+    ##   (if (and (starts-with? "." input)
+    ##            (n.<= (n.inc deg-bits) length))
+    ##     (let [input (|> input
+    ##                     (substring +1 length)
+    ##                     clean-separators)]
+    ##       (case (deg-text-to-digits input)
+    ##         (#;Some digits)
+    ##         (loop [digits digits
+    ##                idx +0
+    ##                output +0]
+    ##           (if (n.< deg-bits idx)
+    ##             (let [power (digits-power idx)]
+    ##               (if (deg-digits-lt power digits)
+    ##                 ## Skip power
+    ##                 (recur digits (n.inc idx) output)
+    ##                 (recur (deg-digits-sub power digits)
+    ##                        (n.inc idx)
+    ##                        (bit-set idx output))))
+    ##             (#E;Success (:! Deg output))))
+
+    ##         #;None
+    ##         (#E;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input]))))
+    ##     (#E;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input]))))
+    ))
