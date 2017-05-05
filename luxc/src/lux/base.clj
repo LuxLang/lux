@@ -134,8 +134,7 @@
 
 ;; Compiler
 (defvariant
-  ("Release" 0)
-  ("Debug" 0)
+  ("Build" 0)
   ("Eval" 0)
   ("REPL" 0))
 
@@ -1006,7 +1005,7 @@
   (|do [_mode get-mode]
     (fn [state]
       (let [output (body (if (in-repl? _mode)
-                           (update$ $info #(set$ $compiler-mode $Debug %) state)
+                           (update$ $info #(set$ $compiler-mode $Build %) state)
                            state))]
         (|case output
           ($Right state* datum)
