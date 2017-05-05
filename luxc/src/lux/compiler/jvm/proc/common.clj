@@ -37,9 +37,8 @@
               ;; (&/$Nil) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
         _ (compile ?array)
-        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
+        :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST "[Ljava/lang/Object;")]
         _ (compile ?idx)
         :let [_ (doto *writer*
                   &&/unwrap-long
