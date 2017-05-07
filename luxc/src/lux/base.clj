@@ -69,7 +69,7 @@
   ("Left" 1)
   ("Right" 1))
 
-;; AST
+;; Code
 (defvariant
   ("Bool" 1)
   ("Nat" 1)

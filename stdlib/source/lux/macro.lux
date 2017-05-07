@@ -1,6 +1,6 @@
 (;module: {#;doc "Functions for extracting information from the state of the compiler."}
   lux
-  (lux (macro [ast])
+  (lux (macro [code])
        (control functor
                 applicative
                 monad)
@@ -276,7 +276,7 @@
   {#;doc "Given code that requires applying a macro, does it once and returns the result.
 
           Otherwise, returns the code as-is."}
-  (-> AST (Lux (List AST)))
+  (-> Code (Lux (List Code)))
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol macro-name)] args]))]
     (do Monad<Lux>
@@ -296,7 +296,7 @@
   {#;doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left.
 
           Otherwise, returns the code as-is."}
-  (-> AST (Lux (List AST)))
+  (-> Code (Lux (List Code)))
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol macro-name)] args]))]
     (do Monad<Lux>
@@ -317,7 +317,7 @@
 
 (def: #export (macro-expand-all syntax)
   {#;doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
-  (-> AST (Lux (List AST)))
+  (-> Code (Lux (List Code)))
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol macro-name)] args]))]
     (do Monad<Lux>
@@ -332,40 +332,40 @@
         
         #;None
         (do Monad<Lux>
-          [parts' (mapM Monad<Lux> macro-expand-all (list& (ast;symbol macro-name) args))]
-          (wrap (list (ast;form (:: Monad<List> join parts')))))))
+          [parts' (mapM Monad<Lux> macro-expand-all (list& (code;symbol macro-name) args))]
+          (wrap (list (code;form (:: Monad<List> join parts')))))))
 
     [_ (#;Form (#;Cons [harg targs]))]
     (do Monad<Lux>
       [harg+ (macro-expand-all harg)
        targs+ (mapM Monad<Lux> macro-expand-all targs)]
-      (wrap (list (ast;form (List/append harg+ (:: Monad<List> join (: (List (List AST)) targs+)))))))
+      (wrap (list (code;form (List/append harg+ (:: Monad<List> join (: (List (List Code)) targs+)))))))
 
     [_ (#;Tuple members)]
     (do Monad<Lux>
       [members' (mapM Monad<Lux> macro-expand-all members)]
-      (wrap (list (ast;tuple (:: Monad<List> join members')))))
+      (wrap (list (code;tuple (:: Monad<List> join members')))))
 
     _
     (:: Monad<Lux> wrap (list syntax))))
 
 (def: #export (gensym prefix)
-  {#;doc "Generates a unique identifier as an AST node (ready to be used in code templates).
+  {#;doc "Generates a unique identifier as an Code node (ready to be used in code templates).
 
           A prefix can be given (or just be empty text \"\") to better identify the code for debugging purposes."}
-  (-> Text (Lux AST))
+  (-> Text (Lux Code))
   (function [state]
     (#;Right [(update@ #;seed n.inc state)
-              (ast;symbol ["" ($_ Text/append "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
+              (code;symbol ["" ($_ Text/append "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
 
 (def: (get-local-symbol ast)
-  (-> AST (Lux Text))
+  (-> Code (Lux Text))
   (case ast
     [_ (#;Symbol [_ name])]
     (:: Monad<Lux> wrap name)
 
     _
-    (fail (Text/append "AST is not a local symbol: " (ast;to-text ast)))))
+    (fail (Text/append "Code is not a local symbol: " (code;to-text ast)))))
 
 (macro: #export (with-gensyms tokens)
   {#;doc (doc "Creates new symbols and offers them to the body expression."
@@ -381,8 +381,8 @@
     (^ (list [_ (#;Tuple symbols)] body))
     (do Monad<Lux>
       [symbol-names (mapM @ get-local-symbol symbols)
-       #let [symbol-defs (List/join (List/map (: (-> Text (List AST))
-                                                 (function [name] (list (ast;symbol ["" name]) (` (gensym (~ (ast;text name)))))))
+       #let [symbol-defs (List/join (List/map (: (-> Text (List Code))
+                                                 (function [name] (list (code;symbol ["" name]) (` (gensym (~ (code;text name)))))))
                                               symbol-names))]]
       (wrap (list (` (do Monad<Lux>
                        [(~@ symbol-defs)]
@@ -392,8 +392,8 @@
     (fail "Wrong syntax for with-gensyms")))
 
 (def: #export (macro-expand-1 token)
-  {#;doc "Works just like macro-expand, except that it ensures that the output is a single AST token."}
-  (-> AST (Lux AST))
+  {#;doc "Works just like macro-expand, except that it ensures that the output is a single Code token."}
+  (-> Code (Lux Code))
   (do Monad<Lux>
     [token+ (macro-expand token)]
     (case token+
@@ -620,8 +620,8 @@
 
 (do-template [<macro> <func> <desc>]
   [(macro: #export (<macro> tokens)
-     {#;doc (doc "Performs a macro-expansion and logs the resulting ASTs."
-                 "You can either use the resulting ASTs, or omit them."
+     {#;doc (doc "Performs a macro-expansion and logs the resulting code."
+                 "You can either use the resulting code, or omit them."
                  "By omitting them, this macro produces nothing (just like the lux;comment macro)."
                  (<macro> #omit
                           (def: (foo bar baz)
@@ -632,14 +632,14 @@
                 token))
        (do Monad<Lux>
          [output (<func> token)
-          #let [_ (List/map (. log! ast;to-text)
+          #let [_ (List/map (. log! code;to-text)
                             output)]]
          (wrap (list)))
 
        (^ (list token))
        (do Monad<Lux>
          [output (<func> token)
-          #let [_ (List/map (. log! ast;to-text)
+          #let [_ (List/map (. log! code;to-text)
                             output)]]
          (wrap output))
 

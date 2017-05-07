@@ -103,7 +103,7 @@ The **(Lux a)** type is the one responsible for the magic by threading **Compile
 
 You can use **macro:** to define these monadic macros.
 
-Alternatively, you can use the **syntax:** macro, which also offers monadic parsing of AST tokens for convenience.
+Alternatively, you can use the **syntax:** macro, which also offers monadic parsing of Code tokens for convenience.
 
 ### Custom pattern-matching
 

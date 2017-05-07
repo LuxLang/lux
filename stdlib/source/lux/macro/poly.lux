@@ -12,7 +12,7 @@
              [char]
              [maybe])
        [macro #+ Monad<Lux> with-gensyms]
-       (macro [ast]
+       (macro [code]
               ["s" syntax #+ syntax: Syntax]
               (syntax [common]))
        [type]
@@ -22,7 +22,7 @@
 (type: #export (Matcher a)
   (-> Type (Lux a)))
 
-(type: #export Env (Dict Nat [Type AST]))
+(type: #export Env (Dict Nat [Type Code]))
 
 ## [Combinators]
 (do-template [<combinator> <name> <type>]
@@ -81,8 +81,8 @@
       ($_ macro;either
           <primitives>))))
 
-(syntax: ($AST$ ast)
-  (wrap (;list (ast;text (ast;to-text ast)))))
+(syntax: ($Code$ ast)
+  (wrap (;list (code;text (code;to-text ast)))))
 
 (do-template [<single> <multi> <flattener> <tag>]
   [(def: #export <single>
@@ -93,7 +93,7 @@
          (:: macro;Monad<Lux> wrap [:left: :right:])
 
          _
-         (macro;fail (format "Not a " ($AST$ <tag>) " type: " (%type :type:))))))
+         (macro;fail (format "Not a " ($Code$ <tag>) " type: " (%type :type:))))))
 
    (def: #export <multi>
      (Matcher (List Type))
@@ -101,7 +101,7 @@
        (let [members (<flattener> (type;un-name :type:))]
          (if (n.> +1 (list;size members))
            (:: macro;Monad<Lux> wrap members)
-           (macro;fail (format "Not a " ($AST$ <tag>) " type: " (%type :type:)))))))]
+           (macro;fail (format "Not a " ($Code$ <tag>) " type: " (%type :type:)))))))]
 
   [sum    sum+    type;flatten-variant #;Sum]
   [prod   prod+   type;flatten-tuple   #;Product]
@@ -138,7 +138,7 @@
       (macro;fail (format "Unnamed types cannot have tags: " (%type :type:))))))
 
 (def: #export polymorphic
-  (Matcher [(List AST) Type])
+  (Matcher [(List Code) Type])
   (;function [:type:]
     (loop [:type: (type;un-name :type:)]
       (case :type:
@@ -154,7 +154,7 @@
 
 (do-template [<combinator> <sub-comb> <build>]
   [(def: #export <combinator>
-     (Matcher [(List AST) (List [Ident Type])])
+     (Matcher [(List Code) (List [Ident Type])])
      (;function [:type:]
        (do macro;Monad<Lux>
          [[tags :type:] (tagged :type:)
@@ -175,7 +175,7 @@
   )
 
 (def: #export tuple
-  (Matcher [(List AST) (List Type)])
+  (Matcher [(List Code) (List Type)])
   (;function [:type:]
     (do macro;Monad<Lux>
       [[vars :type:] (polymorphic :type:)
@@ -183,7 +183,7 @@
       (wrap [vars members]))))
 
 (def: #export function
-  (Matcher [(List AST) [(List Type) Type]])
+  (Matcher [(List Code) [(List Type) Type]])
   (;function [:type:]
     (do macro;Monad<Lux>
       [[vars :type:] (polymorphic :type:)
@@ -233,7 +233,7 @@
     (|> env-level n.dec (n.- bound-level) (n.* +2) (n.+ bound-idx))))
 
 (def: #export (bound env)
-  (-> Env (Matcher AST))
+  (-> Env (Matcher Code))
   (;function [:type:]
     (case :type:
       (#;Bound idx)
@@ -248,7 +248,7 @@
       (macro;fail (format "Not a bound type: " (%type :type:))))))
 
 (def: #export (recur env)
-  (-> Env (Matcher AST))
+  (-> Env (Matcher Code))
   (;function [:type:]
     (do Monad<Lux>
       [[t-func t-args] (apply :type:)]
@@ -286,7 +286,7 @@
 
 ## [Syntax]
 (def: #export (extend-env [funcT funcA] type-vars env)
-  (-> [Type AST] (List [Type AST]) Env Env)
+  (-> [Type Code] (List [Type Code]) Env Env)
   (case type-vars
     #;Nil
     env
@@ -307,16 +307,16 @@
                                                   (s;many s;local-symbol)))]
                    body)
   (with-gensyms [g!body]
-    (let [g!inputs (List/map (|>. [""] ast;symbol) inputs)
-          g!name (ast;symbol ["" name])
-          g!env (ast;symbol ["" env])]
+    (let [g!inputs (List/map (|>. [""] code;symbol) inputs)
+          g!name (code;symbol ["" name])
+          g!env (code;symbol ["" env])]
       (wrap (;list (` (syntax: (~@ (common;gen-export-level _ex-lev)) ((~ g!name) (~@ (List/map (;function [g!input] (` [(~ g!input) s;symbol]))
                                                                                                 g!inputs)))
                         (do Monad<Lux>
                           [(~@ (List/join (List/map (;function [g!input] (;list g!input (` (macro;find-type-def (~ g!input)))))
                                                     g!inputs)))
                            (~' #let) [(~ g!env) (: Env (dict;new number;Hash<Nat>))]
-                           (~ g!body) (: (Lux AST)
+                           (~ g!body) (: (Lux Code)
                                          (loop [(~ g!env) (~ g!env)
                                                 (~@ (List/join (List/map (;function [g!input] (;list g!input g!input))
                                                                          g!inputs)))]
@@ -356,18 +356,18 @@
                   custom-impl
 
                   #;None
-                  (` ((~ (ast;symbol poly-func)) (~@ (List/map ast;symbol poly-args)))))]]
+                  (` ((~ (code;symbol poly-func)) (~@ (List/map code;symbol poly-args)))))]]
     (wrap (;list (` (def: (~@ (common;gen-export-level _ex-lev))
-                      (~ (ast;symbol ["" name]))
+                      (~ (code;symbol ["" name]))
                       {#;struct? true}
                       (~ impl)))))))
 
 ## [Derivers]
 (def: (to-ast env type)
-  (-> Env Type AST)
+  (-> Env Type Code)
   (case type
     (#;Host name params)
-    (` (#;Host (~ (ast;text name))
+    (` (#;Host (~ (code;text name))
                (list (~@ (List/map (to-ast env) params)))))
 
     (^template [<tag>]
@@ -377,14 +377,14 @@
 
     (^template [<tag>]
       (<tag> idx)
-      (` (<tag> (~ (ast;nat idx)))))
+      (` (<tag> (~ (code;nat idx)))))
     ([#;Var] [#;Ex])
 
     (#;Bound idx)
     (let [idx (adjusted-idx env idx)]
       (if (n.= +0 idx)
         (|> (dict;get idx env) (default (undefined)) product;left (to-ast env))
-        (` (;$ (~ (ast;nat (n.dec idx)))))))
+        (` (;$ (~ (code;nat (n.dec idx)))))))
 
     (^template [<tag>]
       (<tag> left right)
@@ -399,7 +399,7 @@
      [#;Product & type;flatten-tuple])
 
     (#;Named name sub-type)
-    (ast;symbol name)
+    (code;symbol name)
 
     (^template [<tag>]
       (<tag> scope body)
@@ -409,7 +409,7 @@
     ))
 
 (def: #export (gen-type env converter type-fun tvars type)
-  (-> Env (-> AST AST) AST (List AST) Type AST)
+  (-> Env (-> Code Code) Code (List Code) Type Code)
   (let [type' (to-ast env type)]
     (case tvars
       #;Nil

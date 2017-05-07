@@ -12,7 +12,7 @@
              text/format
              [bool "Bool/" Codec<Text,Bool>])
        [macro #+ with-gensyms Functor<Lux> Monad<Lux>]
-       (macro [ast]
+       (macro [code]
               ["s" syntax #+ syntax: Syntax])
        [type]
        ))
@@ -78,7 +78,7 @@
   ["[C" Char-Array]
   )
 
-(type: Code Text)
+(type: JVM-Code Text)
 
 (type: BoundKind
   #UpperBound
@@ -129,7 +129,7 @@
    #super-class-params (List GenericType)})
 
 (type: AnnotationParam
-  [Text AST])
+  [Text Code])
 
 (type: Annotation
   {#ann-name   Text
@@ -141,7 +141,7 @@
    #member-anns (List Annotation)})
 
 (type: FieldDecl
-  (#ConstantField GenericType AST)
+  (#ConstantField GenericType Code)
   (#VariableField StateModifier GenericType))
 
 (type: MethodDecl
@@ -155,34 +155,34 @@
    #arg-type GenericType})
 
 (type: ConstructorArg
-  [GenericType AST])
+  [GenericType Code])
 
 (type: MethodDef
   (#ConstructorMethod [Bool
                        (List TypeParam)
                        (List ArgDecl)
                        (List ConstructorArg)
-                       AST
+                       Code
                        (List GenericType)])
   (#VirtualMethod [Bool
                    Bool
                    (List TypeParam)
                    (List ArgDecl)
                    GenericType
-                   AST
+                   Code
                    (List GenericType)])
   (#OverridenMethod [Bool
                      ClassDecl
                      (List TypeParam)
                      (List ArgDecl)
                      GenericType
-                     AST
+                     Code
                      (List GenericType)])
   (#StaticMethod [Bool
                   (List TypeParam)
                   (List ArgDecl)
                   GenericType
-                  AST
+                  Code
                   (List GenericType)])
   (#AbstractMethod [(List TypeParam)
                     (List ArgDecl)
@@ -194,8 +194,8 @@
                   (List GenericType)]))
 
 (type: PartialCall
-  {#pc-method AST
-   #pc-args   AST})
+  {#pc-method Code
+   #pc-args   Code})
 
 (type: ImportMethodKind
   #StaticIMK
@@ -246,7 +246,7 @@
     name))
 
 (def: (manual-primitive-to-type class)
-  (-> Text (Maybe AST))
+  (-> Text (Maybe Code))
   (case class
     (^template [<prim> <type>]
       <prim>
@@ -265,7 +265,7 @@
     #;None))
 
 (def: (auto-primitive-to-type class)
-  (-> Text (Maybe AST))
+  (-> Text (Maybe Code))
   (case class
     (^template [<prim> <type>]
       <prim>
@@ -286,8 +286,8 @@
 (def: (generic-class->type' mode type-params in-array? name+params
                             class->type')
   (-> Primitive-Mode (List TypeParam) Bool [Text (List GenericType)]
-      (-> Primitive-Mode (List TypeParam) Bool GenericType AST)
-      AST)
+      (-> Primitive-Mode (List TypeParam) Bool GenericType Code)
+      Code)
   (case [name+params mode in-array?]
     (^=> [[prim #;Nil] #ManualPrM false]
          [(manual-primitive-to-type prim) (#;Some output)])
@@ -299,10 +299,10 @@
     
     [[name params] _ _]
     (let [=params (map (class->type' mode type-params in-array?) params)]
-      (` (host (~ (ast;symbol ["" name])) [(~@ =params)])))))
+      (` (host (~ (code;symbol ["" name])) [(~@ =params)])))))
 
 (def: (class->type' mode type-params in-array? class)
-  (-> Primitive-Mode (List TypeParam) Bool GenericType AST)
+  (-> Primitive-Mode (List TypeParam) Bool GenericType Code)
   (case class
     (#GenericTypeVar name)
     (case (find (function [[pname pbounds]]
@@ -310,7 +310,7 @@
                        (not (list;empty? pbounds))))
                 type-params)
       #;None
-      (ast;symbol ["" name])
+      (code;symbol ["" name])
 
       (#;Some [pname pbounds])
       (class->type' mode type-params in-array? (default (undefined) (list;head pbounds))))
@@ -321,7 +321,7 @@
 
     (#GenericArray param)
     (let [=param (class->type' mode type-params true param)]
-      (` (host (~ (ast;symbol ["" array-type-name])) [(~ =param)])))
+      (` (host (~ (code;symbol ["" array-type-name])) [(~ =param)])))
 
     (^or (#GenericWildcard #;None) (#GenericWildcard (#;Some [#LowerBound _])))
     (' (;Ex [*] *))
@@ -331,25 +331,25 @@
     ))
 
 (def: (class->type mode type-params class)
-  (-> Primitive-Mode (List TypeParam) GenericType AST)
+  (-> Primitive-Mode (List TypeParam) GenericType Code)
   (class->type' mode type-params false class))
 
 (def: (type-param-type$ [name bounds])
-  (-> TypeParam AST)
-  (ast;symbol ["" name]))
+  (-> TypeParam Code)
+  (code;symbol ["" name]))
 
 (def: (class-decl-type$ (^slots [#class-name #class-params]))
-  (-> ClassDecl AST)
-  (let [=params (map (: (-> TypeParam AST)
+  (-> ClassDecl Code)
+  (let [=params (map (: (-> TypeParam Code)
                         (function [[pname pbounds]]
                           (case pbounds
                             #;Nil
-                            (ast;symbol ["" pname])
+                            (code;symbol ["" pname])
 
                             (#;Cons bound1 _)
                             (class->type #ManualPrM class-params bound1))))
                      class-params)]
-    (` (host (~ (ast;symbol ["" class-name])) [(~@ =params)]))))
+    (` (host (~ (code;symbol ["" class-name])) [(~@ =params)]))))
 
 (def: empty-imports
   ClassImports
@@ -530,29 +530,29 @@
     ))
 
 (def: (make-get-const-parser class-name field-name)
-  (-> Text Text (Syntax AST))
+  (-> Text Text (Syntax Code))
   (do s;Monad<Syntax>
     [#let [dotted-name (format "." field-name)]
-     _ (s;this! (ast;symbol ["" dotted-name]))]
-    (wrap (`' (_lux_proc ["jvm" (~ (ast;text (format "getstatic" ":" class-name ":" field-name)))] [])))))
+     _ (s;this! (code;symbol ["" dotted-name]))]
+    (wrap (`' (_lux_proc ["jvm" (~ (code;text (format "getstatic" ":" class-name ":" field-name)))] [])))))
 
 (def: (make-get-var-parser class-name field-name)
-  (-> Text Text (Syntax AST))
+  (-> Text Text (Syntax Code))
   (do s;Monad<Syntax>
     [#let [dotted-name (format "." field-name)]
-     _ (s;this! (ast;symbol ["" dotted-name]))]
-    (wrap (`' (_lux_proc ["jvm" (~ (ast;text (format "getfield" ":" class-name ":" field-name)))] [_jvm_this])))))
+     _ (s;this! (code;symbol ["" dotted-name]))]
+    (wrap (`' (_lux_proc ["jvm" (~ (code;text (format "getfield" ":" class-name ":" field-name)))] [_jvm_this])))))
 
 (def: (make-put-var-parser class-name field-name)
-  (-> Text Text (Syntax AST))
+  (-> Text Text (Syntax Code))
   (do s;Monad<Syntax>
     [#let [dotted-name (format "." field-name)]
-     [_ _ value] (: (Syntax [Unit Unit AST])
-                    (s;form ($_ s;seq (s;this! (' :=)) (s;this! (ast;symbol ["" dotted-name])) s;any)))]
-    (wrap (`' (_lux_proc ["jvm" (~ (ast;text (format "putfield" ":" class-name ":" field-name)))] [_jvm_this (~ value)])))))
+     [_ _ value] (: (Syntax [Unit Unit Code])
+                    (s;form ($_ s;seq (s;this! (' :=)) (s;this! (code;symbol ["" dotted-name])) s;any)))]
+    (wrap (`' (_lux_proc ["jvm" (~ (code;text (format "putfield" ":" class-name ":" field-name)))] [_jvm_this (~ value)])))))
 
 (def: (pre-walk-replace f input)
-  (-> (-> AST AST) AST AST)
+  (-> (-> Code Code) Code Code)
   (case (f input)
     (^template [<tag>]
       [meta (<tag> parts)]
@@ -561,7 +561,7 @@
      [#;Tuple])
     
     [meta (#;Record pairs)]
-    [meta (#;Record (map (: (-> [AST AST] [AST AST])
+    [meta (#;Record (map (: (-> [Code Code] [Code Code])
                             (function [[key val]]
                               [(pre-walk-replace f key) (pre-walk-replace f val)]))
                          pairs))]
@@ -570,7 +570,7 @@
     ast'))
 
 (def: (parser->replacer p ast)
-  (-> (Syntax AST) (-> AST AST))
+  (-> (Syntax Code) (-> Code Code))
   (case (s;run (list ast) p)
     (#;Right [#;Nil ast'])
     ast'
@@ -580,7 +580,7 @@
     ))
 
 (def: (field->parser class-name [[field-name _ _] field])
-  (-> Text [MemberDecl FieldDecl] (Syntax AST))
+  (-> Text [MemberDecl FieldDecl] (Syntax Code))
   (case field
     (#ConstantField _)
     (make-get-const-parser class-name field-name)
@@ -590,33 +590,33 @@
               (make-put-var-parser class-name field-name))))
 
 (def: (make-constructor-parser params class-name arg-decls)
-  (-> (List TypeParam) Text (List ArgDecl) (Syntax AST))
+  (-> (List TypeParam) Text (List ArgDecl) (Syntax Code))
   (do s;Monad<Syntax>
-    [[_ args] (: (Syntax [Unit (List AST)])
+    [[_ args] (: (Syntax [Unit (List Code)])
                  (s;form ($_ s;seq (s;this! (' .new!)) (s;tuple (s;exactly (list;size arg-decls) s;any)))))
      #let [arg-decls' (: (List Text) (map (. (simple-class$ params) product;right) arg-decls))]]
-    (wrap (` (;_lux_proc ["jvm" (~ (ast;text (format "new" ":" class-name ":" (text;join-with "," arg-decls'))))]
+    (wrap (` (;_lux_proc ["jvm" (~ (code;text (format "new" ":" class-name ":" (text;join-with "," arg-decls'))))]
                          [(~@ args)])))))
 
 (def: (make-static-method-parser params class-name method-name arg-decls)
-  (-> (List TypeParam) Text Text (List ArgDecl) (Syntax AST))
+  (-> (List TypeParam) Text Text (List ArgDecl) (Syntax Code))
   (do s;Monad<Syntax>
     [#let [dotted-name (format "." method-name "!")]
-     [_ args] (: (Syntax [Unit (List AST)])
-                 (s;form ($_ s;seq (s;this! (ast;symbol ["" dotted-name])) (s;tuple (s;exactly (list;size arg-decls) s;any)))))
+     [_ args] (: (Syntax [Unit (List Code)])
+                 (s;form ($_ s;seq (s;this! (code;symbol ["" dotted-name])) (s;tuple (s;exactly (list;size arg-decls) s;any)))))
      #let [arg-decls' (: (List Text) (map (. (simple-class$ params) product;right) arg-decls))]]
-    (wrap (`' (;_lux_proc ["jvm" (~ (ast;text (format "invokestatic" ":" class-name ":" method-name ":" (text;join-with "," arg-decls'))))]
+    (wrap (`' (;_lux_proc ["jvm" (~ (code;text (format "invokestatic" ":" class-name ":" method-name ":" (text;join-with "," arg-decls'))))]
                           [(~@ args)])))))
 
 (do-template [<name> <jvm-op>]
   [(def: (<name> params class-name method-name arg-decls)
-     (-> (List TypeParam) Text Text (List ArgDecl) (Syntax AST))
+     (-> (List TypeParam) Text Text (List ArgDecl) (Syntax Code))
      (do s;Monad<Syntax>
        [#let [dotted-name (format "." method-name "!")]
-        [_ args] (: (Syntax [Unit (List AST)])
-                    (s;form ($_ s;seq (s;this! (ast;symbol ["" dotted-name])) (s;tuple (s;exactly (list;size arg-decls) s;any)))))
+        [_ args] (: (Syntax [Unit (List Code)])
+                    (s;form ($_ s;seq (s;this! (code;symbol ["" dotted-name])) (s;tuple (s;exactly (list;size arg-decls) s;any)))))
         #let [arg-decls' (: (List Text) (map (. (simple-class$ params) product;right) arg-decls))]]
-       (wrap (`' (;_lux_proc ["jvm" (~ (ast;text (format <jvm-op> ":" class-name ":" method-name ":" (text;join-with "," arg-decls'))))]
+       (wrap (`' (;_lux_proc ["jvm" (~ (code;text (format <jvm-op> ":" class-name ":" method-name ":" (text;join-with "," arg-decls'))))]
                              [(~' _jvm_this) (~@ args)])))))]
 
   [make-special-method-parser "invokespecial"]
@@ -624,7 +624,7 @@
   )
 
 (def: (method->parser params class-name [[method-name _ _] meth-def])
-  (-> (List TypeParam) Text [MemberDecl MethodDef] (Syntax AST))
+  (-> (List TypeParam) Text [MemberDecl MethodDef] (Syntax Code))
   (case meth-def
     (#ConstructorMethod strict? type-vars args constructor-args return-expr exs)
     (make-constructor-parser params class-name args)
@@ -1072,19 +1072,19 @@
 
 ## Generators
 (def: with-parens
-  (-> Code Code)
+  (-> JVM-Code JVM-Code)
   (text;enclose ["(" ")"]))
 
 (def: with-brackets
-  (-> Code Code)
+  (-> JVM-Code JVM-Code)
   (text;enclose ["[" "]"]))
 
 (def: spaced
-  (-> (List Code) Code)
+  (-> (List JVM-Code) JVM-Code)
   (text;join-with " "))
 
 (def: (privacy-modifier$ pm)
-  (-> PrivacyModifier Code)
+  (-> PrivacyModifier JVM-Code)
   (case pm
     #PublicPM    "public"
     #PrivatePM   "private"
@@ -1092,28 +1092,28 @@
     #DefaultPM   "default"))
 
 (def: (inheritance-modifier$ im)
-  (-> InheritanceModifier Code)
+  (-> InheritanceModifier JVM-Code)
   (case im
     #FinalIM    "final"
     #AbstractIM "abstract"
     #DefaultIM  "default"))
 
 (def: (annotation-param$ [name value])
-  (-> AnnotationParam Code)
-  (format name "=" (ast;to-text value)))
+  (-> AnnotationParam JVM-Code)
+  (format name "=" (code;to-text value)))
 
 (def: (annotation$ [name params])
-  (-> Annotation Code)
+  (-> Annotation JVM-Code)
   (format "(" name " " "{" (text;join-with "\t" (map annotation-param$ params)) "}" ")"))
 
 (def: (bound-kind$ kind)
-  (-> BoundKind Code)
+  (-> BoundKind JVM-Code)
   (case kind
     #UpperBound "<"
     #LowerBound ">"))
 
 (def: (generic-type$ gtype)
-  (-> GenericType Code)
+  (-> GenericType JVM-Code)
   (case gtype
     (#GenericTypeVar name)
     name
@@ -1131,19 +1131,19 @@
     (format (bound-kind$ bound-kind) (generic-type$ bound))))
 
 (def: (type-param$ [name bounds])
-  (-> TypeParam Code)
+  (-> TypeParam JVM-Code)
   (format "(" name " " (spaced (map generic-type$ bounds)) ")"))
 
 (def: (class-decl$ (^open))
-  (-> ClassDecl Code)
+  (-> ClassDecl JVM-Code)
   (format "(" class-name " " (spaced (map type-param$ class-params)) ")"))
 
 (def: (super-class-decl$ (^slots [#super-class-name #super-class-params]))
-  (-> SuperClassDecl Code)
+  (-> SuperClassDecl JVM-Code)
   (format "(" super-class-name " " (spaced (map generic-type$ super-class-params)) ")"))
 
 (def: (method-decl$ [[name pm anns] method-decl])
-  (-> [MemberDecl MethodDecl] Code)
+  (-> [MemberDecl MethodDecl] JVM-Code)
   (let [(^slots [#method-tvars #method-inputs #method-output #method-exs]) method-decl]
     (with-parens
       (spaced (list name
@@ -1155,21 +1155,21 @@
               ))))
 
 (def: (state-modifier$ sm)
-  (-> StateModifier Code)
+  (-> StateModifier JVM-Code)
   (case sm
     #VolatileSM "volatile"
     #FinalSM    "final"
     #DefaultSM  "default"))
 
 (def: (field-decl$ [[name pm anns] field])
-  (-> [MemberDecl FieldDecl] Code)
+  (-> [MemberDecl FieldDecl] JVM-Code)
   (case field
     (#ConstantField class value)
     (with-parens
       (spaced (list "constant" name
                     (with-brackets (spaced (map annotation$ anns)))
                     (generic-type$ class)
-                    (ast;to-text value))
+                    (code;to-text value))
               ))
 
     (#VariableField sm class)
@@ -1183,17 +1183,17 @@
     ))
 
 (def: (arg-decl$ [name type])
-  (-> ArgDecl Code)
+  (-> ArgDecl JVM-Code)
   (with-parens
     (spaced (list name (generic-type$ type)))))
 
 (def: (constructor-arg$ [class term])
-  (-> ConstructorArg Code)
+  (-> ConstructorArg JVM-Code)
   (with-brackets
-    (spaced (list (generic-type$ class) (ast;to-text term)))))
+    (spaced (list (generic-type$ class) (code;to-text term)))))
 
 (def: (method-def$ replacer super-class [[name pm anns] method-def])
-  (-> (-> AST AST) SuperClassDecl [MemberDecl MethodDef] Code)
+  (-> (-> Code Code) SuperClassDecl [MemberDecl MethodDef] JVM-Code)
   (case method-def
     (#ConstructorMethod strict-fp? type-vars arg-decls constructor-args body exs)
     (with-parens
@@ -1205,7 +1205,7 @@
                     (with-brackets (spaced (map generic-type$ exs)))
                     (with-brackets (spaced (map arg-decl$ arg-decls)))
                     (with-brackets (spaced (map constructor-arg$ constructor-args)))
-                    (ast;to-text (pre-walk-replace replacer body))
+                    (code;to-text (pre-walk-replace replacer body))
                     )))
     
     (#VirtualMethod final? strict-fp? type-vars arg-decls return-type body exs)
@@ -1220,7 +1220,7 @@
                     (with-brackets (spaced (map generic-type$ exs)))
                     (with-brackets (spaced (map arg-decl$ arg-decls)))
                     (generic-type$ return-type)
-                    (ast;to-text (pre-walk-replace replacer body)))))
+                    (code;to-text (pre-walk-replace replacer body)))))
     
     (#OverridenMethod strict-fp? class-decl type-vars arg-decls return-type body exs)
     (let [super-replacer (parser->replacer (s;form (do s;Monad<Syntax>
@@ -1228,7 +1228,7 @@
                                                       args (s;tuple (s;exactly (list;size arg-decls) s;any))
                                                       #let [arg-decls' (: (List Text) (map (. (simple-class$ (list)) product;right)
                                                                                            arg-decls))]]
-                                                     (wrap (`' (;_lux_proc ["jvm" (~ (ast;text (format "invokespecial" ":" (get@ #super-class-name super-class) ":" name ":" (text;join-with "," arg-decls'))))]
+                                                     (wrap (`' (;_lux_proc ["jvm" (~ (code;text (format "invokespecial" ":" (get@ #super-class-name super-class) ":" name ":" (text;join-with "," arg-decls'))))]
                                                                            [(~' _jvm_this) (~@ args)]))))))]
       (with-parens
         (spaced (list "override"
@@ -1243,7 +1243,7 @@
                       (|> body
                           (pre-walk-replace replacer)
                           (pre-walk-replace super-replacer)
-                          (ast;to-text))
+                          (code;to-text))
                       ))))
 
     (#StaticMethod strict-fp? type-vars arg-decls return-type body exs)
@@ -1257,7 +1257,7 @@
                     (with-brackets (spaced (map generic-type$ exs)))
                     (with-brackets (spaced (map arg-decl$ arg-decls)))
                     (generic-type$ return-type)
-                    (ast;to-text (pre-walk-replace replacer body)))))
+                    (code;to-text (pre-walk-replace replacer body)))))
 
     (#AbstractMethod type-vars arg-decls return-type exs)
     (with-parens
@@ -1283,7 +1283,7 @@
     ))
 
 (def: (complete-call$ obj [method args])
-  (-> AST PartialCall AST)
+  (-> Code PartialCall Code)
   (` ((~ method) (~ args) (~ obj))))
 
 ## [Syntax]
@@ -1375,7 +1375,7 @@
                                           (with-brackets (spaced (map annotation$ annotations)))
                                           (with-brackets (spaced (map field-decl$ fields)))
                                           (with-brackets (spaced (map (method-def$ replacer super) methods))))))]]
-    (wrap (list (` (;_lux_proc ["jvm" (~ (ast;text def-code))] []))))))
+    (wrap (list (` (;_lux_proc ["jvm" (~ (code;text def-code))] []))))))
 
 (syntax: #export (interface: [#let [imports (class-imports *compiler*)]]
                    [class-decl (class-decl^ imports)]
@@ -1395,7 +1395,7 @@
                                        (with-brackets (spaced (map super-class-decl$ supers)))
                                        (with-brackets (spaced (map annotation$ annotations)))
                                        (spaced (map method-decl$ members)))))]
-    (wrap (list (` (;_lux_proc ["jvm" (~ (ast;text def-code))] []))))
+    (wrap (list (` (;_lux_proc ["jvm" (~ (code;text def-code))] []))))
     ))
 
 (syntax: #export (object [#let [imports (class-imports *compiler*)]]
@@ -1421,7 +1421,7 @@
                                        (with-brackets (spaced (map super-class-decl$ interfaces)))
                                        (with-brackets (spaced (map constructor-arg$ constructor-args)))
                                        (with-brackets (spaced (map (method-def$ id super) methods))))))]
-    (wrap (list (` (;_lux_proc ["jvm" (~ (ast;text def-code))] []))))))
+    (wrap (list (` (;_lux_proc ["jvm" (~ (code;text def-code))] []))))))
 
 (syntax: #export (null)
   {#;doc (doc "Null object reference."
@@ -1486,14 +1486,14 @@
               (instance? String "YOLO"))}
   (case obj
     (#;Some obj)
-    (wrap (list (` (;_lux_proc ["jvm" (~ (ast;text (format "instanceof" ":" (simple-class$ (list) class))))] [(~ obj)]))))
+    (wrap (list (` (;_lux_proc ["jvm" (~ (code;text (format "instanceof" ":" (simple-class$ (list) class))))] [(~ obj)]))))
 
     #;None
     (do @
       [g!obj (macro;gensym "obj")]
       (wrap (list (` (: (-> (host (~' java.lang.Object)) Bool)
                         (function [(~ g!obj)]
-                          (;_lux_proc ["jvm" (~ (ast;text (format "instanceof" ":" (simple-class$ (list) class))))] [(~ g!obj)])))))))
+                          (;_lux_proc ["jvm" (~ (code;text (format "instanceof" ":" (simple-class$ (list) class))))] [(~ g!obj)])))))))
     ))
 
 (syntax: #export (synchronized lock body)
@@ -1530,26 +1530,26 @@
                        (~ g!obj))))))))
 
 (def: (class-import$ long-name? [full-name params])
-  (-> Bool ClassDecl AST)
+  (-> Bool ClassDecl Code)
   (let [def-name (if long-name?
                    full-name
                    (short-class-name full-name))]
     (case params
       #;Nil
-      (` (def: (~ (ast;symbol ["" def-name]))
+      (` (def: (~ (code;symbol ["" def-name]))
            {#;type? true
-            #;;jvm-class (~ (ast;text full-name))}
+            #;;jvm-class (~ (code;text full-name))}
            Type
-           (host (~ (ast;symbol ["" full-name])))))
+           (host (~ (code;symbol ["" full-name])))))
 
       (#;Cons _)
-      (let [params' (map (function [[p _]] (ast;symbol ["" p])) params)]
-        (` (def: (~ (ast;symbol ["" def-name]))
+      (let [params' (map (function [[p _]] (code;symbol ["" p])) params)]
+        (` (def: (~ (code;symbol ["" def-name]))
              {#;type?      true
-              #;;jvm-class (~ (ast;text full-name))}
+              #;;jvm-class (~ (code;text full-name))}
              Type
              (All [(~@ params')]
-               (host (~ (ast;symbol ["" full-name]))
+               (host (~ (code;symbol ["" full-name]))
                      [(~@ params')]))))))))
 
 (def: (member-type-vars class-tvars member)
@@ -1570,13 +1570,13 @@
     class-tvars))
 
 (def: (member-def-arg-bindings type-params class member)
-  (-> (List TypeParam) ClassDecl ImportMemberDecl (Lux [(List AST) (List AST) (List Text) (List AST)]))
+  (-> (List TypeParam) ClassDecl ImportMemberDecl (Lux [(List Code) (List Code) (List Text) (List Code)]))
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (let [(^slots [#import-member-tvars #import-member-args]) commons]
       (do Monad<Lux>
         [arg-inputs (mapM @
-                          (: (-> [Bool GenericType] (Lux [AST AST]))
+                          (: (-> [Bool GenericType] (Lux [Code Code]))
                              (function [[maybe? _]]
                                (with-gensyms [arg-name]
                                  (wrap [arg-name (if maybe?
@@ -1586,7 +1586,7 @@
          #let [arg-classes (: (List Text)
                               (map (. (simple-class$ (List/append type-params import-member-tvars)) product;right)
                                    import-member-args))
-               arg-types (map (: (-> [Bool GenericType] AST)
+               arg-types (map (: (-> [Bool GenericType] Code)
                                  (function [[maybe? arg]]
                                    (let [arg-type (class->type (get@ #import-member-mode commons) type-params arg)]
                                      (if maybe?
@@ -1601,7 +1601,7 @@
     (:: Monad<Lux> wrap [(list) (list) (list) (list)])))
 
 (def: (member-def-return mode type-params class member)
-  (-> Primitive-Mode (List TypeParam) ClassDecl ImportMemberDecl (Lux AST))
+  (-> Primitive-Mode (List TypeParam) ClassDecl ImportMemberDecl (Lux Code))
   (case member
     (#ConstructorDecl _)
     (:: Monad<Lux> wrap (class-decl-type$ class))
@@ -1613,14 +1613,14 @@
     (macro;fail "Only methods have return values.")))
 
 (def: (decorate-return-maybe member [return-type return-term])
-  (-> ImportMemberDecl [AST AST] [AST AST])
+  (-> ImportMemberDecl [Code Code] [Code Code])
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (if (get@ #import-member-maybe? commons)
       [(` (Maybe (~ return-type)))
        (` (??? (~ return-term)))]
       [return-type
-       (let [g!temp (ast;symbol ["" "Ω"])]
+       (let [g!temp (code;symbol ["" "Ω"])]
          (` (let [(~ g!temp) (~ return-term)]
               (if (not (null? (:! (host (~' java.lang.Object))
                                   (~ g!temp))))
@@ -1632,7 +1632,7 @@
 
 (do-template [<name> <tag> <type-trans> <term-trans>]
   [(def: (<name> member [return-type return-term])
-     (-> ImportMemberDecl [AST AST] [AST AST])
+     (-> ImportMemberDecl [Code Code] [Code Code])
      (case member
        (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
        (if (get@ <tag> commons)
@@ -1653,11 +1653,11 @@
     _     false))
 
 (def: (type-param->type-arg [name _])
-  (-> TypeParam AST)
-  (ast;symbol ["" name]))
+  (-> TypeParam Code)
+  (code;symbol ["" name]))
 
 (def: (with-mode-output mode output-type body)
-  (-> Primitive-Mode GenericType AST AST)
+  (-> Primitive-Mode GenericType Code Code)
   (case mode
     #ManualPrM
     body
@@ -1689,7 +1689,7 @@
     false))
 
 (def: (auto-conv [class var])
-  (-> [Text AST] (List AST))
+  (-> [Text Code] (List Code))
   (case class
     "byte"  (list var (` (l2b (~ var))))
     "short" (list var (` (l2s (~ var))))
@@ -1698,7 +1698,7 @@
     _       (list)))
 
 (def: (with-mode-inputs mode inputs body)
-  (-> Primitive-Mode (List [Text AST]) AST AST)
+  (-> Primitive-Mode (List [Text Code]) Code Code)
   (case mode
     #ManualPrM
     body
@@ -1710,7 +1710,7 @@
          (~ body)))))
 
 (def: (with-mode-field-get mode class output)
-  (-> Primitive-Mode GenericType AST AST)
+  (-> Primitive-Mode GenericType Code Code)
   (case mode
     #ManualPrM
     output
@@ -1724,7 +1724,7 @@
       _       output)))
 
 (def: (with-mode-field-set mode class input)
-  (-> Primitive-Mode GenericType AST AST)
+  (-> Primitive-Mode GenericType Code Code)
   (case mode
     #ManualPrM
     input
@@ -1738,7 +1738,7 @@
       _       input)))
 
 (def: (member-def-interop type-params kind class [arg-function-inputs arg-method-inputs arg-classes arg-types] member method-prefix)
-  (-> (List TypeParam) ClassKind ClassDecl [(List AST) (List AST) (List Text) (List AST)] ImportMemberDecl Text (Lux (List AST)))
+  (-> (List TypeParam) ClassKind ClassDecl [(List Code) (List Code) (List Text) (List Code)] ImportMemberDecl Text (Lux (List Code)))
   (let [[full-name class-tvars] class
         all-params (|> (member-type-vars class-tvars member)
                        (filter free-type-param?)
@@ -1746,30 +1746,30 @@
     (case member
       (#EnumDecl enum-members)
       (do Monad<Lux>
-        [#let [enum-type (: AST
+        [#let [enum-type (: Code
                             (case class-tvars
                               #;Nil
-                              (` (host (~ (ast;symbol ["" full-name]))))
+                              (` (host (~ (code;symbol ["" full-name]))))
 
                               _
                               (let [=class-tvars (|> class-tvars
                                                      (filter free-type-param?)
                                                      (map type-param->type-arg))]
-                                (` (All [(~@ =class-tvars)] (host (~ (ast;symbol ["" full-name])) [(~@ =class-tvars)]))))))
-               getter-interop (: (-> Text AST)
+                                (` (All [(~@ =class-tvars)] (host (~ (code;symbol ["" full-name])) [(~@ =class-tvars)]))))))
+               getter-interop (: (-> Text Code)
                                  (function [name]
-                                   (let [getter-name (ast;symbol ["" (format method-prefix member-separator name)])]
+                                   (let [getter-name (code;symbol ["" (format method-prefix member-separator name)])]
                                      (` (def: (~ getter-name)
                                           (~ enum-type)
-                                          (;_lux_proc ["jvm" (~ (ast;text (format "getstatic" ":" full-name ":" name)))] []))))))]]
+                                          (;_lux_proc ["jvm" (~ (code;text (format "getstatic" ":" full-name ":" name)))] []))))))]]
         (wrap (map getter-interop enum-members)))
       
       (#ConstructorDecl [commons _])
       (do Monad<Lux>
         [return-type (member-def-return (get@ #import-member-mode commons) type-params class member)
-         #let [def-name (ast;symbol ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
-               def-params (list (ast;tuple arg-function-inputs))
-               jvm-interop (|> (` (;_lux_proc ["jvm" (~ (ast;text (format "new" ":" full-name ":" (text;join-with "," arg-classes))))]
+         #let [def-name (code;symbol ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
+               def-params (list (code;tuple arg-function-inputs))
+               jvm-interop (|> (` (;_lux_proc ["jvm" (~ (code;text (format "new" ":" full-name ":" (text;join-with "," arg-classes))))]
                                               [(~@ arg-method-inputs)]))
                                (with-mode-inputs (get@ #import-member-mode commons)
                                  (list;zip2 arg-classes arg-function-inputs)))
@@ -1785,10 +1785,10 @@
       (with-gensyms [g!obj]
         (do @
           [return-type (member-def-return (get@ #import-member-mode commons) type-params class member)
-           #let [def-name (ast;symbol ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
+           #let [def-name (code;symbol ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
                  (^slots [#import-member-kind]) commons
                  (^slots [#import-method-name]) method
-                 [jvm-op obj-ast class-ast] (: [Text (List AST) (List AST)]
+                 [jvm-op obj-ast class-ast] (: [Text (List Code) (List Code)]
                                                (case import-member-kind
                                                  #StaticIMK
                                                  ["invokestatic"
@@ -1807,10 +1807,10 @@
                                                     (list g!obj)
                                                     (list (class-decl-type$ class))]
                                                    )))
-                 def-params (#;Cons (ast;tuple arg-function-inputs) obj-ast)
+                 def-params (#;Cons (code;tuple arg-function-inputs) obj-ast)
                  def-param-types (#;Cons (` [(~@ arg-types)]) class-ast)
-                 jvm-interop (|> (` (;_lux_proc ["jvm" (~ (ast;text (format jvm-op ":" full-name ":" import-method-name
-                                                                            ":" (text;join-with "," arg-classes))))]
+                 jvm-interop (|> (` (;_lux_proc ["jvm" (~ (code;text (format jvm-op ":" full-name ":" import-method-name
+                                                                             ":" (text;join-with "," arg-classes))))]
                                                 [(~@ obj-ast) (~@ arg-method-inputs)]))
                                  (with-mode-output (get@ #import-member-mode commons)
                                    (get@ #import-method-return method))
@@ -1832,12 +1832,12 @@
                g!type (if import-field-maybe?
                         (` (Maybe (~ base-gtype)))
                         base-gtype)
-               tvar-asts (: (List AST)
+               tvar-asts (: (List Code)
                             (|> class-tvars
                                 (filter free-type-param?)
                                 (map type-param->type-arg)))
-               getter-name (ast;symbol ["" (format method-prefix member-separator import-field-name)])
-               setter-name (ast;symbol ["" (format method-prefix member-separator import-field-name "!")])]
+               getter-name (code;symbol ["" (format method-prefix member-separator import-field-name)])
+               setter-name (code;symbol ["" (format method-prefix member-separator import-field-name "!")])]
          getter-interop (with-gensyms [g!obj]
                           (let [getter-call (if import-field-static?
                                               getter-name
@@ -1851,9 +1851,9 @@
                                 getter-type (` (All [(~@ tvar-asts)] (~ getter-type)))
                                 getter-body (if import-field-static?
                                               (with-mode-field-get import-field-mode import-field-type
-                                                (` (;_lux_proc ["jvm" (~ (ast;text (format "getstatic" ":" full-name ":" import-field-name)))] [])))
+                                                (` (;_lux_proc ["jvm" (~ (code;text (format "getstatic" ":" full-name ":" import-field-name)))] [])))
                                               (with-mode-field-get import-field-mode import-field-type
-                                                (` (;_lux_proc ["jvm" (~ (ast;text (format "getfield" ":" full-name ":" import-field-name)))] [(~ g!obj)]))))
+                                                (` (;_lux_proc ["jvm" (~ (code;text (format "getfield" ":" full-name ":" import-field-name)))] [(~ g!obj)]))))
                                 getter-body (if import-field-maybe?
                                               (` (??? (~ getter-body)))
                                               getter-body)
@@ -1877,17 +1877,17 @@
                                                  setter-value)
                                   setter-command (format (if import-field-static? "putstatic" "putfield")
                                                          ":" full-name ":" import-field-name)]
-                              (wrap (: (List AST)
+                              (wrap (: (List Code)
                                        (list (` (def: (~ setter-call)
                                                   (~ setter-type)
-                                                  (io (;_lux_proc ["jvm" (~ (ast;text setter-command))]
+                                                  (io (;_lux_proc ["jvm" (~ (code;text setter-command))]
                                                                   [(~ setter-value)])))))))))
                           (wrap (list)))]
         (wrap (list& getter-interop setter-interop)))
       )))
 
 (def: (member-import$ type-params long-name? kind class member)
-  (-> (List TypeParam) Bool ClassKind ClassDecl ImportMemberDecl (Lux (List AST)))
+  (-> (List TypeParam) Bool ClassKind ClassDecl ImportMemberDecl (Lux (List Code)))
   (let [[full-name _] class
         method-prefix (if long-name?
                         full-name
@@ -1992,7 +1992,7 @@
      ["char"    "cnewarray"])
 
     _
-    (wrap (list (` (;_lux_proc ["jvm" "anewarray"] [(~ (ast;text (generic-type$ type))) (~ size)]))))))
+    (wrap (list (` (;_lux_proc ["jvm" "anewarray"] [(~ (code;text (generic-type$ type))) (~ size)]))))))
 
 (syntax: #export (array-length array)
   {#;doc (doc "Gives the length of an array."
@@ -2082,7 +2082,7 @@
                        (;;array-store (~ g!array) (~ idx) (~ value)))))))))
 
 (def: simple-bindings^
-  (Syntax (List [Text AST]))
+  (Syntax (List [Text Code]))
   (s;tuple (s;some (s;seq s;local-symbol s;any))))
 
 (syntax: #export (with-open [bindings simple-bindings^] body)
@@ -2096,11 +2096,11 @@
                   (do-one-last-thing foo bar))))}
   (with-gensyms [g!output g!_]
     (let [inits (List/join (List/map (function [[res-name res-ctor]]
-                                       (list (ast;symbol ["" res-name]) res-ctor))
+                                       (list (code;symbol ["" res-name]) res-ctor))
                                      bindings))
           closes (List/map (function [res]
                              (` (try (;_lux_proc ["jvm" "invokevirtual:java.io.Closeable:close:"]
-                                                 [(~ (ast;symbol ["" (product;left res)]))]))))
+                                                 [(~ (code;symbol ["" (product;left res)]))]))))
                            bindings)]
       (wrap (list (` (do Monad<IO>
                        [(~@ inits)
@@ -2112,7 +2112,7 @@
                             [type (generic-type^ imports (list))])
   {#;doc (doc "Loads the class as a java.lang.Class object."
               (class-for java.lang.String))}
-  (wrap (list (` (;_lux_proc ["jvm" "load-class"] [(~ (ast;text (simple-class$ (list) type)))])))))
+  (wrap (list (` (;_lux_proc ["jvm" "load-class"] [(~ (code;text (simple-class$ (list) type)))])))))
 
 (def: get-compiler
   (Lux Compiler)
