@@ -387,29 +387,6 @@
   ^:private compile-real-negative-infinity (.visitLdcInsn Double/NEGATIVE_INFINITY) &&/wrap-double
   )
 
-(do-template [<encode-name> <encode-method> <decode-name> <decode-method>]
-  (do (defn <encode-name> [compile ?values special-args]
-        (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-              ^MethodVisitor *writer* &/get-writer
-              _ (compile ?x)
-              :let [_ (doto *writer*
-                        &&/unwrap-long
-                        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <encode-method> "(J)Ljava/lang/String;"))]]
-          (return nil)))
-
-    (let [+wrapper-class+ (&host-generics/->bytecode-class-name "java.lang.String")]
-      (defn <decode-name> [compile ?values special-args]
-        (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-              ^MethodVisitor *writer* &/get-writer
-              _ (compile ?x)
-              :let [_ (doto *writer*
-                        (.visitTypeInsn Opcodes/CHECKCAST +wrapper-class+)
-                        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <decode-method> "(Ljava/lang/String;)Ljava/lang/Object;"))]]
-          (return nil)))))
-
-  ^:private compile-deg-encode "encode_deg" ^:private compile-deg-decode "decode_deg"
-  )
-
 (do-template [<name> <class> <signature> <unwrap>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
@@ -958,8 +935,6 @@
       "%"         (compile-deg-rem compile ?values special-args)
       "="         (compile-deg-eq compile ?values special-args)
       "<"         (compile-deg-lt compile ?values special-args)
-      "encode"    (compile-deg-encode compile ?values special-args)
-      "decode"    (compile-deg-decode compile ?values special-args)
       "max-value" (compile-deg-max-value compile ?values special-args)
       "min-value" (compile-deg-min-value compile ?values special-args)
       "to-real"   (compile-deg-to-real compile ?values special-args)

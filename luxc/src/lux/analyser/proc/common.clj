@@ -254,7 +254,6 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
-  ^:private analyse-deg-encode ["deg" "encode"] ^:private analyse-deg-decode ["deg" "decode"] &type/Deg
   ^:private analyse-real-encode ["real" "encode"] ^:private analyse-real-decode ["real" "decode"] &type/Real
   )
 
@@ -572,8 +571,6 @@
       "%" (analyse-deg-rem analyse exo-type ?values)
       "=" (analyse-deg-eq analyse exo-type ?values)
       "<" (analyse-deg-lt analyse exo-type ?values)
-      "encode" (analyse-deg-encode analyse exo-type ?values)
-      "decode" (analyse-deg-decode analyse exo-type ?values)
       "min-value" (analyse-deg-min-value analyse exo-type ?values)
       "max-value" (analyse-deg-max-value analyse exo-type ?values)
       "to-real" (analyse-deg-to-real analyse exo-type ?values)

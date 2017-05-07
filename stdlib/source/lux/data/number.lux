@@ -10,6 +10,10 @@
                 codec)
        (data ["E" error])))
 
+(def: (clean-separators input)
+  (-> Text Text)
+  (_lux_proc ["text" "replace-all"] [input "_" ""]))
+
 ## [Structures]
 (do-template [<type> <test>]
   [(struct: #export _ (Eq <type>)
@@ -629,8 +633,8 @@
   (_lux_proc ["array" "new"] [deg-bits]))
 
 (def: (digits-get idx digits)
-  (-> Nat Digits (Maybe Nat))
-  (_lux_proc ["array" "get"] [digits idx]))
+  (-> Nat Digits Nat)
+  (default +0 (_lux_proc ["array" "get"] [digits idx])))
 
 (def: (digits-put idx digit digits)
   (-> Nat Nat Digits Digits)
@@ -647,7 +651,6 @@
          output output]
     (if (i.>= 0 (:! Int idx))
       (let [raw (|> (digits-get idx output)
-                    (default +0)
                     (n.* +5)
                     (n.+ carry))]
         (recur (n.dec idx)
@@ -671,7 +674,7 @@
          all-zeroes? true
          output ""]
     (if (i.>= 0 (:! Int idx))
-      (let [digit (default +0 (digits-get idx digits))]
+      (let [digit (digits-get idx digits)]
         (if (and (n.= +0 digit)
                  all-zeroes?)
           (recur (n.dec idx) true output)
@@ -692,11 +695,63 @@
     (if (i.>= 0 (:! Int idx))
       (let [raw ($_ n.+
                     carry
-                    (default +0 (digits-get idx param))
-                    (default +0 (digits-get idx subject)))]
+                    (digits-get idx param)
+                    (digits-get idx subject))]
         (recur (n.dec idx)
                (n./ +10 raw)
                (digits-put idx (n.% +10 raw) output)))
+      output)))
+
+(def: (text-to-digits input)
+  (-> Text (Maybe Digits))
+  (let [length (_lux_proc ["text" "size"] [input])]
+    (if (n.<= deg-bits length)
+      (loop [idx +0
+             output (make-digits [])]
+        (if (n.< length idx)
+          (let [char (assume (_lux_proc ["text" "char"] [input idx]))]
+            (case (_lux_proc ["text" "index"]
+                             ["0123456789"
+                              (_lux_proc ["char" "to-text"] [char])
+                              +0])
+              #;None
+              #;None
+
+              (#;Some digit)
+              (recur (n.inc idx)
+                     (digits-put idx digit output))))
+          (#;Some output)))
+      #;None)))
+
+(def: (digits-lt param subject)
+  (-> Digits Digits Bool)
+  (loop [idx +0]
+    (and (n.< deg-bits idx)
+         (let [pd (digits-get idx param)
+               sd (digits-get idx subject)]
+           (if (n.= pd sd)
+             (recur (n.inc idx))
+             (n.< pd sd))))))
+
+(def: (digits-sub-once! idx param subject)
+  (-> Nat Nat Digits Digits)
+  (let [sd (digits-get idx subject)]
+    (if (n.>= param sd)
+      (digits-put idx (n.- param sd) subject)
+      (let [diff (|> sd
+                     (n.+ +10)
+                     (n.- param))]
+        (|> subject
+            (digits-put idx diff)
+            (digits-sub-once! (n.dec idx) +1))))))
+
+(def: (digits-sub! param subject)
+  (-> Digits Digits Digits)
+  (loop [idx (n.dec deg-bits)
+         output subject]
+    (if (i.>= 0 (nat-to-int idx))
+      (recur (n.dec idx)
+             (digits-sub-once! idx (digits-get idx param) output))
       output)))
 
 (struct: #export _ (Codec Text Deg)
@@ -719,35 +774,34 @@
             )))))
 
   (def: (decode input)
-    (case (_lux_proc ["deg" "decode"] [input])
-      (#;Some value)
-      (#;Right value)
+    (let [length (_lux_proc ["text" "size"] [input])
+          dotted? (case (_lux_proc ["text" "index"] [input "." +0])
+                    (#;Some +0)
+                    true
 
-      #;None
-      (#;Left (_lux_proc ["text" "append"]
-                         ["Could not decode Deg: " input])))
-    ## (let [length (text-size input)]
-    ##   (if (and (starts-with? "." input)
-    ##            (n.<= (n.inc deg-bits) length))
-    ##     (let [input (|> input
-    ##                     (substring +1 length)
-    ##                     clean-separators)]
-    ##       (case (deg-text-to-digits input)
-    ##         (#;Some digits)
-    ##         (loop [digits digits
-    ##                idx +0
-    ##                output +0]
-    ##           (if (n.< deg-bits idx)
-    ##             (let [power (digits-power idx)]
-    ##               (if (deg-digits-lt power digits)
-    ##                 ## Skip power
-    ##                 (recur digits (n.inc idx) output)
-    ##                 (recur (deg-digits-sub power digits)
-    ##                        (n.inc idx)
-    ##                        (bit-set idx output))))
-    ##             (#E;Success (:! Deg output))))
+                    _
+                    false)]
+      (if (and dotted?
+               (n.<= (n.inc deg-bits) length))
+        (case (|> (_lux_proc ["text" "clip"] [input +1 length])
+                  assume
+                  clean-separators
+                  text-to-digits)
+          (#;Some digits)
+          (loop [digits digits
+                 idx +0
+                 output +0]
+            (if (n.< deg-bits idx)
+              (let [power (digits-power idx)]
+                (if (digits-lt power digits)
+                  ## Skip power
+                  (recur digits (n.inc idx) output)
+                  (recur (digits-sub! power digits)
+                         (n.inc idx)
+                         (bit-set (n.- idx (n.dec deg-bits)) output))))
+              (#E;Success (:! Deg output))))
 
-    ##         #;None
-    ##         (#E;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input]))))
-    ##     (#E;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input]))))
+          #;None
+          (#E;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input])))
+        (#E;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input]))))
     ))

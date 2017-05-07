@@ -148,9 +148,6 @@
       (return (str "LuxRT$" <method> "(" =x ")"))
       ))
 
-  ^:private compile-deg-encode "encodeD64"
-  ^:private compile-deg-decode "decodeD64"
-
   ^:private compile-real-decode "decodeReal"
   )
 
@@ -526,8 +523,6 @@
       "%"         (compile-deg-rem compile ?values special-args)
       "="         (compile-deg-eq compile ?values special-args)
       "<"         (compile-deg-lt compile ?values special-args)
-      "encode"    (compile-deg-encode compile ?values special-args)
-      "decode"    (compile-deg-decode compile ?values special-args)
       "max-value" (compile-deg-max-value compile ?values special-args)
       "min-value" (compile-deg-min-value compile ?values special-args)
       "to-real"   (compile-deg-to-real compile ?values special-args)
