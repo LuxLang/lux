@@ -31,7 +31,7 @@
 ;; nested quantifications that cannot be directly counted.
 (defn ^:private next-bound-type [type]
   "(-> Type Type)"
-  (&/$BoundT (->> (count-univq type) (* 2) (+ 1))))
+  (&/$Bound (->> (count-univq type) (* 2) (+ 1))))
 
 (defn ^:private embed-inferred-input [input output]
   "(-> Type Type Type)"
@@ -40,12 +40,12 @@
     (&/$UnivQ env (embed-inferred-input input output*))
 
     _
-    (&/$FunctionT input output)))
+    (&/$Function input output)))
 
 ;; [Exports]
 (defn analyse-unit [analyse ?exo-type]
   (|do [_cursor &/cursor
-        _ (&type/check ?exo-type &/$UnitT)]
+        _ (&type/check ?exo-type &/$Unit)]
     (return (&/|list (&&/|meta ?exo-type _cursor
                                (&&/$tuple (&/|list)))))))
 
@@ -74,7 +74,7 @@
                     [[tuple-type tuple-cursor] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/$Left exo-type**) ?elems))
                     =var (&type/resolve-type $var)
                     inferred-type (|case =var
-                                    (&/$VarT iid)
+                                    (&/$Var iid)
                                     (|do [:let [=var* (next-bound-type tuple-type)]
                                           _ (&type/set-var iid =var*)
                                           tuple-type* (&type/clean $var tuple-type)]
@@ -96,7 +96,7 @@
                                ?elems)
                 _ (&type/check exo-type (|case (->> (&/|map &&/expr-type* =elems) (&/|reverse))
                                           (&/$Cons last prevs)
-                                          (&/fold (fn [right left] (&/$ProdT left right))
+                                          (&/fold (fn [right left] (&/$Product left right))
                                                   last prevs)))
                 _cursor &/cursor]
             (return (&/|list (&&/|meta exo-type _cursor
@@ -105,7 +105,7 @@
           (|do [exo-type* (&type/actual-type exo-type)]
             (&/with-attempt
               (|case exo-type*
-                (&/$ProdT _)
+                (&/$Product _)
                 (|let [num-elems (&/|length ?elems)
                        [_shorter _tuple-types] (&type/tuple-types-for num-elems exo-type*)]
                   (if (= num-elems _shorter)
@@ -139,7 +139,7 @@
 
                 (&/$UnivQ _)
                 (|do [$var &type/existential
-                      :let [(&/$ExT $var-id) $var]
+                      :let [(&/$Ex $var-id) $var]
                       exo-type** (&type/apply-type exo-type* $var)
                       [[tuple-type tuple-cursor] tuple-analysis] (&/with-scope-type-var $var-id
                                                                    (&&/cap-1 (analyse-tuple analyse (&/$Right exo-type**) ?elems)))]
@@ -183,7 +183,7 @@
                   [[variant-type variant-cursor] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/$Left exo-type**) idx is-last? ?values))
                   =var (&type/resolve-type $var)
                   inferred-type (|case =var
-                                  (&/$VarT iid)
+                                  (&/$Var iid)
                                   (|do [:let [=var* (next-bound-type variant-type)]
                                         _ (&type/set-var iid =var*)
                                         variant-type* (&type/clean $var variant-type)]
@@ -199,7 +199,7 @@
 
     (&/$Right exo-type)
     (|do [exo-type* (|case exo-type
-                      (&/$VarT ?id)
+                      (&/$Var ?id)
                       (&/try-all% (&/|list (|do [exo-type* (&type/deref ?id)]
                                              (&type/actual-type exo-type*))
                                            (|do [_ (&type/set-var ?id &type/Type)]
@@ -209,7 +209,7 @@
                       (&type/actual-type exo-type))]
       (&/with-attempt
         (|case exo-type*
-          (&/$SumT _)
+          (&/$Sum _)
           (|do [vtype (&type/sum-at idx exo-type*)
                 :let [num-variant-types (&/|length (&type/flatten-sum exo-type*))
                       is-last?* (if (nil? is-last?)
@@ -238,7 +238,7 @@
           (&/fail-with-loc (str "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
         (fn [err]
           (|case exo-type
-            (&/$VarT ?id)
+            (&/$Var ?id)
             (|do [=exo-type (&type/deref ?id)]
               (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
 
@@ -249,7 +249,7 @@
 (defn analyse-record [analyse exo-type ?elems]
   (|do [[rec-members rec-type] (&&record/order-record ?elems)]
     (|case exo-type
-      (&/$VarT id)
+      (&/$Var id)
       (|do [? (&type/bound? id)]
         (if ?
           (analyse-tuple analyse (&/$Right exo-type) rec-members)
@@ -324,7 +324,7 @@
                     [=output-t =args] (analyse-apply* analyse exo-type type* ?args)
                     ==args (&/map% (partial &&/clean-analysis $var) =args)]
                 (|case $var
-                  (&/$VarT ?id)
+                  (&/$Var ?id)
                   (|do [? (&type/bound? ?id)
                         type** (if ?
                                  (&type/clean $var =output-t)
@@ -341,7 +341,7 @@
                 type* (&type/apply-type ?fun-type* $var)]
             (analyse-apply* analyse exo-type type* ?args))
 
-          (&/$FunctionT ?input-t ?output-t)
+          (&/$Function ?input-t ?output-t)
           (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
                 =arg (&/with-attempt
                        (&&/analyse-1 analyse ?input-t ?arg)
@@ -411,7 +411,7 @@
 
 (defn ^:private unravel-inf-appt [type]
   (|case type
-    (&/$AppT =input+ (&/$VarT _inf-var))
+    (&/$App =input+ (&/$Var _inf-var))
     (&/$Cons _inf-var (unravel-inf-appt =input+))
 
     _
@@ -419,16 +419,16 @@
 
 (defn ^:private clean-func-inference [$input $output =input =func]
   (|case =input
-    (&/$VarT iid)
+    (&/$Var iid)
     (|do [:let [=input* (next-bound-type =func)]
           _ (&type/set-var iid =input*)
           =func* (&type/clean $input =func)
           =func** (&type/clean $output =func*)]
       (return (&/$UnivQ &/$Nil =func**)))
     
-    (&/$AppT =input+ (&/$VarT _inf-var))
+    (&/$App =input+ (&/$Var _inf-var))
     (&/fold% (fn [_func _inf-var]
-               (|do [:let [$inf-var (&/$VarT _inf-var)]
+               (|do [:let [$inf-var (&/$Var _inf-var)]
                      =inf-var (&type/resolve-type $inf-var)
                      _func* (clean-func-inference $inf-var $output =inf-var _func)
                      _ (&type/delete-var _inf-var)]
@@ -436,9 +436,9 @@
              =func
              (unravel-inf-appt =input))
 
-    (&/$ProdT _ _)
+    (&/$Product _ _)
     (&/fold% (fn [_func _inf-var]
-               (|do [:let [$inf-var (&/$VarT _inf-var)]
+               (|do [:let [$inf-var (&/$Var _inf-var)]
                      =inf-var (&type/resolve-type $inf-var)
                      _func* (clean-func-inference $inf-var $output =inf-var _func)
                      _ (&type/delete-var _inf-var)]
@@ -453,7 +453,7 @@
 
 (defn analyse-function* [analyse exo-type ?self ?arg ?body]
   (|case exo-type
-    (&/$VarT id)
+    (&/$Var id)
     (|do [? (&type/bound? id)]
       (if ?
         (|do [exo-type* (&type/deref id)]
@@ -463,7 +463,7 @@
           (fn [$input]
             (&type/with-var
               (fn [$output]
-                (|do [[[function-type function-cursor] function-analysis] (analyse-function* analyse (&/$FunctionT $input $output) ?self ?arg ?body)
+                (|do [[[function-type function-cursor] function-analysis] (analyse-function* analyse (&/$Function $input $output) ?self ?arg ?body)
                       =input (&type/resolve-type $input)
                       =output (&type/resolve-type $output)
                       inferred-type (clean-func-inference $input $output =input (embed-inferred-input =input =output))
@@ -478,7 +478,7 @@
         (|case exo-type*
           (&/$UnivQ _)
           (|do [$var &type/existential
-                :let [(&/$ExT $var-id) $var]
+                :let [(&/$Ex $var-id) $var]
                 exo-type** (&type/apply-type exo-type* $var)]
             (&/with-scope-type-var $var-id
               (analyse-function* analyse exo-type** ?self ?arg ?body)))
@@ -490,7 +490,7 @@
                     =expr (analyse-function* analyse exo-type** ?self ?arg ?body)]
                 (&&/clean-analysis $var =expr))))
           
-          (&/$FunctionT ?arg-t ?return-t)
+          (&/$Function ?arg-t ?return-t)
           (|do [[=scope =captured =body] (&&function/with-function ?self exo-type*
                                            ?arg ?arg-t
                                            (&&/analyse-1 analyse ?return-t ?body))
@@ -509,14 +509,14 @@
   (|case exo-type
     (&/$UnivQ _)
     (|do [$var &type/existential
-          :let [(&/$ExT $var-id) $var]
+          :let [(&/$Ex $var-id) $var]
           exo-type* (&type/apply-type exo-type $var)
           [_ _expr] (&/with-scope-type-var $var-id
                       (analyse-function** analyse exo-type* ?self ?arg ?body))
           _cursor &/cursor]
       (return (&&/|meta exo-type _cursor _expr)))
     
-    (&/$VarT id)
+    (&/$Var id)
     (|do [? (&type/bound? id)]
       (if ?
         (|do [exo-type* (&type/actual-type exo-type)]
@@ -683,8 +683,8 @@
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))
 
-(let [input-type (&/$AppT &type/List &type/Text)
-      output-type (&/$AppT &type/IO &/$UnitT)]
+(let [input-type (&/$App &type/List &type/Text)
+      output-type (&/$App &type/IO &/$Unit)]
   (defn analyse-program [analyse optimize compile-program ?args ?body]
     (|do [_ &/ensure-statement
           =body (&/with-scope ""

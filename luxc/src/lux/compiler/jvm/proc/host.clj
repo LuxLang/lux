@@ -48,40 +48,40 @@
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
     (|case *type*
-      (&/$UnitT)
+      (&/$Unit)
       (.visitLdcInsn *writer* &/unit-tag)
 
-      (&/$HostT "boolean" (&/$Nil))
+      (&/$Host "boolean" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
       
-      (&/$HostT "byte" (&/$Nil))
+      (&/$Host "byte" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
-      (&/$HostT "short" (&/$Nil))
+      (&/$Host "short" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
-      (&/$HostT "int" (&/$Nil))
+      (&/$Host "int" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
-      (&/$HostT "long" (&/$Nil))
+      (&/$Host "long" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
-      (&/$HostT "float" (&/$Nil))
+      (&/$Host "float" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
-      (&/$HostT "double" (&/$Nil))
+      (&/$Host "double" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
-      (&/$HostT "char" (&/$Nil))
+      (&/$Host "char" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
       
-      (&/$HostT _ _)
+      (&/$Host _ _)
       nil
 
-      (&/$NamedT ?name ?type)
+      (&/$Named ?name ?type)
       (prepare-return! *writer* ?type)
 
-      (&/$ExT _)
+      (&/$Ex _)
       nil
 
       _

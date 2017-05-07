@@ -30,7 +30,7 @@
 (defn unfold-array [type]
   "(-> Type (, Int Type))"
   (|case type
-    (&/$HostT "#Array" (&/$Cons param (&/$Nil)))
+    (&/$Host "#Array" (&/$Cons param (&/$Nil)))
     (|let [[count inner] (unfold-array param)]
       (&/T [(inc count) inner]))
 
@@ -42,10 +42,10 @@
   (defn ->java-sig [^objects type]
     "(-> Type (Lux Text))"
     (|case type
-      (&/$HostT ?name params)
+      (&/$Host ?name params)
       (cond (= &host-type/array-data-tag ?name) (|do [:let [[level base] (unfold-array type)]
                                                       base-sig (|case base
-                                                                 (&/$HostT base-class _)
+                                                                 (&/$Host base-class _)
                                                                  (return (&host-generics/->type-signature base-class))
 
                                                                  _
@@ -55,26 +55,26 @@
             (= &host-type/null-data-tag ?name)  (return (&host-generics/->type-signature "java.lang.Object"))
             :else                               (return (&host-generics/->type-signature ?name)))
 
-      (&/$FunctionT _ _)
+      (&/$Function _ _)
       (return (&host-generics/->type-signature function-class))
 
-      (&/$UnitT)
+      (&/$Unit)
       (return "V")
 
-      (&/$SumT _)
+      (&/$Sum _)
       (return object-array)
 
-      (&/$ProdT _)
+      (&/$Product _)
       (return object-array)
 
-      (&/$NamedT ?name ?type)
+      (&/$Named ?name ?type)
       (->java-sig ?type)
 
-      (&/$AppT ?F ?A)
+      (&/$App ?F ?A)
       (|do [type* (&type/apply-type ?F ?A)]
         (->java-sig type*))
 
-      (&/$ExT _)
+      (&/$Ex _)
       (return ex-type-class)
 
       _

@@ -21,10 +21,10 @@
   (&type/with-var
     (fn [$var]
       (|do [:let [(&/$Cons op (&/$Nil)) ?values]
-            =op (&&/analyse-1 analyse (&/$AppT &type/IO $var) op)
-            _ (&type/check exo-type (&/$SumT &type/Text ;; lux;Left
-                                             $var ;; lux;Right
-                                             ))
+            =op (&&/analyse-1 analyse (&/$App &type/IO $var) op)
+            _ (&type/check exo-type (&/$Sum &type/Text ;; lux;Left
+                                            $var ;; lux;Right
+                                            ))
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
@@ -57,8 +57,8 @@
                                            (&/|list =text =part =start)
                                            (&/|list)))))))
 
-  ^:private analyse-text-index      "index"      (&/$AppT &type/Maybe &type/Nat)
-  ^:private analyse-text-last-index "last-index" (&/$AppT &type/Maybe &type/Nat)
+  ^:private analyse-text-index      "index"      (&/$App &type/Maybe &type/Nat)
+  ^:private analyse-text-last-index "last-index" (&/$App &type/Maybe &type/Nat)
   )
 
 (defn ^:private analyse-text-contains? [analyse exo-type ?values]
@@ -77,7 +77,7 @@
         =text (&&/analyse-1 analyse &type/Text text)
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
-        _ (&type/check exo-type (&/$AppT &type/Maybe &type/Text))
+        _ (&type/check exo-type (&/$App &type/Maybe &type/Text))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "clip"])
@@ -131,7 +131,7 @@
   (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
         =idx (&&/analyse-1 analyse &type/Nat idx)
-        _ (&type/check exo-type (&/$AppT &type/Maybe &type/Char))
+        _ (&type/check exo-type (&/$App &type/Maybe &type/Char))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "char"])
@@ -245,7 +245,7 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <encode-op>) (&/|list =x) (&/|list)))))))
 
-    (let [decode-type (&/$AppT &type/Maybe <type>)]
+    (let [decode-type (&/$App &type/Maybe <type>)]
       (defn <decode> [analyse exo-type ?values]
         (|do [:let [(&/$Cons x (&/$Nil)) ?values]
               =x (&&/analyse-1 analyse &type/Text x)
@@ -306,7 +306,7 @@
   ^:private analyse-deg-to-real  &type/Deg  &type/Real   ["deg" "to-real"]
   ^:private analyse-real-to-deg  &type/Real &type/Deg    ["real" "to-deg"]
   
-  ^:private analyse-io-log       &type/Text &/$UnitT     ["io" "log"]
+  ^:private analyse-io-log       &type/Text &/$Unit     ["io" "log"]
   ^:private analyse-io-error     &type/Text &type/Bottom ["io" "error"]
   ^:private analyse-io-exit      &type/Int  &type/Bottom ["io" "exit"]
   )
@@ -321,7 +321,7 @@
 (defn ^:private analyse-array-new [analyse exo-type ?values]
   (|do [:let [(&/$Cons length (&/$Nil)) ?values]
         =length (&&/analyse-1 analyse &type/Nat length)
-        _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Array (&/$BoundT 1))))
+        _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Array (&/$Bound 1))))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["array" "new"]) (&/|list =length) (&/|list)))))))
@@ -332,7 +332,7 @@
       (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
             =array (&&/analyse-1 analyse (&type/Array $var) array)
             =idx (&&/analyse-1 analyse &type/Nat idx)
-            _ (&type/check exo-type (&/$AppT &type/Maybe $var))
+            _ (&type/check exo-type (&/$App &type/Maybe $var))
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["array" "get"]) (&/|list =array =idx) (&/|list)))))))))
@@ -466,8 +466,8 @@
 
 (defn ^:private analyse-process-future [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
-        =procedure (&&/analyse-1 analyse (&/$AppT &type/IO &type/Top) ?procedure)
-        _ (&type/check exo-type &/$UnitT)
+        =procedure (&&/analyse-1 analyse (&/$App &type/IO &type/Top) ?procedure)
+        _ (&type/check exo-type &/$Unit)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["process" "future"]) (&/|list =procedure) (&/|list)))))))
@@ -475,8 +475,8 @@
 (defn ^:private analyse-process-schedule [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
         =milliseconds (&&/analyse-1 analyse &type/Nat ?milliseconds)
-        =procedure (&&/analyse-1 analyse (&/$AppT &type/IO &type/Top) ?procedure)
-        _ (&type/check exo-type &/$UnitT)
+        =procedure (&&/analyse-1 analyse (&/$App &type/IO &type/Top) ?procedure)
+        _ (&type/check exo-type &/$Unit)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["process" "schedule"]) (&/|list =milliseconds =procedure) (&/|list)))))))

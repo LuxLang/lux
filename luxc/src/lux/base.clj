@@ -86,19 +86,19 @@
 
 ;; Type
 (defvariant
-  ("HostT" 2)
-  ("VoidT" 0)
-  ("UnitT" 0)
-  ("SumT" 2)
-  ("ProdT" 2)
-  ("FunctionT" 2)
-  ("BoundT" 1)
-  ("VarT" 1)
-  ("ExT" 1)
+  ("Host" 2)
+  ("Void" 0)
+  ("Unit" 0)
+  ("Sum" 2)
+  ("Product" 2)
+  ("Function" 2)
+  ("Bound" 1)
+  ("Var" 1)
+  ("Ex" 1)
   ("UnivQ" 2)
   ("ExQ" 2)
-  ("AppT" 2)
-  ("NamedT" 2))
+  ("App" 2)
+  ("Named" 2))
 
 ;; Vars
 (defvariant

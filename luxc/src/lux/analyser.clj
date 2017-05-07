@@ -26,7 +26,7 @@
       (|do [_cursor &/cursor]
         (analyse exo-type (&/T [_cursor (&/$Tuple values)])))
       (|case exo-type
-        (&/$VarT id)
+        (&/$Var id)
         (|do [? (&type/bound? id)]
           (if (or ? (&&/type-tag? module tag-name))
             (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
@@ -46,7 +46,7 @@
     (fn [?var]
       (|do [[[?output-type ?output-cursor] ?output-term] (&&/analyse-1 analyser ?var syntax)]
         (|case [?var ?output-type]
-          [(&/$VarT ?e-id) (&/$VarT ?a-id)]
+          [(&/$Var ?e-id) (&/$Var ?a-id)]
           (if (= ?e-id ?a-id)
             (|do [=output-type (&type/clean ?var ?output-type)]
               (return (&&/|meta =output-type ?output-cursor ?output-term)))
@@ -203,7 +203,7 @@
 ;; [Resources]
 (defn analyse [optimize eval! compile-module compilers]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &/$VoidT) asts)))
+    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &/$Void) asts)))
 
 (defn clean-output [?var analysis]
   (|do [:let [[[?output-type ?output-cursor] ?output-term] analysis]

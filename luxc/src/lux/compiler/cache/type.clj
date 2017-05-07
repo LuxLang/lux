@@ -24,22 +24,22 @@
   (if (clojure.lang.Util/identical &type/Type type)
     "T"
     (|case type
-      (&/$HostT name params)
+      (&/$Host name params)
       (str "^" name stop (serialize-list serialize-type params))
 
-      (&/$VoidT)
+      (&/$Void)
       "0"
 
-      (&/$UnitT)
+      (&/$Unit)
       "1"
       
-      (&/$ProdT left right)
+      (&/$Product left right)
       (str "*" (serialize-type left) (serialize-type right))
 
-      (&/$SumT left right)
+      (&/$Sum left right)
       (str "+" (serialize-type left) (serialize-type right))
 
-      (&/$FunctionT left right)
+      (&/$Function left right)
       (str ">" (serialize-type left) (serialize-type right))
 
       (&/$UnivQ env body)
@@ -48,19 +48,19 @@
       (&/$ExQ env body)
       (str "E" (serialize-list serialize-type env) (serialize-type body))
 
-      (&/$BoundT idx)
+      (&/$Bound idx)
       (str "$" idx stop)
 
-      (&/$ExT idx)
+      (&/$Ex idx)
       (str "!" idx stop)
 
-      (&/$VarT idx)
+      (&/$Var idx)
       (str "?" idx stop)
 
-      (&/$AppT left right)
+      (&/$App left right)
       (str "%" (serialize-type left) (serialize-type right))
 
-      (&/$NamedT [module name] type*)
+      (&/$Named [module name] type*)
       (str "@" module ident-separator name stop (serialize-type type*))
 
       _
@@ -85,8 +85,8 @@
       [<type> (.substring input 1)]
       ))
 
-  ^:private deserialize-void  "0" &/$VoidT
-  ^:private deserialize-unit  "1" &/$UnitT
+  ^:private deserialize-void  "0" &/$Void
+  ^:private deserialize-unit  "1" &/$Unit
   ^:private deserialize-type* "T" &type/Type
   )
 
@@ -98,10 +98,10 @@
           [(<type> left right) input*]))
       ))
 
-  ^:private deserialize-sum  "+" &/$SumT
-  ^:private deserialize-prod "*" &/$ProdT
-  ^:private deserialize-lambda    ">" &/$FunctionT
-  ^:private deserialize-app  "%" &/$AppT
+  ^:private deserialize-sum  "+" &/$Sum
+  ^:private deserialize-prod "*" &/$Product
+  ^:private deserialize-lambda    ">" &/$Function
+  ^:private deserialize-app  "%" &/$App
   )
 
 (do-template [<name> <signal> <type>]
@@ -110,9 +110,9 @@
       (let [[idx ^String input*] (.split (.substring input 1) stop 2)]
         [(<type> (Long/parseLong idx)) input*])))
 
-  ^:private deserialize-bound "$" &/$BoundT
-  ^:private deserialize-ex    "!" &/$ExT
-  ^:private deserialize-var   "?" &/$VarT
+  ^:private deserialize-bound "$" &/$Bound
+  ^:private deserialize-ex    "!" &/$Ex
+  ^:private deserialize-var   "?" &/$Var
   )
 
 (defn ^:private deserialize-named [^String input]
@@ -120,7 +120,7 @@
     (let [[^String module+name ^String input*] (.split (.substring input 1) stop 2)
           [module name] (.split module+name ident-separator 2)]
       (when-let [[type* ^String input*] (deserialize-type input*)]
-        [(&/$NamedT (&/T [module name]) type*) input*]))))
+        [(&/$Named (&/T [module name]) type*) input*]))))
 
 (do-template [<name> <signal> <type>]
   (defn <name> [^String input]
@@ -137,7 +137,7 @@
   (when (.startsWith input "^")
     (let [[name ^String input*] (.split (.substring input 1) stop 2)]
       (when-let [[params ^String input*] (deserialize-list input*)]
-        [(&/$HostT name params) input*]))))
+        [(&/$Host name params) input*]))))
 
 (defn deserialize-type
   "(-> Text Type)"

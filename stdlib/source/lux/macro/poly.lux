@@ -36,8 +36,8 @@
          _
          (macro;fail (format "Not " <name> " type: " (%type :type:))))))]
 
-  [void "Void" #;VoidT]
-  [unit "Unit" #;UnitT]
+  [void "Void" #;Void]
+  [unit "Unit" #;Unit]
   )
 
 (do-template [<combinator> <name>]
@@ -45,7 +45,7 @@
      (Matcher Unit)
      (;function [:type:]
        (case (type;un-alias :type:)
-         (#;NamedT ["lux" <name>] _)
+         (#;Named ["lux" <name>] _)
          (:: macro;Monad<Lux> wrap [])
 
          _
@@ -102,19 +102,19 @@
            (:: macro;Monad<Lux> wrap members)
            (macro;fail (format "Not a " ($AST$ <tag>) " type: " (%type :type:)))))))]
 
-  [sum    sum+    type;flatten-variant #;SumT]
-  [prod   prod+   type;flatten-tuple   #;ProdT]
+  [sum    sum+    type;flatten-variant #;Sum]
+  [prod   prod+   type;flatten-tuple   #;Product]
   )
 
 (def: #export func
   (Matcher [Type Type])
   (;function [:type:]
     (case (type;un-name :type:)
-      (#;FunctionT :left: :right:)
+      (#;Function :left: :right:)
       (:: macro;Monad<Lux> wrap [:left: :right:])
 
       _
-      (macro;fail (format "Not a FunctionT type: " (%type :type:))))))
+      (macro;fail (format "Not a Function type: " (%type :type:))))))
 
 (def: #export func+
   (Matcher [(List Type) Type])
@@ -122,13 +122,13 @@
     (let [[ins out] (type;flatten-function (type;un-name :type:))]
       (if (n.> +0 (list;size ins))
         (:: macro;Monad<Lux> wrap [ins out])
-        (macro;fail (format "Not a FunctionT type: " (%type :type:)))))))
+        (macro;fail (format "Not a Function type: " (%type :type:)))))))
 
 (def: #export tagged
   (Matcher [(List Ident) Type])
   (;function [:type:]
     (case (type;un-alias :type:)
-      (#;NamedT type-name :def:)
+      (#;Named type-name :def:)
       (do macro;Monad<Lux>
         [tags (macro;tags-of type-name)]
         (wrap [tags :def:]))
@@ -158,7 +158,7 @@
        (do macro;Monad<Lux>
          [[tags :type:] (tagged :type:)
           _ (macro;assert "Records and variants must have tags."
-                             (n.> +0 (list;size tags)))
+                          (n.> +0 (list;size tags)))
           [vars :type:] (polymorphic :type:)
           members (<sub-comb> :type:)
           #let [num-tags (list;size tags)
@@ -195,7 +195,7 @@
     (do macro;Monad<Lux>
       [#let [[:func: :args:] (loop [:type: (type;un-name :type:)]
                                (case :type:
-                                 (#;AppT :func: :arg:)
+                                 (#;App :func: :arg:)
                                  (let [[:func:' :args:] (recur :func:)]
                                    [:func:' (list& :arg: :args:)])
 
@@ -213,8 +213,8 @@
      (Matcher Type)
      (;function [:type:]
        (case (type;un-name :type:)
-         (^=> (#;AppT :quant: :arg:)
-              [(type;un-alias :quant:) (#;NamedT ["lux" <name>] _)])
+         (^=> (#;App :quant: :arg:)
+              [(type;un-alias :quant:) (#;Named ["lux" <name>] _)])
          (:: macro;Monad<Lux> wrap :arg:)
 
          _
@@ -235,7 +235,7 @@
   (-> Env (Matcher AST))
   (;function [:type:]
     (case :type:
-      (#;BoundT idx)
+      (#;Bound idx)
       (case (dict;get (adjusted-idx env idx) env)
         (#;Some [poly-type poly-ast])
         (:: macro;Monad<Lux> wrap poly-ast)
@@ -252,13 +252,13 @@
     (do Monad<Lux>
       [[t-func t-args] (apply :type:)]
       (case t-func
-        (^=> (#;BoundT t-func-idx)
+        (^=> (#;Bound t-func-idx)
              (n.= +0 (adjusted-idx env t-func-idx))
              [(do maybe;Monad<Maybe>
                 [=func (dict;get +0 env)
                  =args (mapM @ (;function [t-arg]
                                  (case t-arg
-                                   (#;BoundT idx)
+                                   (#;Bound idx)
                                    (dict;get (adjusted-idx env idx) env)
 
                                    _
@@ -276,7 +276,7 @@
   (-> Env Nat (Matcher Unit))
   (;function [:type:]
     (case :type:
-      (^=> (#;BoundT idx)
+      (^=> (#;Bound idx)
            (n.= var-id (adjusted-idx env idx)))
       (:: macro;Monad<Lux> wrap [])
 
@@ -295,7 +295,7 @@
       (|> env
           (dict;put current-size [funcT funcA])
           (dict;put (n.inc current-size) [varT varA])
-          (extend-env [(#;AppT funcT varT) (` (#;AppT (~ funcA) (~ varA)))]
+          (extend-env [(#;App funcT varT) (` (#;App (~ funcA) (~ varA)))]
                       type-vars')
           ))))
 
@@ -365,21 +365,21 @@
 (def: (to-ast env type)
   (-> Env Type AST)
   (case type
-    (#;HostT name params)
-    (` (#;HostT (~ (ast;text name))
-                (list (~@ (List/map (to-ast env) params)))))
+    (#;Host name params)
+    (` (#;Host (~ (ast;text name))
+               (list (~@ (List/map (to-ast env) params)))))
 
     (^template [<tag>]
       <tag>
       (` <tag>))
-    ([#;VoidT] [#;UnitT])
+    ([#;Void] [#;Unit])
 
     (^template [<tag>]
       (<tag> idx)
       (` (<tag> (~ (ast;nat idx)))))
-    ([#;VarT] [#;ExT])
+    ([#;Var] [#;Ex])
 
-    (#;BoundT idx)
+    (#;Bound idx)
     (let [idx (adjusted-idx env idx)]
       (if (n.= +0 idx)
         (|> (dict;get idx env) (default (undefined)) product;left (to-ast env))
@@ -389,15 +389,15 @@
       (<tag> left right)
       (` (<tag> (~ (to-ast env left))
                 (~ (to-ast env right)))))
-    ([#;FunctionT] [#;AppT])
+    ([#;Function] [#;App])
 
     (^template [<tag> <macro> <flattener>]
       (<tag> left right)
       (` (<macro> (~@ (List/map (to-ast env) (<flattener> type))))))
-    ([#;SumT  | type;flatten-variant]
-     [#;ProdT & type;flatten-tuple])
+    ([#;Sum  | type;flatten-variant]
+     [#;Product & type;flatten-tuple])
 
-    (#;NamedT name sub-type)
+    (#;Named name sub-type)
     (ast;symbol name)
 
     (^template [<tag>]
@@ -421,4 +421,4 @@
 
 (def: #export (type-var-indices num-vars)
   (-> Nat (List Type))
-  (|> num-vars list;indices (List/map (|>. #;BoundT))))
+  (|> num-vars list;indices (List/map (|>. #;Bound))))

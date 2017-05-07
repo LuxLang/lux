@@ -41,7 +41,7 @@
 
 (defn ^:private resolve-type [type]
   (|case type
-    (&/$VarT ?id)
+    (&/$Var ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
                                      (&/fail-with-loc "##1##")))]
       (resolve-type type*))
@@ -65,30 +65,30 @@
 
 (defn clean! [level ?tid bound-idx type]
   (|case type
-    (&/$VarT ?id)
+    (&/$Var ?id)
     (if (= ?tid ?id)
-      (&/$BoundT (+ (* 2 level) bound-idx))
+      (&/$Bound (+ (* 2 level) bound-idx))
       type)
 
-    (&/$HostT ?name ?params)
-    (&/$HostT ?name (&/|map (partial clean! level ?tid bound-idx)
-                            ?params))
+    (&/$Host ?name ?params)
+    (&/$Host ?name (&/|map (partial clean! level ?tid bound-idx)
+                           ?params))
     
-    (&/$FunctionT ?arg ?return)
-    (&/$FunctionT (clean! level ?tid bound-idx ?arg)
-                  (clean! level ?tid bound-idx ?return))
+    (&/$Function ?arg ?return)
+    (&/$Function (clean! level ?tid bound-idx ?arg)
+                 (clean! level ?tid bound-idx ?return))
 
-    (&/$AppT ?lambda ?param)
-    (&/$AppT (clean! level ?tid bound-idx ?lambda)
-             (clean! level ?tid bound-idx ?param))
+    (&/$App ?lambda ?param)
+    (&/$App (clean! level ?tid bound-idx ?lambda)
+            (clean! level ?tid bound-idx ?param))
 
-    (&/$ProdT ?left ?right)
-    (&/$ProdT (clean! level ?tid bound-idx ?left)
-              (clean! level ?tid bound-idx ?right))
+    (&/$Product ?left ?right)
+    (&/$Product (clean! level ?tid bound-idx ?left)
+                (clean! level ?tid bound-idx ?right))
     
-    (&/$SumT ?left ?right)
-    (&/$SumT (clean! level ?tid bound-idx ?left)
-             (clean! level ?tid bound-idx ?right))
+    (&/$Sum ?left ?right)
+    (&/$Sum (clean! level ?tid bound-idx ?left)
+            (clean! level ?tid bound-idx ?right))
 
     (&/$UnivQ ?env ?body)
     (&/$UnivQ (&/|map (partial clean! level ?tid bound-idx) ?env)
@@ -104,20 +104,20 @@
 
 (defn beta-reduce! [level env type]
   (|case type
-    (&/$HostT ?name ?params)
-    (&/$HostT ?name (&/|map (partial beta-reduce! level env) ?params))
+    (&/$Host ?name ?params)
+    (&/$Host ?name (&/|map (partial beta-reduce! level env) ?params))
 
-    (&/$SumT ?left ?right)
-    (&/$SumT (beta-reduce! level env ?left)
-             (beta-reduce! level env ?right))
+    (&/$Sum ?left ?right)
+    (&/$Sum (beta-reduce! level env ?left)
+            (beta-reduce! level env ?right))
 
-    (&/$ProdT ?left ?right)
-    (&/$ProdT (beta-reduce! level env ?left)
-              (beta-reduce! level env ?right))
+    (&/$Product ?left ?right)
+    (&/$Product (beta-reduce! level env ?left)
+                (beta-reduce! level env ?right))
 
-    (&/$AppT ?type-fn ?type-arg)
-    (&/$AppT (beta-reduce! level env ?type-fn)
-             (beta-reduce! level env ?type-arg))
+    (&/$App ?type-fn ?type-arg)
+    (&/$App (beta-reduce! level env ?type-fn)
+            (beta-reduce! level env ?type-arg))
     
     (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
@@ -135,11 +135,11 @@
       _
       type)
 
-    (&/$FunctionT ?input ?output)
-    (&/$FunctionT (beta-reduce! level env ?input)
-                  (beta-reduce! level env ?output))
+    (&/$Function ?input ?output)
+    (&/$Function (beta-reduce! level env ?input)
+                 (beta-reduce! level env ?output))
 
-    (&/$BoundT ?idx)
+    (&/$Bound ?idx)
     (|case (&/|at (- ?idx (* 2 level)) env)
       (&/$Some bound)
       (beta-reduce! level env bound)
@@ -165,17 +165,17 @@
                                  (&/$Cons type-fn))
                           local-def))
 
-    (&/$AppT F A)
+    (&/$App F A)
     (|do [type-fn* (apply-type! F A)]
       (apply-type! type-fn* param))
 
-    (&/$NamedT ?name ?type)
+    (&/$Named ?name ?type)
     (apply-type! ?type param)
 
-    (&/$ExT id)
-    (return (&/$AppT type-fn param))
+    (&/$Ex id)
+    (return (&/$App type-fn param))
 
-    (&/$VarT id)
+    (&/$Var id)
     (|do [=type-fun (deref id)]
       (apply-type! =type-fun param))
     
@@ -199,9 +199,9 @@
           =type (apply-type! type $var)]
       (adjust-type* up =type))
 
-    (&/$ProdT ?left ?right)
+    (&/$Product ?left ?right)
     (let [=type (&/fold (fn [_abody ena]
-                          (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                          (|let [[_aenv _aidx (&/$Var _avar)] ena]
                             (clean! 0 _avar _aidx _abody)))
                         type
                         up)
@@ -214,9 +214,9 @@
       (return (&type/Tuple$ (&/|map distributor
                                     (&type/flatten-prod =type)))))
 
-    (&/$SumT ?left ?right)
+    (&/$Sum ?left ?right)
     (let [=type (&/fold (fn [_abody ena]
-                          (|let [[_aenv _aidx (&/$VarT _avar)] ena]
+                          (|let [[_aenv _aidx (&/$Var _avar)] ena]
                             (clean! 0 _avar _aidx _abody)))
                         type
                         up)
@@ -229,19 +229,19 @@
       (return (&type/Variant$ (&/|map distributor
                                       (&type/flatten-sum =type)))))
 
-    (&/$AppT ?tfun ?targ)
+    (&/$App ?tfun ?targ)
     (|do [=type (apply-type! ?tfun ?targ)]
       (adjust-type* up =type))
 
-    (&/$VarT ?id)
+    (&/$Var ?id)
     (|do [type* (&/try-all% (&/|list (&type/deref ?id)
                                      (&/fail-with-loc (str "##2##: " ?id))))]
       (adjust-type* up type*))
 
-    (&/$NamedT ?name ?type)
+    (&/$Named ?name ?type)
     (adjust-type* up ?type)
 
-    (&/$UnitT)
+    (&/$Unit)
     (return type)
 
     _
@@ -309,7 +309,7 @@
       (&/$Tuple ?members)
       (|case ?members
         (&/$Nil)
-        (|do [_ (&type/check value-type &/$UnitT)
+        (|do [_ (&type/check value-type &/$Unit)
               =kont kont]
           (return (&/T [($TupleTestAC (&/|list)) =kont])))
 
@@ -323,7 +323,7 @@
                               (return (&type/fold-prod member-types)))
                             (adjust-type value-type))]
           (|case value-type*
-            (&/$ProdT _)
+            (&/$Product _)
             (|let [num-elems (&/|length ?members)
                    [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?members) value-type*)]
               (if (= num-elems _shorter)
@@ -604,7 +604,7 @@
       (&/$Nil)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          (&/$UnitT)
+          (&/$Unit)
           (return true)
 
           _
@@ -616,7 +616,7 @@
           (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
                 _ (&type/check value-type (|case (->> (&/|map &/|second =structs) (&/|reverse))
                                             (&/$Cons last prevs)
-                                            (&/fold (fn [right left] (&/$ProdT left right))
+                                            (&/fold (fn [right left] (&/$Product left right))
                                                     last prevs)))]
             (return (or ?total
                         (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
@@ -624,7 +624,7 @@
             (return true)
             (|do [value-type* (resolve-type value-type)]
               (|case value-type*
-                (&/$ProdT _)
+                (&/$Product _)
                 (|let [num-elems (&/|length ?structs)
                        [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?structs) value-type*)
                        _ (&/assert! (= num-elems _shorter)
@@ -640,7 +640,7 @@
       (return true)
       (|do [value-type* (resolve-type value-type)]
         (|case value-type*
-          (&/$SumT _)
+          (&/$Sum _)
           (|do [totals (&/map2% check-totality
                                 (&type/flatten-sum value-type*)
                                 ?structs)]

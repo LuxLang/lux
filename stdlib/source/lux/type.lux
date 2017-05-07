@@ -14,14 +14,14 @@
 (def: (beta-reduce env type)
   (-> (List Type) Type Type)
   (case type
-    (#;HostT name params)
-    (#;HostT name (List/map (beta-reduce env) params))
+    (#;Host name params)
+    (#;Host name (List/map (beta-reduce env) params))
     
     (^template [<tag>]
       (<tag> left right)
       (<tag> (beta-reduce env left) (beta-reduce env right)))
-    ([#;SumT] [#;ProdT]
-     [#;FunctionT] [#;AppT])
+    ([#;Sum] [#;Product]
+     [#;Function] [#;App])
     
     (^template [<tag>]
       (<tag> old-env def)
@@ -34,7 +34,7 @@
     ([#;UnivQ]
      [#;ExQ])
     
-    (#;BoundT idx)
+    (#;Bound idx)
     (default (error! (Text/append "Unknown type var: " (Nat/encode idx)))
       (list;nth idx env))
     
@@ -46,7 +46,7 @@
 (struct: #export _ (Eq Type)
   (def: (= x y)
     (case [x y]
-      [(#;HostT xname xparams) (#;HostT yname yparams)]
+      [(#;Host xname xparams) (#;Host yname yparams)]
       (and (Text/= xname yname)
            (n.= (list;size yparams) (list;size xparams))
            (List/fold (;function [[x y] prev] (and prev (= x y)))
@@ -56,26 +56,26 @@
       (^template [<tag>]
         [<tag> <tag>]
         true)
-      ([#;VoidT] [#;UnitT])
+      ([#;Void] [#;Unit])
       
       (^template [<tag>]
         [(<tag> xid) (<tag> yid)]
         (n.= yid xid))
-      ([#;VarT] [#;ExT] [#;BoundT])
+      ([#;Var] [#;Ex] [#;Bound])
 
-      (^or [(#;FunctionT xleft xright) (#;FunctionT yleft yright)]
-           [(#;AppT xleft xright) (#;AppT yleft yright)])
+      (^or [(#;Function xleft xright) (#;Function yleft yright)]
+           [(#;App xleft xright) (#;App yleft yright)])
       (and (= xleft yleft)
            (= xright yright))
 
-      [(#;NamedT xname xtype) (#;NamedT yname ytype)]
+      [(#;Named xname xtype) (#;Named yname ytype)]
       (and (Ident/= xname yname)
            (= xtype ytype))
 
       (^template [<tag>]
         [(<tag> xL xR) (<tag> yL yR)]
         (and (= xL yL) (= xR yR)))
-      ([#;SumT] [#;ProdT])
+      ([#;Sum] [#;Product])
       
       (^or [(#;UnivQ xenv xbody) (#;UnivQ yenv ybody)]
            [(#;ExQ xenv xbody) (#;ExQ yenv ybody)])
@@ -109,7 +109,7 @@
 (def: #export (flatten-function type)
   (-> Type [(List Type) Type])
   (case type
-    (#;FunctionT in out')
+    (#;Function in out')
     (let [[ins out] (flatten-function out')]
       [(list& in ins) out])
 
@@ -119,7 +119,7 @@
 (def: #export (flatten-application type)
   (-> Type [Type (List Type)])
   (case type
-    (#;AppT left' right)
+    (#;App left' right)
     (let [[left rights] (flatten-application left')]
       [left (List/append rights (list right))])
 
@@ -136,8 +136,8 @@
        _
        (list type)))]
 
-  [flatten-variant #;SumT]
-  [flatten-tuple   #;ProdT]
+  [flatten-variant #;Sum]
+  [flatten-tuple   #;Product]
   )
 
 (def: #export (apply-type type-func param)
@@ -148,12 +148,12 @@
       (#;Some (beta-reduce (list& type-func param env) body)))
     ([#;UnivQ] [#;ExQ])
 
-    (#;AppT F A)
+    (#;App F A)
     (do Monad<Maybe>
       [type-fn* (apply-type F A)]
       (apply-type type-fn* param))
 
-    (#;NamedT name type)
+    (#;Named name type)
     (apply-type type param)
     
     _
@@ -162,33 +162,33 @@
 (def: #export (to-ast type)
   (-> Type AST)
   (case type
-    (#;HostT name params)
-    (` (#;HostT (~ (ast;text name))
-                (list (~@ (List/map to-ast params)))))
+    (#;Host name params)
+    (` (#;Host (~ (ast;text name))
+               (list (~@ (List/map to-ast params)))))
 
     (^template [<tag>]
       <tag>
       (` <tag>))
-    ([#;VoidT] [#;UnitT])
+    ([#;Void] [#;Unit])
 
     (^template [<tag>]
       (<tag> idx)
       (` (<tag> (~ (ast;nat idx)))))
-    ([#;VarT] [#;ExT] [#;BoundT])
+    ([#;Var] [#;Ex] [#;Bound])
 
     (^template [<tag>]
       (<tag> left right)
       (` (<tag> (~ (to-ast left))
                 (~ (to-ast right)))))
-    ([#;FunctionT] [#;AppT])
+    ([#;Function] [#;App])
 
     (^template [<tag> <macro> <flattener>]
       (<tag> left right)
       (` (<macro> (~@ (List/map to-ast (<flattener> type))))))
-    ([#;SumT  | flatten-variant]
-     [#;ProdT & flatten-tuple])
+    ([#;Sum  | flatten-variant]
+     [#;Product & flatten-tuple])
 
-    (#;NamedT name sub-type)
+    (#;Named name sub-type)
     (ast;symbol name)
 
     (^template [<tag>]
@@ -201,7 +201,7 @@
 (def: #export (to-text type)
   (-> Type Text)
   (case type
-    (#;HostT name params)
+    (#;Host name params)
     (case params
       #;Nil
       ($_ Text/append "(host " name ")")
@@ -209,10 +209,10 @@
       _
       ($_ Text/append "(host " name " " (|> params (List/map to-text) list;reverse (list;interpose " ") (List/fold Text/append "")) ")"))
 
-    #;VoidT
+    #;Void
     "Void"
     
-    #;UnitT
+    #;Unit
     "Unit"
 
     (^template [<tag> <open> <close> <flatten>]
@@ -224,10 +224,10 @@
               (list;interpose " ")
               (List/fold Text/append ""))
           <close>))
-    ([#;SumT  "(| " ")" flatten-variant]
-     [#;ProdT "["   "]" flatten-tuple])
+    ([#;Sum  "(| " ")" flatten-variant]
+     [#;Product "["   "]" flatten-tuple])
 
-    (#;FunctionT input output)
+    (#;Function input output)
     (let [[ins out] (flatten-function type)]
       ($_ Text/append  "(-> "
           (|> ins
@@ -237,16 +237,16 @@
               (List/fold Text/append ""))
           " " (to-text out) ")"))
 
-    (#;BoundT idx)
+    (#;Bound idx)
     (Nat/encode idx)
 
-    (#;VarT id)
+    (#;Var id)
     ($_ Text/append "⌈v:" (Nat/encode id) "⌋")
 
-    (#;ExT id)
+    (#;Ex id)
     ($_ Text/append "⟨e:" (Nat/encode id) "⟩")
 
-    (#;AppT fun param)
+    (#;App fun param)
     (let [[type-func type-args] (flatten-application type)]
       ($_ Text/append  "(" (to-text type-func) " " (|> type-args (List/map to-text) list;reverse (list;interpose " ") (List/fold Text/append "")) ")"))
 
@@ -256,15 +256,15 @@
     ([#;UnivQ "All"]
      [#;ExQ "Ex"])
 
-    (#;NamedT [module name] type)
+    (#;Named [module name] type)
     ($_ Text/append module ";" name)
     ))
 
 (def: #export (un-alias type)
   (-> Type Type)
   (case type
-    (#;NamedT _ (#;NamedT ident type'))
-    (un-alias (#;NamedT ident type'))
+    (#;Named _ (#;Named ident type'))
+    (un-alias (#;Named ident type'))
 
     _
     type))
@@ -272,7 +272,7 @@
 (def: #export (un-name type)
   (-> Type Type)
   (case type
-    (#;NamedT ident type')
+    (#;Named ident type')
     (un-name type')
 
     _
@@ -291,8 +291,8 @@
        (#;Cons type types')
        (<ctor> type (<name> types'))))]
 
-  [variant Void #;SumT]
-  [tuple   Unit #;ProdT]
+  [variant Void #;Sum]
+  [tuple   Unit #;Product]
   )
 
 (def: #export (function inputs output)
@@ -302,7 +302,7 @@
     output
 
     (#;Cons input inputs')
-    (#;FunctionT input (function inputs' output))))
+    (#;Function input (function inputs' output))))
 
 (def: #export (application quant params)
   (-> Type (List Type) Type)
@@ -311,7 +311,7 @@
     quant
 
     (#;Cons param params')
-    (application (#;AppT quant param) params')))
+    (application (#;App quant param) params')))
 
 (do-template [<name> <tag>]
   [(def: #export (<name> size body)
@@ -327,10 +327,10 @@
 (def: #export (quantified? type)
   (-> Type Bool)
   (case type
-    (#;NamedT [module name] _type)
+    (#;Named [module name] _type)
     (quantified? _type)
 
-    (#;AppT F A)
+    (#;App F A)
     (default false
       (do Monad<Maybe>
         [applied (apply-type F A)]

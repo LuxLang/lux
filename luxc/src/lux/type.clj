@@ -23,145 +23,145 @@
 
 (def empty-env &/$Nil)
 
-(def Bool (&/$NamedT (&/T ["lux" "Bool"]) (&/$HostT "#Bool" &/$Nil)))
-(def Nat (&/$NamedT (&/T ["lux" "Nat"]) (&/$HostT &&host/nat-data-tag &/$Nil)))
-(def Deg (&/$NamedT (&/T ["lux" "Deg"]) (&/$HostT &&host/deg-data-tag &/$Nil)))
-(def Int (&/$NamedT (&/T ["lux" "Int"]) (&/$HostT "#Int" &/$Nil)))
-(def Real (&/$NamedT (&/T ["lux" "Real"]) (&/$HostT "#Real" &/$Nil)))
-(def Char (&/$NamedT (&/T ["lux" "Char"]) (&/$HostT "#Char" &/$Nil)))
-(def Text (&/$NamedT (&/T ["lux" "Text"]) (&/$HostT "#Text" &/$Nil)))
-(def Ident (&/$NamedT (&/T ["lux" "Ident"]) (&/$ProdT Text Text)))
+(def Bool (&/$Named (&/T ["lux" "Bool"]) (&/$Host "#Bool" &/$Nil)))
+(def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Host &&host/nat-data-tag &/$Nil)))
+(def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Host &&host/deg-data-tag &/$Nil)))
+(def Int (&/$Named (&/T ["lux" "Int"]) (&/$Host "#Int" &/$Nil)))
+(def Real (&/$Named (&/T ["lux" "Real"]) (&/$Host "#Real" &/$Nil)))
+(def Char (&/$Named (&/T ["lux" "Char"]) (&/$Host "#Char" &/$Nil)))
+(def Text (&/$Named (&/T ["lux" "Text"]) (&/$Host "#Text" &/$Nil)))
+(def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
 
 (do-template [<name> <tag>]
   (defn <name> [elem-type]
-    (&/$HostT <tag> (&/|list elem-type)))
+    (&/$Host <tag> (&/|list elem-type)))
 
   Array "#Array"
   Atom  "#Atom"
   )
 
 (def Bottom
-  (&/$NamedT (&/T ["lux" "Bottom"])
-             (&/$UnivQ empty-env
-                       (&/$BoundT 1))))
+  (&/$Named (&/T ["lux" "Bottom"])
+            (&/$UnivQ empty-env
+                      (&/$Bound 1))))
 
 (def Top
-  (&/$NamedT (&/T ["lux" "Top"])
-             (&/$ExQ empty-env
-                     (&/$BoundT 1))))
+  (&/$Named (&/T ["lux" "Top"])
+            (&/$ExQ empty-env
+                    (&/$Bound 1))))
 
 (def IO
-  (&/$NamedT (&/T ["lux/codata" "IO"])
-             (&/$UnivQ empty-env
-                       (&/$FunctionT &/$VoidT (&/$BoundT 1)))))
+  (&/$Named (&/T ["lux/codata" "IO"])
+            (&/$UnivQ empty-env
+                      (&/$Function &/$Void (&/$Bound 1)))))
 
 (def List
-  (&/$NamedT (&/T ["lux" "List"])
-             (&/$UnivQ empty-env
-                       (&/$SumT
-                        ;; lux;Nil
-                        &/$UnitT
-                        ;; lux;Cons
-                        (&/$ProdT (&/$BoundT 1)
-                                  (&/$AppT (&/$BoundT 0)
-                                           (&/$BoundT 1)))))))
+  (&/$Named (&/T ["lux" "List"])
+            (&/$UnivQ empty-env
+                      (&/$Sum
+                       ;; lux;Nil
+                       &/$Unit
+                       ;; lux;Cons
+                       (&/$Product (&/$Bound 1)
+                                   (&/$App (&/$Bound 0)
+                                           (&/$Bound 1)))))))
 
 (def Maybe
-  (&/$NamedT (&/T ["lux" "Maybe"])
-             (&/$UnivQ empty-env
-                       (&/$SumT
-                        ;; lux;None
-                        &/$UnitT
-                        ;; lux;Some
-                        (&/$BoundT 1))
-                       )))
+  (&/$Named (&/T ["lux" "Maybe"])
+            (&/$UnivQ empty-env
+                      (&/$Sum
+                       ;; lux;None
+                       &/$Unit
+                       ;; lux;Some
+                       (&/$Bound 1))
+                      )))
 
 (def Type
-  (&/$NamedT (&/T ["lux" "Type"])
-             (let [Type (&/$AppT (&/$BoundT 0) (&/$BoundT 1))
-                   TypeList (&/$AppT List Type)
-                   TypePair (&/$ProdT Type Type)]
-               (&/$AppT (&/$UnivQ empty-env
-                                  (&/$SumT
-                                   ;; HostT
-                                   (&/$ProdT Text TypeList)
-                                   (&/$SumT
-                                    ;; VoidT
-                                    &/$UnitT
-                                    (&/$SumT
-                                     ;; UnitT
-                                     &/$UnitT
-                                     (&/$SumT
-                                      ;; SumT
+  (&/$Named (&/T ["lux" "Type"])
+            (let [Type (&/$App (&/$Bound 0) (&/$Bound 1))
+                  TypeList (&/$App List Type)
+                  TypePair (&/$Product Type Type)]
+              (&/$App (&/$UnivQ empty-env
+                                (&/$Sum
+                                 ;; Host
+                                 (&/$Product Text TypeList)
+                                 (&/$Sum
+                                  ;; Void
+                                  &/$Unit
+                                  (&/$Sum
+                                   ;; Unit
+                                   &/$Unit
+                                   (&/$Sum
+                                    ;; Sum
+                                    TypePair
+                                    (&/$Sum
+                                     ;; Product
+                                     TypePair
+                                     (&/$Sum
+                                      ;; Function
                                       TypePair
-                                      (&/$SumT
-                                       ;; ProdT
-                                       TypePair
-                                       (&/$SumT
-                                        ;; FunctionT
-                                        TypePair
-                                        (&/$SumT
-                                         ;; BoundT
+                                      (&/$Sum
+                                       ;; Bound
+                                       Nat
+                                       (&/$Sum
+                                        ;; Var
+                                        Nat
+                                        (&/$Sum
+                                         ;; Ex
                                          Nat
-                                         (&/$SumT
-                                          ;; VarT
-                                          Nat
-                                          (&/$SumT
-                                           ;; ExT
-                                           Nat
-                                           (&/$SumT
-                                            ;; UnivQ
-                                            (&/$ProdT TypeList Type)
-                                            (&/$SumT
-                                             ;; ExQ
-                                             (&/$ProdT TypeList Type)
-                                             (&/$SumT
-                                              ;; AppT
-                                              TypePair
-                                              ;; NamedT
-                                              (&/$ProdT Ident Type)))))))))))))
-                                  )
-                        &/$VoidT))))
+                                         (&/$Sum
+                                          ;; UnivQ
+                                          (&/$Product TypeList Type)
+                                          (&/$Sum
+                                           ;; ExQ
+                                           (&/$Product TypeList Type)
+                                           (&/$Sum
+                                            ;; App
+                                            TypePair
+                                            ;; Named
+                                            (&/$Product Ident Type)))))))))))))
+                                )
+                      &/$Void))))
 
 (def Ann-Value
-  (&/$NamedT (&/T ["lux" "Ann-Value"])
-             (let [Ann-Value (&/$AppT (&/$BoundT 0) (&/$BoundT 1))]
-               (&/$AppT (&/$UnivQ empty-env
-                                  (&/$SumT
-                                   ;; BoolA
-                                   Bool
-                                   (&/$SumT
-                                    ;; NatA
-                                    Nat
-                                    (&/$SumT
-                                     ;; IntA
-                                     Int
-                                     (&/$SumT
-                                      ;; DegA
-                                      Deg
-                                      (&/$SumT
-                                       ;; RealA
-                                       Real
-                                       (&/$SumT
-                                        ;; CharA
-                                        Char
-                                        (&/$SumT
-                                         ;; TextA
-                                         Text
-                                         (&/$SumT
-                                          ;; IdentA
-                                          Ident
-                                          (&/$SumT
-                                           ;; ListA
-                                           (&/$AppT List Ann-Value)
-                                           ;; DictA
-                                           (&/$AppT List (&/$ProdT Text Ann-Value)))))))))))
-                                  )
-                        &/$VoidT))))
+  (&/$Named (&/T ["lux" "Ann-Value"])
+            (let [Ann-Value (&/$App (&/$Bound 0) (&/$Bound 1))]
+              (&/$App (&/$UnivQ empty-env
+                                (&/$Sum
+                                 ;; BoolA
+                                 Bool
+                                 (&/$Sum
+                                  ;; NatA
+                                  Nat
+                                  (&/$Sum
+                                   ;; IntA
+                                   Int
+                                   (&/$Sum
+                                    ;; DegA
+                                    Deg
+                                    (&/$Sum
+                                     ;; RealA
+                                     Real
+                                     (&/$Sum
+                                      ;; CharA
+                                      Char
+                                      (&/$Sum
+                                       ;; TextA
+                                       Text
+                                       (&/$Sum
+                                        ;; IdentA
+                                        Ident
+                                        (&/$Sum
+                                         ;; ListA
+                                         (&/$App List Ann-Value)
+                                         ;; DictA
+                                         (&/$App List (&/$Product Text Ann-Value)))))))))))
+                                )
+                      &/$Void))))
 
 (def Anns
-  (&/$NamedT (&/T ["lux" "Anns"])
-             (&/$AppT List (&/$ProdT Ident Ann-Value))))
+  (&/$Named (&/T ["lux" "Anns"])
+            (&/$App List (&/$Product Ident Ann-Value))))
 
 (def Macro)
 
@@ -196,7 +196,7 @@
 
 (defn deref+ [type]
   (|case type
-    (&/$VarT id)
+    (&/$Var id)
     (deref id)
 
     _
@@ -270,7 +270,7 @@
              (->> compiler
                   (&/get$ &/$type-context)
                   (&/get$ &/$ex-counter)
-                  &/$ExT))))
+                  &/$Ex))))
 
 (declare clean*)
 (defn delete-var [id]
@@ -290,7 +290,7 @@
 
                                        (&/$Some ?type*)
                                        (|case ?type*
-                                         (&/$VarT ?id*)
+                                         (&/$Var ?id*)
                                          (if (= id ?id*)
                                            (return (&/T [?id &/$None]))
                                            (return binding))
@@ -308,13 +308,13 @@
 
 (defn with-var [k]
   (|do [id create-var
-        output (k (&/$VarT id))
+        output (k (&/$Var id))
         _ (delete-var id)]
     (return output)))
 
 (defn clean* [?tid type]
   (|case type
-    (&/$VarT ?id)
+    (&/$Var ?id)
     (if (= ?tid ?id)
       (|do [? (bound? ?id)]
         (if ?
@@ -325,7 +325,7 @@
           (|do [=type (deref ?id)
                 ==type (clean* ?tid =type)]
             (|case ==type
-              (&/$VarT =id)
+              (&/$Var =id)
               (if (= ?tid =id)
                 (|do [_ (unset-var ?id)]
                   (return type))
@@ -338,38 +338,38 @@
           (return type)))
       )
 
-    (&/$HostT ?name ?params)
+    (&/$Host ?name ?params)
     (|do [=params (&/map% (partial clean* ?tid) ?params)]
-      (return (&/$HostT ?name =params)))
+      (return (&/$Host ?name =params)))
     
-    (&/$FunctionT ?arg ?return)
+    (&/$Function ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
           =return (clean* ?tid ?return)]
-      (return (&/$FunctionT =arg =return)))
+      (return (&/$Function =arg =return)))
 
-    (&/$AppT ?lambda ?param)
+    (&/$App ?lambda ?param)
     (|do [=lambda (clean* ?tid ?lambda)
           =param (clean* ?tid ?param)]
-      (return (&/$AppT =lambda =param)))
+      (return (&/$App =lambda =param)))
 
-    (&/$ProdT ?left ?right)
+    (&/$Product ?left ?right)
     (|do [=left (clean* ?tid ?left)
           =right (clean* ?tid ?right)]
-      (return (&/$ProdT =left =right)))
+      (return (&/$Product =left =right)))
     
-    (&/$SumT ?left ?right)
+    (&/$Sum ?left ?right)
     (|do [=left (clean* ?tid ?left)
           =right (clean* ?tid ?right)]
-      (return (&/$SumT =left =right)))
+      (return (&/$Sum =left =right)))
 
     (&/$UnivQ ?env ?body)
     (|do [=env (&/map% (partial clean* ?tid) ?env)
-          body* (clean* ?tid ?body)] ;; TODO: DON'T CLEAN THE BODY
+          body* (clean* ?tid ?body)] ;; TODO: DO NOT CLEAN THE BODY
       (return (&/$UnivQ =env body*)))
 
     (&/$ExQ ?env ?body)
     (|do [=env (&/map% (partial clean* ?tid) ?env)
-          body* (clean* ?tid ?body)] ;; TODO: DON'T CLEAN THE BODY
+          body* (clean* ?tid ?body)] ;; TODO: DO NOT CLEAN THE BODY
       (return (&/$ExQ =env body*)))
 
     _
@@ -378,7 +378,7 @@
 
 (defn clean [tvar type]
   (|case tvar
-    (&/$VarT ?id)
+    (&/$Var ?id)
     (clean* ?id type)
     
     _
@@ -386,7 +386,7 @@
 
 (defn ^:private unravel-fun [type]
   (|case type
-    (&/$FunctionT ?in ?out)
+    (&/$Function ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
       (&/T [??out (&/$Cons ?in ?args)]))
 
@@ -395,7 +395,7 @@
 
 (defn ^:private unravel-app [fun-type]
   (|case fun-type
-    (&/$AppT ?left ?right)
+    (&/$App ?left ?right)
     (|let [[?fun-type ?args] (unravel-app ?left)]
       (&/T [?fun-type (&/|++ ?args (&/|list ?right))]))
 
@@ -415,7 +415,7 @@
     (defn <at> [tag type]
       "(-> Int Type (Lux Type))"
       (|case type
-        (&/$NamedT ?name ?type)
+        (&/$Named ?name ?type)
         (<at> tag ?type)
         
         (<tag> ?left ?right)
@@ -429,8 +429,8 @@
         _
         (&/fail-with-loc (str "[Type Error] Type is not a " <desc> ": " (show-type type))))))
 
-  &/$SumT  flatten-sum  sum-at  "Sum"
-  &/$ProdT flatten-prod prod-at "Product"
+  &/$Sum  flatten-sum  sum-at  "Sum"
+  &/$Product flatten-prod prod-at "Product"
   )
 
 (do-template [<name> <ctor> <unit>]
@@ -443,13 +443,13 @@
       (&/$Nil)
       <unit>))
 
-  Variant$ &/$SumT  &/$VoidT
-  Tuple$   &/$ProdT &/$UnitT
+  Variant$ &/$Sum  &/$Void
+  Tuple$   &/$Product &/$Unit
   )
 
 (defn show-type [^objects type]
   (|case type
-    (&/$HostT name params)
+    (&/$Host name params)
     (|case params
       (&/$Nil)
       (str "(host " name ")")
@@ -457,32 +457,32 @@
       _
       (str "(host " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
-    (&/$VoidT)
+    (&/$Void)
     "Void"
     
-    (&/$UnitT)
+    (&/$Unit)
     "Unit"
     
-    (&/$ProdT _)
+    (&/$Product _)
     (str "[" (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) "]")
 
-    (&/$SumT _)
+    (&/$Sum _)
     (str "(| " (->> (flatten-sum type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")")
     
-    (&/$FunctionT input output)
+    (&/$Function input output)
     (|let [[?out ?ins] (unravel-fun type)]
       (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
 
-    (&/$VarT id)
+    (&/$Var id)
     (str "⌈v:" id "⌋")
 
-    (&/$ExT ?id)
+    (&/$Ex ?id)
     (str "⟨e:" ?id "⟩")
 
-    (&/$BoundT idx)
+    (&/$Bound idx)
     (str idx)
 
-    (&/$AppT _ _)
+    (&/$App _ _)
     (|let [[?call-fun ?call-args] (unravel-app type)]
       (str "(" (show-type ?call-fun) " " (->> ?call-args (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
@@ -494,7 +494,7 @@
     (str "(Ex " "{" (->> ?env (&/|map show-type) (&/|interpose " ") (&/fold str "")) "} "
          (show-type ?body) ")")
     
-    (&/$NamedT ?name ?type)
+    (&/$Named ?name ?type)
     (&/ident->text ?name)
 
     _
@@ -503,52 +503,52 @@
 (defn type= [x y]
   (or (clojure.lang.Util/identical x y)
       (let [output (|case [x y]
-                     [(&/$NamedT [?xmodule ?xname] ?xtype) (&/$NamedT [?ymodule ?yname] ?ytype)]
+                     [(&/$Named [?xmodule ?xname] ?xtype) (&/$Named [?ymodule ?yname] ?ytype)]
                      (and (= ?xmodule ?ymodule)
                           (= ?xname ?yname))
 
-                     [(&/$HostT xname xparams) (&/$HostT yname yparams)]
+                     [(&/$Host xname xparams) (&/$Host yname yparams)]
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
 
-                     [(&/$VoidT) (&/$VoidT)]
+                     [(&/$Void) (&/$Void)]
                      true
                      
-                     [(&/$UnitT) (&/$UnitT)]
+                     [(&/$Unit) (&/$Unit)]
                      true
 
-                     [(&/$ProdT xL xR) (&/$ProdT yL yR)]
+                     [(&/$Product xL xR) (&/$Product yL yR)]
                      (and (type= xL yL)
                           (type= xR yR))
 
-                     [(&/$SumT xL xR) (&/$SumT yL yR)]
+                     [(&/$Sum xL xR) (&/$Sum yL yR)]
                      (and (type= xL yL)
                           (type= xR yR))
 
-                     [(&/$FunctionT xinput xoutput) (&/$FunctionT yinput youtput)]
+                     [(&/$Function xinput xoutput) (&/$Function yinput youtput)]
                      (and (type= xinput yinput)
                           (type= xoutput youtput))
 
-                     [(&/$VarT xid) (&/$VarT yid)]
+                     [(&/$Var xid) (&/$Var yid)]
                      (= xid yid)
 
-                     [(&/$BoundT xidx) (&/$BoundT yidx)]
+                     [(&/$Bound xidx) (&/$Bound yidx)]
                      (= xidx yidx)
 
-                     [(&/$ExT xid) (&/$ExT yid)]
+                     [(&/$Ex xid) (&/$Ex yid)]
                      (= xid yid)
 
-                     [(&/$AppT xlambda xparam) (&/$AppT ylambda yparam)]
+                     [(&/$App xlambda xparam) (&/$App ylambda yparam)]
                      (and (type= xlambda ylambda) (type= xparam yparam))
                      
                      [(&/$UnivQ xenv xbody) (&/$UnivQ yenv ybody)]
                      (type= xbody ybody)
 
-                     [(&/$NamedT ?xname ?xtype) _]
+                     [(&/$Named ?xname ?xtype) _]
                      (type= ?xtype y)
 
-                     [_ (&/$NamedT ?yname ?ytype)]
+                     [_ (&/$Named ?yname ?ytype)]
                      (type= x ?ytype)
                      
                      [_ _]
@@ -574,7 +574,7 @@
 
 (defn show-type+ [type]
   (|case type
-    (&/$VarT ?id)
+    (&/$Var ?id)
     (fn [state]
       (|case ((deref ?id) state)
         (&/$Right state* bound)
@@ -597,17 +597,17 @@
 
 (defn beta-reduce [env type]
   (|case type
-    (&/$HostT ?name ?params)
-    (&/$HostT ?name (&/|map (partial beta-reduce env) ?params))
+    (&/$Host ?name ?params)
+    (&/$Host ?name (&/|map (partial beta-reduce env) ?params))
 
-    (&/$SumT ?left ?right)
-    (&/$SumT (beta-reduce env ?left) (beta-reduce env ?right))
+    (&/$Sum ?left ?right)
+    (&/$Sum (beta-reduce env ?left) (beta-reduce env ?right))
 
-    (&/$ProdT ?left ?right)
-    (&/$ProdT (beta-reduce env ?left) (beta-reduce env ?right))
+    (&/$Product ?left ?right)
+    (&/$Product (beta-reduce env ?left) (beta-reduce env ?right))
 
-    (&/$AppT ?type-fn ?type-arg)
-    (&/$AppT (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
+    (&/$App ?type-fn ?type-arg)
+    (&/$App (beta-reduce env ?type-fn) (beta-reduce env ?type-arg))
     
     (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
@@ -625,10 +625,10 @@
       _
       type)
 
-    (&/$FunctionT ?input ?output)
-    (&/$FunctionT (beta-reduce env ?input) (beta-reduce env ?output))
+    (&/$Function ?input ?output)
+    (&/$Function (beta-reduce env ?input) (beta-reduce env ?output))
 
-    (&/$BoundT ?idx)
+    (&/$Bound ?idx)
     (|case (&/|at ?idx env)
       (&/$Some bound)
       (beta-reduce env bound)
@@ -654,18 +654,18 @@
                               (&/$Cons type-fn))
                          local-def))
 
-    (&/$AppT F A)
+    (&/$App F A)
     (|do [type-fn* (apply-type F A)]
       (apply-type type-fn* param))
 
-    (&/$NamedT ?name ?type)
+    (&/$Named ?name ?type)
     (apply-type ?type param)
 
     ;; TODO: This one must go...
-    (&/$ExT id)
-    (return (&/$AppT type-fn param))
+    (&/$Ex id)
+    (return (&/$App type-fn param))
 
-    (&/$VarT id)
+    (&/$Var id)
     (|do [=type-fun (deref id)]
       (apply-type =type-fun param))
     
@@ -679,7 +679,7 @@
     (return fixpoints)
     (&/with-attempt
       (|case [expected actual]
-        [(&/$VarT ?eid) (&/$VarT ?aid)]
+        [(&/$Var ?eid) (&/$Var ?aid)]
         (if (= ?eid ?aid)
           (return fixpoints)
           (|do [ebound (fn [state]
@@ -710,7 +710,7 @@
               [(&/$Some etype) (&/$Some atype)]
               (check* fixpoints invariant?? etype atype))))
         
-        [(&/$VarT ?id) _]
+        [(&/$Var ?id) _]
         (fn [state]
           (|case ((set-var ?id actual) state)
             (&/$Right state* _)
@@ -721,7 +721,7 @@
                (check* fixpoints invariant?? bound actual))
              state)))
         
-        [_ (&/$VarT ?id)]
+        [_ (&/$Var ?id)]
         (fn [state]
           (|case ((set-var ?id expected) state)
             (&/$Right state* _)
@@ -732,15 +732,15 @@
                (check* fixpoints invariant?? expected bound))
              state)))
 
-        [(&/$AppT (&/$ExT eid) eA) (&/$AppT (&/$ExT aid) aA)]
+        [(&/$App (&/$Ex eid) eA) (&/$App (&/$Ex aid) aA)]
         (if (= eid aid)
           (check* fixpoints invariant?? eA aA)
           (check-error "" expected actual))
 
-        [(&/$AppT (&/$VarT ?id) A1) (&/$AppT F2 A2)]
+        [(&/$App (&/$Var ?id) A1) (&/$App F2 A2)]
         (fn [state]
           (|case ((|do [F1 (deref ?id)]
-                    (check* fixpoints invariant?? (&/$AppT F1 A1) actual))
+                    (check* fixpoints invariant?? (&/$App F1 A1) actual))
                   state)
             (&/$Right state* output)
             (return* state* output)
@@ -752,34 +752,34 @@
                  (check* fixpoints invariant?? expected actual*))
                state)
 
-              (&/$ExT _)
-              ((|do [fixpoints* (check* fixpoints invariant?? (&/$VarT ?id) F2)]
+              (&/$Ex _)
+              ((|do [fixpoints* (check* fixpoints invariant?? (&/$Var ?id) F2)]
                  (check* fixpoints* invariant?? A1 A2))
                state)
 
               _
-              ((|do [fixpoints* (check* fixpoints invariant?? (&/$VarT ?id) F2)
+              ((|do [fixpoints* (check* fixpoints invariant?? (&/$Var ?id) F2)
                      e* (apply-type F2 A1)
                      a* (apply-type F2 A2)]
                  (check* fixpoints* invariant?? e* a*))
                state))))
         
-        [(&/$AppT F1 A1) (&/$AppT (&/$VarT ?id) A2)]
+        [(&/$App F1 A1) (&/$App (&/$Var ?id) A2)]
         (fn [state]
           (|case ((|do [F2 (deref ?id)]
-                    (check* fixpoints invariant?? expected (&/$AppT F2 A2)))
+                    (check* fixpoints invariant?? expected (&/$App F2 A2)))
                   state)
             (&/$Right state* output)
             (return* state* output)
 
             (&/$Left _)
-            ((|do [fixpoints* (check* fixpoints invariant?? F1 (&/$VarT ?id))
+            ((|do [fixpoints* (check* fixpoints invariant?? F1 (&/$Var ?id))
                    e* (apply-type F1 A1)
                    a* (apply-type F1 A2)]
                (check* fixpoints* invariant?? e* a*))
              state)))
         
-        [(&/$AppT F A) _]
+        [(&/$App F A) _]
         (let [fp-pair (&/T [expected actual])
               _ (when (> (&/|length fixpoints) 64)
                   (&/|log! (println-str 'FIXPOINTS (->> (&/|keys fixpoints)
@@ -789,7 +789,7 @@
                                                                          (show-type a)))))
                                                         (&/|interpose "\n\n")
                                                         (&/fold str ""))))
-                  (assert false (prn-str 'check* '[(&/$AppT F A) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
+                  (assert false (prn-str 'check* '[(&/$App F A) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
             (if ?
@@ -800,10 +800,10 @@
             (|do [expected* (apply-type F A)]
               (check* (fp-put fp-pair true fixpoints) invariant?? expected* actual))))
 
-        [_ (&/$AppT (&/$ExT aid) A)]
+        [_ (&/$App (&/$Ex aid) A)]
         (check-error "" expected actual)
 
-        [_ (&/$AppT F A)]
+        [_ (&/$App F A)]
         (|do [actual* (apply-type F A)]
           (check* fixpoints invariant?? expected actual*))
 
@@ -833,7 +833,7 @@
               actual* (apply-type actual $arg)]
           (check* fixpoints invariant?? expected actual*))
 
-        [(&/$HostT e!data) (&/$HostT a!data)]
+        [(&/$Host e!data) (&/$Host a!data)]
         (|do [? &/jvm?]
           (if ?
             (|do [class-loader &/loader]
@@ -853,33 +853,33 @@
                   (return fixpoints))
                 (check-error "" expected actual)))))
 
-        [(&/$VoidT) (&/$VoidT)]
+        [(&/$Void) (&/$Void)]
         (return fixpoints)
         
-        [(&/$UnitT) (&/$UnitT)]
+        [(&/$Unit) (&/$Unit)]
         (return fixpoints)
 
-        [(&/$FunctionT eI eO) (&/$FunctionT aI aO)]
+        [(&/$Function eI eO) (&/$Function aI aO)]
         (|do [fixpoints* (check* fixpoints invariant?? aI eI)]
           (check* fixpoints* invariant?? eO aO))
 
-        [(&/$ProdT eL eR) (&/$ProdT aL aR)]
+        [(&/$Product eL eR) (&/$Product aL aR)]
         (|do [fixpoints* (check* fixpoints invariant?? eL aL)]
           (check* fixpoints* invariant?? eR aR))
 
-        [(&/$SumT eL eR) (&/$SumT aL aR)]
+        [(&/$Sum eL eR) (&/$Sum aL aR)]
         (|do [fixpoints* (check* fixpoints invariant?? eL aL)]
           (check* fixpoints* invariant?? eR aR))
 
-        [(&/$ExT e!id) (&/$ExT a!id)]
+        [(&/$Ex e!id) (&/$Ex a!id)]
         (if (= e!id a!id)
           (return fixpoints)
           (check-error "" expected actual))
 
-        [(&/$NamedT _ ?etype) _]
+        [(&/$Named _ ?etype) _]
         (check* fixpoints invariant?? ?etype actual)
 
-        [_ (&/$NamedT _ ?atype)]
+        [_ (&/$Named _ ?atype)]
         (check* fixpoints invariant?? expected ?atype)
 
         [_ _]
@@ -894,15 +894,15 @@
 (defn actual-type [type]
   "(-> Type (Lux Type))"
   (|case type
-    (&/$AppT ?all ?param)
+    (&/$App ?all ?param)
     (|do [type* (apply-type ?all ?param)]
       (actual-type type*))
 
-    (&/$VarT id)
+    (&/$Var id)
     (|do [=type (deref id)]
       (actual-type =type))
 
-    (&/$NamedT ?name ?type)
+    (&/$Named ?name ?type)
     (actual-type ?type)
     
     _
@@ -912,7 +912,7 @@
 (defn type-name [type]
   "(-> Type (Lux Ident))"
   (|case type
-    (&/$NamedT name _)
+    (&/$Named name _)
     (return name)
     
     _
@@ -922,7 +922,7 @@
 (defn unknown? [type]
   "(-> Type (Lux Bool))"
   (|case type
-    (&/$VarT id)
+    (&/$Var id)
     (|do [? (bound? id)]
       (return (not ?)))
 
@@ -932,7 +932,7 @@
 (defn resolve-type [type]
   "(-> Type (Lux Type))"
   (|case type
-    (&/$VarT id)
+    (&/$Var id)
     (|do [? (bound? id)]
       (if ?
         (deref id)
@@ -949,7 +949,7 @@
       (&/T [size-members (&/|++ (&/|take (dec size-members) ?member-types)
                                 (&/|list (|case (->> ?member-types (&/|drop (dec size-members)) (&/|reverse))
                                            (&/$Cons last prevs)
-                                           (&/fold (fn [right left] (&/$ProdT left right))
+                                           (&/fold (fn [right left] (&/$Product left right))
                                                    last prevs))))])
       (&/T [size-types ?member-types])
       )))
@@ -966,48 +966,48 @@
       (&/$Cons last prevs)
       (&/fold (fn [r l] (<plus> l r)) last prevs)))
 
-  fold-prod &/$UnitT &/$ProdT
-  fold-sum  &/$VoidT &/$SumT
+  fold-prod &/$Unit &/$Product
+  fold-sum  &/$Void &/$Sum
   )
 
 (def create-var+
   (|do [id create-var]
-    (return (&/$VarT id))))
+    (return (&/$Var id))))
 
 (defn ^:private push-app [inf-type inf-var]
   (|case inf-type
-    (&/$AppT inf-type* inf-var*)
-    (&/$AppT (push-app inf-type* inf-var) inf-var*)
+    (&/$App inf-type* inf-var*)
+    (&/$App (push-app inf-type* inf-var) inf-var*)
 
     _
-    (&/$AppT inf-type inf-var)))
+    (&/$App inf-type inf-var)))
 
 (defn ^:private push-name [name inf-type]
   (|case inf-type
-    (&/$AppT inf-type* inf-var*)
-    (&/$AppT (push-name name inf-type*) inf-var*)
+    (&/$App inf-type* inf-var*)
+    (&/$App (push-name name inf-type*) inf-var*)
 
     _
-    (&/$NamedT name inf-type)))
+    (&/$Named name inf-type)))
 
 (defn ^:private push-univq [env inf-type]
   (|case inf-type
-    (&/$AppT inf-type* inf-var*)
-    (&/$AppT (push-univq env inf-type*) inf-var*)
+    (&/$App inf-type* inf-var*)
+    (&/$App (push-univq env inf-type*) inf-var*)
 
     _
     (&/$UnivQ env inf-type)))
 
 (defn instantiate-inference [type]
   (|case type
-    (&/$NamedT ?name ?type)
+    (&/$Named ?name ?type)
     (|do [output (instantiate-inference ?type)]
       (return (push-name ?name output)))
 
     (&/$UnivQ _aenv _abody)
     (|do [inf-var create-var
           output (instantiate-inference _abody)]
-      (return (push-univq _aenv (push-app output (&/$VarT inf-var)))))
+      (return (push-univq _aenv (push-app output (&/$Var inf-var)))))
 
     _
     (return type)))
