@@ -218,7 +218,7 @@ Called by `imenu--generic-function'."
             "exception:"
             "function" "case" ":" ":!" ":!!" "undefined" "ident-for"
             "and" "or"
-            "exec" "let" "let%" "if" "cond" "do" "be" "open" "loop" "recur" "comment" "list" "list&" "io" "vector" "tree"
+            "exec" "let" "with-expansions" "if" "cond" "do" "be" "open" "loop" "recur" "comment" "list" "list&" "io" "vector" "tree"
             "get@" "set@" "update@" "|>" "|>." "<|" "<|." "_$" "$_" "~" "~@" "~'" "::" ":::" "default"
             "|" "&" "->" "All" "Ex" "Rec" "host" "$" "type"
             "^" "^or" "^slots" "^=>" "^~" "^@" "^template" "^open" "^|>" "^stream&" "^regex"
@@ -340,7 +340,7 @@ This function also returns nil meaning don't specify the indentation."
               ((or (eq method 'defun)
                    (and (null method)
                         (> (length function) 3)
-                        (string-match "\\`\\(?:\\S +/\\)?\\(\\w+:\\|\\(\\w+;\\)?with-\\)"
+                        (string-match "\\`\\(?:\\S +/\\)?\\(\\w+:\\|\\(\\w*;\\)?with-\\)"
                                       function)))
                (lisp-indent-defform state indent-point))
               ((integerp method)
@@ -365,7 +365,6 @@ This function also returns nil meaning don't specify the indentation."
   (def 'defun)
   (function 'defun)
   (let 'defun)
-  (let% 'defun)
   (case 'defun)
   (do 'defun)
   (exec 'defun)
