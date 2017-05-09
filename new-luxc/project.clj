@@ -16,7 +16,7 @@
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
-  :dependencies []
+  :dependencies [[org.ow2.asm/asm-all "5.0.3"]]
   
   :source-paths ["source"]
   :test-paths ["test"]

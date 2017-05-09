@@ -1,0 +1,65 @@
+(;module:
+  lux
+  (lux (concurrency ["A" atom])
+       (data ["E" error]
+             (coll ["D" dict]))
+       [macro]
+       [host #+ jvm-import]))
+
+## [Host]
+(jvm-import org.objectweb.asm.MethodVisitor
+  (visitLdcInsn [Object] void))
+
+(jvm-import java.lang.ClassLoader)
+
+## [Types]
+(type: #export Compiled
+  Unit)
+
+(type: #export Blob host;Byte-Array)
+
+(type: #export Class-Store (A;Atom (D;Dict Text Blob)))
+
+(type: #export Host
+  {#visitor (Maybe MethodVisitor)
+   #loader ClassLoader
+   #store Class-Store})
+
+(def: #export unit-value Text "\u0000unit\u0000")
+
+(def: (visitor::get compiler)
+  (-> Compiler (Maybe MethodVisitor))
+  (|> (get@ #;host compiler)
+      (:! Host)
+      (get@ #visitor)))
+
+(def: (visitor::put visitor compiler)
+  (-> MethodVisitor Compiler Compiler)
+  (update@ #;host
+           (function [host]
+             (|> host
+                 (:! Host)
+                 (set@ #visitor (#;Some visitor))
+                 (:! Void)))
+           compiler))
+
+(def: #export get-visitor
+  (Lux MethodVisitor)
+  (function [compiler]
+    (case (visitor::get compiler)
+      #;None
+      (#E;Error "No visitor has been set.")
+
+      (#;Some visitor)
+      (#E;Success [compiler visitor]))))
+
+(def: #export (with-visitor visitor body)
+  (All [a] (-> MethodVisitor (Lux a) (Lux a)))
+  (function [compiler]
+    (case (macro;run' (visitor::put visitor compiler) body)
+      (#E;Error error)
+      (#E;Error error)
+
+      (#E;Success [compiler' output])
+      (#E;Success [(visitor::put (visitor::get compiler) compiler')
+                   output]))))

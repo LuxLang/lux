@@ -17,12 +17,35 @@
    #;module-anns    (list)
    #;module-state   #;Active})
 
+(def: #export (define (^@ full-name [module-name def-name])
+                      definition)
+  (-> Ident Def (Lux Unit))
+  (function [compiler]
+    (case (&;pl-get module-name (get@ #;modules compiler))
+      (#;Some module)
+      (case (&;pl-get def-name (get@ #;defs module))
+        #;None
+        (#E;Success [(update@ #;modules
+                              (&;pl-put module-name
+                                        (update@ #;defs
+                                                 (: (-> (List [Text Def]) (List [Text Def]))
+                                                    (|>. (#;Cons [def-name definition])))
+                                                 module))
+                              compiler)
+                     []])
+
+        (#;Some already-existing)
+        (#E;Error (format "Cannot re-define definiton: " (%ident full-name))))
+
+      #;None
+      (#E;Error (format "Cannot define in unknown module: " module-name)))))
+
 (def: #export (create hash name)
   (-> Nat Text (Lux Module))
   (function [compiler]
     (let [module (new-module hash)]
       (#E;Success [(update@ #;modules
-                            (&;pl::put name module)
+                            (&;pl-put name module)
                             compiler)
                    module]))))
 
@@ -30,19 +53,24 @@
   [(def: #export (<flagger> module-name)
      (-> Text (Lux Unit))
      (function [compiler]
-       (case (|> compiler (get@ #;modules) (&;pl::get module-name))
+       (case (|> compiler (get@ #;modules) (&;pl-get module-name))
          (#;Some module)
-         (#E;Success [(update@ #;modules
-                               (&;pl::put module-name (set@ #;module-state <tag> module))
-                               compiler)
-                      []])
+         (let [active? (case (get@ #;module-state module)
+                         #;Active true
+                         _     false)]
+           (if active?
+             (#E;Success [(update@ #;modules
+                                   (&;pl-put module-name (set@ #;module-state <tag> module))
+                                   compiler)
+                          []])
+             (#E;Error "Can only change the state of a currently-active module.")))
 
          #;None
          (#E;Error (format "Module does not exist: " module-name)))))
    (def: #export (<asker> module-name)
      (-> Text (Lux Bool))
      (function [compiler]
-       (case (|> compiler (get@ #;modules) (&;pl::get module-name))
+       (case (|> compiler (get@ #;modules) (&;pl-get module-name))
          (#;Some module)
          (#E;Success [compiler
                       (case (get@ #;module-state module)

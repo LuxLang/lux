@@ -1,17 +1,23 @@
 (;module:
   lux
   (lux (control monad)
-       (concurrency ["P" promise])
+       (concurrency ["A" atom]
+                    ["P" promise])
        (data ["E" error]
              [text "T/" Hash<Text>]
-             text/format)
-       [macro #+ Monad<Lux>])
+             text/format
+             (coll ["D" dict]
+                   [array #+ Array]))
+       [macro #+ Monad<Lux>]
+       host
+       [io])
   (luxc ["&" base]
         ["&;" io]
         ["&;" module]
         ["&;" parser]
         (compiler ["&&;" runtime]
-                  ["&&;" statement])
+                  ["&&;" statement]
+                  ["&&;" common])
         ))
 
 (def: (compile ast)
@@ -101,9 +107,70 @@
       (#E;Error error)
       (wrap (#E;Error error)))))
 
-(type: Host Unit)
+(jvm-import org.objectweb.asm.MethodVisitor)
 
-(def: init-host Host [])
+(jvm-import java.lang.reflect.AccessibleObject
+  (setAccessible [boolean] void))
+
+(jvm-import java.lang.reflect.Method
+  (invoke [Object (Array Object)] #try Object))
+
+(jvm-import (java.lang.Class a)
+  (getDeclaredMethod [String (Array (Class Object))] #try Method))
+
+(jvm-import java.lang.Object
+  (getClass [] (Class Object)))
+
+(jvm-import java.lang.Integer
+  (#static TYPE (Class Integer)))
+
+(jvm-import java.lang.ClassLoader)
+
+(def: ClassLoader::defineClass
+  Method
+  (case (Class.getDeclaredMethod ["defineClass"
+                                  (|> (array (Class Object) +4)
+                                      (array-store +0 (:! (Class Object) (class-for String)))
+                                      (array-store +1 (Object.getClass [] (array byte +0)))
+                                      (array-store +2 (:! (Class Object) Integer.TYPE))
+                                      (array-store +3 (:! (Class Object) Integer.TYPE)))]
+                                 (class-for java.lang.ClassLoader))
+    (#E;Success method)
+    (do-to method
+      (AccessibleObject.setAccessible [true]))
+
+    (#E;Error error)
+    (error! error)))
+
+(def: (memory-class-loader store)
+  (-> &&common;Class-Store ClassLoader)
+  (object ClassLoader []
+    []
+    (ClassLoader (findClass [class-name String]) void
+                 (case (|> store A;get io;run (D;get class-name))
+                   (#;Some bytecode)
+                   (case (Method.invoke [(:! Object _jvm_this)
+                                         (array;from-list (list (:! Object class-name)
+                                                                (:! Object bytecode)
+                                                                (:! Object (l2i 0))
+                                                                (:! Object (l2i (nat-to-int (array-length bytecode))))))]
+                                        ClassLoader::defineClass)
+                     (#E;Success output)
+                     []
+                     
+                     (#E;Error error)
+                     (error! error))
+
+                   _
+                   (error! (format "Unknown class: " class-name))))))
+
+(def: (init-host _)
+  (-> Top &&common;Host)
+  (let [store (: &&common;Class-Store
+                 (A;atom (D;new text;Hash<Text>)))]
+    {#&&common;visitor #;None
+     #&&common;loader (memory-class-loader store)
+     #&&common;store store}))
 
 (def: init-cursor Cursor ["" +0 +0])
 
@@ -121,7 +188,7 @@
    #;compiler-mode    #;Build})
 
 (def: (init-compiler host)
-  (-> Host Compiler)
+  (-> &&common;Host Compiler)
   {#;info            init-compiler-info
    #;source          [init-cursor ""]
    #;cursor          init-cursor
@@ -147,8 +214,8 @@
 (def: #export (compile-program program target sources)
   (-> &;Path &;Path (List &;Path) (P;Promise Unit))
   (do P;Monad<Promise>
-    [#let [compiler (init-compiler init-host)]
-     _ (or-crash! (&&runtime;compile-runtime []))
+    [#let [compiler (init-compiler (init-host []))]
+     compiler (or-crash! (&&runtime;compile-runtime compiler))
      compiler (or-crash! (compile-module sources prelude compiler))
      compiler (or-crash! (compile-module sources program compiler))
      #let [_ (log! "Compilation complete!")]]
