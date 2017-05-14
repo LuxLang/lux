@@ -114,7 +114,7 @@
         (TC;check expected actual))
      =value (&;with-expected-type Top
               (analyse eval value))]
-    (wrap (&common;replace-type actual =value))))
+    (wrap (&common;replace-type expected =value))))
 
 (def: (analyse-typed-tuple analyse cursor members)
   (-> (-> Code (Lux Analysis)) Cursor
@@ -253,3 +253,145 @@
               (TC;check expected (la;get-type =variant)))]
           (wrap (&common;replace-type expected =variant)))
         (&;fail (format "Invalid type for variant: " (%type expected)))))))
+
+## Functions
+(def: (maybe-to-lux input)
+  (All [a] (-> (Maybe a) (Lux a)))
+  (case input
+    #;None
+    (&;fail "")
+
+    (#;Some value)
+    (:: Monad<Lux> wrap value)))
+
+(def: (with-var body)
+  (All [a] (-> (-> [Nat Type] (Lux a)) (Lux a)))
+  (do Monad<Lux>
+    [[id var] (&;within-type-env TC;create-var)
+     output (body [id var])
+     _ (&;within-type-env (TC;delete-var id))]
+    (wrap output)))
+
+(def: (bind-var var-id bound-idx type)
+  (-> Nat Nat Type Type)
+  (case type
+    (#;Host name params)
+    (#;Host name (L/map (bind-var var-id bound-idx) params))
+
+    (^template [<tag>]
+      (<tag> left right)
+      (<tag> (bind-var var-id bound-idx left)
+             (bind-var var-id bound-idx right)))
+    ([#;Sum]
+     [#;Product]
+     [#;Function]
+     [#;App])
+    
+    (#;Var id)
+    (if (n.= var-id id)
+      (#;Bound bound-idx)
+      type)
+
+    (^template [<tag>]
+      (<tag> env quantified)
+      (<tag> (L/map (bind-var var-id bound-idx) env)
+             (bind-var var-id (n.+ +2 bound-idx) quantified)))
+    ([#;UnivQ]
+     [#;ExQ])
+    
+    (#;Named name unnamed)
+    (#;Named name
+             (bind-var var-id bound-idx unnamed))
+
+    _
+    type))
+
+(def: #export (analyse-function analyse cursor func-name arg-name body)
+  (-> (-> Code (Lux Analysis)) Cursor
+      Text Text Code
+      (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (&;with-try
+      (function [error]
+        (let [raw (format "Functions require function types: " (type;to-text expected))]
+          (&;fail (if (T/= "" error)
+                    raw
+                    (format error "\n" raw)))))
+      (case expected
+        (#;Named name unnamed)
+        (do @
+          [=function (&;with-expected-type unnamed
+                       (analyse-function analyse cursor func-name arg-name body))]
+          (wrap (&common;replace-type expected =function)))
+
+        (#;App funT argT)
+        (do @
+          [fully-applied (maybe-to-lux (type;apply-type funT argT))
+           =function (&;with-expected-type fully-applied
+                       (analyse-function analyse cursor func-name arg-name body))]
+          (wrap (&common;replace-type expected =function)))
+        
+        (#;UnivQ _)
+        (do @
+          [[var-id var] (&;within-type-env
+                         TC;existential)
+           expected' (maybe-to-lux (type;apply-type expected var))
+           =function (&;with-expected-type expected'
+                       (analyse-function analyse cursor func-name arg-name body))]
+          (wrap (&common;replace-type expected =function)))
+
+        (#;ExQ _)
+        (with-var
+          (function [[var-id var]]
+            (do @
+              [expected' (maybe-to-lux (type;apply-type expected var))
+               =function (&;with-expected-type expected'
+                           (analyse-function analyse cursor func-name arg-name body))]
+              (&common;clean var =function))))
+        
+        (#;Var id)
+        (do @
+          [? (&;within-type-env
+              (TC;bound? id))]
+          (if ?
+            (do @
+              [expected' (&;within-type-env
+                          (TC;read-var id))]
+              (&;with-expected-type expected'
+                (analyse-function analyse cursor func-name arg-name body)))
+            ## Inference
+            (with-var
+              (function [[input-id inputT]]
+                (with-var
+                  (function [[output-id outputT]]
+                    (do @
+                      [#let [funT (#;Function inputT outputT)]
+                       =function (&;with-expected-type funT
+                                   (analyse-function analyse cursor func-name arg-name body))
+                       funT' (&;within-type-env
+                              (TC;clean output-id funT))
+                       concrete-input? (&;within-type-env
+                                        (TC;bound? input-id))
+                       funT'' (if concrete-input?
+                                (&;within-type-env
+                                 (TC;clean input-id funT'))
+                                (wrap (#;UnivQ (list) (bind-var input-id +1 funT'))))
+                       _ (&;within-type-env
+                          (TC;check expected funT''))]
+                      (wrap (&common;replace-type expected =function)))
+                    ))))))
+
+        (#;Function inputT outputT)
+        (do @
+          [[=scope =body] (&;with-scope
+                            (&env;with-local [func-name expected]
+                              (&env;with-local [arg-name inputT]
+                                (&;with-expected-type outputT
+                                  (analyse body)))))]
+          (wrap [[expected cursor]
+                 (#la;Function =scope =body)]))
+        
+        _
+        (&;fail "")
+        ))))
