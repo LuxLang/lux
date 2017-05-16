@@ -1,0 +1,172 @@
+(;module:
+  lux
+  (lux (control monad
+                pipe)
+       [io #- run]
+       (concurrency ["A" atom])
+       (data ["E" error]
+             [text "T/" Eq<Text>]
+             text/format
+             (coll [list "L/" Fold<List> Monoid<List> Monad<List>]
+                   ["D" dict])
+             [number]
+             [product])
+       [macro #+ Monad<Lux>]
+       [type]
+       (type ["TC" check]))
+  (luxc ["&" base]
+        (lang ["la" analysis #+ Analysis])
+        ["&;" module]
+        ["&;" env]
+        (analyser ["&;" common])))
+
+## [Analysers]
+(def: (analyse-typed-tuple analyse members)
+  (-> &;Analyser (List Code) (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (let [member-types (type;flatten-tuple expected)
+          num-types (list;size member-types)
+          num-members (list;size members)]
+      (cond (n.= num-types num-members)
+            (do @
+              [=tuple (: (Lux (List Analysis))
+                         (mapM @
+                               (function [[expected member]]
+                                 (&;with-expected-type expected
+                                   (analyse member)))
+                               (list;zip2 member-types members)))]
+              (wrap (#la;Tuple =tuple)))
+
+            (n.< num-types num-members)
+            (do @
+              [#let [[head-ts tail-ts] (list;split (n.- +2 num-members)
+                                                   member-types)]
+               =prevs (mapM @
+                            (function [[expected member]]
+                              (&;with-expected-type expected
+                                (analyse member)))
+                            (list;zip2 head-ts members))
+               =last (&;with-expected-type (type;tuple tail-ts)
+                       (analyse (default (undefined)
+                                  (list;last members))))]
+              (wrap (#la;Tuple (L/append =prevs (list =last)))))
+
+            ## (n.> num-types num-members)
+            (do @
+              [#let [[head-xs tail-xs] (list;split (n.- +2 num-types)
+                                                   members)]
+               =prevs (mapM @
+                            (function [[expected member]]
+                              (&;with-expected-type expected
+                                (analyse member)))
+                            (list;zip2 member-types head-xs))
+               =last (&;with-expected-type (default (undefined)
+                                             (list;last member-types))
+                       (analyse-typed-tuple analyse tail-xs))]
+              (wrap (#la;Tuple (L/append =prevs (list =last)))))
+            ))))
+
+(def: #export (analyse-tuple analyse members)
+  (-> &;Analyser (List Code) (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (&;with-stacked-errors
+      (function [_] (format "Invalid type for tuple: " (%type expected)))
+      (case expected
+        (#;Product _)
+        (analyse-typed-tuple analyse members)
+
+        (#;Named name unnamedT)
+        (&;with-expected-type unnamedT
+          (analyse-tuple analyse members))
+
+        (#;Var id)
+        (do @
+          [bound? (&;within-type-env
+                   (TC;bound? id))]
+          (if bound?
+            (do @
+              [expected' (&;within-type-env
+                          (TC;read-var id))]
+              (&;with-expected-type expected'
+                (analyse-tuple analyse members)))
+            (do @
+              [=members (mapM @ (|>. analyse &common;with-unknown-type)
+                              members)
+               #let [tuple-type (type;tuple (L/map product;left =members))]
+               _ (&;within-type-env
+                  (TC;check expected tuple-type))]
+              (wrap (#la;Tuple (L/map product;right =members))))))
+
+        (#;UnivQ _)
+        (do @
+          [[var-id var] (&;within-type-env
+                         TC;existential)]
+          (&;with-expected-type (assume (type;apply-type expected var))
+            (analyse-tuple analyse members)))
+
+        (#;ExQ _)
+        (&common;with-var
+          (function [[var-id var]]
+            (&;with-expected-type (assume (type;apply-type expected var))
+              (analyse-tuple analyse members))))
+        
+        _
+        (&;fail "")
+        ))))
+
+(def: #export (analyse-variant analyse tag value)
+  (-> &;Analyser Nat Code (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (&;with-stacked-errors
+      (function [_] (format "Invalid type for variant: " (%type expected)))
+      (case expected
+        (#;Sum _)
+        (let [flat (type;flatten-variant expected)
+              type-size (list;size flat)]
+          (if (n.< type-size tag)
+            (do @
+              [#let [last? (n.= tag (n.dec type-size))
+                     variant-type (default (undefined)
+                                    (list;nth tag flat))]
+               =value (&;with-expected-type variant-type
+                        (analyse value))]
+              (wrap (#la;Variant tag last? =value)))
+            (&;fail (format "Trying to create variant with tag beyond type's limitations." "\n"
+                            "      Tag: " (%n tag) "\n"
+                            "Type size: " (%n type-size) "\n"
+                            "     Type: " (%type expected) "\n"))))
+
+        (#;Named name unnamedT)
+        (&;with-expected-type unnamedT
+          (analyse-variant analyse tag value))
+
+        (#;Var id)
+        (do @
+          [bound? (&;within-type-env
+                   (TC;bound? id))]
+          (if bound?
+            (do @
+              [expected' (&;within-type-env
+                          (TC;read-var id))]
+              (&;with-expected-type expected'
+                (analyse-variant analyse tag value)))
+            (&;fail (format "Invalid type for variant: " (%type expected)))))
+
+        (#;UnivQ _)
+        (do @
+          [[var-id var] (&;within-type-env
+                         TC;existential)]
+          (&;with-expected-type (assume (type;apply-type expected var))
+            (analyse-variant analyse tag value)))
+
+        (#;ExQ _)
+        (&common;with-var
+          (function [[var-id var]]
+            (&;with-expected-type (assume (type;apply-type expected var))
+              (analyse-variant analyse tag value))))
+        
+        _
+        (&;fail "")))))

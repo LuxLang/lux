@@ -10,64 +10,23 @@
   (luxc ["&" base]
         (lang analysis)))
 
-(def: #export (replace-type replacement analysis)
-  (-> Type Analysis Analysis)
-  (let [[[_type _cursor] _analysis] analysis]
-    (: Analysis
-       [[(: Type replacement)
-         (: Cursor _cursor)]
-        (: (Analysis' Analysis)
-           _analysis)])))
-
-(def: #export (clean type analysis)
-  (-> Type Analysis (Lux Analysis))
-  (case type
-    (#;Var id)
-    (do Monad<Lux>
-      [=type (&;within-type-env
-              (TC;clean id type))]
-      (wrap (replace-type =type analysis)))
-    
-    (#;Ex id)
-    (undefined)
-    
-    _
-    (&;fail (format "Cannot clean type: " (%type type)))))
-
 (def: #export (with-unknown-type action)
-  (All [a] (-> (Lux Analysis) (Lux Analysis)))
+  (All [a] (-> (Lux Analysis) (Lux [Type Analysis])))
   (do Monad<Lux>
     [[var-id var-type] (&;within-type-env
                         TC;create-var)
-     analysis (|> (wrap action)
-                  (%> @
-                      [(&;with-expected-type var-type)]
-                      [(clean var-type)]))
+     analysis (&;with-expected-type var-type
+                action)
+     analysis-type (&;within-type-env
+                    (TC;clean var-id var-type))
      _ (&;within-type-env
         (TC;delete-var var-id))]
-    (wrap analysis)))
+    (wrap [analysis-type analysis])))
 
-(def: #export (realize expected)
-  (-> Type (TC;Check [(List Type) Type]))
-  (case expected
-    (#;Named [module name] _expected)
-    (realize _expected)
-
-    (#;UnivQ env body)
-    (do TC;Monad<Check>
-      [[var-id var-type] TC;create-var
-       [tail =expected] (realize (default (undefined)
-                                   (type;apply-type expected var-type)))]
-      (wrap [(list& var-type tail)
-             =expected]))
-
-    (#;ExQ env body)
-    (do TC;Monad<Check>
-      [[ex-id ex-type] TC;existential
-       [tail =expected] (realize (default (undefined)
-                                   (type;apply-type expected ex-type)))]
-      (wrap [(list& ex-type tail)
-             =expected]))
-
-    _
-    (:: TC;Monad<Check> wrap [(list) expected])))
+(def: #export (with-var body)
+  (All [a] (-> (-> [Nat Type] (Lux a)) (Lux a)))
+  (do Monad<Lux>
+    [[id var] (&;within-type-env TC;create-var)
+     output (body [id var])
+     _ (&;within-type-env (TC;delete-var id))]
+    (wrap output)))

@@ -1,0 +1,188 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data ["E" error]
+             [text]
+             text/format
+             (coll [list "L/" Fold<List> Monoid<List> Monad<List>]))
+       [macro #+ Monad<Lux>]
+       [type]
+       (type ["TC" check]))
+  (luxc ["&" base]
+        (lang ["la" analysis #+ Analysis])
+        ["&;" env]
+        (analyser ["&;" common])))
+
+## [Analysers]
+(def: (bind-var var-id bound-idx type)
+  (-> Nat Nat Type Type)
+  (case type
+    (#;Host name params)
+    (#;Host name (L/map (bind-var var-id bound-idx) params))
+
+    (^template [<tag>]
+      (<tag> left right)
+      (<tag> (bind-var var-id bound-idx left)
+             (bind-var var-id bound-idx right)))
+    ([#;Sum]
+     [#;Product]
+     [#;Function]
+     [#;App])
+    
+    (#;Var id)
+    (if (n.= var-id id)
+      (#;Bound bound-idx)
+      type)
+
+    (^template [<tag>]
+      (<tag> env quantified)
+      (<tag> (L/map (bind-var var-id bound-idx) env)
+             (bind-var var-id (n.+ +2 bound-idx) quantified)))
+    ([#;UnivQ]
+     [#;ExQ])
+    
+    (#;Named name unnamedT)
+    (#;Named name
+             (bind-var var-id bound-idx unnamedT))
+
+    _
+    type))
+
+(def: #export (analyse-function analyse func-name arg-name body)
+  (-> &;Analyser Text Text Code (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (&;with-stacked-errors
+      (function [_] (format "Functions require function types: " (type;to-text expected)))
+      (case expected
+        (#;Named name unnamedT)
+        (&;with-expected-type unnamedT
+          (analyse-function analyse func-name arg-name body))
+
+        (#;App funT argT)
+        (do @
+          [fully-applied (case (type;apply-type funT argT)
+                           (#;Some value)
+                           (wrap value)
+
+                           #;None
+                           (&;fail (format "Cannot apply type " (%type funT) " to  type " (%type argT))))]
+          (&;with-expected-type fully-applied
+            (analyse-function analyse func-name arg-name body)))
+        
+        (#;UnivQ _)
+        (do @
+          [[var-id var] (&;within-type-env
+                         TC;existential)]
+          (&;with-expected-type (assume (type;apply-type expected var))
+            (analyse-function analyse func-name arg-name body)))
+
+        (#;ExQ _)
+        (&common;with-var
+          (function [[var-id var]]
+            (&;with-expected-type (assume (type;apply-type expected var))
+              (analyse-function analyse func-name arg-name body))))
+        
+        (#;Var id)
+        (do @
+          [? (&;within-type-env
+              (TC;bound? id))]
+          (if ?
+            (do @
+              [expected' (&;within-type-env
+                          (TC;read-var id))]
+              (&;with-expected-type expected'
+                (analyse-function analyse func-name arg-name body)))
+            ## Inference
+            (&common;with-var
+              (function [[input-id inputT]]
+                (&common;with-var
+                  (function [[output-id outputT]]
+                    (do @
+                      [#let [funT (#;Function inputT outputT)]
+                       =function (&;with-expected-type funT
+                                   (analyse-function analyse func-name arg-name body))
+                       funT' (&;within-type-env
+                              (TC;clean output-id funT))
+                       concrete-input? (&;within-type-env
+                                        (TC;bound? input-id))
+                       funT'' (if concrete-input?
+                                (&;within-type-env
+                                 (TC;clean input-id funT'))
+                                (wrap (#;UnivQ (list) (bind-var input-id +1 funT'))))
+                       _ (&;within-type-env
+                          (TC;check expected funT''))]
+                      (wrap =function))
+                    ))))))
+
+        (#;Function inputT outputT)
+        (<| (:: @ map (|>. #la;Function))
+            &;with-scope
+            (&env;with-local [func-name expected])
+            (&env;with-local [arg-name inputT])
+            (&;with-expected-type outputT)
+            (analyse body))
+        
+        _
+        (&;fail "")
+        ))))
+
+(def: (analyse-apply' analyse funcT args)
+  (-> &;Analyser Type (List Code) (Lux [Type (List Analysis)]))
+  (case args
+    #;Nil
+    (:: Monad<Lux> wrap [funcT (list)])
+    
+    (#;Cons arg args')
+    (&;with-stacked-errors
+      (function [_] (format "Cannot apply function " (%type funcT)
+                            " to args: " (|> args (L/map %code) (text;join-with " "))))
+      (case funcT
+        (#;Named name unnamedT)
+        (analyse-apply' analyse unnamedT args)
+
+        (#;UnivQ _)
+        (&common;with-var
+          (function [[var-id varT]]
+            (do Monad<Lux>
+              [[outputT argsA] (analyse-apply' analyse (assume (type;apply-type funcT varT)) args)]
+              (do @
+                [? (&;within-type-env
+                    (TC;bound? var-id))
+                 outputT' (if ?
+                            (&;within-type-env
+                             (TC;clean var-id outputT))
+                            (wrap (#;UnivQ (list) (bind-var var-id +1 outputT))))]
+                (wrap [outputT' argsA])))))
+
+        (#;ExQ _)
+        (do Monad<Lux>
+          [[ex-id exT] (&;within-type-env
+                        TC;existential)]
+          (analyse-apply' analyse (assume (type;apply-type funcT exT)) args))
+
+        (#;Function inputT outputT)
+        (do Monad<Lux>
+          [[outputT' args'A] (analyse-apply' analyse outputT args')
+           argA (&;with-stacked-errors
+                  (function [_] (format "Expected type: " (%type inputT) "\n"
+                                        " For argument: " (%code arg)))
+                  (&;with-expected-type inputT
+                    (analyse arg)))]
+          (wrap [outputT' (list& argA args'A)]))
+
+        _
+        (&;fail (format "Cannot apply a non-function: " (%type funcT)))))
+    ))
+
+(def: #export (analyse-apply analyse funcT funcA args)
+  (-> &;Analyser Type Analysis (List Code) (Lux Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type
+     [applyT argsA] (analyse-apply' analyse funcT args)
+     _ (&;within-type-env
+        (TC;check expected applyT))]
+    (wrap (L/fold (function [arg func]
+                    (#la;Apply arg func))
+                  funcA
+                  argsA))))
