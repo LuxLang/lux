@@ -1,7 +1,7 @@
 (;module:
   lux
   (lux (control monad)
-       (data ["E" error]
+       (data ["R" result]
              [text "T/" Eq<Text>]
              text/format
              [number]
@@ -19,85 +19,93 @@
      ["&&;" reference]
      ["&&;" type]
      ["&&;" struct]
+     ## ["&&;" case]
      ["&&;" proc]))
 
 (def: #export (analyser eval)
   (-> &;Eval &;Analyser)
   (: (-> Code (Lux la;Analysis))
      (function analyse [ast]
-       (case ast
-         (^template [<tag> <analyser>]
-           [cursor (<tag> value)]
-           (<analyser> value))
-         ([#;Bool &&primitive;analyse-bool]
-          [#;Nat  &&primitive;analyse-nat]
-          [#;Int  &&primitive;analyse-int]
-          [#;Deg  &&primitive;analyse-deg]
-          [#;Real &&primitive;analyse-real]
-          [#;Char &&primitive;analyse-char]
-          [#;Text &&primitive;analyse-text])
+       (let [[cursor ast'] ast]
+         (&;with-cursor cursor
+           (case ast'
+             (^template [<tag> <analyser>]
+               (<tag> value)
+               (<analyser> value))
+             ([#;Bool &&primitive;analyse-bool]
+              [#;Nat  &&primitive;analyse-nat]
+              [#;Int  &&primitive;analyse-int]
+              [#;Deg  &&primitive;analyse-deg]
+              [#;Real &&primitive;analyse-real]
+              [#;Char &&primitive;analyse-char]
+              [#;Text &&primitive;analyse-text])
 
-         (^ [cursor (#;Tuple (list))])
-         &&primitive;analyse-unit
+             (^ (#;Tuple (list)))
+             &&primitive;analyse-unit
 
-         (^ [cursor (#;Tuple (list singleton))])
-         (analyse singleton)
+             (^ (#;Tuple (list singleton)))
+             (analyse singleton)
 
-         (^ [cursor (#;Tuple elems)])
-         (&&struct;analyse-tuple analyse elems)
+             (^ (#;Tuple elems))
+             (&&struct;analyse-tuple analyse elems)
 
-         [cursor (#;Symbol reference)]
-         (&&reference;analyse-reference reference)
+             (#;Symbol reference)
+             (&&reference;analyse-reference reference)
 
-         (^ [cursor (#;Form (list [_ (#;Symbol ["" "_lux_check"])]
-                                  type
-                                  value))])
-         (&&type;analyse-check analyse eval type value)
+             (^ (#;Form (list [_ (#;Symbol ["" "_lux_check"])]
+                              type
+                              value)))
+             (&&type;analyse-check analyse eval type value)
 
-         (^ [cursor (#;Form (list [_ (#;Symbol ["" "_lux_coerce"])]
-                                  type
-                                  value))])
-         (&&type;analyse-coerce analyse eval type value)
+             (^ (#;Form (list [_ (#;Symbol ["" "_lux_coerce"])]
+                              type
+                              value)))
+             (&&type;analyse-coerce analyse eval type value)
 
-         (^ [cursor (#;Form (list [_ (#;Symbol ["" "_lux_proc"])]
-                                  [_ (#;Symbol proc)]
-                                  [_ (#;Tuple args)]))])
-         (&&proc;analyse-proc analyse proc args)
+             (^ (#;Form (list [_ (#;Symbol ["" "_lux_proc"])]
+                              [_ (#;Symbol proc)]
+                              [_ (#;Tuple args)])))
+             (&&proc;analyse-proc analyse proc args)
 
-         (^ [cursor (#;Form (list [_ (#;Nat tag)]
-                                  value))])
-         (&&struct;analyse-variant analyse tag value)
+             ## (^ (#;Form (list& [_ (#;Symbol ["" "_lux_case"])]
+             ##                   input
+             ##                   branches)))
+             ## (&&case;analyse-case analyse proc branches)
 
-         (^ [cursor (#;Form (list& func args))])
-         (do Monad<Lux>
-           [[funcT =func] (&&common;with-unknown-type
-                            (analyse func))]
-           (case =func
-             (#la;Absolute def-name)
-             (do @
-               [[def-type def-anns def-value] (macro;find-def def-name)]
-               (if (macro;macro? def-anns)
+             (^ (#;Form (list [_ (#;Nat tag)]
+                              value)))
+             (&&struct;analyse-variant analyse tag value)
+
+             (^ (#;Form (list& func args)))
+             (do Monad<Lux>
+               [[funcT =func] (&&common;with-unknown-type
+                                (analyse func))]
+               (case =func
+                 (#la;Absolute def-name)
                  (do @
-                   [## macro-expansion (function [compiler]
-                    ##                   (case (macro-caller def-value args compiler)
-                    ##                     (#E;Success [compiler' output])
-                    ##                     (#E;Success [compiler' output])
+                   [[def-type def-anns def-value] (macro;find-def def-name)]
+                   (if (macro;macro? def-anns)
+                     (do @
+                       [## macro-expansion (function [compiler]
+                        ##                   (case (macro-caller def-value args compiler)
+                        ##                     (#R;Success [compiler' output])
+                        ##                     (#R;Success [compiler' output])
 
-                    ##                     (#E;Error error)
-                    ##                     ((&;fail error) compiler)))
-                    macro-expansion (: (Lux (List Code))
-                                       (undefined))]
-                   (case macro-expansion
-                     (^ (list single-expansion))
-                     (analyse single-expansion)
+                        ##                     (#R;Error error)
+                        ##                     ((&;fail error) compiler)))
+                        macro-expansion (: (Lux (List Code))
+                                           (undefined))]
+                       (case macro-expansion
+                         (^ (list single-expansion))
+                         (analyse single-expansion)
 
-                     _
-                     (&;fail (format "Macro expressions must expand to a single expression: " (%code ast)))))
+                         _
+                         (&;fail (format "Macro expressions must expand to a single expression: " (%code ast)))))
+                     (&&function;analyse-apply analyse funcT =func args)))
+
+                 _
                  (&&function;analyse-apply analyse funcT =func args)))
 
              _
-             (&&function;analyse-apply analyse funcT =func args)))
-
-         _
-         (&;fail (format "Unrecognized syntax: " (%code ast)))
-         ))))
+             (&;fail (format "Unrecognized syntax: " (%code ast)))
+             ))))))

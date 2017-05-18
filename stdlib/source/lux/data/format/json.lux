@@ -14,7 +14,7 @@
              [number #* "Real/" Codec<Text,Real>]
              maybe
              [char "Char/" Eq<Char> Codec<Text,Char>]
-             [error #- fail]
+             ["R" result #- fail]
              [sum]
              [product]
              (coll [list "" Fold<List> "List/" Monad<List>]
@@ -54,7 +54,7 @@
 
 (type: #export (Parser a)
   {#;doc "JSON parsers."}
-  (-> JSON (Error a)))
+  (-> JSON (Result a)))
 
 (type: #export (Gen a)
   {#;doc "JSON generators."}
@@ -150,52 +150,52 @@
 
 (def: #export (fields json)
   {#;doc "Get all the fields in a JSON object."}
-  (-> JSON (Error (List String)))
+  (-> JSON (Result (List String)))
   (case json
     (#Object obj)
-    (#;Right (dict;keys obj))
+    (#R;Success (dict;keys obj))
 
     _
-    (#;Left (format "Cannot get the fields of a non-object."))))
+    (#R;Error (format "Cannot get the fields of a non-object."))))
 
 (def: #export (get key json)
   {#;doc "A JSON object field getter."}
-  (-> String JSON (Error JSON))
+  (-> String JSON (Result JSON))
   (case json
     (#Object obj)
     (case (dict;get key obj)
       (#;Some value)
-      (#;Right value)
+      (#R;Success value)
 
       #;None
-      (#;Left (format "Missing field " (show-string key) " on object.")))
+      (#R;Error (format "Missing field " (show-string key) " on object.")))
 
     _
-    (#;Left (format "Cannot get field " (show-string key) " of a non-object."))))
+    (#R;Error (format "Cannot get field " (show-string key) " of a non-object."))))
 
 (def: #export (set key value json)
   {#;doc "A JSON object field setter."}
-  (-> String JSON JSON (Error JSON))
+  (-> String JSON JSON (Result JSON))
   (case json
     (#Object obj)
-    (#;Right (#Object (dict;put key value obj)))
+    (#R;Success (#Object (dict;put key value obj)))
 
     _
-    (#;Left (format "Cannot set field " (show-string key) " of a non-object."))))
+    (#R;Error (format "Cannot set field " (show-string key) " of a non-object."))))
 
 (do-template [<name> <tag> <type> <desc>]
   [(def: #export (<name> key json)
      {#;doc (#;TextA (format "A JSON object field getter for " <desc> "."))}
-     (-> Text JSON (Error <type>))
+     (-> Text JSON (Result <type>))
      (case (get key json)
-       (#;Right (<tag> value))
-       (#;Right value)
+       (#R;Success (<tag> value))
+       (#R;Success value)
 
-       (#;Right _)
-       (#;Left (format "Wrong value type at key " (show-string key)))
+       (#R;Success _)
+       (#R;Error (format "Wrong value type at key " (show-string key)))
 
-       (#;Left error)
-       (#;Left error)))]
+       (#R;Error error)
+       (#R;Error error)))]
 
   [get-boolean #Boolean Boolean "booleans"]
   [get-number  #Number  Number  "numbers"]
@@ -275,12 +275,12 @@
                  sign (lexer;default "" (lexer;text "-"))
                  offset (lexer;many' lexer;digit)]
                 (wrap (format mark sign offset)))))]
-    (case (: (Error Real)
+    (case (: (Result Real)
              (Real/decode (format ?sign digits "." decimals exp)))
-      (#;Left message)
+      (#R;Error message)
       (lexer;fail message)
       
-      (#;Right value)
+      (#R;Success value)
       (wrap value))))
 
 (def: (un-escape escaped)
@@ -351,31 +351,31 @@
   (def: (map f ma)
     (function [json]
       (case (ma json)
-        (#;Left msg)
-        (#;Left msg)
+        (#R;Error msg)
+        (#R;Error msg)
 
-        (#;Right a)
-        (#;Right (f a))))))
+        (#R;Success a)
+        (#R;Success (f a))))))
 
 (struct: #export _ (Applicative Parser)
   (def: functor Functor<Parser>)
 
   (def: (wrap x json)
-    (#;Right x))
+    (#R;Success x))
 
   (def: (apply ff fa)
     (function [json]
       (case (ff json)
-        (#;Right f)
+        (#R;Success f)
         (case (fa json)
-          (#;Right a)
-          (#;Right (f a))
+          (#R;Success a)
+          (#R;Success (f a))
 
-          (#;Left msg)
-          (#;Left msg))
+          (#R;Error msg)
+          (#R;Error msg))
 
-        (#;Left msg)
-        (#;Left msg)))))
+        (#R;Error msg)
+        (#R;Error msg)))))
 
 (struct: #export _ (Monad Parser)
   (def: applicative Applicative<Parser>)
@@ -383,10 +383,10 @@
   (def: (join mma)
     (function [json]
       (case (mma json)
-        (#;Left msg)
-        (#;Left msg)
+        (#R;Error msg)
+        (#R;Error msg)
 
-        (#;Right ma)
+        (#R;Success ma)
         (ma json)))))
 
 ## [Values]
@@ -397,10 +397,10 @@
      (Parser <type>)
      (case json
        (<tag> value)
-       (#;Right (<pre> value))
+       (#R;Success (<pre> value))
 
        _
-       (#;Left (format "JSON value is not " <desc> ": " (show-json json)))))]
+       (#R;Error (format "JSON value is not " <desc> ": " (show-json json)))))]
 
   [unit Unit #Null    "unit"    id]
   [bool Bool #Boolean "bool" id]
@@ -415,10 +415,10 @@
      (-> <type> (Parser Bool))
      (case json
        (<tag> value)
-       (#;Right (:: <eq> = test (<pre> value)))
+       (#R;Success (:: <eq> = test (<pre> value)))
 
        _
-       (#;Left (format "JSON value is not a " <desc> ": " (show-json json)))))
+       (#R;Error (format "JSON value is not a " <desc> ": " (show-json json)))))
 
    (def: #export (<check> test json)
      {#;doc (#;TextA (format "Ensures a JSON value is a " <desc> "."))}
@@ -427,12 +427,12 @@
        (<tag> value)
        (let [value (<pre> value)]
          (if (:: <eq> = test value)
-           (#;Right [])
-           (#;Left (format "Value mismatch: "
-                           (:: <codec> encode test) "=/=" (:: <codec> encode value)))))
+           (#R;Success [])
+           (#R;Error (format "Value mismatch: "
+                             (:: <codec> encode test) "=/=" (:: <codec> encode value)))))
 
        _
-       (#;Left (format "JSON value is not a " <desc> ": " (show-json json)))))]
+       (#R;Error (format "JSON value is not a " <desc> ": " (show-json json)))))]
 
   [bool? bool! Bool bool;Eq<Bool>   bool;Codec<Text,Bool>   #Boolean "boolean" id]
   [int?  int!  Int  number;Eq<Int>  number;Codec<Text,Int>  #Number  "number"  real-to-int]
@@ -446,14 +446,14 @@
   (case json
     (#String input)
     (case (Char/decode (format "#\"" input "\""))
-      (#;Right value)
-      (#;Right value)
+      (#R;Success value)
+      (#R;Success value)
 
-      (#;Left _)
-      (#;Left (format "Invalid format for char: " input)))
+      (#R;Error _)
+      (#R;Error (format "Invalid format for char: " input)))
 
     _
-    (#;Left (format "JSON value is not a " "string" ": " (show-json json)))))
+    (#R;Error (format "JSON value is not a " "string" ": " (show-json json)))))
 
 (def: #export (char? test json)
   {#;doc "Asks whether a JSON value is a single-character string with the specified character."}
@@ -461,17 +461,17 @@
   (case json
     (#String input)
     (case (Char/decode (format "#\"" input "\""))
-      (#;Right value)
+      (#R;Success value)
       (if (:: char;Eq<Char> = test value)
-        (#;Right true)
-        (#;Left (format "Value mismatch: "
-                        (:: char;Codec<Text,Char> encode test) "=/=" (:: char;Codec<Text,Char> encode value))))
+        (#R;Success true)
+        (#R;Error (format "Value mismatch: "
+                          (:: char;Codec<Text,Char> encode test) "=/=" (:: char;Codec<Text,Char> encode value))))
 
-      (#;Left _)
-      (#;Left (format "Invalid format for char: " input)))
+      (#R;Error _)
+      (#R;Error (format "Invalid format for char: " input)))
 
     _
-    (#;Left (format "JSON value is not a " "string" ": " (show-json json)))))
+    (#R;Error (format "JSON value is not a " "string" ": " (show-json json)))))
 
 (def: #export (char! test json)
   {#;doc "Ensures a JSON value is a single-character string with the specified character."}
@@ -479,17 +479,17 @@
   (case json
     (#String input)
     (case (Char/decode (format "#\"" input "\""))
-      (#;Right value)
+      (#R;Success value)
       (if (:: char;Eq<Char> = test value)
-        (#;Right [])
-        (#;Left (format "Value mismatch: "
-                        (:: char;Codec<Text,Char> encode test) "=/=" (:: char;Codec<Text,Char> encode value))))
+        (#R;Success [])
+        (#R;Error (format "Value mismatch: "
+                          (:: char;Codec<Text,Char> encode test) "=/=" (:: char;Codec<Text,Char> encode value))))
 
-      (#;Left _)
-      (#;Left (format "Invalid format for char: " input)))
+      (#R;Error _)
+      (#R;Error (format "Invalid format for char: " input)))
 
     _
-    (#;Left (format "JSON value is not a " "string" ": " (show-json json)))))
+    (#R;Error (format "JSON value is not a " "string" ": " (show-json json)))))
 
 (def: #export (nullable parser)
   {#;doc "A parser that can handle the presence of null values."}
@@ -497,15 +497,15 @@
   (function [json]
     (case json
       #Null
-      (#;Right #;None)
+      (#R;Success #;None)
       
       _
       (case (parser json)
-        (#;Left error)
-        (#;Left error)
+        (#R;Error error)
+        (#R;Error error)
 
-        (#;Right value)
-        (#;Right (#;Some value)))
+        (#R;Success value)
+        (#R;Success (#;Some value)))
       )))
 
 (def: #export (array parser)
@@ -514,12 +514,12 @@
   (function [json]
     (case json
       (#Array values)
-      (do Monad<Error>
+      (do Monad<Result>
         [elems (mapM @ parser (vector;to-list values))]
         (wrap elems))
 
       _
-      (#;Left (format "JSON value is not an array: " (show-json json))))))
+      (#R;Error (format "JSON value is not an array: " (show-json json))))))
 
 (def: #export (object parser)
   {#;doc "Parses a JSON object, assuming that every field's value can be parsed the same way."}
@@ -527,7 +527,7 @@
   (function [json]
     (case json
       (#Object fields)
-      (do Monad<Error>
+      (do Monad<Result>
         [kvs (mapM @
                    (function [[key val']]
                      (do @
@@ -537,7 +537,7 @@
         (wrap (dict;from-list text;Hash<Text> kvs)))
 
       _
-      (#;Left (format "JSON value is not an object: " (show-json json))))))
+      (#R;Error (format "JSON value is not an object: " (show-json json))))))
 
 (def: #export (nth idx parser)
   {#;doc "Parses an element inside a JSON array."}
@@ -548,17 +548,17 @@
       (case (vector;nth idx values)
         (#;Some value)
         (case (parser value)
-          (#;Right output)
-          (#;Right output)
+          (#R;Success output)
+          (#R;Success output)
 
-          (#;Left error)
-          (#;Left (format "JSON array index [" (%n idx) "]: (" error ") @ " (show-json json))))
+          (#R;Error error)
+          (#R;Error (format "JSON array index [" (%n idx) "]: (" error ") @ " (show-json json))))
 
         #;None
-        (#;Left (format "JSON array does not have index " (%n idx) " @ " (show-json json))))
+        (#R;Error (format "JSON array does not have index " (%n idx) " @ " (show-json json))))
       
       _
-      (#;Left (format "JSON value is not an array: " (show-json json))))))
+      (#R;Error (format "JSON value is not an array: " (show-json json))))))
 
 (def: #export (field field-name parser)
   {#;doc "Parses a field inside a JSON object."}
@@ -567,20 +567,20 @@
     (case (get field-name json)
       (#;Some value)
       (case (parser value)
-        (#;Right output)
-        (#;Right output)
+        (#R;Success output)
+        (#R;Success output)
 
-        (#;Left error)
-        (#;Left (format "Failed to get JSON object field " (show-string field-name) ": (" error ") @ " (show-json json))))
+        (#R;Error error)
+        (#R;Error (format "Failed to get JSON object field " (show-string field-name) ": (" error ") @ " (show-json json))))
 
-      (#;Left _)
-      (#;Left (format "JSON object does not have field " (show-string field-name) " @ " (show-json json))))))
+      (#R;Error _)
+      (#R;Error (format "JSON object does not have field " (show-string field-name) " @ " (show-json json))))))
 
 (def: #export any
   {#;doc "Just returns the JSON input without applying any logic."}
   (Parser JSON)
   (function [json]
-    (#;Right json)))
+    (#R;Success json)))
 
 (def: #export (seq pa pb)
   {#;doc "Sequencing combinator."}
@@ -594,23 +594,23 @@
   {#;doc "Heterogeneous alternative combinator."}
   (All [a b] (-> (Parser a) (Parser b) (Parser (| a b))))
   (case (pa json)
-    (#;Right a)
+    (#R;Success a)
     (sum;right (sum;left a))
 
-    (#;Left message0)
+    (#R;Error message0)
     (case (pb json)
-      (#;Right b)
+      (#R;Success b)
       (sum;right (sum;right b))
 
-      (#;Left message1)
-      (#;Left message0))))
+      (#R;Error message1)
+      (#R;Error message0))))
 
 (def: #export (either pl pr json)
   {#;doc "Homogeneous alternative combinator."}
   (All [a] (-> (Parser a) (Parser a) (Parser a)))
   (case (pl json)
-    (#;Right x)
-    (#;Right x)
+    (#R;Success x)
+    (#R;Success x)
 
     _
     (pr json)))
@@ -620,22 +620,22 @@
   (All [a]
     (-> (Parser a) (Parser (Maybe a))))
   (case (p json)
-    (#;Left _)  (#;Right #;None)
-    (#;Right x) (#;Right (#;Some x))))
+    (#R;Error _)  (#R;Success #;None)
+    (#R;Success x) (#R;Success (#;Some x))))
 
 (def: #export (run json parser)
-  (All [a] (-> JSON (Parser a) (Error a)))
+  (All [a] (-> JSON (Parser a) (Result a)))
   (parser json))
 
 (def: #export (ensure test parser json)
   {#;doc "Only parses a JSON if it passes a test (which is also a parser)."}
   (All [a] (-> (Parser Unit) (Parser a) (Parser a)))
   (case (test json)
-    (#;Right _)
+    (#R;Success _)
     (parser json)
 
-    (#;Left error)
-    (#;Left error)))
+    (#R;Error error)
+    (#R;Error error)))
 
 (def: #export (array-size! size json)
   {#;doc "Ensures a JSON array has the specified size."}
@@ -643,11 +643,11 @@
   (case json
     (#Array parts)
     (if (n.= size (vector;size parts))
-      (#;Right [])
-      (#;Left (format "JSON array does no have size " (%n size) " " (show-json json))))
+      (#R;Success [])
+      (#R;Error (format "JSON array does no have size " (%n size) " " (show-json json))))
 
     _
-    (#;Left (format "JSON value is not an array: " (show-json json)))))
+    (#R;Error (format "JSON value is not an array: " (show-json json)))))
 
 (def: #export (object-fields! wanted-fields json)
   {#;doc "Ensures that every field in the list of wanted-fields is present in a JSON object."}
@@ -658,11 +658,11 @@
       (if (and (n.= (list;size wanted-fields) (list;size actual-fields))
                (list;every? (list;member? text;Eq<Text> wanted-fields)
                             actual-fields))
-        (#;Right [])
-        (#;Left (format "JSON object has wrong field-set. Expected: [" (text;join-with ", " wanted-fields) "]. Actual: [" (text;join-with ", " actual-fields) "]"))))
+        (#R;Success [])
+        (#R;Error (format "JSON object has wrong field-set. Expected: [" (text;join-with ", " wanted-fields) "]. Actual: [" (text;join-with ", " actual-fields) "]"))))
 
     _
-    (#;Left (format "JSON value is not an object: " (show-json json)))))
+    (#R;Error (format "JSON value is not an object: " (show-json json)))))
 
 ## [Structures]
 (struct: #export _ (Eq JSON)
@@ -924,7 +924,7 @@
 
 (poly: #hidden (Codec<JSON,?>//decode *env* :x:)
   (let [->Codec//decode (: (-> Code Code)
-                           (function [.type.] (` (-> JSON (Error (~ .type.))))))]
+                           (function [.type.] (` (-> JSON (Result (~ .type.))))))]
     (with-expansions
       [<basic> (do-template [<type> <matcher> <decoder>]
                  [(do @ [_ (<matcher> :x:)] (wrap (` (: (~ (->Codec//decode (` <type>))) <decoder>))))]
@@ -971,11 +971,11 @@
                                      (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
-                            (do Monad<Error>
+                            (do Monad<Result>
                               [(~ g!key) (;;fields (~ g!input))]
                               (mapM (~ (' %))
                                     (function [(~ g!key)]
-                                      (do Monad<Error>
+                                      (do Monad<Result>
                                         [(~ g!val) (;;get (~ g!key) (~ g!input))
                                          (~ g!val) (;;run (~ g!val) (~ .val.))]
                                         ((~ (' wrap)) [(~ g!key) (~ g!val)])))
@@ -1043,7 +1043,7 @@
                                      (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
-                            (do Monad<Error>
+                            (do Monad<Result>
                               [(~@ (List/join extraction))]
                               ((~ (' wrap)) (~ (code;record (List/map (function [[name :slot:]]
                                                                         [(code;tag name) (code;symbol ["" (product;right name)])])
