@@ -98,7 +98,7 @@
         [_ (&;within-type-env
             (TC;check inputT Unit))
          outputA next]
-        (wrap [#lp;Unit outputA])))
+        (wrap [(#lp;Tuple (list)) outputA])))
 
     (^ [cursor (#;Tuple (list singleton))])
     (analyse-pattern #;None inputT singleton next)
@@ -162,18 +162,28 @@
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Sum _)
-          (let [flat-sum (type;flatten-variant inputT)]
+          (let [flat-sum (type;flatten-variant inputT)
+                size-sum (list;size flat-sum)
+                num-cases (default size-sum num-tags)]
             (case (list;nth idx flat-sum)
-              #;None
-              (&;fail (format "Cannot match index " (%n idx) " against type: " (%type inputT)))
+              (^=> (#;Some case-type)
+                   (n.< num-cases idx))
+              (if (and (n.> num-cases size-sum)
+                       (n.= (n.dec num-cases) idx))
+                (do Monad<Lux>
+                  [[testP nextA] (analyse-pattern #;None
+                                                  (type;variant (list;drop (n.dec num-cases) flat-sum))
+                                                  (' [(~@ values)])
+                                                  next)]
+                  (wrap [(#lp;Variant idx num-cases testP)
+                         nextA]))
+                (do Monad<Lux>
+                  [[testP nextA] (analyse-pattern #;None case-type (' [(~@ values)]) next)]
+                  (wrap [(#lp;Variant idx num-cases testP)
+                         nextA])))
 
-              (#;Some case-type)
-              (do Monad<Lux>
-                [[testP nextA] (analyse-pattern #;None case-type (' [(~@ values)]) next)]
-                (wrap [(#lp;Variant [idx (default (list;size flat-sum)
-                                           num-tags)]
-                                    testP)
-                       nextA]))))
+              _
+              (&;fail (format "Cannot match index " (%n idx) " against type: " (%type inputT)))))
 
           _
           (&;fail (pattern-error inputT pattern)))))
@@ -206,13 +216,17 @@
        false))]
 
   [total? #TotalC]
-  [alt?   #AltC])
+  [alt?   #AltC]
+  )
 
 (def: (determine-coverage pattern)
   (-> Pattern Coverage)
   (case pattern
-    (^or (#lp;Bind _) #lp;Unit)
+    (^or (#lp;Bind _) (^ (#lp;Tuple (list))))
     #TotalC
+
+    (^ (#lp;Tuple (list singleton)))
+    (determine-coverage singleton)
     
     (#lp;Bool value)
     (#BoolC value)
@@ -234,7 +248,7 @@
             (#SeqC (determine-coverage sub)
                    post)))))
     
-    (#lp;Variant [tag-id num-tags] sub)
+    (#lp;Variant tag-id num-tags sub)
     (#VariantC num-tags
                (|> (D;new number;Hash<Nat>)
                    (D;put tag-id (determine-coverage sub))))))
