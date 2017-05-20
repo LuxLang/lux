@@ -50,81 +50,76 @@
 (def: #export (analyse-function analyse func-name arg-name body)
   (-> &;Analyser Text Text Code (Lux Analysis))
   (do Monad<Lux>
-    [expected macro;expected-type]
-    (&;with-stacked-errors
-      (function [_] (format "Functions require function types: " (type;to-text expected)))
-      (case expected
-        (#;Named name unnamedT)
-        (&;with-expected-type unnamedT
-          (analyse-function analyse func-name arg-name body))
+    [original macro;expected-type]
+    (loop [expected original]
+      (&;with-stacked-errors
+        (function [_] (format "Functions require function types: " (type;to-text expected)))
+        (case expected
+          (#;Named name unnamedT)
+          (recur unnamedT)
 
-        (#;App funT argT)
-        (do @
-          [fully-applied (case (type;apply-type funT argT)
-                           (#;Some value)
-                           (wrap value)
+          (#;App funT argT)
+          (do @
+            [fully-applied (case (type;apply-type funT argT)
+                             (#;Some value)
+                             (wrap value)
 
-                           #;None
-                           (&;fail (format "Cannot apply type " (%type funT) " to  type " (%type argT))))]
-          (&;with-expected-type fully-applied
-            (analyse-function analyse func-name arg-name body)))
-        
-        (#;UnivQ _)
-        (do @
-          [[var-id var] (&;within-type-env
-                         TC;existential)]
-          (&;with-expected-type (assume (type;apply-type expected var))
-            (analyse-function analyse func-name arg-name body)))
+                             #;None
+                             (&;fail (format "Cannot apply type " (%type funT) " to  type " (%type argT))))]
+            (recur fully-applied))
+          
+          (#;UnivQ _)
+          (do @
+            [[var-id var] (&;within-type-env
+                           TC;existential)]
+            (recur (assume (type;apply-type expected var))))
 
-        (#;ExQ _)
-        (&common;with-var
-          (function [[var-id var]]
-            (&;with-expected-type (assume (type;apply-type expected var))
-              (analyse-function analyse func-name arg-name body))))
-        
-        (#;Var id)
-        (do @
-          [? (&;within-type-env
-              (TC;bound? id))]
-          (if ?
-            (do @
-              [expected' (&;within-type-env
-                          (TC;read-var id))]
-              (&;with-expected-type expected'
-                (analyse-function analyse func-name arg-name body)))
-            ## Inference
-            (&common;with-var
-              (function [[input-id inputT]]
-                (&common;with-var
-                  (function [[output-id outputT]]
-                    (do @
-                      [#let [funT (#;Function inputT outputT)]
-                       =function (&;with-expected-type funT
-                                   (analyse-function analyse func-name arg-name body))
-                       funT' (&;within-type-env
-                              (TC;clean output-id funT))
-                       concrete-input? (&;within-type-env
-                                        (TC;bound? input-id))
-                       funT'' (if concrete-input?
-                                (&;within-type-env
-                                 (TC;clean input-id funT'))
-                                (wrap (#;UnivQ (list) (bind-var input-id +1 funT'))))
-                       _ (&;within-type-env
-                          (TC;check expected funT''))]
-                      (wrap =function))
-                    ))))))
+          (#;ExQ _)
+          (&common;with-var
+            (function [[var-id var]]
+              (recur (assume (type;apply-type expected var)))))
+          
+          (#;Var id)
+          (do @
+            [? (&;within-type-env
+                (TC;bound? id))]
+            (if ?
+              (do @
+                [expected' (&;within-type-env
+                            (TC;read-var id))]
+                (recur expected'))
+              ## Inference
+              (&common;with-var
+                (function [[input-id inputT]]
+                  (&common;with-var
+                    (function [[output-id outputT]]
+                      (do @
+                        [#let [funT (#;Function inputT outputT)]
+                         =function (recur funT)
+                         funT' (&;within-type-env
+                                (TC;clean output-id funT))
+                         concrete-input? (&;within-type-env
+                                          (TC;bound? input-id))
+                         funT'' (if concrete-input?
+                                  (&;within-type-env
+                                   (TC;clean input-id funT'))
+                                  (wrap (#;UnivQ (list) (bind-var input-id +1 funT'))))
+                         _ (&;within-type-env
+                            (TC;check expected funT''))]
+                        (wrap =function))
+                      ))))))
 
-        (#;Function inputT outputT)
-        (<| (:: @ map (|>. #la;Function))
-            &;with-scope
-            (&env;with-local [func-name expected])
-            (&env;with-local [arg-name inputT])
-            (&;with-expected-type outputT)
-            (analyse body))
-        
-        _
-        (&;fail "")
-        ))))
+          (#;Function inputT outputT)
+          (<| (:: @ map (|>. #la;Function))
+              &;with-scope
+              (&env;with-local [func-name original])
+              (&env;with-local [arg-name inputT])
+              (&;with-expected-type outputT)
+              (analyse body))
+          
+          _
+          (&;fail "")
+          )))))
 
 (def: (analyse-apply' analyse funcT args)
   (-> &;Analyser Type (List Code) (Lux [Type (List Analysis)]))

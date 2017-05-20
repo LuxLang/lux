@@ -6,11 +6,14 @@
        (concurrency ["A" atom])
        (data [text "T/" Eq<Text>]
              text/format
+             [ident]
              (coll [list "L/" Fold<List> Monoid<List> Monad<List>]
-                   ["D" dict])
+                   ["D" dict]
+                   ["S" set])
              [number]
              [product])
        [macro #+ Monad<Lux>]
+       (macro [code])
        [type]
        (type ["TC" check]))
   (luxc ["&" base]
@@ -169,3 +172,65 @@
         
         _
         (&;fail "")))))
+
+(def: (resolve-pair [key val])
+  (-> [Ident Code] (Lux [Type Nat Code]))
+  (do Monad<Lux>
+    [key (macro;normalize key)
+     [idx tag-set recordT] (macro;resolve-tag key)]
+    (wrap [recordT idx val])))
+
+(def: #export (normalize-record pairs)
+  (-> (List [Code Code]) (Lux (List [Ident Code])))
+  (mapM Monad<Lux>
+        (function [[key val]]
+          (case key
+            [_ (#;Tag key)]
+            (do Monad<Lux>
+              [key (macro;normalize key)]
+              (wrap [key val]))
+
+            _
+            (&;fail (format "Cannot use non-tag tokens in key positions in records: " (%code key)))))
+        pairs))
+
+(def: #export (order-record pairs)
+  (-> (List [Ident Code]) (Lux [(List Code) Type]))
+  (case pairs
+    (#;Cons [head-k head-v] _)
+    (do Monad<Lux>
+      [head-k (macro;normalize head-k)
+       [_ tag-set recordT] (macro;resolve-tag head-k)
+       #let [size-record (list;size pairs)
+             size-ts (list;size tag-set)]
+       _ (if (n.= size-ts size-record)
+           (wrap [])
+           (&;fail (format "Record size does not match tag-set size." "\n"
+                           "Expected: " (|> size-ts nat-to-int %i) "\n"
+                           "  Actual: " (|> size-record nat-to-int %i) "\n"
+                           "For type: " (%type recordT))))
+       #let [tuple-range (list;n.range +0 size-ts)
+             tag->idx (D;from-list ident;Hash<Ident> (list;zip2 tag-set tuple-range))]
+       idx->val (foldM @
+                       (function [[key val] idx->val]
+                         (do @
+                           [key (macro;normalize key)]
+                           (case (D;get key tag->idx)
+                             #;None
+                             (&;fail (format "Tag " (%code (code;tag key))
+                                             " does not belong to tag-set for type " (%type recordT)))
+
+                             (#;Some idx)
+                             (if (D;contains? idx idx->val)
+                               (&;fail (format "Cannot repeat tag inside record: " (%code (code;tag key))))
+                               (wrap (D;put idx val idx->val))))))
+                       (: (D;Dict Nat Code)
+                          (D;new number;Hash<Nat>))
+                       pairs)
+       #let [ordered-tuple (L/map (function [idx]
+                                    (assume (D;get idx idx->val)))
+                                  tuple-range)]]
+      (wrap [ordered-tuple recordT]))
+
+    _
+    (:: Monad<Lux> wrap [(list) Unit])))
