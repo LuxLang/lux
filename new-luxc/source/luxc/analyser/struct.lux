@@ -3,6 +3,7 @@
   (lux (control monad
                 pipe)
        [io #- run]
+       [function]
        (concurrency ["A" atom])
        (data [text "T/" Eq<Text>]
              text/format
@@ -17,58 +18,40 @@
        [type]
        (type ["TC" check]))
   (luxc ["&" base]
-        (lang ["la" analysis #+ Analysis])
+        (lang ["la" analysis #+ Analysis]
+              ["lp" pattern])
         ["&;" module]
         ["&;" env]
         (analyser ["&;" common]
                   ["&;" inference])))
 
 ## [Analysers]
-(def: (analyse-typed-tuple analyse members)
+(def: (analyse-typed-product analyse members)
   (-> &;Analyser (List Code) (Lux Analysis))
   (do Monad<Lux>
     [expected macro;expected-type]
-    (let [member-types (type;flatten-tuple expected)
-          num-types (list;size member-types)
-          num-members (list;size members)]
-      (cond (n.= num-types num-members)
-            (do @
-              [=tuple (: (Lux (List Analysis))
-                         (mapM @
-                               (function [[expected member]]
-                                 (&;with-expected-type expected
-                                   (analyse member)))
-                               (list;zip2 member-types members)))]
-              (wrap (#la;Tuple =tuple)))
+    (loop [expected expected
+           members members]
+      (case [expected members]
+        [(#;Product leftT rightT) (#;Cons leftC rightC)]
+        (do @
+          [leftA (&;with-expected-type leftT
+                   (analyse leftC))
+           rightA (recur rightT rightC)]
+          (wrap (#la;Product leftA rightA)))
 
-            (n.< num-types num-members)
-            (do @
-              [#let [[head-ts tail-ts] (list;split (n.- +2 num-members)
-                                                   member-types)]
-               =prevs (mapM @
-                            (function [[expected member]]
-                              (&;with-expected-type expected
-                                (analyse member)))
-                            (list;zip2 head-ts members))
-               =last (&;with-expected-type (type;tuple tail-ts)
-                       (analyse (default (undefined)
-                                  (list;last members))))]
-              (wrap (#la;Tuple (L/append =prevs (list =last)))))
+        [tailT (#;Cons tailC #;Nil)]
+        (&;with-expected-type tailT
+          (analyse tailC))
 
-            ## (n.> num-types num-members)
-            (do @
-              [#let [[head-xs tail-xs] (list;split (n.- +2 num-types)
-                                                   members)]
-               =prevs (mapM @
-                            (function [[expected member]]
-                              (&;with-expected-type expected
-                                (analyse member)))
-                            (list;zip2 member-types head-xs))
-               =last (&;with-expected-type (default (undefined)
-                                             (list;last member-types))
-                       (analyse-typed-tuple analyse tail-xs))]
-              (wrap (#la;Tuple (L/append =prevs (list =last)))))
-            ))))
+        [tailT tailC]
+        (do @
+          [g!tail (macro;gensym "tail")]
+          (&;with-expected-type tailT
+            (analyse (` ((~' _lux_case) [(~@ tailC)]
+                         (~ g!tail)
+                         (~ g!tail))))))
+        ))))
 
 (def: #export (normalize-record pairs)
   (-> (List [Code Code]) (Lux (List [Ident Code])))
@@ -125,7 +108,19 @@
     _
     (:: Monad<Lux> wrap [(list) Unit])))
 
-(def: #export (analyse-tuple analyse members)
+(def: (tuple members)
+  (-> (List Analysis) Analysis)
+  (case members
+    #;Nil
+    #la;Unit
+
+    (#;Cons singleton #;Nil)
+    singleton
+
+    (#;Cons left right)
+    (#la;Product left (tuple right))))
+
+(def: #export (analyse-product analyse membersC)
   (-> &;Analyser (List Code) (Lux Analysis))
   (do Monad<Lux>
     [expected macro;expected-type]
@@ -133,11 +128,11 @@
       (function [_] (format "Invalid type for tuple: " (%type expected)))
       (case expected
         (#;Product _)
-        (analyse-typed-tuple analyse members)
+        (analyse-typed-product analyse membersC)
 
         (#;Named name unnamedT)
         (&;with-expected-type unnamedT
-          (analyse-tuple analyse members))
+          (analyse-product analyse membersC))
 
         (#;Var id)
         (do @
@@ -148,27 +143,27 @@
               [expected' (&;within-type-env
                           (TC;read-var id))]
               (&;with-expected-type expected'
-                (analyse-tuple analyse members)))
+                (analyse-product analyse membersC)))
             (do @
-              [=members (mapM @ (|>. analyse &common;with-unknown-type)
-                              members)
-               #let [tuple-type (type;tuple (L/map product;left =members))]
+              [membersTA (mapM @ (|>. analyse &common;with-unknown-type)
+                               membersC)
                _ (&;within-type-env
-                  (TC;check expected tuple-type))]
-              (wrap (#la;Tuple (L/map product;right =members))))))
+                  (TC;check expected
+                            (type;tuple (L/map product;left membersTA))))]
+              (wrap (tuple (L/map product;right membersTA))))))
 
         (#;UnivQ _)
         (do @
           [[var-id var] (&;within-type-env
                          TC;existential)]
           (&;with-expected-type (assume (type;apply-type expected var))
-            (analyse-tuple analyse members)))
+            (analyse-product analyse membersC)))
 
         (#;ExQ _)
         (&common;with-var
           (function [[var-id var]]
             (&;with-expected-type (assume (type;apply-type expected var))
-              (analyse-tuple analyse members))))
+              (analyse-product analyse membersC))))
         
         _
         (&;fail "")
@@ -258,9 +253,34 @@
      [inferredT membersA] (&inference;apply-function analyse functionT members)
      _ (&;within-type-env
         (TC;check expectedT inferredT))]
-    (wrap (#la;Tuple membersA))))
+    (wrap (tuple membersA))))
 
-(def: #export (analyse-tagged-variant analyse tag value)
+(do-template [<name> <side>]
+  [(def: (<name> inner)
+     (-> Analysis Analysis)
+     (#la;Sum (<side> inner)))]
+
+  [sum-left  #;Left]
+  [sum-right #;Right])
+
+(def: (variant tag size temp value)
+  (-> Nat Nat Nat Analysis Analysis)
+  (let [last-tag (n.dec size)]
+    (if (n.= last-tag tag)
+      (L/fold (function;const sum-left)
+              (sum-right value)
+              (list;n.range +0 last-tag))
+      (L/fold (function;const sum-left)
+              (case value
+                (#la;Sum _)
+                (#la;Case value (list [(#lp;Bind temp)
+                                       (#la;Relative (#;Local temp))]))
+
+                _
+                value)
+              (list;n.range +0 tag)))))
+
+(def: #export (analyse-tagged-sum analyse tag value)
   (-> &;Analyser Ident Code (Lux Analysis))
   (do Monad<Lux>
     [tag (macro;normalize tag)
@@ -270,10 +290,11 @@
      [inferredT valueA+] (&inference;apply-function analyse functionT (list value))
      expectedT macro;expected-type
      _ (&;within-type-env
-        (TC;check expectedT inferredT))]
-    (wrap (#la;Variant idx case-size (|> valueA+ list;head assume)))))
+        (TC;check expectedT inferredT))
+     temp &env;next-local]
+    (wrap (variant idx case-size temp (|> valueA+ list;head assume)))))
 
-(def: #export (analyse-variant analyse tag value)
+(def: #export (analyse-sum analyse tag valueC)
   (-> &;Analyser Nat Code (Lux Analysis))
   (do Monad<Lux>
     [expected macro;expected-type]
@@ -286,16 +307,17 @@
           (case (list;nth tag flat)
             (#;Some variant-type)
             (do @
-              [=value (&;with-expected-type variant-type
-                        (analyse value))]
-              (wrap (#la;Variant tag type-size =value)))
+              [valueA (&;with-expected-type variant-type
+                        (analyse valueC))
+               temp &env;next-local]
+              (wrap (variant tag type-size temp valueA)))
 
             #;None
             (out-of-bounds-error expected type-size tag)))
 
         (#;Named name unnamedT)
         (&;with-expected-type unnamedT
-          (analyse-variant analyse tag value))
+          (analyse-sum analyse tag valueC))
 
         (#;Var id)
         (do @
@@ -306,7 +328,7 @@
               [expected' (&;within-type-env
                           (TC;read-var id))]
               (&;with-expected-type expected'
-                (analyse-variant analyse tag value)))
+                (analyse-sum analyse tag valueC)))
             (&;fail (format "Invalid type for variant: " (%type expected)))))
 
         (#;UnivQ _)
@@ -314,13 +336,13 @@
           [[var-id var] (&;within-type-env
                          TC;existential)]
           (&;with-expected-type (assume (type;apply-type expected var))
-            (analyse-variant analyse tag value)))
+            (analyse-sum analyse tag valueC)))
 
         (#;ExQ _)
         (&common;with-var
           (function [[var-id var]]
             (&;with-expected-type (assume (type;apply-type expected var))
-              (analyse-variant analyse tag value))))
+              (analyse-sum analyse tag valueC))))
         
         _
         (&;fail "")))))
