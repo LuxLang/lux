@@ -299,16 +299,6 @@
   ^:private compile-char-lt Opcodes/IF_ICMPLT &&/unwrap-char
   )
 
-(defn ^:private compile-real-hash [compile ?values special-args]
-  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?input)
-        :let [_ (doto *writer*
-                  &&/unwrap-double
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "doubleToRawLongBits" "(D)J")
-                  &&/wrap-long)]]
-    (return nil)))
-
 (do-template [<name> <cmp-output>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -966,7 +956,6 @@
       "%"         (compile-real-rem compile ?values special-args)
       "="         (compile-real-eq compile ?values special-args)
       "<"         (compile-real-lt compile ?values special-args)
-      "hash"      (compile-real-hash compile ?values special-args)
       "smallest-value" (compile-real-smallest-value compile ?values special-args)
       "max-value" (compile-real-max-value compile ?values special-args)
       "min-value" (compile-real-min-value compile ?values special-args)

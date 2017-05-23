@@ -151,12 +151,6 @@
   ^:private compile-real-decode "decodeReal"
   )
 
-(defn ^:private compile-real-hash [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-        =x (compile ?x)]
-    (return (str "LuxRT$textHash(''+" =x ")"))
-    ))
-
 (do-template [<name> <compiler> <value>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Nil) ?values]]
@@ -549,7 +543,6 @@
       "negative-infinity" (compile-real-negative-infinity compile ?values special-args)
       "to-deg"    (compile-real-to-deg compile ?values special-args)
       "to-int"    (compile-real-to-int compile ?values special-args)
-      "hash"      (compile-real-hash compile ?values special-args)
       )
 
     "char"

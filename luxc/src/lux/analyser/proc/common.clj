@@ -299,7 +299,6 @@
   
   ^:private analyse-int-to-real  &type/Int  &type/Real   ["int" "to-real"]
   ^:private analyse-real-to-int  &type/Real &type/Int    ["real" "to-int"]
-  ^:private analyse-real-hash    &type/Real &type/Nat    ["real" "hash"]
   
   ^:private analyse-char-to-text &type/Char &type/Text   ["char" "to-text"]
 
@@ -597,7 +596,6 @@
       "negative-infinity" (analyse-real-negative-infinity analyse exo-type ?values)
       "to-deg" (analyse-real-to-deg analyse exo-type ?values)
       "to-int" (analyse-real-to-int analyse exo-type ?values)
-      "hash" (analyse-real-hash analyse exo-type ?values)
       )
 
     "char"

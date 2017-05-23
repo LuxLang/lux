@@ -8,7 +8,8 @@
                 enum
                 interval
                 codec)
-       (data ["R" result])))
+       (data ["R" result]
+             [bit])))
 
 (def: (clean-separators input)
   (-> Text Text)
@@ -151,6 +152,12 @@
   (-> Real Bool)
   (not (r.= number number)))
 
+(def: #export (real? value)
+  (-> Real Bool)
+  (not (or (not-a-number? value)
+           (r.= positive-infinity value)
+           (r.= negative-infinity value))))
+
 (do-template [<type> <encoder> <decoder> <error>]
   [(struct: #export _ (Codec Text <type>)
      (def: (encode x)
@@ -166,24 +173,6 @@
 
   [Real ["real" "encode"] ["real" "decode"] "Could not decode Real"]
   )
-
-(struct: #export _ (Hash Nat)
-  (def: eq Eq<Nat>)
-  (def: hash id))
-
-(struct: #export _ (Hash Int)
-  (def: eq Eq<Int>)
-  (def: hash int-to-nat))
-
-(struct: #export _ (Hash Real)
-  (def: eq Eq<Real>)
-  
-  (def: (hash value)
-    (_lux_proc ["real" "hash"] [value])))
-
-(struct: #export _ (Hash Deg)
-  (def: eq Eq<Deg>)
-  (def: hash (|>. (:! Nat))))
 
 ## [Values & Syntax]
 (do-template [<struct> <base> <char-set> <error>]
@@ -616,33 +605,11 @@
 ## write the encoding/decoding algorithm once, in pure Lux, rather
 ## than having to implement it on the compiler for every platform
 ## targeted by Lux.
-(def: deg-bits Nat +64)
-
-(def: (bit-shift-left param subject)
-  (-> Nat Nat Nat)
-  (_lux_proc ["bit" "shift-left"] [subject param]))
-
-(def: (bit-and param subject)
-  (-> Nat Nat Nat)
-  (_lux_proc ["bit" "and"] [subject param]))
-
-(def: (bit-or param subject)
-  (-> Nat Nat Nat)
-  (_lux_proc ["bit" "or"] [subject param]))
-
-(def: (bit-set? idx input)
-  (-> Nat Nat Bool)
-  (|> input (bit-and (bit-shift-left idx +1)) (n.= +0) ;not))
-
-(def: (bit-set idx input)
-  (-> Nat Nat Nat)
-  (bit-or (bit-shift-left idx +1) input))
-
 (type: Digits (#;Host "#Array" (#;Cons Nat #;Nil)))
 
 (def: (make-digits _)
   (-> Top Digits)
-  (_lux_proc ["array" "new"] [deg-bits]))
+  (_lux_proc ["array" "new"] [bit;width]))
 
 (def: (digits-get idx digits)
   (-> Nat Digits Nat)
@@ -682,7 +649,7 @@
 
 (def: (digits-to-text digits)
   (-> Digits Text)
-  (loop [idx (n.dec deg-bits)
+  (loop [idx (n.dec bit;width)
          all-zeroes? true
          output ""]
     (if (i.>= 0 (:! Int idx))
@@ -701,7 +668,7 @@
 
 (def: (digits-add param subject)
   (-> Digits Digits Digits)
-  (loop [idx (n.dec deg-bits)
+  (loop [idx (n.dec bit;width)
          carry +0
          output (make-digits [])]
     (if (i.>= 0 (:! Int idx))
@@ -717,7 +684,7 @@
 (def: (text-to-digits input)
   (-> Text (Maybe Digits))
   (let [length (_lux_proc ["text" "size"] [input])]
-    (if (n.<= deg-bits length)
+    (if (n.<= bit;width length)
       (loop [idx +0
              output (make-digits [])]
         (if (n.< length idx)
@@ -738,7 +705,7 @@
 (def: (digits-lt param subject)
   (-> Digits Digits Bool)
   (loop [idx +0]
-    (and (n.< deg-bits idx)
+    (and (n.< bit;width idx)
          (let [pd (digits-get idx param)
                sd (digits-get idx subject)]
            (if (n.= pd sd)
@@ -759,7 +726,7 @@
 
 (def: (digits-sub! param subject)
   (-> Digits Digits Digits)
-  (loop [idx (n.dec deg-bits)
+  (loop [idx (n.dec bit;width)
          output subject]
     (if (i.>= 0 (nat-to-int idx))
       (recur (n.dec idx)
@@ -769,13 +736,13 @@
 (struct: #export _ (Codec Text Deg)
   (def: (encode input)
     (let [input (:! Nat input)
-          last-idx (n.dec deg-bits)]
+          last-idx (n.dec bit;width)]
       (if (n.= +0 input)
         ".0"
         (loop [idx last-idx
                digits (make-digits [])]
           (if (i.>= 0 (:! Int idx))
-            (if (bit-set? idx input)
+            (if (bit;set? idx input)
               (let [digits' (digits-add (digits-power (n.- idx last-idx))
                                         digits)]
                 (recur (n.dec idx)
@@ -794,7 +761,7 @@
                     _
                     false)]
       (if (and dotted?
-               (n.<= (n.inc deg-bits) length))
+               (n.<= (n.inc bit;width) length))
         (case (|> (_lux_proc ["text" "clip"] [input +1 length])
                   assume
                   clean-separators
@@ -803,17 +770,124 @@
           (loop [digits digits
                  idx +0
                  output +0]
-            (if (n.< deg-bits idx)
+            (if (n.< bit;width idx)
               (let [power (digits-power idx)]
                 (if (digits-lt power digits)
                   ## Skip power
                   (recur digits (n.inc idx) output)
                   (recur (digits-sub! power digits)
                          (n.inc idx)
-                         (bit-set (n.- idx (n.dec deg-bits)) output))))
+                         (bit;set (n.- idx (n.dec bit;width)) output))))
               (#R;Success (:! Deg output))))
 
           #;None
           (#R;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input])))
         (#R;Error (_lux_proc ["text" "append"] ["Wrong syntax for Deg: " input]))))
     ))
+
+(def: (log2 input)
+  (-> Real Real)
+  (r./ (_lux_proc ["math" "log"] [2.0])
+       (_lux_proc ["math" "log"] [input])))
+
+(def: double-bias Nat +1023)
+
+(def: mantissa-size Nat +52)
+(def: exponent-size Nat +11)
+
+(def: #export (real-to-bits input)
+  (-> Real Nat)
+  (cond (not-a-number? input)
+        (hex "+7FF7FFFFFFFFFFFF")
+
+        (r.= positive-infinity input)
+        (hex "+7FF0000000000000")
+
+        (r.= negative-infinity input)
+        (hex "+FFF0000000000000")
+
+        (r.= 0.0 input)
+        (let [reciprocal (r./ input 1.0)]
+          (if (r.= positive-infinity reciprocal)
+            ## Positive zero
+            (hex "+0000000000000000")
+            ## Negative zero
+            (hex "+8000000000000000")))
+
+        ## else
+        (let [sign (:: Number<Real> signum input)
+              input (:: Number<Real> abs input)
+              exponent (_lux_proc ["math" "floor"] [(log2 input)])
+              exponent-mask (|> +1 (bit;shift-left exponent-size) n.dec) 
+              mantissa (|> input
+                           ## Normalize
+                           (r./ (_lux_proc ["math" "pow"] [2.0 exponent]))
+                           ## Make it int-equivalent
+                           (r.* (_lux_proc ["math" "pow"] [2.0 52.0])))
+              sign-bit (if (r.= -1.0 sign) +1 +0)
+              exponent-bits (|> exponent real-to-int int-to-nat (n.+ double-bias) (bit;and exponent-mask))
+              mantissa-bits (|> mantissa real-to-int int-to-nat)]
+          ($_ bit;or
+              (bit;shift-left +63 sign-bit)
+              (bit;shift-left mantissa-size exponent-bits)
+              (bit;clear mantissa-size mantissa-bits)))
+        ))
+
+(do-template [<getter> <mask> <size> <offset>]
+  [(def: <mask> (|> +1 (bit;shift-left <size>) n.dec (bit;shift-left <offset>)))
+   (def: (<getter> input)
+     (-> Nat Nat)
+     (|> input (bit;and <mask>) (bit;unsigned-shift-right <offset>)))]
+
+  [mantissa mantissa-mask mantissa-size +0]
+  [exponent exponent-mask exponent-size mantissa-size]
+  [sign     sign-mask     +1            (n.+ exponent-size mantissa-size)]
+  )
+
+(def: #export (bits-to-real input)
+  (-> Nat Real)
+  (let [S (sign input)
+        E (exponent input)
+        M (mantissa input)]
+    (cond (n.= (hex "+7FF") E)
+          (if (n.= +0 M)
+            (if (n.= +0 S)
+              positive-infinity
+              negative-infinity)
+            not-a-number)
+
+          (and (n.= +0 E) (n.= +0 M))
+          (if (n.= +0 S)
+            0.0
+            (r.* -1.0 0.0))
+
+          ## else
+          (let [normalized (|> M (bit;set mantissa-size)
+                               nat-to-int int-to-real
+                               (r./ (_lux_proc ["math" "pow"] [2.0 52.0])))
+                power (|> E (n.- double-bias)
+                          nat-to-int int-to-real
+                          [2.0] (_lux_proc ["math" "pow"]))
+                shifted (r.* power
+                             normalized)]
+            (if (n.= +0 S)
+              shifted
+              (r.* -1.0 shifted))))))
+
+## [Hash]
+(struct: #export _ (Hash Nat)
+  (def: eq Eq<Nat>)
+  (def: hash id))
+
+(struct: #export _ (Hash Int)
+  (def: eq Eq<Int>)
+  (def: hash int-to-nat))
+
+(struct: #export _ (Hash Real)
+  (def: eq Eq<Real>)
+  
+  (def: hash real-to-bits))
+
+(struct: #export _ (Hash Deg)
+  (def: eq Eq<Deg>)
+  (def: hash (|>. (:! Nat))))
