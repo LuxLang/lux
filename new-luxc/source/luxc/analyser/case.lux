@@ -16,8 +16,7 @@
        [type]
        (type ["TC" check]))
   (luxc ["&" base]
-        (lang ["la" analysis #+ Analysis]
-              ["lp" pattern #+ Pattern])
+        (lang ["la" analysis])
         ["&;" env]
         (analyser ["&;" common]
                   ["&;" structure])))
@@ -62,7 +61,7 @@
     (:: Monad<Lux> wrap type)))
 
 (def: (analyse-pattern num-tags inputT pattern next)
-  (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [Pattern a])))
+  (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
   (case pattern
     [cursor (#;Symbol ["" name])]
     (&;with-cursor cursor
@@ -70,7 +69,7 @@
         [outputA (&env;with-local [name inputT]
                    next)
          idx &env;next-local]
-        (wrap [(#lp;Bind idx) outputA])))
+        (wrap [(#la;BindP idx) outputA])))
 
     [cursor (#;Symbol ident)]
     (&;with-cursor cursor
@@ -84,13 +83,13 @@
               (TC;check inputT <type>))
            outputA next]
           (wrap [(<pattern-tag> test) outputA]))))
-    ([Bool #;Bool #lp;Bool]
-     [Nat  #;Nat  #lp;Nat]
-     [Int  #;Int  #lp;Int]
-     [Deg  #;Deg  #lp;Deg]
-     [Real #;Real #lp;Real]
-     [Char #;Char #lp;Char]
-     [Text #;Text #lp;Text])
+    ([Bool #;Bool #la;BoolP]
+     [Nat  #;Nat  #la;NatP]
+     [Int  #;Int  #la;IntP]
+     [Deg  #;Deg  #la;DegP]
+     [Real #;Real #la;RealP]
+     [Char #;Char #la;CharP]
+     [Text #;Text #la;TextP])
 
     (^ [cursor (#;Tuple (list))])
     (&;with-cursor cursor
@@ -98,7 +97,7 @@
         [_ (&;within-type-env
             (TC;check inputT Unit))
          outputA next]
-        (wrap [(#lp;Tuple (list)) outputA])))
+        (wrap [(#la;TupleP (list)) outputA])))
 
     (^ [cursor (#;Tuple (list singleton))])
     (analyse-pattern #;None inputT singleton next)
@@ -126,11 +125,11 @@
                               )]
             (do @
               [[memberP+ thenA] (L/fold (: (All [a]
-                                             (-> [Type Code] (Lux [(List Pattern) a])
-                                                 (Lux [(List Pattern) a])))
+                                             (-> [Type Code] (Lux [(List la;Pattern) a])
+                                                 (Lux [(List la;Pattern) a])))
                                            (function [[memberT memberC] then]
                                              (do @
-                                               [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [Pattern a])))
+                                               [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
                                                                                 analyse-pattern)
                                                                             #;None memberT memberC then)]
                                                (wrap [(list& memberP memberP+) thenA]))))
@@ -138,7 +137,7 @@
                                           [nextA next]
                                           (wrap [(list) nextA]))
                                         matches)]
-              (wrap [(#lp;Tuple memberP+) thenA])))
+              (wrap [(#la;TupleP memberP+) thenA])))
 
           _
           (&;fail (pattern-error inputT pattern))
@@ -175,11 +174,11 @@
                                                   (type;variant (list;drop (n.dec num-cases) flat-sum))
                                                   (` [(~@ values)])
                                                   next)]
-                  (wrap [(#lp;Variant idx num-cases testP)
+                  (wrap [(#la;VariantP idx num-cases testP)
                          nextA]))
                 (do Monad<Lux>
                   [[testP nextA] (analyse-pattern #;None case-type (` [(~@ values)]) next)]
-                  (wrap [(#lp;Variant idx num-cases testP)
+                  (wrap [(#la;VariantP idx num-cases testP)
                          nextA])))
 
               _
@@ -202,7 +201,7 @@
     ))
 
 (def: (analyse-branch analyse inputT pattern body)
-  (-> &;Analyser Type Code Code (Lux [Pattern Analysis]))
+  (-> &;Analyser Type Code Code (Lux [la;Pattern la;Analysis]))
   (analyse-pattern #;None inputT pattern (analyse body)))
 
 (do-template [<name> <tag>]
@@ -220,22 +219,22 @@
   )
 
 (def: (determine-coverage pattern)
-  (-> Pattern Coverage)
+  (-> la;Pattern Coverage)
   (case pattern
-    (^or (#lp;Bind _) (^ (#lp;Tuple (list))))
+    (^or (#la;BindP _) (^ (#la;TupleP (list))))
     #TotalC
 
-    (^ (#lp;Tuple (list singleton)))
+    (^ (#la;TupleP (list singleton)))
     (determine-coverage singleton)
     
-    (#lp;Bool value)
+    (#la;BoolP value)
     (#BoolC value)
     
-    (^or (#lp;Nat _)  (#lp;Int _)  (#lp;Deg _)
-         (#lp;Real _) (#lp;Char _) (#lp;Text _))
+    (^or (#la;NatP _)  (#la;IntP _)  (#la;DegP _)
+         (#la;RealP _) (#la;CharP _) (#la;TextP _))
     #PartialC
     
-    (#lp;Tuple subs)
+    (#la;TupleP subs)
     (loop [subs subs]
       (case subs
         #;Nil
@@ -248,7 +247,7 @@
             (#SeqC (determine-coverage sub)
                    post)))))
     
-    (#lp;Variant tag-id num-tags sub)
+    (#la;VariantP tag-id num-tags sub)
     (#VariantC num-tags
                (|> (D;new number;Hash<Nat>)
                    (D;put tag-id (determine-coverage sub))))))
@@ -432,11 +431,11 @@
       (R/wrap (#AltC so-far addition)))))
 
 (def: get-coverage
-  (-> [Pattern Analysis] Coverage)
+  (-> [la;Pattern la;Analysis] Coverage)
   (|>. product;left determine-coverage))
 
 (def: #export (analyse-case analyse input branches)
-  (-> &;Analyser Code (List [Code Code]) (Lux Analysis))
+  (-> &;Analyser Code (List [Code Code]) (Lux la;Analysis))
   (case branches
     #;Nil
     (&;fail "Cannot have empty branches in pattern-matching expression.")
