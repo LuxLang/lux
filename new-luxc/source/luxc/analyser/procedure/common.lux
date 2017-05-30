@@ -1,0 +1,333 @@
+(;module:
+  lux
+  (lux (control monad)
+       (concurrency ["A" atom])
+       (data [text]
+             text/format
+             (coll [list]
+                   [array #+ Array]
+                   ["D" dict]))
+       [macro #+ Monad<Lux>]
+       (type ["TC" check])
+       [io])
+  (luxc ["&" base]
+        (lang ["la" analysis #+ Analysis])
+        (analyser ["&;" common])))
+
+## [Utils]
+(type: Proc-Analyser
+  (-> &;Analyser (List Code) (Lux Analysis)))
+
+(type: Proc-Set
+  (D;Dict Text Proc-Analyser))
+
+(def: (install name unnamed)
+  (-> Text (-> Text Proc-Analyser)
+      (-> Proc-Set Proc-Set))
+  (D;put name (unnamed name)))
+
+(def: (wrong-amount-error proc expected actual)
+  (-> Text Nat Nat Text)
+  (format "Wrong number of arguments for " (%t proc) "\n"
+          "Expected: " (|> expected nat-to-int %i) "\n"
+          "  Actual: " (|> actual nat-to-int %i)))
+
+(def: (simple-proc proc input-types output-type)
+  (-> Text (List Type) Type Proc-Analyser)
+  (let [num-expected (list;size input-types)]
+    (function [analyse args]
+      (let [num-actual (list;size args)]
+        (if (n.= num-expected num-actual)
+          (do Monad<Lux>
+            [argsA (mapM @
+                         (function [[argT argC]]
+                           (&;with-expected-type argT
+                             (analyse argC)))
+                         (list;zip2 input-types args))
+             expected macro;expected-type
+             _ (&;within-type-env
+                (TC;check expected output-type))]
+            (wrap (#la;Procedure proc argsA)))
+          (&;fail (wrong-amount-error proc num-expected num-actual)))))))
+
+(def: (binary-operation subjectT paramT outputT proc)
+  (-> Type Type Type Text Proc-Analyser)
+  (simple-proc proc (list subjectT paramT) outputT))
+
+(def: (trinary-operation subjectT param0T param1T outputT proc)
+  (-> Type Type Type Type Text Proc-Analyser)
+  (simple-proc proc (list subjectT param0T param1T) outputT))
+
+(def: (unary-operation inputT outputT proc)
+  (-> Type Type Text Proc-Analyser)
+  (simple-proc proc (list inputT) outputT))
+
+(def: (special-value valueT proc)
+  (-> Type Text Proc-Analyser)
+  (simple-proc proc (list) valueT))
+
+(def: (converter fromT toT proc)
+  (-> Type Type Text Proc-Analyser)
+  (simple-proc proc (list fromT) toT))
+
+## [Analysers]
+(def: (analyse-lux-is proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        ((binary-operation varT varT Bool proc)
+         analyse args)))))
+
+(def: (analyse-lux-try proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list opC))
+          (do Monad<Lux>
+            [opA (&;with-expected-type (type (io;IO varT))
+                   (analyse opC))
+             outputT (&;within-type-env
+                      (TC;clean var-id (type (Either Text varT))))
+             expected macro;expected-type
+             _ (&;within-type-env
+                (TC;check expected outputT))]
+            (wrap (#la;Procedure proc (list opA))))
+          
+          _
+          (&;fail (wrong-amount-error proc +1 (list;size args))))))))
+
+(def: lux-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "lux is" analyse-lux-is)
+      (install "lux try" analyse-lux-try)))
+
+(def: io-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "io log" (converter Text Unit))
+      (install "io error" (converter Text Bottom))
+      (install "io exit" (converter Nat Bottom))
+      (install "io current-time" (special-value Int))))
+
+(def: bit-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "bit count" (unary-operation Nat Nat))
+      (install "bit and" (binary-operation Nat Nat Nat))
+      (install "bit or" (binary-operation Nat Nat Nat))
+      (install "bit xor" (binary-operation Nat Nat Nat))
+      (install "bit shift-left" (binary-operation Nat Nat Nat))
+      (install "bit unsigned-shift-right" (binary-operation Nat Nat Nat))
+      (install "bit shift-right" (binary-operation Int Nat Int))
+      ))
+
+(def: nat-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "nat +" (binary-operation Nat Nat Nat))
+      (install "nat -" (binary-operation Nat Nat Nat))
+      (install "nat *" (binary-operation Nat Nat Nat))
+      (install "nat /" (binary-operation Nat Nat Nat))
+      (install "nat %" (binary-operation Nat Nat Nat))
+      (install "nat =" (binary-operation Nat Nat Bool))
+      (install "nat <" (binary-operation Nat Nat Bool))
+      (install "nat min" (special-value Nat))
+      (install "nat max" (special-value Nat))
+      (install "nat to-int" (converter Nat Int))
+      (install "nat to-text" (converter Nat Text))))
+
+(def: int-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "int +" (binary-operation Int Int Int))
+      (install "int -" (binary-operation Int Int Int))
+      (install "int *" (binary-operation Int Int Int))
+      (install "int /" (binary-operation Int Int Int))
+      (install "int %" (binary-operation Int Int Int))
+      (install "int =" (binary-operation Int Int Bool))
+      (install "int <" (binary-operation Int Int Bool))
+      (install "int min" (special-value Int))
+      (install "int max" (special-value Int))
+      (install "int to-nat" (converter Int Nat))
+      (install "int to-real" (converter Int Real))))
+
+(def: deg-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "deg +" (binary-operation Deg Deg Deg))
+      (install "deg -" (binary-operation Deg Deg Deg))
+      (install "deg *" (binary-operation Deg Deg Deg))
+      (install "deg /" (binary-operation Deg Deg Deg))
+      (install "deg %" (binary-operation Deg Deg Deg))
+      (install "deg =" (binary-operation Deg Deg Bool))
+      (install "deg <" (binary-operation Deg Deg Bool))
+      (install "deg scale" (binary-operation Deg Nat Deg))
+      (install "deg reciprocal" (unary-operation Nat Deg))
+      (install "deg min" (special-value Deg))
+      (install "deg max" (special-value Deg))
+      (install "deg to-real" (converter Deg Real))))
+
+(def: real-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "real +" (binary-operation Real Real Real))
+      (install "real -" (binary-operation Real Real Real))
+      (install "real *" (binary-operation Real Real Real))
+      (install "real /" (binary-operation Real Real Real))
+      (install "real %" (binary-operation Real Real Real))
+      (install "real =" (binary-operation Real Real Bool))
+      (install "real <" (binary-operation Real Real Bool))
+      (install "real smallest" (special-value Real))
+      (install "real min" (special-value Real))
+      (install "real max" (special-value Real))
+      (install "real not-a-number" (special-value Real))
+      (install "real positive-infinity" (special-value Real))
+      (install "real negative-infinity" (special-value Real))
+      (install "real to-deg" (converter Real Deg))
+      (install "real to-int" (converter Real Int))
+      (install "real to-text" (converter Real Text))
+      (install "real from-text" (converter Text (type (Maybe Real))))))
+
+(def: text-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "text =" (binary-operation Text Text Bool))
+      (install "text <" (binary-operation Text Text Bool))
+      (install "text prepend" (binary-operation Text Text Text))
+      (install "text index" (trinary-operation Text Text Nat (type (Maybe Nat))))
+      (install "text size" (unary-operation Text Nat))
+      (install "text hash" (unary-operation Text Nat))
+      (install "text replace-once" (trinary-operation Text Text Text Text))
+      (install "text replace-all" (trinary-operation Text Text Text Text))
+      (install "text char" (binary-operation Text Nat Nat))
+      (install "text clip" (trinary-operation Text Nat Nat Text))
+      ))
+
+(def: (analyse-array-get proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        ((binary-operation Nat (type (Array varT)) varT proc)
+         analyse args)))))
+
+(def: (analyse-array-put proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        ((trinary-operation Nat varT (type (Array varT)) (type (Array varT)) proc)
+         analyse args)))))
+
+(def: (analyse-array-remove proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        ((binary-operation Nat (type (Array varT)) (type (Array varT)) proc)
+         analyse args)))))
+
+(def: array-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "array new" (unary-operation Nat Array))
+      (install "array get" analyse-array-get)
+      (install "array put" analyse-array-put)
+      (install "array remove" analyse-array-remove)
+      (install "array size" (unary-operation (type (Ex [a] (Array a))) Nat))
+      ))
+
+(def: math-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "math cos" (unary-operation Real Real))
+      (install "math sin" (unary-operation Real Real))
+      (install "math tan" (unary-operation Real Real))
+      (install "math acos" (unary-operation Real Real))
+      (install "math asin" (unary-operation Real Real))
+      (install "math atan" (unary-operation Real Real))
+      (install "math cosh" (unary-operation Real Real))
+      (install "math sinh" (unary-operation Real Real))
+      (install "math tanh" (unary-operation Real Real))
+      (install "math exp" (unary-operation Real Real))
+      (install "math log" (unary-operation Real Real))
+      (install "math root2" (unary-operation Real Real))
+      (install "math root3" (unary-operation Real Real))
+      (install "math ceil" (unary-operation Real Real))
+      (install "math floor" (unary-operation Real Real))
+      (install "math round" (unary-operation Real Real))
+      (install "math atan2" (binary-operation Real Real Real))
+      (install "math pow" (binary-operation Real Real Real))
+      ))
+
+(def: (analyse-atom-new proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list initC))
+          (do Monad<Lux>
+            [initA (&;with-expected-type varT
+                     (analyse initC))
+             outputT (&;within-type-env
+                      (TC;clean var-id (type (A;Atom varT))))
+             expected macro;expected-type
+             _ (&;within-type-env
+                (TC;check expected outputT))]
+            (wrap (#la;Procedure proc (list initA))))
+          
+          _
+          (&;fail (wrong-amount-error proc +1 (list;size args))))))))
+
+(def: (analyse-atom-read proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        ((unary-operation (type (A;Atom varT)) varT proc)
+         analyse args)))))
+
+(def: (analyse-atom-compare-and-swap proc)
+  (-> Text Proc-Analyser)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        ((trinary-operation varT varT (type (A;Atom varT)) Bool proc)
+         analyse args)))))
+
+(def: atom-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "atom new" analyse-atom-new)
+      (install "atom read" analyse-atom-read)
+      (install "atom compare-and-swap" analyse-atom-compare-and-swap)
+      ))
+
+(def: process-procs
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (install "process concurrency-level" (special-value Nat))
+      (install "process future" (unary-operation (type (io;IO Top)) Unit))
+      (install "process schedule" (binary-operation Nat (type (io;IO Top)) Unit))
+      ))
+
+(def: #export procedures
+  Proc-Set
+  (|> (D;new text;Hash<Text>)
+      (D;merge lux-procs)
+      (D;merge bit-procs)
+      (D;merge nat-procs)
+      (D;merge int-procs)
+      (D;merge deg-procs)
+      (D;merge real-procs)
+      (D;merge text-procs)
+      (D;merge array-procs)
+      (D;merge math-procs)
+      (D;merge atom-procs)
+      (D;merge process-procs)
+      (D;merge io-procs)))

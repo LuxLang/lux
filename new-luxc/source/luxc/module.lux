@@ -3,8 +3,11 @@
   (lux (control monad)
        (data [text "T/" Eq<Text>]
              text/format
-             ["R" result]))
-  (luxc ["&" base]))
+             ["R" result]
+             (coll [list "L/" Fold<List> Functor<List>]))
+       [macro #+ Monad<Lux>])
+  (luxc ["&" base]
+        ["&;" env]))
 
 (def: (new-module hash)
   (-> Nat Module)
@@ -49,6 +52,14 @@
                             compiler)
                    module]))))
 
+(def: #export (with-module hash name action)
+  (All [a] (-> Nat Text (Lux a) (Lux [Module a])))
+  (do Monad<Lux>
+    [_ (create hash name)
+     output (&env;with-scope name action)
+     module (macro;find-module name)]
+    (wrap [module output])))
+
 (do-template [<flagger> <asker> <tag>]
   [(def: #export (<flagger> module-name)
      (-> Text (Lux Unit))
@@ -85,3 +96,65 @@
   [flag-compiled! compiled? #;Compiled]
   [flag-cached!   cached?   #;Cached]
   )
+
+(do-template [<name> <tag> <type>]
+  [(def: (<name> module-name)
+     (-> Text (Lux <type>))
+     (function [compiler]
+       (case (|> compiler (get@ #;modules) (&;pl-get module-name))
+         (#;Some module)
+         (#R;Success [compiler (get@ <tag> module)])
+
+         #;None
+         (macro;run compiler (&;fail (format "Unknown module: " module-name))))
+       ))]
+
+  [tags-by-module  #;tags        (List [Text [Nat (List Ident) Bool Type]])]
+  [types-by-module #;types       (List [Text [(List Ident) Bool Type]])]
+  [module-hash     #;module-hash Nat]
+  )
+
+(def: (ensure-undeclared-tags module-name tags)
+  (-> Text (List Text) (Lux Unit))
+  (do Monad<Lux>
+    [bindings (tags-by-module module-name)
+     _ (mapM @
+             (function [tag]
+               (case (&;pl-get tag bindings)
+                 #;None
+                 (wrap [])
+
+                 (#;Some _)
+                 (&;fail (format "Cannot re-declare tag: " tag))))
+             tags)]
+    (wrap [])))
+
+(def: #export (declare-tags tags exported? type)
+  (-> (List Text) Bool Type (Lux Unit))
+  (do Monad<Lux>
+    [current-module macro;current-module-name
+     [type-module type-name] (case type
+                               (#;Named type-ident _)
+                               (wrap type-ident)
+
+                               _
+                               (&;fail (format "Cannot define tags for an unnamed type: " (%type type))))
+     _ (ensure-undeclared-tags current-module tags)
+     _ (macro;assert (format "Cannot define tags for a type belonging to a foreign module: " (%type type))
+                     (T/= current-module type-module))]
+    (function [compiler]
+      (case (|> compiler (get@ #;modules) (&;pl-get current-module))
+        (#;Some module)
+        (let [namespaced-tags (L/map (|>. [current-module]) tags)]
+          (#R;Success [(update@ #;modules
+                                (&;pl-update current-module
+                                             (|>. (update@ #;tags (function [tag-bindings]
+                                                                    (L/fold (function [[idx tag] table]
+                                                                              (&;pl-put tag [idx namespaced-tags exported? type] table))
+                                                                            tag-bindings
+                                                                            (list;enumerate tags))))
+                                                  (update@ #;types (&;pl-put type-name [namespaced-tags exported? type]))))
+                                compiler)
+                       []]))
+        #;None
+        (macro;run compiler (&;fail (format "Unknown module: " current-module)))))))

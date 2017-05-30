@@ -1,0 +1,175 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad
+                pipe)
+       (data [bool "B/" Eq<Bool>]
+             ["R" result]
+             [product]
+             [text "T/" Eq<Text>]
+             text/format
+             (coll [list "L/" Monad<List>]
+                   ["S" set]))
+       ["r" math/random "r/" Monad<Random>]
+       [type "Type/" Eq<Type>]
+       (type ["TC" check])
+       [macro #+ Monad<Lux>]
+       (macro [code])
+       test)
+  (luxc ["&" base]
+        (lang ["la" analysis])
+        [analyser]
+        (analyser ["@" case]
+                  ["@;" common])
+        ["@;" module])
+  (.. common))
+
+(def: (total-weaving branchings)
+  (-> (List (List Code)) (List (List Code)))
+  (case branchings
+    #;Nil
+    #;Nil
+
+    (#;Cons head+ #;Nil)
+    (L/map (|>. list) head+)
+
+    (#;Cons head+ tail++)
+    (do list;Monad<List>
+      [tail+ (total-weaving tail++)
+       head head+]
+      (wrap (#;Cons head tail+)))))
+
+(def: (total-branches-for variantTC inputC)
+  (-> (List [Code Code]) Code (r;Random (List Code)))
+  (case inputC
+    [_ (#;Bool _)]
+    (r/wrap (list (' true) (' false)))
+
+    (^template [<tag> <gen> <wrapper>]
+      [_ (<tag> _)]
+      (do r;Monad<Random>
+        [?sample (r;maybe <gen>)]
+        (case ?sample
+          (#;Some sample)
+          (do @
+            [else (total-branches-for variantTC inputC)]
+            (wrap (list& (<wrapper> sample) else)))
+
+          #;None
+          (wrap (list (' _))))))
+    ([#;Nat  r;nat       code;nat]
+     [#;Int  r;int       code;int]
+     [#;Deg  r;deg       code;deg]
+     [#;Real r;real      code;real]
+     [#;Char r;char      code;char]
+     [#;Text (r;text +5) code;text])
+    
+    (^ [_ (#;Tuple (list))])
+    (r/wrap (list (' [])))
+
+    (^ [_ (#;Record (list))])
+    (r/wrap (list (' {})))
+
+    [_ (#;Tuple members)]
+    (do r;Monad<Random>
+      [member-wise-patterns (mapM @ (total-branches-for variantTC) members)]
+      (wrap (|> member-wise-patterns
+                total-weaving
+                (L/map code;tuple))))
+
+    [_ (#;Record kvs)]
+    (do r;Monad<Random>
+      [#let [ks (L/map product;left kvs)
+             vs (L/map product;right kvs)]
+       member-wise-patterns (mapM @ (total-branches-for variantTC) vs)]
+      (wrap (|> member-wise-patterns
+                total-weaving
+                (L/map (|>. (list;zip2 ks) code;record)))))
+
+    (^ [_ (#;Form (list [_ (#;Tag _)] _))])
+    (do r;Monad<Random>
+      [bundles (mapM @
+                     (function [[_tag _code]]
+                       (do @
+                         [v-branches (total-branches-for variantTC _code)]
+                         (wrap (L/map (function [pattern] (` ((~ _tag) (~ pattern))))
+                                      v-branches))))
+                     variantTC)]
+      (wrap (L/join bundles)))
+
+    _
+    (r/wrap (list))
+    ))
+
+(def: (gen-input variant-tags record-tags primitivesC)
+  (-> (List Code) (List Code) (List Code) (r;Random Code))
+  (r;rec
+   (function [gen-input]
+     ($_ r;either
+         (r/map product;right gen-simple-primitive)
+         (do r;Monad<Random>
+           [choice (|> r;nat (:: @ map (n.% (list;size variant-tags))))
+            #let [choiceT (assume (list;nth choice variant-tags))
+                  choiceC (assume (list;nth choice primitivesC))]]
+           (wrap (` ((~ choiceT) (~ choiceC)))))
+         (do r;Monad<Random>
+           [size (|> r;nat (:: @ map (n.% +3)))
+            elems (r;list size gen-input)]
+           (wrap (code;tuple elems)))
+         (r/wrap (code;record (list;zip2 record-tags primitivesC)))
+         ))))
+
+(test: "Pattern-matching."
+  #seed +9253409297339902486
+  [module-name (r;text +5)
+   variant-name (r;text +5)
+   record-name (|> (r;text +5) (r;filter (|>. (T/= variant-name) not)))
+   size (|> r;nat (:: @ map (|>. (n.% +10) (n.max +2))))
+   variant-tags (|> (r;set text;Hash<Text> size (r;text +5)) (:: @ map S;to-list))
+   record-tags (|> (r;set text;Hash<Text> size (r;text +5)) (:: @ map S;to-list))
+   primitivesTC (r;list size gen-simple-primitive)
+   #let [primitivesT (L/map product;left primitivesTC)
+         primitivesC (L/map product;right primitivesTC)
+         variant-tags+ (L/map (|>. [module-name] code;tag) variant-tags)
+         record-tags+ (L/map (|>. [module-name] code;tag) record-tags)
+         variantTC (list;zip2 variant-tags+ primitivesC)]
+   inputC (gen-input variant-tags+ record-tags+ primitivesC)
+   [outputT outputC] gen-simple-primitive
+   total-patterns (total-branches-for variantTC inputC)
+   #let [total-branchesC (L/map (function [pattern] [pattern outputC])
+                                total-patterns)
+         non-total-branchesC (list;take (n.dec (list;size total-branchesC))
+                                        total-branchesC)]]
+  ($_ seq
+      (assert "Will reject empty pattern-matching (no branches)."
+              (|> (&;with-scope
+                    (&;with-expected-type outputT
+                      (@;analyse-case analyse inputC (list))))
+                  check-failure))
+      (assert "Can analyse total pattern-matching."
+              (|> (@module;with-module +0 module-name
+                    (do Monad<Lux>
+                      [_ (@module;declare-tags variant-tags false
+                                               (#;Named [module-name variant-name]
+                                                        (type;variant primitivesT)))
+                       _ (@module;declare-tags record-tags false
+                                               (#;Named [module-name record-name]
+                                                        (type;tuple primitivesT)))]
+                      (&;with-scope
+                        (&;with-expected-type outputT
+                          (@;analyse-case analyse inputC total-branchesC)))))
+                  check-success))
+      (assert "Will reject non-total pattern-matching."
+              (|> (@module;with-module +0 module-name
+                    (do Monad<Lux>
+                      [_ (@module;declare-tags variant-tags false
+                                               (#;Named [module-name variant-name]
+                                                        (type;variant primitivesT)))
+                       _ (@module;declare-tags record-tags false
+                                               (#;Named [module-name record-name]
+                                                        (type;tuple primitivesT)))]
+                      (&;with-scope
+                        (&;with-expected-type outputT
+                          (@;analyse-case analyse inputC non-total-branchesC)))))
+                  check-failure))
+      ))

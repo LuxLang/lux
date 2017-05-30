@@ -1,0 +1,155 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad
+                pipe)
+       (data ["R" result]
+             [product]
+             [text "T/" Eq<Text>]
+             text/format
+             (coll [list "L/" Functor<List>]
+                   ["S" set]))
+       ["r" math/random "r/" Monad<Random>]
+       [type "Type/" Eq<Type>]
+       (type ["TC" check])
+       [macro #+ Monad<Lux>]
+       (macro [code])
+       test)
+  (luxc ["&" base]
+        (lang ["la" analysis])
+        [analyser]
+        (analyser ["@" function]
+                  ["@;" common])
+        ["@;" module])
+  (.. common))
+
+(def: (check-type expectedT result)
+  (-> Type (R;Result [Type la;Analysis]) Bool)
+  (case result
+    (#R;Success [exprT exprA])
+    (Type/= expectedT exprT)
+
+    _
+    false))
+
+(def: (succeeds? result)
+  (All [a] (-> (R;Result a) Bool))
+  (case result
+    (#R;Success _)
+    true
+
+    (#R;Error _)
+    false))
+
+(def: (flatten-apply analysis)
+  (-> la;Analysis [la;Analysis (List la;Analysis)])
+  (case analysis
+    (#la;Apply head func)
+    (let [[func' tail] (flatten-apply func)]
+      [func' (#;Cons head tail)])
+
+    _
+    [analysis (list)]))
+
+(def: (check-apply expectedT num-args analysis)
+  (-> Type Nat (Lux [Type la;Analysis]) Bool)
+  (|> analysis
+      (macro;run init-compiler)
+      (case> (#R;Success [applyT applyA])
+             (let [[funcA argsA] (flatten-apply applyA)]
+               (and (Type/= expectedT applyT)
+                    (n.= num-args (list;size argsA))))
+
+             (#R;Error error)
+             false)))
+
+(test: "Function definition."
+  [func-name (r;text +5)
+   arg-name (|> (r;text +5) (r;filter (|>. (T/= func-name) not)))
+   [outputT outputC] gen-simple-primitive
+   [inputT _] gen-simple-primitive]
+  ($_ seq
+      (assert "Can analyse function."
+              (|> (&;with-expected-type (type (All [a] (-> a outputT)))
+                    (@;analyse-function analyse func-name arg-name outputC))
+                  (macro;run init-compiler)
+                  succeeds?))
+      (assert "Generic functions can always be specialized."
+              (and (|> (&;with-expected-type (-> inputT outputT)
+                         (@;analyse-function analyse func-name arg-name outputC))
+                       (macro;run init-compiler)
+                       succeeds?)
+                   (|> (&;with-expected-type (-> inputT inputT)
+                         (@;analyse-function analyse func-name arg-name (code;symbol ["" arg-name])))
+                       (macro;run init-compiler)
+                       succeeds?)))
+      (assert "Can infer function (constant output and unused input)."
+              (|> (@common;with-unknown-type
+                    (@;analyse-function analyse func-name arg-name outputC))
+                  (macro;run init-compiler)
+                  (check-type (type (All [a] (-> a outputT))))))
+      (assert "Can infer function (output = input)."
+              (|> (@common;with-unknown-type
+                    (@;analyse-function analyse func-name arg-name (code;symbol ["" arg-name])))
+                  (macro;run init-compiler)
+                  (check-type (type (All [a] (-> a a))))))
+      (assert "The function's name is bound to the function's type."
+              (|> (&;with-expected-type (type (Rec self (-> inputT self)))
+                    (@;analyse-function analyse func-name arg-name (code;symbol ["" func-name])))
+                  (macro;run init-compiler)
+                  succeeds?))
+      (assert "Can infer recursive types for functions."
+              (|> (@common;with-unknown-type
+                    (@;analyse-function analyse func-name arg-name (code;symbol ["" func-name])))
+                  (macro;run init-compiler)
+                  (check-type (type (Rec self (All [a] (-> a self)))))))
+      ))
+
+(test: "Function application."
+  [full-args (|> r;nat (:: @ map (|>. (n.% +10) (n.max +2))))
+   partial-args (|> r;nat (:: @ map (n.% full-args)))
+   var-idx (|> r;nat (:: @ map (|>. (n.% full-args) (n.max +1))))
+   inputsTC (r;list full-args gen-simple-primitive)
+   #let [inputsT (L/map product;left inputsTC)
+         inputsC (L/map product;right inputsTC)]
+   [outputT outputC] gen-simple-primitive
+   #let [funcT (type;function inputsT outputT)
+         partialT (type;function (list;drop partial-args inputsT) outputT)
+         varT (#;Bound +1)
+         polyT (<| (type;univ-q +1)
+                   (type;function (list;concat (list (list;take var-idx inputsT)
+                                                     (list varT)
+                                                     (list;drop (n.inc var-idx) inputsT))))
+                   varT)
+         poly-inputT (assume (list;nth var-idx inputsT))
+         partial-poly-inputsT (list;drop (n.inc var-idx) inputsT)
+         partial-polyT1 (<| (type;function partial-poly-inputsT)
+                            poly-inputT)
+         partial-polyT2 (<| (type;univ-q +1)
+                            (type;function (#;Cons varT partial-poly-inputsT))
+                            varT)]]
+  ($_ seq
+      (assert "Can analyse monomorphic type application."
+              (|> (@common;with-unknown-type
+                    (@;analyse-apply analyse funcT (#la;Unit) inputsC))
+                  (check-apply outputT full-args)))
+      (assert "Can partially apply functions."
+              (|> (@common;with-unknown-type
+                    (@;analyse-apply analyse funcT (#la;Unit)
+                                     (list;take partial-args inputsC)))
+                  (check-apply partialT partial-args)))
+      (assert "Can apply polymorphic functions."
+              (|> (@common;with-unknown-type
+                    (@;analyse-apply analyse polyT (#la;Unit) inputsC))
+                  (check-apply poly-inputT full-args)))
+      (assert "Polymorphic partial application propagates found type-vars."
+              (|> (@common;with-unknown-type
+                    (@;analyse-apply analyse polyT (#la;Unit)
+                                     (list;take (n.inc var-idx) inputsC)))
+                  (check-apply partial-polyT1 (n.inc var-idx))))
+      (assert "Polymorphic partial application preserves quantification for type-vars."
+              (|> (@common;with-unknown-type
+                    (@;analyse-apply analyse polyT (#la;Unit)
+                                     (list;take var-idx inputsC)))
+                  (check-apply partial-polyT2 var-idx)))
+      ))
