@@ -10,16 +10,24 @@
         (lang ["la" analysis #+ Analysis])
         (analyser ["&;" common])))
 
-(def: #export (bind-var var-id bound-idx type)
+## When doing inference, type-variables often need to be created in
+## order to figure out which types are present in the expression being
+## inferred.
+## If a type-variable never gets bound/resolved to a type, then that
+## means the expression can be generalized through universal
+## quantification.
+## When that happens, the type-variable must be replaced by an
+## argument to the universally-quantified type.
+(def: #export (replace-var var-id bound-idx type)
   (-> Nat Nat Type Type)
   (case type
     (#;Host name params)
-    (#;Host name (L/map (bind-var var-id bound-idx) params))
+    (#;Host name (L/map (replace-var var-id bound-idx) params))
 
     (^template [<tag>]
       (<tag> left right)
-      (<tag> (bind-var var-id bound-idx left)
-             (bind-var var-id bound-idx right)))
+      (<tag> (replace-var var-id bound-idx left)
+             (replace-var var-id bound-idx right)))
     ([#;Sum]
      [#;Product]
      [#;Function]
@@ -32,18 +40,25 @@
 
     (^template [<tag>]
       (<tag> env quantified)
-      (<tag> (L/map (bind-var var-id bound-idx) env)
-             (bind-var var-id (n.+ +2 bound-idx) quantified)))
+      (<tag> (L/map (replace-var var-id bound-idx) env)
+             (replace-var var-id (n.+ +2 bound-idx) quantified)))
     ([#;UnivQ]
      [#;ExQ])
     
     (#;Named name unnamedT)
     (#;Named name
-             (bind-var var-id bound-idx unnamedT))
+             (replace-var var-id bound-idx unnamedT))
 
     _
     type))
 
+## Type-inference works by applying some (potentially quantified) type
+## to a sequence of values.
+## Function types are used for this, although inference is not always
+## done for function application (alternative uses may be records and
+## tagged variants).
+## But, so long as the type being used for the inference can be trated
+## as a function type, this method of inference should work.
 (def: #export (apply-function analyse funcT args)
   (-> &;Analyser Type (List Code) (Lux [Type (List Analysis)]))
   (case args
@@ -63,10 +78,12 @@
             (do @
               [? (&;within-type-env
                   (TC;bound? var-id))
+               ## Quantify over the type if genericity/parametricity
+               ## is discovered.
                outputT' (if ?
                           (&;within-type-env
                            (TC;clean var-id outputT))
-                          (wrap (#;UnivQ (list) (bind-var var-id +1 outputT))))]
+                          (wrap (type;univ-q +1 (replace-var var-id +1 outputT))))]
               (wrap [outputT' argsA])))))
 
       (#;ExQ _)
@@ -75,6 +92,13 @@
                       TC;existential)]
         (apply-function analyse (assume (type;apply-type funcT exT)) args))
 
+      ## Arguments are inferred back-to-front because, by convention,
+      ## Lux functions take the most important arguments *last*, which
+      ## means that the most information for doing proper inference is
+      ## located in the last arguments to a function call.
+      ## By inferring back-to-front, a lot of type-annotations can be
+      ## avoided in Lux code, since the inference algorithm can piece
+      ## things together more easily.
       (#;Function inputT outputT)
       (do Monad<Lux>
         [[outputT' args'A] (apply-function analyse outputT args')
@@ -88,3 +112,72 @@
       _
       (&;fail (format "Cannot apply a non-function: " (%type funcT))))
     ))
+
+## Turns a record type into the kind of function type suitable for inference.
+(def: #export (record-inference-type type)
+  (-> Type (Lux Type))
+  (case type
+    (#;Named name unnamedT)
+    (do Monad<Lux>
+      [unnamedT+ (record-inference-type unnamedT)]
+      (wrap (#;Named name unnamedT+)))
+
+    (^template [<tag>]
+      (<tag> env bodyT)
+      (do Monad<Lux>
+        [bodyT+ (record-inference-type bodyT)]
+        (wrap (<tag> env bodyT+))))
+    ([#;UnivQ]
+     [#;ExQ])
+
+    (#;Product _)
+    (:: Monad<Lux> wrap (type;function (type;flatten-tuple type) type))
+
+    _
+    (&;fail (format "Not a record type: " (%type type)))))
+
+## Turns a variant type into the kind of function type suitable for inference.
+(def: #export (variant-inference-type tag expected-size type)
+  (-> Nat Nat Type (Lux Type))
+  (case type
+    (#;Named name unnamedT)
+    (do Monad<Lux>
+      [unnamedT+ (variant-inference-type tag expected-size unnamedT)]
+      (wrap (#;Named name unnamedT+)))
+
+    (^template [<tag>]
+      (<tag> env bodyT)
+      (do Monad<Lux>
+        [bodyT+ (variant-inference-type tag expected-size bodyT)]
+        (wrap (<tag> env bodyT+))))
+    ([#;UnivQ]
+     [#;ExQ])
+
+    (#;Sum _)
+    (let [cases (type;flatten-variant type)
+          actual-size (list;size cases)
+          boundary (n.dec expected-size)]
+      (cond (or (n.= expected-size actual-size)
+                (and (n.> expected-size actual-size)
+                     (n.< boundary tag)))
+            (case (list;nth tag cases)
+              (#;Some caseT)
+              (:: Monad<Lux> wrap (type;function (list caseT) type))
+
+              #;None
+              (&common;variant-out-of-bounds-error type expected-size tag))
+            
+            (n.< expected-size actual-size)
+            (&;fail (format "Variant type is smaller than expected." "\n"
+                            "Expected: " (%i (nat-to-int expected-size)) "\n"
+                            "  Actual: " (%i (nat-to-int actual-size))))
+
+            (n.= boundary tag)
+            (let [caseT (type;variant (list;drop boundary cases))]
+              (:: Monad<Lux> wrap (type;function (list caseT) type)))
+            
+            ## else
+            (&common;variant-out-of-bounds-error type expected-size tag)))
+
+    _
+    (&;fail (format "Not a variant type: " (%type type)))))

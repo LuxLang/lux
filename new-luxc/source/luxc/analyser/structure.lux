@@ -24,235 +24,10 @@
         (analyser ["&;" common]
                   ["&;" inference])))
 
-## [Analysers]
-(def: (analyse-typed-product analyse members)
-  (-> &;Analyser (List Code) (Lux la;Analysis))
-  (do Monad<Lux>
-    [expected macro;expected-type]
-    (loop [expected expected
-           members members]
-      (case [expected members]
-        [(#;Product leftT rightT) (#;Cons leftC rightC)]
-        (do @
-          [leftA (&;with-expected-type leftT
-                   (analyse leftC))
-           rightA (recur rightT rightC)]
-          (wrap (#la;Product leftA rightA)))
-
-        [tailT (#;Cons tailC #;Nil)]
-        (&;with-expected-type tailT
-          (analyse tailC))
-
-        [tailT tailC]
-        (do @
-          [g!tail (macro;gensym "tail")]
-          (&;with-expected-type tailT
-            (analyse (` ((~' _lux_case) [(~@ tailC)]
-                         (~ g!tail)
-                         (~ g!tail))))))
-        ))))
-
-(def: #export (normalize-record pairs)
-  (-> (List [Code Code]) (Lux (List [Ident Code])))
-  (mapM Monad<Lux>
-        (function [[key val]]
-          (case key
-            [_ (#;Tag key)]
-            (do Monad<Lux>
-              [key (macro;normalize key)]
-              (wrap [key val]))
-
-            _
-            (&;fail (format "Cannot use non-tag tokens in key positions in records: " (%code key)))))
-        pairs))
-
-(def: #export (order-record pairs)
-  (-> (List [Ident Code]) (Lux [(List Code) Type]))
-  (case pairs
-    (#;Cons [head-k head-v] _)
-    (do Monad<Lux>
-      [head-k (macro;normalize head-k)
-       [_ tag-set recordT] (macro;resolve-tag head-k)
-       #let [size-record (list;size pairs)
-             size-ts (list;size tag-set)]
-       _ (if (n.= size-ts size-record)
-           (wrap [])
-           (&;fail (format "Record size does not match tag-set size." "\n"
-                           "Expected: " (|> size-ts nat-to-int %i) "\n"
-                           "  Actual: " (|> size-record nat-to-int %i) "\n"
-                           "For type: " (%type recordT))))
-       #let [tuple-range (list;n.range +0 (n.dec size-ts))
-             tag->idx (D;from-list ident;Hash<Ident> (list;zip2 tag-set tuple-range))]
-       idx->val (foldM @
-                       (function [[key val] idx->val]
-                         (do @
-                           [key (macro;normalize key)]
-                           (case (D;get key tag->idx)
-                             #;None
-                             (&;fail (format "Tag " (%code (code;tag key))
-                                             " does not belong to tag-set for type " (%type recordT)))
-
-                             (#;Some idx)
-                             (if (D;contains? idx idx->val)
-                               (&;fail (format "Cannot repeat tag inside record: " (%code (code;tag key))))
-                               (wrap (D;put idx val idx->val))))))
-                       (: (D;Dict Nat Code)
-                          (D;new number;Hash<Nat>))
-                       pairs)
-       #let [ordered-tuple (L/map (function [idx]
-                                    (assume (D;get idx idx->val)))
-                                  tuple-range)]]
-      (wrap [ordered-tuple recordT]))
-
-    _
-    (:: Monad<Lux> wrap [(list) Unit])))
-
-(def: (tuple members)
-  (-> (List la;Analysis) la;Analysis)
-  (case members
-    #;Nil
-    #la;Unit
-
-    (#;Cons singleton #;Nil)
-    singleton
-
-    (#;Cons left right)
-    (#la;Product left (tuple right))))
-
-(def: #export (analyse-product analyse membersC)
-  (-> &;Analyser (List Code) (Lux la;Analysis))
-  (do Monad<Lux>
-    [expected macro;expected-type]
-    (&;with-stacked-errors
-      (function [_] (format "Invalid type for tuple: " (%type expected)))
-      (case expected
-        (#;Product _)
-        (analyse-typed-product analyse membersC)
-
-        (#;Named name unnamedT)
-        (&;with-expected-type unnamedT
-          (analyse-product analyse membersC))
-
-        (#;Var id)
-        (do @
-          [bound? (&;within-type-env
-                   (TC;bound? id))]
-          (if bound?
-            (do @
-              [expected' (&;within-type-env
-                          (TC;read-var id))]
-              (&;with-expected-type expected'
-                (analyse-product analyse membersC)))
-            (do @
-              [membersTA (mapM @ (|>. analyse &common;with-unknown-type)
-                               membersC)
-               _ (&;within-type-env
-                  (TC;check expected
-                            (type;tuple (L/map product;left membersTA))))]
-              (wrap (tuple (L/map product;right membersTA))))))
-
-        (#;UnivQ _)
-        (do @
-          [[var-id var] (&;within-type-env
-                         TC;existential)]
-          (&;with-expected-type (assume (type;apply-type expected var))
-            (analyse-product analyse membersC)))
-
-        (#;ExQ _)
-        (&common;with-var
-          (function [[var-id var]]
-            (&;with-expected-type (assume (type;apply-type expected var))
-              (analyse-product analyse membersC))))
-        
-        _
-        (&;fail "")
-        ))))
-
-(def: (record-function-type type)
-  (-> Type (Lux Type))
-  (case type
-    (#;Named name unnamedT)
-    (do Monad<Lux>
-      [unnamedT+ (record-function-type unnamedT)]
-      (wrap (#;Named name unnamedT+)))
-
-    (^template [<tag>]
-      (<tag> env bodyT)
-      (do Monad<Lux>
-        [bodyT+ (record-function-type bodyT)]
-        (wrap (<tag> env bodyT+))))
-    ([#;UnivQ]
-     [#;ExQ])
-
-    (#;Product _)
-    (:: Monad<Lux> wrap (type;function (type;flatten-tuple type) type))
-
-    _
-    (&;fail (format "Not a record type: " (%type type)))))
-
-(def: (out-of-bounds-error type size tag)
-  (All [a] (-> Type Nat Nat (Lux a)))
-  (&;fail (format "Trying to create variant with tag beyond type's limitations." "\n"
-                  " Tag: " (%i (nat-to-int tag)) "\n"
-                  "Size: " (%i (nat-to-int size)) "\n"
-                  "Type: " (%type type))))
-
-(def: (variant-function-type tag expected-size type)
-  (-> Nat Nat Type (Lux Type))
-  (case type
-    (#;Named name unnamedT)
-    (do Monad<Lux>
-      [unnamedT+ (variant-function-type tag expected-size unnamedT)]
-      (wrap (#;Named name unnamedT+)))
-
-    (^template [<tag>]
-      (<tag> env bodyT)
-      (do Monad<Lux>
-        [bodyT+ (variant-function-type tag expected-size bodyT)]
-        (wrap (<tag> env bodyT+))))
-    ([#;UnivQ]
-     [#;ExQ])
-
-    (#;Sum _)
-    (let [cases (type;flatten-variant type)
-          actual-size (list;size cases)
-          boundary (n.dec expected-size)]
-      (cond (or (n.= expected-size actual-size)
-                (and (n.> expected-size actual-size)
-                     (n.< boundary tag)))
-            (case (list;nth tag cases)
-              (#;Some caseT)
-              (:: Monad<Lux> wrap (type;function (list caseT) type))
-
-              #;None
-              (out-of-bounds-error type expected-size tag))
-            
-            (n.< expected-size actual-size)
-            (&;fail (format "Variant type is smaller than expected." "\n"
-                            "Expected: " (%i (nat-to-int expected-size)) "\n"
-                            "  Actual: " (%i (nat-to-int actual-size))))
-
-            (n.= boundary tag)
-            (let [caseT (type;variant (list;drop boundary cases))]
-              (:: Monad<Lux> wrap (type;function (list caseT) type)))
-            
-            ## else
-            (out-of-bounds-error type expected-size tag)))
-
-    _
-    (&;fail (format "Not a variant type: " (%type type)))))
-
-(def: #export (analyse-record analyse members)
-  (-> &;Analyser (List [Code Code]) (Lux la;Analysis))
-  (do Monad<Lux>
-    [members (normalize-record members)
-     [members recordT] (order-record members)
-     expectedT macro;expected-type
-     functionT (record-function-type recordT)
-     [inferredT membersA] (&inference;apply-function analyse functionT members)
-     _ (&;within-type-env
-        (TC;check expectedT inferredT))]
-    (wrap (tuple membersA))))
+## Variants get analysed as binary sum types for the sake of semantic
+## simplicity.
+## This is because you can encode a variant of any size using just
+## binary sums by nesting them.
 
 (do-template [<name> <side>]
   [(def: (<name> inner)
@@ -280,20 +55,6 @@
               value)
             (list;n.range +0 tag))))
 
-(def: #export (analyse-tagged-sum analyse tag value)
-  (-> &;Analyser Ident Code (Lux la;Analysis))
-  (do Monad<Lux>
-    [tag (macro;normalize tag)
-     [idx group variantT] (macro;resolve-tag tag)
-     #let [case-size (list;size group)]
-     functionT (variant-function-type idx case-size variantT)
-     [inferredT valueA+] (&inference;apply-function analyse functionT (list value))
-     expectedT macro;expected-type
-     _ (&;within-type-env
-        (TC;check expectedT inferredT))
-     temp &env;next-local]
-    (wrap (variant idx case-size temp (|> valueA+ list;head assume)))))
-
 (def: #export (analyse-sum analyse tag valueC)
   (-> &;Analyser Nat Code (Lux la;Analysis))
   (do Monad<Lux>
@@ -313,7 +74,7 @@
               (wrap (variant tag type-size temp valueA)))
 
             #;None
-            (out-of-bounds-error expected type-size tag)))
+            (&common;variant-out-of-bounds-error expected type-size tag)))
 
         (#;Named name unnamedT)
         (&;with-expected-type unnamedT
@@ -329,6 +90,9 @@
                           (TC;read-var id))]
               (&;with-expected-type expected'
                 (analyse-sum analyse tag valueC)))
+            ## Cannot do inference when the tag is numeric.
+            ## This is because there is no way of knowing how many
+            ## cases the inferred sum type would have.
             (&;fail (format "Invalid type for variant: " (%type expected)))))
 
         (#;UnivQ _)
@@ -345,6 +109,207 @@
               (analyse-sum analyse tag valueC))))
         
         _
-        (if (n.= +0 tag)
-          (analyse valueC)
-          (&;fail ""))))))
+        (&;fail "")))))
+
+## Tuples get analysed into binary products for the sake of semantic
+## simplicity, since products/pairs can encode tuples of any length
+## through nesting.
+
+(def: (product members)
+  (-> (List la;Analysis) la;Analysis)
+  (case members
+    #;Nil
+    #la;Unit
+
+    (#;Cons singleton #;Nil)
+    singleton
+
+    (#;Cons left right)
+    (#la;Product left (product right))))
+
+(def: (analyse-typed-product analyse members)
+  (-> &;Analyser (List Code) (Lux la;Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (loop [expected expected
+           members members]
+      (case [expected members]
+        ## If the type and the code are still ongoing, match each
+        ## sub-expression to its corresponding type.
+        [(#;Product leftT rightT) (#;Cons leftC rightC)]
+        (do @
+          [leftA (&;with-expected-type leftT
+                   (analyse leftC))
+           rightA (recur rightT rightC)]
+          (wrap (#la;Product leftA rightA)))
+
+        ## If the tuple runs out, whatever expression is the last gets
+        ## matched to the remaining type.
+        [tailT (#;Cons tailC #;Nil)]
+        (&;with-expected-type tailT
+          (analyse tailC))
+
+        ## If, however, the type runs out but there is still enough
+        ## tail, the remaining elements get packaged into another
+        ## tuple, and analysed through the intermediation of a
+        ## temporary local variable.
+        ## The reason for this is that it is assumed that the type of
+        ## the tuple represents the expectations of the user.
+        ## If the type is for a 3-tuple, but a 5-tuple is provided, it
+        ## is assumed that the user intended the following layout:
+        ## [0, 1, [2, 3, 4]]
+        ## but that, for whatever reason, it was written in a flat
+        ## way.
+        ## The reason why an intermediate variable is used is that if
+        ## the code was just re-written with just tuple nesting, the
+        ## resulting analysis would have undone the explicity nesting,
+        ## since Product nodes rely on nesting inherently, thereby
+        ## blurring the line between what was wanted (the separation)
+        ## and what was analysed.
+        [tailT tailC]
+        (do @
+          [g!tail (macro;gensym "tail")]
+          (&;with-expected-type tailT
+            (analyse (` ((~' _lux_case) [(~@ tailC)]
+                         (~ g!tail)
+                         (~ g!tail))))))
+        ))))
+
+(def: #export (analyse-product analyse membersC)
+  (-> &;Analyser (List Code) (Lux la;Analysis))
+  (do Monad<Lux>
+    [expected macro;expected-type]
+    (&;with-stacked-errors
+      (function [_] (format "Invalid type for tuple: " (%type expected)))
+      (case expected
+        (#;Product _)
+        (analyse-typed-product analyse membersC)
+
+        (#;Named name unnamedT)
+        (&;with-expected-type unnamedT
+          (analyse-product analyse membersC))
+
+        (#;Var id)
+        (do @
+          [bound? (&;within-type-env
+                   (TC;bound? id))]
+          (if bound?
+            (do @
+              [expected' (&;within-type-env
+                          (TC;read-var id))]
+              (&;with-expected-type expected'
+                (analyse-product analyse membersC)))
+            ## Must do inference...
+            (do @
+              [membersTA (mapM @ (|>. analyse &common;with-unknown-type)
+                               membersC)
+               _ (&;within-type-env
+                  (TC;check expected
+                            (type;tuple (L/map product;left membersTA))))]
+              (wrap (product (L/map product;right membersTA))))))
+
+        (#;UnivQ _)
+        (do @
+          [[var-id var] (&;within-type-env
+                         TC;existential)]
+          (&;with-expected-type (assume (type;apply-type expected var))
+            (analyse-product analyse membersC)))
+
+        (#;ExQ _)
+        (&common;with-var
+          (function [[var-id var]]
+            (&;with-expected-type (assume (type;apply-type expected var))
+              (analyse-product analyse membersC))))
+        
+        _
+        (&;fail "")
+        ))))
+
+(def: #export (analyse-tagged-sum analyse tag value)
+  (-> &;Analyser Ident Code (Lux la;Analysis))
+  (do Monad<Lux>
+    [tag (macro;normalize tag)
+     [idx group variantT] (macro;resolve-tag tag)
+     #let [case-size (list;size group)]
+     inferenceT (&inference;variant-inference-type idx case-size variantT)
+     [inferredT valueA+] (&inference;apply-function analyse inferenceT (list value))
+     expectedT macro;expected-type
+     _ (&;within-type-env
+        (TC;check expectedT inferredT))
+     temp &env;next-local]
+    (wrap (variant idx case-size temp (|> valueA+ list;head assume)))))
+
+## There cannot be any ambiguity or improper syntax when analysing
+## records, so they must be normalized for further analysis.
+## Normalization just means that all the tags get resolved to their
+## canonical form (with their corresponding module identified).
+(def: #export (normalize record)
+  (-> (List [Code Code]) (Lux (List [Ident Code])))
+  (mapM Monad<Lux>
+        (function [[key val]]
+          (case key
+            [_ (#;Tag key)]
+            (do Monad<Lux>
+              [key (macro;normalize key)]
+              (wrap [key val]))
+
+            _
+            (&;fail (format "Cannot use non-tag tokens in key positions in records: " (%code key)))))
+        record))
+
+## Lux already possesses the means to analyse tuples, so
+## re-implementing the same functionality for records makes no sense.
+## Records, thus, get transformed into tuples by ordering the elements.
+(def: #export (order record)
+  (-> (List [Ident Code]) (Lux [(List Code) Type]))
+  (case record
+    ## empty-record = empty-tuple = unit = []
+    #;Nil
+    (:: Monad<Lux> wrap [(list) Unit])
+
+    (#;Cons [head-k head-v] _)
+    (do Monad<Lux>
+      [head-k (macro;normalize head-k)
+       [_ tag-set recordT] (macro;resolve-tag head-k)
+       #let [size-record (list;size record)
+             size-ts (list;size tag-set)]
+       _ (if (n.= size-ts size-record)
+           (wrap [])
+           (&;fail (format "Record size does not match tag-set size." "\n"
+                           "Expected: " (|> size-ts nat-to-int %i) "\n"
+                           "  Actual: " (|> size-record nat-to-int %i) "\n"
+                           "For type: " (%type recordT))))
+       #let [tuple-range (list;n.range +0 (n.dec size-ts))
+             tag->idx (D;from-list ident;Hash<Ident> (list;zip2 tag-set tuple-range))]
+       idx->val (foldM @
+                       (function [[key val] idx->val]
+                         (do @
+                           [key (macro;normalize key)]
+                           (case (D;get key tag->idx)
+                             #;None
+                             (&;fail (format "Tag " (%code (code;tag key))
+                                             " does not belong to tag-set for type " (%type recordT)))
+
+                             (#;Some idx)
+                             (if (D;contains? idx idx->val)
+                               (&;fail (format "Cannot repeat tag inside record: " (%code (code;tag key))))
+                               (wrap (D;put idx val idx->val))))))
+                       (: (D;Dict Nat Code)
+                          (D;new number;Hash<Nat>))
+                       record)
+       #let [ordered-tuple (L/map (function [idx] (assume (D;get idx idx->val)))
+                                  tuple-range)]]
+      (wrap [ordered-tuple recordT]))
+    ))
+
+(def: #export (analyse-record analyse members)
+  (-> &;Analyser (List [Code Code]) (Lux la;Analysis))
+  (do Monad<Lux>
+    [members (normalize members)
+     [members recordT] (order members)
+     expectedT macro;expected-type
+     inferenceT (&inference;record-inference-type recordT)
+     [inferredT membersA] (&inference;apply-function analyse inferenceT members)
+     _ (&;within-type-env
+        (TC;check expectedT inferredT))]
+    (wrap (product membersA))))

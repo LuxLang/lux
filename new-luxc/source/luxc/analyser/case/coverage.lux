@@ -1,0 +1,287 @@
+(;module:
+  lux
+  (lux (control monad
+                eq)
+       (data [bool "B/" Eq<Bool>]
+             [number]
+             ["R" result "R/" Monad<Result>]
+             (coll [list "L/" Fold<List>]
+                   ["D" dict])))
+  (luxc (lang ["la" analysis])))
+
+## The coverage of a pattern-matching expression summarizes how well
+## all the possible values of an input are being covered by the
+## different patterns involved.
+## Ideally, the pattern-matching has "total" coverage, which just
+## means that every possible value can be matched by at least 1
+## pattern.
+## Every other coverage is considered partial, and it would be valued
+## as insuficient (since it could lead to runtime errors due to values
+## not being handled by any pattern).
+## The #Partial tag covers arbitrary partial coverages in a general
+## way, while the other tags cover more specific cases for booleans
+## and variants.
+(type: #export #rec Coverage
+  #Partial
+  (#Bool Bool)
+  (#Variant Nat (D;Dict Nat Coverage))
+  (#Seq Coverage Coverage)
+  (#Alt Coverage Coverage)
+  #Total)
+
+(def: #export (total? coverage)
+  (-> Coverage Bool)
+  (case coverage
+    (#Total _)
+    true
+
+    _
+    false))
+
+(def: #export (determine pattern)
+  (-> la;Pattern Coverage)
+  (case pattern
+    ## Binding amounts to total coverage because any value can be
+    ## matched that way.
+    ## Unit [] amounts to total coverage because there is only one
+    ## possible value, so matching against it covers all cases.
+    (^or (#la;BindP _) (^ (#la;TupleP (list))))
+    #Total
+
+    (^ (#la;TupleP (list singleton)))
+    (determine singleton)
+
+    ## Primitive patterns always have partial coverage because there
+    ## are too many possibilities as far as values go.
+    (^or (#la;NatP _)  (#la;IntP _)  (#la;DegP _)
+         (#la;RealP _) (#la;CharP _) (#la;TextP _))
+    #Partial
+
+    ## Bools are the exception, since there is only "true" and
+    ## "false", which means it is possible for boolean
+    ## pattern-matching to become total if complementary parts meet.
+    (#la;BoolP value)
+    (#Bool value)
+
+    ## Tuple patterns can be total if there is totality for all of
+    ## their sub-patterns.
+    (#la;TupleP subs)
+    (loop [subs subs]
+      (case subs
+        #;Nil
+        #Total
+
+        (#;Cons sub subs')
+        (let [post (recur subs')]
+          (if (total? post)
+            (determine sub)
+            (#Seq (determine sub)
+                  post)))))
+
+    ## Variant patterns can be shown to be total if all the possible
+    ## cases are handled totally.
+    (#la;VariantP tag-id num-tags sub)
+    (#Variant num-tags
+              (|> (D;new number;Hash<Nat>)
+                  (D;put tag-id (determine sub))))))
+
+(def: (xor left right)
+  (-> Bool Bool Bool)
+  (or (and left (not right))
+      (and (not left) right)))
+
+## The coverage checker not only verifies that pattern-matching is
+## total, but also that there are no redundant patterns.
+## Redundant patterns will never be executed, since there will
+## always be a pattern prior to them that would match the input.
+## Because of that, the presence of redundant patterns is assumed to
+## be a bug, likely due to programmer carelessness.
+(def: redundant-pattern
+  (R;Result Coverage)
+  (R;fail "Redundant pattern."))
+
+(def: (flatten-alt coverage)
+  (-> Coverage (List Coverage))
+  (case coverage
+    (#Alt left right)
+    (list& left (flatten-alt right))
+
+    _
+    (list coverage)))
+
+(struct: _ (Eq Coverage)
+  (def: (= reference sample)
+    (case [reference sample]
+      [#Total #Total]
+      true
+
+      [(#Bool sideR) (#Bool sideS)]
+      (B/= sideR sideS)
+
+      [(#Variant allR casesR) (#Variant allS casesS)]
+      (and (n.= allR allS)
+           (:: (D;Eq<Dict> =) = casesR casesS))
+
+      [(#Seq leftR rightR) (#Seq leftS rightS)]
+      (and (= leftR leftS)
+           (= rightR rightS))
+
+      [(#Alt _) (#Alt _)]
+      (let [flatR (flatten-alt reference)
+            flatS (flatten-alt sample)]
+        (and (n.= (list;size flatR) (list;size flatS))
+             (list;every? (function [[coverageR coverageS]]
+                            (= coverageR coverageS))
+                          (list;zip2 flatR flatS))))
+
+      _
+      false)))
+
+(open Eq<Coverage> "C/")
+
+## After determining the coverage of each individual pattern, it is
+## necessary to merge them all to figure out if the entire
+## pattern-matching expression is total and whether it contains
+## redundant patterns.
+(def: #export (merge addition so-far)
+  (-> Coverage Coverage (R;Result Coverage))
+  (case [addition so-far]
+    ## The addition cannot possibly improve the coverage.
+    [_ #Total]
+    redundant-pattern
+
+    ## The addition completes the coverage.
+    [#Total _]
+    (R/wrap #Total)
+
+    [#Partial #Partial]
+    (R/wrap #Partial)
+
+    ## 2 boolean coverages are total if they compliment one another.
+    (^multi [(#Bool sideA) (#Bool sideSF)]
+            (xor sideA sideSF))
+    (R/wrap #Total)
+
+    [(#Variant allA casesA) (#Variant allSF casesSF)]
+    (cond (not (n.= allSF allA))
+          (R;fail "Variants do not match.")
+
+          (:: (D;Eq<Dict> Eq<Coverage>) = casesSF casesA)
+          redundant-pattern
+
+          ## else
+          (do R;Monad<Result>
+            [casesM (foldM @
+                           (function [[tagA coverageA] casesSF']
+                             (case (D;get tagA casesSF')
+                               (#;Some coverageSF)
+                               (do @
+                                 [coverageM (merge coverageA coverageSF)]
+                                 (wrap (D;put tagA coverageM casesSF')))
+
+                               #;None
+                               (wrap (D;put tagA coverageA casesSF'))))
+                           casesSF (D;entries casesA))]
+            (wrap (if (let [case-coverages (D;values casesM)]
+                        (and (n.= allSF (list;size case-coverages))
+                             (list;every? total? case-coverages)))
+                    #Total
+                    (#Variant allSF casesM)))))
+
+    [(#Seq leftA rightA) (#Seq leftSF rightSF)]
+    (case [(C/= leftSF leftA) (C/= rightSF rightA)]
+      ## There is nothing the addition adds to the coverage.
+      [true true]
+      redundant-pattern
+
+      ## The 2 sequences cannot possibly be merged.
+      [false false]
+      (R/wrap (#Alt so-far addition))
+
+      ## Same prefix
+      [true false]
+      (do R;Monad<Result>
+        [rightM (merge rightA rightSF)]
+        (if (total? rightM)
+          ## If all that follows is total, then it can be safely dropped
+          ## (since only the "left" part would influence whether the
+          ## merged coverage is total or not).
+          (wrap leftSF)
+          (wrap (#Seq leftSF rightM))))
+
+      ## Same suffix
+      [false true]
+      (do R;Monad<Result>
+        [leftM (merge leftA leftSF)]
+        (wrap (#Seq leftM rightA))))
+    
+    ## The left part will always match, so the addition is redundant.
+    (^multi [(#Seq left right) single]
+            (C/= left single))
+    redundant-pattern
+
+    ## The right part is not necessary, since it can always match the left.
+    (^multi [single (#Seq left right)]
+            (C/= left single))
+    (R/wrap single)
+
+    ## When merging a new coverage against one based on Alt, it may be
+    ## that one of the many coverages in the Alt is complementary to
+    ## the new one, so effort must be made to fuse carefully, to match
+    ## the right coverages together.
+    ## If one of the Alt sub-coverages matches the new one, the cycle
+    ## must be repeated, in case the resulting coverage can now match
+    ## other ones in the original Alt.
+    ## This process must be repeated until no further productive
+    ## merges can be done.
+    [_ (#Alt leftS rightS)]
+    (do R;Monad<Result>
+      [#let [fuse-once (: (-> Coverage (List Coverage)
+                              (R;Result [(Maybe Coverage)
+                                         (List Coverage)]))
+                          (function [coverage possibilities]
+                            (loop [alts possibilities]
+                              (case alts
+                                #;Nil
+                                (wrap [#;None (list coverage)])
+                                
+                                (#;Cons alt alts')
+                                (case (merge coverage alt)
+                                  (#R;Success altM)
+                                  (case altM
+                                    (#Alt _)
+                                    (do @
+                                      [[success alts+] (recur alts')]
+                                      (wrap [success (#;Cons alt alts+)]))
+
+                                    _
+                                    (wrap [(#;Some altM) alts']))
+                                  
+                                  (#R;Error error)
+                                  (R;fail error))
+                                ))))]
+       [success possibilities] (fuse-once addition (flatten-alt so-far))]
+      (loop [success success
+             possibilities possibilities]
+        (case success
+          (#;Some coverage')
+          (do @
+            [[success' possibilities'] (fuse-once coverage' possibilities)]
+            (recur success' possibilities'))
+          
+          #;None
+          (case (list;reverse possibilities)
+            #;Nil
+            (R;fail "{ This is not supposed to happen... }")
+            
+            (#;Cons last prevs)
+            (wrap (L/fold (function [left right] (#Alt left right))
+                          last
+                          prevs))))))
+
+    _
+    (if (C/= so-far addition)
+      ## The addition cannot possibly improve the coverage.
+      redundant-pattern
+      ## There are now 2 alternative paths.
+      (R/wrap (#Alt so-far addition)))))

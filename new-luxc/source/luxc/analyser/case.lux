@@ -15,25 +15,25 @@
        (macro [code])
        [type]
        (type ["TC" check]))
-  (luxc ["&" base]
-        (lang ["la" analysis])
-        ["&;" env]
-        (analyser ["&;" common]
-                  ["&;" structure])))
-
-(type: #rec Coverage
-  #PartialC
-  (#BoolC Bool)
-  (#VariantC Nat (D;Dict Nat Coverage))
-  (#SeqC Coverage Coverage)
-  (#AltC Coverage Coverage)
-  #TotalC)
+  (../.. ["&" base]
+         (lang ["la" analysis])
+         ["&;" env])
+  (.. ["&;" common]
+      ["&;" structure])
+  (. ["&&;" coverage]))
 
 (def: (pattern-error type pattern)
   (-> Type Code Text)
   (format "Cannot match this type: " (%type type) "\n"
           "     With this pattern: " (%code pattern)))
 
+## Type-checking on the input value is done during the analysis of a
+## "case" expression, to ensure that the patterns being used make
+## sense for the type of the input value.
+## Sometimes, that input value is complex, by depending on
+## type-variables or quantifications.
+## This function makes it easier for "case" analysis to properly
+## type-check the input with respect to the patterns.
 (def: (simplify-case-type type)
   (-> Type (Lux Type))
   (case type
@@ -60,6 +60,22 @@
     _
     (:: Monad<Lux> wrap type)))
 
+## This function handles several concerns at once, but it must be that
+## way because those concerns are interleaved when doing
+## pattern-matching and they cannot be separated.
+## The pattern is analysed in order to get a general feel for what is
+## expected of the input value. This, in turn, informs the
+## type-checking of the input.
+## A kind of "continuation" value is passed around which signifies
+## what needs to be done _after_ analysing a pattern.
+## In general, this is done to analyse the "body" expression
+## associated to a particular pattern _in the context of_ said
+## pattern.
+## The reason why *context* is important is because patterns may bind
+## values to local variables, which may in turn be referenced in the
+## body expressions.
+## That is why the body must be analysed in the context of the
+## pattern, and not separately.
 (def: (analyse-pattern num-tags inputT pattern next)
   (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
   (case pattern
@@ -143,10 +159,10 @@
           (&;fail (pattern-error inputT pattern))
           )))
 
-    [cursor (#;Record pairs)]
+    [cursor (#;Record record)]
     (do Monad<Lux>
-      [pairs (&structure;normalize-record pairs)
-       [members recordT] (&structure;order-record pairs)
+      [record (&structure;normalize record)
+       [members recordT] (&structure;order record)
        _ (&;within-type-env
           (TC;check inputT recordT))]
       (analyse-pattern (#;Some (list;size members)) inputT [cursor (#;Tuple members)] next))
@@ -200,240 +216,6 @@
     (&;fail (format "Unrecognized pattern syntax: " (%code pattern)))
     ))
 
-(def: (analyse-branch analyse inputT pattern body)
-  (-> &;Analyser Type Code Code (Lux [la;Pattern la;Analysis]))
-  (analyse-pattern #;None inputT pattern (analyse body)))
-
-(do-template [<name> <tag>]
-  [(def: (<name> coverage)
-     (-> Coverage Bool)
-     (case coverage
-       (<tag> _)
-       true
-
-       _
-       false))]
-
-  [total? #TotalC]
-  [alt?   #AltC]
-  )
-
-(def: (determine-coverage pattern)
-  (-> la;Pattern Coverage)
-  (case pattern
-    (^or (#la;BindP _) (^ (#la;TupleP (list))))
-    #TotalC
-
-    (^ (#la;TupleP (list singleton)))
-    (determine-coverage singleton)
-    
-    (#la;BoolP value)
-    (#BoolC value)
-    
-    (^or (#la;NatP _)  (#la;IntP _)  (#la;DegP _)
-         (#la;RealP _) (#la;CharP _) (#la;TextP _))
-    #PartialC
-    
-    (#la;TupleP subs)
-    (loop [subs subs]
-      (case subs
-        #;Nil
-        #TotalC
-
-        (#;Cons sub subs')
-        (let [post (recur subs')]
-          (if (total? post)
-            (determine-coverage sub)
-            (#SeqC (determine-coverage sub)
-                   post)))))
-    
-    (#la;VariantP tag-id num-tags sub)
-    (#VariantC num-tags
-               (|> (D;new number;Hash<Nat>)
-                   (D;put tag-id (determine-coverage sub))))))
-
-(def: (xor left right)
-  (-> Bool Bool Bool)
-  (or (and left (not right))
-      (and (not left) right)))
-
-(def: redundant-pattern
-  (R;Result Coverage)
-  (R;fail "Redundant pattern."))
-
-(def: (flatten-alt coverage)
-  (-> Coverage (List Coverage))
-  (case coverage
-    (#AltC left right)
-    (list& left (flatten-alt right))
-
-    _
-    (list coverage)))
-
-(struct: _ (Eq Coverage)
-  (def: (= reference sample)
-    (case [reference sample]
-      [#TotalC #TotalC]
-      true
-
-      [(#BoolC sideR) (#BoolC sideS)]
-      (B/= sideR sideS)
-
-      [(#VariantC allR casesR) (#VariantC allS casesS)]
-      (and (n.= allR allS)
-           (:: (D;Eq<Dict> =) = casesR casesS))
-
-      [(#SeqC leftR rightR) (#SeqC leftS rightS)]
-      (and (= leftR leftS)
-           (= rightR rightS))
-
-      [(#AltC _) (#AltC _)]
-      (let [flatR (flatten-alt reference)
-            flatS (flatten-alt sample)]
-        (and (n.= (list;size flatR) (list;size flatS))
-             (list;every? (function [[coverageR coverageS]]
-                            (= coverageR coverageS))
-                          (list;zip2 flatR flatS))))
-
-      _
-      false)))
-
-(open Eq<Coverage> "C/")
-
-(def: (merge-coverages addition so-far)
-  (-> Coverage Coverage (R;Result Coverage))
-  (case [addition so-far]
-    ## The addition cannot possibly improve the coverage.
-    [_ #TotalC]
-    redundant-pattern
-
-    ## The addition completes the coverage.
-    [#TotalC _]
-    (R/wrap #TotalC)
-
-    [#PartialC #PartialC]
-    (R/wrap #PartialC)
-
-    (^multi [(#BoolC sideA) (#BoolC sideSF)]
-            (xor sideA sideSF))
-    (R/wrap #TotalC)
-
-    [(#VariantC allA casesA) (#VariantC allSF casesSF)]
-    (cond (not (n.= allSF allA))
-          (R;fail "Variants do not match.")
-
-          (:: (D;Eq<Dict> Eq<Coverage>) = casesSF casesA)
-          redundant-pattern
-
-          ## else
-          (do R;Monad<Result>
-            [casesM (foldM @
-                           (function [[tagA coverageA] casesSF']
-                             (case (D;get tagA casesSF')
-                               (#;Some coverageSF)
-                               (do @
-                                 [coverageM (merge-coverages coverageA coverageSF)]
-                                 (wrap (D;put tagA coverageM casesSF')))
-
-                               #;None
-                               (wrap (D;put tagA coverageA casesSF'))))
-                           casesSF (D;entries casesA))]
-            (wrap (if (let [case-coverages (D;values casesM)]
-                        (and (n.= allSF (list;size case-coverages))
-                             (list;every? total? case-coverages)))
-                    #TotalC
-                    (#VariantC allSF casesM)))))
-
-    [(#SeqC leftA rightA) (#SeqC leftSF rightSF)]
-    (case [(C/= leftSF leftA) (C/= rightSF rightA)]
-      ## There is nothing the addition adds to the coverage.
-      [true true]
-      redundant-pattern
-
-      ## The 2 sequences cannot possibly be merged.
-      [false false]
-      (R/wrap (#AltC so-far addition))
-
-      ## Same prefix
-      [true false]
-      (do R;Monad<Result>
-        [rightM (merge-coverages rightA rightSF)]
-        (if (total? rightM)
-          (wrap leftSF)
-          (wrap (#SeqC leftSF rightM))))
-
-      ## Same suffix
-      [false true]
-      (do R;Monad<Result>
-        [leftM (merge-coverages leftA leftSF)]
-        (wrap (#SeqC leftM rightA))))
-    
-    ## The left part will always match, so the addition is redundant.
-    (^multi [(#SeqC left right) single]
-            (C/= left single))
-    redundant-pattern
-
-    ## The right part is not necessary, since it can always match the left.
-    (^multi [single (#SeqC left right)]
-            (C/= left single))
-    (R/wrap single)
-
-    [_ (#AltC leftS rightS)]
-    (do R;Monad<Result>
-      [#let [fuse-once (: (-> Coverage (List Coverage)
-                              (R;Result [(Maybe Coverage)
-                                         (List Coverage)]))
-                          (function [coverage possibilities]
-                            (loop [alts possibilities]
-                              (case alts
-                                #;Nil
-                                (wrap [#;None (list coverage)])
-                                
-                                (#;Cons alt alts')
-                                (case (merge-coverages coverage alt)
-                                  (#R;Success altM)
-                                  (case altM
-                                    (#AltC _)
-                                    (do @
-                                      [[success alts+] (recur alts')]
-                                      (wrap [success (#;Cons alt alts+)]))
-
-                                    _
-                                    (wrap [(#;Some altM) alts']))
-                                  
-                                  (#R;Error error)
-                                  (R;fail error))
-                                ))))]
-       [success possibilities] (fuse-once addition (flatten-alt so-far))]
-      (loop [success success
-             possibilities possibilities]
-        (case success
-          (#;Some coverage')
-          (do @
-            [[success' possibilities'] (fuse-once coverage' possibilities)]
-            (recur success' possibilities'))
-          
-          #;None
-          (case (list;reverse possibilities)
-            #;Nil
-            (R;fail "{ This is not supposed to happen... }")
-            
-            (#;Cons last prevs)
-            (wrap (L/fold (function [left right] (#AltC left right))
-                          last
-                          prevs))))))
-
-    _
-    (if (C/= so-far addition)
-      ## The addition cannot possibly improve the coverage.
-      redundant-pattern
-      ## There are now 2 alternative paths.
-      (R/wrap (#AltC so-far addition)))))
-
-(def: get-coverage
-  (-> [la;Pattern la;Analysis] Coverage)
-  (|>. product;left determine-coverage))
-
 (def: #export (analyse-case analyse input branches)
   (-> &;Analyser Code (List [Code Code]) (Lux la;Analysis))
   (case branches
@@ -444,17 +226,17 @@
     (do Monad<Lux>
       [[inputT inputA] (&common;with-unknown-type
                          (analyse input))
-       outputH (analyse-branch analyse inputT patternH bodyH)
+       outputH (analyse-pattern #;None inputT patternH (analyse bodyH))
        outputT (mapM @
                      (function [[patternT bodyT]]
-                       (analyse-branch analyse inputT patternT bodyT))
+                       (analyse-pattern #;None inputT patternT (analyse bodyT)))
                      branchesT)
        _ (case (foldM R;Monad<Result>
-                      merge-coverages
-                      (get-coverage outputH)
-                      (L/map get-coverage outputT))
+                      &&coverage;merge
+                      (|> outputH product;left &&coverage;determine)
+                      (L/map (|>. product;left &&coverage;determine) outputT))
            (#R;Success coverage)
-           (if (total? coverage)
+           (if (&&coverage;total? coverage)
              (wrap [])
              (&;fail "Pattern-matching is not total."))
 
