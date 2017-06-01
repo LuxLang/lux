@@ -24,37 +24,6 @@
         (analyser ["&;" common]
                   ["&;" inference])))
 
-## Variants get analysed as binary sum types for the sake of semantic
-## simplicity.
-## This is because you can encode a variant of any size using just
-## binary sums by nesting them.
-
-(do-template [<name> <side>]
-  [(def: (<name> inner)
-     (-> la;Analysis la;Analysis)
-     (#la;Sum (<side> inner)))]
-
-  [sum-left  #;Left]
-  [sum-right #;Right])
-
-(def: (variant tag size temp value)
-  (-> Nat Nat Nat la;Analysis la;Analysis)
-  (if (n.= (n.dec size) tag)
-    (if (n.= +1 tag)
-      (sum-right value)
-      (L/fold (function;const sum-left)
-              (sum-right value)
-              (list;n.range +0 (n.- +2 tag))))
-    (L/fold (function;const sum-left)
-            (case value
-              (#la;Sum _)
-              (#la;Case value (list [(#la;BindP temp)
-                                     (#la;Relative (#;Local temp))]))
-
-              _
-              value)
-            (list;n.range +0 tag))))
-
 (def: #export (analyse-sum analyse tag valueC)
   (-> &;Analyser Nat Code (Lux la;Analysis))
   (do Monad<Lux>
@@ -71,7 +40,7 @@
               [valueA (&;with-expected-type variant-type
                         (analyse valueC))
                temp &env;next-local]
-              (wrap (variant tag type-size temp valueA)))
+              (wrap (la;sum tag type-size temp valueA)))
 
             #;None
             (&common;variant-out-of-bounds-error expected type-size tag)))
@@ -110,22 +79,6 @@
         
         _
         (&;fail "")))))
-
-## Tuples get analysed into binary products for the sake of semantic
-## simplicity, since products/pairs can encode tuples of any length
-## through nesting.
-
-(def: (product members)
-  (-> (List la;Analysis) la;Analysis)
-  (case members
-    #;Nil
-    #la;Unit
-
-    (#;Cons singleton #;Nil)
-    singleton
-
-    (#;Cons left right)
-    (#la;Product left (product right))))
 
 (def: (analyse-typed-product analyse members)
   (-> &;Analyser (List Code) (Lux la;Analysis))
@@ -206,7 +159,7 @@
                _ (&;within-type-env
                   (TC;check expected
                             (type;tuple (L/map product;left membersTA))))]
-              (wrap (product (L/map product;right membersTA))))))
+              (wrap (la;product (L/map product;right membersTA))))))
 
         (#;UnivQ _)
         (do @
@@ -237,7 +190,7 @@
      _ (&;within-type-env
         (TC;check expectedT inferredT))
      temp &env;next-local]
-    (wrap (variant idx case-size temp (|> valueA+ list;head assume)))))
+    (wrap (la;sum idx case-size temp (|> valueA+ list;head assume)))))
 
 ## There cannot be any ambiguity or improper syntax when analysing
 ## records, so they must be normalized for further analysis.
@@ -312,4 +265,4 @@
      [inferredT membersA] (&inference;apply-function analyse inferenceT members)
      _ (&;within-type-env
         (TC;check expectedT inferredT))]
-    (wrap (product membersA))))
+    (wrap (la;product membersA))))

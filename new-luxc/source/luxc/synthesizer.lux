@@ -1,45 +1,243 @@
 (;module:
   lux
-  (lux (control monad)
-       (data text/format
-             (coll [list "L/" Functor<List>]))
-       [macro #+ Monad<Lux>])
+  (lux (data (coll [list "L/" Functor<List>])))
   (luxc ["&" base]
-        (lang ["la" analysis #+ Analysis]
-              ["ls" synthesis #+ Synthesis])
-        ["&;" analyser]))
+        (lang ["la" analysis]
+              ["ls" synthesis])
+        ## (synthesizer ["&&;" case])
+        ))
+
+## (do-template [<name> <comp>]
+##   [(def: (<name> ref)
+##      (-> Int Bool)
+##      (<comp> 0 ref))]
+
+##   [function-ref? i.=]
+##   [local-ref?    i.>]
+##   [captured-ref? i.<]
+##   )
+
+(def: (unfold-tuple tuple)
+  (-> la;Analysis (List la;Analysis))
+  (case tuple
+    (#la;Product left right)
+    (#;Cons left (unfold-tuple right))
+
+    _
+    (list tuple)))
+
+(def: (unfold-apply apply)
+  (-> la;Analysis [la;Analysis (List la;Analysis)])
+  (loop [apply apply
+         args (list)]
+    (case apply
+      (#la;Apply arg func)
+      (recur func (#;Cons arg args))
+
+      _
+      [apply args])))
+
+(def: (unfold-variant variant)
+  (-> (Either la;Analysis la;Analysis) [Nat Bool la;Analysis])
+  (loop [so-far +0
+         variantA variant]
+    (case variantA
+      (#;Left valueA)
+      (case valueA
+        (#la;Sum choice)
+        (recur (n.inc so-far) choice)
+
+        _
+        [so-far false valueA])
+      
+      (#;Right valueA)
+      [(n.inc so-far) true valueA])))
+
+## (def: (has-self-reference? exprS)
+##   (-> ls;Synthesis Bool)
+##   (case exprS
+##     (#ls;Tuple membersS)
+##     (list;any? has-self-reference? membersS)
+
+##     (#ls;Procedure name argsS)
+##     (list;any? has-self-reference? argsS)
+
+##     (#ls;Variant tag last? memberS)
+##     (has-self-reference? memberS)
+
+##     (#ls;Relative idx)
+##     (i.= 0 idx)
+
+##     (#ls;Recur offset argsS)
+##     (list;any? has-self-reference? argsS)
+
+##     (#ls;Call funcS argsS)
+##     (or (has-self-reference? funcS)
+##         (list;any? has-self-reference? argsS))
+
+##     (#ls;Let register inputS bodyS)
+##     (or (has-self-reference? inputS)
+##         (has-self-reference? bodyS))
+
+##     (#ls;If inputS thenS elseS)
+##     (or (has-self-reference? inputS)
+##         (has-self-reference? thenS)
+##         (has-self-reference? elseS))
+
+##     (#ls;Function num-args scope bodyS)
+##     (not (list;any? (i.= 0) scope))
+
+##     (#ls;Loop offset argsS bodyS)
+##     (or (list;any? has-self-reference? argsS)
+##         (has-self-reference? bodyS))
+
+##     _
+##     false
+##     ))
+
+## (def: (shift-loop-variables scope offset exprS)
+##   (-> (List Int) Nat ls;Synthesis ls;Synthesis)
+##   (loop [exprS exprS]
+##     (case exprS
+##       (#ls;Tuple members)
+##       (#ls;Tuple (L/map recur members))
+
+##       (#ls;Procedure name argsS)
+##       (#ls;Procedure name (L/map recur argsS))
+
+##       (#ls;Variant tag last? valueS)
+##       (#ls;Variant tag last? (recur valueS))
+
+##       (#ls;Relative idx)
+##       (if (captured-ref? idx)
+##         (let [scope-idx (|> idx (n.+ 1) (n.* -1) int-to-nat)]
+##           (|> scope (list;nth scope-idx) assume #ls;Relative))
+##         (#ls;Relative (i.+ idx (nat-to-int offset))))
+
+##       (#ls;Recur _offset argsS)
+##       (#ls;Recur (n.+ offset _offset) (L/map recur argsS))
+
+##       (#ls;Call funcS argsS)
+##       (#ls;Call (recur funcS) (L/map recur argsS))
+
+##       (#ls;Let register inputS bodyS)
+##       (#ls;Let (n.+ offset register) (recur inputS) (recur bodyS))
+
+##       (#ls;If inputS thenS elseS)
+##       (#ls;If (recur inputS) (recur thenS) (recur elseS))
+
+##       (#ls;Function _num-args _scope _bodyS)
+##       ...
+
+##       (#ls;Loop _offset _argsS _bodyS)
+##       (#ls;Loop (n.+ offset _offset) (L/map recur _argsS) (recur _bodyS))
+
+##       _
+##       exprS
+##       )))
 
 (def: #export (synthesize analysis)
-  (-> Analysis Synthesis)
-  (case analysis
-    (^template [<from> <to>]
-      (<from> value)
-      (<to> value))
-    ([#la;Bool     #ls;Bool]
-     [#la;Nat      #ls;Nat]
-     [#la;Int      #ls;Int]
-     [#la;Deg      #ls;Deg]
-     [#la;Real     #ls;Real]
-     [#la;Char     #ls;Char]
-     [#la;Text     #ls;Text]
-     [#la;Relative #ls;Relative]
-     [#la;Absolute #ls;Absolute])
+  (-> la;Analysis ls;Synthesis)
+  (loop [num-args +0
+         local-offset +0
+         tail? true
+         exprA analysis]
+    (case exprA
+      (^template [<from> <to>]
+        (<from> value)
+        (<to> value))
+      ([#la;Unit     #ls;Unit]
+       [#la;Bool     #ls;Bool]
+       [#la;Nat      #ls;Nat]
+       [#la;Int      #ls;Int]
+       [#la;Deg      #ls;Deg]
+       [#la;Real     #ls;Real]
+       [#la;Char     #ls;Char]
+       [#la;Text     #ls;Text]
+       [#la;Absolute #ls;Absolute])
 
-    (#la;Tuple values)
-    (#ls;Tuple (L/map synthesize values))
+      (#la;Product _)
+      (#ls;Tuple (L/map (recur +0 local-offset false) (unfold-tuple exprA)))
 
-    (#la;Variant tag last? value)
-    (undefined)
+      (#la;Sum choice)
+      (let [[tag last? value] (unfold-variant choice)]
+        (#ls;Variant tag last? (recur +0 local-offset false value)))
 
-    (#la;Case input matches)
-    (undefined)
+      (#la;Apply _)
+      (let [[funcA argsA] (unfold-apply exprA)
+            funcS (recur +0 local-offset false funcA)
+            argsS (L/map (recur +0 local-offset false) argsA)]
+        (case funcS
+          ## (^multi (#ls;Relative idx)
+          ##         (and (|> num-args n.dec nat-to-int (i.* -1) (i.= idx))
+          ##              tail?))
+          ## (#ls;Recur +1 argsS)
 
-    (#la;Function scope body)
-    (undefined)
+          ## (^multi (#ls;Function _num-args _scope _bodyS)
+          ##         (and (n.= _num-args (list;size argsS))
+          ##              (not (has-self-reference? _bodyS))))
+          ## (#ls;Loop local-offset argsS (shift-loop-variables local-offset _bodyS))
 
-    (#la;Apply arg func)
-    (undefined)
-    
-    (#la;Procedure name args)
-    (#ls;Procedure name (L/map synthesize args))
-    ))
+          _
+          (#ls;Call funcS argsS)))
+
+      (#la;Procedure name args)
+      (#ls;Procedure name (L/map (recur +0 local-offset false) args))
+
+      _
+      (undefined)
+      
+      ## (#la;Relative ref)
+      ## (case ref
+      ##   (#;Local local)
+      ##   (case local
+      ##     +0
+      ##     (if (n.> +1 num-args)
+      ##       (<| (#ls;Call (#ls;Relative 0))
+      ##           (L/map (|>. #ls;Relative))
+      ##           (list;range +1 (n.dec num-args)))
+      ##       (#ls;Relative 0))
+      
+      ##     _
+      ##     (#ls;Relative (nat-to-int (n.+ (n.inc num-args) local))))
+      
+      ##   (#;Captured captured)
+      ##   (#ls;Relative (|> captured nat-to-int (n.* -1) (n.+ -1))))
+
+      ## (#la;Function scope bodyA)
+      ## (case (recur (n.inc num-args) local-offset true bodyA)
+      ##   (#ls;Function num-args' scope' bodyS')
+      ##   (#ls;Function (n.inc num-args') scope bodyS')
+
+      ##   bodyS
+      ##   (#ls;Function +1 scope bodyS))
+
+      ## (#la;Case inputA branchesA)
+      ## (let [inputS (recur num-args local-offset false inputA)]
+      ##   (case branchesA
+      ##     (^multi (^ (list [(#lp;Bind input-register)
+      ##                       (#la;Relative (#;Local output-register))]))
+      ##             (n.= input-register output-register))
+      ##     inputS
+
+      ##     (^ (list [(#lp;Bind register) bodyA]))
+      ##     (#ls;Let register inputS (recur num-args local-offset tail? bodyA))
+      
+      ##     (^or (^ (list [(#lp;Bool true) thenA] [(#lp;Bool false) elseA]))
+      ##          (^ (list [(#lp;Bool false) elseA] [(#lp;Bool true) thenA])))
+      ##     (#ls;If inputS
+      ##             (recur num-args local-offset tail? thenA)
+      ##             (recur num-args local-offset tail? elseA))
+
+      ##     (#;Cons [headP headA] tailPA)
+      ##     (let [headP+ (|> (recur num-args local-offset tail? headA)
+      ##                      #ls;ExecP
+      ##                      (#ls;SeqP (&&case;path headP)))
+      ##           tailP+ (L/map (function [[pattern bodyA]]
+      ##                           (|> (recur num-args local-offset tail? bodyA)
+      ##                               #ls;ExecP
+      ##                               (#ls;SeqP (&&case;path pattern))))
+      ##                         tailPA)]
+      ##       (#ls;Case inputS (&&case;weave-paths headP+ tailP+)))
+      ##     ))
+      )))

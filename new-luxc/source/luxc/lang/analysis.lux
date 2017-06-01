@@ -1,5 +1,7 @@
 (;module:
-  lux)
+  lux
+  (lux [function]
+       (data (coll [list "L/" Fold<List>]))))
 
 (type: #export #rec Pattern
   (#BindP Nat)
@@ -30,3 +32,60 @@
   (#Procedure Text (List Analysis))
   (#Relative Ref)
   (#Absolute Ident))
+
+## Variants get analysed as binary sum types for the sake of semantic
+## simplicity.
+## This is because you can encode a variant of any size using just
+## binary sums by nesting them.
+
+(do-template [<name> <side>]
+  [(def: (<name> inner)
+     (-> Analysis Analysis)
+     (#Sum (<side> inner)))]
+
+  [sum-left  #;Left]
+  [sum-right #;Right])
+
+(def: #export (sum tag size temp value)
+  (-> Nat Nat Nat Analysis Analysis)
+  (if (n.= (n.dec size) tag)
+    (if (n.= +1 tag)
+      (sum-right value)
+      (L/fold (function;const sum-left)
+              (sum-right value)
+              (list;n.range +0 (n.- +2 tag))))
+    (L/fold (function;const sum-left)
+            (case value
+              (#Sum _)
+              (#Case value (list [(#BindP temp)
+                                  (#Relative (#;Local temp))]))
+
+              _
+              value)
+            (list;n.range +0 tag))))
+
+## Tuples get analysed into binary products for the sake of semantic
+## simplicity, since products/pairs can encode tuples of any length
+## through nesting.
+
+(def: #export (product members)
+  (-> (List Analysis) Analysis)
+  (case members
+    #;Nil
+    #Unit
+
+    (#;Cons singleton #;Nil)
+    singleton
+
+    (#;Cons left right)
+    (#Product left (product right))))
+
+## Function application gets analysed into single-argument
+## applications, since every other kind of application can be encoded
+## into a finite series of single-argument applications.
+
+(def: #export (apply args func)
+  (-> (List Analysis) Analysis Analysis)
+  (L/fold (function [arg func] (#Apply arg func))
+          func
+          args))
