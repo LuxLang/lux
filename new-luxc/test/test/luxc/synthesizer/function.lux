@@ -4,14 +4,137 @@
        (control monad
                 pipe)
        (data [product]
-             (coll [list]))
+             [number]
+             text/format
+             (coll [list "L/" Functor<List> Fold<List>]
+                   ["D" dict]
+                   ["s" set]))
        ["r" math/random "r/" Monad<Random>]
        test)
   (luxc (lang ["la" analysis]
               ["ls" synthesis])
         (analyser [";A" structure])
-        [synthesizer])
+        [synthesizer]
+        (synthesizer ["&&;" function]))
   (.. common))
+
+(def: (reference var)
+  (-> ls;Variable Ref)
+  (if (&&function;captured-var? var)
+    (#;Captured (|> var (i.* -1) int-to-nat n.dec))
+    (#;Local (int-to-nat var))))
+
+(def: (make-scope env)
+  (-> (List ls;Variable) Scope)
+  {#;name     (list)
+   #;inner    +0
+   #;locals   {#;counter +0 #;mappings (list)}
+   #;captured {#;counter +0
+               #;mappings (L/map (|>. reference [Void] [""])
+                                 env)}})
+
+(def: gen-function//constant
+  (r;Random [Nat la;Analysis la;Analysis])
+  (r;rec
+   (function [gen-function//constant]
+     (do r;Monad<Random>
+       [function? r;bool]
+       (if function?
+         (do @
+           [[num-args outputA subA] gen-function//constant]
+           (wrap [(n.inc num-args)
+                  outputA
+                  (#la;Function (make-scope (list)) subA)]))
+         (do @
+           [outputA gen-primitive]
+           (wrap [+0 outputA outputA])))))))
+
+(def: (pick scope-size)
+  (-> Nat (r;Random Nat))
+  (|> r;nat (:: r;Monad<Random> map (n.% scope-size))))
+
+(def: gen-function//captured
+  (r;Random [Nat Int la;Analysis])
+  (do r;Monad<Random>
+    [num-locals (|> r;nat (:: @ map (|>. (n.% +100) (n.max +10))))
+     #let [indices (list;n.range +0 (n.dec num-locals))
+           absolute-env (L/map &&function;to-local indices)
+           relative-env (L/map &&function;to-captured indices)]
+     [total-args prediction bodyA] (: (r;Random [Nat Int la;Analysis])
+                                      (loop [num-args +1
+                                             global-env relative-env]
+                                        (let [env-size (list;size global-env)
+                                              resolver (L/fold (function [[idx var] resolver]
+                                                                 (D;put idx var resolver))
+                                                               (: (D;Dict Nat Int)
+                                                                  (D;new number;Hash<Nat>))
+                                                               (list;zip2 (list;n.range +0 (n.dec env-size))
+                                                                          global-env))]
+                                          (do @
+                                            [nest? r;bool]
+                                            (if nest?
+                                              (do @
+                                                [num-picks (:: @ map (n.max +1) (pick (n.inc env-size)))
+                                                 picks (|> (r;set number;Hash<Nat> num-picks (pick env-size))
+                                                           (:: @ map s;to-list))
+                                                 [total-args prediction bodyA] (recur (n.inc num-args)
+                                                                                      (L/map (function [pick] (assume (list;nth pick global-env)))
+                                                                                             picks))]
+                                                (wrap [total-args prediction (#la;Function (make-scope (L/map &&function;to-captured picks))
+                                                                                           bodyA)]))
+                                              (do @
+                                                [chosen (pick (list;size global-env))]
+                                                (wrap [num-args
+                                                       (assume (D;get chosen resolver))
+                                                       (#la;Relative (#;Captured chosen))])))))))]
+    (wrap [total-args prediction (#la;Function (make-scope absolute-env) bodyA)])
+    ))
+
+(def: gen-function//local
+  (r;Random [Nat Int la;Analysis])
+  (loop [num-args +0
+         nest? true]
+    (if nest?
+      (do r;Monad<Random>
+        [nest?' r;bool
+         [total-args prediction bodyA] (recur (n.inc num-args) nest?')]
+        (wrap [total-args prediction (#la;Function (make-scope (list)) bodyA)]))
+      (do r;Monad<Random>
+        [chosen (|> r;nat (:: @ map (|>. (n.% +100) (n.max +2))))]
+        (wrap [num-args
+               (|> chosen (n.+ (n.dec num-args)) nat-to-int)
+               (#la;Relative (#;Local chosen))])))))
+
+(test: "Function definition."
+  [[args1 prediction1 function1] gen-function//constant
+   [args2 prediction2 function2] gen-function//captured
+   [args3 prediction3 function3] gen-function//local]
+  ($_ seq
+      (assert "Nested functions will get folded together."
+              (|> (synthesizer;synthesize function1)
+                  (case> (#ls;Function args captured output)
+                         (and (n.= args1 args)
+                              (corresponds? prediction1 output))
+                         
+                         _
+                         (n.= +0 args1))))
+      (assert "Folded functions provide direct access to captured variables."
+              (|> (synthesizer;synthesize function2)
+                  (case> (#ls;Function args captured (#ls;Variable output))
+                         (and (n.= args2 args)
+                              (i.= prediction2 output))
+                         
+                         _
+                         false)))
+      (assert "Folded functions properly offset local variables."
+              (|> (synthesizer;synthesize function3)
+                  (case> (#ls;Function args captured (#ls;Variable output))
+                         (and (n.= args3 args)
+                              (i.= prediction3 output))
+                         
+                         _
+                         false)))
+      ))
 
 (test: "Function application."
   [num-args (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))

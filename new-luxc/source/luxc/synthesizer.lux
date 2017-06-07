@@ -1,57 +1,15 @@
 (;module:
   lux
-  (lux (data (coll [list "L/" Functor<List>])))
+  (lux (data text/format
+             [number]
+             (coll [list "L/" Functor<List> Fold<List>]
+                   ["d" dict])))
   (luxc ["&" base]
         (lang ["la" analysis]
               ["ls" synthesis])
-        ## (synthesizer ["&&;" case])
+        (synthesizer ["&&;" structure]
+                     ["&&;" function])
         ))
-
-## (do-template [<name> <comp>]
-##   [(def: (<name> ref)
-##      (-> Int Bool)
-##      (<comp> 0 ref))]
-
-##   [function-ref? i.=]
-##   [local-ref?    i.>]
-##   [captured-ref? i.<]
-##   )
-
-(def: (unfold-tuple tuple)
-  (-> la;Analysis (List la;Analysis))
-  (case tuple
-    (#la;Product left right)
-    (#;Cons left (unfold-tuple right))
-
-    _
-    (list tuple)))
-
-(def: (unfold-apply apply)
-  (-> la;Analysis [la;Analysis (List la;Analysis)])
-  (loop [apply apply
-         args (list)]
-    (case apply
-      (#la;Apply arg func)
-      (recur func (#;Cons arg args))
-
-      _
-      [apply args])))
-
-(def: (unfold-variant variant)
-  (-> (Either la;Analysis la;Analysis) [Nat Bool la;Analysis])
-  (loop [so-far +0
-         variantA variant]
-    (case variantA
-      (#;Left valueA)
-      (case valueA
-        (#la;Sum choice)
-        (recur (n.inc so-far) choice)
-
-        _
-        [so-far false valueA])
-      
-      (#;Right valueA)
-      [(n.inc so-far) true valueA])))
 
 ## (def: (has-self-reference? exprS)
 ##   (-> ls;Synthesis Bool)
@@ -65,7 +23,7 @@
 ##     (#ls;Variant tag last? memberS)
 ##     (has-self-reference? memberS)
 
-##     (#ls;Relative idx)
+##     (#ls;Variable idx)
 ##     (i.= 0 idx)
 
 ##     (#ls;Recur offset argsS)
@@ -108,11 +66,11 @@
 ##       (#ls;Variant tag last? valueS)
 ##       (#ls;Variant tag last? (recur valueS))
 
-##       (#ls;Relative idx)
+##       (#ls;Variable idx)
 ##       (if (captured-ref? idx)
 ##         (let [scope-idx (|> idx (n.+ 1) (n.* -1) int-to-nat)]
-##           (|> scope (list;nth scope-idx) assume #ls;Relative))
-##         (#ls;Relative (i.+ idx (nat-to-int offset))))
+##           (|> scope (list;nth scope-idx) assume #ls;Variable))
+##         (#ls;Variable (i.+ idx (nat-to-int offset))))
 
 ##       (#ls;Recur _offset argsS)
 ##       (#ls;Recur (n.+ offset _offset) (L/map recur argsS))
@@ -136,11 +94,13 @@
 ##       exprS
 ##       )))
 
+(def: init-env (List ls;Variable) (list))
+(def: init-resolver (d;Dict Int Int) (d;new number;Hash<Int>))
+
 (def: #export (synthesize analysis)
   (-> la;Analysis ls;Synthesis)
-  (loop [num-args +0
-         local-offset +0
-         tail? true
+  (loop [scope-args +0
+         resolver init-resolver
          exprA analysis]
     (case exprA
       (^template [<from> <to>]
@@ -154,27 +114,72 @@
        [#la;Real     #ls;Real]
        [#la;Char     #ls;Char]
        [#la;Text     #ls;Text]
-       [#la;Absolute #ls;Absolute])
+       [#la;Absolute #ls;Definition])
 
       (#la;Product _)
-      (#ls;Tuple (L/map (recur +0 local-offset false) (unfold-tuple exprA)))
+      (#ls;Tuple (L/map (recur +0 resolver) (&&structure;unfold-tuple exprA)))
 
       (#la;Sum choice)
-      (let [[tag last? value] (unfold-variant choice)]
-        (#ls;Variant tag last? (recur +0 local-offset false value)))
+      (let [[tag last? value] (&&structure;unfold-variant choice)]
+        (#ls;Variant tag last? (recur +0 resolver value)))
 
+      (#la;Relative ref)
+      (if (&&function;nested-function? scope-args)
+        (case ref
+          (#;Local local)
+          (if (n.= +0 local)
+            (<| (#ls;Call (#ls;Variable 0))
+                (L/map (|>. nat-to-int #ls;Variable))
+                (list;n.range +1 (n.dec scope-args)))
+            (#ls;Variable (&&function;adjust-var scope-args (nat-to-int local))))
+          
+          (#;Captured register)
+          (#ls;Variable (default (&&function;to-captured register)
+                          (d;get (&&function;to-captured register) resolver))))
+        (case ref
+          (#;Local local)
+          (#ls;Variable (nat-to-int local))
+          
+          (#;Captured register)
+          (#ls;Variable (&&function;to-captured register))))
+
+      (#la;Function scope bodyA)
+      (let [num-args (n.inc scope-args)
+            raw-env (&&function;environment scope)
+            env (L/map (function [var] (default var (d;get var resolver))) raw-env)
+            env-vars (let [env-size (list;size raw-env)]
+                       (: (List ls;Variable)
+                          (case env-size
+                            +0 (list)
+                            _ (L/map &&function;to-captured (list;n.range +0 (n.dec env-size))))))
+            resolver' (if (&&function;nested-function? num-args)
+                        (L/fold (function [[from to] resolver']
+                                  (d;put from to resolver'))
+                                init-resolver
+                                (list;zip2 env-vars env))
+                        (L/fold (function [var resolver']
+                                  (d;put var var resolver'))
+                                init-resolver
+                                env-vars))]
+        (case (recur num-args resolver' bodyA)
+          (#ls;Function args' env' bodyS')
+          (#ls;Function (n.inc args') env bodyS')
+
+          bodyS
+          (#ls;Function +1 env bodyS)))
+      
       (#la;Apply _)
-      (let [[funcA argsA] (unfold-apply exprA)
-            funcS (recur +0 local-offset false funcA)
-            argsS (L/map (recur +0 local-offset false) argsA)]
+      (let [[funcA argsA] (&&function;unfold-apply exprA)
+            funcS (recur +0 resolver funcA)
+            argsS (L/map (recur +0 resolver) argsA)]
         (case funcS
-          ## (^multi (#ls;Relative idx)
-          ##         (and (|> num-args n.dec nat-to-int (i.* -1) (i.= idx))
+          ## (^multi (#ls;Variable idx)
+          ##         (and (|> scope-args n.dec nat-to-int (i.* -1) (i.= idx))
           ##              tail?))
           ## (#ls;Recur +1 argsS)
 
-          ## (^multi (#ls;Function _num-args _scope _bodyS)
-          ##         (and (n.= _num-args (list;size argsS))
+          ## (^multi (#ls;Function _scope-args _scope _bodyS)
+          ##         (and (n.= _scope-args (list;size argsS))
           ##              (not (has-self-reference? _bodyS))))
           ## (#ls;Loop local-offset argsS (shift-loop-variables local-offset _bodyS))
 
@@ -182,59 +187,34 @@
           (#ls;Call funcS argsS)))
 
       (#la;Procedure name args)
-      (#ls;Procedure name (L/map (recur +0 local-offset false) args))
+      (#ls;Procedure name (L/map (recur +0 resolver) args))
 
       _
       (undefined)
       
-      ## (#la;Relative ref)
-      ## (case ref
-      ##   (#;Local local)
-      ##   (case local
-      ##     +0
-      ##     (if (n.> +1 num-args)
-      ##       (<| (#ls;Call (#ls;Relative 0))
-      ##           (L/map (|>. #ls;Relative))
-      ##           (list;range +1 (n.dec num-args)))
-      ##       (#ls;Relative 0))
-      
-      ##     _
-      ##     (#ls;Relative (nat-to-int (n.+ (n.inc num-args) local))))
-      
-      ##   (#;Captured captured)
-      ##   (#ls;Relative (|> captured nat-to-int (n.* -1) (n.+ -1))))
-
-      ## (#la;Function scope bodyA)
-      ## (case (recur (n.inc num-args) local-offset true bodyA)
-      ##   (#ls;Function num-args' scope' bodyS')
-      ##   (#ls;Function (n.inc num-args') scope bodyS')
-
-      ##   bodyS
-      ##   (#ls;Function +1 scope bodyS))
-
       ## (#la;Case inputA branchesA)
-      ## (let [inputS (recur num-args local-offset false inputA)]
+      ## (let [inputS (recur +0 local-offset false inputA)]
       ##   (case branchesA
       ##     (^multi (^ (list [(#lp;Bind input-register)
-      ##                       (#la;Relative (#;Local output-register))]))
+      ##                       (#la;Variable (#;Local output-register))]))
       ##             (n.= input-register output-register))
       ##     inputS
 
       ##     (^ (list [(#lp;Bind register) bodyA]))
-      ##     (#ls;Let register inputS (recur num-args local-offset tail? bodyA))
+      ##     (#ls;Let register inputS (recur +0 local-offset tail? bodyA))
       
       ##     (^or (^ (list [(#lp;Bool true) thenA] [(#lp;Bool false) elseA]))
       ##          (^ (list [(#lp;Bool false) elseA] [(#lp;Bool true) thenA])))
       ##     (#ls;If inputS
-      ##             (recur num-args local-offset tail? thenA)
-      ##             (recur num-args local-offset tail? elseA))
+      ##             (recur +0 local-offset tail? thenA)
+      ##             (recur +0 local-offset tail? elseA))
 
       ##     (#;Cons [headP headA] tailPA)
-      ##     (let [headP+ (|> (recur num-args local-offset tail? headA)
+      ##     (let [headP+ (|> (recur +0 local-offset tail? headA)
       ##                      #ls;ExecP
       ##                      (#ls;SeqP (&&case;path headP)))
       ##           tailP+ (L/map (function [[pattern bodyA]]
-      ##                           (|> (recur num-args local-offset tail? bodyA)
+      ##                           (|> (recur +0 local-offset tail? bodyA)
       ##                               #ls;ExecP
       ##                               (#ls;SeqP (&&case;path pattern))))
       ##                         tailPA)]
