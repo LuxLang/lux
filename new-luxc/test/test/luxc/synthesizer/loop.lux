@@ -1,0 +1,164 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad)
+       (data [bool "B/" Eq<Bool>]
+             [number]
+             (coll [list "L/" Functor<List> Fold<List>]
+                   ["s" set])
+             text/format)
+       ["r" math/random "r/" Monad<Random>]
+       test)
+  (luxc (lang ["la" analysis]
+              ["ls" synthesis])
+        [synthesizer]
+        (synthesizer ["&&;" loop]))
+  (.. common))
+
+(def: (does-recursion? arity exprS)
+  (-> ls;Arity ls;Synthesis Bool)
+  (loop [exprS exprS]
+    (case exprS
+      (#ls;Case inputS pathS)
+      (loop [pathS pathS]
+        (case pathS
+          (#ls;AltP leftS rightS)
+          (or (recur leftS)
+              (recur rightS))
+
+          (#ls;SeqP leftS rightS)
+          (recur rightS)
+          
+          (#ls;ExecP bodyS)
+          (does-recursion? arity bodyS)
+          
+          _
+          false))
+
+      (#ls;Recur argsS)
+      (n.= arity (list;size argsS))
+
+      (#ls;Let register inputS bodyS)
+      (recur bodyS)
+
+      (#ls;If inputS thenS elseS)
+      (or (recur thenS)
+          (recur elseS))
+
+      _
+      false
+      )))
+
+(def: (gen-body arity output)
+  (-> Nat la;Analysis (r;Random la;Analysis))
+  (r;either (r;either (r/wrap output)
+                      (do r;Monad<Random>
+                        [inputA (|> r;nat (:: @ map (|>. #la;Nat)))
+                         num-cases (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))
+                         tests (|> (r;set number;Hash<Nat> num-cases r;nat)
+                                   (:: @ map (|>. s;to-list (L/map (|>. #la;NatP)))))
+                         #let [bad-bodies (list;repeat num-cases #la;Unit)]
+                         good-body (gen-body arity output)
+                         where-to-set (|> r;nat (:: @ map (n.% num-cases)))
+                         #let [bodies (list;concat (list (list;take where-to-set bad-bodies)
+                                                         (list good-body)
+                                                         (list;drop (n.inc where-to-set) bad-bodies)))]]
+                        (wrap (#ls;Case inputA
+                                        (list;zip2 tests bodies)))))
+            (r;either (do r;Monad<Random>
+                        [valueS r;bool
+                         output' (gen-body (n.inc arity) output)]
+                        (wrap (#la;Case (#la;Bool valueS) (list [(#la;BindP arity) output']))))
+                      (do r;Monad<Random>
+                        [valueS r;bool
+                         then|else r;bool
+                         output' (gen-body arity output)
+                         #let [thenA (if then|else output' #ls;Unit)
+                               elseA (if (not then|else) output' #ls;Unit)]]
+                        (wrap (#la;Case (#la;Bool valueS)
+                                        (list [(#la;BoolP then|else) thenA]
+                                              [(#la;BoolP (not then|else)) elseA])))))
+            ))
+
+(def: (make-apply func args)
+  (-> la;Analysis (List la;Analysis) la;Analysis)
+  (L/fold (function [arg' func']
+            (#la;Apply arg' func'))
+          func
+          args))
+
+(def: (make-function arity body)
+  (-> ls;Arity la;Analysis la;Analysis)
+  (case arity
+    +0 body
+    _ (#la;Function {#;name     (list)
+                     #;inner    +0
+                     #;locals   {#;counter +0 #;mappings (list)}
+                     #;captured {#;counter +0 #;mappings (list)}}
+                    (make-function (n.dec arity) body))))
+
+(def: gen-recursion
+  (r;Random [Bool Nat la;Analysis])
+  (do r;Monad<Random>
+    [arity (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))
+     recur? r;bool
+     outputS (if recur?
+               (wrap (make-apply (#la;Relative (#;Local +0))
+                                 (list;repeat arity #la;Unit)))
+               (do @
+                 [plus-or-minus? r;bool
+                  how-much (|> r;nat (:: @ map (|>. (n.% arity) (n.max +1))))
+                  #let [shift (if plus-or-minus? n.+ n.-)]]
+                 (wrap (make-apply (#la;Relative (#;Local +0))
+                                   (list;repeat (shift how-much arity) #la;Unit)))))
+     bodyS (gen-body arity outputS)]
+    (wrap [recur? arity (make-function arity bodyS)])))
+
+(def: gen-loop
+  (r;Random [Bool Nat la;Analysis])
+  (do r;Monad<Random>
+    [arity (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))
+     recur? r;bool
+     self-ref? r;bool
+     #let [selfA (#la;Relative (#;Local +0))
+           argA (if self-ref? selfA #la;Unit)]
+     outputS (if recur?
+               (wrap (make-apply selfA (list;repeat arity argA)))
+               (do @
+                 [plus-or-minus? r;bool
+                  how-much (|> r;nat (:: @ map (|>. (n.% arity) (n.max +1))))
+                  #let [shift (if plus-or-minus? n.+ n.-)]]
+                 (wrap (make-apply selfA (list;repeat (shift how-much arity) argA)))))
+     bodyS (gen-body arity outputS)]
+    (wrap [(and recur? (not self-ref?))
+           arity
+           (make-function arity bodyS)])))
+
+(test: "Recursion."
+  [[prediction arity analysis] gen-recursion]
+  ($_ seq
+      (assert "Can accurately identify (and then reify) tail recursion."
+              (case (synthesizer;synthesize analysis)
+                (#ls;Function _arity _env _body)
+                (|> _body
+                    (does-recursion? arity)
+                    (B/= prediction)
+                    (and (n.= arity _arity)))
+
+                _
+                false))))
+
+(test: "Loop."
+  [[prediction arity analysis] gen-recursion]
+  ($_ seq
+      (assert "Can reify loops."
+              (case (synthesizer;synthesize (make-apply analysis (list;repeat arity #la;Unit)))
+                (#ls;Loop _register _inits _body)
+                (and (n.= arity (list;size _inits))
+                     (not (&&loop;contains-self-reference? _body)))
+
+                (#ls;Call (#ls;Function _arity _env _bodyS) argsS)
+                (&&loop;contains-self-reference? _bodyS)
+
+                _
+                false))))

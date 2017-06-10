@@ -1,0 +1,166 @@
+(;module:
+  lux
+  (lux (data (coll [list "L/" Functor<List>])
+             text/format))
+  (luxc (lang ["ls" synthesis])
+        (synthesizer ["&&;" function])))
+
+(def: #export (contains-self-reference? exprS)
+  (-> ls;Synthesis Bool)
+  (case exprS
+    (#ls;Variant tag last? memberS)
+    (contains-self-reference? memberS)
+
+    (#ls;Tuple membersS)
+    (list;any? contains-self-reference? membersS)
+
+    (#ls;Case inputS pathS)
+    (or (contains-self-reference? inputS)
+        (loop [pathS pathS]
+          (case pathS
+            (^or (#ls;AltP leftS rightS)
+                 (#ls;SeqP leftS rightS))
+            (or (recur leftS)
+                (recur rightS))
+            
+            (#ls;ExecP bodyS)
+            (contains-self-reference? bodyS)
+            
+            _
+            false)))
+
+    (#ls;Function arity environment bodyS)
+    (list;any? &&function;self? environment)
+    
+    (#ls;Call funcS argsS)
+    (or (contains-self-reference? funcS)
+        (list;any? contains-self-reference? argsS))
+    
+    (^or (#ls;Recur argsS)
+         (#ls;Procedure name argsS))
+    (list;any? contains-self-reference? argsS)
+
+    (#ls;Variable idx)
+    (&&function;self? idx)
+
+    (#ls;Let register inputS bodyS)
+    (or (contains-self-reference? inputS)
+        (contains-self-reference? bodyS))
+
+    (#ls;If inputS thenS elseS)
+    (or (contains-self-reference? inputS)
+        (contains-self-reference? thenS)
+        (contains-self-reference? elseS))
+
+    (#ls;Loop offset argsS bodyS)
+    (or (list;any? contains-self-reference? argsS)
+        (contains-self-reference? bodyS))
+
+    _
+    false
+    ))
+
+(def: #export (reify-recursion arity exprS)
+  (-> Nat ls;Synthesis ls;Synthesis)
+  (loop [exprS exprS]
+    (case exprS
+      (#ls;Case inputS pathS)
+      (#ls;Case inputS
+                (let [reify-recursion' recur]
+                  (loop [pathS pathS]
+                    (case pathS
+                      (#ls;AltP leftS rightS)
+                      (#ls;AltP (recur leftS) (recur rightS))
+
+                      (#ls;SeqP leftS rightS)
+                      (#ls;SeqP leftS (recur rightS))
+                      
+                      (#ls;ExecP bodyS)
+                      (#ls;ExecP (reify-recursion' bodyS))
+                      
+                      _
+                      pathS))))
+
+      (^multi (#ls;Call (#ls;Variable 0) argsS)
+              (n.= arity (list;size argsS)))
+      (#ls;Recur argsS)
+
+      (#ls;Call (#ls;Variable var) argsS)
+      exprS
+
+      (#ls;Let register inputS bodyS)
+      (#ls;Let register inputS (recur bodyS))
+
+      (#ls;If inputS thenS elseS)
+      (#ls;If inputS
+              (recur thenS)
+              (recur elseS))
+
+      _
+      exprS
+      )))
+
+(def: #export (adjust env outer-offset exprS)
+  (-> (List ls;Variable) ls;Register ls;Synthesis ls;Synthesis)
+  (let [resolve-captured (: (-> ls;Variable ls;Variable)
+                            (function [var]
+                              (let [idx (|> var (i.* -1) int-to-nat n.dec)]
+                                (|> env (list;nth idx) assume))))]
+    (loop [exprS exprS]
+      (case exprS
+        (#ls;Variant tag last? valueS)
+        (#ls;Variant tag last? (recur valueS))
+        
+        (#ls;Tuple members)
+        (#ls;Tuple (L/map recur members))
+
+        (#ls;Case inputS pathS)
+        (#ls;Case (recur inputS)
+                  (let [adjust' recur]
+                    (loop [pathS pathS]
+                      (case pathS
+                        (^template [<tag>]
+                          (<tag> leftS rightS)
+                          (<tag> (recur leftS) (recur rightS)))
+                        ([#ls;AltP]
+                         [#ls;SeqP])
+                        
+                        (#ls;ExecP bodyS)
+                        (#ls;ExecP (adjust' bodyS))
+                        
+                        _
+                        pathS))))
+
+        (#ls;Function arity scope bodyS)
+        (#ls;Function arity
+                      (L/map resolve-captured scope)
+                      (recur bodyS))
+
+        (#ls;Call funcS argsS)
+        (#ls;Call (recur funcS) (L/map recur argsS))
+
+        (#ls;Recur argsS)
+        (#ls;Recur (L/map recur argsS))
+
+        (#ls;Procedure name argsS)
+        (#ls;Procedure name (L/map recur argsS))
+
+        (#ls;Variable var)
+        (if (&&function;captured? var)
+          (#ls;Variable (resolve-captured var))
+          (#ls;Variable (|> outer-offset nat-to-int (i.+ var))))
+
+        (#ls;Let register inputS bodyS)
+        (#ls;Let (n.+ outer-offset register) (recur inputS) (recur bodyS))
+
+        (#ls;If inputS thenS elseS)
+        (#ls;If (recur inputS) (recur thenS) (recur elseS))
+
+        (#ls;Loop inner-offset argsS bodyS)
+        (#ls;Loop (n.+ outer-offset inner-offset)
+                  (L/map recur argsS)
+                  (recur bodyS))
+
+        _
+        exprS
+        ))))
