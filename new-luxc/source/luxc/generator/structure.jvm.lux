@@ -1,0 +1,70 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data text/format
+             (coll [list]))
+       [macro #+ Monad<Lux> "Lux/" Monad<Lux>]
+       [host #+ jvm-import do-to])
+  (luxc ["&" base]
+        (lang ["la" analysis]
+              ["ls" synthesis])
+        ["&;" analyser]
+        ["&;" synthesizer]
+        (generator ["&;" common])))
+
+(jvm-import #long java.lang.Object)
+
+(jvm-import org.objectweb.asm.Opcodes
+  (#static ANEWARRAY int)
+  (#static DUP int)
+  (#static AASTORE int)
+  (#static ACONST_NULL int)
+  (#static INVOKESTATIC int))
+
+(jvm-import org.objectweb.asm.MethodVisitor
+  (visitInsn [int] void)
+  (visitLdcInsn [Object] void)
+  (visitTypeInsn [int String] void)
+  (visitMethodInsn [int String String String boolean] void))
+
+(def: #export (generate-tuple generate members)
+  (-> (-> ls;Synthesis (Lux Unit)) (List ls;Synthesis) (Lux Unit))
+  (do Monad<Lux>
+    [#let [size (list;size members)]
+     _ (&;assert "Cannot generate tuples with less than 2 elements."
+                 (n.>= +2 size))
+     visitor &common;get-visitor
+     #let [_ (do-to visitor
+               (MethodVisitor.visitLdcInsn [(|> size nat-to-int host;l2i (:! java.lang.Object))])
+               (MethodVisitor.visitTypeInsn [Opcodes.ANEWARRAY "java/lang/Object"]))]
+     _ (mapM @ (function [[idx member]]
+                 (do @
+                   [#let [_ (do-to visitor
+                              (MethodVisitor.visitInsn [Opcodes.DUP])
+                              (MethodVisitor.visitLdcInsn [(|> idx nat-to-int host;l2i (:! java.lang.Object))]))]
+                    _ (generate member)
+                    #let [_ (MethodVisitor.visitInsn [Opcodes.AASTORE] visitor)]]
+                   (wrap [])))
+             (list;enumerate members))]
+    (wrap [])))
+
+(def: (generate-variant-flag tail? visitor)
+  (-> Bool MethodVisitor MethodVisitor)
+  (if tail?
+    (do-to visitor (MethodVisitor.visitLdcInsn [(:! java.lang.Object "")]))
+    (do-to visitor (MethodVisitor.visitInsn [Opcodes.ACONST_NULL]))))
+
+(def: #export (generate-variant generate tag tail? member)
+  (-> (-> ls;Synthesis (Lux Unit)) Nat Bool ls;Synthesis (Lux Unit))
+  (do Monad<Lux>
+    [visitor &common;get-visitor
+     #let [_ (do-to visitor
+               (MethodVisitor.visitLdcInsn [(|> tag nat-to-int host;l2i (:! java.lang.Object))]))
+           _ (generate-variant-flag tail? visitor)]
+     _ (generate member)
+     #let [_ (do-to visitor
+               (MethodVisitor.visitMethodInsn [Opcodes.INVOKESTATIC
+                                               &common;runtime-class-name
+                                               "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"
+                                               false]))]]
+    (wrap [])))

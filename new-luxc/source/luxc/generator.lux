@@ -15,6 +15,7 @@
         ["&;" io]
         ["&;" module]
         ["&;" parser]
+        ["&;" host]
         (compiler ["&&;" runtime]
                   ["&&;" statement]
                   ["&&;" common])
@@ -109,69 +110,6 @@
 
 (jvm-import org.objectweb.asm.MethodVisitor)
 
-(jvm-import java.lang.reflect.AccessibleObject
-  (setAccessible [boolean] void))
-
-(jvm-import java.lang.reflect.Method
-  (invoke [Object (Array Object)] #try Object))
-
-(jvm-import (java.lang.Class a)
-  (getDeclaredMethod [String (Array (Class Object))] #try Method))
-
-(jvm-import java.lang.Object
-  (getClass [] (Class Object)))
-
-(jvm-import java.lang.Integer
-  (#static TYPE (Class Integer)))
-
-(jvm-import java.lang.ClassLoader)
-
-(def: ClassLoader::defineClass
-  Method
-  (case (Class.getDeclaredMethod ["defineClass"
-                                  (|> (array (Class Object) +4)
-                                      (array-store +0 (:! (Class Object) (class-for String)))
-                                      (array-store +1 (Object.getClass [] (array byte +0)))
-                                      (array-store +2 (:! (Class Object) Integer.TYPE))
-                                      (array-store +3 (:! (Class Object) Integer.TYPE)))]
-                                 (class-for java.lang.ClassLoader))
-    (#R;Success method)
-    (do-to method
-      (AccessibleObject.setAccessible [true]))
-
-    (#R;Error error)
-    (error! error)))
-
-(def: (memory-class-loader store)
-  (-> &&common;Class-Store ClassLoader)
-  (object ClassLoader []
-    []
-    (ClassLoader (findClass [class-name String]) void
-                 (case (|> store A;get io;run (D;get class-name))
-                   (#;Some bytecode)
-                   (case (Method.invoke [(:! Object _jvm_this)
-                                         (array;from-list (list (:! Object class-name)
-                                                                (:! Object bytecode)
-                                                                (:! Object (l2i 0))
-                                                                (:! Object (l2i (nat-to-int (array-length bytecode))))))]
-                                        ClassLoader::defineClass)
-                     (#R;Success output)
-                     []
-                     
-                     (#R;Error error)
-                     (error! error))
-
-                   _
-                   (error! (format "Unknown class: " class-name))))))
-
-(def: (init-host _)
-  (-> Top &&common;Host)
-  (let [store (: &&common;Class-Store
-                 (A;atom (D;new text;Hash<Text>)))]
-    {#&&common;visitor #;None
-     #&&common;loader (memory-class-loader store)
-     #&&common;store store}))
-
 (def: init-cursor Cursor ["" +0 +0])
 
 (def: init-type-context
@@ -180,11 +118,9 @@
    #;var-counter +0
    #;var-bindings (list)})
 
-(def: compiler-version Text "0.6.0")
-
 (def: init-compiler-info
   Compiler-Info
-  {#;compiler-version compiler-version
+  {#;compiler-version &;compiler-version
    #;compiler-mode    #;Build})
 
 (def: (init-compiler host)
@@ -214,7 +150,7 @@
 (def: #export (compile-program program target sources)
   (-> &;Path &;Path (List &;Path) (P;Promise Unit))
   (do P;Monad<Promise>
-    [#let [compiler (init-compiler (init-host []))]
+    [#let [compiler (init-compiler (&host;init-host []))]
      compiler (or-crash! (&&runtime;compile-runtime compiler))
      compiler (or-crash! (compile-module sources prelude compiler))
      compiler (or-crash! (compile-module sources program compiler))

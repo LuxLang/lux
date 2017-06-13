@@ -1,0 +1,126 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data ["R" result]
+             text/format)
+       [macro #+ Monad<Lux> "Lux/" Monad<Lux>]
+       [host #+ jvm-import do-to])
+  (luxc ["&" base]
+        (lang ["la" analysis]
+              ["ls" synthesis])
+        ["&;" analyser]
+        ["&;" synthesizer]
+        (generator ["&;" common])))
+
+(jvm-import java.lang.Object)
+(jvm-import java.lang.String)
+
+(jvm-import java.lang.reflect.Field
+  (get [Object] #try Object))
+
+(jvm-import (java.lang.Class a)
+  (getField [String] Field))
+
+(type: Flags Int)
+(type: Descriptor Text)
+
+(jvm-import org.objectweb.asm.Opcodes
+  (#static ACC_PUBLIC int)
+  (#static ACC_SUPER int)
+  (#static ACC_FINAL int)
+  (#static ACC_STATIC int)
+  (#static DUP int)
+  (#static PUTSTATIC int)
+  (#static ILOAD int)
+  (#static ALOAD int)
+  (#static ANEWARRAY int)
+  (#static AASTORE int)
+  (#static RETURN int)
+  (#static ARETURN int)
+  (#static V1_6 int)
+  )
+
+(jvm-import org.objectweb.asm.MethodVisitor
+  (visitCode [] void)
+  (visitEnd [] void)
+  (visitInsn [int] void)
+  (visitLdcInsn [Object] void)
+  (visitFieldInsn [int String String String] void)
+  (visitVarInsn [int int] void)
+  (visitTypeInsn [int String] void)
+  (visitMaxs [int int] void))
+
+(jvm-import org.objectweb.asm.FieldVisitor
+  (visitEnd [] void))
+
+(jvm-import org.objectweb.asm.ClassWriter
+  (#static COMPUTE_MAXS int)
+  (new [int])
+  (visit [int int String String String (Array String)] void)
+  (visitEnd [] void)
+  (visitField [int String String String Object] FieldVisitor)
+  (visitMethod [int String String String (Array String)] MethodVisitor)
+  (toByteArray [] Byte-Array))
+
+(def: (generate-adt-methods writer)
+  (-> ClassWriter ClassWriter)
+  (let [## I commented-out some parts because a null-check was
+        ## done to ensure variants were never created with null
+        ## values (this would interfere later with
+        ## pattern-matching).
+        ## Since Lux itself does not have null values as part of
+        ## the language, the burden of ensuring non-nulls was
+        ## shifted to library code dealing with host-interop, to
+        ## ensure variant-making was as fast as possible.
+        ## The null-checking code was left as comments in case I
+        ## ever change my mind.
+        _ (let [## $is-null (new Label)
+                visitor (ClassWriter.visitMethod [(i.+ Opcodes.ACC_PUBLIC Opcodes.ACC_STATIC)
+                                                  "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"
+                                                  (host;null) (host;null)]
+                                                 writer)
+                _ (do-to visitor
+                    (MethodVisitor.visitCode [])
+                    ## (MethodVisitor.visitVarInsn [Opcodes.ALOAD 2])
+                    ## (MethodVisitor.visitJumpInsn [Opcodes.IFNULL $is-null])
+                    (MethodVisitor.visitLdcInsn [(host;l2i 3)])
+                    (MethodVisitor.visitTypeInsn [Opcodes.ANEWARRAY "java/lang/Object"])
+                    (MethodVisitor.visitInsn [Opcodes.DUP])
+                    (MethodVisitor.visitLdcInsn [(host;l2i 0)])
+                    (MethodVisitor.visitVarInsn [Opcodes.ILOAD 0]))
+                _ (&common;wrap-int visitor)
+                _ (do-to visitor
+                    (MethodVisitor.visitInsn [Opcodes.AASTORE])
+                    (MethodVisitor.visitInsn [Opcodes.DUP])
+                    (MethodVisitor.visitLdcInsn [(host;l2i 1)])
+                    (MethodVisitor.visitVarInsn [Opcodes.ALOAD 1])
+                    (MethodVisitor.visitInsn [Opcodes.AASTORE])
+                    (MethodVisitor.visitInsn [Opcodes.DUP])
+                    (MethodVisitor.visitLdcInsn [(host;l2i 2)])
+                    (MethodVisitor.visitVarInsn [Opcodes.ALOAD 2])
+                    (MethodVisitor.visitInsn [Opcodes.AASTORE])
+                    (MethodVisitor.visitInsn [Opcodes.ARETURN])
+                    ## (MethodVisitor.visitLabel [$is-null])
+                    ## (MethodVisitor.visitTypeInsn [Opcodes.NEW "java/lang/IllegalStateException"])
+                    ## (MethodVisitor.visitInsn [Opcodes.DUP])
+                    ## (MethodVisitor.visitLdcInsn ["Cannot create variant for null pointer"])
+                    ## (MethodVisitor.visitMethodInsn [Opcodes.INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V"])
+                    ## (MethodVisitor.visitInsn [Opcodes.ATHROW])
+                    (MethodVisitor.visitMaxs [0 0])
+                    (MethodVisitor.visitEnd []))]
+            [])]
+    writer))
+
+(def: #export generate
+  (Lux &common;Bytecode)
+  (do Monad<Lux>
+    [_ (wrap [])
+     #let [writer (|> (do-to (ClassWriter.new ClassWriter.COMPUTE_MAXS)
+                        (ClassWriter.visit [&common;bytecode-version
+                                            ($_ i.+ Opcodes.ACC_PUBLIC Opcodes.ACC_FINAL Opcodes.ACC_SUPER)
+                                            &common;runtime-class-name (host;null)
+                                            "java/lang/Object" (host;null)]))
+                      generate-adt-methods)
+           bytecode (ClassWriter.toByteArray [] (do-to writer (ClassWriter.visitEnd [])))]
+     _ (&common;store-class &common;runtime-class-name bytecode)]
+    (wrap bytecode)))

@@ -1,0 +1,105 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad
+                pipe)
+       (data text/format
+             ["R" result]
+             [bool "B/" Eq<Bool>]
+             [char "C/" Eq<Char>]
+             [text "T/" Eq<Text>]
+             (coll ["a" array]
+                   [list]))
+       ["r" math/random "r/" Monad<Random>]
+       [macro #+ Monad<Lux>]
+       [host #+ jvm-import]
+       test)
+  (luxc (lang ["ls" synthesis])
+        [analyser]
+        [synthesizer]
+        (generator ["@" expr]
+                   ["@;" eval]
+                   ["@;" runtime]
+                   ["@;" common]))
+  (test/luxc common))
+
+(jvm-import java.lang.Integer)
+
+(def: gen-primitive
+  (r;Random ls;Synthesis)
+  (r;either (r;either (r;either (r/wrap #ls;Unit)
+                                (r/map (|>. #ls;Bool) r;bool))
+                      (r;either (r/map (|>. #ls;Nat) r;nat)
+                                (r/map (|>. #ls;Int) r;int)))
+            (r;either (r;either (r/map (|>. #ls;Deg) r;deg)
+                                (r/map (|>. #ls;Real) r;real))
+                      (r;either (r/map (|>. #ls;Char) r;char)
+                                (r/map (|>. #ls;Text) (r;text +5))))))
+
+(def: (corresponds? [prediction sample])
+  (-> [ls;Synthesis Top] Bool)
+  (case prediction
+    #ls;Unit
+    (is @common;unit (:! Text sample))
+
+    (^template [<tag> <type> <test>]
+      (<tag> prediction')
+      (case (host;try (<test> prediction' (:! <type> sample)))
+        (#R;Success result)
+        result
+
+        (#R;Error error)
+        false))
+    ([#ls;Bool Bool B/=]
+     [#ls;Nat  Nat n.=]
+     [#ls;Int  Int i.=]
+     [#ls;Deg  Deg d.=]
+     [#ls;Real Real r.=]
+     [#ls;Char Char C/=]
+     [#ls;Text Text T/=])
+
+    _
+    false
+    ))
+
+(test: "Tuples."
+  [size (|> r;nat (:: @ map (|>. (n.% +10) (n.max +2))))
+   members (r;list size gen-primitive)]
+  (assert "Can generate tuple."
+          (|> (@eval;eval (@;generate (#ls;Tuple members)))
+              (macro;run (init-compiler []))
+              (case> (#R;Success valueG)
+                     (let [valueG (:! (a;Array Top) valueG)]
+                       (and (n.= size (a;size valueG))
+                            (list;every? corresponds? (list;zip2 members (a;to-list valueG)))))
+
+                     _
+                     false))))
+
+(test: "Variants."
+  [num-tags (|> r;nat (:: @ map (|>. (n.% +10) (n.max +2))))
+   tag (|> r;nat (:: @ map (n.% num-tags)))
+   #let [last? (n.= (n.dec num-tags) tag)]
+   member gen-primitive]
+  (assert "Can generate variant."
+          (|> (do Monad<Lux>
+                [runtime-bytecode @runtime;generate]
+                (@eval;eval (@;generate (#ls;Variant tag last? member))))
+              (macro;run (init-compiler []))
+              (case> (#R;Success valueG)
+                     (let [valueG (:! (a;Array Top) valueG)]
+                       (and (n.= +3 (a;size valueG))
+                            (let [_tag (:! Integer (assume (a;get +0 valueG)))
+                                  _last? (a;get +1 valueG)
+                                  _value (:! Top (assume (a;get +2 valueG)))]
+                              (and (n.= tag (|> _tag host;i2l int-to-nat))
+                                   (case _last?
+                                     (#;Some _last?')
+                                     (and last? (T/= "" (:! Text _last?')))
+
+                                     #;None
+                                     (not last?))
+                                   (corresponds? [member _value])))))
+
+                     _
+                     false))))
