@@ -1,0 +1,138 @@
+(;module:
+  lux
+  (lux (data [text]
+             text/format
+             (coll [list "L/" Functor<List>])))
+  ["$" ..])
+
+## Types
+(do-template [<name> <primitive>]
+  [(def: #export <name> $;Type (#$;Primitive <primitive>))]
+
+  [boolean #$;Boolean]
+  [byte    #$;Byte]
+  [short   #$;Short]
+  [int     #$;Int]
+  [long    #$;Long]
+  [float   #$;Float]
+  [double  #$;Double]
+  [char    #$;Char]
+  )
+
+(def: #export (class name params)
+  (-> Text (List $;Generic) $;Type)
+  (#$;Generic (#$;Class name params)))
+
+(def: #export (var name)
+  (-> Text $;Type)
+  (#$;Generic (#$;Var name)))
+
+(def: #export (wildcard bound)
+  (-> (Maybe [$;Bound $;Generic]) $;Type)
+  (#$;Generic (#$;Wildcard bound)))
+
+(def: #export (array depth elemT)
+  (-> Nat $;Type $;Type)
+  (case depth
+    +0 elemT
+    _ (#$;Array (array (n.dec depth) elemT))))
+
+(def: #export (binary-name class)
+  (-> Text Text)
+  (text;replace-all "." "/" class))
+
+(def: #export (descriptor type)
+  (-> $;Type Text)
+  (case type
+    (#$;Primitive prim)
+    (case prim
+      #$;Boolean "Z"
+      #$;Byte    "B"
+      #$;Short   "S"
+      #$;Int     "I"
+      #$;Long    "J"
+      #$;Float   "F"
+      #$;Double  "D"
+      #$;Char    "C")
+
+    (#$;Array sub)
+    (format "[" (descriptor sub))
+
+    (#$;Generic generic)
+    (case generic
+      (#$;Class class params)
+      (format "L" (binary-name class) ";")
+
+      (^or (#$;Var name) (#$;Wildcard ?bound))
+      (descriptor (#$;Generic (#$;Class "java.lang.Object" (list)))))
+    ))
+
+(def: #export (signature type)
+  (-> $;Type Text)
+  (case type
+    (#$;Primitive prim)
+    (case prim
+      #$;Boolean "Z"
+      #$;Byte    "B"
+      #$;Short   "S"
+      #$;Int     "I"
+      #$;Long    "J"
+      #$;Float   "F"
+      #$;Double  "D"
+      #$;Char    "C")
+
+    (#$;Array sub)
+    (format "[" (signature sub))
+
+    (#$;Generic generic)
+    (case generic
+      (#$;Class class params)
+      (let [=params (if (list;empty? params)
+                      ""
+                      (format "<"
+                              (|> params
+                                  (L/map (|>. #$;Generic signature))
+                                  (text;join-with ""))
+                              ">"))]
+        (format "L" (binary-name class) =params ";"))
+
+      (#$;Var name)
+      (format "T" name ";")
+
+      (#$;Wildcard #;None)
+      "*"
+
+      (^template [<tag> <prefix>]
+        (#$;Wildcard (#;Some [<tag> bound]))
+        (format <prefix> (signature (#$;Generic bound))))
+      ([#$;Upper "+"]
+       [#$;Lower "-"]))
+    ))
+
+## Methods
+(def: #export (method args return exceptions)
+  (-> (List $;Type) (Maybe $;Type) (List $;Generic) $;Method)
+  {#$;args args #$;return return #$;exceptions exceptions})
+
+(def: #export (method-descriptor method)
+  (-> $;Method Text)
+  (format "(" (text;join-with "" (L/map descriptor (get@ #$;args method))) ")"
+          (case (get@ #$;return method)
+            #;None
+            "V"
+
+            (#;Some return)
+            (descriptor return))))
+
+(def: #export (method-signature method)
+  (-> $;Method Text)
+  (format "(" (|> (get@ #$;args method) (L/map signature) (text;join-with "")) ")"
+          (case (get@ #$;return method)
+            #;None
+            "V"
+
+            (#;Some return)
+            (signature return))
+          (|> (get@ #$;exceptions method)
+              (L/map (|>. #$;Generic signature (format "^")))
+              (text;join-with ""))))

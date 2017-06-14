@@ -10,7 +10,12 @@
               ["ls" synthesis])
         ["&;" analyser]
         ["&;" synthesizer]
-        (generator ["&;" common])))
+        (generator ["&;" common]
+                   (host ["$" jvm]
+                         (jvm ["$t" type]
+                              ["$d" def]
+                              ["$i" inst])))
+        ))
 
 (jvm-import java.lang.Object)
 (jvm-import java.lang.String)
@@ -51,39 +56,33 @@
   (visitMethod [int String String String (Array String)] MethodVisitor)
   (toByteArray [] Byte-Array))
 
-(def: (make-field flags name descriptor writer)
-  (-> &common;Flags Text &common;Descriptor ClassWriter FieldVisitor)
-  (do-to (ClassWriter.visitField [flags name descriptor (host;null) (host;null)] writer)
-    (FieldVisitor.visitEnd [])))
-
-(def: eval-field-name Text "_value")
-(def: eval-field-desc Text "Ljava/lang/Object;")
+(def: eval-field Text "_value")
+(def: $Object $;Type ($t;class "java.lang.Object" (list)))
 
 (def: #export (eval generator)
-  (-> (Lux Unit) (Lux Top))
+  (-> (Lux $;Inst) (Lux Top))
   (do Monad<Lux>
     [class-name (:: @ map %code (macro;gensym "eval"))
-     #let [writer (do-to (ClassWriter.new ClassWriter.COMPUTE_MAXS)
-                    (ClassWriter.visit [&common;bytecode-version
-                                        (i.+ Opcodes.ACC_PUBLIC Opcodes.ACC_SUPER)
-                                        class-name
-                                        (host;null)
-                                        "java/lang/Object"
-                                        (host;null)]))
-           value-field (make-field ($_ i.+ Opcodes.ACC_PUBLIC Opcodes.ACC_STATIC Opcodes.ACC_FINAL)
-                                   eval-field-name eval-field-desc
-                                   writer)
-           visitor (do-to (ClassWriter.visitMethod [Opcodes.ACC_STATIC "<clinit>" "()V" (host;null) (host;null)] writer)
-                     (MethodVisitor.visitCode []))]
-     _ (&common;with-visitor visitor generator)
-     #let [_ (do-to visitor
-               (MethodVisitor.visitFieldInsn [Opcodes.PUTSTATIC class-name eval-field-name eval-field-desc])
-               (MethodVisitor.visitInsn [Opcodes.RETURN])
-               (MethodVisitor.visitMaxs [0 0])
-               (MethodVisitor.visitEnd []))
+     valueI generator
+     #let [writer (|> (do-to (ClassWriter.new ClassWriter.COMPUTE_MAXS)
+                        (ClassWriter.visit [&common;bytecode-version
+                                            (i.+ Opcodes.ACC_PUBLIC Opcodes.ACC_SUPER)
+                                            class-name
+                                            (host;null)
+                                            "java/lang/Object"
+                                            (host;null)]))
+                      ($d;field #$;Public {#$;staticF true #$;finalF true #$;transientF false #$;volatileF false}
+                                eval-field $Object)
+                      ($d;method #$;Public
+                                 {#$;staticM true #$;finalM false #$;synchronizedM false}
+                                 "<clinit>"
+                                 ($t;method (list) #;None (list))
+                                 (|>. valueI
+                                      ($i;PUTSTATIC class-name eval-field $Object)
+                                      $i;RETURN)))
            bytecode (ClassWriter.toByteArray [] (do-to writer (ClassWriter.visitEnd [])))]
      _ (&common;store-class class-name bytecode)
      class (&common;load-class class-name)]
     (wrap (|> class
-              (Class.getField [eval-field-name])
+              (Class.getField [eval-field])
               (Field.get (host;null))))))

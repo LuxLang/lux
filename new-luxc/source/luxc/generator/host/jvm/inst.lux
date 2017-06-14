@@ -1,0 +1,195 @@
+(;module:
+  lux
+  (lux [host #+ jvm-import do-to])
+  ["$" ..]
+  (.. ["$t" type]))
+
+## [Host]
+(jvm-import #long java.lang.Object)
+(jvm-import #long java.lang.String)
+
+(jvm-import org.objectweb.asm.Opcodes
+  (#static T_BOOLEAN int)
+  (#static T_CHAR int)
+  (#static T_FLOAT int)
+  (#static T_DOUBLE int)
+  (#static T_BYTE int)
+  (#static T_SHORT int)
+  (#static T_INT int)
+  (#static T_LONG int)
+
+  (#static DUP int)
+  (#static RETURN int)
+  (#static ARETURN int)
+  (#static ACONST_NULL int)
+  (#static ILOAD int)
+  (#static ALOAD int)
+  (#static NEWARRAY int)
+  (#static ANEWARRAY int)
+  (#static AASTORE int)
+  (#static PUTSTATIC int)
+  (#static GETFIELD int)
+  (#static INVOKESTATIC int)
+  (#static INVOKEVIRTUAL int)
+  (#static INVOKESPECIAL int)
+  (#static CHECKCAST int))
+
+(jvm-import org.objectweb.asm.FieldVisitor
+  (visitEnd [] void))
+
+(jvm-import org.objectweb.asm.MethodVisitor
+  (visitCode [] void)
+  (visitMaxs [int int] void)
+  (visitEnd [] void)
+  (visitInsn [int] void)
+  (visitLdcInsn [Object] void)
+  (visitFieldInsn [int String String String] void)
+  (visitTypeInsn [int String] void)
+  (visitVarInsn [int int] void)
+  (visitIntInsn [int int] void)
+  (visitMethodInsn [int String String String boolean] void))
+
+## [Insts]
+(do-template [<name> <type> <prepare>]
+  [(def: #export (<name> value)
+     (-> <type> $;Inst)
+     (function [visitor]
+       (do-to visitor
+         (MethodVisitor.visitLdcInsn [(<prepare> value)]))))]
+
+  [boolean Bool id]
+  [int     Int  host;l2i]
+  [long    Int  id]
+  [double  Real id]
+  [char    Char id]
+  [string  Text id]
+  )
+
+(do-template [<name> <inst>]
+  [(def: #export <name>
+     $;Inst
+     (function [visitor]
+       (do-to visitor
+         (MethodVisitor.visitInsn [<inst>]))))]
+
+  [RETURN  Opcodes.RETURN]
+  [ARETURN Opcodes.ARETURN]
+  [NULL    Opcodes.ACONST_NULL]
+  [DUP     Opcodes.DUP]
+  [AASTORE Opcodes.AASTORE]
+  )
+
+(do-template [<name> <inst>]
+  [(def: #export (<name> register)
+     (-> Nat $;Inst)
+     (function [visitor]
+       (do-to visitor
+         (MethodVisitor.visitVarInsn [<inst> (nat-to-int register)]))))]
+
+  [ALOAD Opcodes.ALOAD]
+  [ILOAD Opcodes.ILOAD]
+  )
+
+(do-template [<name> <inst>]
+  [(def: #export (<name> class field type)
+     (-> Text Text $;Type $;Inst)
+     (function [visitor]
+       (do-to visitor
+         (MethodVisitor.visitFieldInsn [<inst> ($t;binary-name class) field ($t;descriptor type)]))))]
+
+  [PUTSTATIC Opcodes.PUTSTATIC]
+  )
+
+(do-template [<name> <inst>]
+  [(def: #export (<name> class)
+     (-> Text $;Inst)
+     (function [visitor]
+       (do-to visitor
+         (MethodVisitor.visitTypeInsn [<inst> ($t;binary-name class)]))))]
+
+  [ANEWARRAY Opcodes.ANEWARRAY]
+  [CHECKCAST Opcodes.CHECKCAST]
+  )
+
+(def: #export (NEWARRAY type)
+  (-> $;Primitive $;Inst)
+  (function [visitor]
+    (do-to visitor
+      (MethodVisitor.visitIntInsn [Opcodes.NEWARRAY (case type
+                                                      #$;Boolean Opcodes.T_BOOLEAN
+                                                      #$;Byte    Opcodes.T_SHORT
+                                                      #$;Short   Opcodes.T_SHORT
+                                                      #$;Int     Opcodes.T_INT
+                                                      #$;Long    Opcodes.T_LONG
+                                                      #$;Float   Opcodes.T_FLOAT
+                                                      #$;Double  Opcodes.T_DOUBLE
+                                                      #$;Char    Opcodes.T_CHAR)]))))
+
+(do-template [<name> <inst>]
+  [(def: #export (<name> class method-name method-signature interface?)
+     (-> Text Text $;Method Bool $;Inst)
+     (function [visitor]
+       (do-to visitor
+         (MethodVisitor.visitMethodInsn [<inst> ($t;binary-name class) method-name ($t;method-descriptor method-signature) interface?]))))]
+
+  [INVOKESTATIC  Opcodes.INVOKESTATIC]
+  [INVOKEVIRTUAL Opcodes.INVOKEVIRTUAL]
+  )
+
+(def: #export (array type size)
+  (-> $;Type Nat $;Inst)
+  (case type
+    (#$;Primitive prim)
+    (|>. (int (nat-to-int size))
+         (NEWARRAY prim))
+
+    (#$;Generic generic)
+    (let [elem-class (case generic
+                       (#$;Class class params)
+                       ($t;binary-name class)
+
+                       _
+                       ($t;binary-name "java.lang.Object"))]
+      (|>. (int (nat-to-int size))
+           (ANEWARRAY elem-class)))
+
+    _
+    (|>. (int (nat-to-int size))
+         (ANEWARRAY ($t;descriptor type)))))
+
+(do-template [<wrap> <unwrap> <class> <unwrap-method> <prim>]
+  [(def: #export <wrap>
+     $;Inst
+     (|>. (INVOKESTATIC <class> "valueOf"
+                        ($t;method (list <prim>)
+                                   (#;Some ($t;class <class> (list)))
+                                   (list))
+                        false)))
+   (def: #export <unwrap>
+     $;Inst
+     (|>. (CHECKCAST <class>)
+          (INVOKEVIRTUAL <class> <unwrap-method>
+                         ($t;method (list) (#;Some <prim>) (list))
+                         false)))]
+
+  [wrap-boolean unwrap-boolean "java.lang.Boolean"   "booleanValue" $t;boolean]
+  [wrap-byte    unwrap-byte    "java.lang.Byte"      "byteValue"    $t;byte]
+  [wrap-short   unwrap-short   "java.lang.Short"     "shortValue"   $t;short]
+  [wrap-int     unwrap-int     "java.lang.Integer"   "intValue"     $t;int]
+  [wrap-long    unwrap-long    "java.lang.Long"      "longValue"    $t;long]
+  [wrap-float   unwrap-float   "java.lang.Float"     "floatValue"   $t;float]
+  [wrap-double  unwrap-double  "java.lang.Double"    "doubleValue"  $t;double]
+  [wrap-char    unwrap-char    "java.lang.Character" "charValue"    $t;char]
+  )
+
+(def: #export (fuse insts)
+  (-> (List $;Inst) $;Inst)
+  (case insts
+    #;Nil
+    id
+
+    (#;Cons singleton #;Nil)
+    singleton
+
+    (#;Cons head tail)
+    (. head (fuse tail))))
