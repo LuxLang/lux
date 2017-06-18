@@ -3,7 +3,7 @@
                   The goal is to be able to reuse common syntax in macro definitions across libraries."}
   lux
   (lux (control monad)
-       (data (coll [list])
+       (data (coll [list "L/" Functor<List>])
              text/format
              [ident "Ident/" Eq<Ident>]
              [product])
@@ -12,21 +12,21 @@
               ["s" syntax #+ syntax: Syntax])))
 
 ## Exports
-(type: #export Export-Level
+(type: #export Export
   #Exported
   #Hidden)
 
-(def: #export export-level
+(def: #export export
   {#;doc (doc "A parser for export levels."
               "Such as:"
               #export
               #hidden)}
-  (Syntax (Maybe Export-Level))
-  (s;opt (s;alt (s;this! (' #export))
-                (s;this! (' #hidden)))))
+  (Syntax (Maybe Export))
+  (s;opt (s;alt (s;this (' #export))
+                (s;this (' #hidden)))))
 
-(def: #export (gen-export-level ?el)
-  (-> (Maybe Export-Level) (List Code))
+(def: #export (gen-export ?el)
+  (-> (Maybe Export) (List Code))
   (case ?el
     #;None
     (list)
@@ -38,61 +38,61 @@
     (list (' #hidden))))
 
 ## Declarations
-(type: #export Decl
-  {#decl-name Text
-   #decl-args (List Text)})
+(type: #export Declaration
+  {#declaration-name Text
+   #declaration-args (List Text)})
 
-(def: #export decl
+(def: #export declaration
   {#;doc (doc "A parser for declaration syntax."
               "Such as:"
               quux
               (foo bar baz))}
-  (Syntax Decl)
+  (Syntax Declaration)
   (s;either (s;seq s;local-symbol
                    (:: s;Monad<Syntax> wrap (list)))
             (s;form (s;seq s;local-symbol
                            (s;many s;local-symbol)))))
 
 ## Definitions
-(type: #export Def-Syntax
-  {#def-name Text
-   #def-type (Maybe Code)
-   #def-value Code
-   #def-anns (List [Ident Code])
-   #def-args (List Text)
+(type: #export Definition
+  {#definition-name Text
+   #definition-type (Maybe Code)
+   #definition-value Code
+   #definition-anns (List [Ident Code])
+   #definition-args (List Text)
    })
 
 (def: check^
   (Syntax [(Maybe Code) Code])
   (s;either (s;form (do s;Monad<Syntax>
-                      [_ (s;this! (' lux;_lux_:))
+                      [_ (s;this (' lux;_lux_:))
                        type s;any
                        value s;any]
                       (wrap [(#;Some type) value])))
             (s;seq (:: s;Monad<Syntax> wrap #;None)
                    s;any)))
 
-(def: _def-anns-tag^
+(def: _definition-anns-tag^
   (Syntax Ident)
   (s;tuple (s;seq s;text s;text)))
 
-(def: (_def-anns^ _)
+(def: (_definition-anns^ _)
   (-> Top (Syntax (List [Ident Code])))
-  (s;alt (s;this! (' #lux;Nil))
+  (s;alt (s;this (' #lux;Nil))
          (s;form (do s;Monad<Syntax>
-                   [_ (s;this! (' #lux;Cons))
-                    [head tail] (s;seq (s;tuple (s;seq _def-anns-tag^ s;any))
-                                       (_def-anns^ []))]
+                   [_ (s;this (' #lux;Cons))
+                    [head tail] (s;seq (s;tuple (s;seq _definition-anns-tag^ s;any))
+                                       (_definition-anns^ []))]
                    (wrap [head tail])))
          ))
 
 (def: (flat-list^ _)
   (-> Top (Syntax (List Code)))
   (s;either (do s;Monad<Syntax>
-              [_ (s;this! (' #lux;Nil))]
+              [_ (s;this (' #lux;Nil))]
               (wrap (list)))
             (s;form (do s;Monad<Syntax>
-                      [_ (s;this! (' #lux;Cons))
+                      [_ (s;this (' #lux;Cons))
                        [head tail] (s;tuple (s;seq s;any s;any))
                        tail (s;local (list tail) (flat-list^ []))]
                       (wrap (#;Cons head tail))))))
@@ -100,16 +100,16 @@
 (def: list-meta^
   (Syntax (List Code))
   (s;form (do s;Monad<Syntax>
-            [_ (s;this! (' #lux;ListA))]
+            [_ (s;this (' #lux;ListA))]
             (flat-list^ []))))
 
 (def: text-meta^
   (Syntax Text)
   (s;form (do s;Monad<Syntax>
-            [_ (s;this! (' #lux;TextA))]
+            [_ (s;this (' #lux;TextA))]
             s;text)))
 
-(def: (find-def-args meta-data)
+(def: (find-definition-args meta-data)
   (-> (List [Ident Code]) (List Text))
   (default (list)
     (case (list;find (|>. product;left (Ident/= ["lux" "func-args"])) meta-data)
@@ -124,53 +124,64 @@
       #;None)
     ))
 
-(def: #export (def compiler)
+(def: #export (definition compiler)
   {#;doc "A parser that first macro-expands and then analyses the input Code, to ensure it's a definition."}
-  (-> Compiler (Syntax Def-Syntax))
+  (-> Compiler (Syntax Definition))
   (do s;Monad<Syntax>
-    [def-raw s;any
-     me-def-raw (s;on compiler
-                      (macro;macro-expand-all def-raw))]
-    (s;local me-def-raw
+    [definition-raw s;any
+     me-definition-raw (s;on compiler
+                             (macro;macro-expand-all definition-raw))]
+    (s;local me-definition-raw
              (s;form (do @
-                       [_ (s;this! (' lux;_lux_def))
-                        def-name s;local-symbol
-                        [?def-type def-value] check^
-                        def-anns s;any
-                        def-anns (s;local (list def-anns)
-                                          (_def-anns^ []))
-                        #let [def-args (find-def-args def-anns)]]
-                       (wrap {#def-name def-name
-                              #def-type ?def-type
-                              #def-anns def-anns
-                              #def-value def-value
-                              #def-args def-args}))))))
+                       [_ (s;this (' lux;_lux_def))
+                        definition-name s;local-symbol
+                        [?definition-type definition-value] check^
+                        definition-anns s;any
+                        definition-anns (s;local (list definition-anns)
+                                                 (_definition-anns^ []))
+                        #let [definition-args (find-definition-args definition-anns)]]
+                       (wrap {#definition-name definition-name
+                              #definition-type ?definition-type
+                              #definition-anns definition-anns
+                              #definition-value definition-value
+                              #definition-args definition-args}))))))
 
-(def: #export (typed-def compiler)
+(def: #export (typed-definition compiler)
   {#;doc "A parser for definitions that ensures the input syntax is typed."}
-  (-> Compiler (Syntax Def-Syntax))
+  (-> Compiler (Syntax Definition))
   (do s;Monad<Syntax>
-    [_def (def compiler)
-     _ (case (get@ #def-type _def)
+    [_definition (definition compiler)
+     _ (case (get@ #definition-type _definition)
          (#;Some _)
          (wrap [])
 
          #;None
-         (s;fail "Typed def must have a type!")
+         (s;fail "Typed definition must have a type!")
          )]
-    (wrap _def)))
+    (wrap _definition)))
 
-(def: #export def-anns
+(type: #export Annotations
+  (List [Ident Code]))
+
+(def: #export empty-annotations
+  Annotations
+  (list))
+
+(def: #export annotations
   {#;doc "Parser for the common annotations syntax used by def: statements."}
-  (Syntax (List [Ident Code]))
+  (Syntax Annotations)
   (s;record (s;some (s;seq s;tag s;any))))
 
-(def: #export typed-arg
+(def: #export (gen-annotations annotations)
+  (-> Annotations Code)
+  (|> annotations (L/map (product;both code;tag id)) code;record))
+
+(def: #export typed-input
   {#;doc "Parser for the common typed-argument syntax used by many macros."}
   (Syntax [Text Code])
   (s;tuple (s;seq s;local-symbol s;any)))
 
-(def: #export type-params
+(def: #export type-variables
   {#;doc "Parser for the common type var/param used by many macros."}
   (Syntax (List Text))
   (s;tuple (s;some s;local-symbol)))
