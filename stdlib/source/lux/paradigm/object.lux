@@ -1,0 +1,178 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data text/format
+             [product]
+             (coll [list "L/" Functor<List> Monoid<List>]))
+       [macro #+ Monad<Lux>]
+       (macro [code]
+              ["s" syntax #+ syntax: "s/" Monad<Syntax>]
+              (syntax [common]))))
+
+(type: #export (Class interface)
+  (Ex [state] [(interface state) state]))
+
+(type: Declaration
+  [Text (List Text)])
+
+(type: Reference
+  [Ident (List Code)])
+
+(type: Alias Text)
+
+(type: Method
+  {#type-vars (List Text)
+   #method Text
+   #inputs (List Code)
+   #output Code})
+
+(def: default-alias Alias "@")
+
+(def: declaration^
+  (s;Syntax Declaration)
+  (s;either (s;form (s;seq s;local-symbol
+                           (s;some s;local-symbol)))
+            (s;seq s;local-symbol
+                   (s/wrap (list)))))
+
+(def: reference^
+  (s;Syntax Reference)
+  (s;either (s;form (s;seq s;symbol
+                           (s;some s;any)))
+            (s;seq s;symbol
+                   (s/wrap (list)))))
+
+(def: alias^
+  (s;Syntax Alias)
+  (|> s;local-symbol
+      (s;after (s;this (' #as)))))
+
+(def: method^
+  (s;Syntax Method)
+  (s;form ($_ s;seq
+              (s;either (s;tuple (s;some s;local-symbol))
+                        (s/wrap (list)))
+              s;local-symbol
+              (s;tuple (s;some s;any))
+              s;any)))
+
+(def: (interface-name raw)
+  (-> Text Text)
+  (format raw "{Interface}"))
+
+(def: (state-name raw)
+  (-> Text Text)
+  (format raw "{State}"))
+
+(def: identifier (-> Text Code) (|>. [""] code;symbol))
+
+(def: (type-declaration name parameters)
+  (-> Text (List Text) Code)
+  (if (list;empty? parameters)
+    (identifier name)
+    (` ((~ (identifier name)) (~@ (L/map identifier parameters))))))
+
+(def: (method-declaration g!class (^open))
+  (-> Code Method Code)
+  (let [g!type-vars (L/map identifier type-vars)]
+    (` (: (All [(~@ g!type-vars)]
+            (-> (~@ inputs) (~ g!class) (~ output)))
+          (~ (identifier method))))))
+
+(def: (method-definition export [interface parameters] g!class g!impl (^open))
+  (-> (Maybe common;Export) Declaration Code Code Method Code)
+  (let [g!object (code;symbol ["" "_object"])
+        g!behavior (code;symbol ["" "_behavior"])
+        g!state (code;symbol ["" "_state"])
+        args (L/map (|>. product;left nat-to-int %i (format "_") identifier)
+                    (list;enumerate inputs))]
+    (` (def: (~@ (common;gen-export export)) ((~ (identifier method)) (~@ args) (~ g!object))
+         (All [(~@ (L/map identifier parameters))
+               (~ g!impl)
+               (~@ (L/map identifier type-vars))]
+           (-> (~@ inputs) (~ g!class) (~ output)))
+         (let [[(~ g!behavior) (~ g!state)] (~ g!object)]
+           (:: (~ g!behavior) (~ (identifier method)) (~@ args) (~ g!object)))))))
+
+(syntax: #export (interface: [export common;export]
+                   [(^@ decl [interface parameters]) declaration^]
+                   [alias (s;default default-alias alias^)]
+                   [annotations (s;default common;empty-annotations common;annotations)]
+                   [methods (s;many method^)])
+  (macro;with-gensyms [g!state]
+    (do @
+      [module macro;current-module-name
+       #let [g!behavior (` ((~ (identifier (interface-name interface))) (~@ (L/map identifier parameters))))
+             g!class (` (;;Class (~ g!behavior) (~ g!state)))
+             interface-declaration (` ((~ (identifier (interface-name interface))) (~@ (L/map identifier parameters)) (~ g!state)))
+             de-alias (code;replace (code;symbol ["" alias]) g!class)
+             methods (L/map (|>. (update@ #inputs (L/map de-alias))
+                                 (update@ #output de-alias))
+                            methods)]]
+      (wrap (list& (` (sig: (~@ (common;gen-export export)) (~ interface-declaration)
+                        (~@ (L/map (method-declaration g!class) methods))))
+                   (` (type: (~@ (common;gen-export export)) (~ (type-declaration interface parameters))
+                        (~ (common;gen-annotations (|> annotations
+                                                       (#;Cons [(ident-for #;;interface)
+                                                                (code;tag [module (interface-name interface)])]))))
+                        (;;Class (~ (type-declaration (interface-name interface) parameters)))))
+                   (L/map (method-definition export decl g!class g!state) methods))))))
+
+(syntax: #export (class: [export common;export]
+                   [[instance parameters] declaration^]
+                   [[class mappings] reference^]
+                   [state-type (s;alt (s;record (s;many (s;seq s;any s;any)))
+                                      s;any)]
+                   [impls (s;many s;any)])
+  (macro;with-gensyms [g!init]
+    (do @
+      [class (macro;normalize class)
+       [_ annotations _] (macro;find-def class)]
+      (case (macro;get-ident-ann (ident-for #;;interface) annotations)
+        #;None
+        (macro;fail (format (%ident class) " is not a class."))
+
+        (#;Some interface)
+        (let [[must-define-state? state-def] (case state-type
+                                               (#;Left members)
+                                               [true (code;record members)]
+                                               
+                                               (#;Right type)
+                                               [false type])
+              g!state (if must-define-state?
+                        (type-declaration (state-name instance) parameters)
+                        state-def)
+              g!new (|> instance (format "new-") identifier)
+              g!instance (identifier instance)
+              g!parameters (L/map identifier parameters)
+              instance-declaration (type-declaration instance parameters)]
+          (wrap (L/append (if must-define-state?
+                            (list (` (type: (~@ (common;gen-export export))
+                                       (~ g!state)
+                                       (~ state-def))))
+                            (list))
+                          (list (` (struct: (~@ (common;gen-export export)) (~ g!instance)
+                                     (All [(~@ g!parameters)]
+                                       ((~ (code;symbol interface)) (~@ mappings) (~ g!state)))
+                                     (~@ impls)))
+                                (` (def: (~@ (common;gen-export export)) ((~ g!new) (~ g!init))
+                                     (All [(~@ g!parameters)]
+                                       (-> (~ g!state)
+                                           ((~ (code;symbol class)) (~@ mappings) (~ g!state))))
+                                     [(~ g!instance) (~ g!init)]))))))
+        ))))
+
+(def: #export (get! object)
+  (All [I s] (-> (Class I s) s))
+  (let [[behavior state] object]
+    state))
+
+(def: #export (set! state object)
+  (All [I s] (-> s (Class I s) (Class I s)))
+  (let [[behavior _] object]
+    [behavior state]))
+
+(def: #export (update! change object)
+  (All [I s] (-> (-> s s) (Class I s) (Class I s)))
+  (let [[behavior state] object]
+    [behavior (change state)]))
