@@ -29,43 +29,49 @@
   )
 
 ## [Types]
+(type: Counters [Nat Nat])
+
 (type: #export Test
   {#;doc "Tests are asynchronous process which may fail."}
-  (Promise (E;Result Unit)))
+  (Promise [Counters Text]))
 
 ## [Values]
-(def: #export (fail message)
+(def: success Counters [+1 +0])
+(def: failure Counters [+0 +1])
+(def: start Counters [+0 +0])
+
+(def: (add-counters [s f] [ts tf])
+  (-> Counters Counters Counters)
+  [(n.+ s ts) (n.+ f tf)])
+
+(def: (fail message)
   (All [a] (-> Text Test))
-  (:: Monad<Promise> wrap (#E;Error message)))
+  (:: Monad<Promise> wrap [failure (format "  Error: " (%t message))]))
 
 (def: #export (test message condition)
   {#;doc "Check that a condition is true, and fail with the given message otherwise."}
   (-> Text Bool Test)
   (if condition
-    (:: Monad<Promise> wrap (#E;Success []))
-    (fail message)))
+    (:: Monad<Promise> wrap [success (format "Success: " (%t message))])
+    (:: Monad<Promise> wrap [failure (format "  Error: " (%t message))])))
 
 (def: #hidden (run' tests)
-  (-> (List [Text (IO Test) Text]) (Promise Nat))
+  (-> (List [Text (IO Test) Text]) (Promise Counters))
   (do Monad<Promise>
-    [#let [test-runs (L/map (: (-> [Text (IO Test) Text] (Promise Nat))
-                               (function [[module test description]]
-                                 (do @
-                                   [#let [pre (io;run now)]
-                                    outcome (io;run test)
-                                    #let [post (io;run now)
-                                          description+ (:: text;Codec<Text,Text> encode description)]]
-                                   (case outcome
-                                     (#E;Error error)
-                                     (exec (log! (format "Error: " description+ " @ " module "\n" error "\n"))
-                                       (wrap +0))
-                                     
-                                     _
-                                     (exec (log! (format "Success: " description+ " @ " module " in " (%i (i.- pre post)) "ms"))
-                                       (wrap +1))))))
-                            tests)]
-     test-runs (seqM @ test-runs)]
-    (wrap (L/fold n.+ +0 test-runs))))
+    [test-runs (|> tests
+                   (L/map (: (-> [Text (IO Test) Text] (Promise Counters))
+                             (function [[module test description]]
+                               (do @
+                                 [#let [pre (io;run now)]
+                                  [counters documentation] (io;run test)
+                                  #let [post (io;run now)
+                                        _ (log! (format "Context: " (%t description)
+                                                        " @ " module
+                                                        " in " (%i (i.- pre post)) "ms"
+                                                        "\n" documentation "\n"))]]
+                                 (wrap counters)))))
+                   (seqM @))]
+    (wrap (L/fold add-counters start test-runs))))
 
 (def: pcg-32-magic-inc Nat +12345)
 
@@ -73,8 +79,12 @@
   {#;doc "The seed value used for random testing (if that feature is used)."}
   Nat)
 
+(def: failed?
+  (-> Counters Bool)
+  (|>. product;right (n.> +0)))
+
 (def: (try seed random-test)
-  (-> Seed (R;Random Test) (Promise (E;Result Seed)))
+  (-> Seed (R;Random Test) (Promise [Seed [Counters Text]]))
   (let [[prng [new-seed test]] (R;run (R;pcg-32 [pcg-32-magic-inc seed])
                                       (do R;Monad<Random>
                                         [test random-test
@@ -82,28 +92,23 @@
                                         (wrap [next-seed test])))]
     (do Monad<Promise>
       [result test]
-      (case result
-        (#E;Error error)
-        (wrap (#E;Error error))
-
-        (#E;Success _)
-        (wrap (#E;Success new-seed))))))
+      (wrap [new-seed result]))))
 
 (def: (repeat' seed times random-test)
   (-> Seed Nat (R;Random Test) Test)
   (if (n.= +0 times)
     (fail "Cannot try a test 0 times.")
     (do Monad<Promise>
-      [output (try seed random-test)]
-      (case output
-        (#E;Error error)
-        (fail (format "Test failed with this seed: " (%n seed) "\n" error))
+      [[seed' [counters documentation]] (try seed random-test)]
+      (cond (failed? counters)
+            (wrap [counters
+                   (format "Context failed with this seed: " (%n seed) "\n" documentation)])
 
-        (#E;Success seed')
-        (if (n.= +1 times)
-          (wrap (#E;Success []))
-          (repeat' seed' (n.dec times) random-test))
-        ))))
+            (n.= +1 times)
+            (wrap [counters documentation])
+
+            ## else
+            (repeat' seed' (n.dec times) random-test)))))
 
 (def: #hidden (repeat ?seed times random-test)
   (-> (Maybe Nat) Nat (R;Random Test) Test)
@@ -267,7 +272,7 @@
 (syntax: #export (run)
   {#;doc (doc "Runs all the tests defined on the current module, and in all imported modules."
               (run))}
-  (with-gensyms [g!_ g!accum]
+  (with-gensyms [g!successes g!failures g!total-successes g!total-failures]
     (do @
       [current-module macro;current-module-name
        modules (macro;imported-modules current-module)
@@ -283,22 +288,24 @@
              groups (list;split-all promise;concurrency-level tests+)]]
       (wrap (list (` (: (IO Unit)
                         (io (exec (do Monad<Promise>
-                                    [(~' #let) [(~ g!accum) +0]
+                                    [(~' #let) [(~ g!total-successes) +0
+                                                (~ g!total-failures) +0]
                                      (~@ (L/join (L/map (function [group]
-                                                          (list g!_ (` (run' (list (~@ group))))
-                                                                (' #let) (` [(~ g!accum) (n.+ (~ g!_) (~ g!accum))])))
-                                                        groups)))
-                                     (~' #let) [(~ g!_) (n.- (~ g!accum) (~ (code;nat num-tests)))]]
+                                                          (list (` [(~ g!successes) (~ g!failures)]) (` (run' (list (~@ group))))
+                                                                (' #let) (` [(~ g!total-successes) (n.+ (~ g!successes) (~ g!total-successes))
+                                                                             (~ g!total-failures) (n.+ (~ g!failures) (~ g!total-failures))])))
+                                                        groups)))]
                                     (exec (log! ($_ _appendT_
                                                     "Test-suite finished."
                                                     "\n"
-                                                    (_%i_ (nat-to-int (~ g!accum)))
+                                                    (_%i_ (nat-to-int (~ g!total-successes)))
                                                     " out of "
-                                                    (~ (|> num-tests nat-to-int _%i_ code;text))
+                                                    (_%i_ (nat-to-int (n.+ (~ g!total-failures)
+                                                                           (~ g!total-successes))))
                                                     " tests passed."
                                                     "\n"
-                                                    (_%i_ (nat-to-int (~ g!_))) " tests failed."))
-                                      (promise;future (if (n.> +0 (~ g!_))
+                                                    (_%i_ (nat-to-int (~ g!total-failures))) " tests failed."))
+                                      (promise;future (if (n.> +0 (~ g!total-failures))
                                                         ;;die
                                                         ;;exit))))
                               [])))))))))
@@ -307,25 +314,7 @@
   {#;doc "Sequencing combinator."}
   (-> Test Test Test)
   (do Monad<Promise>
-    [=left left
-     =right right]
-    (case [=left =right]
-      (^or [(#E;Error error) _]
-           [_ (#E;Error error)])
-      (wrap (#E;Error error))
-
-      _
-      (wrap (#E;Success [])))))
-
-(def: #export (alt left right)
-  {#;doc "Alternative combinator."}
-  (-> Test Test Test)
-  (do Monad<Promise>
-    [=left left
-     =right right]
-    (case =left
-      (#E;Success _)
-      (wrap =left)
-
-      _
-      (wrap =right))))
+    [[l-counter l-documentation] left
+     [r-counter r-documentation] right]
+    (wrap [(add-counters l-counter r-counter)
+           (format l-documentation "\n" r-documentation)])))
