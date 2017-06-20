@@ -10,16 +10,16 @@
        (data [bool]
              [text "Text/" Eq<Text> Monoid<Text>]
              text/format
-             (text [lexer #+ Lexer Monad<Lexer>])
+             (text ["l" lexer #+ Lexer Monad<Lexer> "Lexer/" Monad<Lexer>])
              [number "Real/" Codec<Text,Real>]
              maybe
-             [char "Char/" Eq<Char> Codec<Text,Char>]
-             ["R" result #- fail]
+             [char "Char/" Codec<Text,Char>]
+             ["R" result]
              [sum]
              [product]
              (coll [list "" Fold<List> "List/" Monad<List>]
                    [vector #+ Vector vector "Vector/" Monad<Vector>]
-                   [dict #+ Dict]))
+                   ["d" dict]))
        [macro #+ Monad<Lux> with-gensyms]
        (macro [syntax #+ syntax:]
               [code]
@@ -43,18 +43,18 @@
   (#Number  Number)
   (#String  String)
   (#Array   (Vector JSON))
-  (#Object  (Dict String JSON)))
+  (#Object  (d;Dict String JSON)))
 
 (do-template [<name> <type>]
   [(type: #export <name> <type>)]
 
   [Array   (Vector JSON)]
-  [Object  (Dict String JSON)]
+  [Object  (d;Dict String JSON)]
   )
 
 (type: #export (Parser a)
   {#;doc "JSON parsers."}
-  (-> JSON (Result a)))
+  (-> JSON (R;Result a)))
 
 (type: #export (Gen a)
   {#;doc "JSON generators."}
@@ -99,7 +99,7 @@
                           _
                           (macro;fail "Wrong syntax for JSON object.")))
                       pairs)]
-        (wrap (list (` (: JSON (#Object (dict;from-list text;Hash<Text> (list (~@ pairs')))))))))
+        (wrap (list (` (: JSON (#Object (d;from-list text;Hash<Text> (list (~@ pairs')))))))))
       
       _
       (wrap (list token))
@@ -124,7 +124,7 @@
   (-> (-> JSON Text) (-> Object Text))
   (format "{"
           (|> object
-              dict;entries
+              d;entries
               (List/map (function [[key value]] (format (:: text;Codec<Text,Text> encode key) ":" (show-json value))))
               (text;join-with ","))
           "}"))
@@ -150,20 +150,20 @@
 
 (def: #export (fields json)
   {#;doc "Get all the fields in a JSON object."}
-  (-> JSON (Result (List String)))
+  (-> JSON (R;Result (List String)))
   (case json
     (#Object obj)
-    (#R;Success (dict;keys obj))
+    (#R;Success (d;keys obj))
 
     _
     (#R;Error (format "Cannot get the fields of a non-object."))))
 
 (def: #export (get key json)
   {#;doc "A JSON object field getter."}
-  (-> String JSON (Result JSON))
+  (-> String JSON (R;Result JSON))
   (case json
     (#Object obj)
-    (case (dict;get key obj)
+    (case (d;get key obj)
       (#;Some value)
       (#R;Success value)
 
@@ -175,10 +175,10 @@
 
 (def: #export (set key value json)
   {#;doc "A JSON object field setter."}
-  (-> String JSON JSON (Result JSON))
+  (-> String JSON JSON (R;Result JSON))
   (case json
     (#Object obj)
-    (#R;Success (#Object (dict;put key value obj)))
+    (#R;Success (#Object (d;put key value obj)))
 
     _
     (#R;Error (format "Cannot set field " (show-string key) " of a non-object."))))
@@ -186,7 +186,7 @@
 (do-template [<name> <tag> <type> <desc>]
   [(def: #export (<name> key json)
      {#;doc (#;TextA (format "A JSON object field getter for " <desc> "."))}
-     (-> Text JSON (Result <type>))
+     (-> Text JSON (R;Result <type>))
      (case (get key json)
        (#R;Success (<tag> value))
        (#R;Success value)
@@ -228,23 +228,23 @@
 ## Lexers
 (def: space~
   (Lexer Text)
-  (lexer;some' lexer;space))
+  (l;some' l;space))
 
 (def: data-sep
-  (Lexer [Text Char Text])
-  ($_ lexer;seq space~ (lexer;char #",") space~))
+  (Lexer [Text Unit Text])
+  ($_ l;seq space~ (l;this ",") space~))
 
 (def: null~
   (Lexer Null)
   (do Monad<Lexer>
-    [_ (lexer;text "null")]
+    [_ (l;this "null")]
     (wrap [])))
 
 (do-template [<name> <token> <value>]
   [(def: <name>
      (Lexer Boolean)
      (do Monad<Lexer>
-       [_ (lexer;text <token>)]
+       [_ (l;this <token>)]
        (wrap <value>)))]
 
   [t~ "true"  true]
@@ -253,76 +253,65 @@
 
 (def: boolean~
   (Lexer Boolean)
-  (lexer;either t~ f~))
+  (l;either t~ f~))
 
 (def: number~
   (Lexer Number)
   (do Monad<Lexer>
-    [?sign (: (Lexer Text)
-              (lexer;default ""
-                (lexer;text "-")))
+    [signed? (l;this? "-")
      digits (: (Lexer Text)
-               (lexer;many' lexer;digit))
+               (l;many' l;digit))
      decimals (: (Lexer Text)
-                 (lexer;default "0"
+                 (l;default "0"
                    (do @
-                     [_ (lexer;text ".")]
-                     (lexer;many' lexer;digit))))
+                     [_ (l;this ".")]
+                     (l;many' l;digit))))
      exp (: (Lexer Text)
-            (lexer;default ""
+            (l;default ""
               (do @
-                [mark (lexer;either (lexer;text "e") (lexer;text "E"))
-                 sign (lexer;default "" (lexer;text "-"))
-                 offset (lexer;many' lexer;digit)]
-                (wrap (format mark sign offset)))))]
-    (case (: (Result Real)
-             (Real/decode (format ?sign digits "." decimals exp)))
+                [mark (l;one-of "eE")
+                 signed?' (l;this? "-")
+                 offset (l;many' l;digit)]
+                (wrap (format mark (if signed?' "-" "") offset)))))]
+    (case (: (R;Result Real)
+             (Real/decode (format (if signed? "-" "") digits "." decimals exp)))
       (#R;Error message)
-      (lexer;fail message)
+      (l;fail message)
       
       (#R;Success value)
       (wrap value))))
 
-(def: (un-escape escaped)
-  (-> Char Text)
-  (case escaped
-    #"t"  "\t"
-    #"b"  "\b"
-    #"n"  "\n"
-    #"r"  "\r"
-    #"f"  "\f"
-    #"\"" "\""
-    #"\\" "\\"
-    _     ""))
-
-(def: string-body~
+(def: escaped~
   (Lexer Text)
-  (loop [_ []]
-    (do Monad<Lexer>
-      [chars (lexer;some' (lexer;none-of "\\\""))
-       stop-char lexer;peek]
-      (if (Char/= #"\\" stop-char)
-        (do @
-          [_ lexer;any
-           escaped lexer;any
-           next-chars (recur [])]
-          (wrap (format chars (un-escape escaped) next-chars)))
-        (wrap chars)))))
+  ($_ l;either
+      (l;after (l;this "\\t") (Lexer/wrap "\t"))
+      (l;after (l;this "\\b") (Lexer/wrap "\b"))
+      (l;after (l;this "\\n") (Lexer/wrap "\n"))
+      (l;after (l;this "\\r") (Lexer/wrap "\r"))
+      (l;after (l;this "\\f") (Lexer/wrap "\f"))
+      (l;after (l;this "\\\"") (Lexer/wrap "\""))
+      (l;after (l;this "\\\\") (Lexer/wrap "\\"))))
 
 (def: string~
   (Lexer String)
-  (do Monad<Lexer>
-    [_ (lexer;text "\"")
-     string-body string-body~
-     _ (lexer;text "\"")]
-    (wrap string-body)))
+  (<| (l;enclosed ["\"" "\""])
+      (loop [_ []]
+        (do Monad<Lexer>
+          [chars (l;some' (l;none-of "\\\""))
+           stop l;peek]
+          (if (Text/= "\\" stop)
+            (do @
+              [escaped escaped~
+               next-chars (recur [])]
+              (wrap (format chars escaped next-chars)))
+            (wrap chars))))))
 
 (def: (kv~ json~)
   (-> (-> Unit (Lexer JSON)) (Lexer [String JSON]))
   (do Monad<Lexer>
     [key string~
      _ space~
-     _ (lexer;char #":")
+     _ (l;this ":")
      _ space~
      value (json~ [])]
     (wrap [key value])))
@@ -331,20 +320,20 @@
   [(def: (<name> json~)
      (-> (-> Unit (Lexer JSON)) (Lexer <type>))
      (do Monad<Lexer>
-       [_ (lexer;char <open>)
+       [_ (l;this <open>)
         _ space~
-        elems (lexer;sep-by data-sep <elem-parser>)
+        elems (l;sep-by data-sep <elem-parser>)
         _ space~
-        _ (lexer;char <close>)]
+        _ (l;this <close>)]
        (wrap (<prep> elems))))]
 
-  [array~  Array  #"[" #"]" (json~ [])  vector;from-list]
-  [object~ Object #"{" #"}" (kv~ json~) (dict;from-list text;Hash<Text>)]
+  [array~  Array  "[" "]" (json~ [])  vector;from-list]
+  [object~ Object "{" "}" (kv~ json~) (d;from-list text;Hash<Text>)]
   )
 
 (def: (json~' _)
   (-> Unit (Lexer JSON))
-  ($_ lexer;alt null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
+  ($_ l;alt null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
 
 ## [Structures]
 (struct: #export _ (Functor Parser)
@@ -514,7 +503,7 @@
   (function [json]
     (case json
       (#Array values)
-      (do Monad<Result>
+      (do R;Monad<Result>
         [elems (mapM @ parser (vector;to-list values))]
         (wrap elems))
 
@@ -523,18 +512,18 @@
 
 (def: #export (object parser)
   {#;doc "Parses a JSON object, assuming that every field's value can be parsed the same way."}
-  (All [a] (-> (Parser a) (Parser (Dict String a))))
+  (All [a] (-> (Parser a) (Parser (d;Dict String a))))
   (function [json]
     (case json
       (#Object fields)
-      (do Monad<Result>
+      (do R;Monad<Result>
         [kvs (mapM @
                    (function [[key val']]
                      (do @
                        [val (parser val')]
                        (wrap [key val])))
-                   (dict;entries fields))]
-        (wrap (dict;from-list text;Hash<Text> kvs)))
+                   (d;entries fields))]
+        (wrap (d;from-list text;Hash<Text> kvs)))
 
       _
       (#R;Error (format "JSON value is not an object: " (show-json json))))))
@@ -624,7 +613,7 @@
     (#R;Success x) (#R;Success (#;Some x))))
 
 (def: #export (run json parser)
-  (All [a] (-> JSON (Parser a) (Result a)))
+  (All [a] (-> JSON (Parser a) (R;Result a)))
   (parser json))
 
 (def: #export (ensure test parser json)
@@ -654,7 +643,7 @@
   (-> (List String) (Parser Unit))
   (case json
     (#Object kvs)
-    (let [actual-fields (dict;keys kvs)]
+    (let [actual-fields (d;keys kvs)]
       (if (and (n.= (list;size wanted-fields) (list;size actual-fields))
                (list;every? (list;member? text;Eq<Text> wanted-fields)
                             actual-fields))
@@ -691,21 +680,21 @@
                  (list;indices (vector;size xs))))
       
       [(#Object xs) (#Object ys)]
-      (and (n.= (dict;size xs) (dict;size ys))
+      (and (n.= (d;size xs) (d;size ys))
            (fold (function [[xk xv] prev]
                    (and prev
-                        (case (dict;get xk ys)
+                        (case (d;get xk ys)
                           #;None   false
                           (#;Some yv) (= xv yv))))
                  true
-                 (dict;entries xs)))
+                 (d;entries xs)))
       
       _
       false)))
 
 (struct: #export _ (Codec Text JSON)
   (def: encode show-json)
-  (def: decode (function [input] (lexer;run input (json~' [])))))
+  (def: decode (function [input] (l;run input (json~' [])))))
 
 ## [Syntax]
 (type: Shape
@@ -785,39 +774,22 @@
                  [Text poly;text ;;gen-string])]
       ($_ macro;either
           <basic>
-          (with-gensyms [g!type-fun g!case g!input g!key g!val]
+          (with-gensyms [g!input g!key g!val]
             (do @
-              [:sub: (poly;apply-1 (ident-for ;List) :x:)
-               [g!vars members] (poly;tuple :sub:)
-               :val: (case members
-                       (^ (list :key: :val:))
-                       (do @ [_ (poly;text :key:)]
-                         (wrap :val:))
-
-                       _
-                       (macro;fail ""))
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices)
-                                                           g!vars)
-                                                *env*)]
-               .val. (Codec<JSON,?>//encode new-*env* :val:)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//encode (type;to-ast :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
-              (wrap (` (: (~ :x:+)
-                          (function [(~@ g!vars) (~ g!input)]
+              [[:key: :val:] (poly;apply-2 (ident-for d;Dict) :x:)
+               _ (poly;text :key:)
+               .val. (Codec<JSON,?>//encode *env* :val:)]
+              (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
+                          (function [(~ g!input)]
                             (|> (~ g!input)
-                                (_map_ (: (-> [Text (~ (type;to-ast :val:))]
-                                              [Text JSON])
-                                          (function [[(~ g!key) (~ g!val)]]
-                                            [(~ g!key)
-                                             ((~ .val.) (~ g!val))])))
-                                ;;object))
+                                d;entries
+                                (;;_map_ (: (-> [Text (~ (type;to-ast :val:))]
+                                                [Text JSON])
+                                            (function [[(~ g!key) (~ g!val)]]
+                                              [(~ g!key)
+                                               ((~ .val.) (~ g!val))])))
+                                (d;from-list text;Hash<Text>)
+                                #;;Object))
                           )))
               ))
           (do @
@@ -829,7 +801,7 @@
             [:sub: (poly;apply-1 (ident-for ;List) :x:)
              .sub. (Codec<JSON,?>//encode *env* :sub:)]
             (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
-                        (|>. (_map_ (~ .sub.)) vector;from-list ;;gen-array)))))
+                        (|>. (;;_map_ (~ .sub.)) vector;from-list ;;gen-array)))))
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars members] (poly;variant :x:)
@@ -924,7 +896,7 @@
 
 (poly: #hidden (Codec<JSON,?>//decode *env* :x:)
   (let [->Codec//decode (: (-> Code Code)
-                           (function [.type.] (` (-> JSON (Result (~ .type.))))))]
+                           (function [.type.] (` (-> JSON (R;Result (~ .type.))))))]
     (with-expansions
       [<basic> (do-template [<type> <matcher> <decoder>]
                  [(do @ [_ (<matcher> :x:)] (wrap (` (: (~ (->Codec//decode (` <type>))) <decoder>))))]
@@ -946,40 +918,23 @@
                    [List  (poly;apply-1 (ident-for ;List))  ;;array])]
       ($_ macro;either
           <basic>
-          (with-gensyms [g!type-fun g!case g!input g!key g!val]
+          (with-gensyms [g!input g!output g!key g!val]
             (do @
-              [:sub: (poly;apply-1 (ident-for ;List) :x:)
-               [g!vars members] (poly;tuple :sub:)
-               :val: (case members
-                       (^ (list :key: :val:))
-                       (do @ [_ (poly;text :key:)]
-                         (wrap :val:))
-
-                       _
-                       (macro;fail ""))
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
-               .val. (Codec<JSON,?>//decode new-*env* :val:)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//decode (type;to-ast :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
-              (wrap (` (: (~ :x:+)
-                          (function [(~@ g!vars) (~ g!input)]
-                            (do Monad<Result>
-                              [(~ g!key) (;;fields (~ g!input))]
-                              (mapM (~ (' %))
-                                    (function [(~ g!key)]
-                                      (do Monad<Result>
-                                        [(~ g!val) (;;get (~ g!key) (~ g!input))
-                                         (~ g!val) (;;run (~ g!val) (~ .val.))]
-                                        ((~ (' wrap)) [(~ g!key) (~ g!val)])))
-                                    (~ g!key))))
+              [[:key: :val:] (poly;apply-2 (ident-for d;Dict) :x:)
+               _ (poly;text :key:)
+               .val. (Codec<JSON,?>//decode *env* :val:)]
+              (wrap (` (: (~ (->Codec//decode (type;to-ast :x:)))
+                          (function [(~ g!input)]
+                            (do R;Monad<Result>
+                              [(~ g!key) (;;fields (~ g!input))
+                               (~ g!output) (mapM R;Monad<Result>
+                                                  (function [(~ g!key)]
+                                                    (do R;Monad<Result>
+                                                      [(~ g!val) (;;get (~ g!key) (~ g!input))
+                                                       (~ g!val) (;;run (~ g!val) (~ .val.))]
+                                                      ((~ (' wrap)) [(~ g!key) (~ g!val)])))
+                                                  (~ g!key))]
+                              ((~' wrap) (d;from-list text;Hash<Text> (~ g!output)))))
                           )))
               ))
           <complex>
@@ -1043,7 +998,7 @@
                                      (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
-                            (do Monad<Result>
+                            (do R;Monad<Result>
                               [(~@ (List/join extraction))]
                               ((~ (' wrap)) (~ (code;record (List/map (function [[name :slot:]]
                                                                         [(code;tag name) (code;symbol ["" (product;right name)])])
@@ -1108,7 +1063,8 @@
                  #maybe (Maybe Int)
                  #list (List Int)
                  #variant Variant
-                 #tuple [Int Real Char]})
+                 #tuple [Int Real Char]
+                 #dict (Dict Text Int)})
 
               (derived: (Codec<JSON,?> Record)))}
   (wrap (list (` (: (Codec JSON (~ :x:))

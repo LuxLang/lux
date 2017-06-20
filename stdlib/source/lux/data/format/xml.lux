@@ -36,52 +36,52 @@
 
 ## [Parsing]
 (def: xml-standard-escape-char^
-  (l;Lexer Char)
+  (l;Lexer Text)
   ($_ l;either
-      (l;after (l;text "&lt;") (lex/wrap #"<"))
-      (l;after (l;text "&gt;") (lex/wrap #">"))
-      (l;after (l;text "&amp;") (lex/wrap #"&"))
-      (l;after (l;text "&apos;") (lex/wrap #"'"))
-      (l;after (l;text "&quot;") (lex/wrap #"\""))))
+      (l;after (l;this "&lt;") (lex/wrap "<"))
+      (l;after (l;this "&gt;") (lex/wrap ">"))
+      (l;after (l;this "&amp;") (lex/wrap "&"))
+      (l;after (l;this "&apos;") (lex/wrap "'"))
+      (l;after (l;this "&quot;") (lex/wrap "\""))))
 
 (def: xml-unicode-escape-char^
-  (l;Lexer Char)
+  (l;Lexer Text)
   (|> (do l;Monad<Lexer>
-        [hex? (l;opt (l;text "x"))
+        [hex? (l;opt (l;this "x"))
          code (case hex?
                 #;None
                 (l;codec number;Codec<Text,Int> (l;many' l;digit))
 
                 (#;Some _)
                 (l;codec number;Hex@Codec<Text,Int> (l;many' l;hex-digit)))]
-        (wrap (|> code int-to-nat char;char)))
-      (l;before (l;text ";"))
-      (l;after (l;text "&#"))))
+        (wrap (|> code int-to-nat char;char char;as-text)))
+      (l;before (l;this ";"))
+      (l;after (l;this "&#"))))
 
 (def: xml-escape-char^
-  (l;Lexer Char)
+  (l;Lexer Text)
   (l;either xml-standard-escape-char^
             xml-unicode-escape-char^))
 
 (def: xml-char^
-  (l;Lexer Char)
+  (l;Lexer Text)
   (l;either (l;none-of "<>&'\"")
             xml-escape-char^))
 
 (def: xml-identifier
   (l;Lexer Text)
   (do l;Monad<Lexer>
-    [head (l;either (l;char #"_")
+    [head (l;either (l;one-of "_")
                     l;alpha)
      tail (l;some' (l;either (l;one-of "_.-")
                              l;alpha-num))]
-    (wrap (format (char;as-text head) tail))))
+    (wrap (format head tail))))
 
 (def: namespaced-symbol^
   (l;Lexer Ident)
   (do l;Monad<Lexer>
     [first-part xml-identifier
-     ?second-part (<| l;opt (l;after (l;char #":")) xml-identifier)]
+     ?second-part (<| l;opt (l;after (l;this ":")) xml-identifier)]
     (case ?second-part
       #;None
       (wrap ["" first-part])
@@ -109,7 +109,7 @@
   (<| (:: l;Monad<Lexer> map (D;from-list ident;Hash<Ident>))
       l;some
       (l;seq (spaced^ attr-name^))
-      (l;after (l;char #"="))
+      (l;after (l;this "="))
       (spaced^ attr-value^)))
 
 (def: (close-tag^ expected)
@@ -117,7 +117,7 @@
   (do l;Monad<Lexer>
     [actual (|> tag^
                 spaced^
-                (l;after (l;char #"/"))
+                (l;after (l;this "/"))
                 (l;enclosed ["<" ">"]))]
     (l;assert (format "Close tag does not match open tag.\n"
                       "Expected: " (%ident expected) "\n"
@@ -126,24 +126,24 @@
 
 (def: comment^
   (l;Lexer Text)
-  (|> (l;some' (l;not (l;text "--")))
-      (l;after (l;text "-->"))
-      (l;after (l;text "<--"))
+  (|> (l;some' (l;not (l;this "--")))
+      (l;after (l;this "-->"))
+      (l;after (l;this "<--"))
       spaced^))
 
 (def: xml-header^
   (l;Lexer Attrs)
   (|> (spaced^ attrs^)
-      (l;before (l;text "?>"))
-      (l;after (l;text "<?xml"))
+      (l;before (l;this "?>"))
+      (l;after (l;this "<?xml"))
       spaced^))
 
 (def: cdata^
   (l;Lexer Text)
-  (let [end (l;text "]]>")]
+  (let [end (l;this "]]>")]
     (|> (l;some' (l;not end))
         (l;after end)
-        (l;after (l;text "<![CDATA["))
+        (l;after (l;this "<![CDATA["))
         spaced^)))
 
 (def: text^
@@ -159,14 +159,14 @@
          (l;either text^
                    (spaced^
                     (do l;Monad<Lexer>
-                      [_ (l;char #"<")
+                      [_ (l;this "<")
                        tag (spaced^ tag^)
                        attrs (spaced^ attrs^)
                        #let [no-children^ (do l;Monad<Lexer>
-                                            [_ (l;text "/>")]
+                                            [_ (l;this "/>")]
                                             (wrap (node tag attrs (list))))
                              with-children^ (do l;Monad<Lexer>
-                                              [_ (l;char #">")
+                                              [_ (l;this ">")
                                                children (l;some node^)
                                                _ (close-tag^ tag)]
                                               (wrap (node tag attrs children)))]]
