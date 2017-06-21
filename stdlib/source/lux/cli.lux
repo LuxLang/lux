@@ -1,63 +1,39 @@
 (;module:
-  [lux #- not]
+  lux
   (lux (control functor
                 applicative
-                monad)
-       (data (coll (list #as list #open ("List/" Monoid<List> Monad<List>)))
-             (text #as text #open ("Text/" Monoid<Text>))
+                monad
+                ["p" parser])
+       (data (coll [list "L/" Monoid<List> Monad<List>])
+             [text "T/" Monoid<Text>]
+             text/format
              ["R" result]
-             (sum #as sum))
+             [sum])
        [io]
        [macro #+ with-gensyms Functor<Lux> Monad<Lux>]
        (macro [code]
               ["s" syntax #+ syntax: Syntax])))
 
 ## [Types]
-(type: #export (CLI a)
+(type: #export CLI
   {#;doc "A command-line interface parser."}
-  (-> (List Text) (R;Result [(List Text) a])))
-
-## [Utils]
-(def: (run' opt inputs)
-  (All [a] (-> (CLI a) (List Text) (R;Result [(List Text) a])))
-  (opt inputs))
-
-## [Structures]
-(struct: #export _ (Functor CLI)
-  (def: (map f ma inputs)
-    (case (ma inputs)
-      (#R;Error msg)              (#R;Error msg)
-      (#R;Success [inputs' datum]) (#R;Success [inputs' (f datum)]))))
-
-(struct: #export _ (Applicative CLI)
-  (def: functor Functor<CLI>)
-
-  (def: (wrap a inputs)
-    (#R;Success [inputs a]))
-
-  (def: (apply ff fa inputs)
-    (case (ff inputs)
-      (#R;Success [inputs' f])
-      (case (fa inputs')
-        (#R;Success [inputs'' a])
-        (#R;Success [inputs'' (f a)])
-
-        (#R;Error msg)
-        (#R;Error msg))
-
-      (#R;Error msg)
-      (#R;Error msg))
-    ))
-
-(struct: #export _ (Monad CLI)
-  (def: applicative Applicative<CLI>)
-
-  (def: (join mma inputs)
-    (case (mma inputs)
-      (#R;Error msg)           (#R;Error msg)
-      (#R;Success [inputs' ma]) (ma inputs'))))
+  (p;Parser (List Text)))
 
 ## [Combinators]
+(def: #export (run inputs parser)
+  (All [a] (-> (List Text) (CLI a) (R;Result a)))
+  (case (p;run inputs parser)
+    (#R;Success [remaining output])
+    (case remaining
+      #;Nil
+      (#R;Success output)
+
+      _
+      (#R;Error (format "Remaining CLI inputs: " (text;join-with " " remaining))))
+
+    (#R;Error error)
+    (#R;Error error)))
+
 (def: #export any
   {#;doc "Just returns the next input without applying any logic."}
   (CLI Text)
@@ -92,13 +68,13 @@
     (let [[pre post] (list;split-with (. ;not (list;member? text;Eq<Text> names)) inputs)]
       (case post
         #;Nil
-        (#R;Error ($_ Text/append "Missing option (" (text;join-with " " names) ")"))
+        (#R;Error ($_ T/append "Missing option (" (text;join-with " " names) ")"))
 
         (^ (list& _ value post'))
-        (#R;Success [(List/append pre post') value])
+        (#R;Success [(L/append pre post') value])
 
         _
-        (#R;Error ($_ Text/append "Option lacks value (" (text;join-with " " names) ")"))
+        (#R;Error ($_ T/append "Option lacks value (" (text;join-with " " names) ")"))
         ))))
 
 (def: #export (flag names)
@@ -111,7 +87,7 @@
         (#R;Success [pre false])
 
         (#;Cons _ post')
-        (#R;Success [(List/append pre post') true])))))
+        (#R;Success [(L/append pre post') true])))))
 
 (def: #export end
   {#;doc "Ensures there are no more inputs."}
@@ -119,111 +95,7 @@
   (function [inputs]
     (case inputs
       #;Nil (#R;Success [inputs []])
-      _     (#R;Error (Text/append "Unknown parameters: " (text;join-with " " inputs))))))
-
-(def: #export (after param subject)
-  (All [p s] (-> (CLI p) (CLI s) (CLI s)))
-  (do Monad<CLI>
-    [_ param]
-    subject))
-
-(def: #export (before param subject)
-  (All [p s] (-> (CLI p) (CLI s) (CLI s)))
-  (do Monad<CLI>
-    [output subject
-     _ param]
-    (wrap output)))
-
-(def: #export (assert message test)
-  {#;doc "Fails with the given message if the test is false."}
-  (-> Text Bool (CLI Unit))
-  (function [inputs]
-    (if test
-      (#R;Success [inputs []])
-      (#R;Error message))))
-
-(def: #export (opt opt)
-  {#;doc "Optionality combinator."}
-  (All [a]
-    (-> (CLI a) (CLI (Maybe a))))
-  (function [inputs]
-    (case (opt inputs)
-      (#R;Error _)            (#R;Success [inputs #;None])
-      (#R;Success [inputs' x]) (#R;Success [inputs' (#;Some x)]))))
-
-(def: #export (seq optL optR)
-  {#;doc "Sequencing combinator."}
-  (All [a b] (-> (CLI a) (CLI b) (CLI [a b])))
-  (do Monad<CLI>
-    [l optL
-     r optR]
-    (wrap [l r])))
-
-(def: #export (alt optL optR)
-  {#;doc "Heterogeneous alternative combinator."}
-  (All [a b] (-> (CLI a) (CLI b) (CLI (| a b))))
-  (function [inputs]
-    (case (optL inputs)
-      (#R;Error msg)
-      (case (optR inputs)
-        (#R;Error _)
-        (#R;Error msg)
-
-        (#R;Success [inputs' r])
-        (#R;Success [inputs' (sum;right r)]))
-
-      (#R;Success [inputs' l])
-      (#R;Success [inputs' (sum;left l)]))))
-
-(def: #export (not opt)
-  {#;doc "The opposite of the given CLI."}
-  (All [a] (-> (CLI a) (CLI Unit)))
-  (function [inputs]
-    (case (opt inputs)
-      (#R;Error msg)
-      (#R;Success [inputs []])
-      
-      _
-      (#R;Error "Expected to fail; yet succeeded."))))
-
-(def: #export (some opt)
-  {#;doc "0-or-more combinator."}
-  (All [a]
-    (-> (CLI a) (CLI (List a))))
-  (function [inputs]
-    (case (opt inputs)
-      (#R;Error _)            (#R;Success [inputs (list)])
-      (#R;Success [inputs' x]) (run' (do Monad<CLI>
-                                       [xs (some opt)]
-                                       (wrap (list& x xs)))
-                                     inputs'))))
-
-(def: #export (many opt)
-  {#;doc "1-or-more combinator."}
-  (All [a]
-    (-> (CLI a) (CLI (List a))))
-  (do Monad<CLI>
-    [x opt
-     xs (some opt)]
-    (wrap (list& x xs))))
-
-(def: #export (either pl pr)
-  {#;doc "Homogeneous alternative combinator."}
-  (All [a]
-    (-> (CLI a) (CLI a) (CLI a)))
-  (function [inputs]
-    (case (pl inputs)
-      (#R;Error _) (pr inputs)
-      output     output)))
-
-(def: #export (run opt inputs)
-  (All [a] (-> (CLI a) (List Text) (R;Result a)))
-  (case (opt inputs)
-    (#R;Error msg)
-    (#R;Error msg)
-
-    (#R;Success [_ value])
-    (#R;Success value)))
+      _     (#R;Error (T/append "Unknown parameters: " (text;join-with " " inputs))))))
 
 ## [Syntax]
 (type: Program-Args
@@ -232,11 +104,11 @@
 
 (def: program-args^
   (Syntax Program-Args)
-  (s;alt s;local-symbol
-         (s;form (s;some (s;either (do s;Monad<Syntax>
+  (p;alt s;local-symbol
+         (s;form (p;some (p;either (do p;Monad<Parser>
                                      [name s;local-symbol]
                                      (wrap [(code;symbol ["" name]) (` any)]))
-                                   (s;tuple (s;seq s;any s;any)))))))
+                                   (s;tuple (p;seq s;any s;any)))))))
 
 (syntax: #export (program: [args program-args^] body)
   {#;doc (doc "Defines the entry-point to a program (similar to the \"main\" function/method in other programming languages)."
@@ -248,7 +120,7 @@
                   (wrap [])))
 
               (program: (name)
-                (io (log! (Text/append "Hello, " name))))
+                (io (log! (T/append "Hello, " name))))
 
               (program: ([config config^])
                 (do Monad<IO>
@@ -265,9 +137,9 @@
                                     (case ((: (;;CLI (io;IO Unit))
                                               (do ;;Monad<CLI>
                                                 [(~@ (|> args
-                                                         (List/map (function [[binding parser]]
-                                                                     (list binding parser)))
-                                                         List/join))
+                                                         (L/map (function [[binding parser]]
+                                                                  (list binding parser)))
+                                                         L/join))
                                                  (~ g!_) ;;end]
                                                 ((~' wrap) (~ body))))
                                            (~ g!args))

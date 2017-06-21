@@ -1,65 +1,20 @@
 (;module:
-  [lux #- not default]
+  [lux #- not]
   (lux (control functor
                 applicative
                 monad
-                codec)
-       (data [text "Text/" Eq<Text> Monoid<Text>]
-             [number "Int/" Codec<Text,Int>]
+                codec
+                ["p" parser])
+       (data [text "T/" Eq<Text>]
+             text/format
              [product]
-             [char "Char/" Order<Char> Codec<Text,Char>]
+             [char "C/" Order<Char> Codec<Text,Char>]
              maybe
              ["R" result]
-             (coll [list "" Functor<List>]))))
+             (coll [list "L/" Functor<List>]))))
 
-## [Types]
-(type: #export (Lexer a)
-  (-> Text (R;Result [Text a])))
-
-## [Structures]
-(struct: #export _ (Functor Lexer)
-  (def: (map f fa)
-    (function [input]
-      (case (fa input)
-        (#R;Error msg)               (#R;Error msg)
-        (#R;Success [input' output]) (#R;Success [input' (f output)])))))
-
-(struct: #export _ (Applicative Lexer)
-  (def: functor Functor<Lexer>)
-
-  (def: (wrap a)
-    (function [input]
-      (#R;Success [input a])))
-
-  (def: (apply ff fa)
-    (function [input]
-      (case (ff input)
-        (#R;Success [input' f])
-        (case (fa input')
-          (#R;Success [input'' a])
-          (#R;Success [input'' (f a)])
-
-          (#R;Error msg)
-          (#R;Error msg))
-
-        (#R;Error msg)
-        (#R;Error msg)))))
-
-(struct: #export _ (Monad Lexer)
-  (def: applicative Applicative<Lexer>)
-  
-  (def: (join mma)
-    (function [input]
-      (case (mma input)
-        (#R;Error msg)          (#R;Error msg)
-        (#R;Success [input' ma]) (ma input'))))
-  )
-
-## [Values]
-## Runner
-(def: #export (run' input lexer)
-  (All [a] (-> Text (Lexer a) (R;Result [Text a])))
-  (lexer input))
+(type: #export Lexer
+  (p;Parser Text))
 
 (def: #export (run input lexer)
   (All [a] (-> Text (Lexer a) (R;Result a)))
@@ -68,14 +23,10 @@
     (#R;Error msg)
     
     (#R;Success [input' output])
-    (#R;Success output)
+    (if (T/= "" input')
+      (#R;Success output)
+      (#R;Error (format "Remaining lexer input: " input')))
     ))
-
-## Combinators
-(def: #export (fail message)
-  (All [a] (-> Text (Lexer a)))
-  (function [input]
-    (#R;Error message)))
 
 (def: #export any
   {#;doc "Just returns the next character without applying any logic."}
@@ -89,41 +40,6 @@
       (#R;Error "Cannot parse character from empty text."))
     ))
 
-(def: #export (seq left right)
-  {#;doc "Sequencing combinator."}
-  (All [a b] (-> (Lexer a) (Lexer b) (Lexer [a b])))
-  (do Monad<Lexer>
-    [=left left
-     =right right]
-    (wrap [=left =right])))
-
-(def: #export (alt left right)
-  {#;doc "Heterogeneous alternative combinator."}
-  (All [a b] (-> (Lexer a) (Lexer b) (Lexer (| a b))))
-  (function [input]
-    (case (left input)
-      (#R;Error msg)
-      (case (right input)
-        (#R;Error msg)
-        (#R;Error msg)
-
-        (#R;Success [input' output])
-        (#R;Success [input' (+1 output)]))
-
-      (#R;Success [input' output])
-      (#R;Success [input' (+0 output)]))))
-
-(def: #export (not! p)
-  {#;doc "Ensure a lexer fails."}
-  (All [a] (-> (Lexer a) (Lexer Unit)))
-  (function [input]
-    (case (p input)
-      (#R;Error msg)
-      (#R;Success [input []])
-      
-      _
-      (#R;Error "Expected to fail; yet succeeded."))))
-
 (def: #export (not p)
   {#;doc "Produce a character if the lexer fails."}
   (All [a] (-> (Lexer a) (Lexer Text)))
@@ -135,103 +51,6 @@
       _
       (#R;Error "Expected to fail; yet succeeded."))))
 
-(def: #export (either left right)
-  {#;doc "Homogeneous alternative combinator."}
-  (All [a] (-> (Lexer a) (Lexer a) (Lexer a)))
-  (function [input]
-    (case (left input)
-      (#R;Error msg)
-      (right input)
-
-      output
-      output)))
-
-(def: #export (assert message test)
-  {#;doc "Fails with the given message if the test is false."}
-  (-> Text Bool (Lexer Unit))
-  (function [input]
-    (if test
-      (#R;Success [input []])
-      (#R;Error message))))
-
-(def: #export (some p)
-  {#;doc "0-or-more combinator."}
-  (All [a] (-> (Lexer a) (Lexer (List a))))
-  (function [input]
-    (case (p input)
-      (#R;Error msg)
-      (#R;Success [input (list)])
-      
-      (#R;Success [input' x])
-      (run' input'
-            (do Monad<Lexer>
-              [xs (some p)]
-              (wrap (#;Cons x xs)))))
-    ))
-
-(def: #export (many p)
-  {#;doc "1-or-more combinator."}
-  (All [a] (-> (Lexer a) (Lexer (List a))))
-  (do Monad<Lexer>
-    [x p
-     xs (some p)]
-    (wrap (#;Cons x xs))))
-
-(def: #export (exactly n p)
-  {#;doc "Lex exactly N times."}
-  (All [a] (-> Nat (Lexer a) (Lexer (List a))))
-  (if (n.> +0 n)
-    (do Monad<Lexer>
-      [x p
-       xs (exactly (n.dec n) p)]
-      (wrap (#;Cons x xs)))
-    (:: Monad<Lexer> wrap (list))))
-
-(def: #export (at-most n p)
-  {#;doc "Lex at most N times."}
-  (All [a] (-> Nat (Lexer a) (Lexer (List a))))
-  (if (n.> +0 n)
-    (function [input]
-      (case (p input)
-        (#R;Error msg)
-        (#R;Success [input (list)])
-
-        (#R;Success [input' x])
-        (run' input'
-              (do Monad<Lexer>
-                [xs (at-most (n.dec n) p)]
-                (wrap (#;Cons x xs))))
-        ))
-    (:: Monad<Lexer> wrap (list))))
-
-(def: #export (at-least n p)
-  {#;doc "Lex at least N times."}
-  (All [a] (-> Nat (Lexer a) (Lexer (List a))))
-  (do Monad<Lexer>
-    [min-xs (exactly n p)
-     extras (some p)]
-    (wrap (list;concat (list min-xs extras)))))
-
-(def: #export (between from to p)
-  {#;doc "Lex between N and M times."}
-  (All [a] (-> Nat Nat (Lexer a) (Lexer (List a))))
-  (do Monad<Lexer>
-    [min-xs (exactly from p)
-     max-xs (at-most (n.- from to) p)]
-    (wrap (list;concat (list min-xs max-xs)))))
-
-(def: #export (opt p)
-  {#;doc "Optionality combinator."}
-  (All [a] (-> (Lexer a) (Lexer (Maybe a))))
-  (function [input]
-    (case (p input)
-      (#R;Error msg)
-      (#R;Success [input #;None])
-
-      (#R;Success [input value])
-      (#R;Success [input (#;Some value)])
-      )))
-
 (def: #export (this reference)
   {#;doc "Lex a text if it matches the given sample."}
   (-> Text (Lexer Unit))
@@ -241,7 +60,7 @@
         #;None              (#R;Error "")
         (#;Some [_ input']) (#R;Success [input' []]))
       (let [(^open "T/") text;Codec<Text,Text>]
-        (#R;Error ($_ Text/append "Invalid match: " (T/encode reference) " @ " (T/encode input)))))))
+        (#R;Error (format "Invalid match: " (T/encode reference) " @ " (T/encode input)))))))
 
 (def: #export (this? reference)
   {#;doc "Lex a text if it matches the given sample."}
@@ -254,28 +73,13 @@
       (#R;Success [input false]))
     ))
 
-(def: #export (sep-by sep lexer)
-  {#;doc "Apply a lexer multiple times, checking that a separator lexer succeeds between each time."}
-  (All [a b] (-> (Lexer b) (Lexer a) (Lexer (List a))))
-  (do Monad<Lexer>
-    [?x (opt lexer)]
-    (case ?x
-      #;None
-      (wrap #;Nil)
-      
-      (#;Some x)
-      (do @
-        [xs' (some (seq sep lexer))]
-        (wrap (#;Cons x (map product;right xs'))))
-      )))
-
 (def: #export end
   {#;doc "Ensure the lexer's input is empty."}
   (Lexer Unit)
   (function [input]
     (case input
       "" (#R;Success [input []])
-      _  (#R;Error ($_ Text/append "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
+      _  (#R;Error (format "The text input has not been fully consumed @ " (:: text;Codec<Text,Text> encode input)))
       )))
 
 (def: #export peek
@@ -299,18 +103,18 @@
 (def: #export (char-range bottom top)
   {#;doc "Only lex characters within a range."}
   (-> Char Char (Lexer Text))
-  (do Monad<Lexer>
+  (do p;Monad<Parser>
     [input get-input
      char any
      #let [char' (|> char (text;nth +0) assume)]
-     _ (assert ($_ Text/append "Character is not within range: " (Char/encode bottom) "-" (Char/encode top) " @ " (:: text;Codec<Text,Text> encode input))
-               (and (Char/>= bottom char')
-                    (Char/<= top char')))]
+     _ (p;assert (format "Character is not within range: " (C/encode bottom) "-" (C/encode top) " @ " (:: text;Codec<Text,Text> encode input))
+                 (and (C/>= bottom char')
+                      (C/<= top char')))]
     (wrap char)))
 
 (do-template [<name> <bottom> <top> <desc>]
   [(def: #export <name>
-     {#;doc (#;TextA ($_ Text/append "Only lex " <desc> " characters."))}
+     {#;doc (#;TextA (format "Only lex " <desc> " characters."))}
      (Lexer Text)
      (char-range <bottom> <top>))]
 
@@ -323,17 +127,17 @@
 (def: #export alpha
   {#;doc "Only lex alphabetic characters."}
   (Lexer Text)
-  (either lower upper))
+  (p;either lower upper))
 
 (def: #export alpha-num
   {#;doc "Only lex alphanumeric characters."}
   (Lexer Text)
-  (either alpha digit))
+  (p;either alpha digit))
 
 (def: #export hex-digit
   {#;doc "Only lex hexadecimal digits."}
   (Lexer Text)
-  ($_ either
+  ($_ p;either
       digit
       (char-range #"a" #"f")
       (char-range #"A" #"F")))
@@ -351,7 +155,7 @@
 
           _
           (#R;Error ""))
-        (#R;Error ($_ Text/append "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+        (#R;Error (format "Character (" init ") is not one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#R;Error "Cannot parse character from empty text."))))
@@ -369,7 +173,7 @@
 
           _
           (#R;Error ""))
-        (#R;Error ($_ Text/append "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
+        (#R;Error (format "Character (" init ") is one of: " options " @ " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#R;Error "Cannot parse character from empty text."))))
@@ -386,7 +190,7 @@
       (#;Some [input' output])
       (if (p output)
         (#R;Success [input' (char;as-text output)])
-        (#R;Error ($_ Text/append "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
+        (#R;Error (format "Character does not satisfy predicate: " (:: text;Codec<Text,Text> encode input))))
 
       _
       (#R;Error "Cannot parse character from empty text."))))
@@ -396,72 +200,48 @@
   (Lexer Text)
   (satisfies char;space?))
 
-(def: #export (constrain test lexer)
-  (All [a] (-> (-> a Bool) (Lexer a) (Lexer a)))
-  (do Monad<Lexer>
-    [input get-input
-     output lexer
-     _ (assert (Text/append "Input fails the constraint: "
-                            (:: text;Codec<Text,Text> encode input))
-               (test output))]
-    (wrap output)))
+(def: #export (seq left right)
+  (-> (Lexer Text) (Lexer Text) (Lexer Text))
+  (do p;Monad<Parser>
+    [=left left
+     =right right]
+    (wrap (format =left =right))))
 
 (do-template [<name> <base> <doc>]
   [(def: #export (<name> p)
      {#;doc <doc>}
      (-> (Lexer Text) (Lexer Text))
-     (do Monad<Lexer>
+     (do p;Monad<Parser>
        []
        (|> p <base> (:: @ map text;concat))))]
 
-  [some' some "Lex some characters as a single continuous text."]
-  [many' many "Lex many characters as a single continuous text."]
+  [some p;some "Lex some characters as a single continuous text."]
+  [many p;many "Lex many characters as a single continuous text."]
   )
 
 (do-template [<name> <base> <doc>]
   [(def: #export (<name> n p)
      {#;doc <doc>}
      (-> Nat (Lexer Text) (Lexer Text))
-     (do Monad<Lexer>
+     (do p;Monad<Parser>
        []
        (|> p (<base> n) (:: @ map text;concat))))]
 
-  [exactly'  exactly  "Lex exactly N characters."]
-  [at-most'  at-most  "Lex at most N characters."]
-  [at-least' at-least "Lex at least N characters."]
+  [exactly  p;exactly  "Lex exactly N characters."]
+  [at-most  p;at-most  "Lex at most N characters."]
+  [at-least p;at-least "Lex at least N characters."]
   )
 
-(def: #export (between' from to p)
+(def: #export (between from to p)
   {#;doc "Lex between N and M characters."}
   (-> Nat Nat (Lexer Text) (Lexer Text))
-  (do Monad<Lexer>
-    []
-    (|> p (between from to) (:: @ map text;concat))))
+  (|> p (p;between from to) (:: p;Monad<Parser> map text;concat)))
 
 (def: #export end?
   {#;doc "Ask if the lexer's input is empty."}
   (Lexer Bool)
   (function [input]
     (#R;Success [input (text;empty? input)])))
-
-(def: #export (after param subject)
-  (All [p s] (-> (Lexer p) (Lexer s) (Lexer s)))
-  (do Monad<Lexer>
-    [_ param]
-    subject))
-
-(def: #export (before param subject)
-  (All [p s] (-> (Lexer p) (Lexer s) (Lexer s)))
-  (do Monad<Lexer>
-    [output subject
-     _ param]
-    (wrap output)))
-
-(def: #export (default value lexer)
-  {#;doc "If the given lexer fails, this lexer will succeed with the provided value."}
-  (All [a] (-> a (Lexer a) (Lexer a)))
-  (|> (opt lexer)
-      (:: Monad<Lexer> map (|>. (;default value)))))
 
 (def: #export (codec codec lexer)
   {#;doc "Lex a token by means of a codec."}
@@ -482,31 +262,18 @@
 (def: #export (enclosed [start end] lexer)
   (All [a] (-> [Text Text] (Lexer a) (Lexer a)))
   (|> lexer
-      (before (this end))
-      (after (this start))))
-
-(def: #export (rec lexer)
-  (All [a] (-> (-> (Lexer a) (Lexer a))
-               (Lexer a)))
-  (function [input]
-    (run' input (lexer (rec lexer)))))
+      (p;before (this end))
+      (p;after (this start))))
 
 (def: #export (local local-input lexer)
   {#;doc "Run a lexer with the given input, instead of the real one."}
   (All [a] (-> Text (Lexer a) (Lexer a)))
   (function [real-input]
-    (case (run' local-input lexer)
+    (case (p;run local-input lexer)
       (#R;Error error)
       (#R;Error error)
 
       (#R;Success [unconsumed value])
-      (if (Text/= "" unconsumed)
+      (if (T/= "" unconsumed)
         (#R;Success [real-input value])
-        (#R;Error ($_ Text/append "Unconsumed input: " unconsumed))))))
-
-(def: #export (seq' left right)
-  (-> (Lexer Text) (Lexer Text) (Lexer Text))
-  (do Monad<Lexer>
-    [=left left
-     =right right]
-    (wrap (Text/append =left =right))))
+        (#R;Error (format "Unconsumed input: " unconsumed))))))

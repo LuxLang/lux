@@ -1,10 +1,11 @@
 (;module:
-  [lux #- not default]
+  lux
   (lux [macro #+ Monad<Lux> with-gensyms]
        (control functor
                 applicative
                 monad
-                eq)
+                eq
+                ["p" parser])
        (data [bool]
              [char]
              [number]
@@ -23,52 +24,9 @@
     (#;Cons [[x y] pairs']) (list& x y (join-pairs pairs'))))
 
 ## [Types]
-(type: #export (Syntax a)
+(type: #export Syntax
   {#;doc "A Lux syntax parser."}
-  (-> (List Code) (R;Result [(List Code) a])))
-
-## [Structures]
-(struct: #export _ (Functor Syntax)
-  (def: (map f ma)
-    (function [tokens]
-      (case (ma tokens)
-        (#R;Error msg)
-        (#R;Error msg)
-
-        (#R;Success [tokens' a])
-        (#R;Success [tokens' (f a)])))))
-
-(struct: #export _ (Applicative Syntax)
-  (def: functor Functor<Syntax>)
-
-  (def: (wrap x tokens)
-    (#R;Success [tokens x]))
-
-  (def: (apply ff fa)
-    (function [tokens]
-      (case (ff tokens)
-        (#R;Success [tokens' f])
-        (case (fa tokens')
-          (#R;Success [tokens'' a])
-          (#R;Success [tokens'' (f a)])
-
-          (#R;Error msg)
-          (#R;Error msg))
-
-        (#R;Error msg)
-        (#R;Error msg)))))
-
-(struct: #export _ (Monad Syntax)
-  (def: applicative Applicative<Syntax>)
-
-  (def: (join mma)
-    (function [tokens]
-      (case (mma tokens)
-        (#R;Error msg)
-        (#R;Error msg)
-
-        (#R;Success [tokens' ma])
-        (ma tokens')))))
+  (p;Parser (List Code)))
 
 ## [Utils]
 (def: (remaining-inputs asts)
@@ -137,20 +95,12 @@
       _
       (#R;Error "There are no tokens to parse!"))))
 
-(def: #export (assert message test)
-  {#;doc "Fails with the given message if the test is false."}
-  (-> Text Bool (Syntax Unit))
-  (function [tokens]
-    (if test
-      (#R;Success [tokens []])
-      (#R;Error ($_ Text/append message (remaining-inputs tokens))))))
-
 (do-template [<name> <comp> <error>]
   [(def: #export <name>
      (Syntax Int)
-     (do Monad<Syntax>
+     (do p;Monad<Parser>
        [n int
-        _ (assert <error> (<comp> 0 n))]
+        _ (p;assert <error> (<comp> 0 n))]
        (wrap n)))]
 
   [pos-int i.> "Expected a positive integer: N > 0"]
@@ -206,74 +156,6 @@
       _
       (#R;Error ($_ Text/append "Cannot parse record" (remaining-inputs tokens))))))
 
-(def: #export (opt p)
-  {#;doc "Optionality combinator."}
-  (All [a]
-    (-> (Syntax a) (Syntax (Maybe a))))
-  (function [tokens]
-    (case (p tokens)
-      (#R;Error _)            (#R;Success [tokens #;None])
-      (#R;Success [tokens' x]) (#R;Success [tokens' (#;Some x)]))))
-
-(def: #export (run tokens p)
-  (All [a]
-    (-> (List Code) (Syntax a) (R;Result [(List Code) a])))
-  (p tokens))
-
-(def: #export (some p)
-  {#;doc "0-or-more combinator."}
-  (All [a]
-    (-> (Syntax a) (Syntax (List a))))
-  (function [tokens]
-    (case (p tokens)
-      (#R;Error _)            (#R;Success [tokens (list)])
-      (#R;Success [tokens' x]) (run tokens'
-                                    (do Monad<Syntax>
-                                      [xs (some p)]
-                                      (wrap (list& x xs)))
-                                    ))))
-
-(def: #export (many p)
-  {#;doc "1-or-more combinator."}
-  (All [a]
-    (-> (Syntax a) (Syntax (List a))))
-  (do Monad<Syntax>
-    [x p
-     xs (some p)]
-    (wrap (list& x xs))))
-
-(def: #export (seq p1 p2)
-  {#;doc "Sequencing combinator."}
-  (All [a b]
-    (-> (Syntax a) (Syntax b) (Syntax [a b])))
-  (do Monad<Syntax>
-    [x1 p1
-     x2 p2]
-    (wrap [x1 x2])))
-
-(def: #export (alt p1 p2)
-  {#;doc "Heterogeneous alternative combinator."}
-  (All [a b]
-    (-> (Syntax a) (Syntax b) (Syntax (| a b))))
-  (function [tokens]
-    (case (p1 tokens)
-      (#R;Success [tokens' x1]) (#R;Success [tokens' (+0 x1)])
-      (#R;Error _)             (run tokens
-                                    (do Monad<Syntax>
-                                      [x2 p2]
-                                      (wrap (+1 x2))))
-      )))
-
-(def: #export (either pl pr)
-  {#;doc "Homogeneous alternative combinator."}
-  (All [a]
-    (-> (Syntax a) (Syntax a) (Syntax a)))
-  (function [tokens]
-    (case (pl tokens)
-      (#R;Error _) (pr tokens)
-      output     output
-      )))
-
 (def: #export end!
   {#;doc "Ensures there are no more inputs."}
   (Syntax Unit)
@@ -289,90 +171,6 @@
     (case tokens
       #;Nil (#R;Success [tokens true])
       _     (#R;Success [tokens false]))))
-
-(def: #export (exactly n p)
-  {#;doc "Parse exactly N times."}
-  (All [a] (-> Nat (Syntax a) (Syntax (List a))))
-  (if (n.> +0 n)
-    (do Monad<Syntax>
-      [x p
-       xs (exactly (n.dec n) p)]
-      (wrap (#;Cons x xs)))
-    (:: Monad<Syntax> wrap (list))))
-
-(def: #export (at-least n p)
-  {#;doc "Parse at least N times."}
-  (All [a] (-> Nat (Syntax a) (Syntax (List a))))
-  (do Monad<Syntax>
-    [min (exactly n p)
-     extra (some p)]
-    (wrap (List/append min extra))))
-
-(def: #export (at-most n p)
-  {#;doc "Parse at most N times."}
-  (All [a] (-> Nat (Syntax a) (Syntax (List a))))
-  (if (n.> +0 n)
-    (function [input]
-      (case (p input)
-        (#R;Error msg)
-        (#R;Success [input (list)])
-
-        (#R;Success [input' x])
-        (run input'
-             (do Monad<Syntax>
-               [xs (at-most (n.dec n) p)]
-               (wrap (#;Cons x xs))))
-        ))
-    (:: Monad<Syntax> wrap (list))))
-
-(def: #export (between from to p)
-  {#;doc "Parse between N and M times."}
-  (All [a] (-> Nat Nat (Syntax a) (Syntax (List a))))
-  (do Monad<Syntax>
-    [min-xs (exactly from p)
-     max-xs (at-most (n.- from to) p)]
-    (wrap (:: Monad<List> join (list min-xs max-xs)))))
-
-(def: #export (sep-by sep p)
-  {#;doc "Parsers instances of 'p' that are separated by instances of 'sep'."}
-  (All [a b] (-> (Syntax b) (Syntax a) (Syntax (List a))))
-  (do Monad<Syntax>
-    [?x (opt p)]
-    (case ?x
-      #;None
-      (wrap #;Nil)
-      
-      (#;Some x)
-      (do @
-        [xs' (some (seq sep p))]
-        (wrap (#;Cons x (map product;right xs'))))
-      )))
-
-(def: #export (not p)
-  (All [a] (-> (Syntax a) (Syntax Unit)))
-  (function [input]
-    (case (p input)
-      (#R;Error msg)
-      (#R;Success [input []])
-      
-      _
-      (#R;Error "Expected to fail; yet succeeded."))))
-
-(def: #export (fail message)
-  (All [a] (-> Text (Syntax a)))
-  (function [input]
-    (#R;Error message)))
-
-(def: #export (default value parser)
-  {#;doc "If the given parser fails, returns the default value."}
-  (All [a] (-> a (Syntax a) (Syntax a)))
-  (function [input]
-    (case (parser input)
-      (#R;Error error)
-      (#R;Success [input value])
-
-      (#R;Success [input' output])
-      (#R;Success [input' output]))))
 
 (def: #export (on compiler action)
   {#;doc "Run a Lux operation as if it was a Syntax parser."}
@@ -404,27 +202,11 @@
                                (|> (map code;to-text unconsumed-inputs)
                                    (text;join-with ", "))))))))
 
-(def: #export (rec syntax)
-  {#;doc "Combinator for recursive syntax."}
-  (All [a] (-> (-> (Syntax a) (Syntax a)) (Syntax a)))
-  (function [inputs]
-    (run inputs (syntax (rec syntax)))))
-
-(def: #export (after param subject)
-  (All [p s] (-> (Syntax p) (Syntax s) (Syntax s)))
-  (do Monad<Syntax>
-    [_ param]
-    subject))
-
-(def: #export (before param subject)
-  (All [p s] (-> (Syntax p) (Syntax s) (Syntax s)))
-  (do Monad<Syntax>
-    [output subject
-     _ param]
-    (wrap output)))
-
 ## [Syntax]
 (def: #hidden text.join-with text;join-with)
+
+(def: #hidden _run_ p;run)
+(def: #hidden _Monad<Parser>_ p;Monad<Parser>)
 
 (macro: #export (syntax: tokens)
   {#;doc (doc "A more advanced way to define macros than macro:."
@@ -497,14 +279,14 @@
           (wrap (list (` (macro: (~@ export-ast) ((~ (code;symbol ["" name])) (~ g!tokens))
                            (~ meta)
                            (function [(~ g!state)]
-                             (;_lux_case (run (~ g!tokens)
-                                              (: (Syntax (Lux (List Code)))
-                                                 (do Monad<Syntax>
-                                                   [(~@ (join-pairs vars+parsers))
-                                                    (~ g!end) end!]
-                                                   ((~' wrap) (do Monad<Lux>
-                                                                []
-                                                                (~ body))))))
+                             (;_lux_case (;;_run_ (~ g!tokens)
+                                                  (: (Syntax (Lux (List Code)))
+                                                     (do ;;_Monad<Parser>_
+                                                       [(~@ (join-pairs vars+parsers))
+                                                        (~ g!end) end!]
+                                                       ((~' wrap) (do Monad<Lux>
+                                                                    []
+                                                                    (~ body))))))
                                (#R;Success [(~ g!tokens) (~ g!body)])
                                ((~ g!body) (~ g!state))
 

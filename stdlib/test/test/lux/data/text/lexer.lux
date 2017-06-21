@@ -1,7 +1,8 @@
 (;module:
   lux
   (lux (control monad
-                pipe)
+                pipe
+                ["p" parser])
        [io]
        (data ["R" result]
              [text "T/" Eq<Text>]
@@ -70,34 +71,17 @@
 
 (context: "Literals"
   [size (|> r;nat (:: @ map (|>. (n.% +100) (n.max +10))))
-   pre (r;text size)
-   post (|> (r;text size)
-            (r;filter (|>. (text;starts-with? pre) not)))]
+   sample (r;text size)
+   non-sample (|> (r;text size)
+                  (r;filter (|>. (T/= sample) not)))]
   ($_ seq
       (test "Can find literal text fragments."
-            (and (|> (&;run (format pre post)
-                            (&;this pre))
+            (and (|> (&;run sample
+                            (&;this sample))
                      (case> (#;Right []) true _ false))
-                 (|> (&;run post
-                            (&;this pre))
+                 (|> (&;run non-sample
+                            (&;this sample))
                      (case> (#;Left _) true _ false))))
-      ))
-
-(context: "Char lexers"
-  ($_ seq
-      (test "Can lex characters."
-            (and (|> (&;run "YOLO"
-                            (&;this "Y"))
-                     (case> (#;Right []) true _ false))
-                 (|> (&;run "MEME"
-                            (&;this "Y"))
-                     (case> (#;Left _) true _ false))))
-
-      (test "Can lex characters ranges."
-            (and (should-passT "Y" (&;run "YOLO"
-                                          (&;char-range #"X" #"Z")))
-                 (should-fail (&;run "MEME"
-                                     (&;char-range #"X" #"Z")))))
       ))
 
 (context: "Custom lexers"
@@ -107,16 +91,22 @@
                                           &;any))
                  (should-fail (&;run ""
                                      &;any))))
+
+      (test "Can lex characters ranges."
+            (and (should-passT "Y" (&;run "Y"
+                                          (&;char-range #"X" #"Z")))
+                 (should-fail (&;run "M"
+                                     (&;char-range #"X" #"Z")))))
       
       (test "Can lex upper-case and &;lower-case letters."
-            (and (should-passT "Y" (&;run "YOLO"
+            (and (should-passT "Y" (&;run "Y"
                                           &;upper))
-                 (should-fail (&;run "meme"
+                 (should-fail (&;run "m"
                                      &;upper))
                  
-                 (should-passT "y" (&;run "yolo"
+                 (should-passT "y" (&;run "y"
                                           &;lower))
-                 (should-fail (&;run "MEME"
+                 (should-fail (&;run "M"
                                      &;lower))))
 
       (test "Can lex numbers."
@@ -168,34 +158,18 @@
 (context: "Combinators"
   ($_ seq
       (test "Can combine lexers sequentially."
-            (and (|> (&;run "YOLO"
-                            (&;seq &;any &;any))
+            (and (|> (&;run "YO"
+                            (p;seq &;any &;any))
                      (case> (#;Right ["Y" "O"]) true
                             _ false))
                  (should-fail (&;run "Y"
-                                     (&;seq &;any &;any)))))
+                                     (p;seq &;any &;any)))))
       
-      (test "Can combine lexers alternatively."
-            (and (should-passE (#;Left "0") (&;run "0"
-                                                   (&;alt &;digit &;upper)))
-                 (should-passE (#;Right "A") (&;run "A"
-                                                    (&;alt &;digit &;upper)))
-                 (should-fail (&;run "a"
-                                     (&;alt &;digit &;upper)))))
-
       (test "Can create the opposite of a lexer."
             (and (should-passT "a" (&;run "a"
-                                          (&;not (&;alt &;digit &;upper))))
+                                          (&;not (p;alt &;digit &;upper))))
                  (should-fail (&;run "A"
-                                     (&;not (&;alt &;digit &;upper))))))
-      
-      (test "Can use either lexer."
-            (and (should-passT "0" (&;run "0"
-                                          (&;either &;digit &;upper)))
-                 (should-passT "A" (&;run "A"
-                                          (&;either &;digit &;upper)))
-                 (should-fail (&;run "a"
-                                     (&;either &;digit &;upper)))))
+                                     (&;not (p;alt &;digit &;upper))))))
       
       (test "Can select from among a set of characters."
             (and (should-passT "C" (&;run "C"
@@ -216,90 +190,11 @@
                                      (&;satisfies (function [c] false))))))
       
       (test "Can apply a lexer multiple times."
-            (and (should-passT "0123456789ABCDEF" (&;run "0123456789ABCDEF yolo"
-                                                         (&;many' &;hex-digit)))
-                 (should-fail (&;run "yolo"
-                                     (&;many' &;hex-digit)))
-
-                 (should-passT "" (&;run "yolo"
-                                         (&;some' &;hex-digit)))))
-      ))
-
-(context: "Yet more combinators..."
-  ($_ seq
-      (test "Can fail at will."
-            (should-fail (&;run "yolo"
-                                (&;fail "Well, it really SHOULD fail..."))))
-      
-      (test "Can make assertions."
-            (and (should-fail (&;run "yolo"
-                                     (&;assert "Well, it really SHOULD fail..." false)))
-                 (|> (&;run "yolo"
-                            (&;assert "GO, GO, GO!" true))
-                     (case> (#;Right []) true
-                            _ false))))
-
-      (test "Can apply a lexer multiple times."
-            (and (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;many &;hex-digit)))
+            (and (should-passT "0123456789ABCDEF" (&;run "0123456789ABCDEF"
+                                                         (&;many &;hex-digit)))
                  (should-fail (&;run "yolo"
                                      (&;many &;hex-digit)))
 
-                 (should-passL (list)
-                               (&;run "yolo"
-                                      (&;some &;hex-digit)))))
-      
-      (test "Can lex exactly N elements."
-            (and (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;exactly +16 &;hex-digit)))
-                 (should-passL (list "0" "1" "2")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;exactly +3 &;hex-digit)))
-                 (should-fail (&;run "0123456789ABCDEF yolo"
-                                     (&;exactly +17 &;hex-digit)))))
-      
-      (test "Can lex at-most N elements."
-            (and (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;at-most +16 &;hex-digit)))
-                 (should-passL (list "0" "1" "2")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;at-most +3 &;hex-digit)))
-                 (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;at-most +17 &;hex-digit)))))
-      
-      (test "Can lex tokens between lower and upper boundaries of quantity."
-            (and (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;between +0 +16 &;hex-digit)))
-                 (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;between +3 +16 &;hex-digit)))
-                 (should-fail (&;run "0123456789ABCDEF yolo"
-                                     (&;between +17 +100 &;hex-digit)))
-                 (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F")
-                               (&;run "0123456789ABCDEF yolo"
-                                      (&;between +15 +20 &;hex-digit)))))
-
-      (test "Can optionally lex a token."
-            (and (|> (&;run "123abc"
-                            (&;opt &;hex-digit))
-                     (case> (#;Right (#;Some "1")) true
-                            _ false))
-                 (|> (&;run "yolo"
-                            (&;opt &;hex-digit))
-                     (case> (#;Right #;None) true
-                            _ false))))
-
-      (test "Can take into account separators during lexing."
-            (should-passL (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "a" "b" "c" "d" "e" "f")
-                          (&;run "0 1 2 3 4 5 6 7 8 9 a b c d e f YOLO"
-                                 (&;sep-by &;space &;hex-digit))))
-      
-      (test "Can obtain the whole of the remaining input."
-            (should-passT "yolo" (&;run "yolo"
-                                        &;get-input)))
+                 (should-passT "" (&;run ""
+                                         (&;some &;hex-digit)))))
       ))

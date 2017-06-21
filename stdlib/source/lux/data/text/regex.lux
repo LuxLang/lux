@@ -1,32 +1,33 @@
 (;module:
   lux
-  (lux (control monad)
+  (lux (control monad
+                ["p" parser "p/" Monad<Parser>])
        (data [char]
              [text]
-             ["&" text/lexer #+ Lexer Monad<Lexer> "&/" Monad<Lexer>]
+             ["l" text/lexer]
              text/format
              [number "Int/" Codec<Text,Int>]
              [product]
-             (coll [list "" Fold<List> "List/" Monad<List>]))
+             (coll [list "L/" Fold<List> Monad<List>]))
        [macro #- run]
        (macro [code]
               ["s" syntax #+ syntax:])))
 
 ## [Utils]
 (def: regex-char^
-  (Lexer Text)
-  (&;none-of "\\.|&()[]{}"))
+  (l;Lexer Text)
+  (l;none-of "\\.|&()[]{}"))
 
 (def: escaped-char^
-  (Lexer Text)
-  (do Monad<Lexer>
-    [? (&;this? "\\")]
+  (l;Lexer Text)
+  (do p;Monad<Parser>
+    [? (l;this? "\\")]
     (if ?
-      &;any
+      l;any
       regex-char^)))
 
 (def: (local^ state lexer)
-  (All [a] (-> Text (Lexer a) (Lexer a)))
+  (All [a] (-> Text (l;Lexer a) (l;Lexer a)))
   (function [old-state]
     (case (lexer state)
       (#;Left error)
@@ -36,178 +37,176 @@
       (#;Right [old-state value]))))
 
 (def: #hidden (refine^ refinement^ base^)
-  (All [a] (-> (Lexer a) (Lexer Text) (Lexer Text)))
-  (do Monad<Lexer>
+  (All [a] (-> (l;Lexer a) (l;Lexer Text) (l;Lexer Text)))
+  (do p;Monad<Parser>
     [output base^
      _ (local^ output refinement^)]
     (wrap output)))
 
 (def: #hidden word^
-  (Lexer Text)
-  (&;either &;alpha-num
-            (&;one-of "_")))
+  (l;Lexer Text)
+  (p;either l;alpha-num
+            (l;one-of "_")))
 
 (def: #hidden (copy reference)
-  (-> Text (Lexer Text))
-  (&;after (&;this reference) (&/wrap reference)))
+  (-> Text (l;Lexer Text))
+  (p;after (l;this reference) (p/wrap reference)))
 
 (def: #hidden (join-text^ part^)
-  (-> (Lexer (List Text)) (Lexer Text))
-  (do Monad<Lexer>
+  (-> (l;Lexer (List Text)) (l;Lexer Text))
+  (do p;Monad<Parser>
     [parts part^]
     (wrap (text;join-with "" parts))))
 
 (def: identifier-char^
-  (Lexer Text)
-  (&;none-of "[]{}()s\"#;<>"))
+  (l;Lexer Text)
+  (l;none-of "[]{}()s\"#;<>"))
 
 (def: identifier-part^
-  (Lexer Text)
-  (do Monad<Lexer>
-    [head (refine^ (&;not &;digit)
+  (l;Lexer Text)
+  (do p;Monad<Parser>
+    [head (refine^ (l;not l;digit)
                    identifier-char^)
-     tail (&;some' identifier-char^)]
+     tail (l;some identifier-char^)]
     (wrap (format head tail))))
 
 (def: (identifier^ current-module)
-  (-> Text (Lexer Ident))
-  (do Monad<Lexer>
-    []
-    ($_ &;either
-        (&;seq (wrap current-module) (&;after (&;this ";;") identifier-part^))
-        (&;seq identifier-part^ (&;after (&;this ";") identifier-part^))
-        (&;seq (wrap "lux") (&;after (&;this ";") identifier-part^))
-        (&;seq (wrap "") identifier-part^))))
+  (-> Text (l;Lexer Ident))
+  ($_ p;either
+      (p;seq (p/wrap current-module) (p;after (l;this ";;") identifier-part^))
+      (p;seq identifier-part^ (p;after (l;this ";") identifier-part^))
+      (p;seq (p/wrap "lux") (p;after (l;this ";") identifier-part^))
+      (p;seq (p/wrap "") identifier-part^)))
 
 (def: (re-var^ current-module)
-  (-> Text (Lexer Code))
-  (do Monad<Lexer>
-    [ident (&;enclosed ["\\@<" ">"] (identifier^ current-module))]
-    (wrap (` (: (Lexer Text) (~ (code;symbol ident)))))))
+  (-> Text (l;Lexer Code))
+  (do p;Monad<Parser>
+    [ident (l;enclosed ["\\@<" ">"] (identifier^ current-module))]
+    (wrap (` (: (l;Lexer Text) (~ (code;symbol ident)))))))
 
 (def: re-char-range^
-  (Lexer Code)
-  (do Monad<Lexer>
+  (l;Lexer Code)
+  (do p;Monad<Parser>
     [from (|> regex-char^ (:: @ map (|>. (text;nth +0) assume)))
-     _ (&;this "-")
+     _ (l;this "-")
      to (|> regex-char^ (:: @ map (|>. (text;nth +0) assume)))]
-    (wrap (` (&;char-range (~ (code;char from)) (~ (code;char to)))))))
+    (wrap (` (l;char-range (~ (code;char from)) (~ (code;char to)))))))
 
 (def: re-char^
-  (Lexer Code)
-  (do Monad<Lexer>
+  (l;Lexer Code)
+  (do p;Monad<Parser>
     [char escaped-char^]
     (wrap (` (;;copy (~ (code;text char)))))))
 
 (def: re-char-options^
-  (Lexer Code)
-  (do Monad<Lexer>
-    [options (&;many' escaped-char^)]
-    (wrap (` (&;one-of (~ (code;text options)))))))
+  (l;Lexer Code)
+  (do p;Monad<Parser>
+    [options (l;many escaped-char^)]
+    (wrap (` (l;one-of (~ (code;text options)))))))
 
 (def: re-user-class^'
-  (Lexer Code)
-  (do Monad<Lexer>
-    [negate? (&;opt (&;this "^"))
-     parts (&;many ($_ &;either
+  (l;Lexer Code)
+  (do p;Monad<Parser>
+    [negate? (p;opt (l;this "^"))
+     parts (p;many ($_ p;either
                        re-char-range^
                        re-char-options^))]
     (wrap (case negate?
-            (#;Some _) (` (&;not ($_ &;either (~@ parts))))
-            #;None     (` ($_ &;either (~@ parts)))))))
+            (#;Some _) (` (l;not ($_ p;either (~@ parts))))
+            #;None     (` ($_ p;either (~@ parts)))))))
 
 (def: re-user-class^
-  (Lexer Code)
-  (do Monad<Lexer>
+  (l;Lexer Code)
+  (do p;Monad<Parser>
     [_ (wrap [])
      init re-user-class^'
-     rest (&;some (&;after (&;this "&&") (&;enclosed ["[" "]"] re-user-class^')))]
-    (wrap (fold (function [refinement base]
-                  (` (refine^ (~ refinement) (~ base))))
-                init
-                rest))))
+     rest (p;some (p;after (l;this "&&") (l;enclosed ["[" "]"] re-user-class^')))]
+    (wrap (L/fold (function [refinement base]
+                    (` (refine^ (~ refinement) (~ base))))
+                  init
+                  rest))))
 
 (def: #hidden blank^
-  (Lexer Text)
-  (&;one-of " \t"))
+  (l;Lexer Text)
+  (l;one-of " \t"))
 
 (def: #hidden ascii^
-  (Lexer Text)
-  (&;char-range #"\u0000" #"\u007F"))
+  (l;Lexer Text)
+  (l;char-range #"\u0000" #"\u007F"))
 
 (def: #hidden control^
-  (Lexer Text)
-  (&;either (&;char-range #"\u0000" #"\u001F")
-            (&;one-of "\u007F")))
+  (l;Lexer Text)
+  (p;either (l;char-range #"\u0000" #"\u001F")
+            (l;one-of "\u007F")))
 
 (def: #hidden punct^
-  (Lexer Text)
-  (&;one-of "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"))
+  (l;Lexer Text)
+  (l;one-of "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"))
 
 (def: #hidden graph^
-  (Lexer Text)
-  (&;either punct^ &;alpha-num))
+  (l;Lexer Text)
+  (p;either punct^ l;alpha-num))
 
 (def: #hidden print^
-  (Lexer Text)
-  (&;either graph^
-            (&;one-of "\u0020")))
+  (l;Lexer Text)
+  (p;either graph^
+            (l;one-of "\u0020")))
 
 (def: re-system-class^
-  (Lexer Code)
-  (do Monad<Lexer>
+  (l;Lexer Code)
+  (do p;Monad<Parser>
     []
-    ($_ &;either
-        (&;after (&;this ".") (wrap (` &;any)))
-        (&;after (&;this "\\d") (wrap (` &;digit)))
-        (&;after (&;this "\\D") (wrap (` (&;not &;digit))))
-        (&;after (&;this "\\s") (wrap (` &;space)))
-        (&;after (&;this "\\S") (wrap (` (&;not &;space))))
-        (&;after (&;this "\\w") (wrap (` word^)))
-        (&;after (&;this "\\W") (wrap (` (&;not word^))))
+    ($_ p;either
+        (p;after (l;this ".") (wrap (` l;any)))
+        (p;after (l;this "\\d") (wrap (` l;digit)))
+        (p;after (l;this "\\D") (wrap (` (l;not l;digit))))
+        (p;after (l;this "\\s") (wrap (` l;space)))
+        (p;after (l;this "\\S") (wrap (` (l;not l;space))))
+        (p;after (l;this "\\w") (wrap (` word^)))
+        (p;after (l;this "\\W") (wrap (` (l;not word^))))
 
-        (&;after (&;this "\\p{Lower}") (wrap (` &;lower)))
-        (&;after (&;this "\\p{Upper}") (wrap (` &;upper)))
-        (&;after (&;this "\\p{Alpha}") (wrap (` &;alpha)))
-        (&;after (&;this "\\p{Digit}") (wrap (` &;digit)))
-        (&;after (&;this "\\p{Alnum}") (wrap (` &;alpha-num)))
-        (&;after (&;this "\\p{Space}") (wrap (` &;space)))
-        (&;after (&;this "\\p{HexDigit}") (wrap (` &;hex-digit)))
-        (&;after (&;this "\\p{OctDigit}") (wrap (` &;oct-digit)))
-        (&;after (&;this "\\p{Blank}") (wrap (` blank^)))
-        (&;after (&;this "\\p{ASCII}") (wrap (` ascii^)))
-        (&;after (&;this "\\p{Contrl}") (wrap (` control^)))
-        (&;after (&;this "\\p{Punct}") (wrap (` punct^)))
-        (&;after (&;this "\\p{Graph}") (wrap (` graph^)))
-        (&;after (&;this "\\p{Print}") (wrap (` print^)))
+        (p;after (l;this "\\p{Lower}") (wrap (` l;lower)))
+        (p;after (l;this "\\p{Upper}") (wrap (` l;upper)))
+        (p;after (l;this "\\p{Alpha}") (wrap (` l;alpha)))
+        (p;after (l;this "\\p{Digit}") (wrap (` l;digit)))
+        (p;after (l;this "\\p{Alnum}") (wrap (` l;alpha-num)))
+        (p;after (l;this "\\p{Space}") (wrap (` l;space)))
+        (p;after (l;this "\\p{HexDigit}") (wrap (` l;hex-digit)))
+        (p;after (l;this "\\p{OctDigit}") (wrap (` l;oct-digit)))
+        (p;after (l;this "\\p{Blank}") (wrap (` blank^)))
+        (p;after (l;this "\\p{ASCII}") (wrap (` ascii^)))
+        (p;after (l;this "\\p{Contrl}") (wrap (` control^)))
+        (p;after (l;this "\\p{Punct}") (wrap (` punct^)))
+        (p;after (l;this "\\p{Graph}") (wrap (` graph^)))
+        (p;after (l;this "\\p{Print}") (wrap (` print^)))
         )))
 
 (def: re-class^
-  (Lexer Code)
-  (&;either re-system-class^
-            (&;enclosed ["[" "]"] re-user-class^)))
+  (l;Lexer Code)
+  (p;either re-system-class^
+            (l;enclosed ["[" "]"] re-user-class^)))
 
 (def: number^
-  (Lexer Nat)
-  (|> (&;many' &;digit)
-      (&;codec number;Codec<Text,Int>)
-      (&/map int-to-nat)))
+  (l;Lexer Nat)
+  (|> (l;many l;digit)
+      (l;codec number;Codec<Text,Int>)
+      (p/map int-to-nat)))
 
 (def: re-back-reference^
-  (Lexer Code)
-  (&;either (do Monad<Lexer>
-              [_ (&;this "\\")
+  (l;Lexer Code)
+  (p;either (do p;Monad<Parser>
+              [_ (l;this "\\")
                id number^]
               (wrap (` (;;copy (~ (code;symbol ["" (Int/encode (nat-to-int id))]))))))
-            (do Monad<Lexer>
-              [_ (&;this "\\k<")
+            (do p;Monad<Parser>
+              [_ (l;this "\\k<")
                captured-name identifier-part^
-               _ (&;this ">")]
+               _ (l;this ">")]
               (wrap (` (;;copy (~ (code;symbol ["" captured-name]))))))))
 
 (def: (re-simple^ current-module)
-  (-> Text (Lexer Code))
-  ($_ &;either
+  (-> Text (l;Lexer Code))
+  ($_ p;either
       re-class^
       (re-var^ current-module)
       re-back-reference^
@@ -215,51 +214,51 @@
       ))
 
 (def: (re-simple-quantified^ current-module)
-  (-> Text (Lexer Code))
-  (do Monad<Lexer>
+  (-> Text (l;Lexer Code))
+  (do p;Monad<Parser>
     [base (re-simple^ current-module)
-     quantifier (&;one-of "?*+")]
+     quantifier (l;one-of "?*+")]
     (case quantifier
       "?"
-      (wrap (` (&;default "" (~ base))))
+      (wrap (` (p;default "" (~ base))))
       
       "*"
-      (wrap (` (join-text^ (&;some (~ base)))))
+      (wrap (` (join-text^ (p;some (~ base)))))
       
       ## "+"
       _
-      (wrap (` (join-text^ (&;many (~ base)))))
+      (wrap (` (join-text^ (p;many (~ base)))))
       )))
 
 (def: (re-counted-quantified^ current-module)
-  (-> Text (Lexer Code))
-  (do Monad<Lexer>
+  (-> Text (l;Lexer Code))
+  (do p;Monad<Parser>
     [base (re-simple^ current-module)]
-    (&;enclosed ["{" "}"]
-                ($_ &;either
+    (l;enclosed ["{" "}"]
+                ($_ p;either
                     (do @
-                      [[from to] (&;seq number^ (&;after (&;this ",") number^))]
-                      (wrap (` (join-text^ (&;between (~ (code;nat from))
+                      [[from to] (p;seq number^ (p;after (l;this ",") number^))]
+                      (wrap (` (join-text^ (p;between (~ (code;nat from))
                                                       (~ (code;nat to))
                                                       (~ base))))))
                     (do @
-                      [limit (&;after (&;this ",") number^)]
-                      (wrap (` (join-text^ (&;at-most (~ (code;nat limit)) (~ base))))))
+                      [limit (p;after (l;this ",") number^)]
+                      (wrap (` (join-text^ (p;at-most (~ (code;nat limit)) (~ base))))))
                     (do @
-                      [limit (&;before (&;this ",") number^)]
-                      (wrap (` (join-text^ (&;at-least (~ (code;nat limit)) (~ base))))))
+                      [limit (p;before (l;this ",") number^)]
+                      (wrap (` (join-text^ (p;at-least (~ (code;nat limit)) (~ base))))))
                     (do @
                       [limit number^]
-                      (wrap (` (join-text^ (&;exactly (~ (code;nat limit)) (~ base))))))))))
+                      (wrap (` (join-text^ (p;exactly (~ (code;nat limit)) (~ base))))))))))
 
 (def: (re-quantified^ current-module)
-  (-> Text (Lexer Code))
-  (&;either (re-simple-quantified^ current-module)
+  (-> Text (l;Lexer Code))
+  (p;either (re-simple-quantified^ current-module)
             (re-counted-quantified^ current-module)))
 
 (def: (re-complex^ current-module)
-  (-> Text (Lexer Code))
-  ($_ &;either
+  (-> Text (l;Lexer Code))
+  ($_ p;either
       (re-quantified^ current-module)
       (re-simple^ current-module)))
 
@@ -273,61 +272,61 @@
 
 (def: (re-sequential^ capturing? re-scoped^ current-module)
   (-> Bool
-      (-> Text (Lexer [Re-Group Code]))
+      (-> Text (l;Lexer [Re-Group Code]))
       Text
-      (Lexer [Nat Code]))
-  (do Monad<Lexer>
-    [parts (&;many (&;alt (re-complex^ current-module)
+      (l;Lexer [Nat Code]))
+  (do p;Monad<Parser>
+    [parts (p;many (p;alt (re-complex^ current-module)
                           (re-scoped^ current-module)))
      #let [g!total (code;symbol ["" "0total"])
            g!temp (code;symbol ["" "0temp"])
-           [_ names steps] (fold (: (-> (Either Code [Re-Group Code])
-                                        [Int (List Code) (List (List Code))]
-                                        [Int (List Code) (List (List Code))])
-                                    (function [part [idx names steps]]
-                                      (case part
-                                        (^or (#;Left complex) (#;Right [#Non-Capturing complex]))
-                                        [idx
-                                         names
-                                         (list& (list g!temp complex
-                                                      (' #let) (` [(~ g!total) (_Text/append_ (~ g!total) (~ g!temp))]))
-                                                steps)]
-                                        
-                                        (#;Right [(#Capturing [?name num-captures]) scoped])
-                                        (let [[idx! name!] (case ?name
-                                                             (#;Some _name)
-                                                             [idx (code;symbol ["" _name])]
+           [_ names steps] (L/fold (: (-> (Either Code [Re-Group Code])
+                                          [Int (List Code) (List (List Code))]
+                                          [Int (List Code) (List (List Code))])
+                                      (function [part [idx names steps]]
+                                        (case part
+                                          (^or (#;Left complex) (#;Right [#Non-Capturing complex]))
+                                          [idx
+                                           names
+                                           (list& (list g!temp complex
+                                                        (' #let) (` [(~ g!total) (_Text/append_ (~ g!total) (~ g!temp))]))
+                                                  steps)]
+                                          
+                                          (#;Right [(#Capturing [?name num-captures]) scoped])
+                                          (let [[idx! name!] (case ?name
+                                                               (#;Some _name)
+                                                               [idx (code;symbol ["" _name])]
 
-                                                             #;None
-                                                             [(i.inc idx) (code;symbol ["" (Int/encode idx)])])
-                                              access (if (n.> +0 num-captures)
-                                                       (` (product;left (~ name!)))
-                                                       name!)]
-                                          [idx!
-                                           (list& name! names)
-                                           (list& (list name! scoped
-                                                        (' #let) (` [(~ g!total) (_Text/append_ (~ g!total) (~ access))]))
-                                                  steps)])
-                                        )))
-                                 [0
-                                  (: (List Code) (list))
-                                  (: (List (List Code)) (list))]
-                                 parts)]]
+                                                               #;None
+                                                               [(i.inc idx) (code;symbol ["" (Int/encode idx)])])
+                                                access (if (n.> +0 num-captures)
+                                                         (` (product;left (~ name!)))
+                                                         name!)]
+                                            [idx!
+                                             (list& name! names)
+                                             (list& (list name! scoped
+                                                          (' #let) (` [(~ g!total) (_Text/append_ (~ g!total) (~ access))]))
+                                                    steps)])
+                                          )))
+                                   [0
+                                    (: (List Code) (list))
+                                    (: (List (List Code)) (list))]
+                                   parts)]]
     (wrap [(if capturing?
              (list;size names)
              +0)
-           (` (do Monad<Lexer>
+           (` (do p;Monad<Parser>
                 [(~ (' #let)) [(~ g!total) ""]
-                 (~@ (|> steps list;reverse List/join))]
+                 (~@ (|> steps list;reverse L/join))]
                 ((~ (' wrap)) [(~ g!total) (~@ (list;reverse names))])))])
     ))
 
 (def: #hidden (unflatten^ lexer)
-  (-> (Lexer Text) (Lexer [Text Unit]))
-  (&;seq lexer (:: Monad<Lexer> wrap [])))
+  (-> (l;Lexer Text) (l;Lexer [Text Unit]))
+  (p;seq lexer (:: p;Monad<Parser> wrap [])))
 
 (def: #hidden (|||^ left right)
-  (All [l r] (-> (Lexer [Text l]) (Lexer [Text r]) (Lexer [Text (| l r)])))
+  (All [l r] (-> (l;Lexer [Text l]) (l;Lexer [Text r]) (l;Lexer [Text (| l r)])))
   (function [input]
     (case (left input)
       (#;Right [input' [lt lv]])
@@ -342,7 +341,7 @@
         (#;Left error)))))
 
 (def: #hidden (|||_^ left right)
-  (All [l r] (-> (Lexer [Text l]) (Lexer [Text r]) (Lexer Text)))
+  (All [l r] (-> (l;Lexer [Text l]) (l;Lexer [Text r]) (l;Lexer Text)))
   (function [input]
     (case (left input)
       (#;Right [input' [lt lv]])
@@ -364,48 +363,48 @@
 
 (def: (re-alternative^ capturing? re-scoped^ current-module)
   (-> Bool
-      (-> Text (Lexer [Re-Group Code]))
+      (-> Text (l;Lexer [Re-Group Code]))
       Text
-      (Lexer [Nat Code]))
-  (do Monad<Lexer>
+      (l;Lexer [Nat Code]))
+  (do p;Monad<Parser>
     [#let [sub^ (re-sequential^ capturing? re-scoped^ current-module)]
      head sub^
-     tail (&;some (&;after (&;this "|") sub^))
+     tail (p;some (p;after (l;this "|") sub^))
      #let [g!op (if capturing?
                   (` |||^)
                   (` |||_^))]]
     (if (list;empty? tail)
       (wrap head)
-      (wrap [(fold n.max (product;left head) (List/map product;left tail))
-             (` ($_ (~ g!op) (~ (prep-alternative head)) (~@ (List/map prep-alternative tail))))]))))
+      (wrap [(L/fold n.max (product;left head) (L/map product;left tail))
+             (` ($_ (~ g!op) (~ (prep-alternative head)) (~@ (L/map prep-alternative tail))))]))))
 
 (def: (re-scoped^ current-module)
-  (-> Text (Lexer [Re-Group Code]))
-  ($_ &;either
-      (do Monad<Lexer>
-        [_ (&;this "(?:")
+  (-> Text (l;Lexer [Re-Group Code]))
+  ($_ p;either
+      (do p;Monad<Parser>
+        [_ (l;this "(?:")
          [_ scoped] (re-alternative^ false re-scoped^ current-module)
-         _ (&;this ")")]
+         _ (l;this ")")]
         (wrap [#Non-Capturing scoped]))
-      (do Monad<Lexer>
+      (do p;Monad<Parser>
         [complex (re-complex^ current-module)]
         (wrap [#Non-Capturing complex]))
-      (do Monad<Lexer>
-        [_ (&;this "(?<")
+      (do p;Monad<Parser>
+        [_ (l;this "(?<")
          captured-name identifier-part^
-         _ (&;this ">")
+         _ (l;this ">")
          [num-captures pattern] (re-alternative^ true re-scoped^ current-module)
-         _ (&;this ")")]
+         _ (l;this ")")]
         (wrap [(#Capturing [(#;Some captured-name) num-captures]) pattern]))
-      (do Monad<Lexer>
-        [_ (&;this "(")
+      (do p;Monad<Parser>
+        [_ (l;this "(")
          [num-captures pattern] (re-alternative^ true re-scoped^ current-module)
-         _ (&;this ")")]
+         _ (l;this ")")]
         (wrap [(#Capturing [#;None num-captures]) pattern]))))
 
 (def: (regex^ current-module)
-  (-> Text (Lexer Code))
-  (:: Monad<Lexer> map product;right (re-alternative^ true re-scoped^ current-module)))
+  (-> Text (l;Lexer Code))
+  (:: p;Monad<Parser> map product;right (re-alternative^ true re-scoped^ current-module)))
 
 ## [Syntax]
 (syntax: #export (regex [pattern s;text])
@@ -470,8 +469,8 @@
   (do @
     [current-module macro;current-module-name]
     (case (|> (regex^ current-module)
-              (&;before &;end)
-              (&;run pattern))
+              (p;before l;end)
+              (l;run pattern))
       (#;Left error)
       (macro;fail (format "Error while parsing regular-expression:\n"
                           error))
@@ -480,9 +479,9 @@
       (wrap (list regex))
       )))
 
-(syntax: #export (^regex [[pattern bindings] (s;form (s;seq s;text (s;opt s;any)))]
+(syntax: #export (^regex [[pattern bindings] (s;form (p;seq s;text (p;opt s;any)))]
                          body
-                         [branches (s;many s;any)])
+                         [branches (p;many s;any)])
   {#;doc (doc "Allows you to test text against regular expressions."
               (case some-text
                 (^regex "(\\d{3})-(\\d{3})-(\\d{4})"
@@ -497,7 +496,7 @@
   (do @
     [g!temp (macro;gensym "temp")]
     (wrap (list& (` (^multi (~ g!temp)
-                            [(&;run (~ g!temp) (regex (~ (code;text pattern))))
+                            [(l;run (~ g!temp) (regex (~ (code;text pattern))))
                              (#;Right (~ (default g!temp
                                            bindings)))]))
                  body

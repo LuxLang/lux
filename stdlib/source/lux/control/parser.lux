@@ -1,0 +1,248 @@
+(;module:
+  [lux #- not default]
+  (lux (control functor
+                applicative
+                monad)
+       (data (coll [list "L/" Functor<List> Monoid<List>])
+             [product]
+             ["R" result])))
+
+(type: #export (Parser s a)
+  {#;doc "A generic parser."}
+  (-> s (R;Result [s a])))
+
+## [Structures]
+(struct: #export Functor<Parser> (All [s] (Functor (Parser s)))
+  (def: (map f ma)
+    (function [input]
+      (case (ma input)
+        (#R;Error msg)
+        (#R;Error msg)
+
+        (#R;Success [input' a])
+        (#R;Success [input' (f a)])))))
+
+(struct: #export Applicative<Parser> (All [s] (Applicative (Parser s)))
+  (def: functor Functor<Parser>)
+
+  (def: (wrap x)
+    (function [input]
+      (#R;Success [input x])))
+
+  (def: (apply ff fa)
+    (function [input]
+      (case (ff input)
+        (#R;Success [input' f])
+        (case (fa input')
+          (#R;Success [input'' a])
+          (#R;Success [input'' (f a)])
+
+          (#R;Error msg)
+          (#R;Error msg))
+
+        (#R;Error msg)
+        (#R;Error msg)))))
+
+(struct: #export Monad<Parser> (All [s] (Monad (Parser s)))
+  (def: applicative Applicative<Parser>)
+
+  (def: (join mma)
+    (function [input]
+      (case (mma input)
+        (#R;Error msg)
+        (#R;Error msg)
+
+        (#R;Success [input' ma])
+        (ma input')))))
+
+## [Parsers]
+(def: #export (assert message test)
+  {#;doc "Fails with the given message if the test is false."}
+  (All [s] (-> Text Bool (Parser s Unit)))
+  (function [input]
+    (if test
+      (#R;Success [input []])
+      (#R;Error message))))
+
+(def: #export (opt p)
+  {#;doc "Optionality combinator."}
+  (All [s a]
+    (-> (Parser s a) (Parser s (Maybe a))))
+  (function [input]
+    (case (p input)
+      (#R;Error _)            (#R;Success [input #;None])
+      (#R;Success [input' x]) (#R;Success [input' (#;Some x)]))))
+
+(def: #export (run input p)
+  (All [s a]
+    (-> s (Parser s a) (R;Result [s a])))
+  (p input))
+
+(def: #export (some p)
+  {#;doc "0-or-more combinator."}
+  (All [s a]
+    (-> (Parser s a) (Parser s (List a))))
+  (function [input]
+    (case (p input)
+      (#R;Error _)            (#R;Success [input (list)])
+      (#R;Success [input' x]) (run input'
+                                   (do Monad<Parser>
+                                     [xs (some p)]
+                                     (wrap (list& x xs)))
+                                   ))))
+
+(def: #export (many p)
+  {#;doc "1-or-more combinator."}
+  (All [s a]
+    (-> (Parser s a) (Parser s (List a))))
+  (do Monad<Parser>
+    [x p
+     xs (some p)]
+    (wrap (list& x xs))))
+
+(def: #export (seq p1 p2)
+  {#;doc "Sequencing combinator."}
+  (All [s a b]
+    (-> (Parser s a) (Parser s b) (Parser s [a b])))
+  (do Monad<Parser>
+    [x1 p1
+     x2 p2]
+    (wrap [x1 x2])))
+
+(def: #export (alt p1 p2)
+  {#;doc "Heterogeneous alternative combinator."}
+  (All [s a b]
+    (-> (Parser s a) (Parser s b) (Parser s (| a b))))
+  (function [tokens]
+    (case (p1 tokens)
+      (#R;Success [tokens' x1]) (#R;Success [tokens' (+0 x1)])
+      (#R;Error _)             (run tokens
+                                    (do Monad<Parser>
+                                      [x2 p2]
+                                      (wrap (+1 x2))))
+      )))
+
+(def: #export (either pl pr)
+  {#;doc "Homogeneous alternative combinator."}
+  (All [s a]
+    (-> (Parser s a) (Parser s a) (Parser s a)))
+  (function [tokens]
+    (case (pl tokens)
+      (#R;Error _) (pr tokens)
+      output     output
+      )))
+
+(def: #export (exactly n p)
+  {#;doc "Parse exactly N times."}
+  (All [s a] (-> Nat (Parser s a) (Parser s (List a))))
+  (if (n.> +0 n)
+    (do Monad<Parser>
+      [x p
+       xs (exactly (n.dec n) p)]
+      (wrap (#;Cons x xs)))
+    (:: Monad<Parser> wrap (list))))
+
+(def: #export (at-least n p)
+  {#;doc "Parse at least N times."}
+  (All [s a] (-> Nat (Parser s a) (Parser s (List a))))
+  (do Monad<Parser>
+    [min (exactly n p)
+     extra (some p)]
+    (wrap (L/append min extra))))
+
+(def: #export (at-most n p)
+  {#;doc "Parse at most N times."}
+  (All [s a] (-> Nat (Parser s a) (Parser s (List a))))
+  (if (n.> +0 n)
+    (function [input]
+      (case (p input)
+        (#R;Error msg)
+        (#R;Success [input (list)])
+
+        (#R;Success [input' x])
+        (run input'
+             (do Monad<Parser>
+               [xs (at-most (n.dec n) p)]
+               (wrap (#;Cons x xs))))
+        ))
+    (:: Monad<Parser> wrap (list))))
+
+(def: #export (between from to p)
+  {#;doc "Parse between N and M times."}
+  (All [s a] (-> Nat Nat (Parser s a) (Parser s (List a))))
+  (do Monad<Parser>
+    [min-xs (exactly from p)
+     max-xs (at-most (n.- from to) p)]
+    (wrap (:: list;Monad<List> join (list min-xs max-xs)))))
+
+(def: #export (sep-by sep p)
+  {#;doc "Parsers instances of 'p' that are separated by instances of 'sep'."}
+  (All [s a b] (-> (Parser s b) (Parser s a) (Parser s (List a))))
+  (do Monad<Parser>
+    [?x (opt p)]
+    (case ?x
+      #;None
+      (wrap #;Nil)
+      
+      (#;Some x)
+      (do @
+        [xs' (some (seq sep p))]
+        (wrap (#;Cons x (L/map product;right xs'))))
+      )))
+
+(def: #export (not p)
+  (All [s a] (-> (Parser s a) (Parser s Unit)))
+  (function [input]
+    (case (p input)
+      (#R;Error msg)
+      (#R;Success [input []])
+      
+      _
+      (#R;Error "Expected to fail; yet succeeded."))))
+
+(def: #export (fail message)
+  (All [s a] (-> Text (Parser s a)))
+  (function [input]
+    (#R;Error message)))
+
+(def: #export (default value parser)
+  {#;doc "If the given parser fails, returns the default value."}
+  (All [s a] (-> a (Parser s a) (Parser s a)))
+  (function [input]
+    (case (parser input)
+      (#R;Error error)
+      (#R;Success [input value])
+
+      (#R;Success [input' output])
+      (#R;Success [input' output]))))
+
+(def: #export remaining
+  (All [s] (Parser s s))
+  (function [inputs]
+    (#R;Success [inputs inputs])))
+
+(def: #export (rec parser)
+  {#;doc "Combinator for recursive parser."}
+  (All [s a] (-> (-> (Parser s a) (Parser s a)) (Parser s a)))
+  (function [inputs]
+    (run inputs (parser (rec parser)))))
+
+(def: #export (after param subject)
+  (All [s _ a] (-> (Parser s _) (Parser s a) (Parser s a)))
+  (do Monad<Parser>
+    [_ param]
+    subject))
+
+(def: #export (before param subject)
+  (All [s _ a] (-> (Parser s _) (Parser s a) (Parser s a)))
+  (do Monad<Parser>
+    [output subject
+     _ param]
+    (wrap output)))
+
+(def: #export (constrain test parser)
+  (All [s a] (-> (-> a Bool) (Parser s a) (Parser s a)))
+  (do Monad<Parser>
+    [output parser
+     _ (assert "Constraint failed." (test output))]
+    (wrap output)))

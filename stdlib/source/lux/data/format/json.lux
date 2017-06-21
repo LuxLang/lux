@@ -6,22 +6,23 @@
                 applicative
                 monad
                 eq
-                codec)
+                codec
+                ["p" parser "p/" Monad<Parser>])
        (data [bool]
              [text "Text/" Eq<Text> Monoid<Text>]
              text/format
-             (text ["l" lexer #+ Lexer Monad<Lexer> "Lexer/" Monad<Lexer>])
+             (text ["l" lexer])
              [number "Real/" Codec<Text,Real>]
              maybe
              [char "Char/" Codec<Text,Char>]
              ["R" result]
              [sum]
              [product]
-             (coll [list "" Fold<List> "List/" Monad<List>]
+             (coll [list "L/" Fold<List> Monad<List>]
                    [vector #+ Vector vector "Vector/" Monad<Vector>]
                    ["d" dict]))
        [macro #+ Monad<Lux> with-gensyms]
-       (macro [syntax #+ syntax:]
+       (macro ["s" syntax #+ syntax:]
               [code]
               [poly #+ poly:])
        [type]
@@ -86,7 +87,7 @@
       (wrap (list (` (: JSON #Null))))
 
       [_ (#;Tuple members)]
-      (wrap (list (` (: JSON (#Array (vector (~@ (List/map wrapper members))))))))
+      (wrap (list (` (: JSON (#Array (vector (~@ (L/map wrapper members))))))))
 
       [_ (#;Record pairs)]
       (do Monad<Lux>
@@ -125,7 +126,7 @@
   (format "{"
           (|> object
               d;entries
-              (List/map (function [[key value]] (format (:: text;Codec<Text,Text> encode key) ":" (show-json value))))
+              (L/map (function [[key value]] (format (:: text;Codec<Text,Text> encode key) ":" (show-json value))))
               (text;join-with ","))
           "}"))
 
@@ -227,23 +228,23 @@
 
 ## Lexers
 (def: space~
-  (Lexer Text)
-  (l;some' l;space))
+  (l;Lexer Text)
+  (l;some l;space))
 
 (def: data-sep
-  (Lexer [Text Unit Text])
-  ($_ l;seq space~ (l;this ",") space~))
+  (l;Lexer [Text Unit Text])
+  ($_ p;seq space~ (l;this ",") space~))
 
 (def: null~
-  (Lexer Null)
-  (do Monad<Lexer>
+  (l;Lexer Null)
+  (do p;Monad<Parser>
     [_ (l;this "null")]
     (wrap [])))
 
 (do-template [<name> <token> <value>]
   [(def: <name>
-     (Lexer Boolean)
-     (do Monad<Lexer>
+     (l;Lexer Boolean)
+     (do p;Monad<Parser>
        [_ (l;this <token>)]
        (wrap <value>)))]
 
@@ -252,52 +253,48 @@
   )
 
 (def: boolean~
-  (Lexer Boolean)
-  (l;either t~ f~))
+  (l;Lexer Boolean)
+  (p;either t~ f~))
 
 (def: number~
-  (Lexer Number)
-  (do Monad<Lexer>
+  (l;Lexer Number)
+  (do p;Monad<Parser>
     [signed? (l;this? "-")
-     digits (: (Lexer Text)
-               (l;many' l;digit))
-     decimals (: (Lexer Text)
-                 (l;default "0"
-                   (do @
-                     [_ (l;this ".")]
-                     (l;many' l;digit))))
-     exp (: (Lexer Text)
-            (l;default ""
-              (do @
-                [mark (l;one-of "eE")
-                 signed?' (l;this? "-")
-                 offset (l;many' l;digit)]
-                (wrap (format mark (if signed?' "-" "") offset)))))]
-    (case (: (R;Result Real)
-             (Real/decode (format (if signed? "-" "") digits "." decimals exp)))
+     digits (l;many l;digit)
+     decimals (p;default "0"
+                (do @
+                  [_ (l;this ".")]
+                  (l;many l;digit)))
+     exp (p;default ""
+           (do @
+             [mark (l;one-of "eE")
+              signed?' (l;this? "-")
+              offset (l;many l;digit)]
+             (wrap (format mark (if signed?' "-" "") offset))))]
+    (case (Real/decode (format (if signed? "-" "") digits "." decimals exp))
       (#R;Error message)
-      (l;fail message)
+      (p;fail message)
       
       (#R;Success value)
       (wrap value))))
 
 (def: escaped~
-  (Lexer Text)
-  ($_ l;either
-      (l;after (l;this "\\t") (Lexer/wrap "\t"))
-      (l;after (l;this "\\b") (Lexer/wrap "\b"))
-      (l;after (l;this "\\n") (Lexer/wrap "\n"))
-      (l;after (l;this "\\r") (Lexer/wrap "\r"))
-      (l;after (l;this "\\f") (Lexer/wrap "\f"))
-      (l;after (l;this "\\\"") (Lexer/wrap "\""))
-      (l;after (l;this "\\\\") (Lexer/wrap "\\"))))
+  (l;Lexer Text)
+  ($_ p;either
+      (p;after (l;this "\\t") (p/wrap "\t"))
+      (p;after (l;this "\\b") (p/wrap "\b"))
+      (p;after (l;this "\\n") (p/wrap "\n"))
+      (p;after (l;this "\\r") (p/wrap "\r"))
+      (p;after (l;this "\\f") (p/wrap "\f"))
+      (p;after (l;this "\\\"") (p/wrap "\""))
+      (p;after (l;this "\\\\") (p/wrap "\\"))))
 
 (def: string~
-  (Lexer String)
+  (l;Lexer String)
   (<| (l;enclosed ["\"" "\""])
       (loop [_ []]
-        (do Monad<Lexer>
-          [chars (l;some' (l;none-of "\\\""))
+        (do p;Monad<Parser>
+          [chars (l;some (l;none-of "\\\""))
            stop l;peek]
           (if (Text/= "\\" stop)
             (do @
@@ -307,8 +304,8 @@
             (wrap chars))))))
 
 (def: (kv~ json~)
-  (-> (-> Unit (Lexer JSON)) (Lexer [String JSON]))
-  (do Monad<Lexer>
+  (-> (-> Unit (l;Lexer JSON)) (l;Lexer [String JSON]))
+  (do p;Monad<Parser>
     [key string~
      _ space~
      _ (l;this ":")
@@ -318,11 +315,11 @@
 
 (do-template [<name> <type> <open> <close> <elem-parser> <prep>]
   [(def: (<name> json~)
-     (-> (-> Unit (Lexer JSON)) (Lexer <type>))
-     (do Monad<Lexer>
+     (-> (-> Unit (l;Lexer JSON)) (l;Lexer <type>))
+     (do p;Monad<Parser>
        [_ (l;this <open>)
         _ space~
-        elems (l;sep-by data-sep <elem-parser>)
+        elems (p;sep-by data-sep <elem-parser>)
         _ space~
         _ (l;this <close>)]
        (wrap (<prep> elems))))]
@@ -332,8 +329,8 @@
   )
 
 (def: (json~' _)
-  (-> Unit (Lexer JSON))
-  ($_ l;alt null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
+  (-> Unit (l;Lexer JSON))
+  ($_ p;alt null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
 
 ## [Structures]
 (struct: #export _ (Functor Parser)
@@ -669,25 +666,25 @@
 
       [(#Array xs) (#Array ys)]
       (and (n.= (vector;size xs) (vector;size ys))
-           (fold (function [idx prev]
-                   (and prev
-                        (default false
-                          (do Monad<Maybe>
-                            [x' (vector;nth idx xs)
-                             y' (vector;nth idx ys)]
-                            (wrap (= x' y'))))))
-                 true
-                 (list;indices (vector;size xs))))
+           (L/fold (function [idx prev]
+                     (and prev
+                          (default false
+                            (do Monad<Maybe>
+                              [x' (vector;nth idx xs)
+                               y' (vector;nth idx ys)]
+                              (wrap (= x' y'))))))
+                   true
+                   (list;indices (vector;size xs))))
       
       [(#Object xs) (#Object ys)]
       (and (n.= (d;size xs) (d;size ys))
-           (fold (function [[xk xv] prev]
-                   (and prev
-                        (case (d;get xk ys)
-                          #;None   false
-                          (#;Some yv) (= xv yv))))
-                 true
-                 (d;entries xs)))
+           (L/fold (function [[xk xv] prev]
+                     (and prev
+                          (case (d;get xk ys)
+                            #;None   false
+                            (#;Some yv) (= xv yv))))
+                   true
+                   (d;entries xs)))
       
       _
       false)))
@@ -702,9 +699,9 @@
   (#ObjectShape (List [Text Code])))
 
 (def: _shape^
-  (syntax;Syntax Shape)
-  (syntax;alt (syntax;tuple (syntax;some syntax;any))
-              (syntax;record (syntax;some (syntax;seq syntax;text syntax;any)))))
+  (s;Syntax Shape)
+  (p;alt (s;tuple (p;some s;any))
+         (s;record (p;some (p;seq s;text s;any)))))
 
 (syntax: #export (shape [shape _shape^])
   {#;doc (doc "Builds a parser that ensures the (inclusive) shape of an array or object."
@@ -717,15 +714,15 @@
     (let [array-size (list;size parts)
           parsers (|> parts
                       (list;zip2 (list;indices array-size))
-                      (List/map (function [[idx parser]]
-                                  (` (nth (~ (code;nat idx)) (~ parser))))))]
+                      (L/map (function [[idx parser]]
+                               (` (nth (~ (code;nat idx)) (~ parser))))))]
       (wrap (list (` ($_ seq (~@ parsers))))))
 
     (#ObjectShape kvs)
-    (let [fields (List/map product;left kvs)
-          parsers (List/map (function [[field-name parser]]
-                              (` (field (~ (code;text field-name)) (~ parser))))
-                            kvs)]
+    (let [fields (L/map product;left kvs)
+          parsers (L/map (function [[field-name parser]]
+                           (` (field (~ (code;text field-name)) (~ parser))))
+                         kvs)]
       (wrap (list (` ($_ seq (~@ parsers))))))
     ))
 
@@ -740,24 +737,24 @@
     (let [array-size (list;size parts)
           parsers (|> parts
                       (list;zip2 (list;indices array-size))
-                      (List/map (function [[idx parser]]
-                                  (` (nth (~ (code;nat idx)) (~ parser))))))]
+                      (L/map (function [[idx parser]]
+                               (` (nth (~ (code;nat idx)) (~ parser))))))]
       (wrap (list (` (ensure (array-size! (~ (code;nat array-size)))
                              ($_ seq (~@ parsers)))))))
 
     (#ObjectShape kvs)
-    (let [fields (List/map product;left kvs)
-          parsers (List/map (function [[field-name parser]]
-                              (` (field (~ (code;text field-name)) (~ parser))))
-                            kvs)]
-      (wrap (list (` (ensure (object-fields! (list (~@ (List/map code;text fields))))
+    (let [fields (L/map product;left kvs)
+          parsers (L/map (function [[field-name parser]]
+                           (` (field (~ (code;text field-name)) (~ parser))))
+                         kvs)]
+      (wrap (list (` (ensure (object-fields! (list (~@ (L/map code;text fields))))
                              ($_ seq (~@ parsers)))))))
     ))
 
 ## [Polytypism]
 (def: #hidden _map_
   (All [a b] (-> (-> a b) (List a) (List b)))
-  List/map)
+  L/map)
 
 (poly: #hidden (Codec<JSON,?>//encode *env* :x:)
   (let [->Codec//encode (: (-> Code Code)
@@ -823,12 +820,12 @@
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//encode g!vars))
+                                 (-> (~@ (L/map ->Codec//encode g!vars))
                                      (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
                             (case (~ g!input)
-                              (~@ (List/join pattern-matching))))
+                              (~@ (L/join pattern-matching))))
                           )))))
           (with-gensyms [g!type-fun g!case g!input]
             (do @
@@ -849,7 +846,7 @@
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//encode g!vars))
+                                 (-> (~@ (L/map ->Codec//encode g!vars))
                                      (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
@@ -874,14 +871,14 @@
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//encode g!vars))
+                                 (-> (~@ (L/map ->Codec//encode g!vars))
                                      (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]
-               #let [.tuple. (` [(~@ (List/map product;left pattern-matching))])]]
+               #let [.tuple. (` [(~@ (L/map product;left pattern-matching))])]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ .tuple.)]
-                            (;;json [(~@ (List/map (function [[g!member g!encoder]]
-                                                     (` ((~ g!encoder) (~ g!member))))
-                                                   pattern-matching))]))
+                            (;;json [(~@ (L/map (function [[g!member g!encoder]]
+                                                  (` ((~ g!encoder) (~ g!member))))
+                                                pattern-matching))]))
                           )))
               ))
           (do @
@@ -960,10 +957,10 @@
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//decode g!vars))
+                                 (-> (~@ (L/map ->Codec//decode g!vars))
                                      (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))
                      base-parser (` ($_ ;;either
-                                        (~@ (List/join pattern-matching))))
+                                        (~@ (L/join pattern-matching))))
                      parser (case g!vars
                               #;Nil
                               base-parser
@@ -994,15 +991,15 @@
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//decode g!vars))
+                                 (-> (~@ (L/map ->Codec//decode g!vars))
                                      (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
                             (do R;Monad<Result>
-                              [(~@ (List/join extraction))]
-                              ((~ (' wrap)) (~ (code;record (List/map (function [[name :slot:]]
-                                                                        [(code;tag name) (code;symbol ["" (product;right name)])])
-                                                                      members))))))
+                              [(~@ (L/join extraction))]
+                              ((~ (' wrap)) (~ (code;record (L/map (function [[name :slot:]]
+                                                                     [(code;tag name) (code;symbol ["" (product;right name)])])
+                                                                   members))))))
                           )))))
           (with-gensyms [g!type-fun g!case g!input]
             (do @
@@ -1023,15 +1020,15 @@
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (List/map ->Codec//decode g!vars))
+                                 (-> (~@ (L/map ->Codec//decode g!vars))
                                      (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]
                #let [.decoder. (case g!vars
                                  #;Nil
-                                 (` (;;shape [(~@ (List/map product;right pattern-matching))]))
+                                 (` (;;shape [(~@ (L/map product;right pattern-matching))]))
 
                                  _
                                  (` (function [(~@ g!vars)]
-                                      (;;shape [(~@ (List/map product;right pattern-matching))]))))]]
+                                      (;;shape [(~@ (L/map product;right pattern-matching))]))))]]
               (wrap (` (: (~ :x:+) (~ .decoder.))))
               ))
           (do @
