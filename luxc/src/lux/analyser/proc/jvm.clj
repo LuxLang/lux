@@ -39,7 +39,7 @@
     (&/$ExQ _ type*)
     (ensure-object type*)
 
-    (&/$App F A)
+    (&/$Apply A F)
     (|do [type* (&type/apply-type F A)]
       (ensure-object type*))
 

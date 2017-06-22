@@ -57,7 +57,7 @@
       (&/$Var idx)
       (str "?" idx stop)
 
-      (&/$App left right)
+      (&/$Apply left right)
       (str "%" (serialize-type left) (serialize-type right))
 
       (&/$Named [module name] type*)
@@ -101,7 +101,7 @@
   ^:private deserialize-sum  "+" &/$Sum
   ^:private deserialize-prod "*" &/$Product
   ^:private deserialize-lambda    ">" &/$Function
-  ^:private deserialize-app  "%" &/$App
+  ^:private deserialize-app  "%" &/$Apply
   )
 
 (do-template [<name> <signal> <type>]

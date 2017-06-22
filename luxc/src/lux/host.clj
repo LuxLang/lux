@@ -70,7 +70,7 @@
       (&/$Named ?name ?type)
       (->java-sig ?type)
 
-      (&/$App ?F ?A)
+      (&/$Apply ?A ?F)
       (|do [type* (&type/apply-type ?F ?A)]
         (->java-sig type*))
 

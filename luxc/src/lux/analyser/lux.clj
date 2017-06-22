@@ -411,7 +411,7 @@
 
 (defn ^:private unravel-inf-appt [type]
   (|case type
-    (&/$App =input+ (&/$Var _inf-var))
+    (&/$Apply (&/$Var _inf-var) =input+)
     (&/$Cons _inf-var (unravel-inf-appt =input+))
 
     _
@@ -426,7 +426,7 @@
           =func** (&type/clean $output =func*)]
       (return (&/$UnivQ &/$Nil =func**)))
     
-    (&/$App =input+ (&/$Var _inf-var))
+    (&/$Apply (&/$Var _inf-var) =input+)
     (&/fold% (fn [_func _inf-var]
                (|do [:let [$inf-var (&/$Var _inf-var)]
                      =inf-var (&type/resolve-type $inf-var)
@@ -683,8 +683,8 @@
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))
 
-(let [input-type (&/$App &type/List &type/Text)
-      output-type (&/$App &type/IO &/$Unit)]
+(let [input-type (&/$Apply &type/Text &type/List)
+      output-type (&/$Apply &/$Unit &type/IO)]
   (defn analyse-program [analyse optimize compile-program ?args ?body]
     (|do [_ &/ensure-statement
           =body (&/with-scope ""

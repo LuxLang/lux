@@ -97,7 +97,7 @@
   ("Ex" 1)
   ("UnivQ" 2)
   ("ExQ" 2)
-  ("App" 2)
+  ("Apply" 2)
   ("Named" 2))
 
 ;; Vars

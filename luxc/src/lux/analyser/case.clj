@@ -78,9 +78,9 @@
     (&/$Function (clean! level ?tid bound-idx ?arg)
                  (clean! level ?tid bound-idx ?return))
 
-    (&/$App ?lambda ?param)
-    (&/$App (clean! level ?tid bound-idx ?lambda)
-            (clean! level ?tid bound-idx ?param))
+    (&/$Apply ?param ?lambda)
+    (&/$Apply (clean! level ?tid bound-idx ?param)
+              (clean! level ?tid bound-idx ?lambda))
 
     (&/$Product ?left ?right)
     (&/$Product (clean! level ?tid bound-idx ?left)
@@ -115,9 +115,9 @@
     (&/$Product (beta-reduce! level env ?left)
                 (beta-reduce! level env ?right))
 
-    (&/$App ?type-fn ?type-arg)
-    (&/$App (beta-reduce! level env ?type-fn)
-            (beta-reduce! level env ?type-arg))
+    (&/$Apply ?type-arg ?type-fn)
+    (&/$Apply (beta-reduce! level env ?type-arg)
+              (beta-reduce! level env ?type-fn))
     
     (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
@@ -165,7 +165,7 @@
                                  (&/$Cons type-fn))
                           local-def))
 
-    (&/$App F A)
+    (&/$Apply A F)
     (|do [type-fn* (apply-type! F A)]
       (apply-type! type-fn* param))
 
@@ -173,7 +173,7 @@
     (apply-type! ?type param)
 
     (&/$Ex id)
-    (return (&/$App type-fn param))
+    (return (&/$Apply param type-fn))
 
     (&/$Var id)
     (|do [=type-fun (deref id)]
@@ -229,7 +229,7 @@
       (return (&type/Variant$ (&/|map distributor
                                       (&type/flatten-sum =type)))))
 
-    (&/$App ?tfun ?targ)
+    (&/$Apply ?targ ?tfun)
     (|do [=type (apply-type! ?tfun ?targ)]
       (adjust-type* up =type))
 
