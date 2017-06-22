@@ -214,7 +214,7 @@ Called by `imenu--generic-function'."
       (,(concat
          "("
          (regexp-opt
-          '(";module:" "def:" "type:" "sig:" "struct:" "macro:" "syntax:" "program:" "poly:" "derived:" "actor:" "test:" "template:" "class:" "interface:" "model:"
+          '(";module:" "def:" "type:" "sig:" "struct:" "macro:" "syntax:" "program:" "poly:" "derived:" "actor:" "context:" "template:" "class:" "interface:" "model:"
             "exception:"
             "function" "case" ":" ":!" ":!!" "undefined" "ident-for"
             "and" "or"
