@@ -3,7 +3,7 @@
   (lux (control monad
                 eq
                 [order #+ Order])
-       (data (coll [list "" Monad<List> "L/" Monoid<List> Fold<List>])
+       (data (coll [list "L/" Monad<List> Monoid<List> Fold<List>])
              ["p" product]
              ["M" maybe #+ Functor<Maybe>])
        [macro]
@@ -14,16 +14,18 @@
 
 (type: Color #Red #Black)
 
-(type: (Node a)
+(type: (Node k v)
   {#color Color
-   #value a
-   #left (Maybe (Node a))
-   #right (Maybe (Node a))})
+   #key k
+   #value v
+   #left (Maybe (Node k v))
+   #right (Maybe (Node k v))})
 
 (do-template [<create> <color>]
-  [(def: (<create> value left right)
-     (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+  [(def: (<create> key value left right)
+     (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
      {#color <color>
+      #key key
       #value value
       #left left
       #right right})]
@@ -32,47 +34,82 @@
   [black #Black]
   )
 
-(type: #export (Set a)
-  {#order (Order a)
-   #root (Maybe (Node a))})
+(type: #export (Dict k v)
+  {#order (Order k)
+   #root (Maybe (Node k v))})
 
-(def: #export (new Order<a>)
-  (All [a] (-> (Order a) (Set a)))
-  {#order Order<a>
+(def: #export (new Order<k>)
+  (All [k v] (-> (Order k) (Dict k v)))
+  {#order Order<k>
    #root #;None})
 
-(def: #export (member? tree elem)
-  (All [a] (-> (Set a) a Bool))
-  (let [(^open "T/") (get@ #order tree)]
-    (loop [node (get@ #root tree)]
+## TODO: Doing inneficient access of Order functions due to compiler bug.
+## TODO: Must improve it as soon as bug is fixed.
+(def: #export (get key dict)
+  (All [k v] (-> k (Dict k v) (Maybe v)))
+  (let [## (^open "T/") (get@ #order dict)
+        ]
+    (loop [node (get@ #root dict)]
+      (case node
+        #;None
+        #;None
+
+        (#;Some node)
+        (let [node-key (get@ #key node)]
+          (cond (:: dict = node-key key)
+                ## (T/= node-key key)
+                (#;Some (get@ #value node))
+
+                (:: dict < node-key key)
+                ## (T/< node-key key)
+                (recur (get@ #left node))
+
+                ## (T/> (get@ #key node) key)
+                (recur (get@ #right node))))
+        ))))
+
+(def: #export (contains? key dict)
+  (All [k v] (-> k (Dict k v) Bool))
+  (let [## (^open "T/") (get@ #order dict)
+        ]
+    (loop [node (get@ #root dict)]
       (case node
         #;None
         false
 
         (#;Some node)
-        (or (T/= elem (get@ #value node))
-            (recur (get@ #left node))
-            (recur (get@ #right node)))))))
+        (let [node-key (get@ #key node)]
+          (or (:: dict = node-key key)
+              ## (T/= node-key key)
+              (if (:: dict < node-key key)
+                ## (T/< node-key key)
+                (recur (get@ #left node))
+                (recur (get@ #right node)))))))))
 
 (do-template [<name> <side>]
-  [(def: #export (<name> tree)
-     (All [a] (-> (Set a) (Maybe a)))
-     (loop [node (get@ #root tree)]
-       (case node
-         #;None
-         #;None
+  [(def: #export (<name> dict)
+     (All [k v] (-> (Dict k v) (Maybe v)))
+     (case (get@ #root dict)
+       #;None
+       #;None
 
-         (#;Some node)
-         (recur (get@ <side> node)))))]
+       (#;Some node)
+       (loop [node node]
+         (case (get@ <side> node)
+           #;None
+           (#;Some (get@ #value node))
+
+           (#;Some side)
+           (recur side)))))]
 
   [min #left]
   [max #right]
   )
 
 (do-template [<name> <op>]
-  [(def: #export (<name> tree)
-     (All [a] (-> (Set a) Nat))
-     (loop [node (get@ #root tree)]
+  [(def: #export (<name> dict)
+     (All [k v] (-> (Dict k v) Nat))
+     (loop [node (get@ #root dict)]
        (case node
          #;None
          +0
@@ -87,7 +124,7 @@
 
 (do-template [<name> <other-color> <self-color> <no-change>]
   [(def: (<name> self)
-     (All [a] (-> (Node a) (Node a)))
+     (All [k v] (-> (Node k v) (Node k v)))
      (case (get@ #color self)
        <other-color>
        (set@ #color <self-color> self)
@@ -101,9 +138,10 @@
   )
 
 (def: (balance-left-add parent self)
-  (All [a] (-> (Node a) (Node a) (Node a)))
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
   (with-expansions
-    [<default-behavior> (as-is (black (get@ #value parent)
+    [<default-behavior> (as-is (black (get@ #key parent)
+                                      (get@ #value parent)
                                       (#;Some self)
                                       (get@ #right parent)))]
     (case (get@ #color self)
@@ -111,9 +149,11 @@
       (case (get@ #left self)
         (^multi (#;Some left)
                 [(get@ #color left) #Red])
-        (red (get@ #value self)
+        (red (get@ #key self)
+             (get@ #value self)
              (#;Some (blacken left))
-             (#;Some (black (get@ #value parent)
+             (#;Some (black (get@ #key parent)
+                            (get@ #value parent)
                             (get@ #right self)
                             (get@ #right parent))))
 
@@ -121,11 +161,14 @@
         (case (get@ #right self)
           (^multi (#;Some right)
                   [(get@ #color right) #Red])
-          (red (get@ #value right)
-               (#;Some (black (get@ #value self)
+          (red (get@ #key right)
+               (get@ #value right)
+               (#;Some (black (get@ #key self)
+                              (get@ #value self)
                               (get@ #left self)
                               (get@ #left right)))
-               (#;Some (black (get@ #value parent)
+               (#;Some (black (get@ #key parent)
+                              (get@ #value parent)
                               (get@ #right right)
                               (get@ #right parent))))
 
@@ -137,9 +180,10 @@
       )))
 
 (def: (balance-right-add parent self)
-  (All [a] (-> (Node a) (Node a) (Node a)))
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
   (with-expansions
-    [<default-behavior> (as-is (black (get@ #value parent)
+    [<default-behavior> (as-is (black (get@ #key parent)
+                                      (get@ #value parent)
                                       (get@ #left parent)
                                       (#;Some self)))]
     (case (get@ #color self)
@@ -147,8 +191,10 @@
       (case (get@ #right self)
         (^multi (#;Some right)
                 [(get@ #color right) #Red])
-        (red (get@ #value self)
-             (#;Some (black (get@ #value parent)
+        (red (get@ #key self)
+             (get@ #value self)
+             (#;Some (black (get@ #key parent)
+                            (get@ #value parent)
                             (get@ #left parent)
                             (get@ #left self)))
              (#;Some (blacken right)))
@@ -157,11 +203,14 @@
         (case (get@ #left self)
           (^multi (#;Some left)
                   [(get@ #color left) #Red])
-          (red (get@ #value left)
-               (#;Some (black (get@ #value parent)
+          (red (get@ #key left)
+               (get@ #value left)
+               (#;Some (black (get@ #key parent)
+                              (get@ #value parent)
                               (get@ #left parent)
                               (get@ #left left)))
-               (#;Some (black (get@ #value self)
+               (#;Some (black (get@ #key self)
+                              (get@ #value self)
                               (get@ #right left)
                               (get@ #right self))))
 
@@ -173,38 +222,38 @@
       )))
 
 (def: (add-left addition center)
-  (All [a] (-> (Node a) (Node a) (Node a)))
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
   (case (get@ #color center)
     #Red
-    (red (get@ #value center) (#;Some addition) (get@ #right center))
+    (red (get@ #key center) (get@ #value center) (#;Some addition) (get@ #right center))
     
     #Black
     (balance-left-add center addition)
     ))
 
 (def: (add-right addition center)
-  (All [a] (-> (Node a) (Node a) (Node a)))
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
   (case (get@ #color center)
     #Red
-    (red (get@ #value center) (get@ #left center) (#;Some addition))
+    (red (get@ #key center) (get@ #value center) (get@ #left center) (#;Some addition))
     
     #Black
     (balance-right-add center addition)
     ))
 
-(def: #export (add elem tree)
-  (All [a] (-> a (Set a) (Set a)))
-  (let [(^open "T/") (get@ #order tree)
-        root' (loop [?root (get@ #root tree)]
+(def: #export (put key value dict)
+  (All [k v] (-> k v (Dict k v) (Dict k v)))
+  (let [(^open "T/") (get@ #order dict)
+        root' (loop [?root (get@ #root dict)]
                 (case ?root
                   #;None
-                  (#;Some (red elem #;None #;None))
+                  (#;Some (red key value #;None #;None))
 
                   (#;Some root)
-                  (let [reference (get@ #value root)]
+                  (let [reference (get@ #key root)]
                     (with-expansions
                       [<sides> (do-template [<comp> <tag> <add>]
-                                 [(<comp> reference elem)
+                                 [(<comp> reference key)
                                   (let [side-root (get@ <tag> root)
                                         outcome (recur side-root)]
                                     (if (is side-root outcome)
@@ -217,82 +266,90 @@
                                  )]
                       (cond <sides>
 
-                            ## (T/= reference elem)
+                            ## (T/= reference key)
                             ?root
                             )))
                   ))]
-    (set@ #root root' tree)))
+    (set@ #root root' dict)))
 
-(def: (left-balance value ?left ?right)
-  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+(def: (left-balance key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
   (case ?left
     (^multi (#;Some left)
             [(get@ #color left) #Red]
             [(get@ #left left) (#;Some left.left)]
             [(get@ #color left.left) #Red])
-    (red (get@ #value left)
+    (red (get@ #key left)
+         (get@ #value left)
          (#;Some (blacken left.left))
-         (#;Some (black value (get@ #right left) ?right)))
+         (#;Some (black key value (get@ #right left) ?right)))
 
     (^multi (#;Some left)
             [(get@ #color left) #Red]
             [(get@ #right left) (#;Some left.right)]
             [(get@ #color left.right) #Red])
-    (red (get@ #value left.right)
-         (#;Some (black (get@ #value left)
+    (red (get@ #key left.right)
+         (get@ #value left.right)
+         (#;Some (black (get@ #key left)
+                        (get@ #value left)
                         (get@ #left left)
                         (get@ #left left.right)))
-         (#;Some (black value
+         (#;Some (black key value
                         (get@ #right left.right)
                         ?right)))
 
     _
-    (black value ?left ?right)))
+    (black key value ?left ?right)))
 
-(def: (right-balance value ?left ?right)
-  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+(def: (right-balance key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
   (case ?right
     (^multi (#;Some right)
             [(get@ #color right) #Red]
             [(get@ #right right) (#;Some right.right)]
             [(get@ #color right.right) #Red])
-    (red (get@ #value right)
-         (#;Some (black value ?left (get@ #left right)))
+    (red (get@ #key right)
+         (get@ #value right)
+         (#;Some (black key value ?left (get@ #left right)))
          (#;Some (blacken right.right)))
 
     (^multi (#;Some right)
             [(get@ #color right) #Red]
             [(get@ #left right) (#;Some right.left)]
             [(get@ #color right.left) #Red])
-    (red (get@ #value right.left)
-         (#;Some (black value ?left (get@ #left right.left)))
-         (#;Some (black (get@ #value right)
+    (red (get@ #key right.left)
+         (get@ #value right.left)
+         (#;Some (black key value ?left (get@ #left right.left)))
+         (#;Some (black (get@ #key right)
+                        (get@ #value right)
                         (get@ #right right.left)
                         (get@ #right right))))
 
     _
-    (black value ?left ?right)))
+    (black key value ?left ?right)))
 
-(def: (balance-left-remove value ?left ?right)
-  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+(def: (balance-left-remove key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
   (case ?left
     (^multi (#;Some left)
             [(get@ #color left) #Red])
-    (red value (#;Some (blacken left)) ?right)
+    (red key value (#;Some (blacken left)) ?right)
 
     _
     (case ?right
       (^multi (#;Some right)
               [(get@ #color right) #Black])
-      (right-balance value ?left (#;Some (redden right)))
+      (right-balance key value ?left (#;Some (redden right)))
 
       (^multi (#;Some right)
               [(get@ #color right) #Red]
               [(get@ #left right) (#;Some right.left)]
               [(get@ #color right.left) #Black])
-      (red (get@ #value right.left)
-           (#;Some (black value ?left (get@ #left right.left)))
-           (#;Some (right-balance (get@ #value right)
+      (red (get@ #key right.left)
+           (get@ #value right.left)
+           (#;Some (black key value ?left (get@ #left right.left)))
+           (#;Some (right-balance (get@ #key right)
+                                  (get@ #value right)
                                   (get@ #right right.left)
                                   (:: Functor<Maybe> map redden (get@ #right right)))))
 
@@ -300,35 +357,37 @@
       (error! error-message))
     ))
 
-(def: (balance-right-remove value ?left ?right)
-  (All [a] (-> a (Maybe (Node a)) (Maybe (Node a)) (Node a)))
+(def: (balance-right-remove key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
   (case ?right
     (^multi (#;Some right)
             [(get@ #color right) #Red])
-    (red value ?left (#;Some (blacken right)))
+    (red key value ?left (#;Some (blacken right)))
 
     _
     (case ?left
       (^multi (#;Some left)
               [(get@ #color left) #Black])
-      (left-balance value (#;Some (redden left)) ?right)
+      (left-balance key value (#;Some (redden left)) ?right)
 
       (^multi (#;Some left)
               [(get@ #color left) #Red]
               [(get@ #right left) (#;Some left.right)]
               [(get@ #color left.right) #Black])
-      (red (get@ #value left.right)
-           (#;Some (left-balance (get@ #value left)
+      (red (get@ #key left.right)
+           (get@ #value left.right)
+           (#;Some (left-balance (get@ #key left)
+                                 (get@ #value left)
                                  (:: Functor<Maybe> map redden (get@ #left left))
                                  (get@ #left left.right)))
-           (#;Some (black value (get@ #right left.right) ?right)))
+           (#;Some (black key value (get@ #right left.right) ?right)))
 
       _
       (error! error-message)
       )))
 
 (def: (prepend ?left ?right)
-  (All [a] (-> (Maybe (Node a)) (Maybe (Node a)) (Maybe (Node a))))
+  (All [k v] (-> (Maybe (Node k v)) (Maybe (Node k v)) (Maybe (Node k v))))
   (case [?left ?right]
     [#;None _]
     ?right
@@ -343,29 +402,36 @@
         [fused (prepend (get@ #right left) (get@ #right right))]
         (case (get@ #color fused)
           #Red
-          (wrap (red (get@ #value fused)
-                     (#;Some (red (get@ #value left)
+          (wrap (red (get@ #key fused)
+                     (get@ #value fused)
+                     (#;Some (red (get@ #key left)
+                                  (get@ #value left)
                                   (get@ #left left)
                                   (get@ #left fused)))
-                     (#;Some (red (get@ #value right)
+                     (#;Some (red (get@ #key right)
+                                  (get@ #value right)
                                   (get@ #right fused)
                                   (get@ #right right)))))
 
           #Black
-          (wrap (red (get@ #value left)
+          (wrap (red (get@ #key left)
+                     (get@ #value left)
                      (get@ #left left)
-                     (#;Some (red (get@ #value right)
+                     (#;Some (red (get@ #key right)
+                                  (get@ #value right)
                                   (#;Some fused)
                                   (get@ #right right)))))))
 
       [#Red #Black]
-      (#;Some (red (get@ #value left)
+      (#;Some (red (get@ #key left)
+                   (get@ #value left)
                    (get@ #left left)
                    (prepend (get@ #right left)
                             ?right)))
       
       [#Black #Red]
-      (#;Some (red (get@ #value right)
+      (#;Some (red (get@ #key right)
+                   (get@ #value right)
                    (prepend ?left
                             (get@ #left right))
                    (get@ #right right)))
@@ -375,38 +441,44 @@
         [fused (prepend (get@ #right left) (get@ #left right))]
         (case (get@ #color fused)
           #Red
-          (wrap (red (get@ #value fused)
-                     (#;Some (black (get@ #value left)
+          (wrap (red (get@ #key fused)
+                     (get@ #value fused)
+                     (#;Some (black (get@ #key left)
+                                    (get@ #value left)
                                     (get@ #left left)
                                     (get@ #left fused)))
-                     (#;Some (black (get@ #value right)
+                     (#;Some (black (get@ #key right)
+                                    (get@ #value right)
                                     (get@ #right fused)
                                     (get@ #right right)))))
           
           #Black
-          (wrap (balance-left-remove (get@ #value left)
+          (wrap (balance-left-remove (get@ #key left)
+                                     (get@ #value left)
                                      (get@ #left left)
-                                     (#;Some (black (get@ #value right)
+                                     (#;Some (black (get@ #key right)
+                                                    (get@ #value right)
                                                     (#;Some fused)
                                                     (get@ #right right)))))
           ))
       )))
 
-(def: #export (remove elem tree)
-  (All [a] (-> a (Set a) (Set a)))
-  (let [(^open "T/") (get@ #order tree)
-        [?root found?] (loop [?root (get@ #root tree)]
+(def: #export (remove key dict)
+  (All [k v] (-> k (Dict k v) (Dict k v)))
+  (let [(^open "T/") (get@ #order dict)
+        [?root found?] (loop [?root (get@ #root dict)]
                          (case ?root
                            #;None
                            [#;None false]
 
                            (#;Some root)
-                           (let [root-val (get@ #value root)]
-                             (if (T/= root-val elem)
+                           (let [root-key (get@ #key root)
+                                 root-val (get@ #value root)]
+                             (if (T/= root-key key)
                                [(prepend (get@ #left root)
                                          (get@ #right root))
                                 true]
-                               (let [go-left? (T/< root-val elem)]
+                               (let [go-left? (T/< root-key key)]
                                  (case (recur (if go-left?
                                                 (get@ #left root)
                                                 (get@ #right root)))
@@ -418,20 +490,20 @@
                                      (case (get@ #left root)
                                        (^multi (#;Some left)
                                                [(get@ #color left) #Black])
-                                       [(#;Some (balance-left-remove root-val side-outcome (get@ #right root)))
+                                       [(#;Some (balance-left-remove root-key root-val side-outcome (get@ #right root)))
                                         false]
 
                                        _
-                                       [(#;Some (red root-val side-outcome (get@ #right root)))
+                                       [(#;Some (red root-key root-val side-outcome (get@ #right root)))
                                         false])
                                      (case (get@ #right root)
                                        (^multi (#;Some right)
                                                [(get@ #color right) #Black])
-                                       [(#;Some (balance-right-remove root-val (get@ #left root) side-outcome))
+                                       [(#;Some (balance-right-remove root-key root-val (get@ #left root) side-outcome))
                                         false]
 
                                        _
-                                       [(#;Some (red root-val (get@ #left root) side-outcome))
+                                       [(#;Some (red root-key root-val (get@ #left root) side-outcome))
                                         false])
                                      )))
                                ))
@@ -439,55 +511,52 @@
     (case ?root
       #;None
       (if found?
-        (set@ #root ?root tree)
-        tree)
+        (set@ #root ?root dict)
+        dict)
 
       (#;Some root)
-      (set@ #root (#;Some (blacken root)) tree)
+      (set@ #root (#;Some (blacken root)) dict)
       )))
 
-(def: #export (from-list Order<a> list)
-  (All [a] (-> (Order a) (List a) (Set a)))
-  (L/fold add (new Order<a>) list))
+(def: #export (from-list Order<l> list)
+  (All [k v] (-> (Order k) (List [k v]) (Dict k v)))
+  (L/fold (function [[key value] dict]
+            (put key value dict))
+          (new Order<l>)
+          list))
 
-(def: #export (to-list tree)
-  (All [a] (-> (Set a) (List a)))
-  (loop [node (get@ #root tree)]
-    (case node
-      #;None
-      (list)
+(do-template [<name> <type> <output>]
+  [(def: #export (<name> dict)
+     (All [k v] (-> (Dict k v) (List <type>)))
+     (loop [node (get@ #root dict)]
+       (case node
+         #;None
+         (list)
 
-      (#;Some node')
-      ($_ L/append
-          (recur (get@ #left node'))
-          (list (get@ #value node'))
-          (recur (get@ #right node'))))))
+         (#;Some node')
+         ($_ L/append
+             (recur (get@ #left node'))
+             (list <output>)
+             (recur (get@ #right node'))))))]
 
-(def: #export (union left right)
-  (All [a] (-> (Set a) (Set a) (Set a)))
-  (L/fold add right (to-list left)))
+  [entries [k v] [(get@ #key node') (get@ #value node')]]
+  [keys    k     (get@ #key node')]
+  [values  v     (get@ #value node')]
+  )
 
-(def: #export (intersection left right)
-  (All [a] (-> (Set a) (Set a) (Set a)))
-  (|> (to-list right)
-      (list;filter (member? left))
-      (from-list (get@ #order right))))
-
-(def: #export (difference param subject)
-  (All [a] (-> (Set a) (Set a) (Set a)))
-  (|> (to-list subject)
-      (list;filter (. not (member? param)))
-      (from-list (get@ #order subject))))
-
-(def: #export (sub? super sub)
-  (All [a] (-> (Set a) (Set a) Bool))
-  (list;every? (member? super) (to-list sub)))
-
-(def: #export (super? sub super)
-  (All [a] (-> (Set a) (Set a) Bool))
-  (sub? super sub))
-
-(struct: #export Eq<Set> (All [a] (Eq (Set a)))
+(struct: #export (Eq<Dict> Eq<v>) (All [k v] (-> (Eq v) (Eq (Dict k v))))
   (def: (= reference sample)
-    (:: (list;Eq<List> (:: sample eq))
-        = (to-list reference) (to-list sample))))
+    (let [Eq<k> (:: sample eq)]
+      (loop [entriesR (entries reference)
+             entriesS (entries sample)]
+        (case [entriesR entriesS]
+          [#;Nil #;Nil]
+          true
+
+          [(#;Cons [keyR valueR] entriesR') (#;Cons [keyS valueS] entriesS')]
+          (and (:: Eq<k> = keyR keyS)
+               (:: Eq<v> = valueR valueS)
+               (recur entriesR' entriesS'))
+
+          _
+          false)))))
