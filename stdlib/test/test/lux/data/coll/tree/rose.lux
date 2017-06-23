@@ -2,33 +2,44 @@
   lux
   (lux [io]
        (control monad)
-       (data (coll (tree ["&" rose])
-                   [list "List/" Monad<List>])
-             [number])
-       ["R" math/random])
+       (data [product]
+             [number]
+             [text "T/" Eq<Text>]
+             text/format
+             (coll (tree ["&" rose])
+                   [list "L/" Monad<List> Fold<List>]))
+       ["r" math/random])
   lux/test)
 
-(def: gen-nat
-  (R;Random Nat)
-  (|> R;nat
-      (:: R;Monad<Random> map (n.% +100))))
+(def: gen-tree
+  (r;Random [Nat (&;Tree Nat)])
+  (r;rec
+   (function [gen-tree]
+     (r;either (:: r;Monad<Random> map (|>. &;leaf [+1]) r;nat)
+               (do r;Monad<Random>
+                 [value r;nat
+                  num-children (|> r;nat (:: @ map (n.% +3)))
+                  children' (r;list num-children gen-tree)
+                  #let [size' (L/fold n.+ +0 (L/map product;left children'))
+                        children (L/map product;right children')]]
+                 (wrap [(n.inc size')
+                        (&;branch value children)]))
+               ))))
 
 (context: "Trees"
-  [leaf (:: @ map &;leaf R;nat)
-   branchS gen-nat
-   branchV R;nat
-   branchC (R;list branchS R;nat)
-   #let [branch (&;branch branchV (List/map &;leaf branchC))]
+  [[size sample] gen-tree
    #let [(^open "&/") (&;Eq<Tree> number;Eq<Nat>)
-         (^open "List/") (list;Eq<List> number;Eq<Nat>)]]
+         (^open "&/") &;Fold<Tree>
+         concat (function [addition partial] (format partial (%n addition)))]]
   ($_ seq
       (test "Can compare trees for equality."
-            (and (&/= leaf leaf)
-                 (&/= branch branch)
-                 (not (&/= leaf branch))
-                 (not (&/= leaf (&;branch branchV (List/map &;leaf (list;reverse branchC)))))))
+            (&/= sample sample))
 
       (test "Can flatten a tree to get all the nodes as a flat tree."
-            (List/= (list& branchV branchC)
-                    (&;flatten branch)))
+            (n.= size
+                 (list;size (&;flatten sample))))
+
+      (test "Can fold trees."
+            (T/= (&/fold concat "" sample)
+                 (L/fold concat "" (&;flatten sample))))
       ))
