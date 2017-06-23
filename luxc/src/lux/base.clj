@@ -139,7 +139,8 @@
   ("REPL" 0))
 
 (deftuple
-  ["compiler-version"
+  ["compiler-name"
+   "compiler-version"
    "compiler-mode"])
 
 ;; Hosts
@@ -816,16 +817,18 @@
               _
               class-name))))
 
-(defn default-compiler-info [mode]
-  (T [;; compiler-version
+(defn default-compiler-info [name mode]
+  (T [;; compiler-name
+      name
+      ;; compiler-version
       compiler-version
       ;; compiler-mode
       mode]
      ))
 
-(defn init-state [mode host-data]
+(defn init-state [name mode host-data]
   (T [;; "lux;info"
-      (default-compiler-info mode)
+      (default-compiler-info name mode)
       ;; "lux;source"
       $Nil
       ;; "lux;cursor"
