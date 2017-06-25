@@ -1,79 +1,80 @@
 (;module:
   lux
   (lux [io #- run]
-       (control monad)
+       (control monad
+                ["ex" exception])
        (data [number]
              text/format
              ["R" result])
-       (concurrency [promise #+ Promise Monad<Promise> "Promise/" Monad<Promise>]
+       (concurrency ["P" promise "P/" Monad<Promise>]
+                    ["T" task]
                     ["&" actor #+ actor:]))
   lux/test)
 
-(actor: Adder
-  Int
+(actor: Counter
+  Nat
 
-  (method: (add! [offset Int])
-    [Int Int]
-    (let [*state*' (i.+ offset *state*)]
-      (wrap (#;Right [*state*' [*state* *state*']]))))
-  
-  (stop:
-    (wrap [])))
+  ((count! state self)
+   Nat
+   (let [state' (n.inc state)]
+     (T;return [state' state'])))
+
+  ([cause state]
+   (P/wrap (log! (if (ex;match? &;Killed cause)
+                   (format "Counter was killed: " (%n state))
+                   cause)))))
 
 (context: "Actors"
-  (let [counter-proc (: (&;Behavior Int (Promise Int))
-                        [(function [self output state]
-                           (let [state' (i.inc state)]
-                             (exec (io;run (promise;resolve state' output))
-                               (Promise/wrap (#;Right state')))))
-                         (function [?error state] (Promise/wrap []))])]
-    ($_ seq
-        (test "Can check where an actor is alive."
-              (let [counter (: (&;Actor Int (Promise Int))
-                               (io;run (&;spawn 0 counter-proc)))]
-                (&;alive? counter)))
-        
-        (test "Can poison/kill actors."
-              (let [counter (: (&;Actor Int (Promise Int))
-                               (io;run (&;spawn 0 counter-proc)))]
-                (and (io;run (&;poison counter))
-                     (not (&;alive? counter)))))
-        
-        (test "Can't poison an already poisoned actor."
-              (let [counter (: (&;Actor Int (Promise Int))
-                               (io;run (&;spawn 0 counter-proc)))]
-                (and (io;run (&;poison counter))
-                     (not (io;run (&;poison counter))))))
-        
-        (do Monad<Promise>
-          [#let [counter (: (&;Actor Int (Promise Int))
-                            (io;run (&;spawn 0 counter-proc)))
-                 output-1 (: (Promise Int) (promise;promise))
-                 output-2 (: (Promise Int) (promise;promise))
-                 output-3 (: (Promise Int) (promise;promise))]
-           _ (&;send output-1 counter)
-           _ (&;send output-2 counter)
-           _ (&;send output-3 counter)
-           =1 output-1
-           =2 output-2
-           =3 output-3]
-          (test "Can send messages to actors."
-                (and (i.= 1 =1)
-                     (i.= 2 =2)
-                     (i.= 3 =3))))
-        
-        (do Monad<Promise>
-          [#let [adder (: Adder
-                          (io;run (&;spawn 0 Adder//new)))]
-           t1 (add! 1 adder)
-           t2 (add! 2 adder)
-           t3 (add! 3 adder)
-           #let [_ (io;run (&;poison adder))]]
-          (test "Can use custom-defined actors."
-                (case [t1 t2 t3]
-                  [[0 1] [1 3] [3 6]]
-                  true
+  ($_ seq
+      (test "Can check where an actor is alive."
+            (io;run (do Monad<IO>
+                      [counter (new-Counter +0)]
+                      (wrap (&;alive? counter)))))
+      
+      (test "Can kill actors."
+            (io;run (do Monad<IO>
+                      [counter (new-Counter +0)
+                       killed? (&;kill counter)]
+                      (wrap (and killed?
+                                 (not (&;alive? counter)))))))
 
-                  _
-                  false)))
-        )))
+      (test "Can poison actors."
+            (io;run (do Monad<IO>
+                      [counter (new-Counter +0)
+                       poisoned? (&;poison counter)]
+                      (wrap (and poisoned?
+                                 (not (&;alive? counter)))))))
+      
+      (test "Cannot kill an already dead actor."
+            (io;run (do Monad<IO>
+                      [counter (new-Counter +0)
+                       first-time (&;kill counter)
+                       second-time (&;kill counter)]
+                      (wrap (and first-time
+                                 (not second-time))))))
+
+      (test "Cannot poison an already dead actor."
+            (io;run (do Monad<IO>
+                      [counter (new-Counter +0)
+                       first-time (&;kill counter)
+                       second-time (&;poison counter)]
+                      (wrap (and first-time
+                                 (not second-time))))))
+
+      (do P;Monad<Promise>
+        [result (do T;Monad<Task>
+                  [#let [counter (io;run (new-Counter +0))]
+                   output-1 (count! counter)
+                   output-2 (count! counter)
+                   output-3 (count! counter)]
+                  (wrap (and (n.= +1 output-1)
+                             (n.= +2 output-2)
+                             (n.= +3 output-3))))]
+        (test "Can send messages to actors."
+              (case result
+                (#R;Success outcome)
+                outcome
+
+                (#R;Error error)
+                false)))
+      ))
