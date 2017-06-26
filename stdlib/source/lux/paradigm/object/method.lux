@@ -1,0 +1,60 @@
+(;module:
+  lux
+  (lux (control monad
+                ["p" parser "p/" Monad<Parser>])
+       (data [text]
+             text/format
+             [product]
+             (coll [list "L/" Functor<List> Fold<List>]
+                   ["S" set]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:]
+              (syntax ["cs" common]
+                      (common ["csr" reader]
+                              ["csw" writer]))))
+  (.. ["../c" common]))
+
+(type: #export Method
+  {#type-vars (List Text)
+   #name Text
+   #inputs (List Code)
+   #output Code})
+
+(def: #export (method exclusions)
+  (-> (S;Set Text) (s;Syntax Method))
+  (s;form ($_ p;seq
+              (p;either (../c;unique-type-vars (s;tuple (p;some (../c;safe-type-vars exclusions))))
+                        (p/wrap (list)))
+              s;local-symbol
+              (s;tuple (p;some s;any))
+              s;any)))
+
+(def: #export (declaration g!self (^open))
+  (-> Code Method Code)
+  (let [g!type-vars (L/map code;local-symbol type-vars)
+        g!method (code;local-symbol name)]
+    (` (: (All [(~@ g!type-vars)]
+            (-> (~@ inputs) (~ g!self) (~ output)))
+          (~ g!method)))))
+
+(def: #export (definition export [interface parameters] g!self-object g!ext g!states (^open))
+  (-> (Maybe cs;Export) ../c;Declaration Code Code (List Code) Method Code)
+  (let [g!method (code;local-symbol name)
+        g!parameters (L/map code;local-symbol parameters)
+        g!type-vars (L/map code;local-symbol type-vars)
+        g!_temp (code;symbol ["" "_temp"])
+        g!_object (code;symbol ["" "_object"])
+        g!_behavior (code;symbol ["" "_behavior"])
+        g!_state (code;symbol ["" "_state"])
+        g!_extension (code;symbol ["" "_extension"])
+        g!_args (L/map (|>. product;left nat-to-int %i (format "_") code;local-symbol)
+                       (list;enumerate inputs))
+        g!destructuring (L/fold (function [_ g!bottom] (` [(~ g!_temp) (~ g!_temp) (~ g!bottom)]))
+                                (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)])
+                                (default g!states (list;tail g!states)))]
+    (` (def: (~@ (csw;export export)) ((~ g!method) (~@ g!_args) (~ g!_object))
+         (All [(~@ g!parameters) (~ g!ext) (~@ g!states) (~@ g!type-vars)]
+           (-> (~@ inputs) (~ g!self-object) (~ output)))
+         (let [(~ g!destructuring) (~ g!_object)]
+           (:: (~ g!_behavior) (~ g!method) (~@ g!_args) (~ g!_object)))))))

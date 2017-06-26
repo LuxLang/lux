@@ -1,0 +1,109 @@
+(;module:
+  lux
+  (lux (control monad
+                ["p" parser "p/" Monad<Parser>])
+       (data [text]
+             text/format
+             [ident "Ident/" Eq<Ident>]
+             (coll [list "L/" Functor<List> Fold<List>]))
+       [macro #+ Monad<Lux> "Lux/" Monad<Lux>]
+       (macro [code]
+              ["s" syntax #+ syntax:]
+              (syntax ["cs" common]
+                      (common ["csr" reader]
+                              ["csw" writer])))
+       [type]))
+
+(type: #export Reference
+  [Ident (List Code)])
+
+(def: #export no-parent Ident ["" ""])
+
+(def: #export (no-parent? parent)
+  (-> Ident Bool)
+  (Ident/= no-parent parent))
+
+(def: #export (with-interface parent interface)
+  (-> Ident Ident cs;Annotations cs;Annotations)
+  (|>. (#;Cons [(ident-for #;;interface-name)
+                (code;tag interface)])
+       (#;Cons [(ident-for #;;interface-parent)
+                (code;tag parent)])))
+
+(def: #export (with-class interface parent class)
+  (-> Ident Ident Ident cs;Annotations cs;Annotations)
+  (|>. (#;Cons [(ident-for #;;class-interface)
+                (code;tag interface)])
+       (#;Cons [(ident-for #;;class-parent)
+                (code;tag parent)])
+       (#;Cons [(ident-for #;;class-name)
+                (code;tag class)])))
+
+(do-template [<name> <name-tag> <parent-tag> <desc>]
+  [(def: #export (<name> name)
+     (-> Ident (Lux [Ident (List Ident)]))
+     (do Monad<Lux>
+       [name (macro;normalize name)
+        [_ annotations _] (macro;find-def name)]
+       (case [(macro;get-ident-ann (ident-for <name-tag>) annotations)
+              (macro;get-ident-ann (ident-for <parent-tag>) annotations)]
+         [(#;Some real-name) (#;Some parent)]
+         (if (Ident/= no-parent parent)
+           (wrap [real-name (list)])
+           (do @
+             [[_ ancestors] (<name> parent)]
+             (wrap [real-name (#;Cons parent ancestors)])))
+
+         _
+         (macro;fail (format "Wrong format for " <desc> " lineage.")))))]
+
+  [interface #;;interface-name #;;interface-parent "interface"]
+  [class     #;;class-name     #;;class-parent     "class"]
+  )
+
+(def: #export (extract newT)
+  (-> Type (Lux [Nat (List Type)]))
+  (loop [depth +0
+         currentT newT]
+    (case currentT
+      (#;UnivQ _ bodyT)
+      (recur (n.inc depth) bodyT)
+
+      (#;Function inputT outputT)
+      (let [[stateT+ objectT] (type;flatten-function currentT)]
+        (Lux/wrap [depth stateT+]))
+
+      _
+      (macro;fail (format "Cannot extract inheritance from type: " (type;to-text newT))))))
+
+(def: #export (specialize mappings typeC)
+  (-> (List Code) Code Code)
+  (case (list;size mappings)
+    +0
+    typeC
+    
+    size
+    (|> (n.dec size)
+        (list;n.range +0)
+        (L/map (|>. (n.* +2) n.inc code;nat (~) #;Bound (`)))
+        (list;zip2 (list;reverse mappings))
+        (L/fold (function [[mappingC boundC] genericC]
+                  (code;replace boundC mappingC genericC))
+                typeC))))
+
+(def: #export reference
+  (s;Syntax Reference)
+  (p;either (s;form (p;seq s;symbol
+                           (p;some s;any)))
+            (p;seq s;symbol
+                   (p/wrap (list)))))
+
+(do-template [<name> <keyword>]
+  [(def: #export <name>
+     (s;Syntax Reference)
+     (|> reference
+         (p;after (s;this (' <keyword>)))))]
+
+  [extension   #extends]
+  [inheritance #inherits]
+  )

@@ -1,0 +1,117 @@
+(;module:
+  [lux #- struct]
+  (lux (control monad
+                ["p" parser "p/" Monad<Parser>])
+       (data [text]
+             text/format
+             [product]
+             maybe
+             [ident "Ident/" Eq<Ident>]
+             (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
+                   [set #+ Set]))
+       [macro #+ Monad<Lux> "Lux/" Monad<Lux>]
+       (macro [code]
+              ["s" syntax #+ syntax:]
+              (syntax ["cs" common]
+                      (common ["csr" reader]
+                              ["csw" writer])))
+       [type])
+  (.. ["../c" common]))
+
+## [Utils]
+(def: (nest ancestors bottom)
+  (-> (List Code) Code Code)
+  (L/fold (function [[level _] g!bottom]
+            (let [g!_behavior' (code;local-symbol (format "_behavior" (%n level)))
+                  g!_state' (code;local-symbol (format "_state" (%n level)))]
+              (` [(~ g!_behavior') (~ g!_state') (~ g!bottom)])))
+          bottom
+          (list;enumerate ancestors)))
+
+## [Names]
+(do-template [<name> <category>]
+  [(def: #export (<name> base)
+     (-> Text Text)
+     (|> base (format <category> "@")))]
+  
+  [new    "new"]
+  [get    "get"]
+  [set    "set"]
+  [update "update"]
+  )
+
+(do-template [<name> <category>]
+  [(def: #export (<name> raw)
+     (-> Text Text)
+     (format raw "//OOP:" <category>))]
+
+  [signature "Signature"]
+  [state     "State"]
+  [struct    "Struct"]
+  )
+
+(def: #export (getter export interface g!parameters g!ext g!child ancestors)
+  (-> (Maybe cs;Export) Text (List Code) Code Code (List Ident)
+      Code)
+  (let [g!get (code;local-symbol (get interface))
+        g!interface (code;local-symbol interface)
+        g!_object (' _object)
+        g!_behavior (' _behavior)
+        g!_state (' _state)
+        g!_extension (' _extension)
+        g!ancestors (../c;ancestor-inputs ancestors)
+        g!object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+        g!tear-down (nest g!ancestors
+                          (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)]))]
+    (` (def: (~@ (csw;export export)) ((~ g!get) (~ g!_object))
+         (All [(~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)]
+           (-> (~ g!object) (~ g!child)))
+         (let [(~ g!tear-down) (~ g!_object)]
+           (~ g!_state))))))
+
+(def: #export (setter export interface g!parameters g!ext g!child ancestors)
+  (-> (Maybe cs;Export) Text (List Code) Code Code (List Ident)
+      Code)
+  (let [g!set (code;local-symbol (set interface))
+        g!interface (code;local-symbol interface)
+        g!_object (' _object)
+        g!_behavior (' _behavior)
+        g!_state (' _state)
+        g!_extension (' _extension)
+        g!_input (' _input)
+        g!ancestors (../c;ancestor-inputs ancestors)
+        g!object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+        g!tear-down (nest g!ancestors
+                          (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)]))
+        g!build-up (nest g!ancestors
+                         (` [(~ g!_behavior) (~ g!_input) (~ g!_extension)]))]
+    (` (def: (~@ (csw;export export))
+         ((~ g!set) (~ g!_input) (~ g!_object))
+         (All [(~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)]
+           (-> (~ g!child) (~ g!object) (~ g!object)))
+         (let [(~ g!tear-down) (~ g!_object)]
+           (~ g!build-up))))))
+
+(def: #export (updater export interface g!parameters g!ext g!child ancestors)
+  (-> (Maybe cs;Export) Text (List Code) Code Code (List Ident)
+      Code)
+  (let [g!update (code;local-symbol (update interface))
+        g!interface (code;local-symbol interface)
+        g!_object (' _object)
+        g!_behavior (' _behavior)
+        g!_state (' _state)
+        g!_extension (' _extension)
+        g!_change (' _change)
+        g!ancestors (../c;ancestor-inputs ancestors)
+        g!object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+        g!tear-down (nest g!ancestors
+                          (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)]))
+        g!build-up (nest g!ancestors
+                         (` [(~ g!_behavior) ((~ g!_change) (~ g!_state)) (~ g!_extension)]))]
+    (` (def: (~@ (csw;export export))
+         ((~ g!update) (~ g!_change) (~ g!_object))
+         (All [(~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)]
+           (-> (-> (~ g!child) (~ g!child))
+               (-> (~ g!object) (~ g!object))))
+         (let [(~ g!tear-down) (~ g!_object)]
+           (~ g!build-up))))))
