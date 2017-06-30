@@ -1,0 +1,721 @@
+(;module:
+  lux
+  (lux (control monad)
+       (data [text]
+             text/format
+             (coll [list "L/" Functor<List> Monoid<List>]
+                   ["D" dict]))
+       [macro #+ Monad<Lux> with-gensyms]
+       (macro [code]
+              ["s" syntax #+ syntax:])
+       [host #+ jvm-import])
+  (luxc ["&" base]
+        (lang ["la" analysis]
+              ["ls" synthesis])
+        ["&;" analyser]
+        ["&;" synthesizer]
+        (synthesizer [function])
+        (generator ["&;" common]
+                   ["&;" runtime]
+                   (host ["$" jvm]
+                         (jvm ["$t" type]
+                              ["$d" def]
+                              ["$i" inst])))))
+
+(jvm-import java.lang.Long
+  (#static MIN_VALUE Long)
+  (#static MAX_VALUE Long))
+
+(jvm-import java.lang.Double
+  (#static MIN_VALUE Double)
+  (#static MAX_VALUE Double)
+  (#static NaN Double)
+  (#static POSITIVE_INFINITY Double)
+  (#static NEGATIVE_INFINITY Double))
+
+## [Types]
+(type: Generator
+  (-> ls;Synthesis (Lux $;Inst)))
+
+(type: Proc
+  (-> Generator (List ls;Synthesis) (Lux $;Inst)))
+
+(type: Bundle
+  (D;Dict Text Proc))
+
+(syntax: (Vector [size s;nat] elemT)
+  (wrap (list (` [(~@ (list;repeat size elemT))]))))
+
+(type: Nullary (-> (Vector +0 $;Inst) $;Inst))
+(type: Unary   (-> (Vector +1 $;Inst) $;Inst))
+(type: Binary  (-> (Vector +2 $;Inst) $;Inst))
+(type: Trinary (-> (Vector +3 $;Inst) $;Inst))
+
+## [Utils]
+(def: $Object $;Type ($t;class "java.lang.Object" (list)))
+(def: $Object-Array $;Type ($t;array +1 $Object))
+(def: $String $;Type ($t;class "java.lang.String" (list)))
+(def: $CharSequence $;Type ($t;class "java.lang.CharSequence" (list)))
+(def: $Function $;Type ($t;class &runtime;function-name (list)))
+
+(def: (install name unnamed)
+  (-> Text (-> Text Proc)
+      (-> Bundle Bundle))
+  (D;put name (unnamed name)))
+
+(def: (wrong-amount-error proc expected actual)
+  (-> Text Nat Nat Text)
+  (format "Wrong number of arguments for " (%t proc) "\n"
+          "Expected: " (|> expected nat-to-int %i) "\n"
+          "  Actual: " (|> actual nat-to-int %i)))
+
+(syntax: (arity: [name s;local-symbol] [arity s;nat])
+  (with-gensyms [g!proc g!name g!generate g!inputs]
+    (do @
+      [g!input+ (seqM @ (list;repeat arity (macro;gensym "input")))]
+      (wrap (list (` (def: ((~ (code;local-symbol name)) (~ g!proc))
+                       (-> (-> (Vector (~ (code;nat arity)) $;Inst) $;Inst)
+                           (-> Text Proc))
+                       (function [(~ g!name)]
+                         (function [(~ g!generate) (~ g!inputs)]
+                           (case (~ g!inputs)
+                             (^ (list (~@ g!input+)))
+                             (do macro;Monad<Lux>
+                               [(~@ (|> g!input+
+                                        (L/map (function [g!input]
+                                                 (list g!input (` ((~ g!generate) (~ g!input))))))
+                                        list;concat))]
+                               ((~' wrap) ((~ g!proc) [(~@ g!input+)])))
+
+                             (~' _)
+                             (macro;fail (wrong-amount-error (~ g!name) +1 (list;size (~ g!inputs))))))))))))))
+
+(arity: nullary +0)
+(arity: unary +1)
+(arity: binary +2)
+(arity: trinary +3)
+
+## [Instructions]
+(def: some-method
+  $;Method
+  ($t;method (list $t;int $Object $Object) (#;Some $Object-Array) (list)))
+
+(def: make-someI
+  $;Inst
+  (|>. ($i;int 1)
+       ($i;string "")
+       $i;DUP2_X1
+       $i;POP2
+       ($i;INVOKESTATIC &runtime;runtime-name "sum_make" some-method false)))
+
+(def: make-noneI
+  $;Inst
+  (|>. ($i;int 9)
+       $i;NULL
+       ($i;string &runtime;unit)
+       ($i;INVOKESTATIC &runtime;runtime-name "sum_make" some-method false)))
+
+(def: lux-intI $;Inst (|>. $i;I2L $i;wrap-long))
+(def: jvm-intI $;Inst (|>. $i;unwrap-long $i;L2I))
+
+(def: (array-writeI arrayI idxI elemI)
+  (-> $;Inst $;Inst $;Inst
+      $;Inst)
+  (|>. arrayI ($i;CHECKCAST ($t;descriptor $Object-Array))
+       $i;DUP
+       idxI jvm-intI
+       elemI
+       $i;AASTORE))
+
+(def: (predicateI tester)
+  (-> (-> $;Label $;Inst)
+      $;Inst)
+  (<| $i;with-label (function [@then])
+      $i;with-label (function [@end])
+      (|>. (tester @then)
+           ($i;GETSTATIC "java.lang.Boolean" "FALSE" ($t;class "java.lang.Boolean" (list)))
+           ($i;GOTO @end)
+           ($i;label @then)
+           ($i;GETSTATIC "java.lang.Boolean" "TRUE" ($t;class "java.lang.Boolean" (list)))
+           ($i;label @end)
+           )))
+
+## [Procedures]
+## [[Lux]]
+(def: (lux//is [leftI rightI])
+  Binary
+  (|>. leftI
+       rightI
+       (predicateI $i;IF_ACMPEQ)))
+
+(def: try-method
+  $;Method
+  ($t;method (list $Function) (#;Some $Object-Array) (list)))
+(def: (lux//try riskyI)
+  Unary
+  (|>. riskyI
+       ($i;CHECKCAST &runtime;function-name)
+       ($i;INVOKESTATIC &runtime;runtime-name "try" try-method false)))
+
+## [[Bits]]
+(do-template [<name> <op>]
+  [(def: (<name> [inputI maskI])
+     Binary
+     (|>. inputI $i;unwrap-long
+          maskI $i;unwrap-long
+          <op> $i;wrap-long))]
+
+  [bit//and $i;LAND]
+  [bit//or  $i;LOR]
+  [bit//xor $i;LXOR]
+  )
+
+(def: (bit//count inputI)
+  Unary
+  (|>. inputI
+       ($i;INVOKESTATIC "java.lang.Long" "bitCount" ($t;method (list $t;long) (#;Some $t;int) (list)) false)
+       lux-intI))
+
+(do-template [<name> <op>]
+  [(def: (<name> [inputI shiftI])
+     Binary
+     (|>. inputI $i;unwrap-long
+          shiftI jvm-intI
+          <op>
+          $i;wrap-long))]
+
+  [bit//shift-left           $i;LSHL]
+  [bit//shift-right          $i;LSHR]
+  [bit//unsigned-shift-right $i;LUSHR]
+  )
+
+## [[Arrays]]
+(def: (array//new lengthI)
+  Unary
+  (|>. lengthI jvm-intI ($i;ANEWARRAY ($t;descriptor $Object))))
+
+(def: (array//get [arrayI idxI])
+  Binary
+  (<| $i;with-label (function [@is-null])
+      $i;with-label (function [@end])
+      (|>. arrayI ($i;CHECKCAST ($t;descriptor $Object-Array))
+           idxI jvm-intI
+           $i;AALOAD
+           $i;DUP
+           ($i;IFNULL @is-null)
+           make-someI
+           ($i;GOTO @end)
+           ($i;label @is-null)
+           $i;POP
+           make-noneI
+           ($i;label @end))))
+
+(def: (array//put [arrayI idxI elemI])
+  Trinary
+  (array-writeI arrayI idxI elemI))
+
+(def: (array//remove [arrayI idxI])
+  Binary
+  (array-writeI arrayI idxI $i;NULL))
+
+(def: (array//size arrayI)
+  Unary
+  (|>. arrayI ($i;CHECKCAST ($t;descriptor $Object-Array))
+       $i;ARRAYLENGTH
+       lux-intI))
+
+## [[Numbers]]
+(def: nat-method
+  $;Method
+  ($t;method (list $t;long $t;long) (#;Some $t;long) (list)))
+
+(def: deg-method $;Method nat-method)
+
+(def: compare-unsigned-method
+  $;Method
+  ($t;method (list $t;long $t;long) (#;Some $t;int) (list)))
+
+(do-template [<name> <const> <wrapper>]
+  [(def: (<name> _)
+     Nullary
+     (|>. <const> <wrapper>))]
+
+  [nat//min                ($i;long 0)                             $i;wrap-long]
+  [nat//max                ($i;long -1)                            $i;wrap-long]
+
+  [int//min                ($i;long Long.MIN_VALUE)                $i;wrap-long]
+  [int//max                ($i;long Long.MAX_VALUE)                $i;wrap-long]
+  
+  [real//smallest          ($i;double Double.MIN_VALUE)            $i;wrap-double]
+  [real//min               ($i;double (r.* -1.0 Double.MAX_VALUE)) $i;wrap-double]
+  [real//max               ($i;double Double.MAX_VALUE)            $i;wrap-double]
+  [real//not-a-number      ($i;double Double.NaN)                  $i;wrap-double]
+  [real//positive-infinity ($i;double Double.POSITIVE_INFINITY)    $i;wrap-double]
+  [real//negative-infinity ($i;double Double.NEGATIVE_INFINITY)    $i;wrap-double]
+
+  [deg//min                ($i;long 0)                             $i;wrap-long]
+  [deg//max                ($i;long -1)                            $i;wrap-long]
+  )
+
+(do-template [<name> <unwrap> <wrap> <op>]
+  [(def: (<name> [subjectI paramI])
+     Binary
+     (|>. subjectI <unwrap>
+          paramI <unwrap>
+          <op>
+          <wrap>))]
+
+  [int//add        $i;unwrap-long   $i;wrap-long   $i;LADD]
+  [int//sub        $i;unwrap-long   $i;wrap-long   $i;LSUB]
+  [int//mul        $i;unwrap-long   $i;wrap-long   $i;LMUL]
+  [int//div        $i;unwrap-long   $i;wrap-long   $i;LDIV]
+  [int//rem        $i;unwrap-long   $i;wrap-long   $i;LREM]
+  
+  [nat//add        $i;unwrap-long   $i;wrap-long   $i;LADD]
+  [nat//sub        $i;unwrap-long   $i;wrap-long   $i;LSUB]
+  [nat//mul        $i;unwrap-long   $i;wrap-long   $i;LMUL]
+  [nat//div        $i;unwrap-long   $i;wrap-long
+   ($i;INVOKESTATIC &runtime;runtime-name "div_nat" nat-method false)]
+  [nat//rem        $i;unwrap-long   $i;wrap-long
+   ($i;INVOKESTATIC &runtime;runtime-name "rem_nat" nat-method false)]
+
+  [real//add       $i;unwrap-double $i;wrap-double $i;DADD]
+  [real//sub       $i;unwrap-double $i;wrap-double $i;DSUB]
+  [real//mul       $i;unwrap-double $i;wrap-double $i;DMUL]
+  [real//div       $i;unwrap-double $i;wrap-double $i;DDIV]
+  [real//rem       $i;unwrap-double $i;wrap-double $i;DREM]
+
+  [deg//add        $i;unwrap-long   $i;wrap-long   $i;LADD]
+  [deg//sub        $i;unwrap-long   $i;wrap-long   $i;LSUB]
+  [deg//mul        $i;unwrap-long   $i;wrap-long
+   ($i;INVOKESTATIC &runtime;runtime-name "mul_deg" deg-method false)]
+  [deg//div        $i;unwrap-long   $i;wrap-long
+   ($i;INVOKESTATIC &runtime;runtime-name "div_deg" deg-method false)]
+  [deg//rem        $i;unwrap-long   $i;wrap-long   $i;LSUB]
+  [deg//scale      $i;unwrap-long   $i;wrap-long   $i;LMUL]
+  [deg//reciprocal $i;unwrap-long   $i;wrap-long   $i;LDIV]
+  )
+
+(do-template [<name> <reference> <unwrap> <cmp>]
+  [(def: (<name> [subjectI paramI])
+     Binary
+     (|>. subjectI <unwrap>
+          paramI <unwrap>
+          <cmp>
+          ($i;int <reference>)
+          (predicateI $i;IF_ICMPEQ)))]
+
+  [nat//eq   0 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compareUnsigned" compare-unsigned-method false)]
+  [nat//lt  -1 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compareUnsigned" compare-unsigned-method false)]
+  
+  [int//eq   0 $i;unwrap-long   $i;LCMP]
+  [int//lt  -1 $i;unwrap-long   $i;LCMP]
+
+  [real//eq  0 $i;unwrap-double $i;DCMPG]
+  [real//lt -1 $i;unwrap-double $i;DCMPG]
+
+  [deg//eq   0 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compareUnsigned" compare-unsigned-method false)]
+  [deg//lt  -1 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compareUnsigned" compare-unsigned-method false)]
+  )
+
+(do-template [<name> <prepare> <transform>]
+  [(def: (<name> inputI)
+     Unary
+     (|>. inputI <prepare> <transform>))]
+
+  [nat//to-int id id]
+  [nat//to-char $i;unwrap-long
+   (<| ($i;INVOKESTATIC "java.lang.Character" "toString" ($t;method (list $t;char) (#;Some $String) (list)) false)
+       $i;I2C $i;L2I)]
+  
+  [int//to-nat id id]
+  [int//to-real $i;unwrap-long (<| $i;wrap-double $i;L2D)]
+
+  [real//to-int $i;unwrap-double (<| $i;wrap-long $i;D2L)]
+  [real//to-deg $i;unwrap-double
+   (<| $i;wrap-long ($i;INVOKESTATIC &runtime;runtime-name "real-to-deg"
+                                     ($t;method (list $t;double) (#;Some $t;long) (list)) false))]
+  [real//encode $i;unwrap-double
+   ($i;INVOKESTATIC "java.lang.Double" "toString" ($t;method (list $t;double) (#;Some $String) (list)) false)]
+  [real//decode ($i;CHECKCAST "java.lang.String")
+   ($i;INVOKESTATIC &runtime;runtime-name "decode_real" ($t;method (list $String) (#;Some $Object-Array) (list)) false)]
+
+  [deg//to-real $i;unwrap-long
+   (<| $i;wrap-double ($i;INVOKESTATIC &runtime;runtime-name "deg-to-real"
+                                       ($t;method (list $t;long) (#;Some $t;double) (list)) false))]
+  )
+
+## [[Text]]
+(do-template [<name> <class> <method> <post> <outputT>]
+  [(def: (<name> inputI)
+     Unary
+     (|>. inputI
+          ($i;CHECKCAST "java.lang.String")
+          ($i;INVOKEVIRTUAL <class> <method> ($t;method (list) (#;Some <outputT>) (list)) false)
+          <post>))]
+
+  [text//size       "java.lang.String" "length"      lux-intI $t;int]
+  [text//hash       "java.lang.Object" "hashCode"    lux-intI $t;int]
+  [text//trim       "java.lang.String" "trim"        id       $String]
+  [text//upper-case "java.lang.String" "toUpperCase" id       $String]
+  [text//lower-case "java.lang.String" "toLowerCase" id       $String]
+  )
+
+(do-template [<name> <pre-subject> <pre-param> <op> <post>]
+  [(def: (<name> [subjectI paramI])
+     Binary
+     (|>. subjectI <pre-subject>
+          paramI <pre-param>
+          <op> <post>))]
+
+  [text//eq id id
+   ($i;INVOKEVIRTUAL "java.lang.Object" "equals" ($t;method (list $Object) (#;Some $t;boolean) (list)) false)
+   $i;wrap-boolean]
+  [text//lt ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String")
+   ($i;INVOKEVIRTUAL "java.lang.String" "compareTo" ($t;method (list $String) (#;Some $t;int) (list)) false)
+   (predicateI $i;IF_ICMPEQ)]
+  [text//append ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String")
+   ($i;INVOKEVIRTUAL "java.lang.String" "concat" ($t;method (list $String) (#;Some $String) (list)) false)
+   id]
+  [text//contains? ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String")
+   ($i;INVOKEVIRTUAL "java.lang.String" "contains" ($t;method (list $CharSequence) (#;Some $t;boolean) (list)) false)
+   $i;wrap-boolean]
+  [text//char ($i;CHECKCAST "java.lang.String") jvm-intI
+   ($i;INVOKESTATIC &runtime;runtime-name "text_char" ($t;method (list $String $t;int) (#;Some $t;int) (list)) false)
+   lux-intI]
+  )
+
+(do-template [<name> <pre-subject> <pre-param> <pre-extra> <op>]
+  [(def: (<name> [subjectI paramI extraI])
+     Trinary
+     (|>. subjectI <pre-subject>
+          paramI <pre-param>
+          extraI <pre-extra>
+          <op>))]
+
+  [text//clip ($i;CHECKCAST "java.lang.String") jvm-intI jvm-intI
+   ($i;INVOKESTATIC &runtime;runtime-name "text_clip"
+                    ($t;method (list $String $t;int $t;int) (#;Some $Object-Array) (list)) false)]
+  [text//replace ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String")
+   ($i;INVOKEVIRTUAL "java.lang.String" "replace" ($t;method (list $CharSequence $CharSequence) (#;Some $String) (list)) false)]
+  )
+
+(def: index-method $;Method ($t;method (list $String $t;int) (#;Some $t;int) (list)))
+(do-template [<name> <method>]
+  [(def: (<name> [textI partI startI])
+     Trinary
+     (<| $i;with-label (function [@not-found])
+         $i;with-label (function [@end])
+         (|>. textI ($i;CHECKCAST "java.lang.String")
+              partI ($i;CHECKCAST "java.lang.String")
+              startI jvm-intI
+              ($i;INVOKEVIRTUAL "java.lang.String" <method> index-method false)
+              $i;DUP
+              ($i;int -1)
+              ($i;IF_ICMPEQ @not-found)
+              lux-intI
+              make-someI
+              ($i;GOTO @end)
+              ($i;label @not-found)
+              $i;POP
+              make-noneI
+              ($i;label @end))))]
+
+  [text//index      "indexOf"]
+  [text//last-index "lastIndexOf"]
+  )
+
+## [[Math]]
+(def: math-unary-method ($t;method (list $t;double) (#;Some $t;double) (list)))
+(def: math-binary-method ($t;method (list $t;double $t;double) (#;Some $t;double) (list)))
+
+(do-template [<name> <method>]
+  [(def: (<name> inputI)
+     Unary
+     (|>. inputI
+          $i;unwrap-double
+          ($i;INVOKESTATIC "java.lang.Math" <method> math-unary-method false)
+          $i;wrap-double))]
+
+  [math//cos "cos"]
+  [math//sin "sin"]
+  [math//tan "tan"]
+  [math//acos "acos"]
+  [math//asin "asin"]
+  [math//atan "atan"]
+  [math//cosh "cosh"]
+  [math//sinh "sinh"]
+  [math//tanh "tanh"]
+  [math//exp "exp"]
+  [math//log "log"]
+  [math//root2 "sqrt"]
+  [math//root3 "cbrt"]
+  [math//ceil "ceil"]
+  [math//floor "floor"]
+  )
+
+(do-template [<name> <method>]
+  [(def: (<name> [inputI paramI])
+     Binary
+     (|>. inputI $i;unwrap-double
+          paramI $i;unwrap-double
+          ($i;INVOKESTATIC "java.lang.Math" <method> math-binary-method false)
+          $i;wrap-double))]
+
+  [math//atan2 "atan2"]
+  [math//pow "pow"]
+  )
+
+(def: (math//round inputI)
+  Unary
+  (|>. inputI
+       $i;unwrap-double
+       ($i;INVOKESTATIC "java.lang.Math" "round" ($t;method (list $t;double) (#;Some $t;long) (list)) false)
+       $i;L2D
+       $i;wrap-double))
+
+## [[IO]]
+(def: string-method $;Method ($t;method (list $String) #;None (list)))
+(def: (io//log messageI)
+  Unary
+  (|>. ($i;GETSTATIC "java.lang.System" "out" ($t;class "java.io.PrintStream" (list)))
+       messageI
+       ($i;CHECKCAST "java.lang.String")
+       ($i;INVOKEVIRTUAL "java.io.PrintStream" "println" string-method false)
+       ($i;string &runtime;unit)))
+
+(def: (io//error messageI)
+  Unary
+  (|>. ($i;NEW "java.lang.Error")
+       $i;DUP
+       messageI
+       ($i;CHECKCAST "java.lang.String")
+       ($i;INVOKESPECIAL "java.lang.Error" "<init>" string-method false)
+       $i;ATHROW))
+
+(def: (io//exit codeI)
+  Unary
+  (|>. codeI jvm-intI
+       ($i;INVOKESTATIC "java.lang.System" "exit" ($t;method (list $t;int) #;None (list)) false)
+       $i;NULL))
+
+(def: (io//current-time [])
+  Nullary
+  (|>. ($i;INVOKESTATIC "java.lang.System" "currentTimeMillis" ($t;method (list) (#;Some $t;long) (list)) false)
+       $i;wrap-long))
+
+## [[Atoms]]
+(def: atom-class Text "java.util.concurrent.atomic.AtomicReference")
+(def: (atom//new initI)
+  Unary
+  (|>. ($i;NEW atom-class)
+       $i;DUP
+       initI
+       ($i;INVOKESPECIAL atom-class "<init>" ($t;method (list $Object) #;None (list)) false)))
+
+(def: (atom//read atomI)
+  Unary
+  (|>. atomI
+       ($i;CHECKCAST atom-class)
+       ($i;INVOKEVIRTUAL atom-class "get" ($t;method (list) (#;Some $Object) (list)) false)))
+
+(def: (atom//compare-and-swap [atomI oldI newI])
+  Trinary
+  (|>. atomI
+       ($i;CHECKCAST atom-class)
+       oldI
+       newI
+       ($i;INVOKEVIRTUAL atom-class "compareAndSet" ($t;method (list $Object $Object) (#;Some $t;boolean) (list)) false)
+       $i;wrap-boolean))
+
+## [[Processes]]
+(def: (process//concurrency-level [])
+  Nullary
+  (|>. ($i;GETSTATIC &runtime;runtime-name "concurrency_level" $t;int)
+       lux-intI))
+
+(def: (process//future procedureI)
+  Unary
+  (|>. procedureI ($i;CHECKCAST &runtime;function-name)
+       ($i;INVOKESTATIC &runtime;runtime-name "future"
+                        ($t;method (list $Function) (#;Some $Object) (list)) false)))
+
+(def: (process//schedule [millisecondsI procedureI])
+  Binary
+  (|>. millisecondsI $i;unwrap-long
+       procedureI ($i;CHECKCAST &runtime;function-name)
+       ($i;INVOKESTATIC &runtime;runtime-name "schedule"
+                        ($t;method (list $t;long $Function) (#;Some $Object) (list)) false)))
+
+## [Bundles]
+(def: lux-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "lux is" (binary lux//is))
+      (install "lux try" (unary lux//try))))
+
+(def: bit-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "bit count" (unary bit//count))
+      (install "bit and" (binary bit//and))
+      (install "bit or" (binary bit//or))
+      (install "bit xor" (binary bit//xor))
+      (install "bit shift-left" (binary bit//shift-left))
+      (install "bit unsigned-shift-right" (binary bit//unsigned-shift-right))
+      (install "bit shift-right" (binary bit//shift-right))
+      ))
+
+(def: nat-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "nat +" (binary nat//add))
+      (install "nat -" (binary nat//sub))
+      (install "nat *" (binary nat//mul))
+      (install "nat /" (binary nat//div))
+      (install "nat %" (binary nat//rem))
+      (install "nat =" (binary nat//eq))
+      (install "nat <" (binary nat//lt))
+      (install "nat min" (nullary nat//min))
+      (install "nat max" (nullary nat//max))
+      (install "nat to-int" (unary nat//to-int))
+      (install "nat to-char" (unary nat//to-char))))
+
+(def: int-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "int +" (binary int//add))
+      (install "int -" (binary int//sub))
+      (install "int *" (binary int//mul))
+      (install "int /" (binary int//div))
+      (install "int %" (binary int//rem))
+      (install "int =" (binary int//eq))
+      (install "int <" (binary int//lt))
+      (install "int min" (nullary int//min))
+      (install "int max" (nullary int//max))
+      (install "int to-nat" (unary int//to-nat))
+      (install "int to-real" (unary int//to-real))))
+
+(def: real-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "real +" (binary real//add))
+      (install "real -" (binary real//sub))
+      (install "real *" (binary real//mul))
+      (install "real /" (binary real//div))
+      (install "real %" (binary real//rem))
+      (install "real =" (binary real//eq))
+      (install "real <" (binary real//lt))
+      (install "real smallest" (nullary real//smallest))
+      (install "real min" (nullary real//min))
+      (install "real max" (nullary real//max))
+      (install "real not-a-number" (nullary real//not-a-number))
+      (install "real positive-infinity" (nullary real//positive-infinity))
+      (install "real negative-infinity" (nullary real//negative-infinity))
+      (install "real to-deg" (unary real//to-deg))
+      (install "real to-int" (unary real//to-int))
+      (install "real encode" (unary real//encode))
+      (install "real decode" (unary real//decode))))
+
+(def: deg-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "deg +" (binary deg//add))
+      (install "deg -" (binary deg//sub))
+      (install "deg *" (binary deg//mul))
+      (install "deg /" (binary deg//div))
+      (install "deg %" (binary deg//rem))
+      (install "deg =" (binary deg//eq))
+      (install "deg <" (binary deg//lt))
+      (install "deg scale" (binary deg//scale))
+      (install "deg reciprocal" (binary deg//reciprocal))
+      (install "deg min" (nullary deg//min))
+      (install "deg max" (nullary deg//max))
+      (install "deg to-real" (unary deg//to-real))))
+
+(def: array-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "array new" (unary array//new))
+      (install "array get" (binary array//get))
+      (install "array put" (trinary array//put))
+      (install "array remove" (binary array//remove))
+      (install "array size" (unary array//size))
+      ))
+
+(def: text-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "text =" (binary text//eq))
+      (install "text <" (binary text//lt))
+      (install "text append" (binary text//append))
+      (install "text index" (trinary text//index))
+      (install "text size" (unary text//size))
+      (install "text hash" (unary text//hash))
+      (install "text replace" (trinary text//replace))
+      (install "text char" (binary text//char))
+      (install "text clip" (trinary text//clip))
+      ))
+
+(def: math-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "math cos" (unary math//cos))
+      (install "math sin" (unary math//sin))
+      (install "math tan" (unary math//tan))
+      (install "math acos" (unary math//acos))
+      (install "math asin" (unary math//asin))
+      (install "math atan" (unary math//atan))
+      (install "math cosh" (unary math//cosh))
+      (install "math sinh" (unary math//sinh))
+      (install "math tanh" (unary math//tanh))
+      (install "math exp" (unary math//exp))
+      (install "math log" (unary math//log))
+      (install "math root2" (unary math//root2))
+      (install "math root3" (unary math//root3))
+      (install "math ceil" (unary math//ceil))
+      (install "math floor" (unary math//floor))
+      (install "math round" (unary math//round))
+      (install "math atan2" (binary math//atan2))
+      (install "math pow" (binary math//pow))
+      ))
+
+(def: io-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "io log" (unary io//log))
+      (install "io error" (unary io//error))
+      (install "io exit" (unary io//exit))
+      (install "io current-time" (nullary io//current-time))))
+
+(def: atom-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "atom new" (unary atom//new))
+      (install "atom read" (unary atom//read))
+      (install "atom compare-and-swap" (trinary atom//compare-and-swap))))
+
+(def: process-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "process concurrency-level" (nullary process//concurrency-level))
+      (install "process future" (unary process//future))
+      (install "process schedule" (binary process//schedule))
+      ))
+
+(def: #export procedures
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (D;merge lux-procs)
+      (D;merge bit-procs)
+      (D;merge nat-procs)
+      (D;merge int-procs)
+      (D;merge deg-procs)
+      (D;merge real-procs)
+      (D;merge text-procs)
+      (D;merge array-procs)
+      (D;merge math-procs)
+      (D;merge io-procs)
+      (D;merge atom-procs)
+      (D;merge process-procs)
+      ))

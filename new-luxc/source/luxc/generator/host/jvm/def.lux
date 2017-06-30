@@ -1,6 +1,8 @@
 (;module:
   lux
-  (lux (data (coll ["a" array]
+  (lux (data [text]
+             text/format
+             (coll ["a" array]
                    [list "L/" Functor<List>]))
        [host #+ jvm-import do-to])
   ["$" ..]
@@ -15,13 +17,26 @@
   (#static ACC_PROTECTED int)
   (#static ACC_PRIVATE int)
 
+  (#static ACC_TRANSIENT int)
+  (#static ACC_VOLATILE int)
+
   (#static ACC_ABSTRACT int)
   (#static ACC_FINAL int)
   (#static ACC_STATIC int)
   (#static ACC_SYNCHRONIZED int)
 
-  (#static ACC_TRANSIENT int)
-  (#static ACC_VOLATILE int))
+  (#static ACC_SUPER int)
+  (#static ACC_INTERFACE int)
+
+  (#static V1_1 int)
+  (#static V1_2 int)
+  (#static V1_3 int)
+  (#static V1_4 int)
+  (#static V1_5 int)
+  (#static V1_6 int)
+  (#static V1_7 int)
+  (#static V1_8 int)
+  )
 
 (jvm-import org.objectweb.asm.FieldVisitor
   (visitEnd [] void))
@@ -41,14 +56,31 @@
   (toByteArray [] Byte-Array))
 
 ## [Defs]
-(def: (exceptions-array type)
-  (-> $;Method (a;Array Text))
-  (let [exs (|> type (get@ #$;exceptions) (L/map (|>. #$;Generic $t;descriptor)))
-        output (host;array String (list;size exs))]
+(def: (string-array values)
+  (-> (List Text) (a;Array Text))
+  (let [output (host;array String (list;size values))]
     (exec (L/map (function [[idx value]]
                    (host;array-store idx value output))
-                 (list;enumerate exs))
+                 (list;enumerate values))
       output)))
+
+(def: exceptions-array
+  (-> $;Method (a;Array Text))
+  (|>. (get@ #$;exceptions)
+       (L/map (|>. #$;Generic $t;descriptor))
+       string-array))
+
+(def: (version-flag version)
+  (-> $;Version Int)
+  (case version
+    #$;V1.1 Opcodes.V1_1
+    #$;V1.2 Opcodes.V1_2
+    #$;V1.3 Opcodes.V1_3
+    #$;V1.4 Opcodes.V1_4
+    #$;V1.5 Opcodes.V1_5
+    #$;V1.6 Opcodes.V1_6
+    #$;V1.7 Opcodes.V1_7
+    #$;V1.8 Opcodes.V1_8))
 
 (def: (visibility-flag visibility)
   (-> $;Visibility Int)
@@ -57,6 +89,11 @@
     #$;Protected Opcodes.ACC_PROTECTED
     #$;Private   Opcodes.ACC_PRIVATE
     #$;Default   0))
+
+(def: (class-flag config)
+  (-> $;Class-Config Int)
+  ($_ i.+
+      (if (get@ #$;finalC config) Opcodes.ACC_FINAL 0)))
 
 (def: (method-flag config)
   (-> $;Method-Config Int)
@@ -72,6 +109,87 @@
       (if (get@ #$;finalF config) Opcodes.ACC_FINAL 0)
       (if (get@ #$;transientF config) Opcodes.ACC_TRANSIENT 0)
       (if (get@ #$;volatileF config) Opcodes.ACC_VOLATILE 0)))
+
+(def: class-to-type
+  (-> $;Class $;Type)
+  (|>. #$;Class #$;Generic))
+
+(def: param-signature
+  (-> $;Class Text)
+  (|>. class-to-type $t;signature (format ":")))
+
+(def: (formal-param [name super interfaces])
+  (-> $;Parameter Text)
+  (format name
+          (param-signature super)
+          (|> interfaces
+              (L/map param-signature)
+              (text;join-with ""))))
+
+(def: (parameters-signature parameters super interfaces)
+  (-> (List $;Parameter) $;Class (List $;Class)
+      Text)
+  (let [formal-params (if (list;empty? parameters)
+                        ""
+                        (format "<"
+                                (|> parameters
+                                    (L/map formal-param)
+                                    (text;join-with ""))
+                                ">"))]
+    (format formal-params
+            (|> super class-to-type $t;signature)
+            (|> interfaces
+                (L/map (|>. class-to-type $t;signature))
+                (text;join-with "")))))
+
+(do-template [<name> <flag>]
+  [(def: #export (<name> version visibility config name parameters super interfaces
+                         definitions)
+     (-> $;Version $;Visibility $;Class-Config Text (List $;Parameter) $;Class (List $;Class) $;Def
+         host;Byte-Array)
+     (let [writer (|> (do-to (ClassWriter.new ClassWriter.COMPUTE_MAXS)
+                        (ClassWriter.visit [(version-flag version)
+                                            ($_ i.+
+                                                Opcodes.ACC_SUPER
+                                                <flag>
+                                                (visibility-flag visibility)
+                                                (class-flag config))
+                                            name
+                                            (parameters-signature parameters super interfaces)
+                                            (|> super class-to-type $t;descriptor)
+                                            (|> interfaces
+                                                (L/map (|>. class-to-type $t;descriptor))
+                                                string-array)]))
+                      definitions)
+           _ (ClassWriter.visitEnd [] writer)]
+       (ClassWriter.toByteArray [] writer)))]
+
+  [class     0]
+  [abstract  Opcodes.ACC_ABSTRACT]
+  )
+
+(def: $Object $;Class ["java.lang.Object" (list)])
+
+(def: #export (interface version visibility config name parameters interfaces
+                         definitions)
+  (-> $;Version $;Visibility $;Class-Config Text (List $;Parameter) (List $;Class) $;Def
+      host;Byte-Array)
+  (let [writer (|> (do-to (ClassWriter.new ClassWriter.COMPUTE_MAXS)
+                     (ClassWriter.visit [(version-flag version)
+                                         ($_ i.+
+                                             Opcodes.ACC_SUPER
+                                             Opcodes.ACC_INTERFACE
+                                             (visibility-flag visibility)
+                                             (class-flag config))
+                                         name
+                                         (parameters-signature parameters $Object interfaces)
+                                         (|> $Object class-to-type $t;descriptor)
+                                         (|> interfaces
+                                             (L/map (|>. class-to-type $t;descriptor))
+                                             string-array)]))
+                   definitions)
+        _ (ClassWriter.visitEnd [] writer)]
+    (ClassWriter.toByteArray [] writer)))
 
 (def: #export (method visibility config name type then)
   (-> $;Visibility $;Method-Config Text $;Method $;Inst
@@ -140,3 +258,15 @@
   [char-field    Char $t;char    id]
   [string-field  Text ($t;class "java.lang.String" (list)) id]
   )
+
+(def: #export (fuse defs)
+  (-> (List $;Def) $;Def)
+  (case defs
+    #;Nil
+    id
+
+    (#;Cons singleton #;Nil)
+    singleton
+
+    (#;Cons head tail)
+    (. head (fuse tail))))
