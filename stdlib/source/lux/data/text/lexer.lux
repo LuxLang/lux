@@ -13,31 +13,45 @@
              ["R" result]
              (coll [list "L/" Functor<List>]))))
 
+(type: Offset Nat)
+
+(def: start-offset Offset +0)
+
 (type: #export Lexer
-  (p;Parser Text))
+  (p;Parser [Offset Text]))
+
+(def: (remaining offset tape)
+  (-> Offset Text Text)
+  (|> tape (text;split offset) assume product;right))
+
+(def: cannot-lex-error Text "Cannot lex from empty text.")
+
+(def: (unconsumed-input-error offset tape)
+  (-> Offset Text Text)
+  (format "Unconsumed input: " (remaining offset tape)))
 
 (def: #export (run input lexer)
   (All [a] (-> Text (Lexer a) (R;Result a)))
-  (case (lexer input)
+  (case (lexer [start-offset input])
     (#R;Error msg)
     (#R;Error msg)
     
-    (#R;Success [input' output])
-    (if (T/= "" input')
+    (#R;Success [[end-offset _] output])
+    (if (n.= end-offset (text;size input))
       (#R;Success output)
-      (#R;Error (format "Remaining lexer input: " input')))
+      (#R;Error (unconsumed-input-error end-offset input)))
     ))
 
 (def: #export any
   {#;doc "Just returns the next character without applying any logic."}
   (Lexer Text)
-  (function [input]
-    (case [(text;nth +0 input) (text;split +1 input)]
-      [(#;Some output) (#;Some [_ input'])]
-      (#R;Success [input' (char;as-text output)])
+  (function [[offset tape]]
+    (case (text;nth offset tape)
+      (#;Some output)
+      (#R;Success [[(n.inc offset) tape] (char;as-text output)])
 
       _
-      (#R;Error "Cannot parse character from empty text."))
+      (#R;Error cannot-lex-error))
     ))
 
 (def: #export (not p)
@@ -54,59 +68,64 @@
 (def: #export (this reference)
   {#;doc "Lex a text if it matches the given sample."}
   (-> Text (Lexer Unit))
-  (function [input]
-    (if (text;starts-with? reference input)
-      (case (text;split (text;size reference) input)
-        #;None              (#R;Error "")
-        (#;Some [_ input']) (#R;Success [input' []]))
-      (#R;Error (format "Invalid match: " (text;encode reference) " @ " (text;encode input))))))
+  (function [[offset tape]]
+    (case (text;index-of reference offset tape)
+      (^multi (#;Some where) (n.= offset where))
+      (#R;Success [[(n.+ (text;size reference) offset) tape] []])
+
+      _
+      (#R;Error (format "Could not match: " (text;encode reference) " @ " tape)))))
 
 (def: #export (this? reference)
   {#;doc "Lex a text if it matches the given sample."}
   (-> Text (Lexer Bool))
-  (function [input]
-    (if (text;starts-with? reference input)
-      (case (text;split (text;size reference) input)
-        #;None              (#R;Success [input false])
-        (#;Some [_ input']) (#R;Success [input' true]))
-      (#R;Success [input false]))
-    ))
+  (function [(^@ input [offset tape])]
+    (case (text;index-of reference offset tape)
+      (^multi (#;Some where) (n.= offset where))
+      (#R;Success [[(n.+ (text;size reference) offset) tape] true])
+
+      _
+      (#R;Success [input false]))))
 
 (def: #export end
   {#;doc "Ensure the lexer's input is empty."}
   (Lexer Unit)
-  (function [input]
-    (case input
-      "" (#R;Success [input []])
-      _  (#R;Error (format "The text input has not been fully consumed @ " (text;encode input)))
-      )))
+  (function [(^@ input [offset tape])]
+    (if (n.= offset (text;size tape))
+      (#R;Success [input []])
+      (#R;Error (unconsumed-input-error offset tape)))))
+
+(def: #export end?
+  {#;doc "Ask if the lexer's input is empty."}
+  (Lexer Bool)
+  (function [(^@ input [offset tape])]
+    (#R;Success [input (n.= offset (text;size tape))])))
 
 (def: #export peek
   {#;doc "Lex the next character (without consuming it from the input)."}
   (Lexer Text)
-  (function [input]
-    (case (text;nth +0 input)
+  (function [(^@ input [offset tape])]
+    (case (text;nth offset tape)
       (#;Some output)
       (#R;Success [input (char;as-text output)])
 
       _
-      (#R;Error "Cannot peek character from empty text."))
+      (#R;Error cannot-lex-error))
     ))
 
 (def: #export get-input
   {#;doc "Get all of the remaining input (without consuming it)."}
   (Lexer Text)
-  (function [input]
-    (#R;Success [input input])))
+  (function [(^@ input [offset tape])]
+    (#R;Success [input (remaining offset tape)])))
 
-(def: #export (char-range bottom top)
+(def: #export (range bottom top)
   {#;doc "Only lex characters within a range."}
   (-> Char Char (Lexer Text))
   (do p;Monad<Parser>
-    [input get-input
-     char any
+    [char any
      #let [char' (|> char (text;nth +0) assume)]
-     _ (p;assert (format "Character is not within range: " (C/encode bottom) "-" (C/encode top) " @ " (text;encode input))
+     _ (p;assert (format "Character is not within range: " (C/encode bottom) "-" (C/encode top))
                  (and (C/>= bottom char')
                       (C/<= top char')))]
     (wrap char)))
@@ -115,12 +134,12 @@
   [(def: #export <name>
      {#;doc (#;TextA (format "Only lex " <desc> " characters."))}
      (Lexer Text)
-     (char-range <bottom> <top>))]
+     (range <bottom> <top>))]
 
-  [upper     #"A" #"Z" "uppercase"]
-  [lower     #"a" #"z" "lowercase"]
-  [digit     #"0" #"9" "decimal"]
-  [oct-digit #"0" #"7" "octal"]
+  [upper   #"A" #"Z" "uppercase"]
+  [lower   #"a" #"z" "lowercase"]
+  [decimal #"0" #"9" "decimal"]
+  [octal   #"0" #"7" "octal"]
   )
 
 (def: #export alpha
@@ -131,68 +150,56 @@
 (def: #export alpha-num
   {#;doc "Only lex alphanumeric characters."}
   (Lexer Text)
-  (p;either alpha digit))
+  (p;either alpha decimal))
 
-(def: #export hex-digit
+(def: #export hexadecimal
   {#;doc "Only lex hexadecimal digits."}
   (Lexer Text)
   ($_ p;either
-      digit
-      (char-range #"a" #"f")
-      (char-range #"A" #"F")))
+      decimal
+      (range #"a" #"f")
+      (range #"A" #"F")))
 
 (def: #export (one-of options)
   {#;doc "Only lex characters that are part of a piece of text."}
   (-> Text (Lexer Text))
-  (function [input]
-    (case (text;split +1 input)
-      (#;Some [init input'])
-      (if (text;contains? init options)
-        (case (text;nth +0 init)
-          (#;Some output)
-          (#R;Success [input' (char;as-text output)])
-
-          _
-          (#R;Error ""))
-        (#R;Error (format "Character (" init ") is not one of: " options " @ " (text;encode input))))
+  (function [[offset tape]]
+    (case (text;nth offset tape)
+      (#;Some output)
+      (let [output (char;as-text output)]
+        (if (text;contains? output options)
+          (#R;Success [[(n.inc offset) tape] output])
+          (#R;Error (format "Character (" output ") is not one of: " options))))
 
       _
-      (#R;Error "Cannot parse character from empty text."))))
+      (#R;Error cannot-lex-error))))
 
 (def: #export (none-of options)
   {#;doc "Only lex characters that are not part of a piece of text."}
   (-> Text (Lexer Text))
-  (function [input]
-    (case (text;split +1 input)
-      (#;Some [init input'])
-      (if (;not (text;contains? init options))
-        (case (text;nth +0 init)
-          (#;Some output)
-          (#R;Success [input' (char;as-text output)])
-
-          _
-          (#R;Error ""))
-        (#R;Error (format "Character (" init ") is one of: " options " @ " (text;encode input))))
+  (function [[offset tape]]
+    (case (text;nth offset tape)
+      (#;Some output)
+      (let [output (char;as-text output)]
+        (if (;not (text;contains? output options))
+          (#R;Success [[(n.inc offset) tape] output])
+          (#R;Error (format "Character (" output ") is one of: " options))))
 
       _
-      (#R;Error "Cannot parse character from empty text."))))
+      (#R;Error cannot-lex-error))))
 
 (def: #export (satisfies p)
   {#;doc "Only lex characters that satisfy a predicate."}
   (-> (-> Char Bool) (Lexer Text))
-  (function [input]
-    (case (: (Maybe [Text Char])
-             (do Monad<Maybe>
-               [[init input'] (text;split +1 input)
-                output (text;nth +0 init)]
-               (wrap [input' output])))
-      (#;Some [input' output])
+  (function [[offset tape]]
+    (case (text;nth offset tape)
+      (#;Some output)
       (if (p output)
-        (#R;Success [input' (char;as-text output)])
-        (#R;Error (format "Character does not satisfy predicate: " (text;encode input))))
+        (#R;Success [[(n.inc offset) tape] (char;as-text output)])
+        (#R;Error (format "Character does not satisfy predicate: " (char;as-text output))))
 
       _
-      (#R;Error "Cannot parse character from empty text."))))
+      (#R;Error cannot-lex-error))))
 
 (def: #export space
   {#;doc "Only lex white-space."}
@@ -210,9 +217,7 @@
   [(def: #export (<name> p)
      {#;doc <doc>}
      (-> (Lexer Text) (Lexer Text))
-     (do p;Monad<Parser>
-       []
-       (|> p <base> (:: @ map text;concat))))]
+     (|> p <base> (:: p;Monad<Parser> map text;concat)))]
 
   [some p;some "Lex some characters as a single continuous text."]
   [many p;many "Lex many characters as a single continuous text."]
@@ -236,13 +241,7 @@
   (-> Nat Nat (Lexer Text) (Lexer Text))
   (|> p (p;between from to) (:: p;Monad<Parser> map text;concat)))
 
-(def: #export end?
-  {#;doc "Ask if the lexer's input is empty."}
-  (Lexer Bool)
-  (function [input]
-    (#R;Success [input (text;empty? input)])))
-
-(def: #export (codec codec lexer)
+(def: #export (codec Codec<a> lexer)
   {#;doc "Lex a token by means of a codec."}
   (All [a] (-> (Codec Text a) (Lexer Text) (Lexer a)))
   (function [input]
@@ -251,7 +250,7 @@
       (#R;Error error)
 
       (#R;Success [input' to-decode])
-      (case (:: codec decode to-decode)
+      (case (:: Codec<a> decode to-decode)
         (#R;Error error)
         (#R;Error error)
         
@@ -268,11 +267,9 @@
   {#;doc "Run a lexer with the given input, instead of the real one."}
   (All [a] (-> Text (Lexer a) (Lexer a)))
   (function [real-input]
-    (case (p;run local-input lexer)
+    (case (run local-input lexer)
       (#R;Error error)
       (#R;Error error)
 
-      (#R;Success [unconsumed value])
-      (if (T/= "" unconsumed)
-        (#R;Success [real-input value])
-        (#R;Error (format "Unconsumed input: " unconsumed))))))
+      (#R;Success value)
+      (#R;Success [real-input value]))))

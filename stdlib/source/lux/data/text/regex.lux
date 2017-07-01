@@ -8,6 +8,7 @@
              text/format
              [number "Int/" Codec<Text,Int>]
              [product]
+             ["R" result]
              (coll [list "L/" Fold<List> Monad<List>]))
        [macro #- run]
        (macro [code]
@@ -26,21 +27,11 @@
       l;any
       regex-char^)))
 
-(def: (local^ state lexer)
-  (All [a] (-> Text (l;Lexer a) (l;Lexer a)))
-  (function [old-state]
-    (case (lexer state)
-      (#;Left error)
-      (#;Left error)
-
-      (#;Right [_ value])
-      (#;Right [old-state value]))))
-
 (def: #hidden (refine^ refinement^ base^)
   (All [a] (-> (l;Lexer a) (l;Lexer Text) (l;Lexer Text)))
   (do p;Monad<Parser>
     [output base^
-     _ (local^ output refinement^)]
+     _ (l;local output refinement^)]
     (wrap output)))
 
 (def: #hidden word^
@@ -65,7 +56,7 @@
 (def: identifier-part^
   (l;Lexer Text)
   (do p;Monad<Parser>
-    [head (refine^ (l;not l;digit)
+    [head (refine^ (l;not l;decimal)
                    identifier-char^)
      tail (l;some identifier-char^)]
     (wrap (format head tail))))
@@ -84,13 +75,13 @@
     [ident (l;enclosed ["\\@<" ">"] (identifier^ current-module))]
     (wrap (` (: (l;Lexer Text) (~ (code;symbol ident)))))))
 
-(def: re-char-range^
+(def: re-range^
   (l;Lexer Code)
   (do p;Monad<Parser>
     [from (|> regex-char^ (:: @ map (|>. (text;nth +0) assume)))
      _ (l;this "-")
      to (|> regex-char^ (:: @ map (|>. (text;nth +0) assume)))]
-    (wrap (` (l;char-range (~ (code;char from)) (~ (code;char to)))))))
+    (wrap (` (l;range (~ (code;char from)) (~ (code;char to)))))))
 
 (def: re-char^
   (l;Lexer Code)
@@ -98,7 +89,7 @@
     [char escaped-char^]
     (wrap (` (;;copy (~ (code;text char)))))))
 
-(def: re-char-options^
+(def: re-options^
   (l;Lexer Code)
   (do p;Monad<Parser>
     [options (l;many escaped-char^)]
@@ -109,8 +100,8 @@
   (do p;Monad<Parser>
     [negate? (p;opt (l;this "^"))
      parts (p;many ($_ p;either
-                       re-char-range^
-                       re-char-options^))]
+                       re-range^
+                       re-options^))]
     (wrap (case negate?
             (#;Some _) (` (l;not ($_ p;either (~@ parts))))
             #;None     (` ($_ p;either (~@ parts)))))))
@@ -132,11 +123,11 @@
 
 (def: #hidden ascii^
   (l;Lexer Text)
-  (l;char-range #"\u0000" #"\u007F"))
+  (l;range #"\u0000" #"\u007F"))
 
 (def: #hidden control^
   (l;Lexer Text)
-  (p;either (l;char-range #"\u0000" #"\u001F")
+  (p;either (l;range #"\u0000" #"\u001F")
             (l;one-of "\u007F")))
 
 (def: #hidden punct^
@@ -158,8 +149,8 @@
     []
     ($_ p;either
         (p;after (l;this ".") (wrap (` l;any)))
-        (p;after (l;this "\\d") (wrap (` l;digit)))
-        (p;after (l;this "\\D") (wrap (` (l;not l;digit))))
+        (p;after (l;this "\\d") (wrap (` l;decimal)))
+        (p;after (l;this "\\D") (wrap (` (l;not l;decimal))))
         (p;after (l;this "\\s") (wrap (` l;space)))
         (p;after (l;this "\\S") (wrap (` (l;not l;space))))
         (p;after (l;this "\\w") (wrap (` word^)))
@@ -168,11 +159,11 @@
         (p;after (l;this "\\p{Lower}") (wrap (` l;lower)))
         (p;after (l;this "\\p{Upper}") (wrap (` l;upper)))
         (p;after (l;this "\\p{Alpha}") (wrap (` l;alpha)))
-        (p;after (l;this "\\p{Digit}") (wrap (` l;digit)))
+        (p;after (l;this "\\p{Digit}") (wrap (` l;decimal)))
         (p;after (l;this "\\p{Alnum}") (wrap (` l;alpha-num)))
         (p;after (l;this "\\p{Space}") (wrap (` l;space)))
-        (p;after (l;this "\\p{HexDigit}") (wrap (` l;hex-digit)))
-        (p;after (l;this "\\p{OctDigit}") (wrap (` l;oct-digit)))
+        (p;after (l;this "\\p{HexDigit}") (wrap (` l;hexadecimal)))
+        (p;after (l;this "\\p{OctDigit}") (wrap (` l;octal)))
         (p;after (l;this "\\p{Blank}") (wrap (` blank^)))
         (p;after (l;this "\\p{ASCII}") (wrap (` ascii^)))
         (p;after (l;this "\\p{Contrl}") (wrap (` control^)))
@@ -188,7 +179,7 @@
 
 (def: number^
   (l;Lexer Nat)
-  (|> (l;many l;digit)
+  (|> (l;many l;decimal)
       (l;codec number;Codec<Text,Int>)
       (p/map int-to-nat)))
 
@@ -285,14 +276,14 @@
                                           [Int (List Code) (List (List Code))])
                                       (function [part [idx names steps]]
                                         (case part
-                                          (^or (#;Left complex) (#;Right [#Non-Capturing complex]))
+                                          (^or (#R;Error complex) (#R;Success [#Non-Capturing complex]))
                                           [idx
                                            names
                                            (list& (list g!temp complex
                                                         (' #let) (` [(~ g!total) (_Text/append_ (~ g!total) (~ g!temp))]))
                                                   steps)]
                                           
-                                          (#;Right [(#Capturing [?name num-captures]) scoped])
+                                          (#R;Success [(#Capturing [?name num-captures]) scoped])
                                           (let [[idx! name!] (case ?name
                                                                (#;Some _name)
                                                                [idx (code;symbol ["" _name])]
@@ -329,31 +320,31 @@
   (All [l r] (-> (l;Lexer [Text l]) (l;Lexer [Text r]) (l;Lexer [Text (| l r)])))
   (function [input]
     (case (left input)
-      (#;Right [input' [lt lv]])
-      (#;Right [input' [lt (+0 lv)]])
+      (#R;Success [input' [lt lv]])
+      (#R;Success [input' [lt (+0 lv)]])
 
-      (#;Left _)
+      (#R;Error _)
       (case (right input)
-        (#;Right [input' [rt rv]])
-        (#;Right [input' [rt (+1 rv)]])
+        (#R;Success [input' [rt rv]])
+        (#R;Success [input' [rt (+1 rv)]])
 
-        (#;Left error)
-        (#;Left error)))))
+        (#R;Error error)
+        (#R;Error error)))))
 
 (def: #hidden (|||_^ left right)
   (All [l r] (-> (l;Lexer [Text l]) (l;Lexer [Text r]) (l;Lexer Text)))
   (function [input]
     (case (left input)
-      (#;Right [input' [lt lv]])
-      (#;Right [input' lt])
+      (#R;Success [input' [lt lv]])
+      (#R;Success [input' lt])
 
-      (#;Left _)
+      (#R;Error _)
       (case (right input)
-        (#;Right [input' [rt rv]])
-        (#;Right [input' rt])
+        (#R;Success [input' [rt rv]])
+        (#R;Success [input' rt])
 
-        (#;Left error)
-        (#;Left error)))))
+        (#R;Error error)
+        (#R;Error error)))))
 
 (def: (prep-alternative [num-captures alt])
   (-> [Nat Code] Code)
@@ -471,11 +462,11 @@
     (case (|> (regex^ current-module)
               (p;before l;end)
               (l;run pattern))
-      (#;Left error)
+      (#R;Error error)
       (macro;fail (format "Error while parsing regular-expression:\n"
                           error))
 
-      (#;Right regex)
+      (#R;Success regex)
       (wrap (list regex))
       )))
 
@@ -497,7 +488,7 @@
     [g!temp (macro;gensym "temp")]
     (wrap (list& (` (^multi (~ g!temp)
                             [(l;run (~ g!temp) (regex (~ (code;text pattern))))
-                             (#;Right (~ (default g!temp
-                                           bindings)))]))
+                             (#R;Success (~ (default g!temp
+                                              bindings)))]))
                  body
                  branches))))
