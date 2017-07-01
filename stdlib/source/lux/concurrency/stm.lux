@@ -4,7 +4,7 @@
                 applicative
                 monad)
        [io #- run]
-       (data (coll [list #* "List/" Functor<List> Fold<List>]
+       (data (coll [list "L/" Functor<List> Fold<List>]
                    [dict #+ Dict]
                    ["Q" queue])
              [product]
@@ -16,7 +16,7 @@
        (macro [code]
               ["s" syntax #+ syntax: Syntax])
        (concurrency [atom #+ Atom atom]
-                    ["P" promise #+ Promise "Promise/" Monad<Promise>]
+                    ["P" promise]
                     [frp])
        ))
 
@@ -53,9 +53,9 @@
 (def: (find-var-value var tx)
   (All [a] (-> (Var a) Tx (Maybe a)))
   (|> tx
-      (find (function [[_var _original _current]]
-              (is (:! (Var Unit) var)
-                  (:! (Var Unit) _var))))
+      (list;find (function [[_var _original _current]]
+                   (is (:! (Var Unit) var)
+                       (:! (Var Unit) _var))))
       (:: Monad<Maybe> map (function [[_var _original _current]]
                              _current))
       (:! (Maybe ($ +0)))))
@@ -143,15 +143,15 @@
                      (write! tail' chan-var)))]
     (do Monad<IO>
       [_ (atom;update (function [[value observers]]
-                        (let [label (Nat/encode (List/fold (function [key base]
-                                                             (case (Nat/decode key)
-                                                               (#;Left _)
-                                                               base
+                        (let [label (Nat/encode (L/fold (function [key base]
+                                                          (case (Nat/decode key)
+                                                            (#;Left _)
+                                                            base
 
-                                                               (#;Right key-num)
-                                                               (n.max key-num base)))
-                                                           +0
-                                                           (dict;keys observers)))]
+                                                            (#;Right key-num)
+                                                            (n.max key-num base)))
+                                                        +0
+                                                        (dict;keys observers)))]
                           [value (dict;put label (observer label) observers)]))
                       target)]
       (wrap head))))
@@ -205,9 +205,9 @@
 
 (def: (can-commit? tx)
   (-> Tx Bool)
-  (every? (function [[_var _original _current]]
-            (is _original (raw-read _var)))
-          tx))
+  (list;every? (function [[_var _original _current]]
+                 (is _original (raw-read _var)))
+               tx))
 
 (def: (commit-var [_var _original _current])
   (-> (Ex [a] (Tx-Frame a)) Unit)
@@ -218,7 +218,7 @@
 (def: fresh-tx Tx (list))
 
 (def: pending-commits
-  (Var (Ex [a] [(STM a) (Promise a)]))
+  (Var (Ex [a] [(STM a) (P;Promise a)]))
   (var (:!! [])))
 
 (def: commit-processor-flag
@@ -226,8 +226,8 @@
   (atom false))
 
 (def: (process-commit commits)
-  (-> (frp;Chan [(STM Unit) (Promise Unit)])
-      (Promise Unit))
+  (-> (frp;Chan [(STM Unit) (P;Promise Unit)])
+      (P;Promise Unit))
   (do P;Monad<Promise>
     [?head+tail commits]
     (case ?head+tail
@@ -235,7 +235,7 @@
       (do @
         [#let [[finished-tx value] (stm-proc fresh-tx)]]
         (exec (if (can-commit? finished-tx)
-                (exec (List/map commit-var finished-tx)
+                (exec (L/map commit-var finished-tx)
                   (io;run (P;resolve value output))
                   [])
                 (exec (io;run (write! [stm-proc output] pending-commits))
@@ -257,7 +257,7 @@
         (if was-first?
           (do Monad<IO>
             [inputs (follow pending-commits)]
-            (exec (process-commit (:! (frp;Chan [(STM Unit) (Promise Unit)])
+            (exec (process-commit (:! (frp;Chan [(STM Unit) (P;Promise Unit)])
                                       inputs))
               (wrap [])))
           (wrap [])))
@@ -269,7 +269,7 @@
           Note that a transaction may be re-run an indeterminate number of times if other transactions involving the same variables successfully commit first.
 
           For this reason, it's important to note that transactions must be free from side-effects, such as I/O."}
-  (All [a] (-> (STM a) (Promise a)))
+  (All [a] (-> (STM a) (P;Promise a)))
   (let [output (P;promise ($ +0))]
     (exec (io;run init-processor!)
       (io;run (write! [stm-proc output] pending-commits))
