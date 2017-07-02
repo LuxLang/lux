@@ -1,0 +1,91 @@
+(;module:
+  lux
+  (lux (data [bool "B/" Eq<Bool>]
+             [text "T/" Eq<Text>]
+             [number]
+             (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
+                   ["s" set])))
+  (luxc (lang ["la" analysis]
+              ["ls" synthesis])
+        (synthesizer ["&;" function])))
+
+(def: #export (path pattern)
+  (-> la;Pattern ls;Path)
+  (case pattern
+    (^template [<from> <to>]
+      (<from> register)
+      (<to> register))
+    ([#la;BindP #ls;BindP]
+     [#la;BoolP #ls;BoolP]
+     [#la;NatP  #ls;NatP]
+     [#la;IntP  #ls;IntP]
+     [#la;DegP  #ls;DegP]
+     [#la;RealP #ls;RealP]
+     [#la;TextP #ls;TextP])
+    
+    (#la;TupleP membersP)
+    (case (list;reverse membersP)
+      #;Nil
+      #ls;UnitP
+
+      (#;Cons singletonP #;Nil)
+      (path singletonP)
+
+      (#;Cons lastP prevsP)
+      (let [length (list;size membersP)
+            last-idx (n.dec length)
+            last-path (#ls;TupleP (#;Right last-idx) (path lastP))
+            [_ tuple-path] (L/fold (function [current-pattern [current-idx next-path]]
+                                     [(n.dec current-idx)
+                                      (#ls;SeqP (#ls;TupleP (#;Left current-idx)
+                                                            (path current-pattern))
+                                                next-path)])
+                                   [(n.dec last-idx) last-path]
+                                   prevsP)]
+        tuple-path))
+    
+    (#la;VariantP tag num-tags memberP)
+    (let [last? (n.= (n.dec num-tags) tag)]
+      (#ls;VariantP (if last? (#;Right tag) (#;Left tag))
+                    (path memberP)))))
+
+(def: #export (weave nextP prevP)
+  (-> ls;Path ls;Path ls;Path)
+  (with-expansions [<default> (as-is (#ls;AltP prevP nextP))]
+    (case [nextP prevP]
+      [#ls;UnitP #ls;UnitP]
+      #ls;UnitP
+
+      (^template [<tag> <test>]
+        [(<tag> next) (<tag> prev)]
+        (if (<test> next prev)
+          prevP
+          <default>))
+      ([#ls;BindP n.=]
+       [#ls;BoolP B/=]
+       [#ls;NatP  n.=]
+       [#ls;IntP  i.=]
+       [#ls;DegP  d.=]
+       [#ls;RealP r.=]
+       [#ls;TextP T/=])
+
+      (^template [<tag> <side>]
+        [(<tag> (<side> next-idx) next-then) (<tag> (<side> prev-idx) prev-then)]
+        (if (n.= next-idx prev-idx)
+          (weave next-then prev-then)
+          <default>))
+      ([#ls;TupleP   #;Left]
+       [#ls;TupleP   #;Right]
+       [#ls;VariantP #;Left]
+       [#ls;VariantP #;Right])
+
+      [(#ls;SeqP next-pre next-post) (#ls;SeqP prev-pre prev-post)]
+      (case (weave next-pre prev-pre)
+        (#ls;AltP _ _)
+        <default>
+
+        weavedP
+        (#ls;SeqP weavedP (weave next-post prev-post)))
+
+      _
+      <default>)))

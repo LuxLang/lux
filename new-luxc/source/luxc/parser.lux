@@ -30,7 +30,6 @@
   (lux (control monad
                 ["p" parser "p/" Monad<Parser>])
        (data [bool]
-             [char]
              [text]
              ["R" result]
              [number]
@@ -160,29 +159,28 @@
 ## and 4 characters long (e.g. \u12aB).
 ## Escaped characters may show up in Char and Text literals.
 (def: escaped-char^
-  (l;Lexer [Text Char])
+  (l;Lexer [Nat Text])
   (p;after (l;this "\\")
            (do p;Monad<Parser>
              [code l;any]
              (case code
                ## Handle special cases.
-               "t"  (wrap ["\\t"  #"\t"])
-               "v"  (wrap ["\\v"  #"\v"])
-               "b"  (wrap ["\\b"  #"\b"])
-               "n"  (wrap ["\\n"  #"\n"])
-               "r"  (wrap ["\\r"  #"\r"])
-               "f"  (wrap ["\\f"  #"\f"])
-               "\"" (wrap ["\\\"" #"\""])
-               "\\" (wrap ["\\\\" #"\\"])
+               "t"  (wrap [+2 "\t"])
+               "v"  (wrap [+2 "\v"])
+               "b"  (wrap [+2 "\b"])
+               "n"  (wrap [+2 "\n"])
+               "r"  (wrap [+2 "\r"])
+               "f"  (wrap [+2 "\f"])
+               "\"" (wrap [+2 "\""])
+               "\\" (wrap [+2 "\\"])
 
                ## Handle unicode escapes.
                "u"
                (do p;Monad<Parser>
-                 [code (l;between +1 +4 l;hex-digit)]
-                 (wrap (case (:: number;Hex@Codec<Text,Nat> decode
-                                 (format "+" code))
+                 [code (l;between +1 +4 l;hexadecimal)]
+                 (wrap (case (|> code (format "+") (:: number;Hex@Codec<Text,Nat> decode))
                          (#;Right value)
-                         [(format "\\u" code) (char;char value)]
+                         [(n.+ +2 (text;size code)) (text;from-code value)]
 
                          _
                          (undefined))))
@@ -190,31 +188,17 @@
                _
                (p;fail (format "Invalid escaping syntax: " (%t code)))))))
 
-## A character can be either a normal glyph, or a escaped character.
-## The reason why this parser returns both the Char and it's textual
-## representation in the source-code, is for the sake of updating the
-## cursor after parsing the char.
-## A character only represents one glyph, but it's source-code
-## representation may be multi-glyph (e.g. \u1234, \n), in which case,
-## the text that was parsed needs to be counted to update the cursor.
-(def: raw-char^
-  (l;Lexer [Text Char])
-  (p;either (do p;Monad<Parser>
-              [char (l;none-of "\\\"\n")]
-              (wrap [char (|> char (text;nth +0) assume)]))
-            escaped-char^))
-
 ## These are very simple parsers that just cut chunks of text in
 ## specific shapes and then use decoders already present in the
 ## standard library to actually produce the values from the literals.
 (def: rich-digit
   (l;Lexer Text)
-  (p;either l;digit
+  (p;either l;decimal
             (p;after (l;this "_") (p/wrap ""))))
 
 (def: rich-digits^
   (l;Lexer Text)
-  (l;seq l;digit
+  (l;seq l;decimal
          (l;some rich-digit)))
 
 (def: (marker^ token)
@@ -261,16 +245,6 @@
           rich-digits^)
    number;Codec<Text,Deg>]
   )
-
-## This parser doesn't delegate the work of producing the value to a
-## codec, since the raw-char^ parser already takes care of that magic.
-(def: #export (parse-char where)
-  (-> Cursor (l;Lexer [Cursor Code]))
-  (do p;Monad<Parser>
-    [[chunk value] (l;enclosed ["#\"" "\""]
-                               raw-char^)]
-    (wrap [(update@ #;column (|>. ($_ n.+ +3 (text;size chunk))) where)
-           [where (#;Char value)]])))
 
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
@@ -334,10 +308,10 @@
                                              ## Must handle escaped
                                              ## chars separately.
                                              (do @
-                                               [[chunk char] escaped-char^]
-                                               (recur (format text-read (char;as-text char))
+                                               [[chars-consumed char] escaped-char^]
+                                               (recur (format text-read char)
                                                       (|> where
-                                                          (update@ #;column (n.+ (text;size chunk))))
+                                                          (update@ #;column (n.+ chars-consumed)))
                                                       false))
                                              ## The text ends when it
                                              ## reaches the right-delimiter.
@@ -538,15 +512,14 @@
         (parse-deg where)
         (parse-symbol where)
         (parse-tag where)
-        (parse-char where)
         (parse-text where)
         )))
 
 (def: #export (parse [where code])
   (-> [Cursor Text] (R;Result [[Cursor Text] Code]))
-  (case (p;run code (parse-ast where))
+  (case (p;run [+0 code] (parse-ast where))
     (#R;Error error)
     (#R;Error error)
 
-    (#R;Success [remaining [where' output]])
+    (#R;Success [[_ remaining] [where' output]])
     (#R;Success [[where' remaining] output])))

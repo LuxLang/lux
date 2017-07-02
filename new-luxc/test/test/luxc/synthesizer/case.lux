@@ -1,0 +1,213 @@
+(;module:
+  lux
+  (lux [io]
+       (control monad
+                pipe
+                eq)
+       (data [bool "B/" Eq<Bool>]
+             [text "T/" Eq<Text>]
+             [product]
+             [number]
+             text/format
+             (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
+                   ["s" set]))
+       ["r" math/random "r/" Monad<Random>]
+       test)
+  (luxc (lang ["la" analysis]
+              ["ls" synthesis])
+        [synthesizer]
+        (synthesizer ["@" case]))
+  (.. common))
+
+(struct: _ (Eq ls;Synthesis)
+  (def: (= reference sample)
+    (case [reference sample]
+      (^template [<tag> <test>]
+        [(<tag> reference') (<tag> sample')]
+        (<test> reference' sample'))
+      ([#ls;Unit is]
+       [#ls;Bool B/=]
+       [#ls;Nat  n.=]
+       [#ls;Int  i.=]
+       [#ls;Deg  d.=]
+       [#ls;Real r.=]
+       [#ls;Text T/=])
+
+      _
+      false)))
+
+(struct: _ (Eq ls;Path)
+  (def: (= reference sample)
+    (case [reference sample]
+      (^or [#ls;UnitP #ls;UnitP]
+           [(#ls;ExecP _) (#ls;ExecP _)])
+      true
+
+      (^template [<tag> <eq>]
+        [(<tag> reference') (<tag> sample')]
+        (<eq> reference' sample'))
+      ([#ls;BindP n.=]
+       [#ls;BoolP B/=]
+       [#ls;NatP  n.=]
+       [#ls;IntP  i.=]
+       [#ls;DegP  d.=]
+       [#ls;RealP r.=]
+       [#ls;TextP T/=])
+
+      (^template [<outer> <inner>]
+        [(<outer> (<inner> reference') reference-then)
+         (<outer> (<inner> sample') sample-then)]
+        (and (n.= reference' sample')
+             (= reference-then sample-then)))
+      ([#ls;VariantP #;Left]
+       [#ls;VariantP #;Right]
+       [#ls;TupleP   #;Left]
+       [#ls;TupleP   #;Right])
+      
+      (^template [<tag>]
+        [(<tag> referenceL referenceR) (<tag> sampleL sampleR)]
+        (and (= referenceL sampleL)
+             (= referenceR sampleR)))
+      ([#ls;AltP]
+       [#ls;SeqP])
+      
+      _
+      false)))
+
+(do-template [<name> <path> <sampler> <hash> <max>]
+  [(def: <name>
+     (r;Random ls;Path)
+     (do r;Monad<Random>
+       [num-alts (|> r;nat (:: @ map (|>. (n.% <max>) (n.max +1))))
+        samples (|> (r;set <hash> num-alts <sampler>)
+                    (:: @ map s;to-list))]
+       (case (|> samples
+                 (L/map (|>. <path>))
+                 list;reverse)
+         (#;Cons last prevs)
+         (wrap (L/fold (function [left right]
+                         (#ls;AltP left right))
+                       last
+                       prevs))
+
+         #;Nil
+         (undefined))))]
+
+  [gen-bool #ls;BoolP r;bool      bool;Hash<Bool>   +2]
+  [gen-nat  #ls;NatP  r;nat       number;Hash<Nat>  +5]
+  [gen-int  #ls;IntP  r;int       number;Hash<Int>  +5]
+  [gen-deg  #ls;DegP  r;deg       number;Hash<Deg>  +5]
+  [gen-real #ls;RealP r;real      number;Hash<Real> +5]
+  [gen-text #ls;TextP (r;text +5) text;Hash<Text>   +5]
+  )
+
+(def: gen-primitive-path
+  (r;Random ls;Path)
+  (r;either (r;either (r;either (r/wrap #ls;UnitP)
+                                gen-bool)
+                      (r;either gen-nat
+                                gen-int))
+            (r;either (r;either gen-deg
+                                gen-real)
+                      gen-text)))
+
+(do-template [<name> <tag> <join>]
+  [(def: (<name> gen-path)
+     (-> (-> (Maybe ls;Synthesis) (r;Random ls;Path))
+         (r;Random ls;Path))
+     (do r;Monad<Random>
+       [size (|> r;nat (:: @ map (|>. (n.% +10) (n.max +2))))
+        members (r;list size (gen-path #;None))]
+       (case (list;reverse (list;enumerate members))
+         (#;Cons [last-idx last-path] prevs)
+         (wrap (L/fold (function [[left-idx left-path] right-path]
+                         (<join> (<tag> (#;Right left-idx) left-path)
+                                 right-path))
+                       (<tag> (#;Right last-idx) last-path)
+                       prevs))
+
+         #;Nil
+         (undefined))))]
+
+  [gen-tuple-path   #ls;TupleP   #ls;SeqP]
+  [gen-variant-path #ls;VariantP #ls;AltP]
+  )
+
+(def: (gen-path ?body)
+  (-> (Maybe ls;Synthesis) (r;Random ls;Path))
+  (do r;Monad<Random>
+    [pattern (r;either (r;either (r/wrap (#ls;BindP +0))
+                                 gen-primitive-path)
+                       (r;either (gen-tuple-path gen-path)
+                                 (gen-variant-path gen-path)))]
+    (case ?body
+      #;None
+      (wrap pattern)
+
+      (#;Some body)
+      (wrap (#ls;SeqP pattern (#ls;ExecP body))))))
+
+(def: (to-branches path)
+  (-> ls;Path (List la;Pattern))
+  (case path
+    (^template [<from> <to>]
+      (<from> value)
+      (list (<to> value)))
+    ([#ls;UnitP #la;UnitP]
+     [#ls;BoolP #la;BoolP]
+     [#ls;NatP  #la;NatP]
+     [#ls;IntP  #la;IntP]
+     [#ls;DegP  #la;DegP]
+     [#ls;RealP #la;RealP]
+     [#ls;TextP #la;TextP]
+     [#ls;BindP #la;BindP])
+
+    (#ls;AltP left right)
+    (L/append (to-branches left)
+              (to-branches right))
+
+    (#ls;SeqP (#ls;TupleP (#;Left +0) head)
+              tail)
+    (loop [head head
+           tail tail]
+      (case [(path-to-pattern head) tail]
+        [(#;Some =head) (#ls;SeqP (#ls;TupleP (#;Left idx) head')
+                                  tail')]
+        (list& =head (recur head' tail'))
+
+        [(#;Some =head) (#ls;SeqP (#ls;TupleP (#;Left idx) head')
+                                  tail')]
+        (list& =head (recur head' tail'))
+
+        [(#;Some =head) (#ls;SeqP (#ls;TupleP (#;Right last-idx))
+                                  tail')]
+        (do list;Monad<List>
+          [=tail' (to-branches tail')
+           =right (to-branches right)]
+          )))
+
+    (#ls;SeqP left right)
+    (do list;Monad<List>
+      [=left (to-branches left)
+       =right (to-branches right)]
+      )
+
+    #PopP
+    (#VariantP (Either Nat Nat))
+    (#TupleP (Either Nat Nat))
+    
+    
+    (#ExecP s)
+    ))
+
+(context: "Pattern-matching."
+  [outputA gen-primitive
+   prediction (gen-path (#;Some (synthesizer;synthesize outputA)))
+   #let [branches (to-branches outputA prediction)]]
+  (test "Can efficiently synthesize pattern-matching trees."
+        (|> (synthesizer;synthesize (#la;Case #la;Unit branches))
+            (case> (#la;Case #ls;Unit pathS)
+                   (:: Eq<Path> prediction pathS)
+
+                   _
+                   false))))

@@ -2,12 +2,14 @@
   lux
   (lux (data text/format
              [number]
+             [product]
              (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
                    ["d" dict])))
   (luxc ["&" base]
         (lang ["la" analysis]
               ["ls" synthesis])
         (synthesizer ["&&;" structure]
+                     ["&&;" case]
                      ["&&;" function]
                      ["&&;" loop])
         ))
@@ -37,7 +39,6 @@
        [#la;Int      #ls;Int]
        [#la;Deg      #ls;Deg]
        [#la;Real     #ls;Real]
-       [#la;Char     #ls;Char]
        [#la;Text     #ls;Text]
        [#la;Absolute #ls;Definition])
 
@@ -63,6 +64,38 @@
         (#ls;Variable (let [var (&&function;to-captured register)]
                         (default var (d;get var resolver)))))
 
+      (#la;Case inputA branchesA)
+      (let [inputS (recur +0 resolver num-locals inputA)]
+        (case (list;reverse branchesA)
+          (^multi (^ (list [(#la;BindP input-register)
+                            (#la;Relative (#;Local output-register))]))
+                  (n.= input-register output-register))
+          inputS
+
+          (^ (list [(#la;BindP register) bodyA]))
+          (#ls;Let register inputS (recur +0 resolver num-locals bodyA))
+          
+          (^or (^ (list [(#la;BoolP true) thenA] [(#la;BoolP false) elseA]))
+               (^ (list [(#la;BoolP false) elseA] [(#la;BoolP true) thenA])))
+          (#ls;If inputS
+                  (recur +0 resolver num-locals thenA)
+                  (recur +0 resolver num-locals elseA))
+
+          (#;Cons [lastP lastA] prevsPA)
+          (let [transform-branch (: (-> la;Pattern la;Analysis ls;Path)
+                                    (function [pattern expr]
+                                      (|> (recur +0 resolver num-locals expr)
+                                          #ls;ExecP
+                                          (#ls;SeqP (&&case;path pattern)))))]
+            (#ls;Case inputS
+                      (L/fold &&case;weave
+                              (transform-branch lastP lastA)
+                              (L/map (product;uncurry transform-branch) prevsPA))))
+
+          _
+          (undefined)
+          ))
+      
       (#la;Function scope bodyA)
       (let [inner-arity (n.inc outer-arity)
             raw-env (&&function;environment scope)
@@ -111,36 +144,4 @@
 
       (#la;Procedure name args)
       (#ls;Procedure name (L/map (recur +0 resolver num-locals) args))
-
-      _
-      (undefined)
-      
-      ## (#la;Case inputA branchesA)
-      ## (let [inputS (recur +0 local-offset false inputA)]
-      ##   (case branchesA
-      ##     (^multi (^ (list [(#lp;Bind input-register)
-      ##                       (#la;Variable (#;Local output-register))]))
-      ##             (n.= input-register output-register))
-      ##     inputS
-
-      ##     (^ (list [(#lp;Bind register) bodyA]))
-      ##     (#ls;Let register inputS (recur +0 local-offset tail? bodyA))
-      
-      ##     (^or (^ (list [(#lp;Bool true) thenA] [(#lp;Bool false) elseA]))
-      ##          (^ (list [(#lp;Bool false) elseA] [(#lp;Bool true) thenA])))
-      ##     (#ls;If inputS
-      ##             (recur +0 local-offset tail? thenA)
-      ##             (recur +0 local-offset tail? elseA))
-
-      ##     (#;Cons [headP headA] tailPA)
-      ##     (let [headP+ (|> (recur +0 local-offset tail? headA)
-      ##                      #ls;ExecP
-      ##                      (#ls;SeqP (&&case;path headP)))
-      ##           tailP+ (L/map (function [[pattern bodyA]]
-      ##                           (|> (recur +0 local-offset tail? bodyA)
-      ##                               #ls;ExecP
-      ##                               (#ls;SeqP (&&case;path pattern))))
-      ##                         tailPA)]
-      ##       (#ls;Case inputS (&&case;weave-paths headP+ tailP+)))
-      ##     ))
       )))
