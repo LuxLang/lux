@@ -76,7 +76,6 @@
   ("Int" 1)
   ("Deg" 1)
   ("Real" 1)
-  ("Char" 1)
   ("Text" 1)
   ("Symbol" 1)
   ("Tag" 1)
@@ -223,7 +222,6 @@
   ("IntA" 1)
   ("DegA" 1)
   ("RealA" 1)
-  ("CharA" 1)
   ("TextA" 1)
   ("IdentA" 1)
   ("ListA" 1)
@@ -1221,9 +1219,6 @@
 
     [_ ($Real ?value)]
     (pr-str ?value)
-
-    [_ ($Char ?value)]
-    (str "#\"" (pr-str ?value) "\"")
 
     [_ ($Text ?value)]
     (str "\"" ?value "\"")

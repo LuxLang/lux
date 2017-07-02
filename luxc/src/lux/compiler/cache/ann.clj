@@ -43,9 +43,6 @@
     (&/$RealA value)
     (str "R" value stop)
 
-    (&/$CharA value)
-    (str "C" value stop)
-
     (&/$TextA value)
     (serialize-text value)
 
@@ -88,7 +85,6 @@
   ^:private deserialize-int  "I" &/$IntA  Long/parseLong
   ^:private deserialize-deg "D" &/$DegA Long/parseLong
   ^:private deserialize-real "R" &/$RealA Double/parseDouble
-  ^:private deserialize-char "C" &/$CharA (fn [^String input] (.charAt input 0))
   ^:private deserialize-text "T" &/$TextA identity
   )
 
@@ -143,7 +139,6 @@
       (deserialize-int input)
       (deserialize-deg input)
       (deserialize-real input)
-      (deserialize-char input)
       (deserialize-text input)
       (deserialize-ident input)
       (deserialize-list input)

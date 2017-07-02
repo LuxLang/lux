@@ -192,10 +192,6 @@
     (&o/$RealPM _value)
     (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
-    (&o/$CharPM _value)
-    (|do [=value (compile-char _value)]
-      (return (str "if(" (str "(" cursor-peek ").C") " !== " (str "(" =value ").C") ") { " pm-fail " }")))
-
     (&o/$TextPM _value)
     (|do [=value (compile-text _value)]
       (return (str "if(" cursor-peek " !== " =value ") { " pm-fail " }")))

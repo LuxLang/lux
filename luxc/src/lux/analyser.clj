@@ -86,10 +86,6 @@
       (|do [_ (&type/check exo-type &type/Real)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$real ?value)))))
 
-      (&/$Char ?value)
-      (|do [_ (&type/check exo-type &type/Char)]
-        (return (&/|list (&&/|meta exo-type cursor (&&/$char ?value)))))
-
       (&/$Text ?value)
       (|do [_ (&type/check exo-type &type/Text)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$text ?value)))))

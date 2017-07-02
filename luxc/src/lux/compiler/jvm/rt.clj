@@ -698,8 +698,9 @@
         (.visitLabel $from)
         (.visitVarInsn Opcodes/ALOAD 0)
         (.visitVarInsn Opcodes/ILOAD 1)
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
-        &&/wrap-char
+        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "codePointAt" "(I)I")
+        (.visitInsn Opcodes/I2L)
+        &&/wrap-long
         (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
         (.visitInsn Opcodes/ARETURN)
         (.visitLabel $to)

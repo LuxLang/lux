@@ -51,9 +51,6 @@
       (&o/$real ?value)
       (&&lux/compile-real ?value)
 
-      (&o/$char ?value)
-      (&&lux/compile-char ?value)
-
       (&o/$text ?value)
       (&&lux/compile-text ?value)
 

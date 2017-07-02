@@ -14,7 +14,6 @@
   ("Int" 1)
   ("Deg" 1)
   ("Real" 1)
-  ("Char" 1)
   ("Text" 1)
   ("Symbol" 1)
   ("Tag" 1)
@@ -27,32 +26,6 @@
   )
 
 ;; [Utils]
-(defn ^:private escape-char [escaped]
-  "(-> Text (Lux Text))"
-  (cond (.equals ^Object escaped "\\t")  (return "\t")
-        (.equals ^Object escaped "\\v")  (return "\u000B")
-        (.equals ^Object escaped "\\b")  (return "\b")
-        (.equals ^Object escaped "\\n")  (return "\n")
-        (.equals ^Object escaped "\\r")  (return "\r")
-        (.equals ^Object escaped "\\f")  (return "\f")
-        (.equals ^Object escaped "\\\"") (return "\"")
-        (.equals ^Object escaped "\\\\") (return "\\")
-        :else
-        (&/fail-with-loc (str "[Lexer Error] Unknown escape character: " escaped))))
-
-(defn ^:private escape-char* [escaped]
-  "(-> Text Text)"
-  (cond (.equals ^Object escaped "\\t")  "\t"
-        (.equals ^Object escaped "\\v")  "\u000B"
-        (.equals ^Object escaped "\\b")  "\b"
-        (.equals ^Object escaped "\\n")  "\n"
-        (.equals ^Object escaped "\\r")  "\r"
-        (.equals ^Object escaped "\\f")  "\f"
-        (.equals ^Object escaped "\\\"") "\""
-        (.equals ^Object escaped "\\\\") "\\"
-        :else
-        (assert false (str "[Lexer Error] Unknown escape character: " escaped))))
-
 (defn ^:private clean-line [^String raw-line]
   "(-> Text Text)"
   (let [line-length (.length raw-line)
@@ -171,17 +144,6 @@
   lex-real $Real #"^-?(0\.[0-9_]+|[1-9][0-9_]*\.[0-9_]+)(e-?[1-9][0-9_]*)?"
   )
 
-(def lex-char
-  (|do [[meta _ _] (&reader/read-text "#\"")
-        token (&/try-all% (&/|list (|do [[_ _ escaped] (&reader/read-regex #"^(\\.)")]
-                                     (escape-char escaped))
-                                   (|do [[_ _ ^String unicode] (&reader/read-regex #"^(\\u[0-9a-fA-F]{4})")]
-                                     (return (str (char (Integer/valueOf (.substring unicode 2) 16)))))
-                                   (|do [[_ _ char] (&reader/read-regex #"^(.)")]
-                                     (return char))))
-        _ (&reader/read-text "\"")]
-    (return (&/T [meta ($Char token)]))))
-
 (def ^:private lex-ident
   (&/try-all-% "[Reader Error]"
                (&/|list (|do [[meta _ token] (&reader/read-regex +ident-re+)
@@ -246,7 +208,6 @@
                         lex-real
                         lex-deg
                         lex-int
-                        lex-char
                         lex-text
                         lex-symbol
                         lex-tag

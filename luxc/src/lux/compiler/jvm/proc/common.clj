@@ -274,31 +274,6 @@
   ^:private compile-real-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
-(do-template [<name> <opcode> <unwrap>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    <unwrap>)]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    <unwrap>)
-                $then (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (.visitJumpInsn <opcode> $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitLabel $end))]]
-      (return nil)))
-
-  ^:private compile-char-eq Opcodes/IF_ICMPEQ &&/unwrap-char
-  ^:private compile-char-lt Opcodes/IF_ICMPLT &&/unwrap-char
-  )
-
 (do-template [<name> <cmp-output>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
@@ -440,34 +415,15 @@
   ^:private compile-real-to-deg "java.lang.Double" "real-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
-(let [widen (fn [^MethodVisitor *writer*]
-              (doto *writer*
-                (.visitInsn Opcodes/I2L)))
-      shrink (fn [^MethodVisitor *writer*]
-               (doto *writer*
-                 (.visitInsn Opcodes/L2I)
-                 (.visitInsn Opcodes/I2C)))]
-  (do-template [<name> <unwrap> <wrap> <adjust>]
-    (defn <name> [compile ?values special-args]
-      (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-            ^MethodVisitor *writer* &/get-writer
-            _ (compile ?x)
-            :let [_ (doto *writer*
-                      <unwrap>
-                      <adjust>
-                      <wrap>)]]
-        (return nil)))
-
-    ^:private compile-nat-to-char &&/unwrap-long &&/wrap-char shrink
-    ^:private compile-char-to-nat &&/unwrap-char &&/wrap-long widen
-    ))
-
-(defn ^:private compile-char-to-text [compile ?values special-args]
+(defn ^:private compile-nat-to-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "toString" "()Ljava/lang/String;"))]]
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I)
+                  (.visitInsn Opcodes/I2C)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/String" "valueOf" "(C)Ljava/lang/String;"))]]
     (return nil)))
 
 (do-template [<name>]
@@ -966,14 +922,6 @@
       "to-deg"    (compile-real-to-deg compile ?values special-args)
       "encode"    (compile-real-encode compile ?values special-args)
       "decode"    (compile-real-decode compile ?values special-args)
-      )
-
-    "char"
-    (case proc
-      "="         (compile-char-eq compile ?values special-args)
-      "<"         (compile-char-lt compile ?values special-args)
-      "to-nat"    (compile-char-to-nat compile ?values special-args)
-      "to-text"   (compile-char-to-text compile ?values special-args)
       )
 
     "math"

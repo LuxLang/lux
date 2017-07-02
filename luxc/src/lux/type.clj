@@ -28,7 +28,6 @@
 (def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Host &&host/deg-data-tag &/$Nil)))
 (def Int (&/$Named (&/T ["lux" "Int"]) (&/$Host "#Int" &/$Nil)))
 (def Real (&/$Named (&/T ["lux" "Real"]) (&/$Host "#Real" &/$Nil)))
-(def Char (&/$Named (&/T ["lux" "Char"]) (&/$Host "#Char" &/$Nil)))
 (def Text (&/$Named (&/T ["lux" "Text"]) (&/$Host "#Text" &/$Nil)))
 (def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
 
@@ -144,19 +143,16 @@
                                        ;; RealA
                                        Real
                                        (&/$Sum
-                                        ;; CharA
-                                        Char
+                                        ;; TextA
+                                        Text
                                         (&/$Sum
-                                         ;; TextA
-                                         Text
+                                         ;; IdentA
+                                         Ident
                                          (&/$Sum
-                                          ;; IdentA
-                                          Ident
-                                          (&/$Sum
-                                           ;; ListA
-                                           (&/$Apply Ann-Value List)
-                                           ;; DictA
-                                           (&/$Apply (&/$Product Text Ann-Value) List))))))))))
+                                          ;; ListA
+                                          (&/$Apply Ann-Value List)
+                                          ;; DictA
+                                          (&/$Apply (&/$Product Text Ann-Value) List)))))))))
                                   )))))
 
 (def Anns

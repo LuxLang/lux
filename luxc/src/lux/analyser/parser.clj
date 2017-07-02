@@ -142,9 +142,6 @@
                                                [_ (&lexer/$Real param-value*)] &lexer/lex-real]
                                            (return (double param-value*)))
 
-                                         (|do [[_ (&lexer/$Char param-value*)] &lexer/lex-char]
-                                           (return (char param-value*)))
-
                                          (|do [[_ (&lexer/$Text param-value*)] &lexer/lex-text]
                                            (return param-value*))
                                          ))]

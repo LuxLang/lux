@@ -79,9 +79,6 @@
       (&lexer/$Real ?value)
       (return (&/|list (&/T [meta (&/$Real (Double/parseDouble ?value))])))
 
-      (&lexer/$Char ^String ?value)
-      (return (&/|list (&/T [meta (&/$Char (.charAt ?value 0))])))
-
       (&lexer/$Text ?value)
       (return (&/|list (&/T [meta (&/$Text ?value)])))
 

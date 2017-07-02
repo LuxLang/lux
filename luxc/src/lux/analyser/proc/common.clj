@@ -131,7 +131,7 @@
   (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
         =idx (&&/analyse-1 analyse &type/Nat idx)
-        _ (&type/check exo-type (&/$Apply &type/Char &type/Maybe))
+        _ (&type/check exo-type (&/$Apply &type/Nat &type/Maybe))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "char"])
@@ -217,9 +217,6 @@
   ^:private analyse-real-rem ["real" "%"] &type/Real &type/Real
   ^:private analyse-real-eq  ["real" "="] &type/Real &type/Bool
   ^:private analyse-real-lt  ["real" "<"] &type/Real &type/Bool
-
-  ^:private analyse-char-eq  ["char" "="] &type/Char &type/Bool
-  ^:private analyse-char-lt  ["char" "<"] &type/Char &type/Bool
   )
 
 (do-template [<name> <proc>]
@@ -294,13 +291,10 @@
   ^:private analyse-nat-to-int   &type/Nat  &type/Int    ["nat" "to-int"]
   ^:private analyse-int-to-nat   &type/Int  &type/Nat    ["int" "to-nat"]
   
-  ^:private analyse-nat-to-char  &type/Nat  &type/Char   ["nat" "to-char"]
-  ^:private analyse-char-to-nat  &type/Char &type/Nat    ["char" "to-nat"]
+  ^:private analyse-nat-to-char  &type/Nat  &type/Text   ["nat" "to-char"]
   
   ^:private analyse-int-to-real  &type/Int  &type/Real   ["int" "to-real"]
   ^:private analyse-real-to-int  &type/Real &type/Int    ["real" "to-int"]
-  
-  ^:private analyse-char-to-text &type/Char &type/Text   ["char" "to-text"]
 
   ^:private analyse-deg-to-real  &type/Deg  &type/Real   ["deg" "to-real"]
   ^:private analyse-real-to-deg  &type/Real &type/Deg    ["real" "to-deg"]
@@ -596,14 +590,6 @@
       "negative-infinity" (analyse-real-negative-infinity analyse exo-type ?values)
       "to-deg" (analyse-real-to-deg analyse exo-type ?values)
       "to-int" (analyse-real-to-int analyse exo-type ?values)
-      )
-
-    "char"
-    (case proc
-      "=" (analyse-char-eq analyse exo-type ?values)
-      "<" (analyse-char-lt analyse exo-type ?values)
-      "to-text" (analyse-char-to-text analyse exo-type ?values)
-      "to-nat" (analyse-char-to-nat analyse exo-type ?values)
       )
 
     "math"

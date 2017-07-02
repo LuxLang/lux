@@ -17,7 +17,6 @@
   ("IntTotal" 2)
   ("DegTotal" 2)
   ("RealTotal" 2)
-  ("CharTotal" 2)
   ("TextTotal" 2)
   ("TupleTotal" 2)
   ("VariantTotal" 2))
@@ -30,7 +29,6 @@
   ("IntTestAC" 1)
   ("DegTestAC" 1)
   ("RealTestAC" 1)
-  ("CharTestAC" 1)
   ("TextTestAC" 1)
   ("TupleTestAC" 1)
   ("VariantTestAC" 1))
@@ -296,11 +294,6 @@
             =kont kont]
         (return (&/T [($RealTestAC ?value) =kont])))
 
-      (&/$Char ?value)
-      (|do [_ (&type/check value-type &type/Char)
-            =kont kont]
-        (return (&/T [($CharTestAC ?value) =kont])))
-
       (&/$Text ?value)
       (|do [_ (&type/check value-type &type/Text)
             =kont kont]
@@ -428,9 +421,6 @@
       [($RealTotal total? ?values) ($NoTestAC)]
       (return ($RealTotal true ?values))
 
-      [($CharTotal total? ?values) ($NoTestAC)]
-      (return ($CharTotal true ?values))
-
       [($TextTotal total? ?values) ($NoTestAC)]
       (return ($TextTotal true ?values))
 
@@ -457,9 +447,6 @@
 
       [($RealTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($RealTotal true ?values))
-
-      [($CharTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($CharTotal true ?values))
 
       [($TextTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($TextTotal true ?values))
@@ -499,12 +486,6 @@
 
       [($RealTotal total? ?values) ($RealTestAC ?value)]
       (return ($RealTotal total? (&/$Cons ?value ?values)))
-
-      [($DefaultTotal total?) ($CharTestAC ?value)]
-      (return ($CharTotal total? (&/|list ?value)))
-
-      [($CharTotal total? ?values) ($CharTestAC ?value)]
-      (return ($CharTotal total? (&/$Cons ?value ?values)))
 
       [($DefaultTotal total?) ($TextTestAC ?value)]
       (return ($TextTotal total? (&/|list ?value)))
@@ -589,10 +570,6 @@
     
     ($RealTotal ?total _)
     (|do [_ (&type/check value-type &type/Real)]
-      (return ?total))
-
-    ($CharTotal ?total _)
-    (|do [_ (&type/check value-type &type/Char)]
       (return ?total))
 
     ($TextTotal ?total _)

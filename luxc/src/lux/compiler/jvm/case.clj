@@ -101,13 +101,6 @@
       (.visitInsn Opcodes/DCMPL)
       (.visitJumpInsn Opcodes/IFNE $else))
 
-    (&o/$CharPM _value)
-    (doto writer
-      stack-peek
-      &&/unwrap-char
-      (.visitLdcInsn _value)
-      (.visitJumpInsn Opcodes/IF_ICMPNE $else))
-
     (&o/$TextPM _value)
     (doto writer
       stack-peek

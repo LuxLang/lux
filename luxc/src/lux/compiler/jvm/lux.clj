@@ -41,7 +41,6 @@
   compile-int  "java/lang/Long"      "J" long
   compile-deg "java/lang/Long"      "J" long
   compile-real "java/lang/Double"    "D" double
-  compile-char "java/lang/Character" "C" char
   )
 
 (defn compile-text [?value]

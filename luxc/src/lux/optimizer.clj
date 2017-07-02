@@ -11,7 +11,6 @@
   ("int" 1)
   ("deg" 1)
   ("real" 1)
-  ("char" 1)
   ("text" 1)
   ("variant" 3)
   ("tuple" 1)
@@ -76,8 +75,6 @@
   ("DegPM" 1)
   ;; Compare the CDN with a real value.
   ("RealPM" 1)
-  ;; Compare the CDN with a character value.
-  ("CharPM" 1)
   ;; Compare the CDN with a text value.
   ("TextPM" 1)
   ;; Compare the CDN with a variant value. If valid, proceed to test
@@ -197,10 +194,6 @@
     (&/|list ($RealPM _value)
              $PopPM)
 
-    (&a-case/$CharTestAC _value)
-    (&/|list ($CharPM _value)
-             $PopPM)
-
     (&a-case/$TextTestAC _value)
     (&/|list ($TextPM _value)
              $PopPM)
@@ -267,57 +260,6 @@
           ($ExecPM body-id)
           (clean-unnecessary-pops (&/|reverse (transform-pm* test)))))
 
-(defn ^:private pattern->text [pattern]
-  (|case pattern
-    ($PopPM)
-    "$PopPM"
-
-    ($BindPM _id)
-    (str "($BindPM " _id ")")
-
-    ($BoolPM _value)
-    (str "($BoolPM " (pr-str _value) ")")
-
-    ($NatPM _value)
-    (str "($NatPM " (pr-str _value) ")")
-
-    ($IntPM _value)
-    (str "($IntPM " (pr-str _value) ")")
-
-    ($DegPM _value)
-    (str "($DegPM " (pr-str _value) ")")
-
-    ($RealPM _value)
-    (str "($RealPM " (pr-str _value) ")")
-
-    ($CharPM _value)
-    (str "($CharPM " (pr-str _value) ")")
-
-    ($TextPM _value)
-    (str "($TextPM " (pr-str _value) ")")
-
-    ($TuplePM (&/$Left _idx))
-    (str "($TuplePM L" _idx ")")
-
-    ($TuplePM (&/$Right _idx))
-    (str "($TuplePM R" _idx ")")
-
-    ($VariantPM (&/$Left _idx))
-    (str "($VariantPM L" _idx ")")
-
-    ($VariantPM (&/$Right _idx))
-    (str "($VariantPM R" _idx ")")
-
-    ($SeqPM _left _right)
-    (str "($SeqPM " (pattern->text _left) " " (pattern->text _right) ")")
-
-    ($ExecPM _idx)
-    (str "($ExecPM " _idx ")")
-
-    ;; $AltPM is not considered because it's not supposed to be
-    ;; present anywhere at this point in time.
-    ))
-
 ;; This function fuses together the paths of the PM traversal, adding
 ;; branching AltPMs where necessary, and fusing similar paths together
 ;; as much as possible, when early parts of them coincide.
@@ -356,11 +298,6 @@
     [($RealPM _pre-value) ($RealPM _post-value)]
     (if (= _pre-value _post-value)
       ($RealPM _pre-value)
-      ($AltPM pre post))
-
-    [($CharPM _pre-value) ($CharPM _post-value)]
-    (if (= _pre-value _post-value)
-      ($CharPM _pre-value)
       ($AltPM pre post))
 
     [($TextPM _pre-value) ($TextPM _post-value)]
@@ -1078,9 +1015,6 @@
         
         (&a/$real value)
         (&/T [meta ($real value)])
-        
-        (&a/$char value)
-        (&/T [meta ($char value)])
         
         (&a/$text value)
         (&/T [meta ($text value)])
