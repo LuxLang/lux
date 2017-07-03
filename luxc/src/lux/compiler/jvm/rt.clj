@@ -841,7 +841,24 @@
                   (.visitEnd))
               _ (let [$from (new Label)
                       $to (new Label)
-                      $handler (new Label)]
+                      $handler (new Label)
+                      make-string-writerI (fn [_method_]
+                                            (doto _method_
+                                              (.visitTypeInsn Opcodes/NEW "java/io/StringWriter")
+                                              (.visitInsn Opcodes/DUP)
+                                              (.visitMethodInsn Opcodes/INVOKESPECIAL "java/io/StringWriter" "<init>" "()V")))
+                      make-print-writerI (fn [_method_]
+                                           (doto _method_
+                                             ;; W
+                                             (.visitTypeInsn Opcodes/NEW "java/io/PrintWriter") ;; WP
+                                             (.visitInsn Opcodes/SWAP) ;; PW
+                                             (.visitInsn Opcodes/DUP2) ;; PWPW
+                                             (.visitInsn Opcodes/POP) ;; PWP
+                                             (.visitInsn Opcodes/SWAP) ;; PPW
+                                             (.visitLdcInsn true) ;; PPW?
+                                             (.visitMethodInsn Opcodes/INVOKESPECIAL "java/io/PrintWriter" "<init>" "(Ljava/io/Writer;Z)V")
+                                             ;; P
+                                             ))]
                   (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "runTry" "(Llux/Function;)[Ljava/lang/Object;" nil nil)
                     (.visitCode)
                     (.visitTryCatchBlock $from $to $handler "java/lang/Throwable")
@@ -853,10 +870,15 @@
                     (.visitInsn Opcodes/ARETURN)
                     (.visitLabel $to)
                     (.visitLabel $handler) ;; T
-                    (.visitLdcInsn (->> #'&/$Left meta ::&/idx int)) ;; TI
-                    (.visitInsn Opcodes/ACONST_NULL) ;; TI?
-                    swap2x1 ;; I?T
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "toString" "()Ljava/lang/String;") ;; I?S
+                    make-string-writerI ;; TW
+                    (.visitInsn Opcodes/DUP2) ;; TWTW
+                    make-print-writerI ;; TWTP
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Throwable" "printStackTrace" "(Ljava/io/PrintWriter;)V") ;; TW
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/StringWriter" "toString" "()Ljava/lang/String;") ;; TS
+                    (.visitInsn Opcodes/SWAP) (.visitInsn Opcodes/POP) ;; S
+                    (.visitLdcInsn (->> #'&/$Left meta ::&/idx int)) ;; SI
+                    (.visitInsn Opcodes/ACONST_NULL) ;; SI?
+                    swap2x1 ;; I?S
                     (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitInsn Opcodes/ARETURN)
                     (.visitMaxs 0 0)
