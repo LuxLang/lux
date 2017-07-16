@@ -710,7 +710,14 @@
   (All [a b] (-> (-> a b) (List a) (List b)))
   L/map)
 
-(poly: #hidden (Codec<JSON,?>//encode *env* :x:)
+(def: #hidden (rec-encode non-rec)
+  (All [a] (-> (-> (-> a JSON)
+                   (-> a JSON))
+               (-> a JSON)))
+  (function [input]
+    (non-rec (rec-encode non-rec) input)))
+
+(poly: #hidden (Codec<JSON,?>//encode env :x:)
   (let [->Codec//encode (: (-> Code Code)
                            (function [.type.] (` (-> (~ .type.) JSON))))]
     (with-expansions
@@ -728,53 +735,67 @@
             (do @
               [[:key: :val:] (poly;apply-2 (ident-for d;Dict) :x:)
                _ (poly;text :key:)
-               .val. (Codec<JSON,?>//encode *env* :val:)]
-              (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
+               .val. (Codec<JSON,?>//encode env :val:)]
+              (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
                           (function [(~ g!input)]
                             (|> (~ g!input)
                                 d;entries
-                                (;;_map_ (: (-> [Text (~ (type;to-ast :val:))]
+                                (;;_map_ (: (-> [Text (~ (poly;to-ast env :val:))]
                                                 [Text JSON])
                                             (function [[(~ g!key) (~ g!val)]]
                                               [(~ g!key)
                                                ((~ .val.) (~ g!val))])))
                                 (d;from-list text;Hash<Text>)
                                 #;;Object))
-                          )))
-              ))
+                          )))))
           (do @
             [:sub: (poly;apply-1 (ident-for ;Maybe) :x:)
-             .sub. (Codec<JSON,?>//encode *env* :sub:)]
-            (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
+             .sub. (Codec<JSON,?>//encode env :sub:)]
+            (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
                         (;;gen-nullable (~ .sub.))))))
           (do @
             [:sub: (poly;apply-1 (ident-for ;List) :x:)
-             .sub. (Codec<JSON,?>//encode *env* :sub:)]
-            (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
+             .sub. (Codec<JSON,?>//encode env :sub:)]
+            (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
                         (|>. (;;_map_ (~ .sub.)) vector;from-list ;;gen-array)))))
           (with-gensyms [g!type-fun g!case g!input]
             (do @
+              [members (poly;sum+ :x:)
+               pattern-matching (mapM @
+                                      (function [[tag :case:]]
+                                        (do @
+                                          [g!encode (Codec<JSON,?>//encode env :case:)]
+                                          (wrap (list (` ((~ (code;nat tag)) (~ g!case)))
+                                                      (` (;;json [(~ (code;int (nat-to-int tag)))
+                                                                  ((~ g!encode) (~ g!case))]))))))
+                                      (list;enumerate members))]
+              (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
+                          (function [(~ g!input)]
+                            (case (~ g!input)
+                              (~@ (L/join pattern-matching)))))))))
+          (with-gensyms [g!type-fun g!case g!input]
+            (do @
               [[g!vars members] (poly;variant :x:)
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                pattern-matching (mapM @
                                       (function [[name :case:]]
                                         (do @
                                           [#let [tag (code;tag name)]
-                                           encoder (Codec<JSON,?>//encode new-*env* :case:)]
+                                           encoder (Codec<JSON,?>//encode new-env :case:)]
                                           (wrap (list (` ((~ tag) (~ g!case)))
                                                       (` (;;json [(~ (code;text (product;right name)))
                                                                   ((~ encoder) (~ g!case))]))))))
                                       members)
                #let [:x:+ (case g!vars
                             #;Nil
-                            (->Codec//encode (type;to-ast :x:))
+                            (->Codec//encode (poly;to-ast env :x:))
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
                                  (-> (~@ (L/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
+                                     (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
                             (case (~ g!input)
@@ -783,24 +804,24 @@
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars members] (poly;record :x:)
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                synthesis (mapM @
                                (function [[name :slot:]]
                                  (do @
-                                   [encoder (Codec<JSON,?>//encode new-*env* :slot:)]
+                                   [encoder (Codec<JSON,?>//encode new-env :slot:)]
                                    (wrap [(` (~ (code;text (product;right name))))
                                           (` ((~ encoder) (get@ (~ (code;tag name)) (~ g!input))))])))
                                members)
                #let [:x:+ (case g!vars
                             #;Nil
-                            (->Codec//encode (type;to-ast :x:))
+                            (->Codec//encode (poly;to-ast env :x:))
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
                                  (-> (~@ (L/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
+                                     (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
                             (;;json (~ (code;record synthesis))))
@@ -808,24 +829,24 @@
           (with-gensyms [g!type-fun g!case]
             (do @
               [[g!vars members] (poly;tuple :x:)
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                pattern-matching (mapM @
                                       (function [:member:]
                                         (do @
                                           [g!member (macro;gensym "g!member")
-                                           encoder (Codec<JSON,?>//encode new-*env* :member:)]
+                                           encoder (Codec<JSON,?>//encode new-env :member:)]
                                           (wrap [g!member encoder])))
                                       members)
                #let [:x:+ (case g!vars
                             #;Nil
-                            (->Codec//encode (type;to-ast :x:))
+                            (->Codec//encode (poly;to-ast env :x:))
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
                                  (-> (~@ (L/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]
+                                     (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]
                #let [.tuple. (` [(~@ (L/map product;left pattern-matching))])]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ .tuple.)]
@@ -834,17 +855,38 @@
                                                 pattern-matching))]))
                           )))
               ))
+          ## Type recursion
+          (with-gensyms [g!rec]
+            (do @
+              [:non-rec: (poly;recursive :x:)
+               #let [new-env (poly;extend-env [:x: g!rec] (list [:x: (` (;undefined))]) env)]
+               .non-rec. (Codec<JSON,?>//encode new-env :non-rec:)]
+              (wrap (` (: (~ (poly;gen-type new-env ->Codec//encode g!rec (list) :x:))
+                          (rec-encode (;function [(~ g!rec)]
+                                        (~ .non-rec.))))))))
+          (poly;self env :x:)
+          (poly;recursion env :x:)
+          ## Type applications
           (do @
             [[:func: :args:] (poly;apply :x:)
-             .func. (Codec<JSON,?>//encode *env* :func:)
-             .args. (mapM @ (Codec<JSON,?>//encode *env*) :args:)]
-            (wrap (` (: (~ (->Codec//encode (type;to-ast :x:)))
+             .func. (Codec<JSON,?>//encode env :func:)
+             .args. (mapM @ (Codec<JSON,?>//encode env) :args:)]
+            (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
                         ((~ .func.) (~@ .args.))))))
-          (poly;bound *env* :x:)
+          ## Bound type-vars
+          (poly;bound env :x:)
+          ## If all else fails...
           (macro;fail (format "Cannot create JSON encoder for: " (%type :x:)))
           ))))
 
-(poly: #hidden (Codec<JSON,?>//decode *env* :x:)
+(def: #hidden (rec-decode non-rec)
+  (All [a] (-> (-> (-> JSON (R;Result a))
+                   (-> JSON (R;Result a)))
+               (-> JSON (R;Result a))))
+  (function [input]
+    (non-rec (rec-decode non-rec) input)))
+
+(poly: #hidden (Codec<JSON,?>//decode env :x:)
   (let [->Codec//decode (: (-> Code Code)
                            (function [.type.] (` (-> JSON (R;Result (~ .type.))))))]
     (with-expansions
@@ -859,8 +901,8 @@
        <complex> (do-template [<type> <matcher> <decoder>]
                    [(do @
                       [:sub: (<matcher> :x:)
-                       .sub. (Codec<JSON,?>//decode *env* :sub:)]
-                      (wrap (` (: (~ (->Codec//decode (type;to-ast :x:)))
+                       .sub. (Codec<JSON,?>//decode env :sub:)]
+                      (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
                                   (<decoder> (~ .sub.))))))]
 
                    [Maybe (poly;apply-1 (ident-for ;Maybe)) ;;nullable]
@@ -871,8 +913,8 @@
             (do @
               [[:key: :val:] (poly;apply-2 (ident-for d;Dict) :x:)
                _ (poly;text :key:)
-               .val. (Codec<JSON,?>//decode *env* :val:)]
-              (wrap (` (: (~ (->Codec//decode (type;to-ast :x:)))
+               .val. (Codec<JSON,?>//decode env :val:)]
+              (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
                           (function [(~ g!input)]
                             (do R;Monad<Result>
                               [(~ g!key) (;;fields (~ g!input))
@@ -887,17 +929,32 @@
                           )))
               ))
           <complex>
+          (with-gensyms [g!type-fun g!case g!input  g!_]
+            (do @
+              [members (poly;sum+ :x:)
+               pattern-matching (mapM @
+                                      (function [[tag :case:]]
+                                        (do @
+                                          [g!decode (Codec<JSON,?>//decode env :case:)]
+                                          (wrap (list (` (do Monad<Parser>
+                                                           [(~ g!_) (;;nth +0 (;;int! (~ (code;int (nat-to-int tag)))))
+                                                            (~ g!_) (;;nth +1 (~ g!decode))]
+                                                           ((~' wrap) ((~ (code;nat tag)) (~ g!_)))))))))
+                                      (list;enumerate members))]
+              (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
+                          ($_ ;;either
+                              (~@ (L/join pattern-matching))))))))
           (with-gensyms [g!type-fun g!_]
             (do @
               [[g!vars members] (poly;variant :x:)
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                pattern-matching (mapM @
                                       (function [[name :case:]]
                                         (do @
                                           [#let [tag (code;tag name)]
-                                           decoder (Codec<JSON,?>//decode new-*env* :case:)]
+                                           decoder (Codec<JSON,?>//decode new-env :case:)]
                                           (wrap (list (` (do Monad<Parser>
                                                            [(~ g!_) (;;nth +0 (;;text! (~ (code;text (product;right name)))))
                                                             (~ g!_) (;;nth +1 (~ decoder))]
@@ -905,12 +962,12 @@
                                       members)
                #let [:x:+ (case g!vars
                             #;Nil
-                            (->Codec//decode (type;to-ast :x:))
+                            (->Codec//decode (poly;to-ast env :x:))
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
                                  (-> (~@ (L/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))
+                                     (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))
                      base-parser (` ($_ ;;either
                                         (~@ (L/join pattern-matching))))
                      parser (case g!vars
@@ -924,14 +981,14 @@
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars members] (poly;record :x:)
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                extraction (mapM @
                                 (function [[name :slot:]]
                                   (do @
                                     [#let [g!member (code;symbol ["" (product;right name)])]
-                                     decoder (Codec<JSON,?>//decode new-*env* :slot:)]
+                                     decoder (Codec<JSON,?>//decode new-env :slot:)]
                                     (wrap (list g!member
                                                 (` (;;get (~ (code;text (product;right name))) (~ g!input)))
                                                 g!member
@@ -939,12 +996,12 @@
                                 members)
                #let [:x:+ (case g!vars
                             #;Nil
-                            (->Codec//decode (type;to-ast :x:))
+                            (->Codec//decode (poly;to-ast env :x:))
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
                                  (-> (~@ (L/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]]
+                                     (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]]
               (wrap (` (: (~ :x:+)
                           (function [(~@ g!vars) (~ g!input)]
                             (do R;Monad<Result>
@@ -956,24 +1013,24 @@
           (with-gensyms [g!type-fun g!case g!input]
             (do @
               [[g!vars members] (poly;tuple :x:)
-               #let [new-*env* (poly;extend-env [:x: g!type-fun]
-                                                (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                                *env*)]
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
                pattern-matching (mapM @
                                       (function [:member:]
                                         (do @
                                           [g!member (macro;gensym "g!member")
-                                           decoder (Codec<JSON,?>//decode new-*env* :member:)]
+                                           decoder (Codec<JSON,?>//decode new-env :member:)]
                                           (wrap [g!member decoder])))
                                       members)
                #let [:x:+ (case g!vars
                             #;Nil
-                            (->Codec//decode (type;to-ast :x:))
+                            (->Codec//decode (poly;to-ast env :x:))
 
                             _
                             (` (All (~ g!type-fun) [(~@ g!vars)]
                                  (-> (~@ (L/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (type;to-ast :x:)) (~@ g!vars)))))))))]
+                                     (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]
                #let [.decoder. (case g!vars
                                  #;Nil
                                  (` (;;shape [(~@ (L/map product;right pattern-matching))]))
@@ -983,15 +1040,29 @@
                                       (;;shape [(~@ (L/map product;right pattern-matching))]))))]]
               (wrap (` (: (~ :x:+) (~ .decoder.))))
               ))
+          ## Type recursion
+          (with-gensyms [g!rec]
+            (do @
+              [:non-rec: (poly;recursive :x:)
+               #let [new-env (poly;extend-env [:x: g!rec] (list [:x: (` (;undefined))]) env)]
+               .non-rec. (Codec<JSON,?>//decode new-env :non-rec:)]
+              (wrap (` (: (~ (poly;gen-type new-env ->Codec//decode g!rec (list) :x:))
+                          (rec-decode (;function [(~ g!rec)]
+                                        (~ .non-rec.))))))))
+          (poly;self env :x:)
+          (poly;recursion env :x:)
+          ## Type applications
           (do @
             [[:func: :args:] (poly;apply :x:)
-             .func. (Codec<JSON,?>//decode *env* :func:)
-             .args. (mapM @ (Codec<JSON,?>//decode *env*) :args:)]
-            (wrap (` (: (~ (->Codec//decode (type;to-ast :x:)))
+             .func. (Codec<JSON,?>//decode env :func:)
+             .args. (mapM @ (Codec<JSON,?>//decode env) :args:)]
+            (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
                         ((~ .func.) (~@ .args.))))))
+          ## Bound type-vars
           (do @
-            [g!bound (poly;bound *env* :x:)]
+            [g!bound (poly;bound env :x:)]
             (wrap g!bound))
+          ## If all else fails...
           (macro;fail (format "Cannot create JSON decoder for: " (%type :x:)))
           ))))
 
