@@ -12,7 +12,7 @@
              [bool]
              [maybe]
              [ident "Ident/" Eq<Ident>])
-       [macro #+ Monad<Lux> with-gensyms]
+       [macro #+ with-gensyms "Lux/" Monad<Lux>]
        (macro [code]
               ["s" syntax #+ syntax: Syntax]
               (syntax ["cs" common]
@@ -34,7 +34,7 @@
      (;function [:type:]
        (case (type;un-name :type:)
          <type>
-         (:: macro;Monad<Lux> wrap [])
+         (Lux/wrap [])
 
          _
          (macro;fail (format "Not " <name> " type: " (%type :type:))))))]
@@ -49,7 +49,7 @@
      (;function [:type:]
        (case (type;un-alias :type:)
          (#;Named ["lux" <name>] _)
-         (:: macro;Monad<Lux> wrap [])
+         (Lux/wrap [])
 
          _
          (macro;fail (format "Not " <name> " type: " (%type :type:))))))]
@@ -67,7 +67,7 @@
   (;function [:type:]
     (with-expansions
       [<primitives> (do-template [<parser> <type>]
-                      [(do Monad<Lux>
+                      [(do macro;Monad<Lux>
                          [_ (<parser> :type:)]
                          (wrap <type>))]
 
@@ -91,7 +91,7 @@
      (;function [:type:]
        (case (type;un-name :type:)
          (<tag> :left: :right:)
-         (:: macro;Monad<Lux> wrap [:left: :right:])
+         (Lux/wrap [:left: :right:])
 
          _
          (macro;fail (format "Not a " ($Code$ <tag>) " type: " (%type :type:))))))
@@ -101,30 +101,12 @@
      (;function [:type:]
        (let [members (<flattener> (type;un-name :type:))]
          (if (n.> +1 (list;size members))
-           (:: macro;Monad<Lux> wrap members)
+           (Lux/wrap members)
            (macro;fail (format "Not a " ($Code$ <tag>) " type: " (%type :type:)))))))]
 
   [sum    sum+    type;flatten-variant #;Sum]
   [prod   prod+   type;flatten-tuple   #;Product]
   )
-
-(def: #export func
-  (Matcher [Type Type])
-  (;function [:type:]
-    (case (type;un-name :type:)
-      (#;Function :left: :right:)
-      (:: macro;Monad<Lux> wrap [:left: :right:])
-
-      _
-      (macro;fail (format "Not a Function type: " (%type :type:))))))
-
-(def: #export func+
-  (Matcher [(List Type) Type])
-  (;function [:type:]
-    (let [[ins out] (type;flatten-function (type;un-name :type:))]
-      (if (n.> +0 (list;size ins))
-        (:: macro;Monad<Lux> wrap [ins out])
-        (macro;fail (format "Not a Function type: " (%type :type:)))))))
 
 (def: #export tagged
   (Matcher [(List Ident) Type])
@@ -151,7 +133,7 @@
                  :type:'']))
 
         _
-        (:: macro;Monad<Lux> wrap [(;list) :type:])))))
+        (Lux/wrap [(;list) :type:])))))
 
 (do-template [<combinator> <sub-comb> <build>]
   [(def: #export <combinator>
@@ -184,12 +166,12 @@
       (wrap [vars members]))))
 
 (def: #export function
-  (Matcher [(List Code) [(List Type) Type]])
+  (Matcher [(List Code) (List Type) Type])
   (;function [:type:]
     (do macro;Monad<Lux>
       [[vars :type:] (polymorphic :type:)
-       ins+out (func+ :type:)]
-      (wrap [vars ins+out]))))
+       #let [[ins out] (type;flatten-function (type;un-name :type:))]]
+      (wrap [vars ins out]))))
 
 (def: #export apply
   (Matcher [Type (List Type)])
@@ -217,7 +199,7 @@
       (^multi (#;Apply :arg: :quant:)
               [(type;un-alias :quant:) (#;Named actual _)]
               (Ident/= name actual))
-      (:: macro;Monad<Lux> wrap :arg:)
+      (Lux/wrap :arg:)
 
       _
       (macro;fail (format "Not " (%ident name) " type: " (%type :type:))))))
@@ -229,10 +211,20 @@
       (^multi (#;Apply :arg1: (#;Apply :arg0: :quant:))
               [(type;un-alias :quant:) (#;Named actual _)]
               (Ident/= name actual))
-      (:: macro;Monad<Lux> wrap [:arg0: :arg1:])
+      (Lux/wrap [:arg0: :arg1:])
 
       _
       (macro;fail (format "Not " (%ident name) " type: " (%type :type:))))))
+
+(def: #export recursive
+  (Matcher Type)
+  (;function [:type:]
+    (case (type;un-name :type:)
+      (#;Apply #;Void (#;UnivQ _ :type:'))
+      (Lux/wrap :type:')
+
+      _
+      (macro;fail (format "Not a recursive type: " (%type :type:))))))
 
 (def: (adjusted-idx env idx)
   (-> Env Nat Nat)
@@ -248,7 +240,7 @@
       (#;Bound idx)
       (case (dict;get (adjusted-idx env idx) env)
         (#;Some [poly-type poly-ast])
-        (:: macro;Monad<Lux> wrap poly-ast)
+        (Lux/wrap poly-ast)
 
         #;None
         (macro;fail (format "Unknown bound type: " (%type :type:))))
@@ -256,10 +248,10 @@
       _
       (macro;fail (format "Not a bound type: " (%type :type:))))))
 
-(def: #export (recur env)
+(def: #export (recursion env)
   (-> Env (Matcher Code))
   (;function [:type:]
-    (do Monad<Lux>
+    (do macro;Monad<Lux>
       [[t-func t-args] (apply :type:)]
       (case t-func
         (^multi (#;Bound t-func-idx)
@@ -282,13 +274,26 @@
         (macro;fail (format "Type is not a recursive instance: " (%type :type:))))
       )))
 
+(def: #export (self env)
+  (-> Env (Matcher Code))
+  (;function [:type:]
+    (case :type:
+      (^multi (#;Apply #;Void (#;Bound t-func-idx))
+              (n.= +0 (adjusted-idx env t-func-idx))
+              [(dict;get +0 env)
+               (#;Some [self-type self-call])])
+      (Lux/wrap self-call)
+
+      _
+      (macro;fail (format "Type is not a recursive self-call: " (%type :type:))))))
+
 (def: #export (var env var-id)
   (-> Env Nat (Matcher Unit))
   (;function [:type:]
     (case :type:
       (^multi (#;Bound idx)
               (n.= var-id (adjusted-idx env idx)))
-      (:: macro;Monad<Lux> wrap [])
+      (Lux/wrap [])
 
       _
       (macro;fail (format "Not a bound type: " (%type :type:))))))
@@ -321,7 +326,7 @@
           g!env (code;symbol ["" env])]
       (wrap (;list (` (syntax: (~@ (csw;export _ex-lev)) ((~ g!name) (~@ (List/map (;function [g!input] (` [(~ g!input) s;symbol]))
                                                                                    g!inputs)))
-                        (do Monad<Lux>
+                        (do macro;Monad<Lux>
                           [(~@ (List/join (List/map (;function [g!input] (;list g!input (` (macro;find-type-def (~ g!input)))))
                                                     g!inputs)))
                            (~' #let) [(~ g!env) (: Env (dict;new number;Hash<Nat>))]
@@ -395,6 +400,12 @@
         (|> (dict;get idx env) (default (undefined)) product;left (to-ast env))
         (` (;$ (~ (code;nat (n.dec idx)))))))
 
+    (#;Apply #;Void (#;Bound idx))
+    (let [idx (adjusted-idx env idx)]
+      (if (n.= +0 idx)
+        (|> (dict;get idx env) (default (undefined)) product;left (to-ast env))
+        (undefined)))
+    
     (^template [<tag>]
       (<tag> left right)
       (` (<tag> (~ (to-ast env left))
