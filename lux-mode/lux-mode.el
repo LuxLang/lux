@@ -237,8 +237,7 @@ Called by `imenu--generic-function'."
             "`" "`'" "'" "do-template"
             "object" "jvm-import" "do-to" "with-open" "synchronized" "class-for"
             "doc"
-            "|E" "|F" "|H" "effect:" "handler:" "with-handler" "doE"
-            "regex" "seq"
+            "regex"
             ) t)
          "\\>")
        1 font-lock-builtin-face)
@@ -249,8 +248,6 @@ Called by `imenu--generic-function'."
           '("true" "false") t)
          "\\>")
        0 font-lock-constant-face)
-      ; Char literals - #"1", #"a", #"\n", #"\u0000"
-      ("#\".+\"" 0 font-lock-constant-face)
       ; Nat literals
       ("\\<\\+\\(0\\|[1-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
       ; Int|Real literals
