@@ -1,0 +1,295 @@
+(;module:
+  lux
+  (lux (control enum
+                eq
+                order
+                codec
+                [monad #+ do Monad]
+                ["p" parser])
+       (data [text "text/" Monoid<Text>]
+             (text ["l" lexer]
+                   format)
+             [number]
+             ["R" result]
+             (coll [list "L/" Fold<List> Functor<List>]
+                   ["v" vector "v/" Functor<Vector> Fold<Vector>]))))
+
+(type: #export Time
+  {#;doc "Time is defined as milliseconds since the epoch."}
+  Int)
+
+(def: #export epoch
+  {#;doc "The time corresponding to 1970-01-01T00:00:00Z"}
+  Time
+  0)
+
+(def: #export second Time 1_000)
+(def: #export minute Time (i.* 60 second))
+(def: #export hour Time (i.* 60 minute))
+(def: #export day Time (i.* 24 hour))
+(def: #export week Time (i.* 7 day))
+(def: #export normal-year Time (i.* 365 day))
+(def: #export leap-year Time (i.+ day normal-year))
+
+(do-template [<name> <op> <output>]
+  [(def: #export (<name> param subject)
+     (-> Time Time <output>)
+     (<op> param subject))]
+
+  [t.+  i.+  Time]
+  [t.-  i.-  Time]
+  [t.=  i.=  Bool]
+  [t.<  i.<  Bool]
+  [t.<= i.<= Bool]
+  [t.>  i.>  Bool]
+  [t.>= i.>= Bool]
+  )
+
+(struct: #export _ (Eq Time)
+  (def: = t.=))
+
+(struct: #export _ (Order Time)
+  (def: eq Eq<Time>)
+  (def: < t.<)
+  (def: <= t.<=)
+  (def: > t.>)
+  (def: >= t.>=))
+
+## Codec::encode
+(def: (divisible? factor input)
+  (-> Int Int Bool)
+  (|> input (i.% factor) (i.= 0)))
+
+(def: (leap-year? year)
+  (-> Int Bool)
+  (and (divisible? 4 year)
+       (or (not (divisible? 100 year))
+           (divisible? 400 year))))
+
+(def: epoch-year Int 1970)
+
+(def: (positive? time)
+  (-> Time Bool)
+  (i.>= 0 time))
+
+(def: (find-year now)
+  (-> Time [Int Time])
+  (loop [reference epoch-year
+         time-left now]
+    (let [year (if (leap-year? reference)
+                 leap-year
+                 normal-year)
+          within-year-time-frame? (|> time-left (i.% year) (i.= time-left))]
+      (if within-year-time-frame?
+        [reference time-left]
+        (if (positive? time-left)
+          (recur (i.inc reference) (i.- year time-left))
+          (recur (i.dec reference) (i.+ year time-left)))
+        ))))
+
+(def: normal-months
+  (v;Vector Time)
+  (v/map (i.* day)
+         (v;vector 31 28 31
+                   30 31 30
+                   31 31 30
+                   31 30 31)))
+
+(def: leap-year-months
+  (v;Vector Time)
+  (v;update [+1] (i.+ day) normal-months))
+
+(def: (find-month months time)
+  (-> (v;Vector Time) Time [Int Time])
+  (if (positive? time)
+    (v/fold (function [month-time [current-month time-left]]
+              (if (|> time-left (i.% month-time) (i.= time-left))
+                [current-month         time-left]
+                [(i.inc current-month) (i.- month-time time-left)]))
+            [0 time]
+            months)
+    (v/fold (function [month-time [current-month time-left]]
+              (if (|> time-left (i.% month-time) (i.= time-left))
+                [current-month         time-left]
+                [(i.dec current-month) (i.+ month-time time-left)]))
+            [11 time]
+            (v;reverse months))))
+
+(def: (pad value)
+  (-> Int Text)
+  (if (i.< 10 value)
+    (text/append "0" (%i value))
+    (%i value)))
+
+(def: (segment frame time)
+  (-> Time Time [Int Time])
+  [(i./ frame time)
+   (i.% frame time)])
+
+(def: (adjust-negative space value)
+  (-> Int Int Int)
+  (if (i.>= 0 value)
+    value
+    (i.+ space value)))
+
+(def: (encode-millis millis)
+  (-> Time Text)
+  (cond (i.= 0 millis)   ""
+        (i.< 10 millis)  (format ".00" (%i millis))
+        (i.< 100 millis) (format ".0" (%i millis))
+        ## (i.< 1_000 millis)
+        (format "." (%i millis))))
+
+(def: (extract-date time)
+  (-> Time [[Int Int Int] Time])
+  (let [seconds (i./ second time)
+        z (|> seconds (i./ 86400) (i.+ 719468))
+        era (i./ 146097
+                 (if (i.>= 0 z)
+                   z
+                   (i.- 146096 z)))
+        days-of-era (|> z (i.- (i.* 146097 era)))
+        years-of-era (|> days-of-era
+                         (i.- (i./ 1460 days-of-era))
+                         (i.+ (i./ 36524 days-of-era))
+                         (i.- (i./ 146096 days-of-era))
+                         (i./ 365))
+        year (|> years-of-era (i.+ (i.* 400 era)))
+        days-of-year (|> days-of-era
+                         (i.- (|> (i.* 365 years-of-era)
+                                  (i.+ (i./ 4 years-of-era))
+                                  (i.- (i./ 100 years-of-era)))))
+        mp (|> days-of-year (i.* 5) (i.+ 2) (i./ 153))
+        day (|> days-of-year
+                (i.- (|> mp (i.* 153) (i.+ 2) (i./ 5)))
+                (i.+ 1))
+        month (|> mp
+                  (i.+ (if (i.< 10 mp)
+                         3
+                         -9)))
+        year (if (i.<= 2 month)
+               (i.inc year)
+               year)]
+    [[year month day]
+     (i.% ;;day time)]))
+
+## Based on this: https://stackoverflow.com/a/42936293/6823464
+(def: (encode time)
+  (-> Time Text)
+  (let [[[year month day] time] (extract-date time)
+        [hours time] [(i./ hour time) (i.% hour time)]
+        [minutes time] [(i./ minute time) (i.% minute time)]
+        [seconds millis] [(i./ second time) (i.% second time)]]
+    (format (%i year) "-" (pad month) "-" (pad day) "T"
+            (pad hours) ":" (pad minutes) ":" (pad seconds)
+            (|> millis
+                (adjust-negative second)
+                encode-millis)
+            "Z")))
+
+## Codec::decode
+(def: lex-year
+  (l;Lexer Int)
+  (do p;Monad<Parser>
+    [sign? (p;opt (l;this "-"))
+     raw-year (l;codec number;Codec<Text,Int> (l;many l;decimal))
+     #let [signum (case sign?
+                    #;None      1
+                    (#;Some _) -1)]]
+    (wrap (i.* signum raw-year))))
+
+(def: lex-section
+  (l;Lexer Int)
+  (l;codec number;Codec<Text,Int> (l;exactly +2 l;decimal)))
+
+(def: lex-millis
+  (l;Lexer Int)
+  (p;either (|> (l;at-most +3 l;decimal)
+                (l;codec number;Codec<Text,Int>)
+                (p;after (l;this ".")))
+            (:: p;Monad<Parser> wrap 0)))
+
+(def: (leap-years year)
+  (-> Int Int)
+  (|> (i./ 4 year)
+      (i.- (i./ 100 year))
+      (i.+ (i./ 400 year))))
+
+(def: lex-time
+  (l;Lexer Time)
+  (do p;Monad<Parser>
+    [utc-year lex-year
+     ## #let [_ (log! (format "  utc-year = " (%i utc-year)))]
+     _ (l;this "-")
+     utc-month lex-section
+     _ (p;assert "Invalid month."
+                 (and (i.>= 1 utc-month)
+                      (i.<= 12 utc-month)))
+     ## #let [_ (log! (format " utc-month = " (%i utc-month)))]
+     #let [months (if (leap-year? utc-year)
+                    leap-year-months
+                    normal-months)
+           month-days (|> months
+                          (v;nth (int-to-nat (i.dec utc-month)))
+                          assume
+                          (i./ day))]
+     _ (l;this "-")
+     utc-day lex-section
+     _ (p;assert "Invalid day."
+                 (and (i.>= 1 utc-day)
+                      (i.<= month-days utc-day)))
+     ## #let [_ (log! (format "   utc-day = " (%i utc-day)))]
+     _ (l;this "T")
+     utc-hour lex-section
+     _ (p;assert "Invalid hour."
+                 (and (i.>= 0 utc-hour)
+                      (i.<= 23 utc-hour)))
+     ## #let [_ (log! (format "  utc-hour = " (%i utc-hour)))]
+     _ (l;this ":")
+     utc-minute lex-section
+     _ (p;assert "Invalid minute."
+                 (and (i.>= 0 utc-minute)
+                      (i.<= 59 utc-minute)))
+     ## #let [_ (log! (format "utc-minute = " (%i utc-minute)))]
+     _ (l;this ":")
+     utc-second lex-section
+     _ (p;assert "Invalid second."
+                 (and (i.>= 0 utc-second)
+                      (i.<= 59 utc-second)))
+     ## #let [_ (log! (format "utc-second = " (%i utc-second)))]
+     utc-millis lex-millis
+     ## #let [_ (log! (format "utc-millis = " (%i utc-millis)))]
+     _ (l;this "Z")
+     #let [years-since-epoch (i.- epoch-year utc-year)
+           previous-leap-days (i.- (leap-years epoch-year)
+                                   (leap-years (i.dec utc-year)))
+           year-days-so-far (|> (i.* 365 years-since-epoch)
+                                (i.+ previous-leap-days))
+           month-days-so-far (|> months
+                                 v;to-list
+                                 (list;take (int-to-nat (i.dec utc-month)))
+                                 (L/fold i.+ 0)
+                                 (i./ day))
+           total-days (|> year-days-so-far
+                          (i.+ month-days-so-far)
+                          (i.+ (i.dec utc-day)))
+           ## _ (log! (format "total-days = " (%i total-days)))
+           ]]
+    (wrap ($_ t.+
+              (i.* day total-days)
+              (i.* hour utc-hour)
+              (i.* minute utc-minute)
+              (i.* second utc-second)
+              utc-millis))))
+
+(def: (decode input)
+  (-> Text (R;Result Time))
+  (l;run input lex-time))
+
+(struct: #export _
+  {#;doc "Based on ISO 8601.
+
+          For example: 2017-01-15T21:14:51.827Z"}
+  (Codec Text Time)
+  (def: encode encode)
+  (def: decode decode))
