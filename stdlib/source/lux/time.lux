@@ -140,10 +140,13 @@
         ## (i.< 1_000 millis)
         (format "." (%i millis))))
 
+(def: seconds-per-day Int (i./ second day))
+(def: days-up-to-epoch Int 719468)
+
 (def: (extract-date time)
   (-> Time [[Int Int Int] Time])
   (let [seconds (i./ second time)
-        z (|> seconds (i./ 86400) (i.+ 719468))
+        z (|> seconds (i./ seconds-per-day) (i.+ days-up-to-epoch))
         era (i./ 146097
                  (if (i.>= 0 z)
                    z
@@ -159,6 +162,10 @@
                          (i.- (|> (i.* 365 years-of-era)
                                   (i.+ (i./ 4 years-of-era))
                                   (i.- (i./ 100 years-of-era)))))
+        day-time (i.% ;;day time)
+        days-of-year (if (positive? day-time)
+                       days-of-year
+                       (i.dec days-of-year))
         mp (|> days-of-year (i.* 5) (i.+ 2) (i./ 153))
         day (|> days-of-year
                 (i.- (|> mp (i.* 153) (i.+ 2) (i./ 5)))
@@ -171,12 +178,15 @@
                (i.inc year)
                year)]
     [[year month day]
-     (i.% ;;day time)]))
+     day-time]))
 
 ## Based on this: https://stackoverflow.com/a/42936293/6823464
 (def: (encode time)
   (-> Time Text)
   (let [[[year month day] time] (extract-date time)
+        time (if (positive? time)
+               time
+               (i.+ time ;;day))
         [hours time] [(i./ hour time) (i.% hour time)]
         [minutes time] [(i./ minute time) (i.% minute time)]
         [seconds millis] [(i./ second time) (i.% second time)]]
@@ -215,17 +225,16 @@
       (i.- (i./ 100 year))
       (i.+ (i./ 400 year))))
 
+## Based on: https://stackoverflow.com/a/3309340/6823464
 (def: lex-time
   (l;Lexer Time)
   (do p;Monad<Parser>
     [utc-year lex-year
-     ## #let [_ (log! (format "  utc-year = " (%i utc-year)))]
      _ (l;this "-")
      utc-month lex-section
      _ (p;assert "Invalid month."
                  (and (i.>= 1 utc-month)
                       (i.<= 12 utc-month)))
-     ## #let [_ (log! (format " utc-month = " (%i utc-month)))]
      #let [months (if (leap-year? utc-year)
                     leap-year-months
                     normal-months)
@@ -238,27 +247,22 @@
      _ (p;assert "Invalid day."
                  (and (i.>= 1 utc-day)
                       (i.<= month-days utc-day)))
-     ## #let [_ (log! (format "   utc-day = " (%i utc-day)))]
      _ (l;this "T")
      utc-hour lex-section
      _ (p;assert "Invalid hour."
                  (and (i.>= 0 utc-hour)
                       (i.<= 23 utc-hour)))
-     ## #let [_ (log! (format "  utc-hour = " (%i utc-hour)))]
      _ (l;this ":")
      utc-minute lex-section
      _ (p;assert "Invalid minute."
                  (and (i.>= 0 utc-minute)
                       (i.<= 59 utc-minute)))
-     ## #let [_ (log! (format "utc-minute = " (%i utc-minute)))]
      _ (l;this ":")
      utc-second lex-section
      _ (p;assert "Invalid second."
                  (and (i.>= 0 utc-second)
                       (i.<= 59 utc-second)))
-     ## #let [_ (log! (format "utc-second = " (%i utc-second)))]
      utc-millis lex-millis
-     ## #let [_ (log! (format "utc-millis = " (%i utc-millis)))]
      _ (l;this "Z")
      #let [years-since-epoch (i.- epoch-year utc-year)
            previous-leap-days (i.- (leap-years epoch-year)
@@ -272,9 +276,7 @@
                                  (i./ day))
            total-days (|> year-days-so-far
                           (i.+ month-days-so-far)
-                          (i.+ (i.dec utc-day)))
-           ## _ (log! (format "total-days = " (%i total-days)))
-           ]]
+                          (i.+ (i.dec utc-day)))]]
     (wrap ($_ t.+
               (i.* day total-days)
               (i.* hour utc-hour)
