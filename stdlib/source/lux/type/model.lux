@@ -1,0 +1,188 @@
+(;module:
+  lux
+  (lux (control [applicative]
+                [monad #+ do Monad]
+                ["p" parser "p/" Monad<Parser>])
+       (data [text "text/" Eq<Text>]
+             text/format
+             ["R" result]
+             (coll [list "L/" Functor<List> Monoid<List>]))
+       [macro #+ Monad<Lux>]
+       (macro [code]
+              ["s" syntax #+ syntax:]
+              (syntax ["cs" common]
+                      (common ["csr" reader]
+                              ["csw" writer])))
+       type/auto))
+
+(def: (get k plist)
+  (All [a]
+    (-> Text (List [Text a]) (Maybe a)))
+  (case plist
+    #;Nil
+    #;None
+
+    (#;Cons [k' v] plist')
+    (if (text/= k k')
+      (#;Some v)
+      (get k plist'))))
+
+(def: (put k v plist)
+  (All [a]
+    (-> Text a (List [Text a]) (List [Text a])))
+  (case plist
+    #;Nil
+    (list [k v])
+
+    (#;Cons [k' v'] plist')
+    (if (text/= k k')
+      (#;Cons [k' v] plist')
+      (#;Cons [k' v'] (put k v plist')))))
+
+(def: (remove k plist)
+  (All [a]
+    (-> Text (List [Text a]) (List [Text a])))
+  (case plist
+    #;Nil
+    #;Nil
+
+    (#;Cons [k' v'] plist')
+    (if (text/= k k')
+      plist'
+      (#;Cons [k' v'] (remove k plist')))))
+
+(def: down-cast Text "@model")
+(def: up-cast Text "@repr")
+(def: macro-anns Anns (list [["lux" "macro?"] (#;BoolA true)]))
+
+(do-template [<name> <tag>]
+  [(def: <name>
+     (-> Text Text)
+     (|>. (format "{" kind "@" module "}")
+          (let [[module kind] (ident-for <tag>)])))]
+
+  [representation-name #;;Representation]
+  [down-cast-name #;;Down-Cast]
+  [up-cast-name   #;;Up-Cast]
+  )
+
+(def: (install-casts' this-module-name name type-vars)
+  (-> Text Text (List Text) (Lux Unit))
+  (do Monad<Lux>
+    [this-module (macro;find-module this-module-name)
+     #let [this-module (|> this-module
+                           (update@ #;defs (put down-cast (: Def
+                                                             [Macro macro-anns
+                                                              (function [tokens]
+                                                                (case tokens
+                                                                  (^ (list value))
+                                                                  (wrap (list (if (list;empty? type-vars)
+                                                                                (` (|> (~ value)
+                                                                                       (: (~ (code;local-symbol (representation-name name))))
+                                                                                       (:! (~ (code;local-symbol name)))))
+                                                                                (` ((~ (code;local-symbol (down-cast-name name)))
+                                                                                    (~ value))))))
+
+                                                                  _
+                                                                  (macro;fail (format "Wrong syntax for " down-cast))))])))
+                           (update@ #;defs (put up-cast (: Def
+                                                           [Macro macro-anns
+                                                            (function [tokens]
+                                                              (case tokens
+                                                                (^ (list value))
+                                                                (wrap (list (if (list;empty? type-vars)
+                                                                              (` (|> (~ value)
+                                                                                     (: (~ (code;local-symbol name)))
+                                                                                     (:! (~ (code;local-symbol (representation-name name))))))
+                                                                              (` ((~ (code;local-symbol (up-cast-name name)))
+                                                                                  (~ value))))))
+
+                                                                _
+                                                                (macro;fail (format "Wrong syntax for " up-cast))))]))))]]
+    (function [compiler]
+      (#R;Success [(update@ #;modules (put this-module-name this-module) compiler)
+                   []]))))
+
+(def: (un-install-casts' this-module-name)
+  (-> Text (Lux Unit))
+  (do Monad<Lux>
+    [this-module (macro;find-module this-module-name)
+     #let [this-module (|> this-module
+                           (update@ #;defs (remove down-cast))
+                           (update@ #;defs (remove up-cast)))]]
+    (function [compiler]
+      (#R;Success [(update@ #;modules (put this-module-name this-module) compiler)
+                   []]))))
+
+(syntax: #hidden (install-casts [name s;local-symbol]
+                                [type-vars (s;tuple (p;some s;local-symbol))])
+  (do @
+    [this-module-name macro;current-module-name
+     ?down-cast (macro;find-macro [this-module-name down-cast])
+     ?up-cast (macro;find-macro [this-module-name up-cast])]
+    (case [?down-cast ?up-cast]
+      [#;None #;None]
+      (do @
+        [_ (install-casts' this-module-name name type-vars)]
+        (wrap (list)))
+
+      _
+      (macro;fail (format "Cannot temporarily define casting functions ("
+                          down-cast " & " up-cast
+                          ") because definitions like that already exist.")))))
+
+(syntax: #hidden (un-install-casts)
+  (do Monad<Lux>
+    [this-module-name macro;current-module-name
+     ?down-cast (macro;find-macro [this-module-name down-cast])
+     ?up-cast (macro;find-macro [this-module-name up-cast])]
+    (case [?down-cast ?up-cast]
+      [(#;Some _) (#;Some _)]
+      (do @
+        [_ (un-install-casts' this-module-name)]
+        (wrap (list)))
+
+      _
+      (macro;fail (format "Cannot un-define casting functions ("
+                          down-cast " & " up-cast
+                          ") because they do not exist.")))))
+
+(def: declaration
+  (s;Syntax [Text (List Text)])
+  (p;either (s;form (p;seq s;local-symbol (p;some s;local-symbol)))
+            (p;seq s;local-symbol (::: wrap (list)))))
+
+(syntax: #export (model: [export csr;export]
+                   [[name type-vars] declaration]
+                   [annotations (p;default cs;empty-annotations csr;annotations)]
+                   representation-type
+                   [primitives (p;some s;any)])
+  (let [hidden-name (code;local-symbol (representation-name name))
+        type-varsC (L/map code;local-symbol type-vars)
+        model-declaration (` ((~ (code;local-symbol name)) (~@ type-varsC)))
+        representation-declaration (` ((~ hidden-name) (~@ type-varsC)))
+        conversion-functions (: (List Code)
+                                (if (list;empty? type-vars)
+                                  (list)
+                                  (let [export' (case export
+                                                  #;None #;None
+                                                  (#;Some _) (#;Some #cs;Hidden))]
+                                    (list (` (def: (~@ (csw;export export'))
+                                               (~ (code;local-symbol (down-cast-name name)))
+                                               (All [(~@ type-varsC)]
+                                                 (-> (~ representation-declaration) (~ model-declaration)))
+                                               (|>. :!!)))
+                                          (` (def: (~@ (csw;export export'))
+                                               (~ (code;local-symbol (up-cast-name name)))
+                                               (All [(~@ type-varsC)]
+                                                 (-> (~ model-declaration) (~ representation-declaration)))
+                                               (|>. :!!)))))))]
+    (wrap (list& (` (type: (~@ (csw;export export)) (~ model-declaration)
+                      (host (~ hidden-name))))
+                 (` (type: (~@ (csw;export export)) (~ representation-declaration)
+                      (~ representation-type)))
+                 ($_ L/append
+                     conversion-functions
+                     (list (` (install-casts (~ (code;local-symbol name)) [(~@ type-varsC)])))
+                     primitives
+                     (list (` (un-install-casts))))))))
