@@ -55,22 +55,19 @@
 (def: up-cast Text "@repr")
 (def: macro-anns Anns (list [["lux" "macro?"] (#;BoolA true)]))
 
-(do-template [<name> <tag>]
-  [(def: <name>
-     (-> Text Text)
-     (|>. (format "{" kind "@" module "}")
-          (let [[module kind] (ident-for <tag>)])))]
-
-  [representation-name #;;Representation]
-  [down-cast-name #;;Down-Cast]
-  [up-cast-name   #;;Up-Cast]
-  )
+(def: representation-name
+  (-> Text Text)
+  (|>. (format "{" kind "@" module "}")
+       (let [[module kind] (ident-for #;;Representation)])))
 
 (def: (install-casts' this-module-name name type-vars)
   (-> Text Text (List Text) (Lux Unit))
   (do Monad<Lux>
     [this-module (macro;find-module this-module-name)
-     #let [this-module (|> this-module
+     #let [type-varsC (L/map code;local-symbol type-vars)
+           model-declaration (` ((~ (code;local-symbol name)) (~@ type-varsC)))
+           representation-declaration (` ((~ (code;local-symbol (representation-name name))) (~@ type-varsC)))
+           this-module (|> this-module
                            (update@ #;defs (put down-cast (: Def
                                                              [Macro macro-anns
                                                               (function [tokens]
@@ -80,7 +77,9 @@
                                                                                 (` (|> (~ value)
                                                                                        (: (~ (code;local-symbol (representation-name name))))
                                                                                        (:! (~ (code;local-symbol name)))))
-                                                                                (` ((~ (code;local-symbol (down-cast-name name)))
+                                                                                (` ((: (All [(~@ type-varsC)]
+                                                                                         (-> (~ representation-declaration) (~ model-declaration)))
+                                                                                       (|>. :!!))
                                                                                     (~ value))))))
 
                                                                   _
@@ -94,7 +93,9 @@
                                                                               (` (|> (~ value)
                                                                                      (: (~ (code;local-symbol name)))
                                                                                      (:! (~ (code;local-symbol (representation-name name))))))
-                                                                              (` ((~ (code;local-symbol (up-cast-name name)))
+                                                                              (` ((: (All [(~@ type-varsC)]
+                                                                                       (-> (~ model-declaration) (~ representation-declaration)))
+                                                                                     (|>. :!!))
                                                                                   (~ value))))))
 
                                                                 _
@@ -160,29 +161,11 @@
   (let [hidden-name (code;local-symbol (representation-name name))
         type-varsC (L/map code;local-symbol type-vars)
         model-declaration (` ((~ (code;local-symbol name)) (~@ type-varsC)))
-        representation-declaration (` ((~ hidden-name) (~@ type-varsC)))
-        conversion-functions (: (List Code)
-                                (if (list;empty? type-vars)
-                                  (list)
-                                  (let [export' (case export
-                                                  #;None #;None
-                                                  (#;Some _) (#;Some #cs;Hidden))]
-                                    (list (` (def: (~@ (csw;export export'))
-                                               (~ (code;local-symbol (down-cast-name name)))
-                                               (All [(~@ type-varsC)]
-                                                 (-> (~ representation-declaration) (~ model-declaration)))
-                                               (|>. :!!)))
-                                          (` (def: (~@ (csw;export export'))
-                                               (~ (code;local-symbol (up-cast-name name)))
-                                               (All [(~@ type-varsC)]
-                                                 (-> (~ model-declaration) (~ representation-declaration)))
-                                               (|>. :!!)))))))]
+        representation-declaration (` ((~ hidden-name) (~@ type-varsC)))]
     (wrap (list& (` (type: (~@ (csw;export export)) (~ model-declaration)
                       (host (~ hidden-name))))
                  (` (type: (~@ (csw;export export)) (~ representation-declaration)
                       (~ representation-type)))
-                 ($_ L/append
-                     conversion-functions
-                     (list (` (install-casts (~ (code;local-symbol name)) [(~@ type-varsC)])))
-                     primitives
-                     (list (` (un-install-casts))))))))
+                 (` (install-casts (~ (code;local-symbol name)) [(~@ type-varsC)]))
+                 (L/append primitives
+                           (list (` (un-install-casts))))))))
