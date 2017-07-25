@@ -1,7 +1,7 @@
 (;module:
   lux
-  (lux (control enum
-                eq
+  (lux [io #- run]
+       (control eq
                 order
                 codec
                 [monad #+ do Monad]
@@ -12,48 +12,59 @@
              [number]
              ["R" result]
              (coll [list "L/" Fold<List> Functor<List>]
-                   ["v" vector "v/" Functor<Vector> Fold<Vector>]))))
+                   ["v" vector "v/" Functor<Vector> Fold<Vector>]))
+       (type model))
+  (.. ["../d" duration "../d/" ;Order<Duration>]))
 
-(type: #export Time
-  {#;doc "Time is defined as milliseconds since the epoch."}
-  Int)
+(model: #export Instant
+  {#;doc "Instant is defined as milliseconds since the epoch."}
+  Int
 
-(def: #export epoch
-  {#;doc "The time corresponding to 1970-01-01T00:00:00Z"}
-  Time
-  0)
+  (def: #export from-millis
+    (-> Int Instant)
+    (|>. @model))
 
-(def: #export second Time 1_000)
-(def: #export minute Time (i.* 60 second))
-(def: #export hour Time (i.* 60 minute))
-(def: #export day Time (i.* 24 hour))
-(def: #export week Time (i.* 7 day))
-(def: #export normal-year Time (i.* 365 day))
-(def: #export leap-year Time (i.+ day normal-year))
+  (def: #export to-millis
+    (-> Instant Int)
+    (|>. @repr))
 
-(do-template [<name> <op> <output>]
-  [(def: #export (<name> param subject)
-     (-> Time Time <output>)
-     (<op> param subject))]
+  (def: #export (span param subject)
+    (-> Instant Instant ../d;Duration)
+    (../d;from-millis (i.- (@repr param) (@repr subject))))
 
-  [t.+  i.+  Time]
-  [t.-  i.-  Time]
-  [t.=  i.=  Bool]
-  [t.<  i.<  Bool]
-  [t.<= i.<= Bool]
-  [t.>  i.>  Bool]
-  [t.>= i.>= Bool]
+  (struct: #export _ (Eq Instant)
+    (def: (= param subject)
+      (i.= (@repr param) (@repr subject))))
+
+  (struct: #export _ (Order Instant)
+    (def: eq Eq<Instant>)
+    (do-template [<name> <op>]
+      [(def: (<name> param subject)
+         (<op> (@repr param) (@repr subject)))]
+
+      [<  i.<]
+      [<= i.<=]
+      [>  i.>]
+      [>= i.>=]
+      ))
+
+  (def: #export (shift duration instant)
+    (-> ../d;Duration Instant Instant)
+    (@model (i.+ (../d;to-millis duration) (@repr instant))))
+
+  (def: #export (relative instant)
+    (-> Instant ../d;Duration)
+    (|> instant @repr ../d;from-millis))
+
+  (def: #export (absolute offset)
+    (-> ../d;Duration Instant)
+    (|> offset ../d;to-millis @model))
   )
 
-(struct: #export _ (Eq Time)
-  (def: = t.=))
-
-(struct: #export _ (Order Time)
-  (def: eq Eq<Time>)
-  (def: < t.<)
-  (def: <= t.<=)
-  (def: > t.>)
-  (def: >= t.>=))
+(def: #export epoch
+  {#;doc "The instant corresponding to 1970-01-01T00:00:00Z"}
+  Instant
+  (from-millis 0))
 
 ## Codec::encode
 (def: (divisible? factor input)
@@ -68,51 +79,47 @@
 
 (def: epoch-year Int 1970)
 
-(def: (positive? time)
-  (-> Time Bool)
-  (i.>= 0 time))
-
 (def: (find-year now)
-  (-> Time [Int Time])
+  (-> Instant [Int ../d;Duration])
   (loop [reference epoch-year
-         time-left now]
+         time-left (relative now)]
     (let [year (if (leap-year? reference)
-                 leap-year
-                 normal-year)
-          within-year-time-frame? (|> time-left (i.% year) (i.= time-left))]
-      (if within-year-time-frame?
+                 ../d;leap-year
+                 ../d;normal-year)]
+      (if (i.= 0 (../d;query year time-left))
         [reference time-left]
-        (if (positive? time-left)
-          (recur (i.inc reference) (i.- year time-left))
-          (recur (i.dec reference) (i.+ year time-left)))
+        (if (../d/>= ../d;empty time-left)
+          (recur (i.inc reference) (../d;merge (../d;scale -1 year) time-left))
+          (recur (i.dec reference) (../d;merge year time-left)))
         ))))
 
 (def: normal-months
-  (v;Vector Time)
-  (v/map (i.* day)
-         (v;vector 31 28 31
-                   30 31 30
-                   31 31 30
-                   31 30 31)))
+  (v;Vector Nat)
+  (v;vector +31 +28 +31
+            +30 +31 +30
+            +31 +31 +30
+            +31 +30 +31))
 
 (def: leap-year-months
-  (v;Vector Time)
-  (v;update [+1] (i.+ day) normal-months))
+  (v;Vector Nat)
+  (v;update [+1] n.inc normal-months))
 
 (def: (find-month months time)
-  (-> (v;Vector Time) Time [Int Time])
-  (if (positive? time)
-    (v/fold (function [month-time [current-month time-left]]
-              (if (|> time-left (i.% month-time) (i.= time-left))
-                [current-month         time-left]
-                [(i.inc current-month) (i.- month-time time-left)]))
-            [0 time]
+  (-> (v;Vector Nat) ../d;Duration [Nat ../d;Duration])
+  (if (../d/>= ../d;empty time)
+    (v/fold (function [month-days [current-month time-left]]
+              (let [month-duration (../d;scale (nat-to-int month-days) ../d;day)]
+                (if (i.= 0 (../d;query month-duration time-left))
+                  [current-month         time-left]
+                  [(n.inc current-month) (../d;merge (../d;scale -1 month-duration) time-left)])))
+            [+0 time]
             months)
-    (v/fold (function [month-time [current-month time-left]]
-              (if (|> time-left (i.% month-time) (i.= time-left))
-                [current-month         time-left]
-                [(i.dec current-month) (i.+ month-time time-left)]))
-            [11 time]
+    (v/fold (function [month-days [current-month time-left]]
+              (let [month-duration (../d;scale (nat-to-int month-days) ../d;day)]
+                (if (i.= 0 (../d;query month-duration time-left))
+                  [current-month         time-left]
+                  [(n.dec current-month) (../d;merge month-duration time-left)])))
+            [+11 time]
             (v;reverse months))))
 
 (def: (pad value)
@@ -121,31 +128,27 @@
     (text/append "0" (%i value))
     (%i value)))
 
-(def: (segment frame time)
-  (-> Time Time [Int Time])
-  [(i./ frame time)
-   (i.% frame time)])
-
-(def: (adjust-negative space value)
-  (-> Int Int Int)
-  (if (i.>= 0 value)
-    value
-    (i.+ space value)))
+(def: (adjust-negative space duration)
+  (-> ../d;Duration ../d;Duration ../d;Duration)
+  (if (../d;negative? duration)
+    (../d;merge space duration)
+    duration))
 
 (def: (encode-millis millis)
-  (-> Time Text)
+  (-> Int Text)
   (cond (i.= 0 millis)   ""
         (i.< 10 millis)  (format ".00" (%i millis))
         (i.< 100 millis) (format ".0" (%i millis))
         ## (i.< 1_000 millis)
         (format "." (%i millis))))
 
-(def: seconds-per-day Int (i./ second day))
+(def: seconds-per-day Int (../d;query ../d;second ../d;day))
 (def: days-up-to-epoch Int 719468)
 
-(def: (extract-date time)
-  (-> Time [[Int Int Int] Time])
-  (let [seconds (i./ second time)
+(def: (extract-date instant)
+  (-> Instant [[Int Int Int] ../d;Duration])
+  (let [offset (relative instant)
+        seconds (../d;query ../d;second offset)
         z (|> seconds (i./ seconds-per-day) (i.+ days-up-to-epoch))
         era (i./ 146097
                  (if (i.>= 0 z)
@@ -162,8 +165,8 @@
                          (i.- (|> (i.* 365 years-of-era)
                                   (i.+ (i./ 4 years-of-era))
                                   (i.- (i./ 100 years-of-era)))))
-        day-time (i.% ;;day time)
-        days-of-year (if (positive? day-time)
+        day-time (../d;frame ../d;day offset)
+        days-of-year (if (../d/>= ../d;empty day-time)
                        days-of-year
                        (i.dec days-of-year))
         mp (|> days-of-year (i.* 5) (i.+ 2) (i./ 153))
@@ -181,19 +184,21 @@
      day-time]))
 
 ## Based on this: https://stackoverflow.com/a/42936293/6823464
-(def: (encode time)
-  (-> Time Text)
-  (let [[[year month day] time] (extract-date time)
-        time (if (positive? time)
-               time
-               (i.+ time ;;day))
-        [hours time] [(i./ hour time) (i.% hour time)]
-        [minutes time] [(i./ minute time) (i.% minute time)]
-        [seconds millis] [(i./ second time) (i.% second time)]]
+(def: (encode instant)
+  (-> Instant Text)
+  (let [[[year month day] day-time] (extract-date instant)
+        day-time (if (../d/>= ../d;empty day-time)
+                   day-time
+                   (../d;merge ../d;day day-time))
+        [hours day-time] [(../d;query ../d;hour day-time) (../d;frame ../d;hour day-time)]
+        [minutes day-time] [(../d;query ../d;minute day-time) (../d;frame ../d;minute day-time)]
+        [seconds millis] [(../d;query ../d;second day-time) (../d;frame ../d;second day-time)]
+        ]
     (format (%i year) "-" (pad month) "-" (pad day) "T"
             (pad hours) ":" (pad minutes) ":" (pad seconds)
             (|> millis
-                (adjust-negative second)
+                (adjust-negative ../d;second)
+                ../d;to-millis
                 encode-millis)
             "Z")))
 
@@ -226,8 +231,8 @@
       (i.+ (i./ 400 year))))
 
 ## Based on: https://stackoverflow.com/a/3309340/6823464
-(def: lex-time
-  (l;Lexer Time)
+(def: lex-instant
+  (l;Lexer Instant)
   (do p;Monad<Parser>
     [utc-year lex-year
      _ (l;this "-")
@@ -240,13 +245,12 @@
                     normal-months)
            month-days (|> months
                           (v;nth (int-to-nat (i.dec utc-month)))
-                          assume
-                          (i./ day))]
+                          assume)]
      _ (l;this "-")
      utc-day lex-section
      _ (p;assert "Invalid day."
                  (and (i.>= 1 utc-day)
-                      (i.<= month-days utc-day)))
+                      (i.<= (nat-to-int month-days) utc-day)))
      _ (l;this "T")
      utc-hour lex-section
      _ (p;assert "Invalid hour."
@@ -272,26 +276,29 @@
            month-days-so-far (|> months
                                  v;to-list
                                  (list;take (int-to-nat (i.dec utc-month)))
-                                 (L/fold i.+ 0)
-                                 (i./ day))
+                                 (L/fold n.+ +0))
            total-days (|> year-days-so-far
-                          (i.+ month-days-so-far)
+                          (i.+ (nat-to-int month-days-so-far))
                           (i.+ (i.dec utc-day)))]]
-    (wrap ($_ t.+
-              (i.* day total-days)
-              (i.* hour utc-hour)
-              (i.* minute utc-minute)
-              (i.* second utc-second)
-              utc-millis))))
+    (wrap (|> epoch
+              (shift (../d;scale total-days ../d;day))
+              (shift (../d;scale utc-hour ../d;hour))
+              (shift (../d;scale utc-minute ../d;minute))
+              (shift (../d;scale utc-second ../d;second))
+              (shift (../d;scale utc-millis ../d;milli))))))
 
 (def: (decode input)
-  (-> Text (R;Result Time))
-  (l;run input lex-time))
+  (-> Text (R;Result Instant))
+  (l;run input lex-instant))
 
 (struct: #export _
   {#;doc "Based on ISO 8601.
 
           For example: 2017-01-15T21:14:51.827Z"}
-  (Codec Text Time)
+  (Codec Text Instant)
   (def: encode encode)
   (def: decode decode))
+
+(def: #export now
+  (IO Instant)
+  (io (from-millis (_lux_proc ["io" "current-time"] []))))
