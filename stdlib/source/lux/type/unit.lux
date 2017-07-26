@@ -2,7 +2,8 @@
   lux
   (lux (control [monad #+ do Monad]
                 ["p" parser "p/" Monad<Parser>])
-       (data text/format)
+       (data text/format
+             (number ["r" ratio]))
        [macro]
        (macro [code]
               ["s" syntax #+ syntax:]
@@ -17,7 +18,9 @@
   (: (All [u] (-> (Qty u) (Qty (s u))))
      scale)
   (: (All [u] (-> (Qty (s u)) (Qty u)))
-     de-scale))
+     de-scale)
+  (: r;Ratio
+     ratio))
 
 (type: #export Pure
   (Qty []))
@@ -44,7 +47,7 @@
   (let [[magnitude carrier] quantity]
     magnitude))
 
-(def: #hidden (carrier quantity)
+(def: (carrier quantity)
   (All [unit] (-> (Qty unit) unit))
   (let [[magnitude carrier] quantity]
     carrier))
@@ -69,7 +72,7 @@
               )))
 
 (def: ratio^
-  (s;Syntax [Int Int])
+  (s;Syntax r;Ratio)
   (s;tuple (do p;Monad<Parser>
              [numerator s;int
               _ (p;assert (format "Numerator must be positive: " (%i numerator))
@@ -77,11 +80,11 @@
               denominator s;int
               _ (p;assert (format "Denominator must be positive: " (%i denominator))
                           (i.> 0 denominator))]
-             (wrap [numerator denominator]))))
+             (wrap [(int-to-nat numerator) (int-to-nat denominator)]))))
 
 (syntax: #export (scale: [export csr;export]
                    [name s;local-symbol]
-                   [[numerator denominator] ratio^])
+                   [(^slots [#r;numerator #r;denominator]) ratio^])
   (let [g!scale (code;local-symbol name)]
     (wrap (list (` (type: (~@ (csw;export export)) ((~ g!scale) (~' u))
                      (host (~ (code;local-symbol (scale-name name))) [(~' u)])))
@@ -89,14 +92,16 @@
                      (;;Scale (~ g!scale))
                      (def: (~' scale)
                        (|>. ;;out
-                            (i.* (~ (code;int numerator)))
-                            (i./ (~ (code;int denominator)))
+                            (i.* (~ (code;int (nat-to-int numerator))))
+                            (i./ (~ (code;int (nat-to-int denominator))))
                             (;;in (:! ((~ g!scale) ($ +0)) []))))
                      (def: (~' de-scale)
                        (|>. ;;out
-                            (i.* (~ (code;int denominator)))
-                            (i./ (~ (code;int numerator)))
-                            (;;in (:! ($ +0) []))))))
+                            (i.* (~ (code;int (nat-to-int denominator))))
+                            (i./ (~ (code;int (nat-to-int numerator))))
+                            (;;in (:! ($ +0) []))))
+                     (def: (~' ratio)
+                       [(~ (code;nat numerator)) (~ (code;nat denominator))])))
                 ))))
 
 (do-template [<name> <op>]
@@ -125,9 +130,11 @@
 
 (def: #export (re-scale from to quantity)
   (All [si so u] (-> (Scale si) (Scale so) (Qty (si u)) (Qty (so u))))
-  (|> quantity
-      (:: from de-scale)
-      (:: to scale)))
+  (let [[numerator denominator] (|> (:: to ratio) (r;q./ (:: from ratio)))]
+    (|> quantity out
+        (i.* (nat-to-int numerator))
+        (i./ (nat-to-int denominator))
+        (in (:! (($ +1) ($ +2)) [])))))
 
 (scale: #export Kilo [1         1_000])
 (scale: #export Mega [1     1_000_000])
@@ -141,3 +148,8 @@
   (All [s u] (-> (Scale s) u Int (Qty (s u))))
   (let [[_ carrier] (|> 0 (in unit) (:: scale scale))]
     [magnitude carrier]))
+
+(unit: #export Gram)
+(unit: #export Meter)
+(unit: #export Litre)
+(unit: #export Second)
