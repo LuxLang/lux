@@ -1,0 +1,143 @@
+(;module:
+  lux
+  (lux (control [monad #+ do Monad]
+                ["p" parser "p/" Monad<Parser>])
+       (data text/format)
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:]
+              (syntax ["cs" common]
+                      (common ["csr" reader]
+                              ["csw" writer])))))
+
+(type: #export (Qty unit)
+  [Int unit])
+
+(sig: #export (Scale s)
+  (: (All [u] (-> (Qty u) (Qty (s u))))
+     scale)
+  (: (All [u] (-> (Qty (s u)) (Qty u)))
+     de-scale))
+
+(type: #export Pure
+  (Qty []))
+
+(type: #export (Quotient d n)
+  (-> d n))
+
+(type: #export (Inverse u)
+  (Quotient u Pure))
+
+(type: #export (Product p s)
+  (Quotient (Inverse p) s))
+
+(def: #export (in carrier magnitude)
+  (All [unit] (-> unit Int (Qty unit)))
+  [magnitude carrier])
+
+(def: #export (pure magnitude)
+  (-> Int Pure)
+  (in [] magnitude))
+
+(def: #export (out quantity)
+  (All [unit] (-> (Qty unit) Int))
+  (let [[magnitude carrier] quantity]
+    magnitude))
+
+(def: #hidden (carrier quantity)
+  (All [unit] (-> (Qty unit) unit))
+  (let [[magnitude carrier] quantity]
+    carrier))
+
+(do-template [<name> <tag>]
+  [(def: <name>
+     (-> Text Text)
+     (|>. (format "{" kind "@" module "}")
+          (let [[module kind] (ident-for <tag>)])))]
+  
+  [unit-name  #;;Unit]
+  [scale-name #;;Scale]
+  )
+
+(syntax: #export (unit: [export csr;export]
+                   [name s;local-symbol])
+  (wrap (list (` (type: (~@ (csw;export export)) (~ (code;local-symbol name))
+                   (host (~ (code;local-symbol (unit-name name))))))
+              (` (def: (~@ (csw;export export)) (~ (code;local-symbol (format "@" name)))
+                   (~ (code;local-symbol name))
+                   (:!! [])))
+              )))
+
+(def: ratio^
+  (s;Syntax [Int Int])
+  (s;tuple (do p;Monad<Parser>
+             [numerator s;int
+              _ (p;assert (format "Numerator must be positive: " (%i numerator))
+                          (i.> 0 numerator))
+              denominator s;int
+              _ (p;assert (format "Denominator must be positive: " (%i denominator))
+                          (i.> 0 denominator))]
+             (wrap [numerator denominator]))))
+
+(syntax: #export (scale: [export csr;export]
+                   [name s;local-symbol]
+                   [[numerator denominator] ratio^])
+  (let [g!scale (code;local-symbol name)]
+    (wrap (list (` (type: (~@ (csw;export export)) ((~ g!scale) (~' u))
+                     (host (~ (code;local-symbol (scale-name name))) [(~' u)])))
+                (` (struct: (~@ (csw;export export)) (~ (code;local-symbol (format "@" name)))
+                     (;;Scale (~ g!scale))
+                     (def: (~' scale)
+                       (|>. ;;out
+                            (i.* (~ (code;int numerator)))
+                            (i./ (~ (code;int denominator)))
+                            (;;in (:! ((~ g!scale) ($ +0)) []))))
+                     (def: (~' de-scale)
+                       (|>. ;;out
+                            (i.* (~ (code;int denominator)))
+                            (i./ (~ (code;int numerator)))
+                            (;;in (:! ($ +0) []))))))
+                ))))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> param subject)
+     (All [unit] (-> (Qty unit) (Qty unit) (Qty unit)))
+     (|> (out subject) (<op> (out param)) (in (carrier subject))))]
+
+  [++ i.+]
+  [-- i.-]
+  )
+
+(def: #export (// param subject)
+  (All [p s] (-> (Qty p) (Qty s) (Quotient (Qty p) (Qty s))))
+  (function [input]
+    (|> (out subject)
+        (i.* (out input))
+        (i./ (out param))
+        (in (carrier subject)))))
+
+(def: #export (** param subject)
+  (All [p s] (-> (Qty p) (Qty s) (Product (Qty p) (Qty s))))
+  (function [input]
+    (|> (out subject)
+        (i.* (out (input param)))
+        (in (carrier subject)))))
+
+(def: #export (re-scale from to quantity)
+  (All [si so u] (-> (Scale si) (Scale so) (Qty (si u)) (Qty (so u))))
+  (|> quantity
+      (:: from de-scale)
+      (:: to scale)))
+
+(scale: #export Kilo [1         1_000])
+(scale: #export Mega [1     1_000_000])
+(scale: #export Giga [1 1_000_000_000])
+
+(scale: #export Milli [        1_000 1])
+(scale: #export Micro [    1_000_000 1])
+(scale: #export Nano  [1_000_000_000 1])
+
+(def: #export (as scale unit magnitude)
+  (All [s u] (-> (Scale s) u Int (Qty (s u))))
+  (let [[_ carrier] (|> 0 (in unit) (:: scale scale))]
+    [magnitude carrier]))
