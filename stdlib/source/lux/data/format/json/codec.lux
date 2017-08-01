@@ -231,103 +231,33 @@
              .sub. (Codec<JSON,?>//encode env :sub:)]
             (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
                         (|>. (;;_map_ (~ .sub.)) vector;from-list ..;array)))))
-          (with-gensyms [g!type-fun g!case g!input]
+          (with-gensyms [g!input]
             (do @
               [members (poly;sum+ :x:)
                pattern-matching (M;map @
                                        (function [[tag :case:]]
                                          (do @
                                            [g!encode (Codec<JSON,?>//encode env :case:)]
-                                           (wrap (list (` ((~ (code;nat tag)) (~ g!case)))
+                                           (wrap (list (` ((~ (code;nat tag)) (~ g!input)))
                                                        (` (..;json [(~ (code;real (;;tag tag)))
-                                                                    ((~ g!encode) (~ g!case))]))))))
+                                                                    ((~ g!encode) (~ g!input))]))))))
                                        (list;enumerate members))]
               (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
                           (function [(~ g!input)]
                             (case (~ g!input)
                               (~@ (L/join pattern-matching)))))))))
-          (with-gensyms [g!type-fun g!case g!input]
-            (do @
-              [[g!vars members] (poly;variant :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               pattern-matching (M;map @
-                                       (function [[name :case:]]
-                                         (do @
-                                           [#let [tag (code;tag name)]
-                                            encoder (Codec<JSON,?>//encode new-env :case:)]
-                                           (wrap (list (` ((~ tag) (~ g!case)))
-                                                       (` (..;json [(~ (code;text (product;right name)))
-                                                                    ((~ encoder) (~ g!case))]))))))
-                                       members)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//encode (poly;to-ast env :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (L/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]]
-              (wrap (` (: (~ :x:+)
-                          (function [(~@ g!vars) (~ g!input)]
-                            (case (~ g!input)
-                              (~@ (L/join pattern-matching))))
-                          )))))
-          (with-gensyms [g!type-fun g!case g!input]
-            (do @
-              [[g!vars members] (poly;record :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               synthesis (M;map @
-                                (function [[name :slot:]]
-                                  (do @
-                                    [encoder (Codec<JSON,?>//encode new-env :slot:)]
-                                    (wrap [(` (~ (code;text (product;right name))))
-                                           (` ((~ encoder) (get@ (~ (code;tag name)) (~ g!input))))])))
-                                members)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//encode (poly;to-ast env :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (L/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]]
-              (wrap (` (: (~ :x:+)
-                          (function [(~@ g!vars) (~ g!input)]
-                            (..;json (~ (code;record synthesis))))
-                          )))))
-          (with-gensyms [g!type-fun g!case]
-            (do @
-              [[g!vars members] (poly;tuple :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               pattern-matching (M;map @
-                                       (function [:member:]
-                                         (do @
-                                           [g!member (macro;gensym "g!member")
-                                            encoder (Codec<JSON,?>//encode new-env :member:)]
-                                           (wrap [g!member encoder])))
-                                       members)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//encode (poly;to-ast env :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (L/map ->Codec//encode g!vars))
-                                     (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]
-               #let [.tuple. (` [(~@ (L/map product;left pattern-matching))])]]
-              (wrap (` (: (~ :x:+)
-                          (function [(~@ g!vars) (~ .tuple.)]
-                            (..;json [(~@ (L/map (function [[g!member g!encoder]]
-                                                   (` ((~ g!encoder) (~ g!member))))
-                                                 pattern-matching))]))
-                          )))
-              ))
+          (do @
+            [members (poly;prod+ :x:)
+             #let [g!members (|> (list;size members) n.dec
+                                 (list;n.range +0)
+                                 (L/map (|>. nat/encode code;local-symbol)))]
+             g!encoders (M;map @ (Codec<JSON,?>//encode env) members)]
+            (wrap (` (: (~ (->Codec//encode (poly;to-ast env :x:)))
+                        (function [[(~@ g!members)]]
+                          (..;json [(~@ (L/map (function [[g!member g!encode]]
+                                                 (` ((~ g!encode) (~ g!member))))
+                                               (list;zip2 g!members g!encoders)))]))
+                        ))))
           ## Type recursion
           (with-gensyms [g!rec]
             (do @
@@ -348,6 +278,19 @@
                         ((~ .func.) (~@ .args.))))))
           ## Bound type-vars
           (poly;bound env :x:)
+          ## Polymorphism
+          (with-gensyms [g!type-fun]
+            (do @
+              [[g!vars :non-poly:] (poly;polymorphic :x:)
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
+               .non-poly. (Codec<JSON,?>//encode new-env :non-poly:)]
+              (wrap (` (: (All (~ g!type-fun) [(~@ g!vars)]
+                            (-> (~@ (L/map ->Codec//encode g!vars))
+                                (~ (->Codec//encode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))
+                          (function (~ g!type-fun) [(~@ g!vars)]
+                            (~ .non-poly.)))))))
           ## If all else fails...
           (macro;fail ($_ text/append "Cannot create JSON encoder for: " (type;to-text :x:)))
           ))))
@@ -381,109 +324,27 @@
              .sub. (Codec<JSON,?>//decode env :sub:)]
             (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
                         (../reader;array (p;some (~ .sub.)))))))
-          (with-gensyms [g!type-fun g!case  g!_]
-            (do @
-              [members (poly;sum+ :x:)
-               pattern-matching (M;map @
-                                       (function [[tag :case:]]
-                                         (do @
-                                           [g!decode (Codec<JSON,?>//decode env :case:)]
-                                           (wrap (list (` (|> (~ g!decode)
-                                                              (p;after (../reader;number! (~ (code;real (;;tag tag)))))
-                                                              ../reader;array))))))
-                                       (list;enumerate members))]
-              (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
-                          ($_ p;alt
-                              (~@ (L/join pattern-matching))))))))
-          (with-gensyms [g!type-fun g!_]
-            (do @
-              [[g!vars members] (poly;variant :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               pattern-matching (M;map @
-                                       (function [[name :case:]]
-                                         (do @
-                                           [g!decode (Codec<JSON,?>//decode new-env :case:)]
-                                           (wrap (list (` (|> (~ g!decode)
-                                                              (:: p;Monad<Parser> (~' map) (|>. (~ (code;tag name))))
-                                                              (p;after (../reader;string! (~ (code;text (product;right name)))))
-                                                              ../reader;array))))))
-                                       members)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//decode (poly;to-ast env :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (L/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))
-                     base-parser (` ($_ p;either
-                                        (~@ (L/join pattern-matching))))
-                     parser (case g!vars
-                              #;Nil
-                              base-parser
-
-                              _
-                              (` (function [(~@ g!vars)] (~ base-parser))))]]
-              (wrap (` (: (~ :x:+) (~ parser))))
-              ))
-          (with-gensyms [g!type-fun g!case]
-            (do @
-              [[g!vars members] (poly;record :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               extraction (M;map @
-                                 (function [[name :slot:]]
-                                   (do @
-                                     [g!decoder (Codec<JSON,?>//decode new-env :slot:)]
-                                     (wrap (` (../reader;field (~ (code;text (product;right name)))
-                                                               (~ g!decoder))))))
-                                 members)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//decode (poly;to-ast env :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (L/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]]
-              (case g!vars
-                #;Nil
-                (wrap (` (: (~ :x:+)
-                            (|> ($_ p;seq (~@ extraction))
-                                (p;before ../reader;any)))))
-
-                _
-                (wrap (` (: (~ :x:+)
-                            (function [(~@ g!vars)]
-                              (|> ($_ p;seq (~@ extraction))
-                                  (p;before ../reader;any)))))))))
-          (with-gensyms [g!type-fun g!case]
-            (do @
-              [[g!vars members] (poly;tuple :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               pattern-matching (M;map @ (Codec<JSON,?>//decode new-env) members)
-               #let [:x:+ (case g!vars
-                            #;Nil
-                            (->Codec//decode (poly;to-ast env :x:))
-
-                            _
-                            (` (All (~ g!type-fun) [(~@ g!vars)]
-                                 (-> (~@ (L/map ->Codec//decode g!vars))
-                                     (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))))]
-               #let [.decoder. (case g!vars
-                                 #;Nil
-                                 (` (../reader;array ($_ p;seq (~@ pattern-matching))))
-
-                                 _
-                                 (` (function [(~@ g!vars)]
-                                      (../reader;array ($_ p;seq (~@ pattern-matching))))))]]
-              (wrap (` (: (~ :x:+) (~ .decoder.))))
-              ))
+          (do @
+            [members (poly;sum+ :x:)
+             pattern-matching (M;map @
+                                     (function [[tag :case:]]
+                                       (do @
+                                         [g!decode (Codec<JSON,?>//decode env :case:)]
+                                         (wrap (list (` (|> (~ g!decode)
+                                                            (p;after (../reader;number! (~ (code;real (;;tag tag)))))
+                                                            ../reader;array))))))
+                                     (list;enumerate members))]
+            (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
+                        ($_ p;alt
+                            (~@ (L/join pattern-matching)))))))
+          (do @
+            [members (poly;prod+ :x:)
+             #let [g!members (|> (list;size members) n.dec
+                                 (list;n.range +0)
+                                 (L/map (|>. nat/encode code;local-symbol)))]
+             g!decoders (M;map @ (Codec<JSON,?>//decode env) members)]
+            (wrap (` (: (~ (->Codec//decode (poly;to-ast env :x:)))
+                        (../reader;array ($_ p;seq (~@ g!decoders)))))))
           ## Type recursion
           (with-gensyms [g!rec]
             (do @
@@ -506,6 +367,19 @@
           (do @
             [g!bound (poly;bound env :x:)]
             (wrap g!bound))
+          ## Polymorphism
+          (with-gensyms [g!type-fun]
+            (do @
+              [[g!vars :non-poly:] (poly;polymorphic :x:)
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
+               .non-poly. (Codec<JSON,?>//decode new-env :non-poly:)]
+              (wrap (` (: (All (~ g!type-fun) [(~@ g!vars)]
+                            (-> (~@ (L/map ->Codec//decode g!vars))
+                                (~ (->Codec//decode (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))
+                          (function (~ g!type-fun) [(~@ g!vars)]
+                            (~ .non-poly.)))))))
           ## If all else fails...
           (macro;fail ($_ text/append "Cannot create JSON decoder for: " (type;to-text :x:)))
           ))))

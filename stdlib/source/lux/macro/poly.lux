@@ -81,9 +81,6 @@
       ($_ macro;either
           <primitives>))))
 
-(syntax: ($Code$ ast)
-  (wrap (;list (code;text (code;to-text ast)))))
-
 (do-template [<single> <multi> <flattener> <tag>]
   [(def: #export <single>
      (Matcher [Type Type])
@@ -93,7 +90,7 @@
          (Lux/wrap [:left: :right:])
 
          _
-         (macro;fail ($_ text/append "Not a " ($Code$ <tag>) " type: " (type;to-text :type:))))))
+         (macro;fail ($_ text/append "Not a " (Ident/encode (ident-for <tag>)) " type: " (type;to-text :type:))))))
 
    (def: #export <multi>
      (Matcher (List Type))
@@ -101,76 +98,37 @@
        (let [members (<flattener> (type;un-name :type:))]
          (if (n.> +1 (list;size members))
            (Lux/wrap members)
-           (macro;fail ($_ text/append "Not a " ($Code$ <tag>) " type: " (type;to-text :type:)))))))]
+           (macro;fail ($_ text/append "Not a " (Ident/encode (ident-for <tag>)) " type: " (type;to-text :type:)))))))]
 
   [sum    sum+    type;flatten-variant #;Sum]
   [prod   prod+   type;flatten-tuple   #;Product]
   )
 
-(def: #export tagged
-  (Matcher [(List Ident) Type])
-  (;function [:type:]
-    (case (type;un-alias :type:)
-      (#;Named type-name :def:)
-      (do macro;Monad<Lux>
-        [tags (macro;tags-of type-name)]
-        (wrap [tags :def:]))
-
-      _
-      (macro;fail ($_ text/append "Unnamed types cannot have tags: " (type;to-text :type:))))))
-
 (def: #export polymorphic
   (Matcher [(List Code) Type])
   (;function [:type:]
-    (loop [:type: (type;un-name :type:)]
+    (let [:type: (type;un-name :type:)]
       (case :type:
-        (#;UnivQ _ :type:')
-        (do macro;Monad<Lux>
-          [[g!tail :type:''] (recur :type:')
-           g!head (macro;gensym "type-var")]
-          (wrap [(list& g!head g!tail)
-                 :type:'']))
+        (#;UnivQ _)
+        (loop [:type: :type:]
+          (case :type:
+            (#;UnivQ _ :type:')
+            (do macro;Monad<Lux>
+              [[g!tail :type:''] (recur :type:')
+               g!head (macro;gensym "type-var")]
+              (wrap [(list& g!head g!tail)
+                     :type:'']))
+
+            _
+            (Lux/wrap [(;list) :type:])))
 
         _
-        (Lux/wrap [(;list) :type:])))))
-
-(do-template [<combinator> <sub-comb> <build>]
-  [(def: #export <combinator>
-     (Matcher [(List Code) (List [Ident Type])])
-     (;function [:type:]
-       (do macro;Monad<Lux>
-         [[tags :type:] (tagged :type:)
-          _ (macro;assert "Records and variants must have tags."
-                          (n.> +0 (list;size tags)))
-          [vars :type:] (polymorphic :type:)
-          members (<sub-comb> :type:)
-          #let [num-tags (list;size tags)
-                [init-tags last-tag] (list;split (n.dec num-tags) tags)
-                [init-types last-types] (list;split (n.dec num-tags) members)]]
-         (wrap [vars (list;concat (;list (list;zip2 init-tags init-types)
-                                         (;list [(default (undefined)
-                                                   (list;head last-tag))
-                                                 (<build> last-types)])))]))))]
-
-  [variant sum+  type;variant]
-  [record  prod+ type;tuple]
-  )
-
-(def: #export tuple
-  (Matcher [(List Code) (List Type)])
-  (;function [:type:]
-    (do macro;Monad<Lux>
-      [[vars :type:] (polymorphic :type:)
-       members (prod+ :type:)]
-      (wrap [vars members]))))
+        (macro;fail ($_ text/append "Non-polymorphic type: " (type;to-text :type:)))))))
 
 (def: #export function
-  (Matcher [(List Code) (List Type) Type])
+  (Matcher [(List Type) Type])
   (;function [:type:]
-    (do macro;Monad<Lux>
-      [[vars :type:] (polymorphic :type:)
-       #let [[ins out] (type;flatten-function (type;un-name :type:))]]
-      (wrap [vars ins out]))))
+    (:: macro;Monad<Lux> wrap (type;flatten-function (type;un-name :type:)))))
 
 (def: #export apply
   (Matcher [Type (List Type)])

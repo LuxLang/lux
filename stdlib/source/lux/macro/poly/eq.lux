@@ -1,10 +1,10 @@
 (;module:
   lux
-  (lux (control ["M" monad #+ do Monad]
+  (lux (control [monad #+ do Monad]
                 [eq])
-       (data [text]
+       (data [text "text/" Monoid<Text>]
              text/format
-             (coll [list "List/" Monad<List>]
+             (coll [list "L/" Monad<List>]
                    [vector]
                    [array]
                    [queue]
@@ -12,7 +12,7 @@
                    [seq]
                    [dict #+ Dict]
                    (tree [rose]))
-             [number]
+             [number "nat/" Codec<Text,Nat>]
              [product]
              [bool]
              [maybe])
@@ -23,18 +23,6 @@
               [poly #+ poly:])
        [type]
        ))
-
-## [Utils]
-(def: (function$ func inputs output)
-  (-> Code (List Code) Code Code)
-  (case inputs
-    #;Nil
-    output
-
-    _
-    (` (function (~@ (if (list;empty? inputs) (list) (list func)))
-         [(~@ inputs)]
-         (~ output)))))
 
 ## [Derivers]
 (poly: #export (Eq<?> env :x:)
@@ -80,71 +68,38 @@
             (wrap (` (: (~ (->Eq (type;to-ast :x:)))
                         (dict;Eq<Dict> (~ g!val))))))
           ## Variants
-          (with-gensyms [g!type-fun g!left g!right]
+          (with-gensyms [g!left g!right]
             (do @
               [members (poly;sum+ :x:)
-               pattern-matching (M;map @
-                                       (function [[tag :case:]]
-                                         (do @
-                                           [g!eq (Eq<?> env :case:)]
-                                           (wrap (list (` [((~ (code;nat tag)) (~ g!left))
-                                                           ((~ (code;nat tag)) (~ g!right))])
-                                                       (` ((~ g!eq) (~ g!left) (~ g!right)))))))
-                                       (list;enumerate members))
-               #let [base (` (function [(~ g!left) (~ g!right)]
-                               (case [(~ g!left) (~ g!right)]
-                                 (~@ (List/join pattern-matching)))))]]
-              (wrap (` (: (~ (poly;gen-type env ->Eq g!type-fun (list) :x:))
-                          (~ base))))))
-          (with-gensyms [g!type-fun g!left g!right]
-            (do @
-              [[g!vars members] (poly;variant :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               pattern-matching (M;map @
-                                       (function [[name :case:]]
-                                         (do @
-                                           [g!eq (Eq<?> new-env :case:)]
-                                           (wrap (list (` [((~ (code;tag name)) (~ g!left))
-                                                           ((~ (code;tag name)) (~ g!right))])
-                                                       (` ((~ g!eq) (~ g!left) (~ g!right)))))))
-                                       members)
-               #let [base (function$ g!type-fun g!vars
-                                     (` (function [(~ g!left) (~ g!right)]
-                                          (case [(~ g!left) (~ g!right)]
-                                            (~@ (List/join pattern-matching))))))]]
-              (wrap (` (: (~ (poly;gen-type new-env ->Eq g!type-fun g!vars :x:))
-                          (~ base))))))
+               pattern-matching (monad;map @
+                                           (function [[tag :case:]]
+                                             (do @
+                                               [g!eq (Eq<?> env :case:)]
+                                               (wrap (list (` [((~ (code;nat tag)) (~ g!left))
+                                                               ((~ (code;nat tag)) (~ g!right))])
+                                                           (` ((~ g!eq) (~ g!left) (~ g!right)))))))
+                                           (list;enumerate members))]
+              (wrap (` (: (~ (->Eq (poly;to-ast env :x:)))
+                          (function [(~ g!left) (~ g!right)]
+                            (case [(~ g!left) (~ g!right)]
+                              (~@ (L/join pattern-matching)))))))))
           ## Tuples
-          (with-gensyms [g!type-fun]
-            (do @
-              [[g!vars members] (poly;tuple :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               pattern-matching (M;map @
-                                       (function [:member:]
-                                         (do @
-                                           [g!left (macro;gensym "g!left")
-                                            g!right (macro;gensym "g!right")
-                                            g!eq (Eq<?> new-env :member:)]
-                                           (wrap [g!left g!right g!eq])))
-                                       members)
-               #let [.left. (` [(~@ (List/map product;left pattern-matching))])
-                     .right. (` [(~@ (List/map (|>. product;right product;left) pattern-matching))])
-                     base (function$ g!type-fun g!vars
-                                     (` (function [(~ .left.) (~ .right.)]
-                                          (and (~@ (List/map (function [[g!left g!right g!eq]]
-                                                               (` ((~ g!eq) (~ g!left) (~ g!right))))
-                                                             pattern-matching))))))]]
-              (wrap (` (: (~ (poly;gen-type new-env ->Eq g!type-fun g!vars :x:))
-                          (~ base))))))
+          (do @
+            [:members: (poly;prod+ :x:)
+             #let [indices (|> (list;size :members:) n.dec (list;n.range +0))
+                   g!lefts (L/map (|>. nat/encode (text/append "left") code;local-symbol) indices)
+                   g!rights (L/map (|>. nat/encode (text/append "right") code;local-symbol) indices)]
+             g!eqs (monad;map @ (Eq<?> env) :members:)]
+            (wrap (` (: (~ (->Eq (poly;to-ast env :x:)))
+                        (function [[(~@ g!lefts)] [(~@ g!rights)]]
+                          (and (~@ (|> (list;zip3 g!eqs g!lefts g!rights)
+                                       (L/map (function [[g!eq g!left g!right]]
+                                                (` ((~ g!eq) (~ g!left) (~ g!right)))))))))))))
           ## Type recursion
           (with-gensyms [g!rec]
             (do @
               [:non-rec: (poly;recursive :x:)
-               #let [new-env (poly;extend-env [:x: g!rec] (list [:x: (` (;undefined))]) env)]
+               #let [new-env (poly;extend-env [:x: g!rec] (list [Bottom (` (;undefined))]) env)]
                .non-rec. (Eq<?> new-env :non-rec:)]
               (wrap (` (: (~ (poly;gen-type new-env ->Eq g!rec (list) :x:))
                           (eq;rec (;function [(~ g!rec)]
@@ -155,11 +110,24 @@
           (do @
             [[:func: :args:] (poly;apply :x:)
              .func. (Eq<?> env :func:)
-             .args. (M;map @ (Eq<?> env) :args:)]
+             .args. (monad;map @ (Eq<?> env) :args:)]
             (wrap (` (: (~ (->Eq (type;to-ast :x:)))
                         ((~ .func.) (~@ .args.))))))
           ## Bound type-vars
           (poly;bound env :x:)
+          ## Polymorphism
+          (with-gensyms [g!type-fun]
+            (do @
+              [[g!vars :non-poly:] (poly;polymorphic :x:)
+               #let [new-env (poly;extend-env [:x: g!type-fun]
+                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
+                                              env)]
+               .non-poly. (Eq<?> new-env :non-poly:)]
+              (wrap (` (: (All (~ g!type-fun) [(~@ g!vars)]
+                            (-> (~@ (L/map ->Eq g!vars))
+                                (~ (->Eq (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))
+                          (function (~ g!type-fun) [(~@ g!vars)]
+                            (~ .non-poly.)))))))
           ## If all else fails...
           (macro;fail (format "Cannot create Eq for: " (%type :x:)))
           ))))
