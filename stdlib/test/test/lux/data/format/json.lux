@@ -4,14 +4,17 @@
        (control [monad #+ do Monad]
                 codec
                 [eq #+ Eq]
-                pipe)
+                pipe
+                ["p" parser])
        (data [text "Text/" Monoid<Text>]
              text/format
              ["R" result]
              [bool]
              [maybe]
              [number "i/" Number<Int>]
-             (format ["&" json])
+             (format ["@" json]
+                     (json ["@;" reader]
+                           ["@;" codec]))
              (coll [vector #+ vector]
                    ["d" dict]
                    [list]))
@@ -25,7 +28,7 @@
   )
 
 (def: gen-json
-  (r;Random &;JSON)
+  (r;Random @;JSON)
   (r;rec (function [gen-json]
            (do r;Monad<Random>
              [size (:: @ map (n.% +2) r;nat)]
@@ -40,16 +43,16 @@
 
 (context: "JSON"
   [sample gen-json
-   #let [(^open "&/") &;Eq<JSON>
-         (^open "&/") &;Codec<Text,JSON>]]
+   #let [(^open "@/") @;Eq<JSON>
+         (^open "@/") @codec;Codec<Text,JSON>]]
   ($_ seq
       (test "Every JSON is equal to itself."
-            (&/= sample sample))
+            (@/= sample sample))
 
       (test "Can encode/decode JSON."
-            (|> sample &/encode &/decode
+            (|> sample @/encode @/decode
                 (case> (#;Right result)
-                       (&/= sample result)
+                       (@/= sample result)
 
                        (#;Left _)
                        false)))
@@ -57,7 +60,7 @@
 
 (type: Variant
   (#Case0 Bool)
-  (#Case1 Int)
+  (#Case1 Text)
   (#Case2 Real))
 
 (type: #rec Recursive
@@ -67,14 +70,13 @@
 (type: Record
   {#unit Unit
    #bool Bool
-   #int Int
    #real Real
    #text Text
-   #maybe (Maybe Int)
-   #list (List Int)
+   #maybe (Maybe Real)
+   #list (List Real)
    #variant Variant
-   #tuple [Int Real Text]
-   #dict (d;Dict Text Int)
+   #tuple [Bool Real Text]
+   #dict (d;Dict Text Real)
    #recursive Recursive})
 
 (def: gen-recursive
@@ -88,23 +90,21 @@
 (def: gen-record
   (r;Random Record)
   (do r;Monad<Random>
-    [size (:: @ map (n.% +2) r;nat)
-     #let [gen-int (|> r;int (:: @ map (|>. i/abs (i.% 1_000_000))))]]
+    [size (:: @ map (n.% +2) r;nat)]
     ($_ r;seq
         (:: @ wrap [])
         r;bool
-        gen-int
         r;real
         (r;text size)
-        (r;maybe gen-int)
-        (r;list size gen-int)
-        ($_ r;alt r;bool gen-int r;real)
-        ($_ r;seq gen-int r;real (r;text size))
-        (r;dict text;Hash<Text> size (r;text size) gen-int)
+        (r;maybe r;real)
+        (r;list size r;real)
+        ($_ r;alt r;bool (r;text size) r;real)
+        ($_ r;seq r;bool r;real (r;text size))
+        (r;dict text;Hash<Text> size (r;text size) r;real)
         gen-recursive
         )))
 
-(derived: (&;Codec<JSON,?> Record))
+(derived: (@codec;Codec<JSON,?> Record))
 
 (struct: _ (Eq Record)
   (def: (= recL recR)
@@ -114,7 +114,7 @@
                         (:: bool;Eq<Bool> = left' right')
                         
                         [(#Case1 left') (#Case1 right')]
-                        (i.= left' right')
+                        (:: text;Eq<Text> = left' right')
                         
                         [(#Case2 left') (#Case2 right')]
                         (r.= left' right')
@@ -122,29 +122,28 @@
                         _
                         false))]
       (and (:: bool;Eq<Bool> = (get@ #bool recL) (get@ #bool recR))
-           (i.= (get@ #int recL) (get@ #int recR))
            (r.= (get@ #real recL) (get@ #real recR))
            (:: text;Eq<Text> = (get@ #text recL) (get@ #text recR))
-           (:: (maybe;Eq<Maybe> number;Eq<Int>) = (get@ #maybe recL) (get@ #maybe recR))
-           (:: (list;Eq<List> number;Eq<Int>) = (get@ #list recL) (get@ #list recR))
+           (:: (maybe;Eq<Maybe> number;Eq<Real>) = (get@ #maybe recL) (get@ #maybe recR))
+           (:: (list;Eq<List> number;Eq<Real>) = (get@ #list recL) (get@ #list recR))
            (variant/= (get@ #variant recL) (get@ #variant recR))
            (let [[tL0 tL1 tL2] (get@ #tuple recL)
                  [tR0 tR1 tR2] (get@ #tuple recR)]
-             (and (i.= tL0 tR0)
+             (and (:: bool;Eq<Bool> = tL0 tR0)
                   (r.= tL1 tR1)
                   (:: text;Eq<Text> = tL2 tR2)))
-           (:: (d;Eq<Dict> i.=) = (get@ #dict recL) (get@ #dict recR))
+           (:: (d;Eq<Dict> number;Eq<Real>) = (get@ #dict recL) (get@ #dict recR))
            (:: Eq<Recursive> = (get@ #recursive recL) (get@ #recursive recR))
            ))))
 
 (context: "Polytypism"
   [sample gen-record
-   #let [(^open "&/") Eq<Record>
-         (^open "&/") Codec<JSON,Record>]]
+   #let [(^open "@/") Eq<Record>
+         (^open "@/") Codec<JSON,Record>]]
   (test "Can encode/decode arbitrary types."
-        (|> sample &/encode &/decode
-            (case> (#;Right result)
-                   (&/= sample result)
+        (|> sample @/encode @/decode
+            (case> (#R;Success result)
+                   (@/= sample result)
 
-                   (#;Left _)
+                   (#R;Error error)
                    false))))
