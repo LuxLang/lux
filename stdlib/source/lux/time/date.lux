@@ -2,7 +2,15 @@
   lux
   (lux (control eq
                 order
-                enum)))
+                enum
+                codec
+                ["p" parser]
+                [monad #+ do])
+       (data ["R" result]
+             [number "int/" Codec<Text,Int>]
+             [text "text/" Monoid<Text>]
+             (text ["l" lexer])
+             (coll ["v" vector]))))
 
 (type: #export Year Int)
 
@@ -185,3 +193,130 @@
              (get@ #month sample))
          (n.= (get@ #day reference)
               (get@ #day sample)))))
+
+(def: (date.< reference sample)
+  (-> Date Date Bool)
+  (or (i.< (get@ #year reference)
+           (get@ #year sample))
+      (:: Order<Month> <
+          (get@ #month reference)
+          (get@ #month sample))
+      (n.< (get@ #day reference)
+           (get@ #day sample))))
+
+(struct: #export _ (Order Date)
+  (def: eq Eq<Date>)
+  (def: < date.<)
+  (def: (> reference sample)
+    (date.< sample reference))
+  (def: (<= reference sample)
+    (or (date.< reference sample)
+        (:: Eq<Date> = reference sample)))
+  (def: (>= reference sample)
+    (or (date.< sample reference)
+        (:: Eq<Date> = sample reference))))
+
+## Based on this: https://stackoverflow.com/a/42936293/6823464
+(def: (pad value)
+  (-> Int Text)
+  (if (i.< 10 value)
+    (text/append "0" (int/encode value))
+    (int/encode value)))
+
+(def: (encode [year month day])
+  (-> Date Text)
+  ($_ text/append
+      (int/encode year) "-"
+      (pad (|> month month-to-nat n.inc nat-to-int)) "-"
+      (pad (|> day nat-to-int))))
+
+(def: lex-year
+  (l;Lexer Int)
+  (do p;Monad<Parser>
+    [sign? (p;opt (l;this "-"))
+     raw-year (l;codec number;Codec<Text,Int> (l;many l;decimal))
+     #let [signum (case sign?
+                    #;None      1
+                    (#;Some _) -1)]]
+    (wrap (i.* signum raw-year))))
+
+(def: lex-section
+  (l;Lexer Int)
+  (l;codec number;Codec<Text,Int> (l;exactly +2 l;decimal)))
+
+(def: (leap-years year)
+  (-> Int Int)
+  (|> (i./ 4 year)
+      (i.- (i./ 100 year))
+      (i.+ (i./ 400 year))))
+
+(def: normal-months
+  (v;Vector Nat)
+  (v;vector +31 +28 +31
+            +30 +31 +30
+            +31 +31 +30
+            +31 +30 +31))
+
+(def: leap-year-months
+  (v;Vector Nat)
+  (v;update [+1] n.inc normal-months))
+
+(def: (divisible? factor input)
+  (-> Int Int Bool)
+  (|> input (i.% factor) (i.= 0)))
+
+(def: (leap-year? year)
+  (-> Int Bool)
+  (and (divisible? 4 year)
+       (or (not (divisible? 100 year))
+           (divisible? 400 year))))
+
+## Based on: https://stackoverflow.com/a/3309340/6823464
+(def: lex-date
+  (l;Lexer Date)
+  (do p;Monad<Parser>
+    [utc-year lex-year
+     _ (l;this "-")
+     utc-month lex-section
+     _ (p;assert "Invalid month."
+                 (and (i.>= 1 utc-month)
+                      (i.<= 12 utc-month)))
+     #let [months (if (leap-year? utc-year)
+                    leap-year-months
+                    normal-months)
+           month-days (|> months
+                          (v;nth (int-to-nat (i.dec utc-month)))
+                          assume)]
+     _ (l;this "-")
+     utc-day lex-section
+     _ (p;assert "Invalid day."
+                 (and (i.>= 1 utc-day)
+                      (i.<= (nat-to-int month-days) utc-day)))]
+    (wrap {#year utc-year
+           #month (case utc-month
+                    1 #January
+                    2 #February
+                    3 #March
+                    4 #April
+                    5 #May
+                    6 #June
+                    7 #July
+                    8 #August
+                    9 #September
+                    10 #October
+                    11 #November
+                    12 #December
+                    _ (undefined))
+           #day (int-to-nat utc-day)})))
+
+(def: (decode input)
+  (-> Text (R;Result Date))
+  (l;run input lex-date))
+
+(struct: #export _
+  {#;doc "Based on ISO 8601.
+
+          For example: 2017-01-15"}
+  (Codec Text Date)
+  (def: encode encode)
+  (def: decode decode))
