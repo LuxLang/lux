@@ -1,7 +1,8 @@
 (;module:
   lux
   (lux (control [monad #+ do Monad]
-                [eq])
+                [eq]
+                ["p" parser])
        (data [text "text/" Monoid<Text>]
              text/format
              (coll [list "L/" Monad<List>]
@@ -25,109 +26,108 @@
        ))
 
 ## [Derivers]
-(poly: #export (Eq<?> env :x:)
-  (let [->Eq (: (-> Code Code)
-                (function [.type.] (` (eq;Eq (~ .type.)))))]
-    (with-expansions
-      [<basic> (do-template [<type> <matcher> <eq>]
-                 [(do @
-                    [_ (<matcher> :x:)]
-                    (wrap (` (: (~ (->Eq (` <type>)))
-                                <eq>))))]
+(poly: #export Eq<?>
+  (with-expansions
+    [<basic> (do-template [<type> <matcher> <eq>]
+               [(do @
+                  [[primT _] (p;seq poly;peek <matcher>)]
+                  (wrap (` (: (~ (@Eq primT))
+                              <eq>))))]
 
-                 [Unit poly;unit (function [(~' test) (~' input)] true)]
-                 [Bool poly;bool bool;Eq<Bool>]
-                 [Nat  poly;nat  number;Eq<Nat>]
-                 [Int  poly;int  number;Eq<Int>]
-                 [Deg  poly;deg  number;Eq<Deg>]
-                 [Real poly;real number;Eq<Real>]
-                 [Text poly;text text;Eq<Text>])
-       <composites> (do-template [<name> <eq>]
-                      [(do @
-                         [:arg: (poly;apply-1 (ident-for <name>) :x:)
-                          g!arg (Eq<?> env :arg:)]
-                         (wrap (` (: (~ (->Eq (type;to-ast :x:)))
-                                     (<eq> (~ g!arg))))))]
+               [Unit poly;unit (function [(~' test) (~' input)] true)]
+               [Bool poly;bool bool;Eq<Bool>]
+               [Nat  poly;nat  number;Eq<Nat>]
+               [Int  poly;int  number;Eq<Int>]
+               [Deg  poly;deg  number;Eq<Deg>]
+               [Real poly;real number;Eq<Real>]
+               [Text poly;text text;Eq<Text>])
+     <composites> (do-template [<name> <eq>]
+                    [(do @
+                       [[collT [_ argC]] (p;seq poly;peek
+                                                (poly;apply (p;seq (poly;named (ident-for <name>))
+                                                                   Eq<?>)))]
+                       (wrap (` (: (~ (@Eq collT))
+                                   (<eq> (~ argC))))))]
 
-                      [list;List     list;Eq<List>]
-                      [vector;Vector vector;Eq<Vector>]
-                      [array;Array   array;Eq<Array>]
-                      [queue;Queue   queue;Eq<Queue>]
-                      [set;Set       set;Eq<Set>]
-                      [seq;Seq       seq;Eq<Seq>]
-                      [rose;Tree     rose;Eq<Tree>]
-                      )]
-      ($_ macro;either
+                    ## [;Maybe        maybe;Eq<Maybe>]
+                    ## [;List         list;Eq<List>]
+                    [vector;Vector vector;Eq<Vector>]
+                    [array;Array   array;Eq<Array>]
+                    [queue;Queue   queue;Eq<Queue>]
+                    [set;Set       set;Eq<Set>]
+                    [seq;Seq       seq;Eq<Seq>]
+                    [rose;Tree     rose;Eq<Tree>]
+                    )]
+    (do @
+      [*env* poly;env
+       #let [@Eq (: (-> Type Code)
+                    (function [type]
+                      (` (eq;Eq (~ (poly;to-ast *env* type))))))]]
+      ($_ p;either
           ## Primitive types
           <basic>
           ## Composite types
           <composites>
           (do @
-            [[:key: :val:] (poly;apply-2 (ident-for dict;Dict) :x:)
-             g!val (Eq<?> env :val:)]
-            (wrap (` (: (~ (->Eq (type;to-ast :x:)))
-                        (dict;Eq<Dict> (~ g!val))))))
+            [[collT [_ _ valC]] (p;seq poly;peek
+                                       (poly;apply ($_ p;seq
+                                                       (poly;named (ident-for dict;Dict))
+                                                       poly;any
+                                                       Eq<?>)))]
+            (wrap (` (: (~ (@Eq collT))
+                        (dict;Eq<Dict> (~ valC))))))
           ## Variants
-          (with-gensyms [g!left g!right]
-            (do @
-              [members (poly;sum+ :x:)
-               pattern-matching (monad;map @
-                                           (function [[tag :case:]]
-                                             (do @
-                                               [g!eq (Eq<?> env :case:)]
-                                               (wrap (list (` [((~ (code;nat tag)) (~ g!left))
-                                                               ((~ (code;nat tag)) (~ g!right))])
-                                                           (` ((~ g!eq) (~ g!left) (~ g!right)))))))
-                                           (list;enumerate members))]
-              (wrap (` (: (~ (->Eq (poly;to-ast env :x:)))
-                          (function [(~ g!left) (~ g!right)]
-                            (case [(~ g!left) (~ g!right)]
-                              (~@ (L/join pattern-matching)))))))))
+          (do @
+            [[variantT members] (p;seq poly;peek
+                                       (poly;variant (p;many Eq<?>)))
+             #let [g!left (code;local-symbol "\u0000left")
+                   g!right (code;local-symbol "\u0000right")]]
+            (wrap (` (: (~ (@Eq variantT))
+                        (function [(~ g!left) (~ g!right)]
+                          (case [(~ g!left) (~ g!right)]
+                            (~@ (L/join (L/map (function [[tag g!eq]]
+                                                 (list (` [((~ (code;nat tag)) (~ g!left))
+                                                           ((~ (code;nat tag)) (~ g!right))])
+                                                       (` ((~ g!eq) (~ g!left) (~ g!right)))))
+                                               (list;enumerate members))))))))))
           ## Tuples
           (do @
-            [:members: (poly;prod+ :x:)
-             #let [indices (|> (list;size :members:) n.dec (list;n.range +0))
+            [[tupleT g!eqs] (p;seq poly;peek
+                                   (poly;tuple (p;many Eq<?>)))
+             #let [indices (|> (list;size g!eqs) n.dec (list;n.range +0))
                    g!lefts (L/map (|>. nat/encode (text/append "left") code;local-symbol) indices)
-                   g!rights (L/map (|>. nat/encode (text/append "right") code;local-symbol) indices)]
-             g!eqs (monad;map @ (Eq<?> env) :members:)]
-            (wrap (` (: (~ (->Eq (poly;to-ast env :x:)))
+                   g!rights (L/map (|>. nat/encode (text/append "right") code;local-symbol) indices)]]
+            (wrap (` (: (~ (@Eq tupleT))
                         (function [[(~@ g!lefts)] [(~@ g!rights)]]
                           (and (~@ (|> (list;zip3 g!eqs g!lefts g!rights)
                                        (L/map (function [[g!eq g!left g!right]]
                                                 (` ((~ g!eq) (~ g!left) (~ g!right)))))))))))))
           ## Type recursion
-          (with-gensyms [g!rec]
-            (do @
-              [:non-rec: (poly;recursive :x:)
-               #let [new-env (poly;extend-env [:x: g!rec] (list [Bottom (` (;undefined))]) env)]
-               .non-rec. (Eq<?> new-env :non-rec:)]
-              (wrap (` (: (~ (poly;gen-type new-env ->Eq g!rec (list) :x:))
-                          (eq;rec (;function [(~ g!rec)]
-                                    (~ .non-rec.))))))))
-          (poly;self env :x:)
-          (poly;recursion env :x:)
+          (do @
+            [[recT [g!self bodyC]] (p;seq poly;peek
+                                          (poly;recursive Eq<?>))]
+            (wrap (` (: (~ (@Eq recT))
+                        (eq;rec (;function [(~ g!self)]
+                                  (~ bodyC)))))))
+          poly;recursive-self
           ## Type applications
           (do @
-            [[:func: :args:] (poly;apply :x:)
-             .func. (Eq<?> env :func:)
-             .args. (monad;map @ (Eq<?> env) :args:)]
-            (wrap (` (: (~ (->Eq (type;to-ast :x:)))
-                        ((~ .func.) (~@ .args.))))))
+            [[funcC argsC] (poly;apply (p;seq Eq<?> (p;many Eq<?>)))]
+            (wrap (` ((~ funcC) (~@ argsC)))))
           ## Bound type-vars
-          (poly;bound env :x:)
+          poly;bound
           ## Polymorphism
-          (with-gensyms [g!type-fun]
-            (do @
-              [[g!vars :non-poly:] (poly;polymorphic :x:)
-               #let [new-env (poly;extend-env [:x: g!type-fun]
-                                              (list;zip2 (|> g!vars list;size poly;type-var-indices) g!vars)
-                                              env)]
-               .non-poly. (Eq<?> new-env :non-poly:)]
-              (wrap (` (: (All (~ g!type-fun) [(~@ g!vars)]
-                            (-> (~@ (L/map ->Eq g!vars))
-                                (~ (->Eq (` ((~ (poly;to-ast env :x:)) (~@ g!vars)))))))
-                          (function (~ g!type-fun) [(~@ g!vars)]
-                            (~ .non-poly.)))))))
+          (do @
+            [[polyT [funcC varsC bodyC]] (p;seq poly;peek
+                                                (poly;polymorphic Eq<?>))]
+            (wrap (` (: (All [(~@ varsC)]
+                          (-> (~@ (L/map (|>. (~) eq;Eq (`)) varsC))
+                              (eq;Eq ((~ (poly;to-ast *env* polyT)) (~@ varsC)))))
+                        (function (~ funcC) [(~@ varsC)]
+                          (~ bodyC))))))
+          poly;recursive-call
           ## If all else fails...
-          (macro;fail (format "Cannot create Eq for: " (%type :x:)))
+          (|> poly;any
+              (:: @ map (|>. %type (format "Cannot create Eq for: ") p;fail))
+              (:: @ join))
           ))))

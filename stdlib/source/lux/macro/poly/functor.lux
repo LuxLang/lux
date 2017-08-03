@@ -1,16 +1,12 @@
 (;module:
   lux
-  (lux (control ["M" monad #+ do Monad]
-                [functor])
+  (lux (control [monad #+ do Monad]
+                [functor]
+                ["p" parser])
        (data [text]
              text/format
-             (coll [list "List/" Monad<List>]
-                   [dict #+ Dict])
-             [number]
-             [product]
-             [bool]
-             [maybe]
-             [ident "Ident/" Codec<Text,Ident>])
+             (coll [list "L/" Monad<List> Monoid<List>])
+             [product])
        [macro #+ Monad<Lux> with-gensyms]
        (macro [code]
               [syntax #+ syntax: Syntax]
@@ -19,107 +15,81 @@
        [type]
        ))
 
-## [Derivers]
-(poly: #export (Functor<?> env :input:)
-  (with-gensyms [g!type-fun g!func g!input]
-    (do @
-      [[g!vars :x:] (poly;polymorphic :input:)
-       #let [num-vars (list;size g!vars)
-             new-env (poly;extend-env [:input: g!type-fun]
-                                      (list;zip2 (poly;type-var-indices num-vars) g!vars)
-                                      env)]]
-      (let [->Functor (: (-> Code Code)
-                         (function [.type.]
-                           (if (n.= +1 num-vars)
-                             (` (functor;Functor (~ .type.)))
-                             (let [type-params (|> num-vars n.dec list;indices (List/map (|>. %n code;local-symbol)))]
-                               (` (All [(~@ type-params)] (functor;Functor ((~ .type.) (~@ type-params)))))))))
-            Arg<?> (: (-> Code (poly;Matcher Code))
-                      (function Arg<?> [value :type:]
-                        ($_ macro;either
-                            ## Nothing to do.
-                            (do @
-                              [_ (poly;primitive :type:)]
-                              (wrap value))
-                            ## Type-var
-                            (do @
-                              [_ (poly;var new-env (|> num-vars (n.* +2) n.dec) :type:)]
-                              (wrap (` ((~ g!func) (~ value)))))
-                            ## Bound type-variables
-                            (do @
-                              [_ (poly;bound new-env :type:)]
-                              (wrap value))
-                            ## Tuples/records
-                            (do @
-                              [members (poly;prod+ :type:)
-                               pm (M;map @
-                                         (function [:slot:]
-                                           (do @
-                                             [g!slot (macro;gensym "g!slot")
-                                              body (Arg<?> g!slot :slot:)]
-                                             (wrap [g!slot body])))
-                                         members)]
-                              (wrap (` (case (~ value)
-                                         [(~@ (List/map product;left pm))]
-                                         [(~@ (List/map product;right pm))])
-                                       )))
-                            ## Recursion
-                            (do @
-                              [_ (poly;recursion new-env :type:)]
-                              (wrap (` ((~' map) (~ g!func) (~ value)))))
-                            )))]
-        ($_ macro;either
-            ## Variants
-            (do @
-              [cases (poly;sum+ :x:)
-               pattern-matching (M;map @
-                                       (function [[tag :case:]]
-                                         (do @
-                                           [synthesis (Arg<?> g!input :case:)]
-                                           (wrap (list (` ((~ (code;nat tag)) (~ g!input)))
-                                                       (` ((~ (code;nat tag)) (~ synthesis)))))))
-                                       (list;enumerate cases))]
-              (wrap (` (: (~ (->Functor (type;to-ast :input:)))
-                          (struct (def: ((~' map) (~ g!func) (~ g!input))
-                                    (case (~ g!input)
-                                      (~@ (List/join pattern-matching)))))
-                          ))))
-            ## Tuples/Records
-            (do @
-              [members (poly;prod+ :x:)
-               pm (M;map @
-                         (function [:slot:]
+(poly: #export Functor<?>
+  (do @
+    [#let [type-funcC (code;local-symbol "\u0000type-funcC")
+           funcC (code;local-symbol "\u0000funcC")
+           inputC (code;local-symbol "\u0000inputC")]
+     *env* poly;env
+     inputT poly;peek
+     [polyC varsC non-functorT] (poly;local (list inputT)
+                                            (poly;polymorphic poly;any))
+     #let [num-vars (list;size varsC)]
+     #let [@Functor (: (-> Type Code)
+                       (function [unwrappedT]
+                         (if (n.= +1 num-vars)
+                           (` (functor;Functor (~ (poly;to-ast *env* unwrappedT))))
+                           (let [paramsC (|> num-vars n.dec list;indices (L/map (|>. %n code;local-symbol)))]
+                             (` (All [(~@ paramsC)]
+                                  (functor;Functor ((~ (poly;to-ast *env* unwrappedT)) (~@ paramsC)))))))))
+           Arg<?> (: (-> Code (poly;Poly Code))
+                     (function Arg<?> [valueC]
+                       ($_ p;either
+                           ## Type-var
+                           (do p;Monad<Parser>
+                             [#let [varI (|> num-vars (n.* +2) n.dec)]
+                              _ (poly;var varI)]
+                             (wrap (` ((~ funcC) (~ valueC)))))
+                           ## Variants
                            (do @
-                             [g!slot (macro;gensym "g!slot")
-                              body (Arg<?> g!slot :slot:)]
-                             (wrap [g!slot body])))
-                         members)]
-              (wrap (` (: (~ (->Functor (type;to-ast :input:)))
-                          (struct (def: ((~' map) (~ g!func) (~ g!input))
-                                    (case (~ g!input)
-                                      [(~@ (List/map product;left pm))]
-                                      [(~@ (List/map product;right pm))])))
-                          ))))
-            ## Functions
-            (with-gensyms [g!out]
-              (do @
-                [[:ins: :out:] (poly;function :x:)
-                 .out. (Arg<?> g!out :out:)
-                 g!envs (M;seq @
-                               (list;repeat (list;size :ins:)
-                                            (macro;gensym "g!envs")))]
-                (wrap (` (: (~ (->Functor (type;to-ast :input:)))
-                            (struct (def: ((~' map) (~ g!func) (~ g!input))
-                                      (function [(~@ g!envs)]
-                                        (let [(~ g!out) ((~ g!input) (~@ g!envs))]
-                                          (~ .out.))))))))))
-            ## No structure (as you'd expect from Identity)
-            (do @
-              [_ (poly;var new-env num-vars :x:)]
-              (wrap (` (: (~ (->Functor (type;to-ast :input:)))
-                          (struct (def: ((~' map) (~ g!func) (~ g!input))
-                                    ((~ g!func) (~ g!input))))))))
-            ## Failure...
-            (macro;fail (format "Cannot create Functor for: " (%type :x:)))
-            ))
-      )))
+                             [_ (wrap [])
+                              membersC (poly;variant (p;many (Arg<?> valueC)))]
+                             (wrap (` (case (~ valueC)
+                                        (~@ (L/join (L/map (function [[tag memberC]]
+                                                             (list (` ((~ (code;nat tag)) (~ valueC)))
+                                                                   (` ((~ (code;nat tag)) (~ memberC)))))
+                                                           (list;enumerate membersC))))))))
+                           ## Tuples
+                           (do p;Monad<Parser>
+                             [pairsCC (: (poly;Poly (List [Code Code]))
+                                         (poly;tuple (loop [idx +0
+                                                            pairsCC (: (List [Code Code])
+                                                                       (list))]
+                                                       (p;either (let [slotC (|> idx %n (format "\u0000slot") code;local-symbol)]
+                                                                   (do @
+                                                                     [_ (wrap [])
+                                                                      memberC (Arg<?> slotC)]
+                                                                     (recur (n.inc idx)
+                                                                            (L/append pairsCC (list [slotC memberC])))))
+                                                                 (wrap pairsCC)))))]
+                             (wrap (` (case (~ valueC)
+                                        [(~@ (L/map product;left pairsCC))]
+                                        [(~@ (L/map product;right pairsCC))]))))
+                           ## Functions
+                           (do @
+                             [_ (wrap [])
+                              #let [outL (code;local-symbol "\u0000outL")]
+                              [inT+ outC] (poly;function (p;many poly;any)
+                                            (Arg<?> outL))
+                              #let [inC+ (|> (list;size inT+) n.dec
+                                             (list;n.range +0)
+                                             (L/map (|>. %n (format "\u0000inC") code;local-symbol)))]]
+                             (wrap (` (function [(~@ inC+)]
+                                        (let [(~ outL) ((~ valueC) (~@ inC+))]
+                                          (~ outC))))))
+                           ## Recursion
+                           (do p;Monad<Parser>
+                             [_ poly;recursive-call]
+                             (wrap (` ((~' map) (~ funcC) (~ valueC)))))
+                           ## Bound type-variables
+                           (do p;Monad<Parser>
+                             [_ poly;any]
+                             (wrap valueC))
+                           )))]
+     [_ _ outputC] (: (poly;Poly [Code (List Code) Code])
+                      (p;either (poly;polymorphic
+                                 (Arg<?> inputC))
+                                (p;fail (format "Cannot create Functor for: " (%type inputT)))))]
+    (wrap (` (: (~ (@Functor inputT))
+                (struct (def: ((~' map) (~ funcC) (~ inputC))
+                          (~ outputC))))))))

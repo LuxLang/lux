@@ -1,17 +1,19 @@
 (;module:
   [lux #- function]
-  (lux (control ["M" monad #+ do Monad]
+  (lux (control [monad #+ do Monad]
                 [eq]
                 ["p" parser])
+       [function]
        (data [text "text/" Monoid<Text>]
-             (coll [list "List/" Fold<List> Monad<List>]
+             (coll [list "L/" Fold<List> Monad<List> Monoid<List>]
                    [dict #+ Dict])
-             [number]
+             [number "nat/" Codec<Text,Nat>]
              [product]
              [bool]
              [maybe]
-             [ident "Ident/" Eq<Ident> Codec<Text,Ident>])
-       [macro #+ with-gensyms "Lux/" Monad<Lux>]
+             [ident "Ident/" Eq<Ident> Codec<Text,Ident>]
+             ["R" result])
+       [macro #+ with-gensyms]
        (macro [code]
               ["s" syntax #+ syntax: Syntax]
               (syntax ["cs" common]
@@ -20,168 +22,229 @@
        [type]
        ))
 
-## [Types]
-(type: #export (Matcher a)
-  (-> Type (Lux a)))
-
 (type: #export Env (Dict Nat [Type Code]))
 
-## [Combinators]
+(type: #export (Poly a)
+  (p;Parser [Env (List Type)] a))
+
+(def: #export fresh Env (dict;new number;Hash<Nat>))
+
+(def: (run' env types poly)
+  (All [a] (-> Env (List Type) (Poly a) (R;Result a)))
+  (case (p;run [env types] poly)
+    (#R;Error error)
+    (#R;Error error)
+
+    (#R;Success [[env' remaining] output])
+    (case remaining
+      #;Nil
+      (#R;Success output)
+
+      _
+      (#R;Error (|> remaining
+                    (L/map type;to-text)
+                    (text;join-with ", ")
+                    (text/append "Unconsumed types: "))))))
+
+(def: #export (run type poly)
+  (All [a] (-> Type (Poly a) (R;Result a)))
+  (run' fresh (list type) poly))
+
+(def: #export env
+  (Poly Env)
+  (;function [[env inputs]]
+    (#R;Success [[env inputs] env])))
+
+(def: (with-env temp poly)
+  (All [a] (-> Env (Poly a) (Poly a)))
+  (;function [[env inputs]]
+    (case (p;run [temp inputs] poly)
+      (#R;Error error)
+      (#R;Error error)
+
+      (#R;Success [[_ remaining] output])
+      (#R;Success [[env remaining] output]))))
+
+(def: #export peek
+  (Poly Type)
+  (;function [[env inputs]]
+    (case inputs
+      #;Nil
+      (#R;Error "Empty stream of types.")
+
+      (#;Cons headT tail)
+      (#R;Success [[env inputs] headT]))))
+
+(def: #export any
+  (Poly Type)
+  (;function [[env inputs]]
+    (case inputs
+      #;Nil
+      (#R;Error "Empty stream of types.")
+
+      (#;Cons headT tail)
+      (#R;Success [[env tail] headT]))))
+
+(def: #export (local types poly)
+  (All [a] (-> (List Type) (Poly a) (Poly a)))
+  (;function [[env pass-through]]
+    (case (run' env types poly)
+      (#R;Error error)
+      (#R;Error error)
+
+      (#R;Success output)
+      (#R;Success [[env pass-through] output]))))
+
+(def: (label idx)
+  (-> Nat Code)
+  (code;local-symbol (text/append "label\u0000" (nat/encode idx))))
+
+(def: #export (with-extension type poly)
+  (All [a] (-> Type (Poly a) (Poly [Code a])))
+  (;function [[env inputs]]
+    (let [current-id (dict;size env)
+          g!var (label current-id)]
+      (case (p;run [(dict;put current-id [type g!var] env)
+                    inputs]
+                   poly)
+        (#R;Error error)
+        (#R;Error error)
+
+        (#R;Success [[_ inputs'] output])
+        (#R;Success [[env inputs'] [g!var output]])))))
+
 (do-template [<combinator> <name> <type>]
   [(def: #export <combinator>
-     (Matcher Unit)
-     (;function [:type:]
-       (case (type;un-name :type:)
+     (Poly Unit)
+     (do p;Monad<Parser>
+       [headT any]
+       (case (type;un-name headT)
          <type>
-         (Lux/wrap [])
+         (wrap [])
 
          _
-         (macro;fail ($_ text/append "Not " <name> " type: " (type;to-text :type:))))))]
+         (p;fail ($_ text/append "Not " <name> " type: " (type;to-text headT))))))]
 
   [void "Void" #;Void]
   [unit "Unit" #;Unit]
-  )
-
-(do-template [<combinator> <name>]
-  [(def: #export <combinator>
-     (Matcher Unit)
-     (;function [:type:]
-       (case (type;un-alias :type:)
-         (#;Named ["lux" <name>] _)
-         (Lux/wrap [])
-
-         _
-         (macro;fail ($_ text/append "Not " <name> " type: " (type;to-text :type:))))))]
-
-  [bool "Bool"]
-  [nat  "Nat"]
-  [int  "Int"]
-  [deg  "Deg"]
-  [real "Real"]
-  [text "Text"]
+  [bool "Bool" (#;Host "#Bool" #;Nil)]
+  [nat  "Nat"  (#;Host "#Nat" #;Nil)]
+  [int  "Int"  (#;Host "#Int" #;Nil)]
+  [deg  "Deg"  (#;Host "#Deg" #;Nil)]
+  [real "Real" (#;Host "#Real" #;Nil)]
+  [text "Text" (#;Host "#Text" #;Nil)]
   )
 
 (def: #export primitive
-  (Matcher Type)
-  (;function [:type:]
-    (with-expansions
-      [<primitives> (do-template [<parser> <type>]
-                      [(do macro;Monad<Lux>
-                         [_ (<parser> :type:)]
-                         (wrap <type>))]
+  (Poly Type)
+  (do p;Monad<Parser>
+    [headT any]
+    (case (run headT ($_ p;either
+                         void
+                         unit
+                         bool
+                         nat
+                         int
+                         deg
+                         real
+                         text))
+      (#R;Error error)
+      (p;fail error)
 
-                      [void Void]
-                      [unit Unit]
-                      [bool Bool]
-                      [nat  Nat]
-                      [int  Int]
-                      [deg  Deg]
-                      [real Real]
-                      [text Text])]
-      ($_ macro;either
-          <primitives>))))
+      (#R;Success _)
+      (wrap headT))))
 
-(do-template [<single> <multi> <flattener> <tag>]
-  [(def: #export <single>
-     (Matcher [Type Type])
-     (;function [:type:]
-       (case (type;un-name :type:)
-         (<tag> :left: :right:)
-         (Lux/wrap [:left: :right:])
-
-         _
-         (macro;fail ($_ text/append "Not a " (Ident/encode (ident-for <tag>)) " type: " (type;to-text :type:))))))
-
-   (def: #export <multi>
-     (Matcher (List Type))
-     (;function [:type:]
-       (let [members (<flattener> (type;un-name :type:))]
+(do-template [<name> <flattener> <tag>]
+  [(def: #export (<name> poly)
+     (All [a] (-> (Poly a) (Poly a)))
+     (do p;Monad<Parser>
+       [headT any]
+       (let [members (<flattener> (type;un-name headT))]
          (if (n.> +1 (list;size members))
-           (Lux/wrap members)
-           (macro;fail ($_ text/append "Not a " (Ident/encode (ident-for <tag>)) " type: " (type;to-text :type:)))))))]
+           (local members poly)
+           (p;fail ($_ text/append "Not a " (Ident/encode (ident-for <tag>)) " type: " (type;to-text headT)))))))]
 
-  [sum    sum+    type;flatten-variant #;Sum]
-  [prod   prod+   type;flatten-tuple   #;Product]
+  [variant type;flatten-variant #;Sum]
+  [tuple   type;flatten-tuple   #;Product]
   )
 
-(def: #export polymorphic
-  (Matcher [(List Code) Type])
-  (;function [:type:]
-    (let [:type: (type;un-name :type:)]
-      (case :type:
-        (#;UnivQ _)
-        (loop [:type: :type:]
-          (case :type:
-            (#;UnivQ _ :type:')
-            (do macro;Monad<Lux>
-              [[g!tail :type:''] (recur :type:')
-               g!head (macro;gensym "type-var")]
-              (wrap [(list& g!head g!tail)
-                     :type:'']))
+(def: polymorphic'
+  (Poly [Nat Type])
+  (do p;Monad<Parser>
+    [headT any
+     #let [[num-arg bodyT] (type;flatten-univ-q (type;un-name headT))]]
+    (if (n.= +0 num-arg)
+      (p;fail ($_ text/append "Non-polymorphic type: " (type;to-text headT)))
+      (wrap [num-arg bodyT]))))
 
-            _
-            (Lux/wrap [(;list) :type:])))
+(def: #export (polymorphic poly)
+  (All [a] (-> (Poly a) (Poly [Code (List Code) a])))
+  (do p;Monad<Parser>
+    [headT any
+     funcI (:: @ map dict;size ;;env)
+     [num-args non-poly] (local (list headT) polymorphic')
+     env ;;env
+     #let [funcL (label funcI)
+           [all-varsL env'] (loop [current-arg +0
+                                   env' env
+                                   all-varsL (: (List Code) (list))]
+                              (if (n.< num-args current-arg)
+                                (if (n.= +0 current-arg)
+                                  (let [varL (label (n.inc funcI))]
+                                    (recur (n.inc current-arg)
+                                           (|> env'
+                                               (dict;put funcI [headT funcL])
+                                               (dict;put (n.inc funcI) [(#;Bound (n.inc funcI)) varL]))
+                                           (#;Cons varL all-varsL)))
+                                  (let [partialI (|> current-arg (n.* +2) (n.+ funcI))
+                                        partial-varI (n.inc partialI)
+                                        partial-varL (label partial-varI)
+                                        partialC (` ((~ funcL) (~@ (|> (list;n.range +0 (n.dec num-args))
+                                                                       (L/map (|>. (n.* +2) n.inc (n.+ funcI) label))
+                                                                       list;reverse))))]
+                                    (recur (n.inc current-arg)
+                                           (|> env'
+                                               (dict;put partialI [;Void partialC])
+                                               (dict;put partial-varI [(#;Bound partial-varI) partial-varL]))
+                                           (#;Cons partial-varL all-varsL))))
+                                [all-varsL env']))]]
+    (|> (do @
+          [output poly]
+          (wrap [funcL all-varsL output]))
+        (local (list non-poly))
+        (with-env env'))))
 
-        _
-        (macro;fail ($_ text/append "Non-polymorphic type: " (type;to-text :type:)))))))
+(def: #export (function in-poly out-poly)
+  (All [i o] (-> (Poly i) (Poly o) (Poly [i o])))
+  (do p;Monad<Parser>
+    [headT any
+     #let [[inputsT outputT] (type;flatten-function (type;un-name headT))]]
+    (if (n.> +0 (list;size inputsT))
+      (p;seq (local inputsT in-poly)
+             (local (list outputT) out-poly))
+      (p;fail ($_ text/append "Non-function type: " (type;to-text headT))))))
 
-(def: #export function
-  (Matcher [(List Type) Type])
-  (;function [:type:]
-    (:: macro;Monad<Lux> wrap (type;flatten-function (type;un-name :type:)))))
+(def: #export (apply poly)
+  (All [a] (-> (Poly a) (Poly a)))
+  (do p;Monad<Parser>
+    [headT any
+     #let [[funcT paramsT] (type;flatten-application (type;un-name headT))]]
+    (if (n.= +0 (list;size paramsT))
+      (p;fail ($_ text/append "Non-application type: " (type;to-text headT)))
+      (local (#;Cons funcT paramsT) poly))))
 
-(def: #export apply
-  (Matcher [Type (List Type)])
-  (;function [:type:]
-    (do macro;Monad<Lux>
-      [#let [[:func: :args:] (loop [:type: (type;un-name :type:)]
-                               (case :type:
-                                 (#;Apply :arg: :func:)
-                                 (let [[:func:' :args:] (recur :func:)]
-                                   [:func:' (list& :arg: :args:)])
-
-                                 _
-                                 [:type: (;list)]))]]
-      (case :args:
-        #;Nil
-        (macro;fail "Not a type application.")
-
-        _
-        (wrap [:func: (list;reverse :args:)])))))
-
-(def: #export (apply-1 name)
-  (-> Ident (Matcher Type))
-  (;function [:type:]
-    (case (type;un-name :type:)
-      (^multi (#;Apply :arg: :quant:)
-              [(type;un-alias :quant:) (#;Named actual _)]
-              (Ident/= name actual))
-      (Lux/wrap :arg:)
+(def: #export (named expected)
+  (-> Ident (Poly Unit))
+  (do p;Monad<Parser>
+    [headT any]
+    (case (type;un-alias headT)
+      (#;Named actual _)
+      (if (Ident/= expected actual)
+        (wrap [])
+        (p;fail ($_ text/append "Not " (Ident/encode expected) " type: " (type;to-text headT))))
 
       _
-      (macro;fail ($_ text/append "Not " (Ident/encode name) " type: " (type;to-text :type:))))))
-
-(def: #export (apply-2 name)
-  (-> Ident (Matcher [Type Type]))
-  (;function [:type:]
-    (case (type;un-name :type:)
-      (^multi (#;Apply :arg1: (#;Apply :arg0: :quant:))
-              [(type;un-alias :quant:) (#;Named actual _)]
-              (Ident/= name actual))
-      (Lux/wrap [:arg0: :arg1:])
-
-      _
-      (macro;fail ($_ text/append "Not " (Ident/encode name) " type: " (type;to-text :type:))))))
-
-(def: #export recursive
-  (Matcher Type)
-  (;function [:type:]
-    (case (type;un-name :type:)
-      (#;Apply #;Void (#;UnivQ _ :type:'))
-      (Lux/wrap :type:')
-
-      _
-      (macro;fail ($_ text/append "Not a recursive type: " (type;to-text :type:))))))
+      (p;fail ($_ text/append "Not a named type: " (type;to-text headT))))))
 
 (def: (adjusted-idx env idx)
   (-> Env Nat Nat)
@@ -190,110 +253,110 @@
         bound-idx (n.% +2 idx)]
     (|> env-level n.dec (n.- bound-level) (n.* +2) (n.+ bound-idx))))
 
-(def: #export (bound env)
-  (-> Env (Matcher Code))
-  (;function [:type:]
-    (case :type:
+(def: #export bound
+  (Poly Code)
+  (do p;Monad<Parser>
+    [env ;;env
+     headT any]
+    (case headT
       (#;Bound idx)
       (case (dict;get (adjusted-idx env idx) env)
         (#;Some [poly-type poly-ast])
-        (Lux/wrap poly-ast)
+        (wrap poly-ast)
 
         #;None
-        (macro;fail ($_ text/append "Unknown bound type: " (type;to-text :type:))))
+        (p;fail ($_ text/append "Unknown bound type: " (type;to-text headT))))
 
       _
-      (macro;fail ($_ text/append "Not a bound type: " (type;to-text :type:))))))
+      (p;fail ($_ text/append "Not a bound type: " (type;to-text headT))))))
 
-(def: #export (recursion env)
-  (-> Env (Matcher Code))
-  (;function [:type:]
-    (do macro;Monad<Lux>
-      [[t-func t-args] (apply :type:)]
-      (case t-func
-        (^multi (#;Bound t-func-idx)
-                (n.= +0 (adjusted-idx env t-func-idx))
-                [(do maybe;Monad<Maybe>
-                   [=func (dict;get +0 env)
-                    =args (M;map @ (;function [t-arg]
-                                     (case t-arg
-                                       (#;Bound idx)
-                                       (dict;get (adjusted-idx env idx) env)
-
-                                       _
-                                       #;None))
-                                 t-args)]
-                   (wrap (` ((~ (product;right =func)) (~@ (List/map product;right =args))))))
-                 (#;Some call)])
-        (wrap call)
-
-        _
-        (macro;fail ($_ text/append "Type is not a recursive instance: " (type;to-text :type:))))
-      )))
-
-(def: #export (self env)
-  (-> Env (Matcher Code))
-  (;function [:type:]
-    (case :type:
-      (^multi (#;Apply #;Void (#;Bound t-func-idx))
-              (n.= +0 (adjusted-idx env t-func-idx))
-              [(dict;get +0 env)
-               (#;Some [self-type self-call])])
-      (Lux/wrap self-call)
+(def: #export (var id)
+  (-> Nat (Poly Unit))
+  (do p;Monad<Parser>
+    [env ;;env
+     headT any]
+    (case headT
+      (#;Bound idx)
+      (if (n.= id (adjusted-idx env idx))
+        (wrap [])
+        (p;fail ($_ text/append "Wrong bound type.\n"
+                    "Expected: " (nat/encode id) "\n"
+                    "  Actual: " (nat/encode idx))))
 
       _
-      (macro;fail ($_ text/append "Type is not a recursive self-call: " (type;to-text :type:))))))
+      (p;fail ($_ text/append "Not a bound type: " (type;to-text headT))))))
 
-(def: #export (var env var-id)
-  (-> Env Nat (Matcher Unit))
-  (;function [:type:]
-    (case :type:
-      (^multi (#;Bound idx)
-              (n.= var-id (adjusted-idx env idx)))
-      (Lux/wrap [])
+(def: #export (recursive poly)
+  (All [a] (-> (Poly a) (Poly [Code a])))
+  (do p;Monad<Parser>
+    [headT any]
+    (case (type;un-name headT)
+      (#;Apply #;Void (#;UnivQ _ headT'))
+      (do @
+        [[recT _ output] (|> poly
+                             (with-extension #;Void)
+                             (with-extension headT)
+                             (local (list headT')))]
+        (wrap [recT output]))
 
       _
-      (macro;fail ($_ text/append "Not a bound type: " (type;to-text :type:))))))
+      (p;fail ($_ text/append "Not a recursive type: " (type;to-text headT))))))
+
+(def: #export recursive-self
+  (Poly Code)
+  (do p;Monad<Parser>
+    [env ;;env
+     headT any]
+    (case (type;un-name headT)
+      (^multi (#;Apply #;Void (#;Bound funcT-idx))
+              (n.= +0 (adjusted-idx env funcT-idx))
+              [(dict;get +0 env) (#;Some [self-type self-call])])
+      (wrap self-call)
+
+      _
+      (p;fail ($_ text/append "Not a recursive type: " (type;to-text headT))))))
+
+(def: #export recursive-call
+  (Poly Code)
+  (do p;Monad<Parser>
+    [env ;;env
+     [funcT argsT] (apply (p;seq any (p;many any)))
+     _ (local (list funcT) (var +0))
+     allC (let [allT (list& funcT argsT)]
+            (|> allT
+                (monad;map @ (function;const bound))
+                (local allT)))]
+    (wrap (` ((~@ allC))))))
+
+(def: #export log
+  (All [a] (Poly a))
+  (do p;Monad<Parser>
+    [current any
+     #let [_ (log! ($_ text/append
+                       "{" (Ident/encode (ident-for ;;log)) "} "
+                       (type;to-text current)))]]
+    (p;fail "LOGGING")))
 
 ## [Syntax]
-(def: #export (extend-env [funcT funcA] type-vars env)
-  (-> [Type Code] (List [Type Code]) Env Env)
-  (case type-vars
-    #;Nil
-    env
-    
-    (#;Cons [varT varA] type-vars')
-    (let [current-size (dict;size env)]
-      (|> env
-          (dict;put current-size [funcT funcA])
-          (dict;put (n.inc current-size) [varT varA])
-          (extend-env [(#;Apply varT funcT) (` (#;Apply (~ varA) (~ funcA)))]
-                      type-vars')
-          ))))
-
-(syntax: #export (poly: [_ex-lev csr;export]
-                   [[name env inputs] (s;form ($_ p;seq
-                                                  s;local-symbol
-                                                  s;local-symbol
-                                                  (p;many s;local-symbol)))]
+(syntax: #export (poly: [export csr;export]
+                   [name s;local-symbol]
                    body)
-  (with-gensyms [g!body]
-    (let [g!inputs (List/map (|>. [""] code;symbol) inputs)
-          g!name (code;symbol ["" name])
-          g!env (code;symbol ["" env])]
-      (wrap (;list (` (syntax: (~@ (csw;export _ex-lev)) ((~ g!name) (~@ (List/map (;function [g!input] (` [(~ g!input) s;symbol]))
-                                                                                   g!inputs)))
+  (with-gensyms [g!type g!output]
+    (let [g!name (code;symbol ["" name])]
+      (wrap (;list (` (syntax: (~@ (csw;export export)) ((~ g!name) [(~ g!type) s;symbol])
                         (do macro;Monad<Lux>
-                          [(~@ (List/join (List/map (;function [g!input] (;list g!input (` (macro;find-type-def (~ g!input)))))
-                                                    g!inputs)))
-                           (~' #let) [(~ g!env) (: Env (dict;new number;Hash<Nat>))]
-                           (~ g!body) (: (Lux Code)
-                                         (loop [(~ g!env) (~ g!env)
-                                                (~@ (List/join (List/map (;function [g!input] (;list g!input g!input))
-                                                                         g!inputs)))]
-                                           (let [(~ g!name) (~' recur)]
-                                             (~ body))))]
-                          ((~' wrap) (;list (~ g!body)))))))))))
+                          [(~ g!type) (macro;find-type-def (~ g!type))]
+                          (case (|> (~ body)
+                                    (;function [(~ g!name)])
+                                    p;rec
+                                    (do p;Monad<Parser> [])
+                                    (;;run (~ g!type))
+                                    (: (;Either ;Text ;Code)))
+                            (#;Left (~ g!output))
+                            (macro;fail (~ g!output))
+
+                            (#;Right (~ g!output))
+                            ((~' wrap) (;list (~ g!output))))))))))))
 
 (def: (common-poly-name? poly-func)
   (-> Text Bool)
@@ -302,33 +365,33 @@
 (def: (derivation-name poly args)
   (-> Text (List Text) (Maybe Text))
   (if (common-poly-name? poly)
-    (#;Some (List/fold (text;replace-once "?") poly args))
+    (#;Some (L/fold (text;replace-once "?") poly args))
     #;None))
 
-(syntax: #export (derived: [_ex-lev csr;export]
+(syntax: #export (derived: [export csr;export]
                    [?name (p;opt s;local-symbol)]
                    [[poly-func poly-args] (s;form (p;seq s;symbol (p;many s;symbol)))]
                    [?custom-impl (p;opt s;any)])
   (do @
-    [poly-args (M;map @ macro;normalize poly-args)
+    [poly-args (monad;map @ macro;normalize poly-args)
      name (case ?name
             (#;Some name)
             (wrap name)
 
             (^multi #;None
-                    [(derivation-name (product;right poly-func) (List/map product;right poly-args))
+                    [(derivation-name (product;right poly-func) (L/map product;right poly-args))
                      (#;Some derived-name)])
             (wrap derived-name)
 
             _
-            (macro;fail "derived: was given no explicit name, and cannot generate one from given information."))
+            (p;fail "derived: was given no explicit name, and cannot generate one from given information."))
      #let [impl (case ?custom-impl
                   (#;Some custom-impl)
                   custom-impl
 
                   #;None
-                  (` ((~ (code;symbol poly-func)) (~@ (List/map code;symbol poly-args)))))]]
-    (wrap (;list (` (def: (~@ (csw;export _ex-lev))
+                  (` ((~ (code;symbol poly-func)) (~@ (L/map code;symbol poly-args)))))]]
+    (wrap (;list (` (def: (~@ (csw;export export))
                       (~ (code;symbol ["" name]))
                       {#;struct? true}
                       (~ impl)))))))
@@ -339,7 +402,7 @@
   (case type
     (#;Host name params)
     (` (#;Host (~ (code;text name))
-               (list (~@ (List/map (to-ast env) params)))))
+               (list (~@ (L/map (to-ast env) params)))))
 
     (^template [<tag>]
       <tag>
@@ -371,7 +434,7 @@
 
     (^template [<tag> <macro> <flattener>]
       (<tag> left right)
-      (` (<macro> (~@ (List/map (to-ast env) (<flattener> type))))))
+      (` (<macro> (~@ (L/map (to-ast env) (<flattener> type))))))
     ([#;Sum  | type;flatten-variant]
      [#;Product & type;flatten-tuple])
 
@@ -380,23 +443,7 @@
 
     (^template [<tag>]
       (<tag> scope body)
-      (` (<tag> (list (~@ (List/map (to-ast env) scope)))
+      (` (<tag> (list (~@ (L/map (to-ast env) scope)))
                 (~ (to-ast env body)))))
     ([#;UnivQ] [#;ExQ])
     ))
-
-(def: #export (gen-type env converter type-fun tvars type)
-  (-> Env (-> Code Code) Code (List Code) Type Code)
-  (let [type' (to-ast env type)]
-    (case tvars
-      #;Nil
-      (converter type')
-
-      _
-      (` (All (~ type-fun) [(~@ tvars)]
-           (-> (~@ (List/map converter tvars))
-               (~ (converter (` ((~ type') (~@ tvars)))))))))))
-
-(def: #export (type-var-indices num-vars)
-  (-> Nat (List Type))
-  (|> num-vars list;indices (List/map (|>. #;Bound))))
