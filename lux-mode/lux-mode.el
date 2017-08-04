@@ -219,7 +219,7 @@ Called by `imenu--generic-function'."
             "sig:" "struct:" "context:" "template:"
             "class:" "interface:"
             "poly:" "derived:"
-            "actor:" "message:"
+            "actor:" "message:" "on:"
             "exception:"
             "word:"
             "model:"
@@ -345,7 +345,7 @@ This function also returns nil meaning don't specify the indentation."
                (1+ (current-column)))
               ((or (eq method 'defun)
                    (and (null method)
-                        (> (length function) 3)
+                        (> (length function) 2)
                         (string-match "\\`\\(?:\\S +/\\)?\\(\\w+:\\|\\(\\w*;\\)?with-\\)"
                                       function)))
                (lisp-indent-defform state indent-point))
