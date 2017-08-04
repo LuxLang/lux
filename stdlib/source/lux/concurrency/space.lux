@@ -7,7 +7,7 @@
                     ["T" task]
                     ["A" actor #+ actor:])
        (data [product]
-             (coll [list "L/" Functor<List>]))
+             (coll [list "L/" Functor<List> Fold<List>]))
        [io #- run]
        [macro #+ with-gensyms]
        (macro [code]
@@ -18,7 +18,7 @@
 
 (with-expansions
   [<Event> [e (A;Actor Top) (Space e)]
-   <Action> (as-is (-> <Event> (A;Actor s) (T;Task Unit)))]
+   <Action> (as-is (-> <Event> (A;Actor s) (T;Task Bool)))]
   (type: #export (Space e)
     (A;Actor (List (Ex [s] [(A;Actor s) <Action>]))))
 
@@ -56,13 +56,21 @@
 (def: #export (emit event space sender)
   (All [e s] (-> e (Space e) (A;Actor s) (T;Task Unit)))
   (send-space (function [subscriptions _]
-                (exec (monad;map T;Monad<Task>
-                                 (function [[receiver action]]
-                                   (if (is (:! [] receiver) (:! [] sender))
-                                     (T;return [])
-                                     (action [event sender space] receiver)))
-                                 subscriptions)
-                  (T;return subscriptions)))
+                (exec (do T;Monad<Task>
+                        [verdicts (monad;map @
+                                             (function [(^@ sub [receiver action])]
+                                               (if (is (:! [] receiver) (:! [] sender))
+                                                 (T;return [true sub])
+                                                 (do @
+                                                   [sent? (action [event sender space] receiver)]
+                                                   (wrap [sent? sub]))))
+                                             subscriptions)]
+                        (T;return (L/fold (function [[sent? sub] survivors]
+                                            (if sent?
+                                              (#;Cons sub survivors)
+                                              survivors))
+                                          (list)
+                                          verdicts)))))
               space))
 
 (def: #export space
@@ -136,15 +144,13 @@
                        (~ (csw;annotations annotations))
                        (All [(~@ (L/map code;local-symbol t-vars))]
                          (;;Action (~ eventT) (~ stateT)))
-                       (monad;do T;Monad<Task>
-                         [(~ g!_) (T;from-promise
-                                   (_future
-                                    (A;send (function [(~ g!state) (~ g!receiverL)]
-                                              (: (T;Task (~ stateT))
-                                                 (do T;Monad<Task>
-                                                   []
-                                                   (~ body))))
-                                            (~ g!receiverL))))]
-                         ((~' wrap) []))
+                       (T;from-promise
+                        (_future
+                         (A;send (function [(~ g!state) (~ g!receiverL)]
+                                   (: (T;Task (~ stateT))
+                                      (monad;do T;Monad<Task>
+                                        []
+                                        (~ body))))
+                                 (~ g!receiverL))))
                        ))))
       )))
