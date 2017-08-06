@@ -17,40 +17,52 @@
              [product]
              [bool]
              [maybe])
+       (time ["du" duration]
+             ["da" date]
+             ["i" instant])
        [macro #+ Monad<Lux> with-gensyms]
        (macro [code]
               [syntax #+ syntax: Syntax]
               (syntax [common])
               [poly #+ poly:])
        [type]
+       (type [unit])
        ))
 
 ## [Derivers]
 (poly: #export Eq<?>
   (with-expansions
-    [<basic> (do-template [<type> <matcher> <eq>]
+    [<basic> (do-template [<matcher> <eq>]
                [(do @
-                  [[primT _] (p;seq poly;peek <matcher>)]
-                  (wrap (` (: (~ (@Eq primT))
+                  [_ <matcher>]
+                  (wrap (` (: (~ (@Eq inputT))
                               <eq>))))]
 
-               [Unit poly;unit (function [(~' test) (~' input)] true)]
-               [Bool poly;bool bool;Eq<Bool>]
-               [Nat  poly;nat  number;Eq<Nat>]
-               [Int  poly;int  number;Eq<Int>]
-               [Deg  poly;deg  number;Eq<Deg>]
-               [Real poly;real number;Eq<Real>]
-               [Text poly;text text;Eq<Text>])
+               [poly;unit (function [(~' test) (~' input)] true)]
+               [poly;bool bool;Eq<Bool>]
+               [poly;nat  number;Eq<Nat>]
+               [poly;int  number;Eq<Int>]
+               [poly;deg  number;Eq<Deg>]
+               [poly;real number;Eq<Real>]
+               [poly;text text;Eq<Text>])
+     <time> (do-template [<type> <eq>]
+              [(do @
+                 [_ (poly;named (ident-for <type>))]
+                 (wrap (` (: (~ (@Eq inputT))
+                             <eq>))))]
+
+              [du;Duration du;Eq<Duration>]
+              [da;Date     da;Eq<Date>]
+              [i;Instant   i;Eq<Instant>])
      <composites> (do-template [<name> <eq>]
                     [(do @
-                       [[collT [_ argC]] (p;seq poly;peek
-                                                (poly;apply (p;seq (poly;named (ident-for <name>))
-                                                                   Eq<?>)))]
-                       (wrap (` (: (~ (@Eq collT))
+                       [[_ argC] (poly;apply (p;seq (poly;named (ident-for <name>))
+                                                    Eq<?>))]
+                       (wrap (` (: (~ (@Eq inputT))
                                    (<eq> (~ argC))))))]
 
-                    ## [;Maybe        maybe;Eq<Maybe>]
-                    ## [;List         list;Eq<List>]
+                    [;Maybe        maybe;Eq<Maybe>]
+                    [;List         list;Eq<List>]
                     [vector;Vector vector;Eq<Vector>]
                     [array;Array   array;Eq<Array>]
                     [queue;Queue   queue;Eq<Queue>]
@@ -60,6 +72,7 @@
                     )]
     (do @
       [*env* poly;env
+       inputT poly;peek
        #let [@Eq (: (-> Type Code)
                     (function [type]
                       (` (eq;Eq (~ (poly;to-ast *env* type))))))]]
@@ -69,20 +82,25 @@
           ## Composite types
           <composites>
           (do @
-            [[collT [_ _ valC]] (p;seq poly;peek
-                                       (poly;apply ($_ p;seq
-                                                       (poly;named (ident-for dict;Dict))
-                                                       poly;any
-                                                       Eq<?>)))]
-            (wrap (` (: (~ (@Eq collT))
+            [[_ _ valC] (poly;apply ($_ p;seq
+                                        (poly;named (ident-for dict;Dict))
+                                        poly;any
+                                        Eq<?>))]
+            (wrap (` (: (~ (@Eq inputT))
                         (dict;Eq<Dict> (~ valC))))))
+          ## Models
+          <time>
+          (do @
+            [_ (poly;apply (p;seq (poly;named (ident-for unit;Qty))
+                                  poly;any))]
+            (wrap (` (: (~ (@Eq inputT))
+                        unit;Eq<Qty>))))
           ## Variants
           (do @
-            [[variantT members] (p;seq poly;peek
-                                       (poly;variant (p;many Eq<?>)))
+            [members (poly;variant (p;many Eq<?>))
              #let [g!left (code;local-symbol "\u0000left")
                    g!right (code;local-symbol "\u0000right")]]
-            (wrap (` (: (~ (@Eq variantT))
+            (wrap (` (: (~ (@Eq inputT))
                         (function [(~ g!left) (~ g!right)]
                           (case [(~ g!left) (~ g!right)]
                             (~@ (L/join (L/map (function [[tag g!eq]]
@@ -92,21 +110,19 @@
                                                (list;enumerate members))))))))))
           ## Tuples
           (do @
-            [[tupleT g!eqs] (p;seq poly;peek
-                                   (poly;tuple (p;many Eq<?>)))
+            [g!eqs (poly;tuple (p;many Eq<?>))
              #let [indices (|> (list;size g!eqs) n.dec (list;n.range +0))
                    g!lefts (L/map (|>. nat/encode (text/append "left") code;local-symbol) indices)
                    g!rights (L/map (|>. nat/encode (text/append "right") code;local-symbol) indices)]]
-            (wrap (` (: (~ (@Eq tupleT))
+            (wrap (` (: (~ (@Eq inputT))
                         (function [[(~@ g!lefts)] [(~@ g!rights)]]
                           (and (~@ (|> (list;zip3 g!eqs g!lefts g!rights)
                                        (L/map (function [[g!eq g!left g!right]]
                                                 (` ((~ g!eq) (~ g!left) (~ g!right)))))))))))))
           ## Type recursion
           (do @
-            [[recT [g!self bodyC]] (p;seq poly;peek
-                                          (poly;recursive Eq<?>))]
-            (wrap (` (: (~ (@Eq recT))
+            [[g!self bodyC] (poly;recursive Eq<?>)]
+            (wrap (` (: (~ (@Eq inputT))
                         (eq;rec (;function [(~ g!self)]
                                   (~ bodyC)))))))
           poly;recursive-self
@@ -118,11 +134,10 @@
           poly;bound
           ## Polymorphism
           (do @
-            [[polyT [funcC varsC bodyC]] (p;seq poly;peek
-                                                (poly;polymorphic Eq<?>))]
+            [[funcC varsC bodyC] (poly;polymorphic Eq<?>)]
             (wrap (` (: (All [(~@ varsC)]
                           (-> (~@ (L/map (|>. (~) eq;Eq (`)) varsC))
-                              (eq;Eq ((~ (poly;to-ast *env* polyT)) (~@ varsC)))))
+                              (eq;Eq ((~ (poly;to-ast *env* inputT)) (~@ varsC)))))
                         (function (~ funcC) [(~@ varsC)]
                           (~ bodyC))))))
           poly;recursive-call
