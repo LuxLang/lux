@@ -9,6 +9,7 @@
                 codec
                 ["p" parser "p/" Monad<Parser>])
        (data [bool]
+             [bit]
              [text "text/" Eq<Text> Monoid<Text>]
              (text ["l" lexer])
              [number "real/" Codec<Text,Real> "nat/" Codec<Text,Nat>]
@@ -19,6 +20,9 @@
              (coll [list "L/" Fold<List> Monad<List>]
                    [vector #+ Vector vector "Vector/" Monad<Vector>]
                    ["d" dict]))
+       (time ["i" instant]
+             ["du" duration]
+             ["da" date])
        [macro #+ Monad<Lux> with-gensyms]
        (macro ["s" syntax #+ syntax:]
               [code]
@@ -131,16 +135,16 @@
 (def: string~
   (l;Lexer ..;String)
   (<| (l;enclosed ["\"" "\""])
-      (loop [_ []]
-        (do p;Monad<Parser>
-          [chars (l;some (l;none-of "\\\""))
-           stop l;peek]
-          (if (text/= "\\" stop)
-            (do @
-              [escaped escaped~
-               next-chars (recur [])]
-              (wrap ($_ text/append chars escaped next-chars)))
-            (wrap chars))))))
+      (loop [_ []])
+      (do p;Monad<Parser>
+        [chars (l;some (l;none-of "\\\""))
+         stop l;peek])
+      (if (text/= "\\" stop)
+        (do @
+          [escaped escaped~
+           next-chars (recur [])]
+          (wrap ($_ text/append chars escaped next-chars)))
+        (wrap chars))))
 
 (def: (kv~ json~)
   (-> (-> Unit (l;Lexer JSON)) (l;Lexer [..;String JSON]))
@@ -191,6 +195,28 @@
   (function [input]
     (non-rec (rec-encode non-rec) input)))
 
+(def: low-mask Nat (|> +1 (bit;shift-left +32) n.dec))
+(def: high-mask Nat (|> low-mask (bit;shift-left +32)))
+
+(struct: #hidden _ (Codec JSON Nat)
+  (def: (encode input)
+    (let [high (|> input (bit;and high-mask) (bit;unsigned-shift-right +32))
+          low (bit;and low-mask input)]
+      (..;array (vector (|> high nat-to-int int-to-real #..;Number)
+                        (|> low nat-to-int int-to-real #..;Number)))))
+  (def: (decode input)
+    (<| (../reader;run input)
+        (do p;Monad<Parser>
+          [high ../reader;number
+           low ../reader;number])
+        (wrap (n.+ (|> high real-to-int int-to-nat (bit;shift-left +32))
+                   (|> low real-to-int int-to-nat))))))
+
+(struct: #hidden _ (Codec JSON Int)
+  (def: encode (|>. int-to-nat (:: Codec<JSON,Nat> encode)))
+  (def: decode
+    (|>. (:: Codec<JSON,Nat> decode) (:: R;Functor<Result> map nat-to-int))))
+
 (poly: #hidden Codec<JSON,?>//encode
   (with-expansions
     [<basic> (do-template [<type> <matcher> <encoder>]
@@ -201,8 +227,21 @@
 
                [Unit poly;unit (function [(~ (code;symbol ["" "0"]))] #..;Null)]
                [Bool poly;bool ..;boolean]
+               [Nat  poly;nat  (:: ;;Codec<JSON,Nat> (~' encode))]
+               [Int  poly;int  (:: ;;Codec<JSON,Int> (~' encode))]
                [Real poly;real ..;number]
-               [Text poly;text ..;string])]
+               [Text poly;text ..;string])
+     <time> (do-template [<type> <codec>]
+              [(do @
+                 [_ (poly;named (ident-for <type>))]
+                 (wrap (` (: (~ (@JSON//encode inputT))
+                             (|>. (:: <codec> (~' encode)) ..;string)))))]
+
+              [du;Duration du;Codec<Text,Duration>]
+              [i;Instant   i;Codec<Text,Instant>]
+              [da;Date     da;Codec<Text,Date>]
+              [da;Day      da;Codec<Text,Day>]
+              [da;Month    da;Codec<Text,Month>])]
     (do @
       [*env* poly;env
        #let [@JSON//encode (: (-> Type Code)
@@ -211,6 +250,7 @@
        inputT poly;peek]
       ($_ p;either
           <basic>
+          <time>
           (do @
             [#let [g!key (code;local-symbol "\u0000key")
                    g!val (code;local-symbol "\u0000val")]
@@ -294,8 +334,21 @@
 
                [Unit poly;unit ../reader;null]
                [Bool poly;bool ../reader;boolean]
+               [Nat  poly;nat  (p;codec ;;Codec<JSON,Nat> ../reader;any)]
+               [Int  poly;int  (p;codec ;;Codec<JSON,Int> ../reader;any)]
                [Real poly;real ../reader;number]
-               [Text poly;text ../reader;string])]
+               [Text poly;text ../reader;string])
+     <time> (do-template [<type> <codec>]
+              [(do @
+                 [_ (poly;named (ident-for <type>))]
+                 (wrap (` (: (~ (@JSON//decode inputT))
+                             (p;codec <codec> ../reader;string)))))]
+
+              [du;Duration du;Codec<Text,Duration>]
+              [i;Instant   i;Codec<Text,Instant>]
+              [da;Date     da;Codec<Text,Date>]
+              [da;Day      da;Codec<Text,Day>]
+              [da;Month    da;Codec<Text,Month>])]
     (do @
       [*env* poly;env
        #let [@JSON//decode (: (-> Type Code)
@@ -304,6 +357,7 @@
        inputT poly;peek]
       ($_ p;either
           <basic>
+          <time>
           (do @
             [[_ _ valC] (poly;apply ($_ p;seq
                                         (poly;named (ident-for d;Dict))
