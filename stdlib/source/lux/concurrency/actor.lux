@@ -5,7 +5,7 @@
                 ["ex" exception #+ exception:])
        [io #- run "io/" Monad<IO>]
        (data text/format
-             (coll [list "L/" Monoid<List> Monad<List>])
+             (coll [list "L/" Monoid<List> Monad<List> Fold<List>])
              [product])
        [macro #+ with-gensyms Monad<Lux>]
        (macro [code]
@@ -313,28 +313,39 @@
       [actor-name (resolve-actor actor-name)
        #let [g!type (code;symbol (product;both id state-name actor-name))
              g!message (code;local-symbol (get@ #name signature))
-             g!refs (: (List Code)
-                       (if (list;empty? actor-vars)
-                         (list)
-                         (|> actor-vars list;size n.dec
-                             (list;n.range +0) (L/map (|>. code;nat (~) ($) (`))))))
-             g!actor (code;symbol actor-name)
-             g!tvars (|> (get@ #vars signature) (L/append actor-vars) (L/map code;local-symbol))
+             g!actor-vars (L/map code;local-symbol actor-vars)
+             g!actor (` ((~ (code;symbol actor-name)) (~@ g!actor-vars)))
+             g!all-vars (|> (get@ #vars signature) (L/map code;local-symbol) (L/append g!actor-vars))
              g!inputsC (|> (get@ #inputs signature) (L/map (|>. product;left code;local-symbol)))
              g!inputsT (|> (get@ #inputs signature) (L/map product;right))
-             g!outputT (get@ #output signature)
              g!state (|> signature (get@ #state) code;local-symbol)
-             g!self (|> signature (get@ #self) code;local-symbol)]]
+             g!self (|> signature (get@ #self) code;local-symbol)
+             g!actor-refs (: (List Code)
+                             (if (list;empty? actor-vars)
+                               (list)
+                               (|> actor-vars list;size n.dec
+                                   (list;n.range +0) (L/map (|>. code;nat (~) ($) (`))))))
+             ref-replacements (|> (if (list;empty? actor-vars)
+                                    (list)
+                                    (|> actor-vars list;size n.dec
+                                        (list;n.range +0) (L/map (|>. code;nat (~) ($) (`)))))
+                                  (: (List Code))
+                                  (list;zip2 g!all-vars)
+                                  (: (List [Code Code])))
+             g!outputT (L/fold (function [[g!var g!ref] outputT]
+                                 (code;replace g!var g!ref outputT))
+                               (get@ #output signature)
+                               ref-replacements)]]
       (wrap (list (` (def: (~@ (csw;export export)) ((~ g!message) (~@ g!inputsC) (~ g!self))
                        (~ (|> annotations
                               (with-message actor-name)
                               csw;annotations))
-                       (All [(~@ g!tvars)] (-> (~@ g!inputsT) (~ g!actor) (T;Task (~ g!outputT))))
+                       (All [(~@ g!all-vars)] (-> (~@ g!inputsT) (~ g!actor) (T;Task (~ (get@ #output signature)))))
                        (let [(~ g!task) (T;task (~ g!outputT))]
                          (io;run (do io;Monad<IO>
                                    [(~ g!sent?) (;;send (function [(~ g!state) (~ g!self)]
                                                           (do P;Monad<Promise>
-                                                            [(~ g!return) (: (T;Task [((~ g!type) (~@ g!refs))
+                                                            [(~ g!return) (: (T;Task [((~ g!type) (~@ g!actor-refs))
                                                                                       (~ g!outputT)])
                                                                              (do T;Monad<Task>
                                                                                []
