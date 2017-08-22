@@ -1,0 +1,96 @@
+(;module:
+  lux
+  (lux [io]
+       (control [monad #+ do])
+       (data ["@" color]
+             [number "real/" Number<Real>])
+       [math]
+       ["r" math/random])
+  lux/test)
+
+(def: color
+  (r;Random @;Color)
+  (|> ($_ r;seq r;nat r;nat r;nat)
+      (:: r;Monad<Random> map @;color)))
+
+(def: scale
+  (-> Nat Real)
+  (|>. nat-to-int int-to-real))
+
+(def: square (-> Real Real) (math;pow 2.0))
+
+(def: (distance from to)
+  (-> @;Color @;Color Real)
+  (let [[fr fg fb] (@;unpack from)
+        [tr tg tb] (@;unpack to)]
+    (math;root2 ($_ r.+
+                    (|> (scale tr) (r.- (scale fr)) square)
+                    (|> (scale tg) (r.- (scale fg)) square)
+                    (|> (scale tb) (r.- (scale fb)) square)))))
+
+(def: error-margin Real 1.8)
+
+(def: black @;Color (@;color [+0 +0 +0]))
+(def: white @;Color (@;color [+255 +255 +255]))
+
+(do-template [<field>]
+  [(def: (<field> color)
+     (-> @;Color Real)
+     (let [[hue saturation luminance] (@;to-hsl color)]
+       <field>))]
+
+  [saturation]
+  [luminance]
+  )
+
+(context: "Color."
+  [any color
+   colorful (|> color
+                (r;filter (function [color] (|> (distance color black) (r.>= 100.0))))
+                (r;filter (function [color] (|> (distance color white) (r.>= 100.0)))))
+   mediocre (|> color
+                (r;filter (|>. saturation
+                               ((function [saturation]
+                                  (and (r.>= 0.25 saturation)
+                                       (r.<= 0.75 saturation)))))))
+   ratio (|> r;real (r;filter (r.>= 0.5)))]
+  ($_ seq
+      (test "Has equality."
+            (:: @;Eq<Color> = any any))
+      (test "Can convert to/from HSL."
+            (|> any @;to-hsl @;from-hsl
+                (distance any)
+                (r.<= error-margin)))
+      (test "Can convert to/from HSB."
+            (|> any @;to-hsb @;from-hsb
+                (distance any)
+                (r.<= error-margin)))
+      (test "Can convert to/from CMYK."
+            (|> any @;to-cmyk @;from-cmyk
+                (distance any)
+                (r.<= error-margin)))
+      (test "Can interpolate between 2 colors."
+            (and (r.<= (distance colorful black)
+                       (distance (@;darker ratio colorful) black))
+                 (r.<= (distance colorful white)
+                       (distance (@;brighter ratio colorful) white))))
+      (test "Can calculate complement."
+            (let [~any (@;complement any)
+                  (^open "@/") @;Eq<Color>]
+              (and (not (@/= any ~any))
+                   (@/= any (@;complement ~any)))))
+      (test "Can saturate color."
+            (r.> (saturation mediocre)
+                 (saturation (@;saturate ratio mediocre))))
+      (test "Can de-saturate color."
+            (r.< (saturation mediocre)
+                 (saturation (@;de-saturate ratio mediocre))))
+      (test "Can gray-scale color."
+            (let [gray'ed (@;gray-scale mediocre)]
+              (and (r.= 0.0
+                        (saturation gray'ed))
+                   (|> (luminance gray'ed)
+                       (r.- (luminance mediocre))
+                       real/abs
+                       (r.<= error-margin)))))
+      ))

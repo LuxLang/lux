@@ -1,0 +1,306 @@
+(;module:
+  lux
+  (lux (control [eq])
+       (data (coll [list "L/" Functor<List>]))
+       [math]
+       (type opaque)))
+
+(def: rgb Nat +256)
+(def: top Nat (n.dec rgb))
+
+(def: nat-to-real (-> Nat Real) (|>. nat-to-int int-to-real))
+(def: real-to-nat (-> Real Nat) (|>. real-to-int int-to-nat))
+
+(def: rgb-factor Real (nat-to-real top))
+
+(def: scale-down
+  (-> Nat Real)
+  (|>. nat-to-real (r./ rgb-factor)))
+
+(def: scale-up
+  (-> Real Nat)
+  (|>. (r.* rgb-factor) real-to-nat))
+
+(opaque: #export Color {}
+  {#red Nat
+   #green Nat
+   #blue Nat}
+
+  (def: #export (color [red green blue])
+    (-> [Nat Nat Nat] Color)
+    (@opaque [(n.% rgb red)
+              (n.% rgb green)
+              (n.% rgb blue)]))
+
+  (def: #export unpack
+    (-> Color [Nat Nat Nat])
+    (|>. @repr))
+
+  (struct: #export _ (eq;Eq Color)
+    (def: (= reference sample)
+      (let [[rr rg rb] (@repr reference)
+            [sr sg sb] (@repr sample)]
+        (and (n.= rr sr)
+             (n.= rg sg)
+             (n.= rb sb)))))
+  )
+
+(def: #export (to-hsl color)
+  (-> Color [Real Real Real])
+  (let [[red green blue] (unpack color)
+        red (scale-down red)
+        green (scale-down green)
+        blue (scale-down blue)
+        max ($_ r.max red green blue)
+        min ($_ r.min red green blue)
+        luminance (|> (r.+ max min) (r./ 2.0))]
+    (if (r.= max min)
+      ## Achromatic
+      [0.0 0.0 luminance]
+      ## Chromatic
+      (let [diff (|> max (r.- min))
+            saturation (|> diff
+                           (r./ (if (r.> 0.5 luminance)
+                                  (|> 2.0 (r.- max) (r.- min))
+                                  (|> max (r.+ min)))))
+            hue' (cond (r.= red max)
+                       (|> green (r.- blue) (r./ diff)
+                           (r.+ (if (r.< blue green) 6.0 0.0)))
+                       
+                       (r.= green max)
+                       (|> blue (r.- red) (r./ diff)
+                           (r.+ 2.0))
+                       
+                       ## (r.= blue max)
+                       (|> red (r.- green) (r./ diff)
+                           (r.+ 4.0)))]
+        [(|> hue' (r./ 6.0))
+         saturation
+         luminance]))))
+
+(def: (hue-to-rgb p q t)
+  (-> Real Real Real Real)
+  (let [t (cond (r.< 0.0 t) (r.+ 1.0 t)
+                (r.> 1.0 t) (r.- 1.0 t)
+                ## else
+                t)
+        f2/3 (r./ 3.0 2.0)]
+    (cond (r.< (r./ 6.0 1.0) t)
+          (|> q (r.- p) (r.* 6.0) (r.* t) (r.+ p))
+          
+          (r.< (r./ 2.0 1.0) t)
+          q
+          
+          (r.< f2/3 t)
+          (|> q (r.- p) (r.* (|> f2/3 (r.- t))) (r.* 6.0) (r.+ p))
+          
+          ## else
+          p)))
+
+(def: #export (from-hsl [hue saturation luminance])
+  (-> [Real Real Real] Color)
+  (if (r.= 0.0 saturation)
+    ## Achromatic
+    (let [intensity (scale-up luminance)]
+      (color [intensity intensity intensity]))
+    ## Chromatic
+    (let [q (if (r.< 0.5 luminance)
+              (|> saturation (r.+ 1.0) (r.* luminance))
+              (|> luminance (r.+ saturation) (r.- (r.* saturation luminance))))
+          p (|> luminance (r.* 2.0) (r.- q))
+          third (|> 1.0 (r./ 3.0))]
+      (color [(scale-up (|> hue (r.+ third) (hue-to-rgb p q)))
+              (scale-up (|> hue (hue-to-rgb p q)))
+              (scale-up (|> hue (r.- third) (hue-to-rgb p q)))]))))
+
+(def: #export (to-hsb color)
+  (-> Color [Real Real Real])
+  (let [[red green blue] (unpack color)
+        red (scale-down red)
+        green (scale-down green)
+        blue (scale-down blue)
+        max ($_ r.max red green blue)
+        min ($_ r.min red green blue)
+        brightness max
+        diff (|> max (r.- min))
+        saturation (if (r.= 0.0 max)
+                     0.0
+                     (|> diff (r./ max)))]
+    (if (r.= max min)
+      ## Achromatic
+      [0.0 saturation brightness]
+      ## Chromatic
+      (let [hue (cond (r.= red max)
+                      (|> green (r.- blue) (r./ diff)
+                          (r.+ (if (r.< blue green) 6.0 0.0)))
+
+                      (r.= green max)
+                      (|> blue (r.- red) (r./ diff)
+                          (r.+ 2.0))
+
+                      ## (r.= blue max)
+                      (|> red (r.- green) (r./ diff)
+                          (r.+ 4.0)))]
+        [(|> hue (r./ 6.0))
+         saturation
+         brightness]))))
+
+(def: #export (from-hsb [hue saturation brightness])
+  (-> [Real Real Real] Color)
+  (let [hue (|> hue (r.* 6.0))
+        i (math;floor hue)
+        f (|> hue (r.- i))
+        p (|> 1.0 (r.- saturation) (r.* brightness))
+        q (|> 1.0 (r.- (r.* f saturation)) (r.* brightness))
+        t (|> 1.0 (r.- (|> 1.0 (r.- f) (r.* saturation))) (r.* brightness))
+        v brightness
+        mod (|> i (r.% 6.0) real-to-nat)
+        red (case mod +0 v +1 q +2 p +3 p +4 t +5 v _ (undefined))
+        green (case mod +0 t +1 v +2 v +3 q +4 p +5 p _ (undefined))
+        blue (case mod +0 p +1 p +2 t +3 v +4 v +5 q _ (undefined))]
+    (color [(scale-up red)
+            (scale-up green)
+            (scale-up blue)])))
+
+(def: #export (to-cmyk color)
+  (-> Color [Real Real Real Real])
+  (let [[red green blue] (unpack color)
+        red (scale-down red)
+        green (scale-down green)
+        blue (scale-down blue)
+        key (|> 1.0 (r.- ($_ r.max red green blue)))
+        f (if (r.< 1.0 key)
+            (|> 1.0 (r./ (|> 1.0 (r.- key))))
+            0.0)
+        cyan (|> 1.0 (r.- red) (r.- key) (r.* f))
+        magenta (|> 1.0 (r.- green) (r.- key) (r.* f))
+        yellow (|> 1.0 (r.- blue) (r.- key) (r.* f))]
+    [cyan magenta yellow key]))
+
+(def: #export (from-cmyk [cyan magenta yellow key])
+  (-> [Real Real Real Real] Color)
+  (if (r.= 1.0 key)
+    (color [+0 +0 +0])
+    (let [red (|> (|> 1.0 (r.- cyan))
+                  (r.* (|> 1.0 (r.- key))))
+          green (|> (|> 1.0 (r.- magenta))
+                    (r.* (|> 1.0 (r.- key))))
+          blue (|> (|> 1.0 (r.- yellow))
+                   (r.* (|> 1.0 (r.- key))))]
+      (color [(scale-up red) (scale-up green) (scale-up blue)]))))
+
+(def: (normalize ratio)
+  (-> Real Real)
+  (cond (r.> 1.0 ratio)
+        (r.% 1.0 ratio)
+
+        (r.< 0.0 ratio)
+        (|> 1.0 (r.+ (r.% 1.0 ratio)))
+
+        ## else
+        ratio))
+
+(def: #export (interpolate ratio end start)
+  (-> Real Color Color Color)
+  (let [dS (normalize ratio)
+        dE (|> 1.0 (r.- dS))
+        interpolate' (: (-> Nat Nat Nat)
+                        (function [end start]
+                          (real-to-nat (r.+ (r.* dE (nat-to-real end))
+                                            (r.* dS (nat-to-real start))))))
+        [redS greenS blueS] (unpack start)
+        [redE greenE blueE] (unpack end)]
+    (color [(interpolate' redE redS)
+            (interpolate' greenE greenS)
+            (interpolate' blueE blueS)])))
+
+(def: black Color (color [+0 +0 +0]))
+(def: white Color (color [top top top]))
+
+(do-template [<name> <target>]
+  [(def: #export (<name> ratio color)
+     (-> Real Color Color)
+     (interpolate ratio <target> color))]
+
+  [darker   black]
+  [brighter white]
+  )
+
+(def: #export (complement color)
+  (-> Color Color)
+  (let [[red green blue] (unpack color)
+        adjust (function [value] (|> top (n.- value)))]
+    (;;color [(adjust red)
+              (adjust green)
+              (adjust blue)])))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> ratio color)
+     (-> Real Color Color)
+     (let [[hue saturation luminance] (to-hsl color)]
+       (from-hsl [hue
+                  (|> saturation
+                      (r.* (|> 1.0 (<op> (normalize ratio))))
+                      (r.min 1.0))
+                  luminance])))]
+
+  [saturate    r.+]
+  [de-saturate r.-]
+  )
+
+(def: #export (gray-scale color)
+  (-> Color Color)
+  (let [[_ _ luminance] (to-hsl color)]
+    (from-hsl [0.0 0.0 luminance])))
+
+(do-template [<name> <1> <2>]
+  [(def: #export (<name> color)
+     (-> Color [Color Color Color])
+     (let [[hue saturation luminance] (to-hsl color)]
+       [color
+        (from-hsl [(|> hue (r.+ <1>) normalize) saturation luminance])
+        (from-hsl [(|> hue (r.+ <2>) normalize) saturation luminance])]))]
+
+  [triad            (|> 1.0 (r./ 3.0)) (|> 2.0 (r./ 3.0))]
+  [clash            (|> 1.0 (r./ 4.0)) (|> 3.0 (r./ 4.0))]
+  [split-complement (|> 1.0 (r./ 5.0)) (|> 3.0 (r./ 5.0))]
+  )
+
+(do-template [<name> <1> <2> <3>]
+  [(def: #export (<name> color)
+     (-> Color [Color Color Color Color])
+     (let [[hue saturation luminance] (to-hsl color)]
+       [color
+        (from-hsl [(|> hue (r.+ <1>) normalize) saturation luminance])
+        (from-hsl [(|> hue (r.+ <2>) normalize) saturation luminance])
+        (from-hsl [(|> hue (r.+ <3>) normalize) saturation luminance])]))]
+
+  [square   (|> 1.0 (r./ 4.0))  (|> 2.0 (r./ 4.0))  (|> 3.0 (r./ 4.0))]
+  [tetradic (|> 2.0 (r./ 12.0)) (|> 6.0 (r./ 12.0)) (|> 8.0 (r./ 12.0))]
+  )
+
+(def: #export (analogous results slice color)
+  (-> Nat Real Color (List Color))
+  (if (n.= +0 results)
+    (list)
+    (let [[hue saturation luminance] (to-hsl color)
+          slice (normalize slice)]
+      (L/map (function [idx]
+               (from-hsl [(|> idx nat-to-real (r.* slice) (r.+ hue) normalize)
+                          saturation
+                          luminance]))
+             (list;n.range +0 (n.dec results))))))
+
+(def: #export (monochromatic results color)
+  (-> Nat Color (List Color))
+  (if (n.= +0 results)
+    (list)
+    (let [[hue saturation brightness] (to-hsb color)
+          slice (|> 1.0 (r./ (nat-to-real results)))]
+      (|> (list;n.range +0 (n.dec results))
+          (L/map (|>. nat-to-real
+                      (r.* slice)
+                      (r.+ brightness)
+                      normalize
+                      [hue saturation]
+                      from-hsb))))))
