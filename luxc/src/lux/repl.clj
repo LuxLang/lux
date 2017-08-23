@@ -73,7 +73,8 @@
                     state*)
               (&/$Right state** outputs)
               (do (doseq [[_type _value] outputs]
-                    (.println System/out (str "=> " (pr-str _value) "\n:: " (&type/show-type _type)"\n")))
+                    (.println System/out (str ": " (&type/show-type _type) "\n"
+                                              "=> " (pr-str _value) "\n")))
                 (recur state** (inc repl-line) false))
 
               (&/$Left ^String ?message)
