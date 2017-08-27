@@ -33,9 +33,9 @@ Then, you can run the program like this:
 To take a look at sample Lux projects, check these repositories:
 
 * https://github.com/LuxLang/tutorial1
-* https://github.com/LuxLang/luxdoc
+* https://github.com/LuxLang/lux/tree/master/luxdoc
 
-The `luxdoc` program was actually used to generate the documentation for the standard library in the wiki (located here: https://github.com/LuxLang/lux/wiki/Standard-Library)
+The `luxdoc` program was actually used to generate the documentation for the standard library (located here: https://luxlang.github.io/lux/)
 
 ### What's the license?
 
@@ -169,7 +169,7 @@ The main resource is the book: https://www.gitbook.com/book/luxlang/the-lux-prog
 
 It will always be up-to-date with the latest stable version of the language.
 
-Also, you can head to the wiki and check out the documentation for the currently available modules: https://github.com/LuxLang/lux/wiki/Standard-Library
+Also, you can check out the documentation for the currently available modules: https://luxlang.github.io/lux/
 
 Finally, you can check out the Lux DevLog, where I talk about different topics related to Lux and post tutorials: http://luxlang.blogspot.com/
 
