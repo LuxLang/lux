@@ -16,7 +16,7 @@
   ("NatTotal" 2)
   ("IntTotal" 2)
   ("DegTotal" 2)
-  ("RealTotal" 2)
+  ("FracTotal" 2)
   ("TextTotal" 2)
   ("TupleTotal" 2)
   ("VariantTotal" 2))
@@ -28,7 +28,7 @@
   ("NatTestAC" 1)
   ("IntTestAC" 1)
   ("DegTestAC" 1)
-  ("RealTestAC" 1)
+  ("FracTestAC" 1)
   ("TextTestAC" 1)
   ("TupleTestAC" 1)
   ("VariantTestAC" 1))
@@ -289,10 +289,10 @@
             =kont kont]
         (return (&/T [($DegTestAC ?value) =kont])))
       
-      (&/$Real ?value)
-      (|do [_ (&type/check value-type &type/Real)
+      (&/$Frac ?value)
+      (|do [_ (&type/check value-type &type/Frac)
             =kont kont]
-        (return (&/T [($RealTestAC ?value) =kont])))
+        (return (&/T [($FracTestAC ?value) =kont])))
 
       (&/$Text ?value)
       (|do [_ (&type/check value-type &type/Text)
@@ -418,8 +418,8 @@
       [($DegTotal total? ?values) ($NoTestAC)]
       (return ($DegTotal true ?values))
 
-      [($RealTotal total? ?values) ($NoTestAC)]
-      (return ($RealTotal true ?values))
+      [($FracTotal total? ?values) ($NoTestAC)]
+      (return ($FracTotal true ?values))
 
       [($TextTotal total? ?values) ($NoTestAC)]
       (return ($TextTotal true ?values))
@@ -445,8 +445,8 @@
       [($DegTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($DegTotal true ?values))
 
-      [($RealTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($RealTotal true ?values))
+      [($FracTotal total? ?values) ($StoreTestAC ?idx)]
+      (return ($FracTotal true ?values))
 
       [($TextTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($TextTotal true ?values))
@@ -481,11 +481,11 @@
       [($DegTotal total? ?values) ($DegTestAC ?value)]
       (return ($DegTotal total? (&/$Cons ?value ?values)))
 
-      [($DefaultTotal total?) ($RealTestAC ?value)]
-      (return ($RealTotal total? (&/|list ?value)))
+      [($DefaultTotal total?) ($FracTestAC ?value)]
+      (return ($FracTotal total? (&/|list ?value)))
 
-      [($RealTotal total? ?values) ($RealTestAC ?value)]
-      (return ($RealTotal total? (&/$Cons ?value ?values)))
+      [($FracTotal total? ?values) ($FracTestAC ?value)]
+      (return ($FracTotal total? (&/$Cons ?value ?values)))
 
       [($DefaultTotal total?) ($TextTestAC ?value)]
       (return ($TextTotal total? (&/|list ?value)))
@@ -568,8 +568,8 @@
     (|do [_ (&type/check value-type &type/Deg)]
       (return ?total))
     
-    ($RealTotal ?total _)
-    (|do [_ (&type/check value-type &type/Real)]
+    ($FracTotal ?total _)
+    (|do [_ (&type/check value-type &type/Frac)]
       (return ?total))
 
     ($TextTotal ?total _)

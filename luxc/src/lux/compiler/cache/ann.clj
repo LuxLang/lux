@@ -40,7 +40,7 @@
     (&/$DegA value)
     (str "D" value stop)
 
-    (&/$RealA value)
+    (&/$FracA value)
     (str "R" value stop)
 
     (&/$TextA value)
@@ -84,7 +84,7 @@
   ^:private deserialize-nat  "N" &/$NatA  Long/parseLong
   ^:private deserialize-int  "I" &/$IntA  Long/parseLong
   ^:private deserialize-deg "D" &/$DegA Long/parseLong
-  ^:private deserialize-real "R" &/$RealA Double/parseDouble
+  ^:private deserialize-frac "R" &/$FracA Double/parseDouble
   ^:private deserialize-text "T" &/$TextA identity
   )
 
@@ -138,7 +138,7 @@
       (deserialize-nat input)
       (deserialize-int input)
       (deserialize-deg input)
-      (deserialize-real input)
+      (deserialize-frac input)
       (deserialize-text input)
       (deserialize-ident input)
       (deserialize-list input)

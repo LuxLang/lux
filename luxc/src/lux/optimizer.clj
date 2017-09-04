@@ -10,7 +10,7 @@
   ("nat" 1)
   ("int" 1)
   ("deg" 1)
-  ("real" 1)
+  ("frac" 1)
   ("text" 1)
   ("variant" 3)
   ("tuple" 1)
@@ -73,8 +73,8 @@
   ("IntPM" 1)
   ;; Compare the CDN with a degree value.
   ("DegPM" 1)
-  ;; Compare the CDN with a real value.
-  ("RealPM" 1)
+  ;; Compare the CDN with a frac value.
+  ("FracPM" 1)
   ;; Compare the CDN with a text value.
   ("TextPM" 1)
   ;; Compare the CDN with a variant value. If valid, proceed to test
@@ -190,8 +190,8 @@
     (&/|list ($DegPM _value)
              $PopPM)
 
-    (&a-case/$RealTestAC _value)
-    (&/|list ($RealPM _value)
+    (&a-case/$FracTestAC _value)
+    (&/|list ($FracPM _value)
              $PopPM)
 
     (&a-case/$TextTestAC _value)
@@ -295,9 +295,9 @@
       ($DegPM _pre-value)
       ($AltPM pre post))
 
-    [($RealPM _pre-value) ($RealPM _post-value)]
+    [($FracPM _pre-value) ($FracPM _post-value)]
     (if (= _pre-value _post-value)
-      ($RealPM _pre-value)
+      ($FracPM _pre-value)
       ($AltPM pre post))
 
     [($TextPM _pre-value) ($TextPM _post-value)]
@@ -1013,8 +1013,8 @@
         (&a/$deg value)
         (&/T [meta ($deg value)])
         
-        (&a/$real value)
-        (&/T [meta ($real value)])
+        (&a/$frac value)
+        (&/T [meta ($frac value)])
         
         (&a/$text value)
         (&/T [meta ($text value)])

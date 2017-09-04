@@ -210,13 +210,13 @@
   ^:private analyse-deg-eq   ["deg" "="]  &type/Deg  &type/Bool
   ^:private analyse-deg-lt   ["deg" "<"]  &type/Deg  &type/Bool
 
-  ^:private analyse-real-add ["real" "+"] &type/Real &type/Real
-  ^:private analyse-real-sub ["real" "-"] &type/Real &type/Real
-  ^:private analyse-real-mul ["real" "*"] &type/Real &type/Real
-  ^:private analyse-real-div ["real" "/"] &type/Real &type/Real
-  ^:private analyse-real-rem ["real" "%"] &type/Real &type/Real
-  ^:private analyse-real-eq  ["real" "="] &type/Real &type/Bool
-  ^:private analyse-real-lt  ["real" "<"] &type/Real &type/Bool
+  ^:private analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
+  ^:private analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
+  ^:private analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
+  ^:private analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
+  ^:private analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
+  ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bool
+  ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bool
   )
 
 (do-template [<name> <proc>]
@@ -251,7 +251,7 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
-  ^:private analyse-real-encode ["real" "encode"] ^:private analyse-real-decode ["real" "decode"] &type/Real
+  ^:private analyse-frac-encode ["frac" "encode"] ^:private analyse-frac-decode ["frac" "decode"] &type/Frac
   )
 
 (do-template [<name> <type> <op>]
@@ -271,12 +271,12 @@
   ^:private analyse-deg-min-value           &type/Deg ["deg" "min-value"]
   ^:private analyse-deg-max-value           &type/Deg ["deg" "max-value"]
 
-  ^:private analyse-real-smallest-value     &type/Real  ["real"  "smallest-value"]
-  ^:private analyse-real-min-value          &type/Real  ["real"  "min-value"]
-  ^:private analyse-real-max-value          &type/Real  ["real"  "max-value"]
-  ^:private analyse-real-not-a-number       &type/Real  ["real"  "not-a-number"]
-  ^:private analyse-real-positive-infinity  &type/Real  ["real"  "positive-infinity"]
-  ^:private analyse-real-negative-infinity  &type/Real  ["real"  "negative-infinity"]
+  ^:private analyse-frac-smallest-value     &type/Frac  ["frac"  "smallest-value"]
+  ^:private analyse-frac-min-value          &type/Frac  ["frac"  "min-value"]
+  ^:private analyse-frac-max-value          &type/Frac  ["frac"  "max-value"]
+  ^:private analyse-frac-not-a-number       &type/Frac  ["frac"  "not-a-number"]
+  ^:private analyse-frac-positive-infinity  &type/Frac  ["frac"  "positive-infinity"]
+  ^:private analyse-frac-negative-infinity  &type/Frac  ["frac"  "negative-infinity"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -293,11 +293,11 @@
   
   ^:private analyse-nat-to-char  &type/Nat  &type/Text   ["nat" "to-char"]
   
-  ^:private analyse-int-to-real  &type/Int  &type/Real   ["int" "to-real"]
-  ^:private analyse-real-to-int  &type/Real &type/Int    ["real" "to-int"]
+  ^:private analyse-int-to-frac  &type/Int  &type/Frac   ["int" "to-frac"]
+  ^:private analyse-frac-to-int  &type/Frac &type/Int    ["frac" "to-int"]
 
-  ^:private analyse-deg-to-real  &type/Deg  &type/Real   ["deg" "to-real"]
-  ^:private analyse-real-to-deg  &type/Real &type/Deg    ["real" "to-deg"]
+  ^:private analyse-deg-to-frac  &type/Deg  &type/Frac   ["deg" "to-frac"]
+  ^:private analyse-frac-to-deg  &type/Frac &type/Deg    ["frac" "to-deg"]
   
   ^:private analyse-io-log       &type/Text &/$Unit     ["io" "log"]
   ^:private analyse-io-error     &type/Text &type/Bottom ["io" "error"]
@@ -368,7 +368,7 @@
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Nil) ?values]
-          _ (&type/check exo-type &type/Real)
+          _ (&type/check exo-type &type/Frac)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["math" <proc>]) (&/|list) (&/|list)))))))
@@ -380,8 +380,8 @@
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-          =input (&&/analyse-1 analyse &type/Real ?input)
-          _ (&type/check exo-type &type/Real)
+          =input (&&/analyse-1 analyse &type/Frac ?input)
+          _ (&type/check exo-type &type/Frac)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["math" <proc>]) (&/|list =input) (&/|list)))))))
@@ -407,9 +407,9 @@
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
-          =input (&&/analyse-1 analyse &type/Real ?input)
-          =param (&&/analyse-1 analyse &type/Real ?param)
-          _ (&type/check exo-type &type/Real)
+          =input (&&/analyse-1 analyse &type/Frac ?input)
+          =param (&&/analyse-1 analyse &type/Frac ?param)
+          _ (&type/check exo-type &type/Frac)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["math" <proc>]) (&/|list =input =param) (&/|list)))))))
@@ -552,7 +552,7 @@
       "min-value" (analyse-int-min-value analyse exo-type ?values)
       "max-value" (analyse-int-max-value analyse exo-type ?values)
       "to-nat" (analyse-int-to-nat analyse exo-type ?values)
-      "to-real" (analyse-int-to-real analyse exo-type ?values)
+      "to-frac" (analyse-int-to-frac analyse exo-type ?values)
       )
 
     "deg"
@@ -566,30 +566,30 @@
       "<" (analyse-deg-lt analyse exo-type ?values)
       "min-value" (analyse-deg-min-value analyse exo-type ?values)
       "max-value" (analyse-deg-max-value analyse exo-type ?values)
-      "to-real" (analyse-deg-to-real analyse exo-type ?values)
+      "to-frac" (analyse-deg-to-frac analyse exo-type ?values)
       "scale" (analyse-deg-scale analyse exo-type ?values)
       "reciprocal" (analyse-deg-reciprocal analyse exo-type ?values)
       )
 
-    "real"
+    "frac"
     (case proc
-      "+" (analyse-real-add analyse exo-type ?values)
-      "-" (analyse-real-sub analyse exo-type ?values)
-      "*" (analyse-real-mul analyse exo-type ?values)
-      "/" (analyse-real-div analyse exo-type ?values)
-      "%" (analyse-real-rem analyse exo-type ?values)
-      "=" (analyse-real-eq analyse exo-type ?values)
-      "<" (analyse-real-lt analyse exo-type ?values)
-      "encode" (analyse-real-encode analyse exo-type ?values)
-      "decode" (analyse-real-decode analyse exo-type ?values)
-      "smallest-value" (analyse-real-smallest-value analyse exo-type ?values)
-      "min-value" (analyse-real-min-value analyse exo-type ?values)
-      "max-value" (analyse-real-max-value analyse exo-type ?values)
-      "not-a-number" (analyse-real-not-a-number analyse exo-type ?values)
-      "positive-infinity" (analyse-real-positive-infinity analyse exo-type ?values)
-      "negative-infinity" (analyse-real-negative-infinity analyse exo-type ?values)
-      "to-deg" (analyse-real-to-deg analyse exo-type ?values)
-      "to-int" (analyse-real-to-int analyse exo-type ?values)
+      "+" (analyse-frac-add analyse exo-type ?values)
+      "-" (analyse-frac-sub analyse exo-type ?values)
+      "*" (analyse-frac-mul analyse exo-type ?values)
+      "/" (analyse-frac-div analyse exo-type ?values)
+      "%" (analyse-frac-rem analyse exo-type ?values)
+      "=" (analyse-frac-eq analyse exo-type ?values)
+      "<" (analyse-frac-lt analyse exo-type ?values)
+      "encode" (analyse-frac-encode analyse exo-type ?values)
+      "decode" (analyse-frac-decode analyse exo-type ?values)
+      "smallest-value" (analyse-frac-smallest-value analyse exo-type ?values)
+      "min-value" (analyse-frac-min-value analyse exo-type ?values)
+      "max-value" (analyse-frac-max-value analyse exo-type ?values)
+      "not-a-number" (analyse-frac-not-a-number analyse exo-type ?values)
+      "positive-infinity" (analyse-frac-positive-infinity analyse exo-type ?values)
+      "negative-infinity" (analyse-frac-negative-infinity analyse exo-type ?values)
+      "to-deg" (analyse-frac-to-deg analyse exo-type ?values)
+      "to-int" (analyse-frac-to-int analyse exo-type ?values)
       )
 
     "math"

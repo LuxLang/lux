@@ -416,7 +416,7 @@
                (.visitInsn Opcodes/LRETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg-to-real" "(J)D" nil nil)
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg-to-frac" "(J)D" nil nil)
              (.visitCode)
              ;; Translate high bytes
              (.visitVarInsn Opcodes/LLOAD 0) high-4b
@@ -435,7 +435,7 @@
              (.visitInsn Opcodes/DRETURN)
              (.visitMaxs 0 0)
              (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "real-to-deg" "(D)J" nil nil)
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac-to-deg" "(D)J" nil nil)
              (.visitCode)
              ;; Drop any excess
              (.visitVarInsn Opcodes/DLOAD 0)
@@ -619,7 +619,7 @@
       nil))
 
   ^:private compile-LuxRT-int-methods  "decode_int"  "java/lang/Long"   "parseLong"   "(Ljava/lang/String;)J" &&/wrap-long
-  ^:private compile-LuxRT-real-methods "decode_real" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
+  ^:private compile-LuxRT-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
 (defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
@@ -889,7 +889,7 @@
                   (compile-LuxRT-nat-methods)
                   (compile-LuxRT-int-methods)
                   (compile-LuxRT-deg-methods)
-                  (compile-LuxRT-real-methods)
+                  (compile-LuxRT-frac-methods)
                   (compile-LuxRT-text-methods)
                   (compile-LuxRT-process-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))

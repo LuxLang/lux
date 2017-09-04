@@ -40,7 +40,7 @@
   compile-nat  "java/lang/Long"      "J" long
   compile-int  "java/lang/Long"      "J" long
   compile-deg "java/lang/Long"      "J" long
-  compile-real "java/lang/Double"    "D" double
+  compile-frac "java/lang/Double"    "D" double
   )
 
 (defn compile-text [?value]

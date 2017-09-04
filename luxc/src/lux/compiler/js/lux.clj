@@ -42,7 +42,7 @@
   compile-deg
   )
 
-(defn compile-real [value]
+(defn compile-frac [value]
   (return (str value)))
 
 (defn compile-char [value]
@@ -189,7 +189,7 @@
     (|do [=value (compile-deg _value)]
       (return (str "if(!" (str "LuxRT$eqI64(" cursor-peek "," =value ")") ") { " pm-fail " }")))
 
-    (&o/$RealPM _value)
+    (&o/$FracPM _value)
     (return (str "if(" cursor-peek " !== " _value ") { " pm-fail " }"))
 
     (&o/$TextPM _value)

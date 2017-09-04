@@ -75,7 +75,7 @@
   ("Nat" 1)
   ("Int" 1)
   ("Deg" 1)
-  ("Real" 1)
+  ("Frac" 1)
   ("Text" 1)
   ("Symbol" 1)
   ("Tag" 1)
@@ -221,7 +221,7 @@
   ("NatA" 1)
   ("IntA" 1)
   ("DegA" 1)
-  ("RealA" 1)
+  ("FracA" 1)
   ("TextA" 1)
   ("IdentA" 1)
   ("ListA" 1)
@@ -1217,7 +1217,7 @@
     [_ ($Deg ?value)]
     (encode-deg ?value)
 
-    [_ ($Real ?value)]
+    [_ ($Frac ?value)]
     (pr-str ?value)
 
     [_ ($Text ?value)]

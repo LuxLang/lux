@@ -27,7 +27,7 @@
 (def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Host &&host/nat-data-tag &/$Nil)))
 (def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Host &&host/deg-data-tag &/$Nil)))
 (def Int (&/$Named (&/T ["lux" "Int"]) (&/$Host "#Int" &/$Nil)))
-(def Real (&/$Named (&/T ["lux" "Real"]) (&/$Host "#Real" &/$Nil)))
+(def Frac (&/$Named (&/T ["lux" "Frac"]) (&/$Host "#Frac" &/$Nil)))
 (def Text (&/$Named (&/T ["lux" "Text"]) (&/$Host "#Text" &/$Nil)))
 (def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
 
@@ -140,8 +140,8 @@
                                       ;; DegA
                                       Deg
                                       (&/$Sum
-                                       ;; RealA
-                                       Real
+                                       ;; FracA
+                                       Frac
                                        (&/$Sum
                                         ;; TextA
                                         Text

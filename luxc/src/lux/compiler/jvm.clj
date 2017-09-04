@@ -59,8 +59,8 @@
         (&o/$deg ?value)
         (&&lux/compile-deg ?value)
 
-        (&o/$real ?value)
-        (&&lux/compile-real ?value)
+        (&o/$frac ?value)
+        (&&lux/compile-frac ?value)
 
         (&o/$text ?value)
         (&&lux/compile-text ?value)

@@ -637,13 +637,13 @@
                       "return LuxRT$shlI64(LuxRT$divI64(l,LuxRT$fromNumberI64(r.H)),32);"
                       "}")
                  "})")
-   "degToReal" (str "(function LuxRT$degToReal(input) {"
+   "degToFrac" (str "(function LuxRT$degToFrac(input) {"
                     "var two32 = Math.pow(2,32);"
                     "var high = input.H / two32;"
                     "var low = (input.L / two32) / two32;"
                     "return high+low;"
                     "})")
-   "realToDeg" (str "(function LuxRT$realToDeg(input) {"
+   "fracToDeg" (str "(function LuxRT$fracToDeg(input) {"
                     "var two32 = Math.pow(2,32);"
                     "var shifted = (input % 1.0) * two32;"
                     "var low = ((shifted % 1.0) * two32) | 0;"

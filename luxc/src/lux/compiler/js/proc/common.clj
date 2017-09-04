@@ -132,13 +132,13 @@
           =y (compile ?y)]
       (return (str "(" =x " " <opcode> " " =y ")"))))
 
-  ^:private compile-real-add   "+"
-  ^:private compile-real-sub   "-"
-  ^:private compile-real-mul   "*"
-  ^:private compile-real-div   "/"
-  ^:private compile-real-rem   "%"
-  ^:private compile-real-eq    "==="
-  ^:private compile-real-lt    "<"
+  ^:private compile-frac-add   "+"
+  ^:private compile-frac-sub   "-"
+  ^:private compile-frac-mul   "*"
+  ^:private compile-frac-div   "/"
+  ^:private compile-frac-rem   "%"
+  ^:private compile-frac-eq    "==="
+  ^:private compile-frac-lt    "<"
   )
 
 (do-template [<name> <method>]
@@ -148,7 +148,7 @@
       (return (str "LuxRT$" <method> "(" =x ")"))
       ))
 
-  ^:private compile-real-decode "decodeReal"
+  ^:private compile-frac-decode "decodeFrac"
   )
 
 (do-template [<name> <compiler> <value>]
@@ -165,16 +165,16 @@
   ^:private compile-deg-min-value &&lux/compile-deg  0
   ^:private compile-deg-max-value &&lux/compile-deg -1
 
-  ^:private compile-real-smallest-value &&lux/compile-real Double/MIN_VALUE
-  ^:private compile-real-min-value &&lux/compile-real (* -1.0 Double/MAX_VALUE)
-  ^:private compile-real-max-value &&lux/compile-real Double/MAX_VALUE
+  ^:private compile-frac-smallest-value &&lux/compile-frac Double/MIN_VALUE
+  ^:private compile-frac-min-value &&lux/compile-frac (* -1.0 Double/MAX_VALUE)
+  ^:private compile-frac-max-value &&lux/compile-frac Double/MAX_VALUE
 
-  ^:private compile-real-not-a-number      &&lux/compile-real "NaN" 
-  ^:private compile-real-positive-infinity &&lux/compile-real "Infinity"
-  ^:private compile-real-negative-infinity &&lux/compile-real "-Infinity"
+  ^:private compile-frac-not-a-number      &&lux/compile-frac "NaN" 
+  ^:private compile-frac-positive-infinity &&lux/compile-frac "Infinity"
+  ^:private compile-frac-negative-infinity &&lux/compile-frac "-Infinity"
   )
 
-(defn ^:private compile-real-encode [compile ?values special-args]
+(defn ^:private compile-frac-encode [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
     (return (str "(" =x ")" ".toString()"))))
@@ -188,25 +188,25 @@
   ^:private compile-int-to-nat
   )
 
-(defn ^:private compile-int-to-real [compile ?values special-args]
+(defn ^:private compile-int-to-frac [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
     (return (str "LuxRT$toNumberI64(" =x ")"))))
 
-(defn ^:private compile-real-to-int [compile ?values special-args]
+(defn ^:private compile-frac-to-int [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
     (return (str "LuxRT$fromNumberI64(" =x ")"))))
 
-(defn ^:private compile-deg-to-real [compile ?values special-args]
+(defn ^:private compile-deg-to-frac [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT$degToReal(" =x ")"))))
+    (return (str "LuxRT$degToFrac(" =x ")"))))
 
-(defn ^:private compile-real-to-deg [compile ?values special-args]
+(defn ^:private compile-frac-to-deg [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
-    (return (str "LuxRT$realToDeg(" =x ")"))))
+    (return (str "LuxRT$fracToDeg(" =x ")"))))
 
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
@@ -505,7 +505,7 @@
       "max-value" (compile-int-max-value compile ?values special-args)
       "min-value" (compile-int-min-value compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
-      "to-real"   (compile-int-to-real compile ?values special-args)
+      "to-frac"   (compile-int-to-frac compile ?values special-args)
       )
     
     "deg"
@@ -519,30 +519,30 @@
       "<"         (compile-deg-lt compile ?values special-args)
       "max-value" (compile-deg-max-value compile ?values special-args)
       "min-value" (compile-deg-min-value compile ?values special-args)
-      "to-real"   (compile-deg-to-real compile ?values special-args)
+      "to-frac"   (compile-deg-to-frac compile ?values special-args)
       "scale"     (compile-deg-scale compile ?values special-args)
       "reciprocal" (compile-deg-reciprocal compile ?values special-args)
       )
 
-    "real"
+    "frac"
     (case proc
-      "+"         (compile-real-add compile ?values special-args)
-      "-"         (compile-real-sub compile ?values special-args)
-      "*"         (compile-real-mul compile ?values special-args)
-      "/"         (compile-real-div compile ?values special-args)
-      "%"         (compile-real-rem compile ?values special-args)
-      "="         (compile-real-eq compile ?values special-args)
-      "<"         (compile-real-lt compile ?values special-args)
-      "encode"    (compile-real-encode compile ?values special-args)
-      "decode"    (compile-real-decode compile ?values special-args)
-      "smallest-value" (compile-real-smallest-value compile ?values special-args)
-      "max-value" (compile-real-max-value compile ?values special-args)
-      "min-value" (compile-real-min-value compile ?values special-args)
-      "not-a-number" (compile-real-not-a-number compile ?values special-args)
-      "positive-infinity" (compile-real-positive-infinity compile ?values special-args)
-      "negative-infinity" (compile-real-negative-infinity compile ?values special-args)
-      "to-deg"    (compile-real-to-deg compile ?values special-args)
-      "to-int"    (compile-real-to-int compile ?values special-args)
+      "+"         (compile-frac-add compile ?values special-args)
+      "-"         (compile-frac-sub compile ?values special-args)
+      "*"         (compile-frac-mul compile ?values special-args)
+      "/"         (compile-frac-div compile ?values special-args)
+      "%"         (compile-frac-rem compile ?values special-args)
+      "="         (compile-frac-eq compile ?values special-args)
+      "<"         (compile-frac-lt compile ?values special-args)
+      "encode"    (compile-frac-encode compile ?values special-args)
+      "decode"    (compile-frac-decode compile ?values special-args)
+      "smallest-value" (compile-frac-smallest-value compile ?values special-args)
+      "max-value" (compile-frac-max-value compile ?values special-args)
+      "min-value" (compile-frac-min-value compile ?values special-args)
+      "not-a-number" (compile-frac-not-a-number compile ?values special-args)
+      "positive-infinity" (compile-frac-positive-infinity compile ?values special-args)
+      "negative-infinity" (compile-frac-negative-infinity compile ?values special-args)
+      "to-deg"    (compile-frac-to-deg compile ?values special-args)
+      "to-int"    (compile-frac-to-int compile ?values special-args)
       )
 
     "char"

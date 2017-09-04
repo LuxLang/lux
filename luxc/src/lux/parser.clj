@@ -76,8 +76,8 @@
       (&lexer/$Deg ?value)
       (return (&/|list (&/T [meta (&/$Deg (&/decode-deg ?value))])))
 
-      (&lexer/$Real ?value)
-      (return (&/|list (&/T [meta (&/$Real (Double/parseDouble ?value))])))
+      (&lexer/$Frac ?value)
+      (return (&/|list (&/T [meta (&/$Frac (Double/parseDouble ?value))])))
 
       (&lexer/$Text ?value)
       (return (&/|list (&/T [meta (&/$Text ?value)])))

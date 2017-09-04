@@ -218,11 +218,11 @@
   ^:private compile-deg-scale Opcodes/LMUL &&/unwrap-long &&/wrap-long
   ^:private compile-deg-reciprocal Opcodes/LDIV &&/unwrap-long &&/wrap-long
 
-  ^:private compile-real-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
-  ^:private compile-real-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
-  ^:private compile-real-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
-  ^:private compile-real-div  Opcodes/DDIV &&/unwrap-double &&/wrap-double
-  ^:private compile-real-rem  Opcodes/DREM &&/unwrap-double &&/wrap-double
+  ^:private compile-frac-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
+  ^:private compile-frac-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
+  ^:private compile-frac-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
+  ^:private compile-frac-div  Opcodes/DDIV &&/unwrap-double &&/wrap-double
+  ^:private compile-frac-rem  Opcodes/DREM &&/unwrap-double &&/wrap-double
   )
 
 (do-template [<name> <comp-method>]
@@ -270,8 +270,8 @@
   ^:private compile-int-eq  Opcodes/LCMP   0 &&/unwrap-long
   ^:private compile-int-lt  Opcodes/LCMP  -1 &&/unwrap-long
 
-  ^:private compile-real-eq Opcodes/DCMPG  0 &&/unwrap-double
-  ^:private compile-real-lt Opcodes/DCMPG -1 &&/unwrap-double
+  ^:private compile-frac-eq Opcodes/DCMPG  0 &&/unwrap-double
+  ^:private compile-frac-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
 (do-template [<name> <cmp-output>]
@@ -343,13 +343,13 @@
   ^:private compile-deg-min-value (.visitLdcInsn 0)  &&/wrap-long
   ^:private compile-deg-max-value (.visitLdcInsn -1) &&/wrap-long
 
-  ^:private compile-real-smallest-value (.visitLdcInsn Double/MIN_VALUE)  &&/wrap-double
-  ^:private compile-real-min-value (.visitLdcInsn (* -1.0 Double/MAX_VALUE))  &&/wrap-double
-  ^:private compile-real-max-value (.visitLdcInsn Double/MAX_VALUE) &&/wrap-double
+  ^:private compile-frac-smallest-value (.visitLdcInsn Double/MIN_VALUE)  &&/wrap-double
+  ^:private compile-frac-min-value (.visitLdcInsn (* -1.0 Double/MAX_VALUE))  &&/wrap-double
+  ^:private compile-frac-max-value (.visitLdcInsn Double/MAX_VALUE) &&/wrap-double
 
-  ^:private compile-real-not-a-number (.visitLdcInsn Double/NaN) &&/wrap-double
-  ^:private compile-real-positive-infinity (.visitLdcInsn Double/POSITIVE_INFINITY) &&/wrap-double
-  ^:private compile-real-negative-infinity (.visitLdcInsn Double/NEGATIVE_INFINITY) &&/wrap-double
+  ^:private compile-frac-not-a-number (.visitLdcInsn Double/NaN) &&/wrap-double
+  ^:private compile-frac-positive-infinity (.visitLdcInsn Double/POSITIVE_INFINITY) &&/wrap-double
+  ^:private compile-frac-negative-infinity (.visitLdcInsn Double/NEGATIVE_INFINITY) &&/wrap-double
   )
 
 (do-template [<name> <class> <signature> <unwrap>]
@@ -362,7 +362,7 @@
                     (.visitMethodInsn Opcodes/INVOKESTATIC <class> "toString" <signature>))]]
       (return nil)))
 
-  ^:private compile-real-encode "java/lang/Double" "(D)Ljava/lang/String;" &&/unwrap-double
+  ^:private compile-frac-encode "java/lang/Double" "(D)Ljava/lang/String;" &&/unwrap-double
   )
 
 
@@ -377,7 +377,7 @@
       (return nil)))
 
   ^:private compile-int-decode  "decode_int"
-  ^:private compile-real-decode "decode_real"
+  ^:private compile-frac-decode "decode_frac"
   )
 
 (do-template [<name> <method>]
@@ -411,8 +411,8 @@
                       <wrap>)]]
         (return nil))))
 
-  ^:private compile-deg-to-real "java.lang.Long"   "deg-to-real" "(J)D" &&/unwrap-long   &&/wrap-double
-  ^:private compile-real-to-deg "java.lang.Double" "real-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
+  ^:private compile-deg-to-frac "java.lang.Long"   "deg-to-frac" "(J)D" &&/unwrap-long   &&/wrap-double
+  ^:private compile-frac-to-deg "java.lang.Double" "frac-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
 (defn ^:private compile-nat-to-char [compile ?values special-args]
@@ -448,8 +448,8 @@
                     <wrap>)]]
       (return nil)))
 
-  ^:private compile-real-to-int &&/unwrap-double Opcodes/D2L &&/wrap-long
-  ^:private compile-int-to-real &&/unwrap-long   Opcodes/L2D &&/wrap-double
+  ^:private compile-frac-to-int &&/unwrap-double Opcodes/D2L &&/wrap-long
+  ^:private compile-int-to-frac &&/unwrap-long   Opcodes/L2D &&/wrap-double
   )
 
 (defn ^:private compile-text-eq [compile ?values special-args]
@@ -883,7 +883,7 @@
       "<"         (compile-deg-lt compile ?values special-args)
       "max-value" (compile-deg-max-value compile ?values special-args)
       "min-value" (compile-deg-min-value compile ?values special-args)
-      "to-real"   (compile-deg-to-real compile ?values special-args)
+      "to-frac"   (compile-deg-to-frac compile ?values special-args)
       "scale"     (compile-deg-scale compile ?values special-args)
       "reciprocal" (compile-deg-reciprocal compile ?values special-args)
       )
@@ -900,28 +900,28 @@
       "max-value" (compile-int-max-value compile ?values special-args)
       "min-value" (compile-int-min-value compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
-      "to-real"   (compile-int-to-real compile ?values special-args)
+      "to-frac"   (compile-int-to-frac compile ?values special-args)
       )
 
-    "real"
+    "frac"
     (case proc
-      "+"         (compile-real-add compile ?values special-args)
-      "-"         (compile-real-sub compile ?values special-args)
-      "*"         (compile-real-mul compile ?values special-args)
-      "/"         (compile-real-div compile ?values special-args)
-      "%"         (compile-real-rem compile ?values special-args)
-      "="         (compile-real-eq compile ?values special-args)
-      "<"         (compile-real-lt compile ?values special-args)
-      "smallest-value" (compile-real-smallest-value compile ?values special-args)
-      "max-value" (compile-real-max-value compile ?values special-args)
-      "min-value" (compile-real-min-value compile ?values special-args)
-      "not-a-number" (compile-real-not-a-number compile ?values special-args)
-      "positive-infinity" (compile-real-positive-infinity compile ?values special-args)
-      "negative-infinity" (compile-real-negative-infinity compile ?values special-args)
-      "to-int"    (compile-real-to-int compile ?values special-args)
-      "to-deg"    (compile-real-to-deg compile ?values special-args)
-      "encode"    (compile-real-encode compile ?values special-args)
-      "decode"    (compile-real-decode compile ?values special-args)
+      "+"         (compile-frac-add compile ?values special-args)
+      "-"         (compile-frac-sub compile ?values special-args)
+      "*"         (compile-frac-mul compile ?values special-args)
+      "/"         (compile-frac-div compile ?values special-args)
+      "%"         (compile-frac-rem compile ?values special-args)
+      "="         (compile-frac-eq compile ?values special-args)
+      "<"         (compile-frac-lt compile ?values special-args)
+      "smallest-value" (compile-frac-smallest-value compile ?values special-args)
+      "max-value" (compile-frac-max-value compile ?values special-args)
+      "min-value" (compile-frac-min-value compile ?values special-args)
+      "not-a-number" (compile-frac-not-a-number compile ?values special-args)
+      "positive-infinity" (compile-frac-positive-infinity compile ?values special-args)
+      "negative-infinity" (compile-frac-negative-infinity compile ?values special-args)
+      "to-int"    (compile-frac-to-int compile ?values special-args)
+      "to-deg"    (compile-frac-to-deg compile ?values special-args)
+      "encode"    (compile-frac-encode compile ?values special-args)
+      "decode"    (compile-frac-decode compile ?values special-args)
       )
 
     "math"

@@ -82,9 +82,9 @@
       (|do [_ (&type/check exo-type &type/Deg)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$deg ?value)))))
 
-      (&/$Real ?value)
-      (|do [_ (&type/check exo-type &type/Real)]
-        (return (&/|list (&&/|meta exo-type cursor (&&/$real ?value)))))
+      (&/$Frac ?value)
+      (|do [_ (&type/check exo-type &type/Frac)]
+        (return (&/|list (&&/|meta exo-type cursor (&&/$frac ?value)))))
 
       (&/$Text ?value)
       (|do [_ (&type/check exo-type &type/Text)]

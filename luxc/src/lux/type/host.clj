@@ -255,7 +255,7 @@
 (def ^:private lux-jvm-type-combos
   #{#{"java.lang.Boolean" "#Bool"}
     #{"java.lang.Long" "#Int"}
-    #{"java.lang.Double" "#Real"}
+    #{"java.lang.Double" "#Frac"}
     #{"java.lang.Character" "#Char"}
     #{"java.lang.String" "#Text"}})
 

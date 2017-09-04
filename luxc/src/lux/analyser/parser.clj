@@ -135,11 +135,11 @@
                                                [_ (&lexer/$Int param-value*)] &lexer/lex-int]
                                            (return (long param-value*)))
 
-                                         (|do [[_ (&lexer/$Real param-value*)] &lexer/lex-real]
+                                         (|do [[_ (&lexer/$Frac param-value*)] &lexer/lex-frac]
                                            (return (float param-value*)))
 
                                          (|do [_ (&reader/read-text "d")
-                                               [_ (&lexer/$Real param-value*)] &lexer/lex-real]
+                                               [_ (&lexer/$Frac param-value*)] &lexer/lex-frac]
                                            (return (double param-value*)))
 
                                          (|do [[_ (&lexer/$Text param-value*)] &lexer/lex-text]
