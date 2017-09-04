@@ -1,0 +1,70 @@
+(;module:
+  lux
+  (lux [io]
+       (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (concurrency ["P" promise]
+                    ["T" task]
+                    [frp])
+       (data ["R" result]
+             [text]
+             text/format)
+       (world [blob]
+              [net]
+              (net ["@" tcp]))
+       ["r" math/random])
+  lux/test
+  (../.. ["_;" blob]))
+
+(def: localhost net;Address "127.0.0.1")
+(def: port
+  (r;Random net;Port)
+  (|> r;nat
+      (:: r;Monad<Random> map
+          (|>. (n.% +1000)
+               (n.+ +8000)))))
+
+(exception: Empty-Channel)
+
+(def: (head channel)
+  (All [a] (-> (frp;Channel a) (T;Task a)))
+  (do P;Monad<Promise>
+    [head+tail channel]
+    (case head+tail
+      (#;Some [head tail])
+      (wrap (ex;return head))
+
+      #;None
+      (wrap (ex;throw Empty-Channel "")))))
+
+(context: "TCP networking."
+  #times +1
+  [port ;;port
+   size (|> r;nat (:: @ map (|>. (n.% +100) (n.max +10))))
+   from (_blob;blob size)
+   to (_blob;blob size)
+   #let [temp (blob;create size)]]
+  ($_ seq
+      (do P;Monad<Promise>
+        [result (do T;Monad<Task>
+                  [server (@;server port)
+                   client (@;client localhost port)
+                   ####################
+                   _ (@;write from +0 size client)
+                   socket (head server)
+                   bytes-from (@;read temp +0 size socket)
+                   #let [from-worked? (and (n.= size bytes-from)
+                                           (:: blob;Eq<Blob> = from temp))]
+                   ####################
+                   _ (@;write to +0 size socket)
+                   bytes-to (@;read temp +0 size client)
+                   #let [to-worked? (and (n.= size bytes-to)
+                                         (:: blob;Eq<Blob> = to temp))]
+                   ####################
+                   _ (@;close client)
+                   _ (T;from-promise (P;future (frp;close server)))]
+                  (wrap (and from-worked?
+                             to-worked?)))]
+        (test "Can communicate between client and server."
+              (R;default false result)))
+      ))

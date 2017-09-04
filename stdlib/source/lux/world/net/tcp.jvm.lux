@@ -1,0 +1,130 @@
+(;module:
+  lux
+  (lux (control monad)
+       (concurrency ["P" promise]
+                    ["T" task]
+                    [frp])
+       (data ["R" result])
+       (type opaque)
+       (world [blob #+ Blob])
+       [io]
+       [host #+ jvm-import])
+  [..])
+
+(jvm-import java.lang.AutoCloseable
+  (close [] #io #try void))
+
+(jvm-import java.io.Flushable
+  (flush [] #io #try void))
+
+(jvm-import java.io.InputStream
+  (read [Byte-Array int int] #io #try int))
+
+(jvm-import java.io.OutputStream
+  (write [Byte-Array int int] #io #try void))
+
+(jvm-import java.net.Socket
+  (new [String int] #io #try)
+  (getInputStream [] #io #try InputStream)
+  (getOutputStream [] #io #try OutputStream))
+
+(jvm-import java.net.ServerSocket
+  (new [int] #io #try)
+  (accept [] #io #try Socket))
+
+############################################################
+############################################################
+############################################################
+
+(opaque: #export TCP {}
+  {#socket Socket
+   #in InputStream
+   #out OutputStream}
+  
+  (def: #export (read data offset length self)
+    (let [in (get@ #in (@repr self))]
+      (P;future
+       (do (R;ResultT io;Monad<IO>)
+         [bytes-read (InputStream.read [data (nat-to-int offset) (nat-to-int length)]
+                                       in)]
+         (wrap (int-to-nat bytes-read))))))
+  
+  (def: #export (write data offset length self)
+    (let [out (get@ #out (@repr self))]
+      (P;future
+       (do (R;ResultT io;Monad<IO>)
+         [_ (OutputStream.write [data (nat-to-int offset) (nat-to-int length)]
+                                out)]
+         (Flushable.flush [] out)))))
+
+  (def: #export (close self)
+    (let [(^open) (@repr self)]
+      (P;future
+       (do (R;ResultT io;Monad<IO>)
+         [_ (AutoCloseable.close [] in)
+          _ (AutoCloseable.close [] out)]
+         (AutoCloseable.close [] socket)))))
+
+  (def: (tcp-client socket)
+    (-> Socket (io;IO (R;Result TCP)))
+    (do (R;ResultT io;Monad<IO>)
+      [input (Socket.getInputStream [] socket)
+       output (Socket.getOutputStream [] socket)]
+      (wrap (@opaque {#socket socket
+                      #in input
+                      #out output}))))
+
+  (def: #export (client address port)
+    (-> ..;Address ..;Port (T;Task TCP))
+    (P;future
+     (do (R;ResultT io;Monad<IO>)
+       [socket (Socket.new [address (nat-to-int port)])]
+       (tcp-client socket))))
+
+  (def: (await-server-release client-channel server)
+    (-> (frp;Channel TCP) ServerSocket (P;Promise Unit))
+    (do P;Monad<Promise>
+      [outcome client-channel]
+      (case outcome
+        ## Channel has been closed.
+        ## Must close associated server.
+        #;None
+        (P;future
+         (do io;Monad<IO>
+           [_ (AutoCloseable.close [] server)]
+           (wrap [])))
+
+        ## A client was generated.
+        ## Nothing to be done...
+        (#;Some _)
+        (wrap []))))
+
+  (def: #export (server port)
+    (-> ..;Port (T;Task (frp;Channel TCP)))
+    (P;future
+     (do (R;ResultT io;Monad<IO>)
+       [server (ServerSocket.new [(nat-to-int port)])
+        #let [output (frp;channel TCP)
+              _ (: (P;Promise Bool)
+                   (P;future
+                    (loop [tail output]
+                      (do io;Monad<IO>
+                        [?client (do (R;ResultT io;Monad<IO>)
+                                   [socket (ServerSocket.accept [] server)]
+                                   (tcp-client socket))]
+                        (case ?client
+                          (#R;Error error)
+                          (frp;close tail)
+                          
+                          (#R;Success client)
+                          (do @
+                            [?tail' (frp;write client tail)]
+                            (case ?tail'
+                              #;None
+                              (wrap true)
+                              
+                              (#;Some tail')
+                              (exec (await-server-release tail' server)
+                                (recur tail')))))))))]]
+       (wrap output))))
+  )

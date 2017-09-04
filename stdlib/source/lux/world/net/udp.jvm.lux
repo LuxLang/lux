@@ -1,0 +1,99 @@
+(;module:
+  lux
+  (lux (control monad
+                ["ex" exception #+ exception:])
+       (concurrency ["P" promise]
+                    ["T" task]
+                    [frp])
+       (data ["R" result]
+             (coll [array]))
+       (type opaque)
+       (world [blob #+ Blob])
+       [io]
+       [host #+ jvm-import])
+  [..])
+
+(jvm-import java.lang.AutoCloseable
+  (close [] #io #try void))
+
+(jvm-import java.io.Flushable
+  (flush [] #io #try void))
+
+(jvm-import java.net.InetAddress
+  (#static getAllByName [String] #io #try (Array InetAddress))
+  (getHostAddress [] String))
+
+(jvm-import java.net.DatagramPacket
+  (new #as new|send [Byte-Array int int InetAddress int])
+  (new #as new|receive [Byte-Array int int])
+  (getAddress [] InetAddress)
+  (getPort [] int)
+  (getLength [] int))
+
+(jvm-import java.net.DatagramSocket
+  (new #as new|client [] #io #try)
+  (new #as new|server [int] #io #try)
+  (receive [DatagramPacket] #io #try void)
+  (send [DatagramPacket] #io #try void))
+
+############################################################
+############################################################
+############################################################
+
+(exception: #export Cannot-Resolve-Address)
+(exception: #export Multiple-Candidate-Addresses)
+
+(def: (resolve address)
+  (-> ..;Address (io;IO (R;Result InetAddress)))
+  (do (R;ResultT io;Monad<IO>)
+    [addresses (InetAddress.getAllByName [address])]
+    (: (io;IO (R;Result InetAddress))
+       (case (array;size addresses)
+         +0 (io;io (ex;throw Cannot-Resolve-Address address))
+         +1 (wrap (assume (array;get +0 addresses)))
+         _ (io;io (ex;throw Multiple-Candidate-Addresses address))))))
+
+(opaque: #export UDP {}
+  {#socket DatagramSocket}
+  
+  (def: #export (read data offset length self)
+    (-> Blob Nat Nat UDP (T;Task [Nat ..;Address ..;Port]))
+    (let [(^open) (@repr self)
+          packet (DatagramPacket.new|receive [data (nat-to-int offset) (nat-to-int length)])]
+      (P;future
+       (do (R;ResultT io;Monad<IO>)
+         [_ (DatagramSocket.receive [packet] socket)
+          #let [bytes-read (int-to-nat (DatagramPacket.getLength [] packet))]]
+         (wrap [bytes-read
+                (|> packet (DatagramPacket.getAddress []) (InetAddress.getHostAddress []))
+                (int-to-nat (DatagramPacket.getPort [] packet))])))))
+  
+  (def: #export (write address port data offset length self)
+    (-> ..;Address ..;Port Blob Nat Nat UDP (T;Task Unit))
+    (P;future
+     (do (R;ResultT io;Monad<IO>)
+       [address (resolve address)
+        #let [(^open) (@repr self)]]
+       (DatagramSocket.send (DatagramPacket.new|send [data (nat-to-int offset) (nat-to-int length) address (nat-to-int port)])
+                            socket))))
+
+  (def: #export (close self)
+    (-> UDP (T;Task Unit))
+    (let [(^open) (@repr self)]
+      (P;future
+       (AutoCloseable.close [] socket))))
+
+  (def: #export (client _)
+    (-> Unit (T;Task UDP))
+    (P;future
+     (do (R;ResultT io;Monad<IO>)
+       [socket (DatagramSocket.new|client [])]
+       (wrap (@opaque (#socket socket))))))
+
+  (def: #export (server port)
+    (-> ..;Port (T;Task UDP))
+    (P;future
+     (do (R;ResultT io;Monad<IO>)
+       [socket (DatagramSocket.new|server [(nat-to-int port)])]
+       (wrap (@opaque (#socket socket))))))
+  )
