@@ -24,7 +24,6 @@
 ## Lux Code nodes/tokens are annotated with cursor meta-data
 ## (file-name, line, column) to keep track of their provenance and
 ## location, which is helpful for documentation and debugging.
-
 (;module:
   lux
   (lux (control monad
@@ -218,42 +217,84 @@
          (wrap [(update@ #;column (n.+ (text;size chunk)) where)
                 [where (<tag> value)]]))))]
 
-  [parse-bool #;Bool
+  [bool #;Bool
    (p;either (marker^ "true") (marker^ "false"))
    bool;Codec<Text,Bool>]
   
-  [parse-nat #;Nat
+  [nat #;Nat
    (l;seq (l;one-of "+")
           rich-digits^)
    number;Codec<Text,Nat>]
   
-  [parse-int #;Int
+  [int #;Int
    (l;seq (p;default "" (l;one-of "-"))
           rich-digits^)
    number;Codec<Text,Int>]
   
-  [parse-frac #;Frac
-   ($_ l;seq
-       (p;default "" (l;one-of "-"))
-       rich-digits^
-       (l;one-of ".")
-       rich-digits^
-       (p;default ""
-         ($_ l;seq
-             (l;one-of "eE")
-             (p;default "" (l;one-of "+-"))
-             (l;many l;decimal))))
-   number;Codec<Text,Frac>]
-  
-  [parse-deg #;Deg
+  [deg #;Deg
    (l;seq (l;one-of ".")
           rich-digits^)
    number;Codec<Text,Deg>]
   )
 
+(def: (normal-frac where)
+  (-> Cursor (l;Lexer [Cursor Code]))
+  (do p;Monad<Parser>
+    [chunk ($_ l;seq
+               (p;default "" (l;one-of "-"))
+               rich-digits^
+               (l;one-of ".")
+               rich-digits^
+               (p;default ""
+                 ($_ l;seq
+                     (l;one-of "eE")
+                     (p;default "" (l;one-of "+-"))
+                     rich-digits^)))]
+    (case (:: number;Codec<Text,Frac> decode chunk)
+      (#;Left error)
+      (p;fail error)
+
+      (#;Right value)
+      (wrap [(update@ #;column (n.+ (text;size chunk)) where)
+             [where (#;Frac value)]]))))
+
+(def: frac-ratio-fragment
+  (l;Lexer Frac)
+  (<| (p;codec number;Codec<Text,Frac>)
+      (:: p;Monad<Parser> map (function [digits]
+                                (format digits ".0")))
+      rich-digits^))
+
+(def: (ratio-frac where)
+  (-> Cursor (l;Lexer [Cursor Code]))
+  (do p;Monad<Parser>
+    [chunk ($_ l;seq
+               (p;default "" (l;one-of "-"))
+               rich-digits^
+               (l;one-of "/")
+               rich-digits^)
+     value (l;local chunk
+                    (do @
+                      [signed? (l;this? "-")
+                       numerator frac-ratio-fragment
+                       _ (l;this? "/")
+                       denominator frac-ratio-fragment
+                       _ (p;assert "Denominator cannot be 0."
+                                   (not (f.= 0.0 denominator)))]
+                      (wrap (|> numerator
+                                (f.* (if signed? -1.0 1.0))
+                                (f./ denominator)))))]
+    (wrap [(update@ #;column (n.+ (text;size chunk)) where)
+           [where (#;Frac value)]])))
+
+(def: #export (frac where)
+  (-> Cursor (l;Lexer [Cursor Code]))
+  (p;either (normal-frac where)
+            (ratio-frac where)))
+
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
-(def: #export (parse-text where)
+(def: #export (text where)
   (-> Cursor (l;Lexer [Cursor Code]))
   (do p;Monad<Parser>
     [## Lux text "is delimited by double-quotes", as usual in most
@@ -343,7 +384,7 @@
 ## delimiters involved.
 ## They may have an arbitrary number of arbitrary Code nodes as elements.
 (do-template [<name> <tag> <open> <close>]
-  [(def: (<name> where parse-ast)
+  [(def: (<name> where ast)
      (-> Cursor
          (-> Cursor (l;Lexer [Cursor Code]))
          (l;Lexer [Cursor Code]))
@@ -355,7 +396,7 @@
                          (p;either (do @
                                      [## Must update the cursor as I
                                       ## go along, to keep things accurate.
-                                      [where' elem] (parse-ast where)]
+                                      [where' elem] (ast where)]
                                      (recur (V;add elem elems)
                                             where'))
                                    (do @
@@ -369,8 +410,8 @@
        (wrap [where'
               [where (<tag> elems)]])))]
 
-  [parse-form   #;Form   "(" ")"]
-  [parse-tuple  #;Tuple  "[" "]"]
+  [form   #;Form   "(" ")"]
+  [tuple  #;Tuple  "[" "]"]
   )
 
 ## Records are almost (syntactically) the same as forms and tuples,
@@ -382,7 +423,7 @@
 ## Code node, however, record Code nodes allow any Code node to occupy
 ## this position, since it may be useful when processing Code syntax in
 ## macros.
-(def: (parse-record where parse-ast)
+(def: (record where ast)
   (-> Cursor
       (-> Cursor (l;Lexer [Cursor Code]))
       (l;Lexer [Cursor Code]))
@@ -392,8 +433,8 @@
                                     V;empty)
                            where where]
                       (p;either (do @
-                                  [[where' key] (parse-ast where)
-                                   [where' val] (parse-ast where')]
+                                  [[where' key] (ast where)
+                                   [where' val] (ast where')]
                                   (recur (V;add [key val] elems)
                                          where'))
                                 (do @
@@ -498,31 +539,31 @@
        (wrap [(update@ #;column (|>. ($_ n.+ <extra> length)) where)
               [where (<tag> value)]])))]
 
-  [parse-symbol #;Symbol ident^                         +0]
-  [parse-tag    #;Tag    (p;after (l;this "#") ident^) +1]
+  [symbol #;Symbol ident^                        +0]
+  [tag    #;Tag    (p;after (l;this "#") ident^) +1]
   )
 
-(def: (parse-ast where)
+(def: (ast where)
   (-> Cursor (l;Lexer [Cursor Code]))
   (do p;Monad<Parser>
     [where (left-padding^ where)]
     ($_ p;either
-        (parse-form where parse-ast)
-        (parse-tuple where parse-ast)
-        (parse-record where parse-ast)
-        (parse-bool where)
-        (parse-nat where)
-        (parse-frac where)
-        (parse-int where)
-        (parse-deg where)
-        (parse-symbol where)
-        (parse-tag where)
-        (parse-text where)
+        (form where ast)
+        (tuple where ast)
+        (record where ast)
+        (bool where)
+        (nat where)
+        (frac where)
+        (int where)
+        (deg where)
+        (symbol where)
+        (tag where)
+        (text where)
         )))
 
 (def: #export (parse [where code])
   (-> [Cursor Text] (R;Result [[Cursor Text] Code]))
-  (case (p;run [+0 code] (parse-ast where))
+  (case (p;run [+0 code] (ast where))
     (#R;Error error)
     (#R;Error error)
 

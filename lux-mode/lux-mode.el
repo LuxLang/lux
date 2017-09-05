@@ -252,8 +252,11 @@ Called by `imenu--generic-function'."
        0 font-lock-constant-face)
       ; Nat literals
       ("\\<\\+\\(0\\|[1-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
-      ; Int|Real literals
+      ; Int|Frac literals
       ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\)?\\>" 0 font-lock-constant-face)
+      ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\(\\(e\\|E\\)\\(-\\|\\+\\)?[1-9][0-9_]*\\)?\\)?\\>" 0 font-lock-constant-face)
+      ; Frac "ratio" literals
+      ("\\<-?\\(0\\|[1-9][0-9_]*\\)/[1-9][0-9_]*\\>" 0 font-lock-constant-face)
       ; Deg literals
       ("\\<\\(\\.[0-9_]+\\)\\>" 0 font-lock-constant-face)
       ; Tags
