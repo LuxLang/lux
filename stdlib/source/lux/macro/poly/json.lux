@@ -27,6 +27,7 @@
               [code]
               [poly #+ poly:])
        [type]
+       (type [unit])
        ))
 
 (def: #hidden _map_
@@ -49,7 +50,7 @@
 
 (struct: #hidden _ (Codec JSON Nat)
   (def: (encode input)
-    (let [high (|> input (bit;and high-mask) (bit;unsigned-shift-right +32))
+    (let [high (|> input (bit;and high-mask) (bit;shift-right +32))
           low (bit;and low-mask input)]
       (#..;Array (vector (|> high nat-to-int int-to-frac #..;Number)
                          (|> low nat-to-int int-to-frac #..;Number)))))
@@ -74,6 +75,13 @@
       #;None         #..;Null
       (#;Some value) (writer value))))
 
+(struct: #hidden (Codec<JSON,Qty> carrier)
+  (All [unit] (-> unit (Codec JSON (unit;Qty unit))))
+  (def: encode
+    (|>. unit;out (:: Codec<JSON,Int> encode)))
+  (def: decode
+    (|>. (:: Codec<JSON,Int> decode) (:: R;Functor<Result> map (unit;in carrier)))))
+
 (poly: #hidden Codec<JSON,?>//encode
   (with-expansions
     [<basic> (do-template [<type> <matcher> <encoder>]
@@ -92,7 +100,7 @@
               [(do @
                  [_ (poly;this <type>)]
                  (wrap (` (: (~ (@JSON//encode inputT))
-                             (|>. (:: <codec> (~' encode)) ..;string)))))]
+                             (|>. (:: <codec> (~' encode)) #..;String)))))]
 
               [du;Duration du;Codec<Text,Duration>]
               [i;Instant   i;Codec<Text,Instant>]
@@ -108,6 +116,11 @@
       ($_ p;either
           <basic>
           <time>
+          (do @
+            [unitT (poly;apply (p;after (poly;this unit;Qty)
+                                        poly;any))]
+            (wrap (` (: (~ (@JSON//encode inputT))
+                        (:: (Codec<JSON,Qty> (:! (~ (poly;to-ast *env* unitT)) [])) (~' encode))))))
           (do @
             [#let [g!key (code;local-symbol "\u0000key")
                    g!val (code;local-symbol "\u0000val")]
@@ -215,6 +228,11 @@
       ($_ p;either
           <basic>
           <time>
+          (do @
+            [unitT (poly;apply (p;after (poly;this unit;Qty)
+                                        poly;any))]
+            (wrap (` (: (~ (@JSON//decode inputT))
+                        (p;codec (Codec<JSON,Qty> (:! (~ (poly;to-ast *env* unitT)) [])) ..;any)))))
           (do @
             [[_ _ valC] (poly;apply ($_ p;seq
                                         (poly;this d;Dict)
