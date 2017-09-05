@@ -106,7 +106,7 @@
       (.visitMaxs 0 0)
       (.visitEnd))))
 
-(let [impl-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL)]
+(let [impl-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STRICT)]
   (defn ^:private add-function-impl [^ClassWriter class class-name compile arity impl-body]
     (let [$begin (new Label)]
       (&/with-writer (doto (.visitMethod class impl-flags "impl" (function-impl-signature arity) nil nil)
@@ -165,7 +165,7 @@
           $labels* (map (fn [_] (new Label)) (repeat num-partials nil))
           $labels (vec (concat $labels* (list $default)))
           $end (new Label)
-          method-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature +degree+) nil nil)
+          method-writer (.visitMethod class-writer (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STRICT) &&/apply-method (&&/apply-signature +degree+) nil nil)
           frame-locals (to-array (list class-name "java/lang/Object" "java/lang/Object"))
           frame-stack (to-array [Opcodes/INTEGER])
           arity-over-extent (- arity +degree+)]
@@ -221,7 +221,7 @@
             (.visitEnd))
         (return nil)))
     (let [$begin (new Label)]
-      (&/with-writer (doto (.visitMethod ^ClassWriter class-writer Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature 1) nil nil)
+      (&/with-writer (doto (.visitMethod ^ClassWriter class-writer (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STRICT) &&/apply-method (&&/apply-signature 1) nil nil)
                        (.visitCode)
                        (.visitLabel $begin))
         (|do [^MethodVisitor *writer* &/get-writer
