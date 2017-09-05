@@ -22,12 +22,18 @@
 
 (with-expansions [<primitive> (declare T_BOOLEAN T_CHAR T_FLOAT T_DOUBLE
                                        T_BYTE T_SHORT T_INT T_LONG)
-                  <stack> (declare DUP DUP2_X1
+                  <stack> (declare DUP DUP2 DUP2_X1 DUP2_X2
                                    POP POP2
                                    SWAP)
                   <jump> (declare IF_ICMPEQ IF_ACMPEQ IFNULL
-                                  IFLT IFLE IFGT IFGE
-                                  GOTO)]
+                                  IFEQ IFLT IFLE IFGT IFGE
+                                  GOTO)
+                  <var> (declare ILOAD LLOAD DLOAD ALOAD
+                                 ISTORE LSTORE)
+                  <arithmethic> (declare IADD ISUB
+                                         LADD LSUB LMUL LDIV LREM LCMP
+                                         DADD DSUB DMUL DDIV DREM DCMPG)
+                  <return> (declare RETURN IRETURN LRETURN DRETURN ARETURN)]
   (jvm-import org.objectweb.asm.Opcodes
     <primitive>
 
@@ -41,11 +47,7 @@
 
     (#static ACONST_NULL int)
     
-    (#static ILOAD int)
-    (#static LLOAD int)
-    (#static ALOAD int)
-
-    (#static IADD int)
+    <var>
     
     (#static LAND int)
     (#static LOR int)
@@ -54,19 +56,7 @@
     (#static LSHR int)
     (#static LUSHR int)
 
-    (#static LADD int)
-    (#static LSUB int)
-    (#static LMUL int)
-    (#static LDIV int)
-    (#static LREM int)
-    (#static LCMP int)
-    
-    (#static DADD int)
-    (#static DSUB int)
-    (#static DMUL int)
-    (#static DDIV int)
-    (#static DREM int)
-    (#static DCMPG int)
+    <arithmethic>
 
     (#static I2L int)
     (#static L2I int)
@@ -89,10 +79,7 @@
 
     (#static ATHROW int)
 
-    (#static RETURN int)
-    (#static IRETURN int)
-    (#static LRETURN int)
-    (#static ARETURN int)
+    <return>
     ))
 
 (jvm-import org.objectweb.asm.FieldVisitor
@@ -113,7 +100,8 @@
   (visitIntInsn [int int] void)
   (visitMethodInsn [int String String String boolean] void)
   (visitLabel [Label] void)
-  (visitJumpInsn [int Label] void))
+  (visitJumpInsn [int Label] void)
+  (visitTryCatchBlock [Label Label Label String] void))
 
 ## [Insts]
 (def: #export (with-label action)
@@ -130,7 +118,7 @@
   [boolean Bool id]
   [int     Int  host;l2i]
   [long    Int  id]
-  [double  Real id]
+  [double  Frac id]
   [char    Nat  (|>. nat-to-int host;l2i host;i2c)]
   [string  Text id]
   )
@@ -152,14 +140,14 @@
          (MethodVisitor.visitInsn [(prefix <name>)]))))]
 
   ## Stack
-  [DUP] [DUP2_X1] [POP] [POP2] [SWAP]
-
-  ## Integer arithmetic
-  [IADD]
+  [DUP] [DUP2] [DUP2_X1] [DUP2_X2] [POP] [POP2] [SWAP]
 
   ## Long bitwise
   [LAND] [LOR] [LXOR] [LSHL] [LSHR] [LUSHR]
 
+  ## Integer arithmetic
+  [IADD] [ISUB]
+  
   ## Long arithmethic
   [LADD] [LSUB] [LMUL] [LDIV] [LREM] [LCMP]
 
@@ -176,19 +164,18 @@
   [ATHROW]
 
   ## Return
-  [RETURN] [IRETURN] [LRETURN] [ARETURN]
+  [RETURN] [IRETURN] [LRETURN] [DRETURN] [ARETURN]
   )
 
-(do-template [<name> <inst>]
+(do-template [<name>]
   [(def: #export (<name> register)
      (-> Nat $;Inst)
      (function [visitor]
        (do-to visitor
-         (MethodVisitor.visitVarInsn [<inst> (nat-to-int register)]))))]
+         (MethodVisitor.visitVarInsn [(prefix <name>) (nat-to-int register)]))))]
 
-  [ILOAD Opcodes.ILOAD]
-  [LLOAD Opcodes.LLOAD]
-  [ALOAD Opcodes.ALOAD]
+  [ILOAD] [LLOAD] [DLOAD] [ALOAD]
+  [ISTORE] [LSTORE]
   )
 
 (do-template [<name> <inst>]
@@ -251,9 +238,15 @@
          (MethodVisitor.visitJumpInsn [(prefix <name>) @where]))))]
 
   [IF_ICMPEQ] [IF_ACMPEQ] [IFNULL]
-  [IFLT] [IFLE] [IFGT] [IFGE]
+  [IFEQ] [IFLT] [IFLE] [IFGT] [IFGE]
   [GOTO]
   )
+
+(def: #export (try @from @to @handler exception)
+  (-> $;Label $;Label $;Label Text $;Inst)
+  (function [visitor]
+    (do-to visitor
+      (MethodVisitor.visitTryCatchBlock [@from @to @handler ($t;binary-name exception)]))))
 
 (def: #export (label @label)
   (-> $;Label $;Inst)
@@ -282,30 +275,46 @@
     (|>. (int (nat-to-int size))
          (ANEWARRAY ($t;descriptor type)))))
 
-(do-template [<wrap> <unwrap> <class> <unwrap-method> <prim>]
-  [(def: #export <wrap>
-     $;Inst
-     (|>. (INVOKESTATIC <class> "valueOf"
-                        ($t;method (list <prim>)
-                                   (#;Some ($t;class <class> (list)))
-                                   (list))
-                        false)))
-   (def: #export <unwrap>
-     $;Inst
-     (|>. (CHECKCAST <class>)
-          (INVOKEVIRTUAL <class> <unwrap-method>
-                         ($t;method (list) (#;Some <prim>) (list))
-                         false)))]
+(def: (primitive-wrapper type)
+  (-> $;Primitive Text)
+  (case type
+    #$;Boolean "java.lang.Boolean"
+    #$;Byte    "java.lang.Byte"
+    #$;Short   "java.lang.Short"
+    #$;Int     "java.lang.Integer"
+    #$;Long    "java.lang.Long"
+    #$;Float   "java.lang.Float"
+    #$;Double  "java.lang.Double"
+    #$;Char    "java.lang.Character"))
 
-  [wrap-boolean unwrap-boolean "java.lang.Boolean"   "booleanValue" $t;boolean]
-  [wrap-byte    unwrap-byte    "java.lang.Byte"      "byteValue"    $t;byte]
-  [wrap-short   unwrap-short   "java.lang.Short"     "shortValue"   $t;short]
-  [wrap-int     unwrap-int     "java.lang.Integer"   "intValue"     $t;int]
-  [wrap-long    unwrap-long    "java.lang.Long"      "longValue"    $t;long]
-  [wrap-float   unwrap-float   "java.lang.Float"     "floatValue"   $t;float]
-  [wrap-double  unwrap-double  "java.lang.Double"    "doubleValue"  $t;double]
-  [wrap-char    unwrap-char    "java.lang.Character" "charValue"    $t;char]
-  )
+(def: (primitive-unwrap type)
+  (-> $;Primitive Text)
+  (case type
+    #$;Boolean "booleanValue"
+    #$;Byte    "byteValue"
+    #$;Short   "shortValue"
+    #$;Int     "intValue"
+    #$;Long    "longValue"
+    #$;Float   "floatValue"
+    #$;Double  "doubleValue"
+    #$;Char    "charValue"))
+
+(def: #export (wrap type)
+  (-> $;Primitive $;Inst)
+  (let [class (primitive-wrapper type)]
+    (|>. (INVOKESTATIC class "valueOf"
+                       ($t;method (list (#$;Primitive type))
+                                  (#;Some ($t;class class (list)))
+                                  (list))
+                       false))))
+
+(def: #export (unwrap type)
+  (-> $;Primitive $;Inst)
+  (let [class (primitive-wrapper type)]
+    (|>. (CHECKCAST class)
+         (INVOKEVIRTUAL class (primitive-unwrap type)
+                        ($t;method (list) (#;Some (#$;Primitive type)) (list))
+                        false))))
 
 (def: #export (fuse insts)
   (-> (List $;Inst) $;Inst)

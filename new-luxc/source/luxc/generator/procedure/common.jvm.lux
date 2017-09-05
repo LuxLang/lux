@@ -1,6 +1,6 @@
 (;module:
   lux
-  (lux (control monad)
+  (lux (control [monad #+ do])
        (data [text]
              text/format
              (coll [list "L/" Functor<List> Monoid<List>]
@@ -72,7 +72,7 @@
 (syntax: (arity: [name s;local-symbol] [arity s;nat])
   (with-gensyms [g!proc g!name g!generate g!inputs]
     (do @
-      [g!input+ (seqM @ (list;repeat arity (macro;gensym "input")))]
+      [g!input+ (monad;seq @ (list;repeat arity (macro;gensym "input")))]
       (wrap (list (` (def: ((~ (code;local-symbol name)) (~ g!proc))
                        (-> (-> (Vector (~ (code;nat arity)) $;Inst) $;Inst)
                            (-> Text Proc))
@@ -96,27 +96,8 @@
 (arity: trinary +3)
 
 ## [Instructions]
-(def: some-method
-  $;Method
-  ($t;method (list $t;int $Object $Object) (#;Some $Object-Array) (list)))
-
-(def: make-someI
-  $;Inst
-  (|>. ($i;int 1)
-       ($i;string "")
-       $i;DUP2_X1
-       $i;POP2
-       ($i;INVOKESTATIC &runtime;runtime-name "sum_make" some-method false)))
-
-(def: make-noneI
-  $;Inst
-  (|>. ($i;int 9)
-       $i;NULL
-       ($i;string &runtime;unit)
-       ($i;INVOKESTATIC &runtime;runtime-name "sum_make" some-method false)))
-
-(def: lux-intI $;Inst (|>. $i;I2L $i;wrap-long))
-(def: jvm-intI $;Inst (|>. $i;unwrap-long $i;L2I))
+(def: lux-intI $;Inst (|>. $i;I2L ($i;wrap #$;Long)))
+(def: jvm-intI $;Inst (|>. ($i;unwrap #$;Long) $i;L2I))
 
 (def: (array-writeI arrayI idxI elemI)
   (-> $;Inst $;Inst $;Inst
@@ -161,9 +142,9 @@
 (do-template [<name> <op>]
   [(def: (<name> [inputI maskI])
      Binary
-     (|>. inputI $i;unwrap-long
-          maskI $i;unwrap-long
-          <op> $i;wrap-long))]
+     (|>. inputI ($i;unwrap #$;Long)
+          maskI ($i;unwrap #$;Long)
+          <op> ($i;wrap #$;Long)))]
 
   [bit//and $i;LAND]
   [bit//or  $i;LOR]
@@ -172,17 +153,17 @@
 
 (def: (bit//count inputI)
   Unary
-  (|>. inputI $i;unwrap-long
+  (|>. inputI ($i;unwrap #$;Long)
        ($i;INVOKESTATIC "java.lang.Long" "bitCount" ($t;method (list $t;long) (#;Some $t;int) (list)) false)
        lux-intI))
 
 (do-template [<name> <op>]
   [(def: (<name> [inputI shiftI])
      Binary
-     (|>. inputI $i;unwrap-long
+     (|>. inputI ($i;unwrap #$;Long)
           shiftI jvm-intI
           <op>
-          $i;wrap-long))]
+          ($i;wrap #$;Long)))]
 
   [bit//shift-left           $i;LSHL]
   [bit//shift-right          $i;LSHR]
@@ -203,11 +184,11 @@
            $i;AALOAD
            $i;DUP
            ($i;IFNULL @is-null)
-           make-someI
+           &runtime;someI
            ($i;GOTO @end)
            ($i;label @is-null)
            $i;POP
-           make-noneI
+           &runtime;noneI
            ($i;label @end))))
 
 (def: (array//put [arrayI idxI elemI])
@@ -240,21 +221,21 @@
      Nullary
      (|>. <const> <wrapper>))]
 
-  [nat//min                ($i;long 0)                             $i;wrap-long]
-  [nat//max                ($i;long -1)                            $i;wrap-long]
+  [nat//min                ($i;long 0)                             ($i;wrap #$;Long)]
+  [nat//max                ($i;long -1)                            ($i;wrap #$;Long)]
 
-  [int//min                ($i;long Long.MIN_VALUE)                $i;wrap-long]
-  [int//max                ($i;long Long.MAX_VALUE)                $i;wrap-long]
+  [int//min                ($i;long Long.MIN_VALUE)                ($i;wrap #$;Long)]
+  [int//max                ($i;long Long.MAX_VALUE)                ($i;wrap #$;Long)]
   
-  [real//smallest          ($i;double Double.MIN_VALUE)            $i;wrap-double]
-  [real//min               ($i;double (r.* -1.0 Double.MAX_VALUE)) $i;wrap-double]
-  [real//max               ($i;double Double.MAX_VALUE)            $i;wrap-double]
-  [real//not-a-number      ($i;double Double.NaN)                  $i;wrap-double]
-  [real//positive-infinity ($i;double Double.POSITIVE_INFINITY)    $i;wrap-double]
-  [real//negative-infinity ($i;double Double.NEGATIVE_INFINITY)    $i;wrap-double]
+  [frac//smallest          ($i;double Double.MIN_VALUE)            ($i;wrap #$;Double)]
+  [frac//min               ($i;double (f.* -1.0 Double.MAX_VALUE)) ($i;wrap #$;Double)]
+  [frac//max               ($i;double Double.MAX_VALUE)            ($i;wrap #$;Double)]
+  [frac//not-a-number      ($i;double Double.NaN)                  ($i;wrap #$;Double)]
+  [frac//positive-infinity ($i;double Double.POSITIVE_INFINITY)    ($i;wrap #$;Double)]
+  [frac//negative-infinity ($i;double Double.NEGATIVE_INFINITY)    ($i;wrap #$;Double)]
 
-  [deg//min                ($i;long 0)                             $i;wrap-long]
-  [deg//max                ($i;long -1)                            $i;wrap-long]
+  [deg//min                ($i;long 0)                             ($i;wrap #$;Long)]
+  [deg//max                ($i;long -1)                            ($i;wrap #$;Long)]
   )
 
 (do-template [<name> <unwrap> <wrap> <op>]
@@ -265,57 +246,53 @@
           <op>
           <wrap>))]
 
-  [int//add        $i;unwrap-long   $i;wrap-long   $i;LADD]
-  [int//sub        $i;unwrap-long   $i;wrap-long   $i;LSUB]
-  [int//mul        $i;unwrap-long   $i;wrap-long   $i;LMUL]
-  [int//div        $i;unwrap-long   $i;wrap-long   $i;LDIV]
-  [int//rem        $i;unwrap-long   $i;wrap-long   $i;LREM]
+  [int//add        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LADD]
+  [int//sub        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LSUB]
+  [int//mul        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LMUL]
+  [int//div        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LDIV]
+  [int//rem        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LREM]
   
-  [nat//add        $i;unwrap-long   $i;wrap-long   $i;LADD]
-  [nat//sub        $i;unwrap-long   $i;wrap-long   $i;LSUB]
-  [nat//mul        $i;unwrap-long   $i;wrap-long   $i;LMUL]
-  [nat//div        $i;unwrap-long   $i;wrap-long
+  [nat//add        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LADD]
+  [nat//sub        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LSUB]
+  [nat//mul        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LMUL]
+  [nat//div        ($i;unwrap #$;Long)   ($i;wrap #$;Long)
    ($i;INVOKESTATIC &runtime;runtime-name "div_nat" nat-method false)]
-  [nat//rem        $i;unwrap-long   $i;wrap-long
+  [nat//rem        ($i;unwrap #$;Long)   ($i;wrap #$;Long)
    ($i;INVOKESTATIC &runtime;runtime-name "rem_nat" nat-method false)]
 
-  [real//add       $i;unwrap-double $i;wrap-double $i;DADD]
-  [real//sub       $i;unwrap-double $i;wrap-double $i;DSUB]
-  [real//mul       $i;unwrap-double $i;wrap-double $i;DMUL]
-  [real//div       $i;unwrap-double $i;wrap-double $i;DDIV]
-  [real//rem       $i;unwrap-double $i;wrap-double $i;DREM]
+  [frac//add       ($i;unwrap #$;Double) ($i;wrap #$;Double) $i;DADD]
+  [frac//sub       ($i;unwrap #$;Double) ($i;wrap #$;Double) $i;DSUB]
+  [frac//mul       ($i;unwrap #$;Double) ($i;wrap #$;Double) $i;DMUL]
+  [frac//div       ($i;unwrap #$;Double) ($i;wrap #$;Double) $i;DDIV]
+  [frac//rem       ($i;unwrap #$;Double) ($i;wrap #$;Double) $i;DREM]
 
-  [deg//add        $i;unwrap-long   $i;wrap-long   $i;LADD]
-  [deg//sub        $i;unwrap-long   $i;wrap-long   $i;LSUB]
-  [deg//mul        $i;unwrap-long   $i;wrap-long
+  [deg//add        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LADD]
+  [deg//sub        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LSUB]
+  [deg//mul        ($i;unwrap #$;Long)   ($i;wrap #$;Long)
    ($i;INVOKESTATIC &runtime;runtime-name "mul_deg" deg-method false)]
-  [deg//div        $i;unwrap-long   $i;wrap-long
+  [deg//div        ($i;unwrap #$;Long)   ($i;wrap #$;Long)
    ($i;INVOKESTATIC &runtime;runtime-name "div_deg" deg-method false)]
-  [deg//rem        $i;unwrap-long   $i;wrap-long   $i;LSUB]
-  [deg//scale      $i;unwrap-long   $i;wrap-long   $i;LMUL]
-  [deg//reciprocal $i;unwrap-long   $i;wrap-long   $i;LDIV]
+  [deg//rem        ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LSUB]
+  [deg//scale      ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LMUL]
+  [deg//reciprocal ($i;unwrap #$;Long)   ($i;wrap #$;Long)   $i;LDIV]
   )
 
-(do-template [<name> <reference> <unwrap> <cmp>]
-  [(def: (<name> [subjectI paramI])
-     Binary
-     (|>. subjectI <unwrap>
-          paramI <unwrap>
-          <cmp>
-          ($i;int <reference>)
-          (predicateI $i;IF_ICMPEQ)))]
+(do-template [<eq> <lt> <unwrap> <cmp>]
+  [(do-template [<name> <reference>]
+     [(def: (<name> [subjectI paramI])
+        Binary
+        (|>. subjectI <unwrap>
+             paramI <unwrap>
+             <cmp>
+             ($i;int <reference>)
+             (predicateI $i;IF_ICMPEQ)))]
+     [<eq>  0]
+     [<lt> -1])]
 
-  [nat//eq   0 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compare_nat" compare-nat-method false)]
-  [nat//lt  -1 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compare_nat" compare-nat-method false)]
-  
-  [int//eq   0 $i;unwrap-long   $i;LCMP]
-  [int//lt  -1 $i;unwrap-long   $i;LCMP]
-
-  [real//eq  0 $i;unwrap-double $i;DCMPG]
-  [real//lt -1 $i;unwrap-double $i;DCMPG]
-
-  [deg//eq   0 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compare_nat" compare-nat-method false)]
-  [deg//lt  -1 $i;unwrap-long   ($i;INVOKESTATIC &runtime;runtime-name "compare_nat" compare-nat-method false)]
+  [nat//eq  nat//lt  ($i;unwrap #$;Long)   ($i;INVOKESTATIC &runtime;runtime-name "compare_nat" compare-nat-method false)]
+  [int//eq  int//lt  ($i;unwrap #$;Long)   $i;LCMP]
+  [frac//eq frac//lt ($i;unwrap #$;Double) $i;DCMPG]
+  [deg//eq  deg//lt  ($i;unwrap #$;Long)   ($i;INVOKESTATIC &runtime;runtime-name "compare_nat" compare-nat-method false)]
   )
 
 (do-template [<name> <prepare> <transform>]
@@ -324,25 +301,25 @@
      (|>. inputI <prepare> <transform>))]
 
   [nat//to-int id id]
-  [nat//to-char $i;unwrap-long
+  [nat//to-char ($i;unwrap #$;Long)
    (<| ($i;INVOKESTATIC "java.lang.Character" "toString" ($t;method (list $t;char) (#;Some $String) (list)) false)
        $i;I2C $i;L2I)]
   
   [int//to-nat id id]
-  [int//to-real $i;unwrap-long (<| $i;wrap-double $i;L2D)]
+  [int//to-frac ($i;unwrap #$;Long) (<| ($i;wrap #$;Double) $i;L2D)]
 
-  [real//to-int $i;unwrap-double (<| $i;wrap-long $i;D2L)]
-  [real//to-deg $i;unwrap-double
-   (<| $i;wrap-long ($i;INVOKESTATIC &runtime;runtime-name "real-to-deg"
-                                     ($t;method (list $t;double) (#;Some $t;long) (list)) false))]
-  [real//encode $i;unwrap-double
+  [frac//to-int ($i;unwrap #$;Double) (<| ($i;wrap #$;Long) $i;D2L)]
+  [frac//to-deg ($i;unwrap #$;Double)
+   (<| ($i;wrap #$;Long) ($i;INVOKESTATIC &runtime;runtime-name "frac_to_deg"
+                                          ($t;method (list $t;double) (#;Some $t;long) (list)) false))]
+  [frac//encode ($i;unwrap #$;Double)
    ($i;INVOKESTATIC "java.lang.Double" "toString" ($t;method (list $t;double) (#;Some $String) (list)) false)]
-  [real//decode ($i;CHECKCAST "java.lang.String")
-   ($i;INVOKESTATIC &runtime;runtime-name "decode_real" ($t;method (list $String) (#;Some $Object-Array) (list)) false)]
+  [frac//decode ($i;CHECKCAST "java.lang.String")
+   ($i;INVOKESTATIC &runtime;runtime-name "decode_frac" ($t;method (list $String) (#;Some $Object-Array) (list)) false)]
 
-  [deg//to-real $i;unwrap-long
-   (<| $i;wrap-double ($i;INVOKESTATIC &runtime;runtime-name "deg-to-real"
-                                       ($t;method (list $t;long) (#;Some $t;double) (list)) false))]
+  [deg//to-frac ($i;unwrap #$;Long)
+   (<| ($i;wrap #$;Double) ($i;INVOKESTATIC &runtime;runtime-name "deg_to_frac"
+                                            ($t;method (list $t;long) (#;Some $t;double) (list)) false))]
   )
 
 ## [[Text]]
@@ -370,7 +347,7 @@
 
   [text//eq id id
    ($i;INVOKEVIRTUAL "java.lang.Object" "equals" ($t;method (list $Object) (#;Some $t;boolean) (list)) false)
-   $i;wrap-boolean]
+   ($i;wrap #$;Boolean)]
   [text//lt ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String")
    ($i;INVOKEVIRTUAL "java.lang.String" "compareTo" ($t;method (list $String) (#;Some $t;int) (list)) false)
    (predicateI $i;IF_ICMPEQ)]
@@ -379,7 +356,7 @@
    id]
   [text//contains? ($i;CHECKCAST "java.lang.String") ($i;CHECKCAST "java.lang.String")
    ($i;INVOKEVIRTUAL "java.lang.String" "contains" ($t;method (list $CharSequence) (#;Some $t;boolean) (list)) false)
-   $i;wrap-boolean]
+   ($i;wrap #$;Boolean)]
   [text//char ($i;CHECKCAST "java.lang.String") jvm-intI
    ($i;INVOKESTATIC &runtime;runtime-name "text_char" ($t;method (list $String $t;int) (#;Some $t;int) (list)) false)
    lux-intI]
@@ -414,11 +391,11 @@
               ($i;int -1)
               ($i;IF_ICMPEQ @not-found)
               lux-intI
-              make-someI
+              &runtime;someI
               ($i;GOTO @end)
               ($i;label @not-found)
               $i;POP
-              make-noneI
+              &runtime;noneI
               ($i;label @end))))]
 
   [text//index      "indexOf"]
@@ -433,9 +410,9 @@
   [(def: (<name> inputI)
      Unary
      (|>. inputI
-          $i;unwrap-double
+          ($i;unwrap #$;Double)
           ($i;INVOKESTATIC "java.lang.Math" <method> math-unary-method false)
-          $i;wrap-double))]
+          ($i;wrap #$;Double)))]
 
   [math//cos "cos"]
   [math//sin "sin"]
@@ -457,10 +434,10 @@
 (do-template [<name> <method>]
   [(def: (<name> [inputI paramI])
      Binary
-     (|>. inputI $i;unwrap-double
-          paramI $i;unwrap-double
+     (|>. inputI ($i;unwrap #$;Double)
+          paramI ($i;unwrap #$;Double)
           ($i;INVOKESTATIC "java.lang.Math" <method> math-binary-method false)
-          $i;wrap-double))]
+          ($i;wrap #$;Double)))]
 
   [math//atan2 "atan2"]
   [math//pow "pow"]
@@ -469,10 +446,10 @@
 (def: (math//round inputI)
   Unary
   (|>. inputI
-       $i;unwrap-double
+       ($i;unwrap #$;Double)
        ($i;INVOKESTATIC "java.lang.Math" "round" ($t;method (list $t;double) (#;Some $t;long) (list)) false)
        $i;L2D
-       $i;wrap-double))
+       ($i;wrap #$;Double)))
 
 ## [[IO]]
 (def: string-method $;Method ($t;method (list $String) #;None (list)))
@@ -502,7 +479,7 @@
 (def: (io//current-time [])
   Nullary
   (|>. ($i;INVOKESTATIC "java.lang.System" "currentTimeMillis" ($t;method (list) (#;Some $t;long) (list)) false)
-       $i;wrap-long))
+       ($i;wrap #$;Long)))
 
 ## [[Atoms]]
 (def: atom-class Text "java.util.concurrent.atomic.AtomicReference")
@@ -526,7 +503,7 @@
        oldI
        newI
        ($i;INVOKEVIRTUAL atom-class "compareAndSet" ($t;method (list $Object $Object) (#;Some $t;boolean) (list)) false)
-       $i;wrap-boolean))
+       ($i;wrap #$;Boolean)))
 
 ## [[Processes]]
 (def: (process//concurrency-level [])
@@ -542,7 +519,7 @@
 
 (def: (process//schedule [millisecondsI procedureI])
   Binary
-  (|>. millisecondsI $i;unwrap-long
+  (|>. millisecondsI ($i;unwrap #$;Long)
        procedureI ($i;CHECKCAST &runtime;function-name)
        ($i;INVOKESTATIC &runtime;runtime-name "schedule"
                         ($t;method (list $t;long $Function) (#;Some $Object) (list)) false)))
@@ -594,28 +571,7 @@
       (install "int min" (nullary int//min))
       (install "int max" (nullary int//max))
       (install "int to-nat" (unary int//to-nat))
-      (install "int to-real" (unary int//to-real))))
-
-(def: real-procs
-  Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "real +" (binary real//add))
-      (install "real -" (binary real//sub))
-      (install "real *" (binary real//mul))
-      (install "real /" (binary real//div))
-      (install "real %" (binary real//rem))
-      (install "real =" (binary real//eq))
-      (install "real <" (binary real//lt))
-      (install "real smallest" (nullary real//smallest))
-      (install "real min" (nullary real//min))
-      (install "real max" (nullary real//max))
-      (install "real not-a-number" (nullary real//not-a-number))
-      (install "real positive-infinity" (nullary real//positive-infinity))
-      (install "real negative-infinity" (nullary real//negative-infinity))
-      (install "real to-deg" (unary real//to-deg))
-      (install "real to-int" (unary real//to-int))
-      (install "real encode" (unary real//encode))
-      (install "real decode" (unary real//decode))))
+      (install "int to-frac" (unary int//to-frac))))
 
 (def: deg-procs
   Bundle
@@ -631,17 +587,28 @@
       (install "deg reciprocal" (binary deg//reciprocal))
       (install "deg min" (nullary deg//min))
       (install "deg max" (nullary deg//max))
-      (install "deg to-real" (unary deg//to-real))))
+      (install "deg to-frac" (unary deg//to-frac))))
 
-(def: array-procs
+(def: frac-procs
   Bundle
   (|> (D;new text;Hash<Text>)
-      (install "array new" (unary array//new))
-      (install "array get" (binary array//get))
-      (install "array put" (trinary array//put))
-      (install "array remove" (binary array//remove))
-      (install "array size" (unary array//size))
-      ))
+      (install "frac +" (binary frac//add))
+      (install "frac -" (binary frac//sub))
+      (install "frac *" (binary frac//mul))
+      (install "frac /" (binary frac//div))
+      (install "frac %" (binary frac//rem))
+      (install "frac =" (binary frac//eq))
+      (install "frac <" (binary frac//lt))
+      (install "frac smallest" (nullary frac//smallest))
+      (install "frac min" (nullary frac//min))
+      (install "frac max" (nullary frac//max))
+      (install "frac not-a-number" (nullary frac//not-a-number))
+      (install "frac positive-infinity" (nullary frac//positive-infinity))
+      (install "frac negative-infinity" (nullary frac//negative-infinity))
+      (install "frac to-deg" (unary frac//to-deg))
+      (install "frac to-int" (unary frac//to-int))
+      (install "frac encode" (unary frac//encode))
+      (install "frac decode" (unary frac//decode))))
 
 (def: text-procs
   Bundle
@@ -655,6 +622,16 @@
       (install "text replace" (trinary text//replace))
       (install "text char" (binary text//char))
       (install "text clip" (trinary text//clip))
+      ))
+
+(def: array-procs
+  Bundle
+  (|> (D;new text;Hash<Text>)
+      (install "array new" (unary array//new))
+      (install "array get" (binary array//get))
+      (install "array put" (trinary array//put))
+      (install "array remove" (binary array//remove))
+      (install "array size" (unary array//size))
       ))
 
 (def: math-procs
@@ -711,7 +688,7 @@
       (D;merge nat-procs)
       (D;merge int-procs)
       (D;merge deg-procs)
-      (D;merge real-procs)
+      (D;merge frac-procs)
       (D;merge text-procs)
       (D;merge array-procs)
       (D;merge math-procs)
