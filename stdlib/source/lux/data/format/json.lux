@@ -1,10 +1,10 @@
-(;module: {#;doc "Functionality for generating and processing values in the JSON format.
+(;module: {#;doc "Functionality for reading and writing values in the JSON format.
 
                   For more information, please see: http://www.json.org/"}
   lux
   (lux (control functor
                 applicative
-                ["M" monad #+ do Monad]
+                [monad #+ do Monad]
                 [eq #+ Eq]
                 codec
                 ["p" parser "p/" Monad<Parser>])
@@ -26,7 +26,6 @@
        [type]
        ))
 
-## [Types]
 (do-template [<name> <type>]
   [(type: #export <name> <type>)]
 
@@ -55,7 +54,6 @@
   {#;doc "JSON reader."}
   (p;Parser (List JSON) a))
 
-## [Syntax]
 (syntax: #export (json token)
   {#;doc (doc "A simple way to produce JSON literals."
               (json true)
@@ -83,27 +81,22 @@
 
       [_ (#;Record pairs)]
       (do Monad<Lux>
-        [pairs' (M;map @
-                       (function [[slot value]]
-                         (case slot
-                           [_ (#;Text key-name)]
-                           (wrap (` [(~ (code;text key-name)) (~ (wrapper value))]))
+        [pairs' (monad;map @
+                           (function [[slot value]]
+                             (case slot
+                               [_ (#;Text key-name)]
+                               (wrap (` [(~ (code;text key-name)) (~ (wrapper value))]))
 
-                           _
-                           (macro;fail "Wrong syntax for JSON object.")))
-                       pairs)]
+                               _
+                               (macro;fail "Wrong syntax for JSON object.")))
+                           pairs)]
         (wrap (list (` (: JSON (#Object (d;from-list text;Hash<Text> (list (~@ pairs')))))))))
       
       _
       (wrap (list token))
       )))
 
-(def: #export null
-  {#;doc "The null JSON value."}
-  JSON
-  #Null)
-
-(def: #export (fields json)
+(def: #export (get-fields json)
   {#;doc "Get all the fields in a JSON object."}
   (-> JSON (R;Result (List String)))
   (case json
@@ -159,27 +152,6 @@
   [get-object  #Object  Object  "objects"]
   )
 
-(do-template [<name> <type> <tag> <desc>]
-  [(def: #export (<name> value)
-     {#;doc (#;TextA ($_ text/append "A JSON generator for " <desc> "."))}
-     (-> <type> JSON)
-     (<tag> value))]
-
-  [boolean Boolean #Boolean "booleans"]
-  [number  Number  #Number  "numbers"]
-  [string  String  #String  "strings"]
-  [array   Array   #Array   "arrays"]
-  [object  Object  #Object  "objects"]
-  )
-
-(def: #export (nullable writer)
-  {#;doc "Builds a JSON generator for potentially inexistent values."}
-  (All [a] (-> (-> a JSON) (-> (Maybe a) JSON)))
-  (function [elem]
-    (case elem
-      #;None         #Null
-      (#;Some value) (writer value))))
-
 (struct: #export _ (Eq JSON)
   (def: (= x y)
     (case [x y]
@@ -217,3 +189,317 @@
       
       _
       false)))
+
+############################################################
+############################################################
+############################################################
+
+(def: unconsumed-input-error Text "Unconsumed JSON.")
+
+(def: #export (run json parser)
+  (All [a] (-> JSON (Reader a) (R;Result a)))
+  (case (p;run (list json) parser)
+    (#R;Success [remainder output])
+    (case remainder
+      #;Nil
+      (#R;Success output)
+
+      _
+      (#R;Error unconsumed-input-error))
+    
+    (#R;Error error)
+    (#R;Error error)))
+
+(def: #export (fail error)
+  (All [a] (-> Text (Reader a)))
+  (function [inputs]
+    (#R;Error error)))
+
+(def: #export any
+  {#;doc "Just returns the JSON input without applying any logic."}
+  (Reader JSON)
+  (<| (function [inputs])
+      (case inputs
+        #;Nil
+        (#R;Error "Empty JSON stream.")
+        
+        (#;Cons head tail)
+        (#R;Success [tail head]))))
+
+(do-template [<name> <type> <tag> <desc>]
+  [(def: #export <name>
+     {#;doc (#;TextA ($_ text/append "Reads a JSON value as " <desc> "."))}
+     (Reader <type>)
+     (do p;Monad<Parser>
+       [head any]
+       (case head
+         (<tag> value)
+         (wrap value)
+
+         _
+         (fail ($_ text/append "JSON value is not " <desc> ".")))))]
+
+  [null    Unit #Null    "null"]
+  [boolean Bool #Boolean "boolean"]
+  [number  Frac #Number  "number"]
+  [string  Text #String  "string"]
+  )
+
+(do-template [<test> <check> <type> <eq> <encoder> <tag> <desc> <pre>]
+  [(def: #export (<test> test)
+     {#;doc (#;TextA ($_ text/append "Asks whether a JSON value is a " <desc> "."))}
+     (-> <type> (Reader Bool))
+     (do p;Monad<Parser>
+       [head any]
+       (case head
+         (<tag> value)
+         (wrap (:: <eq> = test (<pre> value)))
+
+         _
+         (fail ($_ text/append "JSON value is not " <desc> ".")))))
+
+   (def: #export (<check> test)
+     {#;doc (#;TextA ($_ text/append "Ensures a JSON value is a " <desc> "."))}
+     (-> <type> (Reader Unit))
+     (do p;Monad<Parser>
+       [head any]
+       (case head
+         (<tag> value)
+         (let [value (<pre> value)]
+           (if (:: <eq> = test value)
+             (wrap [])
+             (fail ($_ text/append "Value mismatch: " (<encoder> test) "=/=" (<encoder> value)))))
+
+         _
+         (fail ($_ text/append "JSON value is not a " <desc> ".")))))]
+
+  [boolean? boolean! Bool bool;Eq<Bool>   (:: bool;Codec<Text,Bool> encode)   #Boolean "boolean" id]
+  [number?  number!  Frac number;Eq<Frac> (:: number;Codec<Text,Frac> encode) #Number  "number"  id]
+  [string?  string!  Text text;Eq<Text>   text;encode                         #String  "string"  id]
+  )
+
+(def: #export (nullable parser)
+  (All [a] (-> (Reader a) (Reader (Maybe a))))
+  (p;alt null
+         parser))
+
+(def: #export (array parser)
+  {#;doc "Parses a JSON array, assuming that every element can be parsed the same way."}
+  (All [a] (-> (Reader a) (Reader a)))
+  (do p;Monad<Parser>
+    [head any]
+    (case head
+      (#Array values)
+      (case (p;run (vector;to-list values) parser)
+        (#R;Error error)
+        (fail error)
+
+        (#R;Success [remainder output])
+        (case remainder
+          #;Nil
+          (wrap output)
+
+          _
+          (fail unconsumed-input-error)))
+
+      _
+      (fail "JSON value is not an array."))))
+
+(def: #export (object parser)
+  {#;doc "Parses a JSON object, assuming that every element can be parsed the same way."}
+  (All [a] (-> (Reader a) (Reader (d;Dict Text a))))
+  (do p;Monad<Parser>
+    [head any]
+    (case head
+      (#Object object)
+      (case (do R;Monad<Result>
+              []
+              (|> (d;entries object)
+                  (monad;map @ (function [[key val]]
+                                 (do @
+                                   [val (run val parser)]
+                                   (wrap [key val]))))
+                  (:: @ map (d;from-list text;Hash<Text>))))
+        (#R;Success table)
+        (wrap table)
+
+        (#R;Error error)
+        (fail error))
+
+      _
+      (fail "JSON value is not an array."))))
+
+(def: #export (field field-name parser)
+  {#;doc "Parses a field inside a JSON object."}
+  (All [a] (-> Text (Reader a) (Reader a)))
+  (do p;Monad<Parser>
+    [head any]
+    (case head
+      (#Object object)
+      (case (d;get field-name object)
+        (#;Some value)
+        (case (run value parser)
+          (#R;Success output)
+          (function [tail]
+            (#R;Success [(#;Cons (#Object (d;remove field-name object))
+                                 tail)
+                         output]))
+
+          (#R;Error error)
+          (fail error))
+
+        _
+        (fail ($_ text/append "JSON object does not have field \"" field-name "\".")))
+
+      _
+      (fail "JSON value is not an object."))))
+
+############################################################
+############################################################
+############################################################
+
+(def: #hidden (show-null _) (-> Null Text) "null")
+(do-template [<name> <type> <codec>]
+  [(def: <name> (-> <type> Text) <codec>)]
+
+  [show-boolean Boolean (:: bool;Codec<Text,Bool> encode)]
+  [show-number  Number (:: number;Codec<Text,Frac> encode)]
+  [show-string  String text;encode])
+
+(def: (show-array show-json elems)
+  (-> (-> JSON Text) (-> Array Text))
+  ($_ text/append "["
+      (|> elems (Vector/map show-json) vector;to-list (text;join-with ","))
+      "]"))
+
+(def: (show-object show-json object)
+  (-> (-> JSON Text) (-> Object Text))
+  ($_ text/append "{"
+      (|> object
+          d;entries
+          (L/map (function [[key value]] ($_ text/append (show-string key) ":" (show-json value))))
+          (text;join-with ","))
+      "}"))
+
+(def: (show-json json)
+  (-> JSON Text)
+  (case json
+    (^template [<tag> <show>]
+      (<tag> value)
+      (<show> value))
+    ([#Null    show-null]
+     [#Boolean show-boolean]
+     [#Number  show-number]
+     [#String  show-string]
+     [#Array   (show-array show-json)]
+     [#Object  (show-object show-json)])
+    ))
+
+(def: space~
+  (l;Lexer Text)
+  (l;some l;space))
+
+(def: data-sep
+  (l;Lexer [Text Unit Text])
+  ($_ p;seq space~ (l;this ",") space~))
+
+(def: null~
+  (l;Lexer Null)
+  (do p;Monad<Parser>
+    [_ (l;this "null")]
+    (wrap [])))
+
+(do-template [<name> <token> <value>]
+  [(def: <name>
+     (l;Lexer Boolean)
+     (do p;Monad<Parser>
+       [_ (l;this <token>)]
+       (wrap <value>)))]
+
+  [t~ "true"  true]
+  [f~ "false" false]
+  )
+
+(def: boolean~
+  (l;Lexer Boolean)
+  (p;either t~ f~))
+
+(def: number~
+  (l;Lexer Number)
+  (do p;Monad<Parser>
+    [signed? (l;this? "-")
+     digits (l;many l;decimal)
+     decimals (p;default "0"
+                (do @
+                  [_ (l;this ".")]
+                  (l;many l;decimal)))
+     exp (p;default ""
+           (do @
+             [mark (l;one-of "eE")
+              signed?' (l;this? "-")
+              offset (l;many l;decimal)]
+             (wrap ($_ text/append mark (if signed?' "-" "") offset))))]
+    (case (frac/decode ($_ text/append (if signed? "-" "") digits "." decimals exp))
+      (#R;Error message)
+      (p;fail message)
+      
+      (#R;Success value)
+      (wrap value))))
+
+(def: escaped~
+  (l;Lexer Text)
+  ($_ p;either
+      (p;after (l;this "\\t") (p/wrap "\t"))
+      (p;after (l;this "\\b") (p/wrap "\b"))
+      (p;after (l;this "\\n") (p/wrap "\n"))
+      (p;after (l;this "\\r") (p/wrap "\r"))
+      (p;after (l;this "\\f") (p/wrap "\f"))
+      (p;after (l;this "\\\"") (p/wrap "\""))
+      (p;after (l;this "\\\\") (p/wrap "\\"))))
+
+(def: string~
+  (l;Lexer String)
+  (<| (l;enclosed ["\"" "\""])
+      (loop [_ []])
+      (do p;Monad<Parser>
+        [chars (l;some (l;none-of "\\\""))
+         stop l;peek])
+      (if (text/= "\\" stop)
+        (do @
+          [escaped escaped~
+           next-chars (recur [])]
+          (wrap ($_ text/append chars escaped next-chars)))
+        (wrap chars))))
+
+(def: (kv~ json~)
+  (-> (-> Unit (l;Lexer JSON)) (l;Lexer [String JSON]))
+  (do p;Monad<Parser>
+    [key string~
+     _ space~
+     _ (l;this ":")
+     _ space~
+     value (json~ [])]
+    (wrap [key value])))
+
+(do-template [<name> <type> <open> <close> <elem-parser> <prep>]
+  [(def: (<name> json~)
+     (-> (-> Unit (l;Lexer JSON)) (l;Lexer <type>))
+     (do p;Monad<Parser>
+       [_ (l;this <open>)
+        _ space~
+        elems (p;sep-by data-sep <elem-parser>)
+        _ space~
+        _ (l;this <close>)]
+       (wrap (<prep> elems))))]
+
+  [array~  Array  "[" "]" (json~ [])  vector;from-list]
+  [object~ Object "{" "}" (kv~ json~) (d;from-list text;Hash<Text>)]
+  )
+
+(def: (json~' _)
+  (-> Unit (l;Lexer JSON))
+  ($_ p;alt null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
+
+(struct: #export _ (Codec Text JSON)
+  (def: encode show-json)
+  (def: decode (function [input] (l;run input (json~' [])))))

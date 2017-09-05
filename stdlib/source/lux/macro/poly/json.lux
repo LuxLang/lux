@@ -1,6 +1,4 @@
-(;module: {#;doc "Codecs for values in the JSON format.
-
-                  For more information, please see: http://www.json.org/"}
+(;module: {#;doc "Codecs for values in the JSON format."}
   lux
   (lux (control functor
                 applicative
@@ -19,7 +17,8 @@
              [product]
              (coll [list "L/" Fold<List> Monad<List>]
                    [vector #+ Vector vector "Vector/" Monad<Vector>]
-                   ["d" dict]))
+                   ["d" dict])
+             (format [".." json #+ JSON]))
        (time ["i" instant]
              ["du" duration]
              ["da" date])
@@ -28,158 +27,8 @@
               [code]
               [poly #+ poly:])
        [type]
-       )
-  [.. #+ JSON]
-  [../reader])
+       ))
 
-## [Values]
-(def: #hidden (show-null _) (-> ..;Null Text) "null")
-(do-template [<name> <type> <codec>]
-  [(def: <name> (-> <type> Text) <codec>)]
-
-  [show-boolean ..;Boolean (:: bool;Codec<Text,Bool> encode)]
-  [show-number  ..;Number (:: number;Codec<Text,Frac> encode)]
-  [show-string  ..;String text;encode])
-
-(def: (show-array show-json elems)
-  (-> (-> JSON Text) (-> ..;Array Text))
-  ($_ text/append "["
-      (|> elems (Vector/map show-json) vector;to-list (text;join-with ","))
-      "]"))
-
-(def: (show-object show-json object)
-  (-> (-> JSON Text) (-> ..;Object Text))
-  ($_ text/append "{"
-      (|> object
-          d;entries
-          (L/map (function [[key value]] ($_ text/append (show-string key) ":" (show-json value))))
-          (text;join-with ","))
-      "}"))
-
-(def: (show-json json)
-  (-> JSON Text)
-  (case json
-    (^template [<tag> <show>]
-      (<tag> value)
-      (<show> value))
-    ([#..;Null    show-null]
-     [#..;Boolean show-boolean]
-     [#..;Number  show-number]
-     [#..;String  show-string]
-     [#..;Array   (show-array show-json)]
-     [#..;Object  (show-object show-json)])
-    ))
-
-(def: space~
-  (l;Lexer Text)
-  (l;some l;space))
-
-(def: data-sep
-  (l;Lexer [Text Unit Text])
-  ($_ p;seq space~ (l;this ",") space~))
-
-(def: null~
-  (l;Lexer ..;Null)
-  (do p;Monad<Parser>
-    [_ (l;this "null")]
-    (wrap [])))
-
-(do-template [<name> <token> <value>]
-  [(def: <name>
-     (l;Lexer ..;Boolean)
-     (do p;Monad<Parser>
-       [_ (l;this <token>)]
-       (wrap <value>)))]
-
-  [t~ "true"  true]
-  [f~ "false" false]
-  )
-
-(def: boolean~
-  (l;Lexer ..;Boolean)
-  (p;either t~ f~))
-
-(def: number~
-  (l;Lexer ..;Number)
-  (do p;Monad<Parser>
-    [signed? (l;this? "-")
-     digits (l;many l;decimal)
-     decimals (p;default "0"
-                (do @
-                  [_ (l;this ".")]
-                  (l;many l;decimal)))
-     exp (p;default ""
-           (do @
-             [mark (l;one-of "eE")
-              signed?' (l;this? "-")
-              offset (l;many l;decimal)]
-             (wrap ($_ text/append mark (if signed?' "-" "") offset))))]
-    (case (frac/decode ($_ text/append (if signed? "-" "") digits "." decimals exp))
-      (#R;Error message)
-      (p;fail message)
-      
-      (#R;Success value)
-      (wrap value))))
-
-(def: escaped~
-  (l;Lexer Text)
-  ($_ p;either
-      (p;after (l;this "\\t") (p/wrap "\t"))
-      (p;after (l;this "\\b") (p/wrap "\b"))
-      (p;after (l;this "\\n") (p/wrap "\n"))
-      (p;after (l;this "\\r") (p/wrap "\r"))
-      (p;after (l;this "\\f") (p/wrap "\f"))
-      (p;after (l;this "\\\"") (p/wrap "\""))
-      (p;after (l;this "\\\\") (p/wrap "\\"))))
-
-(def: string~
-  (l;Lexer ..;String)
-  (<| (l;enclosed ["\"" "\""])
-      (loop [_ []])
-      (do p;Monad<Parser>
-        [chars (l;some (l;none-of "\\\""))
-         stop l;peek])
-      (if (text/= "\\" stop)
-        (do @
-          [escaped escaped~
-           next-chars (recur [])]
-          (wrap ($_ text/append chars escaped next-chars)))
-        (wrap chars))))
-
-(def: (kv~ json~)
-  (-> (-> Unit (l;Lexer JSON)) (l;Lexer [..;String JSON]))
-  (do p;Monad<Parser>
-    [key string~
-     _ space~
-     _ (l;this ":")
-     _ space~
-     value (json~ [])]
-    (wrap [key value])))
-
-(do-template [<name> <type> <open> <close> <elem-parser> <prep>]
-  [(def: (<name> json~)
-     (-> (-> Unit (l;Lexer JSON)) (l;Lexer <type>))
-     (do p;Monad<Parser>
-       [_ (l;this <open>)
-        _ space~
-        elems (p;sep-by data-sep <elem-parser>)
-        _ space~
-        _ (l;this <close>)]
-       (wrap (<prep> elems))))]
-
-  [array~  ..;Array  "[" "]" (json~ [])  vector;from-list]
-  [object~ ..;Object "{" "}" (kv~ json~) (d;from-list text;Hash<Text>)]
-  )
-
-(def: (json~' _)
-  (-> Unit (l;Lexer JSON))
-  ($_ p;alt null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
-
-(struct: #export _ (Codec Text JSON)
-  (def: encode show-json)
-  (def: decode (function [input] (l;run input (json~' [])))))
-
-## [Polytypism]
 (def: #hidden _map_
   (All [a b] (-> (-> a b) (List a) (List b)))
   L/map)
@@ -202,13 +51,13 @@
   (def: (encode input)
     (let [high (|> input (bit;and high-mask) (bit;unsigned-shift-right +32))
           low (bit;and low-mask input)]
-      (..;array (vector (|> high nat-to-int int-to-frac #..;Number)
-                        (|> low nat-to-int int-to-frac #..;Number)))))
+      (#..;Array (vector (|> high nat-to-int int-to-frac #..;Number)
+                         (|> low nat-to-int int-to-frac #..;Number)))))
   (def: (decode input)
-    (<| (../reader;run input)
+    (<| (..;run input)
         (do p;Monad<Parser>
-          [high ../reader;number
-           low ../reader;number])
+          [high ..;number
+           low ..;number])
         (wrap (n.+ (|> high frac-to-int int-to-nat (bit;shift-left +32))
                    (|> low frac-to-int int-to-nat))))))
 
@@ -216,6 +65,14 @@
   (def: encode (|>. int-to-nat (:: Codec<JSON,Nat> encode)))
   (def: decode
     (|>. (:: Codec<JSON,Nat> decode) (:: R;Functor<Result> map nat-to-int))))
+
+(def: #hidden (nullable writer)
+  {#;doc "Builds a JSON generator for potentially inexistent values."}
+  (All [a] (-> (-> a JSON) (-> (Maybe a) JSON)))
+  (function [elem]
+    (case elem
+      #;None         #..;Null
+      (#;Some value) (writer value))))
 
 (poly: #hidden Codec<JSON,?>//encode
   (with-expansions
@@ -226,11 +83,11 @@
                               <encoder>))))]
 
                [Unit poly;unit (function [(~ (code;symbol ["" "0"]))] #..;Null)]
-               [Bool poly;bool ..;boolean]
+               [Bool poly;bool (|>. #..;Boolean)]
                [Nat  poly;nat  (:: ;;Codec<JSON,Nat> (~' encode))]
                [Int  poly;int  (:: ;;Codec<JSON,Int> (~' encode))]
-               [Frac poly;frac ..;number]
-               [Text poly;text ..;string])
+               [Frac poly;frac (|>. #..;Number)]
+               [Text poly;text (|>. #..;String)])
      <time> (do-template [<type> <codec>]
               [(do @
                  [_ (poly;this <type>)]
@@ -269,13 +126,13 @@
                                        (poly;this ;Maybe)
                                        Codec<JSON,?>//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
-                        (..;nullable (~ .sub.))))))
+                        (;;nullable (~ .sub.))))))
           (do @
             [[_ .sub.] (poly;apply ($_ p;seq
                                        (poly;this ;List)
                                        Codec<JSON,?>//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
-                        (|>. (;;_map_ (~ .sub.)) vector;from-list ..;array)))))
+                        (|>. (;;_map_ (~ .sub.)) vector;from-list #..;Array)))))
           (do @
             [#let [g!input (code;local-symbol "\u0000input")]
              members (poly;variant (p;many Codec<JSON,?>//encode))]
@@ -332,17 +189,17 @@
                   (wrap (` (: (~ (@JSON//decode inputT))
                               <decoder>))))]
 
-               [Unit poly;unit ../reader;null]
-               [Bool poly;bool ../reader;boolean]
-               [Nat  poly;nat  (p;codec ;;Codec<JSON,Nat> ../reader;any)]
-               [Int  poly;int  (p;codec ;;Codec<JSON,Int> ../reader;any)]
-               [Frac poly;frac ../reader;number]
-               [Text poly;text ../reader;string])
+               [Unit poly;unit ..;null]
+               [Bool poly;bool ..;boolean]
+               [Nat  poly;nat  (p;codec ;;Codec<JSON,Nat> ..;any)]
+               [Int  poly;int  (p;codec ;;Codec<JSON,Int> ..;any)]
+               [Frac poly;frac ..;number]
+               [Text poly;text ..;string])
      <time> (do-template [<type> <codec>]
               [(do @
                  [_ (poly;this <type>)]
                  (wrap (` (: (~ (@JSON//decode inputT))
-                             (p;codec <codec> ../reader;string)))))]
+                             (p;codec <codec> ..;string)))))]
 
               [du;Duration du;Codec<Text,Duration>]
               [i;Instant   i;Codec<Text,Instant>]
@@ -364,30 +221,30 @@
                                         poly;text
                                         Codec<JSON,?>//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
-                        (../reader;object (~ valC))))))
+                        (..;object (~ valC))))))
           (do @
             [[_ subC] (poly;apply (p;seq (poly;this ;Maybe)
                                          Codec<JSON,?>//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
-                        (../reader;nullable (~ subC))))))
+                        (..;nullable (~ subC))))))
           (do @
             [[_ subC] (poly;apply (p;seq (poly;this ;List)
                                          Codec<JSON,?>//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
-                        (../reader;array (p;some (~ subC)))))))
+                        (..;array (p;some (~ subC)))))))
           (do @
             [members (poly;variant (p;many Codec<JSON,?>//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         ($_ p;alt
                             (~@ (L/map (function [[tag memberC]]
                                          (` (|> (~ memberC)
-                                                (p;after (../reader;number! (~ (code;frac (;;tag tag)))))
-                                                ../reader;array)))
+                                                (p;after (..;number! (~ (code;frac (;;tag tag)))))
+                                                ..;array)))
                                        (list;enumerate members))))))))
           (do @
             [g!decoders (poly;tuple (p;many Codec<JSON,?>//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
-                        (../reader;array ($_ p;seq (~@ g!decoders)))))))
+                        (..;array ($_ p;seq (~@ g!decoders)))))))
           ## Type recursion
           (do @
             [[selfC bodyC] (poly;recursive Codec<JSON,?>//decode)]
@@ -435,5 +292,5 @@
   (with-gensyms [g!inputs]
     (wrap (list (` (: (Codec ..;JSON (~ inputT))
                       (struct (def: (~' encode) (Codec<JSON,?>//encode (~ inputT)))
-                              (def: ((~' decode) (~ g!inputs)) (../reader;run (~ g!inputs) (Codec<JSON,?>//decode (~ inputT))))
+                              (def: ((~' decode) (~ g!inputs)) (..;run (~ g!inputs) (Codec<JSON,?>//decode (~ inputT))))
                               )))))))
