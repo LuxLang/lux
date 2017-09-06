@@ -221,11 +221,6 @@
    (p;either (marker^ "true") (marker^ "false"))
    bool;Codec<Text,Bool>]
   
-  [nat #;Nat
-   (l;seq (l;one-of "+")
-          rich-digits^)
-   number;Codec<Text,Nat>]
-  
   [int #;Int
    (l;seq (p;default "" (l;one-of "-"))
           rich-digits^)
@@ -236,6 +231,49 @@
           rich-digits^)
    number;Codec<Text,Deg>]
   )
+
+(def: (nat-char where)
+  (-> Cursor (l;Lexer [Cursor Code]))
+  (do p;Monad<Parser>
+    [_ (l;this "#\"")
+     [where' char] (: (l;Lexer [Cursor Text])
+                      ($_ p;either
+                          ## Normal text characters.
+                          (do @
+                            [normal (l;none-of "\\\"\n")]
+                            (wrap [(|> where
+                                       (update@ #;column n.inc))
+                                   normal]))
+                          ## Must handle escaped
+                          ## chars separately.
+                          (do @
+                            [[chars-consumed char] escaped-char^]
+                            (wrap [(|> where
+                                       (update@ #;column (n.+ chars-consumed)))
+                                   char]))))
+     _ (l;this "\"")
+     #let [char (assume (text;nth +0 char))]]
+    (wrap [(|> where'
+               (update@ #;column n.inc))
+           [where (#;Nat char)]])))
+
+(def: (normal-nat where)
+  (-> Cursor (l;Lexer [Cursor Code]))
+  (do p;Monad<Parser>
+    [chunk (l;seq (l;one-of "+")
+                  rich-digits^)]
+    (case (:: number;Codec<Text,Nat> decode chunk)
+      (#;Left error)
+      (p;fail error)
+
+      (#;Right value)
+      (wrap [(update@ #;column (n.+ (text;size chunk)) where)
+             [where (#;Nat value)]]))))
+
+(def: #export (nat where)
+  (-> Cursor (l;Lexer [Cursor Code]))
+  (p;either (normal-nat where)
+            (nat-char where)))
 
 (def: (normal-frac where)
   (-> Cursor (l;Lexer [Cursor Code]))
