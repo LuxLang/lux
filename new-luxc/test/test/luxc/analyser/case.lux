@@ -25,7 +25,7 @@
   (.. common)
   (test/luxc common))
 
-(def: (total-weaving branchings)
+(def: (exhaustive-weaving branchings)
   (-> (List (List Code)) (List (List Code)))
   (case branchings
     #;Nil
@@ -36,11 +36,11 @@
 
     (#;Cons head+ tail++)
     (do list;Monad<List>
-      [tail+ (total-weaving tail++)
+      [tail+ (exhaustive-weaving tail++)
        head head+]
       (wrap (#;Cons head tail+)))))
 
-(def: (total-branches-for allow-literals? variantTC inputC)
+(def: (exhaustive-branches-for allow-literals? variantTC inputC)
   (-> Bool (List [Code Code]) Code (r;Random (List Code)))
   (case inputC
     [_ (#;Bool _)]
@@ -54,7 +54,7 @@
           (case ?sample
             (#;Some sample)
             (do @
-              [else (total-branches-for allow-literals? variantTC inputC)]
+              [else (exhaustive-branches-for allow-literals? variantTC inputC)]
               (wrap (list& (<wrapper> sample) else)))
 
             #;None
@@ -74,18 +74,18 @@
 
     [_ (#;Tuple members)]
     (do r;Monad<Random>
-      [member-wise-patterns (monad;map @ (total-branches-for allow-literals? variantTC) members)]
+      [member-wise-patterns (monad;map @ (exhaustive-branches-for allow-literals? variantTC) members)]
       (wrap (|> member-wise-patterns
-                total-weaving
+                exhaustive-weaving
                 (L/map code;tuple))))
 
     [_ (#;Record kvs)]
     (do r;Monad<Random>
       [#let [ks (L/map product;left kvs)
              vs (L/map product;right kvs)]
-       member-wise-patterns (monad;map @ (total-branches-for allow-literals? variantTC) vs)]
+       member-wise-patterns (monad;map @ (exhaustive-branches-for allow-literals? variantTC) vs)]
       (wrap (|> member-wise-patterns
-                total-weaving
+                exhaustive-weaving
                 (L/map (|>. (list;zip2 ks) code;record)))))
 
     (^ [_ (#;Form (list [_ (#;Tag _)] _))])
@@ -93,7 +93,7 @@
       [bundles (monad;map @
                           (function [[_tag _code]]
                             (do @
-                              [v-branches (total-branches-for allow-literals? variantTC _code)]
+                              [v-branches (exhaustive-branches-for allow-literals? variantTC _code)]
                               (wrap (L/map (function [pattern] (` ((~ _tag) (~ pattern))))
                                            v-branches))))
                           variantTC)]
@@ -145,23 +145,23 @@
    [outputT outputC] gen-primitive
    [heterogeneousT heterogeneousC] (|> gen-primitive
                                        (r;filter (|>. product;left (tc;checks? outputT) not)))
-   total-patterns (total-branches-for true variantTC inputC)
-   redundant-patterns (total-branches-for false variantTC inputC)
+   exhaustive-patterns (exhaustive-branches-for true variantTC inputC)
+   redundant-patterns (exhaustive-branches-for false variantTC inputC)
    redundancy-idx (|> r;nat (:: @ map (n.% (list;size redundant-patterns))))
-   heterogeneous-idx (|> r;nat (:: @ map (n.% (list;size total-patterns))))
-   #let [total-branchesC (L/map (branch outputC)
-                                total-patterns)
-         non-total-branchesC (list;take (n.dec (list;size total-branchesC))
-                                        total-branchesC)
+   heterogeneous-idx (|> r;nat (:: @ map (n.% (list;size exhaustive-patterns))))
+   #let [exhaustive-branchesC (L/map (branch outputC)
+                                     exhaustive-patterns)
+         non-exhaustive-branchesC (list;take (n.dec (list;size exhaustive-branchesC))
+                                             exhaustive-branchesC)
          redundant-branchesC (<| (L/map (branch outputC))
                                  list;concat
                                  (list (list;take redundancy-idx redundant-patterns)
                                        (list (assume (list;nth redundancy-idx redundant-patterns)))
                                        (list;drop redundancy-idx redundant-patterns)))
-         heterogeneous-branchesC (list;concat (list (list;take heterogeneous-idx total-branchesC)
-                                                    (list (let [[_pattern _body] (assume (list;nth heterogeneous-idx total-branchesC))]
+         heterogeneous-branchesC (list;concat (list (list;take heterogeneous-idx exhaustive-branchesC)
+                                                    (list (let [[_pattern _body] (assume (list;nth heterogeneous-idx exhaustive-branchesC))]
                                                             [_pattern heterogeneousC]))
-                                                    (list;drop (n.inc heterogeneous-idx) total-branchesC)))
+                                                    (list;drop (n.inc heterogeneous-idx) exhaustive-branchesC)))
          ]]
   ($_ seq
       (test "Will reject empty pattern-matching (no branches)."
@@ -169,7 +169,7 @@
                   (&;with-expected-type outputT
                     (@;analyse-case analyse inputC (list))))
                 check-failure))
-      (test "Can analyse total pattern-matching."
+      (test "Can analyse exhaustive pattern-matching."
             (|> (@module;with-module +0 module-name
                   (do Monad<Lux>
                     [_ (@module;declare-tags variant-tags false
@@ -180,9 +180,9 @@
                                                       (type;tuple primitivesT)))]
                     (&;with-scope
                       (&;with-expected-type outputT
-                        (@;analyse-case analyse inputC total-branchesC)))))
+                        (@;analyse-case analyse inputC exhaustive-branchesC)))))
                 check-success))
-      (test "Will reject non-total pattern-matching."
+      (test "Will reject non-exhaustive pattern-matching."
             (|> (@module;with-module +0 module-name
                   (do Monad<Lux>
                     [_ (@module;declare-tags variant-tags false
@@ -193,7 +193,7 @@
                                                       (type;tuple primitivesT)))]
                     (&;with-scope
                       (&;with-expected-type outputT
-                        (@;analyse-case analyse inputC non-total-branchesC)))))
+                        (@;analyse-case analyse inputC non-exhaustive-branchesC)))))
                 check-failure))
       (test "Will reject redundant pattern-matching."
             (|> (@module;with-module +0 module-name

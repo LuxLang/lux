@@ -12,7 +12,7 @@
 ## The coverage of a pattern-matching expression summarizes how well
 ## all the possible values of an input are being covered by the
 ## different patterns involved.
-## Ideally, the pattern-matching has "total" coverage, which just
+## Ideally, the pattern-matching has "exhaustive" coverage, which just
 ## means that every possible value can be matched by at least 1
 ## pattern.
 ## Every other coverage is considered partial, and it would be valued
@@ -27,12 +27,12 @@
   (#Variant Nat (D;Dict Nat Coverage))
   (#Seq Coverage Coverage)
   (#Alt Coverage Coverage)
-  #Total)
+  #Exhaustive)
 
-(def: #export (total? coverage)
+(def: #export (exhaustive? coverage)
   (-> Coverage Bool)
   (case coverage
-    (#Total _)
+    (#Exhaustive _)
     true
 
     _
@@ -41,12 +41,12 @@
 (def: #export (determine pattern)
   (-> la;Pattern Coverage)
   (case pattern
-    ## Binding amounts to total coverage because any value can be
+    ## Binding amounts to exhaustive coverage because any value can be
     ## matched that way.
-    ## Unit [] amounts to total coverage because there is only one
+    ## Unit [] amounts to exhaustive coverage because there is only one
     ## possible value, so matching against it covers all cases.
     (^or (#la;BindP _) (^ (#la;TupleP (list))))
-    #Total
+    #Exhaustive
 
     (^ (#la;TupleP (list singleton)))
     (determine singleton)
@@ -59,27 +59,27 @@
 
     ## Bools are the exception, since there is only "true" and
     ## "false", which means it is possible for boolean
-    ## pattern-matching to become total if complementary parts meet.
+    ## pattern-matching to become exhaustive if complementary parts meet.
     (#la;BoolP value)
     (#Bool value)
 
-    ## Tuple patterns can be total if there is totality for all of
+    ## Tuple patterns can be exhaustive if there is exhaustiveness for all of
     ## their sub-patterns.
     (#la;TupleP subs)
     (loop [subs subs]
       (case subs
         #;Nil
-        #Total
+        #Exhaustive
 
         (#;Cons sub subs')
         (let [post (recur subs')]
-          (if (total? post)
+          (if (exhaustive? post)
             (determine sub)
             (#Seq (determine sub)
                   post)))))
 
-    ## Variant patterns can be shown to be total if all the possible
-    ## cases are handled totally.
+    ## Variant patterns can be shown to be exhaustive if all the possible
+    ## cases are handled exhaustively.
     (#la;VariantP tag-id num-tags sub)
     (#Variant num-tags
               (|> (D;new number;Hash<Nat>)
@@ -91,7 +91,7 @@
       (and (not left) right)))
 
 ## The coverage checker not only verifies that pattern-matching is
-## total, but also that there are no redundant patterns.
+## exhaustive, but also that there are no redundant patterns.
 ## Redundant patterns will never be executed, since there will
 ## always be a pattern prior to them that would match the input.
 ## Because of that, the presence of redundant patterns is assumed to
@@ -112,7 +112,7 @@
 (struct: _ (Eq Coverage)
   (def: (= reference sample)
     (case [reference sample]
-      [#Total #Total]
+      [#Exhaustive #Exhaustive]
       true
 
       [(#Bool sideR) (#Bool sideS)]
@@ -141,26 +141,26 @@
 
 ## After determining the coverage of each individual pattern, it is
 ## necessary to merge them all to figure out if the entire
-## pattern-matching expression is total and whether it contains
+## pattern-matching expression is exhaustive and whether it contains
 ## redundant patterns.
 (def: #export (merge addition so-far)
   (-> Coverage Coverage (R;Result Coverage))
   (case [addition so-far]
     ## The addition cannot possibly improve the coverage.
-    [_ #Total]
+    [_ #Exhaustive]
     redundant-pattern
 
     ## The addition completes the coverage.
-    [#Total _]
-    (R/wrap #Total)
+    [#Exhaustive _]
+    (R/wrap #Exhaustive)
 
     [#Partial #Partial]
     (R/wrap #Partial)
 
-    ## 2 boolean coverages are total if they compliment one another.
+    ## 2 boolean coverages are exhaustive if they compliment one another.
     (^multi [(#Bool sideA) (#Bool sideSF)]
             (xor sideA sideSF))
-    (R/wrap #Total)
+    (R/wrap #Exhaustive)
 
     [(#Variant allA casesA) (#Variant allSF casesSF)]
     (cond (not (n.= allSF allA))
@@ -184,8 +184,8 @@
                                 casesSF (D;entries casesA))]
             (wrap (if (let [case-coverages (D;values casesM)]
                         (and (n.= allSF (list;size case-coverages))
-                             (list;every? total? case-coverages)))
-                    #Total
+                             (list;every? exhaustive? case-coverages)))
+                    #Exhaustive
                     (#Variant allSF casesM)))))
 
     [(#Seq leftA rightA) (#Seq leftSF rightSF)]
@@ -202,10 +202,10 @@
       [true false]
       (do R;Monad<Result>
         [rightM (merge rightA rightSF)]
-        (if (total? rightM)
-          ## If all that follows is total, then it can be safely dropped
+        (if (exhaustive? rightM)
+          ## If all that follows is exhaustive, then it can be safely dropped
           ## (since only the "left" part would influence whether the
-          ## merged coverage is total or not).
+          ## merged coverage is exhaustive or not).
           (wrap leftSF)
           (wrap (#Seq leftSF rightM))))
 
