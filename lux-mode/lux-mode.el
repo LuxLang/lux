@@ -237,7 +237,7 @@ Called by `imenu--generic-function'."
             "infix"
             "format"
             "`" "`'" "'" "do-template"
-            "object" "jvm-import" "do-to" "with-open" "synchronized" "class-for"
+            "object" "import" "do-to" "with-open" "synchronized" "class-for"
             "doc"
             "regex"
             ) t)
@@ -391,7 +391,7 @@ This function also returns nil meaning don't specify the indentation."
   (synchronized 'defun)
   (object 'defun)
   (do-to 'defun)
-  (jvm-import 'defun)
+  (import 'defun)
   (testing 'defun)
   (comment 'defun)
   (doE 'defun)
