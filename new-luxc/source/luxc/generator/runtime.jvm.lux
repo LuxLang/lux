@@ -47,6 +47,12 @@
 (def: $Object $;Type ($t;class "java.lang.Object" (list)))
 (def: $Object-Array $;Type ($t;array +1 $Object))
 (def: $String $;Type ($t;class "java.lang.String" (list)))
+(def: #export $Stack $;Type ($t;array +1 $Object))
+(def: #export $Tuple $;Type ($t;array +1 $Object))
+(def: #export $Variant $;Type ($t;array +1 $Object))
+(def: #export $Tag $;Type $t;int)
+(def: #export $Flag $;Type $Object)
+(def: #export $Datum $;Type $Object)
 
 (def: logI
   $;Inst
@@ -55,9 +61,13 @@
     (|>. outI ($i;string "LOG: ") (printI "print")
          outI $i;SWAP (printI "println"))))
 
-(def: sum-method
+(def: variant-method
   $;Method
   ($t;method (list $t;int $Object $Object) (#;Some $Object-Array) (list)))
+
+(def: variant-makeI
+  $;Inst
+  ($i;INVOKESTATIC runtime-name "variant_make" variant-method false))
 
 (def: #export someI
   $;Inst
@@ -65,31 +75,31 @@
        ($i;string "")
        $i;DUP2_X1
        $i;POP2
-       ($i;INVOKESTATIC runtime-name "sum_make" sum-method false)))
+       variant-makeI))
 
 (def: #export noneI
   $;Inst
   (|>. ($i;int 0)
        $i;NULL
        ($i;string unit)
-       ($i;INVOKESTATIC runtime-name "sum_make" sum-method false)))
+       variant-makeI))
 
-(def: add-adt-methods
+(def: adt-methods
   $;Def
-  (let [store-tag (|>. $i;DUP ($i;int 0) ($i;ILOAD +0) ($i;wrap #$;Int) $i;AASTORE)
-        store-flag (|>. $i;DUP ($i;int 1) ($i;ALOAD +1) $i;AASTORE)
-        store-value (|>. $i;DUP ($i;int 2) ($i;ALOAD +2) $i;AASTORE)]
-    (|>. ($d;method #$;Public $;staticM "sum_make"
+  (let [store-tagI (|>. $i;DUP ($i;int 0) ($i;ILOAD +0) ($i;wrap #$;Int) $i;AASTORE)
+        store-flagI (|>. $i;DUP ($i;int 1) ($i;ALOAD +1) $i;AASTORE)
+        store-valueI (|>. $i;DUP ($i;int 2) ($i;ALOAD +2) $i;AASTORE)]
+    (|>. ($d;method #$;Public $;staticM "variant_make"
                     ($t;method (list $t;int $Object $Object)
-                               (#;Some ($t;array +1 $Object))
+                               (#;Some $Variant)
                                (list))
                     (|>. ($i;array $Object +3)
-                         store-tag
-                         store-flag
-                         store-value
+                         store-tagI
+                         store-flagI
+                         store-valueI
                          $i;ARETURN)))))
 
-(def: add-nat-methods
+(def: nat-methods
   $;Def
   (let [compare-nat-method ($t;method (list $t;long $t;long) (#;Some $t;int) (list))
         less-thanI (function [@where] (|>. ($i;INVOKESTATIC runtime-name "compare_nat" compare-nat-method false) ($i;IFLT @where)))
@@ -183,7 +193,7 @@
 
 (def: frac-shiftI $;Inst ($i;double (math;pow 32.0 2.0)))
 
-(def: add-frac-methods
+(def: frac-methods
   $;Def
   (|>. ($d;method #$;Public $;staticM "decode_frac" ($t;method (list $String) (#;Some $Object-Array) (list))
                   (<| $i;with-label (function [@from])
@@ -229,7 +239,7 @@
 (def: deg-method $;Method ($t;method (list $t;long $t;long) (#;Some $t;long) (list)))
 (def: clz-method $;Method ($t;method (list $t;long) (#;Some $t;int) (list)))
 
-(def: add-deg-methods
+(def: deg-methods
   $;Def
   (let [## "And" mask corresponding to -1 (FFFF...), on the low 32 bits.
         low-half (|>. ($i;int -1) $i;I2L $i;LAND)
@@ -301,14 +311,143 @@
                            $i;DRETURN)))
          )))
 
+(def: pm-methods
+  $;Def
+  (let [tuple-sizeI (|>. ($i;ALOAD +0) $i;ARRAYLENGTH)
+        tuple-elemI (|>. ($i;ALOAD +0) ($i;ILOAD +1) $i;AALOAD)
+        expected-last-sizeI (|>. ($i;ILOAD +1) ($i;int 1) $i;IADD)
+        tuple-tailI (|>. ($i;ALOAD +0) tuple-sizeI ($i;int 1) $i;ISUB $i;AALOAD ($i;CHECKCAST ($t;descriptor $Tuple)))]
+    (|>. ($d;method #$;Public $;staticM "pm_fail" ($t;method (list) #;None (list))
+                    (|>. ($i;NEW "java.lang.IllegalStateException")
+                         $i;DUP
+                         ($i;string "Invalid expression for pattern-matching.")
+                         ($i;INVOKESPECIAL "java.lang.IllegalStateException" "<init>" ($t;method (list $String) #;None (list)) false)
+                         $i;ATHROW))
+         ($d;method #$;Public $;staticM "pm_push" ($t;method (list $Stack $Object) (#;Some $Stack) (list))
+                    (|>. ($i;int 2)
+                         ($i;ANEWARRAY "java.lang.Object")
+                         $i;DUP
+                         ($i;int 0)
+                         ($i;ALOAD +0)
+                         $i;AASTORE
+                         $i;DUP
+                         ($i;int 1)
+                         ($i;ALOAD +1)
+                         $i;AASTORE
+                         $i;ARETURN))
+         ($d;method #$;Public $;staticM "pm_pop" ($t;method (list $Stack) (#;Some $Stack) (list))
+                    (|>. ($i;ALOAD +0)
+                         ($i;int 0)
+                         $i;AALOAD
+                         ($i;CHECKCAST ($t;descriptor $Stack))
+                         $i;ARETURN))
+         ($d;method #$;Public $;staticM "pm_peek" ($t;method (list $Stack) (#;Some $Object) (list))
+                    (|>. ($i;ALOAD +0)
+                         ($i;int 1)
+                         $i;AALOAD
+                         $i;ARETURN))
+         ($d;method #$;Public $;staticM "pm_variant" ($t;method (list $Stack $t;int $Object) (#;Some $Object) (list))
+                    (<| $i;with-label (function [@begin])
+                        $i;with-label (function [@just-return])
+                        $i;with-label (function [@then])
+                        $i;with-label (function [@further])
+                        $i;with-label (function [@shorten])
+                        $i;with-label (function [@wrong])
+                        (let [variant-partI (: (-> Nat $;Inst)
+                                               (function [idx]
+                                                 (|>. ($i;int (nat-to-int idx)) $i;AALOAD)))
+                              tagI (: $;Inst
+                                      (|>. (variant-partI +0) ($i;unwrap #$;Int)))
+                              flagI (variant-partI +1)
+                              datumI (variant-partI +2)
+                              shortenI (|>. ($i;ALOAD +0) tagI ## Get tag
+                                            ($i;ILOAD +1) $i;ISUB ## Shorten tag
+                                            ($i;ALOAD +0) flagI ## Get flag
+                                            ($i;ALOAD +0) datumI ## Get value
+                                            variant-makeI ## Build sum
+                                            $i;ARETURN)
+                              update-tagI (|>. $i;ISUB ($i;ISTORE +1))
+                              update-variantI (|>. ($i;ALOAD +0) datumI ($i;CHECKCAST ($t;descriptor $Variant)) ($i;ASTORE +0))
+                              wrongI (|>. $i;NULL $i;ARETURN)
+                              return-datumI (|>. ($i;ALOAD +0) datumI $i;ARETURN)])
+                        (|>. ($i;label @begin)
+                             ($i;ILOAD +1) ## tag
+                             ($i;ALOAD +0) tagI ## tag, sumT
+                             $i;DUP2 ($i;IF_ICMPEQ @then)
+                             $i;DUP2 ($i;IF_ICMPGT @further)
+                             $i;DUP2 ($i;IF_ICMPLT @shorten)
+                             ## $i;POP2
+                             wrongI
+                             ($i;label @then) ## tag, sumT
+                             ($i;ALOAD +2) ## tag, sumT, wants-last?
+                             ($i;ALOAD +0) flagI ## tag, sumT, wants-last?, is-last?
+                             ($i;IF_ACMPEQ @just-return) ## tag, sumT
+                             ($i;label @further) ## tag, sumT
+                             ($i;ALOAD +0) flagI ## tag, sumT, last?
+                             ($i;IFNULL @wrong) ## tag, sumT
+                             update-tagI
+                             update-variantI
+                             ($i;GOTO @begin)
+                             ($i;label @just-return) ## tag, sumT
+                             ## $i;POP2
+                             return-datumI
+                             ($i;label @shorten) ## tag, sumT
+                             ($i;ALOAD +2) ($i;IFNULL @wrong)
+                             ## $i;POP2
+                             shortenI
+                             ($i;label @wrong) ## tag, sumT
+                             ## $i;POP2
+                             wrongI)))
+         ($d;method #$;Public $;staticM "pm_left" ($t;method (list $Tuple $t;int) (#;Some $Object) (list))
+                    (<| $i;with-label (function [@begin])
+                        $i;with-label (function [@not-recursive])
+                        (let [updated-idxI (|>. $i;SWAP $i;ISUB)])
+                        (|>. ($i;label @begin)
+                             tuple-sizeI
+                             expected-last-sizeI
+                             $i;DUP2 ($i;IF_ICMPGT @not-recursive)
+                             ## Recursive
+                             updated-idxI ($i;ISTORE +1)
+                             tuple-tailI ($i;ASTORE +0)
+                             ($i;GOTO @begin)
+                             ($i;label @not-recursive)
+                             ## $i;POP2
+                             tuple-elemI
+                             $i;ARETURN)))
+         ($d;method #$;Public $;staticM "pm_right" ($t;method (list $Tuple $t;int) (#;Some $Object) (list))
+                    (<| $i;with-label (function [@begin])
+                        $i;with-label (function [@tail])
+                        $i;with-label (function [@slice])
+                        (let [updated-idxI (|>. ($i;ILOAD +1) ($i;int 1) $i;IADD tuple-sizeI $i;ISUB)
+                              sliceI (|>. ($i;ALOAD +0) ($i;ILOAD +1) tuple-sizeI
+                                          ($i;INVOKESTATIC "java.util.Arrays" "copyOfRange" ($t;method (list $Object-Array $t;int $t;int) (#;Some $Object-Array) (list)) false))])
+                        (|>. ($i;label @begin)
+                             tuple-sizeI
+                             expected-last-sizeI
+                             $i;DUP2 ($i;IF_ICMPEQ @tail)
+                             ($i;IF_ICMPGT @slice)
+                             ## Must recurse
+                             tuple-tailI ($i;ASTORE +0)
+                             updated-idxI ($i;ISTORE +1)
+                             ($i;GOTO @begin)
+                             ($i;label @slice)
+                             sliceI
+                             $i;ARETURN
+                             ($i;label @tail)
+                             ## $i;POP2
+                             tuple-elemI
+                             $i;ARETURN)))
+         )))
+
 (def: #export generate
   (Lux &common;Bytecode)
   (do Monad<Lux>
     [_ (wrap [])
      #let [bytecode ($d;class #$;V1.6 #$;Public $;finalC runtime-name (list) ["java.lang.Object" (list)] (list)
-                              (|>. add-adt-methods
-                                   add-nat-methods
-                                   add-frac-methods
-                                   add-deg-methods))]
+                              (|>. adt-methods
+                                   nat-methods
+                                   frac-methods
+                                   deg-methods
+                                   pm-methods))]
      _ (&common;store-class runtime-name bytecode)]
     (wrap bytecode)))

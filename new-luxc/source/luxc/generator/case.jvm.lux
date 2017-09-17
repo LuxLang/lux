@@ -1,0 +1,214 @@
+(;module:
+  lux
+  (lux (control [monad #+ do])
+       [macro "lux/" Monad<Lux>])
+  (luxc (lang ["ls" synthesis])
+        (generator (host ["$" jvm]
+                         (jvm ["$t" type]
+                              ["$i" inst]))
+                   [expr]))
+  [../runtime])
+
+(def: $Object $;Type ($t;class "java.lang.Object" (list)))
+
+(def: (pop-altI stack-depth)
+  (-> Nat $;Inst)
+  (case stack-depth
+    +0 id
+    +1 $i;POP
+    +2 $i;POP2
+    _ ## (n.> +2)
+    (|>. $i;POP2
+         (pop-altI (n.- +2 stack-depth)))))
+
+(def: peekI
+  $;Inst
+  (|>. $i;DUP
+       ($i;INVOKESTATIC ../runtime;runtime-name
+                        "pm_peek"
+                        ($t;method (list ../runtime;$Stack)
+                                   (#;Some $Object)
+                                   (list))
+                        false)))
+
+(def: popI
+  $;Inst
+  (|>. ($i;INVOKESTATIC ../runtime;runtime-name
+                        "pm_pop"
+                        ($t;method (list ../runtime;$Stack)
+                                   (#;Some ../runtime;$Stack)
+                                   (list))
+                        false)))
+
+(def: pushI
+  $;Inst
+  (|>. ($i;INVOKESTATIC ../runtime;runtime-name
+                        "pm_push"
+                        ($t;method (list ../runtime;$Stack $Object)
+                                   (#;Some ../runtime;$Stack)
+                                   (list))
+                        false)))
+
+(def: (generate-pattern' stack-depth @else @end path)
+  (-> Nat $;Label $;Label ls;Path (Lux $;Inst))
+  (case path
+    (#ls;ExecP bodyS)
+    (do macro;Monad<Lux>
+      [bodyI (expr;generate bodyS)]
+      (wrap (|>. (pop-altI stack-depth)
+                 bodyI
+                 ($i;GOTO @end))))
+
+    #ls;UnitP
+    (lux/wrap popI)
+
+    (#ls;BindP register)
+    (lux/wrap (|>. peekI
+                   ($i;ASTORE register)
+                   popI))
+
+    (#ls;BoolP value)
+    (lux/wrap (let [jumpI (if value $i;IFEQ $i;IFNE)]
+                (|>. peekI
+                     ($i;unwrap #$;Boolean)
+                     (jumpI @else))))
+
+    (^template [<tag> <prep>]
+      (<tag> value)
+      (lux/wrap (|>. peekI
+                     ($i;unwrap #$;Long)
+                     ($i;long (|> value <prep>))
+                     $i;LCMP
+                     ($i;IFNE @else))))
+    ([#ls;NatP (:! Int)]
+     [#ls;IntP (: Int)]
+     [#ls;DegP (:! Int)])
+
+    (#ls;FracP value)
+    (lux/wrap (|>. peekI
+                   ($i;unwrap #$;Double)
+                   ($i;double value)
+                   $i;DCMPL
+                   ($i;IFNE @else)))
+    
+    (#ls;TextP value)
+    (lux/wrap (|>. peekI
+                   ($i;string value)
+                   ($i;INVOKEVIRTUAL "java.lang.Object"
+                                     "equals"
+                                     ($t;method (list $Object)
+                                                (#;Some $t;boolean)
+                                                (list))
+                                     false)
+                   ($i;IFEQ @else)))
+
+    (#ls;TupleP idx subP)
+    (do macro;Monad<Lux>
+      [subI (generate-pattern' stack-depth @else @end subP)
+       #let [[idx tail?] (case idx
+                           (#;Left idx)
+                           [idx false]
+
+                           (#;Right idx)
+                           [idx true])]]
+      (wrap (case idx
+              +0
+              (|>. peekI
+                   ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
+                   ($i;int 0)
+                   $i;AALOAD
+                   pushI
+                   subI)
+              
+              _
+              (|>. peekI
+                   ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
+                   ($i;int (nat-to-int idx))
+                   ($i;INVOKESTATIC ../runtime;runtime-name
+                                    (if tail? "pm_right" "pm_left")
+                                    ($t;method (list ../runtime;$Tuple $t;int)
+                                               (#;Some $Object)
+                                               (list))
+                                    false)
+                   pushI
+                   subI))))
+
+    (#ls;VariantP idx subP)
+    (do macro;Monad<Lux>
+      [subI (generate-pattern' stack-depth @else @end subP)
+       #let [[idx last?] (case idx
+                           (#;Left idx)
+                           [idx false]
+
+                           (#;Right idx)
+                           [idx true])
+             flagI (if last?
+                     ($i;string "")
+                     $i;NULL)]]
+      (wrap (<| $i;with-label (function [@success])
+                $i;with-label (function [@fail])
+                (|>. peekI
+                     ($i;CHECKCAST ($t;descriptor ../runtime;$Variant))
+                     ($i;int (nat-to-int idx))
+                     flagI
+                     ($i;INVOKESTATIC ../runtime;runtime-name "pm_variant"
+                                      ($t;method (list ../runtime;$Variant ../runtime;$Tag ../runtime;$Flag)
+                                                 (#;Some ../runtime;$Datum)
+                                                 (list))
+                                      false)
+                     $i;DUP
+                     ($i;IFNULL @fail)
+                     ($i;GOTO @success)
+                     ($i;label @fail)
+                     $i;POP
+                     ($i;GOTO @else)
+                     ($i;label @success)
+                     pushI
+                     subI))))
+
+    (#ls;SeqP leftP rightP)
+    (do macro;Monad<Lux>
+      [leftI (generate-pattern' stack-depth @else @end leftP)
+       rightI (generate-pattern' stack-depth @else @end rightP)]
+      (wrap (|>. leftI
+                 rightI)))
+
+    (#ls;AltP leftP rightP)
+    (do macro;Monad<Lux>
+      [@alt-else $i;make-label
+       leftI (generate-pattern' (n.inc stack-depth) @alt-else @end leftP)
+       rightI (generate-pattern' stack-depth @else @end rightP)]
+      (wrap (|>. $i;DUP
+                 leftI
+                 ($i;label @alt-else)
+                 $i;POP
+                 rightI)))
+    ))
+
+(def: (generate-pattern path @end)
+  (-> ls;Path $;Label (Lux $;Inst))
+  (do macro;Monad<Lux>
+    [@else $i;make-label
+     pathI (generate-pattern' +1 @else @end path)]
+    (wrap (|>. pathI
+               ($i;label @else)
+               $i;POP
+               ($i;INVOKESTATIC ../runtime;runtime-name
+                                "pm_fail"
+                                ($t;method (list) #;None (list))
+                                false)
+               $i;NULL
+               ($i;GOTO @end)))))
+
+(def: #export (generate valueS path)
+  (-> ls;Synthesis ls;Path (Lux $;Inst))
+  (do macro;Monad<Lux>
+    [@end $i;make-label
+     valueI (expr;generate valueS)
+     pathI (generate-pattern path @end)]
+    (wrap (|>. valueI
+               $i;NULL
+               $i;SWAP
+               pushI
+               pathI
+               ($i;label @end)))))

@@ -3,6 +3,7 @@
   (lux (control monad
                 ["p" parser])
        (data text/format
+             ["R" result]
              (coll [list "L/" Functor<List>]))
        [host #+ do-to]
        [macro]
@@ -25,14 +26,16 @@
                   <stack> (declare DUP DUP2 DUP2_X1 DUP2_X2
                                    POP POP2
                                    SWAP)
-                  <jump> (declare IF_ICMPEQ IF_ACMPEQ IFNULL
-                                  IFEQ IFLT IFLE IFGT IFGE
+                  <jump> (declare IF_ICMPEQ IF_ICMPGT IF_ICMPLT IF_ACMPEQ IFNULL
+                                  IFEQ IFNE IFLT IFLE IFGT IFGE
                                   GOTO)
                   <var> (declare ILOAD LLOAD DLOAD ALOAD
-                                 ISTORE LSTORE)
+                                 ISTORE LSTORE ASTORE)
                   <arithmethic> (declare IADD ISUB
-                                         LADD LSUB LMUL LDIV LREM LCMP
-                                         DADD DSUB DMUL DDIV DREM DCMPG)
+                                         LADD LSUB LMUL LDIV LREM
+                                         LCMP
+                                         DADD DSUB DMUL DDIV DREM
+                                         DCMPG DCMPL)
                   <return> (declare RETURN IRETURN LRETURN DRETURN ARETURN)]
   (host;import org.objectweb.asm.Opcodes
     <primitive>
@@ -101,9 +104,16 @@
   (visitMethodInsn [int String String String boolean] void)
   (visitLabel [Label] void)
   (visitJumpInsn [int Label] void)
-  (visitTryCatchBlock [Label Label Label String] void))
+  (visitTryCatchBlock [Label Label Label String] void)
+  (visitTableSwitchInsn [int int Label (Array  Label)] void)
+  )
 
 ## [Insts]
+(def: #export make-label
+  (Lux Label)
+  (function [compiler]
+    (#R;Success [compiler (Label.new [])])))
+
 (def: #export (with-label action)
   (-> (-> Label $;Inst) $;Inst)
   (action (Label.new [])))
@@ -149,10 +159,12 @@
   [IADD] [ISUB]
   
   ## Long arithmethic
-  [LADD] [LSUB] [LMUL] [LDIV] [LREM] [LCMP]
+  [LADD] [LSUB] [LMUL] [LDIV] [LREM]
+  [LCMP]
 
   ## Double arithmetic
-  [DADD] [DSUB] [DMUL] [DDIV] [DREM] [DCMPG]
+  [DADD] [DSUB] [DMUL] [DDIV] [DREM]
+  [DCMPG] [DCMPL]
 
   ## Conversions
   [I2L] [L2I] [L2D] [D2L] [I2C]
@@ -175,7 +187,7 @@
          (MethodVisitor.visitVarInsn [(prefix <name>) (nat-to-int register)]))))]
 
   [ILOAD] [LLOAD] [DLOAD] [ALOAD]
-  [ISTORE] [LSTORE]
+  [ISTORE] [LSTORE] [ASTORE]
   )
 
 (do-template [<name> <inst>]
@@ -237,10 +249,25 @@
        (do-to visitor
          (MethodVisitor.visitJumpInsn [(prefix <name>) @where]))))]
 
-  [IF_ICMPEQ] [IF_ACMPEQ] [IFNULL]
-  [IFEQ] [IFLT] [IFLE] [IFGT] [IFGE]
+  [IF_ICMPEQ] [IF_ICMPGT] [IF_ICMPLT] [IF_ACMPEQ] [IFNULL]
+  [IFEQ] [IFNE] [IFLT] [IFLE] [IFGT] [IFGE]
   [GOTO]
   )
+
+(def: #export (TABLESWITCH min max default labels)
+  (-> Int Int $;Label (List $;Label) $;Inst)
+  (function [visitor]
+    (let [num-labels (list;size labels)
+          labels-array (host;array Label num-labels)
+          _ (loop [idx +0]
+              (if (n.< num-labels idx)
+                (exec (host;array-write idx
+                                        (assume (list;nth idx labels))
+                                        labels-array)
+                  (recur (n.inc idx)))
+                []))]
+      (do-to visitor
+        (MethodVisitor.visitTableSwitchInsn [min max default labels-array])))))
 
 (def: #export (try @from @to @handler exception)
   (-> $;Label $;Label $;Label Text $;Inst)
