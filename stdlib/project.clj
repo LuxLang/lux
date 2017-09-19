@@ -3,7 +3,7 @@
   :url "https://github.com/LuxLang/stdlib"
   :license {:name "MIT License"
             :url "https://opensource.org/licenses/MIT"}
-  ;; :plugins [[com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"]]
+  :plugins [[com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"]]
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                                      :creds :gpg}]
                         ["snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
@@ -16,6 +16,7 @@
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
+  :jvm-opts ["-Xss4m"]
   :dependencies []
   
   :source-paths ["source"]
