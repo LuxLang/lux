@@ -99,45 +99,48 @@
 (type: #rec Infix
   (#Const Code)
   (#Call (List Code))
-  (#Infix Infix Code Infix))
+  (#Unary Code Infix)
+  (#Binary Infix Code Infix))
 
-(def: (infix^ _)
-  (-> Unit (Syntax Infix))
-  ($_ p;alt
-      ($_ p;either
-          (p/map code;bool s;bool)
-          (p/map code;nat s;nat)
-          (p/map code;int s;int)
-          (p/map code;deg s;deg)
-          (p/map code;frac s;frac)
-          (p/map code;text s;text)
-          (p/map code;symbol s;symbol)
-          (p/map code;tag s;tag))
-      (s;form (p;many s;any))
-      (s;tuple (p;either (do p;Monad<Parser>
-                           [_ (s;this (' #and))
-                            init-subject (infix^ [])
-                            init-op s;any
-                            init-param (infix^ [])
-                            steps (p;some (p;seq s;any (infix^ [])))]
-                           (wrap (product;right (L/fold (function [[op param] [subject [_subject _op _param]]]
-                                                          [param [(#Infix _subject _op _param)
-                                                                  (` and)
-                                                                  (#Infix subject op param)]])
-                                                        [init-param [init-subject init-op init-param]]
-                                                        steps))))
-                         (do p;Monad<Parser>
-                           [_ (wrap [])
-                            init-subject (infix^ [])
-                            init-op s;any
-                            init-param (infix^ [])
-                            steps (p;some (p;seq s;any (infix^ [])))]
-                           (wrap (L/fold (function [[op param] [_subject _op _param]]
-                                           [(#Infix _subject _op _param) op param])
-                                         [init-subject init-op init-param]
-                                         steps)))
-                         ))
-      ))
+(def: infix^
+  (Syntax Infix)
+  (<| p;rec (function [infix^])
+      ($_ p;alt
+          ($_ p;either
+              (p/map code;bool s;bool)
+              (p/map code;nat s;nat)
+              (p/map code;int s;int)
+              (p/map code;deg s;deg)
+              (p/map code;frac s;frac)
+              (p/map code;text s;text)
+              (p/map code;symbol s;symbol)
+              (p/map code;tag s;tag))
+          (s;form (p;many s;any))
+          (s;tuple (p;seq s;any infix^))
+          (s;tuple ($_ p;either
+                       (do p;Monad<Parser>
+                         [_ (s;this (' #and))
+                          init-subject infix^
+                          init-op s;any
+                          init-param infix^
+                          steps (p;some (p;seq s;any infix^))]
+                         (wrap (product;right (L/fold (function [[op param] [subject [_subject _op _param]]]
+                                                        [param [(#Binary _subject _op _param)
+                                                                (` and)
+                                                                (#Binary subject op param)]])
+                                                      [init-param [init-subject init-op init-param]]
+                                                      steps))))
+                       (do p;Monad<Parser>
+                         [init-subject infix^
+                          init-op s;any
+                          init-param infix^
+                          steps (p;some (p;seq s;any infix^))]
+                         (wrap (L/fold (function [[op param] [_subject _op _param]]
+                                         [(#Binary _subject _op _param) op param])
+                                       [init-subject init-op init-param]
+                                       steps)))
+                       ))
+          )))
 
 (def: (infix-to-prefix infix)
   (-> Infix Code)
@@ -147,15 +150,19 @@
     
     (#Call parts)
     (code;form parts)
+
+    (#Unary op subject)
+    (` ((~ op) (~ (infix-to-prefix subject))))
     
-    (#Infix left op right)
+    (#Binary left op right)
     (` ((~ op) (~ (infix-to-prefix right)) (~ (infix-to-prefix left))))
     ))
 
-(syntax: #export (infix [expr (infix^ [])])
+(syntax: #export (infix [expr infix^])
   {#;doc (doc "Infix math syntax."
               (infix [x i.* 10])
               (infix [[x i.+ y] i.* [x i.- y]])
+              (infix [sin [x i.+ y]])
               (infix [[x n.< y] and [y n.< z]])
               (infix [#and x n.< y n.< z])
               (infix [(n.* +3 +9) gcd +450])
