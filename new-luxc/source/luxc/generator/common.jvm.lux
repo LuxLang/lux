@@ -1,17 +1,16 @@
 (;module:
-  lux
-  (lux [io]
+  [lux #- function]
+  (lux (control ["ex" exception #+ exception:])
+       [io]
        (concurrency ["A" atom])
        (data ["R" result]
-             (coll ["d" dict])
-             text/format)
+             (coll ["d" dict]))
        [host])
   (luxc (generator (host ["$" jvm]
                          (jvm ["$t" type]
                               ["$d" def]
                               ["$i" inst])))))
 
-## [Host]
 (host;import org.objectweb.asm.Opcodes
   (#static V1_6 int))
 
@@ -22,33 +21,69 @@
 (host;import java.lang.ClassLoader
   (loadClass [String] (Class Object)))
 
-## [Types]
 (type: #export Bytecode host;Byte-Array)
 
 (type: #export Class-Store (A;Atom (d;Dict Text Bytecode)))
 
 (type: #export Host
   {#loader ClassLoader
-   #store Class-Store})
+   #store Class-Store
+   #function-class (Maybe Text)})
+
+(exception: Unknown-Class)
+(exception: Class-Already-Stored)
+(exception: No-Function-Being-Compiled)
 
 (def: #export (store-class name byte-code)
   (-> Text Bytecode (Lux Unit))
-  (function [compiler]
+  (;function [compiler]
     (let [store (|> (get@ #;host compiler)
                     (:! Host)
                     (get@ #store))]
       (if (d;contains? name (|> store A;get io;run))
-        (#R;Error (format "Cannot store class that already exists: " name))
+        (ex;throw Class-Already-Stored name)
         (#R;Success [compiler (io;run (A;update (d;put name byte-code) store))])
         ))))
 
 (def: #export (load-class name)
   (-> Text (Lux (Class Object)))
-  (function [compiler]
+  (;function [compiler]
     (let [host (:! Host (get@ #;host compiler))
           store (|> host (get@ #store) A;get io;run)]
       (if (d;contains? name store)
         (#R;Success [compiler (ClassLoader.loadClass [name] (get@ #loader host))])
-        (#R;Error (format "Unknown class: " name))))))
+        (ex;throw Unknown-Class name)))))
+
+(def: #export (with-function class expr)
+  (All [a] (-> Text (Lux a) (Lux a)))
+  (;function [compiler]
+    (let [host (:! Host (get@ #;host compiler))
+          old-function-class (get@ #function-class host)]
+      (case (expr (set@ #;host
+                        (:! Void (set@ #function-class
+                                       (#;Some class)
+                                       host))
+                        compiler))
+        (#R;Success [compiler' output])
+        (#R;Success [(update@ #;host
+                              (|>. (:! Host)
+                                   (set@ #function-class old-function-class)
+                                   (:! Void))
+                              compiler')
+                     output])
+
+        (#R;Error error)
+        (#R;Error error)))))
+
+(def: #export function
+  (Lux Text)
+  (;function [compiler]
+    (let [host (:! Host (get@ #;host compiler))]
+      (case (get@ #function-class host)
+        #;None
+        (ex;throw No-Function-Being-Compiled "")
+        
+        (#;Some function-class)
+        (#R;Success [compiler function-class])))))
 
 (def: #export bytecode-version Int Opcodes.V1_6)

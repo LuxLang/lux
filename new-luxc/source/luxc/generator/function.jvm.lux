@@ -1,0 +1,341 @@
+(;module:
+  lux
+  (lux (control [monad #+ do])
+       (data text/format
+             (coll [list "L/" Functor<List> Monoid<List>]))
+       [macro])
+  (luxc ["&" base]
+        (lang ["la" analysis]
+              ["ls" synthesis])
+        ["&;" analyser]
+        ["&;" synthesizer]
+        (synthesizer [function])
+        (generator ["&;" common]
+                   ["&;" runtime]
+                   (host ["$" jvm]
+                         (jvm ["$t" type]
+                              ["$d" def]
+                              ["$i" inst])))))
+
+
+(def: arity-field Text "arity")
+(def: $Object $;Type ($t;class "java.lang.Object" (list)))
+
+(do-template [<name> <prefix>]
+  [(def: #export (<name> idx)
+     (-> Nat Text)
+     (|> idx nat-to-int %i (format <prefix>)))]
+
+  [captured "c"]
+  [partial  "p"]
+  )
+
+(def: (poly-arg? arity)
+  (-> ls;Arity Bool)
+  (n.> +1 arity))
+
+(def: (reset-method class)
+  (-> Text $;Method)
+  ($t;method (list) (#;Some ($t;class class (list))) (list)))
+
+(def: (captured-args env)
+  (-> (List ls;Variable) (List $;Type))
+  (list;repeat (list;size env) $Object))
+
+(def: (init-method env arity)
+  (-> (List ls;Variable) ls;Arity $;Method)
+  (if (poly-arg? arity)
+    ($t;method (list;concat (list (captured-args env)
+                                  (list $t;int)
+                                  (list;repeat (n.dec arity) $Object)))
+               #;None
+               (list))
+    ($t;method (captured-args env) #;None (list))))
+
+(def: (implementation-method arity)
+  ($t;method (list;repeat arity $Object) (#;Some $Object) (list)))
+
+(def: get-amount-of-partialsI
+  $;Inst
+  (|>. ($i;ALOAD +0)
+       ($i;GETFIELD &runtime;function-class &runtime;partials-field $t;int)))
+
+(def: (load-fieldI class field)
+  (-> Text Text $;Inst)
+  (|>. ($i;ALOAD +0)
+       ($i;GETFIELD class field $Object)))
+
+(def: (inputsI start amount)
+  (-> $;Register Nat $;Inst)
+  (|> (list;n.range start (n.+ start (n.dec amount)))
+      (L/map $i;ALOAD)
+      $i;fuse))
+
+(def: (applysI start amount)
+  (-> $;Register Nat $;Inst)
+  (let [max-args (n.min amount &runtime;num-apply-variants)
+        later-applysI (if (n.> &runtime;num-apply-variants amount)
+                        (applysI (n.+ &runtime;num-apply-variants start) (n.- &runtime;num-apply-variants amount))
+                        id)]
+    (|>. ($i;CHECKCAST &runtime;function-class)
+         (inputsI start max-args)
+         ($i;INVOKEVIRTUAL &runtime;function-class &runtime;apply-method (&runtime;apply-signature max-args) false)
+         later-applysI)))
+
+(def: (inc-intI by)
+  (-> Nat $;Inst)
+  (|>. ($i;int (nat-to-int by))
+       $i;IADD))
+
+(def: (nullsI amount)
+  (-> Nat $;Inst)
+  (|> $i;NULL
+      (list;repeat amount)
+      $i;fuse))
+
+(def: (with-captured env)
+  (-> (List ls;Variable) $;Def)
+  (|> (list;enumerate env)
+      (L/map (function [[env-idx env-source]]
+               ($d;field #$;Private $;finalF (captured env-idx) $Object)))
+      $d;fuse))
+
+(def: (with-partial arity)
+  (-> ls;Arity $;Def)
+  (if (poly-arg? arity)
+    (|> (list;n.range +0 (n.- +2 arity))
+        (L/map (function [idx]
+                 ($d;field #$;Private $;finalF (partial idx) $Object)))
+        $d;fuse)
+    id))
+
+(def: (instance class arity env)
+  (-> Text ls;Arity (List ls;Variable) $;Inst)
+  (let [captureI (|> env
+                     (L/map (function [source]
+                              (if (function;captured? source)
+                                ($i;GETFIELD class (captured (function;captured-idx source)) $Object)
+                                ($i;ALOAD (int-to-nat source)))))
+                     $i;fuse)
+        argsI (if (poly-arg? arity)
+                (|> (nullsI (n.dec arity))
+                    (list ($i;int 0))
+                    $i;fuse)
+                id)]
+    (|>. ($i;NEW class)
+         $i;DUP
+         captureI
+         argsI
+         ($i;INVOKESPECIAL class "<init>" (init-method env arity) false))))
+
+(def: (with-reset class arity env)
+  (-> Text ls;Arity (List ls;Variable) $;Def)
+  ($d;method #$;Public $;noneM "reset" (reset-method class)
+             (if (poly-arg? arity)
+               (let [env-size (list;size env)
+                     captureI (|> (case env-size
+                                    +0 (list)
+                                    _ (list;n.range +0 (n.dec env-size)))
+                                  (L/map (function [source]
+                                           (|>. ($i;ALOAD +0)
+                                                ($i;GETFIELD class (captured source) $Object))))
+                                  $i;fuse)
+                     argsI (|> (nullsI (n.dec arity))
+                               (list ($i;int 0))
+                               $i;fuse)]
+                 (|>. ($i;NEW class)
+                      $i;DUP
+                      captureI
+                      argsI
+                      ($i;INVOKESPECIAL class "<init>" (init-method env arity) false)
+                      $i;ARETURN))
+               (|>. ($i;ALOAD +0)
+                    $i;ARETURN))))
+
+(def: (with-implementation arity @begin bodyI)
+  (-> Nat $;Label $;Inst $;Def)
+  ($d;method #$;Public $;strictM "impl" (implementation-method arity)
+             (|>. ($i;label @begin)
+                  bodyI
+                  $i;ARETURN)))
+
+(def: function-init-method
+  $;Method
+  ($t;method (list $t;int) #;None (list)))
+
+(def: (function-init arity env-size)
+  (-> ls;Arity Nat $;Inst)
+  (if (n.= +1 arity)
+    (|>. ($i;int 0)
+         ($i;INVOKESPECIAL &runtime;function-class "<init>" function-init-method false))
+    (|>. ($i;ILOAD (n.inc env-size))
+         ($i;INVOKESPECIAL &runtime;function-class "<init>" function-init-method false))))
+
+(def: (with-init class env arity)
+  (-> Text (List ls;Variable) ls;Arity $;Def)
+  (let [env-size (list;size env)
+        offset-partial (: (-> Nat Nat)
+                          (|>. n.inc (n.+ env-size)))
+        store-capturedI (|> (case env-size
+                              +0 (list)
+                              _ (list;n.range +0 (n.dec env-size)))
+                            (L/map (function [register]
+                                     (|>. ($i;ALOAD +0)
+                                          ($i;ALOAD (n.inc register))
+                                          ($i;PUTFIELD class (captured register) $Object))))
+                            $i;fuse)
+        store-partialI (if (poly-arg? arity)
+                         (|> (list;n.range +0 (n.- +2 arity))
+                             (L/map (function [idx]
+                                      (let [register (offset-partial idx)]
+                                        (|>. ($i;ALOAD +0)
+                                             ($i;ALOAD (n.inc register))
+                                             ($i;PUTFIELD class (partial idx) $Object)))))
+                             $i;fuse)
+                         id)]
+    ($d;method #$;Public $;noneM "<init>" (init-method env arity)
+               (|>. ($i;ALOAD +0)
+                    (function-init arity env-size)
+                    store-capturedI
+                    store-partialI
+                    $i;RETURN))))
+
+(def: (when test f)
+  (All [a] (-> Bool (-> a a) (-> a a)))
+  (function [value]
+    (if test
+      (f value)
+      value)))
+
+(def: (with-apply class env function-arity @begin bodyI apply-arity)
+  (-> Text (List ls;Variable) ls;Arity $;Label $;Inst ls;Arity
+      $;Def)
+  (let [num-partials (n.dec function-arity)
+        @default ($;new-label [])
+        @labels (L/map $;new-label (list;repeat num-partials []))
+        arity-over-extent (|> (nat-to-int function-arity) (i.- (nat-to-int apply-arity)))
+        casesI (|> (L/append @labels (list @default))
+                   (list;zip2 (list;n.range +0 num-partials))
+                   (L/map (function [[stage @label]]
+                            (let [load-partialsI (if (n.> +0 stage)
+                                                   (|> (list;n.range +0 (n.dec stage))
+                                                       (L/map (|>. partial (load-fieldI class)))
+                                                       $i;fuse)
+                                                   id)]
+                              (cond (i.= arity-over-extent (nat-to-int stage))
+                                    (|>. ($i;label @label)
+                                         ($i;ALOAD +0)
+                                         (when (n.> +0 stage)
+                                               ($i;INVOKEVIRTUAL class "reset" (reset-method class) false))
+                                         load-partialsI
+                                         (inputsI +1 apply-arity)
+                                         ($i;INVOKEVIRTUAL class "impl" (implementation-method function-arity) false)
+                                         $i;ARETURN)
+
+                                    (i.> arity-over-extent (nat-to-int stage))
+                                    (let [args-to-completion (|> function-arity (n.- stage))
+                                          args-left (|> apply-arity (n.- args-to-completion))]
+                                      (|>. ($i;label @label)
+                                           ($i;ALOAD +0)
+                                           ($i;INVOKEVIRTUAL class "reset" (reset-method class) false)
+                                           load-partialsI
+                                           (inputsI +1 args-to-completion)
+                                           ($i;INVOKEVIRTUAL class "impl" (implementation-method function-arity) false)
+                                           (applysI (n.inc args-to-completion) args-left)
+                                           $i;ARETURN))
+
+                                    ## (i.< arity-over-extent (nat-to-int stage))
+                                    (let [env-size (list;size env)
+                                          load-capturedI (|> (case env-size
+                                                               +0 (list)
+                                                               _ (list;n.range +0 (n.dec env-size)))
+                                                             (L/map (|>. captured (load-fieldI class)))
+                                                             $i;fuse)]
+                                      (|>. ($i;label @label)
+                                           ($i;NEW class)
+                                           $i;DUP
+                                           load-capturedI
+                                           get-amount-of-partialsI
+                                           (inc-intI apply-arity)
+                                           load-partialsI
+                                           (inputsI +1 apply-arity)
+                                           (nullsI (|> num-partials (n.- apply-arity) (n.- stage)))
+                                           ($i;INVOKESPECIAL class "<init>" (init-method env function-arity) false)
+                                           $i;ARETURN))
+                                    ))))
+                   $i;fuse)]
+    ($d;method #$;Public $;noneM &runtime;apply-method (&runtime;apply-signature apply-arity)
+               (|>. get-amount-of-partialsI
+                    ($i;TABLESWITCH 0 (|> num-partials n.dec nat-to-int)
+                                    @default @labels)
+                    casesI
+                    ($i;INVOKESTATIC &runtime;runtime-class "apply_fail" ($t;method (list) #;None (list)) false)
+                    $i;NULL
+                    $i;ARETURN
+                    ))))
+
+(def: #export (with-function generate class env arity body)
+  (-> (-> ls;Synthesis (Lux $;Inst))
+      Text (List ls;Variable) ls;Arity ls;Synthesis
+      (Lux [$;Def $;Inst]))
+  (do macro;Monad<Lux>
+    [@begin $i;make-label
+     bodyI (&common;with-function class (generate body))
+     #let [env-size (list;size env)
+           applyD (: $;Def
+                     (if (poly-arg? arity)
+                       (|> (n.min arity &runtime;num-apply-variants)
+                           (list;n.range +1)
+                           (L/map (with-apply class env arity @begin bodyI))
+                           (list& (with-implementation arity @begin bodyI))
+                           $d;fuse)
+                       ($d;method #$;Public $;strictM &runtime;apply-method (&runtime;apply-signature +1)
+                                  (|>. ($i;label @begin)
+                                       bodyI
+                                       $i;ARETURN))))
+           functionD (: $;Def
+                        (|>. ($d;int-field #$;Public ($_ $;++F $;staticF $;finalF) arity-field (nat-to-int arity))
+                             (with-captured env)
+                             (with-partial arity)
+                             (with-init class env arity)
+                             (with-reset class arity env)
+                             applyD))
+           instanceI (instance class arity env)]]
+    (wrap [functionD instanceI])))
+
+(def: #export (generate-function generate env arity body)
+  (-> (-> ls;Synthesis (Lux $;Inst))
+      (List ls;Variable) ls;Arity ls;Synthesis
+      (Lux $;Inst))
+  (do macro;Monad<Lux>
+    [function-class (:: @ map %code (macro;gensym "function"))
+     [functionD instanceI] (with-function generate function-class env arity body)
+     _ (&common;store-class function-class
+                            ($d;class #$;V1.6 #$;Public $;finalC
+                                      function-class (list)
+                                      ($;simple-class &runtime;function-class) (list)
+                                      functionD))]
+    (wrap instanceI)))
+
+(def: (segment size elems)
+  (All [a] (-> Nat (List a) (List (List a))))
+  (let [[pre post] (list;split size elems)]
+    (if (list;empty? post)
+      (list pre)
+      (list& pre (segment size post)))))
+
+(def: #export (generate-call generate functionS argsS)
+  (-> (-> ls;Synthesis (Lux $;Inst))
+      ls;Synthesis (List ls;Synthesis)
+      (Lux $;Inst))
+  (do macro;Monad<Lux>
+    [functionI (generate functionS)
+     argsI (monad;map @ generate argsS)
+     #let [applyI (|> (segment &runtime;num-apply-variants argsI)
+                      (L/map (function [chunkI+]
+                               (|>. ($i;CHECKCAST &runtime;function-class)
+                                    ($i;fuse chunkI+)
+                                    ($i;INVOKEVIRTUAL &runtime;function-class &runtime;apply-method (&runtime;apply-signature (list;size chunkI+)) false))))
+                      $i;fuse)]]
+    (wrap (|>. functionI
+               applyI))))

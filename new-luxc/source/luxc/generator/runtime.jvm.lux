@@ -2,7 +2,8 @@
   lux
   (lux (control monad)
        (data ["R" result]
-             text/format)
+             text/format
+             (coll [list "L/" Functor<List>]))
        [math]
        [macro #+ Monad<Lux> "Lux/" Monad<Lux>]
        [host #+ do-to])
@@ -40,8 +41,8 @@
   (visitEnd [] void)
   (toByteArray [] Byte-Array))
 
-(def: #export runtime-name Text "LuxRuntime")
-(def: #export function-name Text "LuxFunction")
+(def: #export runtime-class Text "LuxRuntime")
+(def: #export function-class Text "LuxFunction")
 (def: #export unit Text "\u0000")
 
 (def: $Object $;Type ($t;class "java.lang.Object" (list)))
@@ -54,7 +55,7 @@
 (def: #export $Flag $;Type $Object)
 (def: #export $Datum $;Type $Object)
 
-(def: logI
+(def: #export logI
   $;Inst
   (let [outI ($i;GETSTATIC "java.lang.System" "out" ($t;class "java.io.PrintStream" (list)))
         printI (function [method] ($i;INVOKEVIRTUAL "java.io.PrintStream" method ($t;method (list $Object) #;None (list)) false))]
@@ -67,7 +68,7 @@
 
 (def: variant-makeI
   $;Inst
-  ($i;INVOKESTATIC runtime-name "variant_make" variant-method false))
+  ($i;INVOKESTATIC runtime-class "variant_make" variant-method false))
 
 (def: #export someI
   $;Inst
@@ -102,11 +103,11 @@
 (def: nat-methods
   $;Def
   (let [compare-nat-method ($t;method (list $t;long $t;long) (#;Some $t;int) (list))
-        less-thanI (function [@where] (|>. ($i;INVOKESTATIC runtime-name "compare_nat" compare-nat-method false) ($i;IFLT @where)))
+        less-thanI (function [@where] (|>. ($i;INVOKESTATIC runtime-class "compare_nat" compare-nat-method false) ($i;IFLT @where)))
         $BigInteger ($t;class "java.math.BigInteger" (list))
         upcast-method ($t;method (list $t;long) (#;Some $BigInteger) (list))
         div-method ($t;method (list $t;long $t;long) (#;Some $t;long) (list))
-        upcastI ($i;INVOKESTATIC runtime-name "_toUnsignedBigInteger" upcast-method false)
+        upcastI ($i;INVOKESTATIC runtime-class "_toUnsignedBigInteger" upcast-method false)
         downcastI ($i;INVOKEVIRTUAL "java.math.BigInteger" "longValue" ($t;method (list) (#;Some $t;long) (list)) false)]
     ## http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#215
     (|>. ($d;method #$;Public $;staticM "_toUnsignedBigInteger" upcast-method
@@ -279,7 +280,7 @@
                         (let [subjectI ($i;LLOAD +0)
                               paramI ($i;LLOAD +2)
                               equal?I (function [@where] (|>. $i;LCMP ($i;IFEQ @where)))
-                              count-leading-zerosI ($i;INVOKESTATIC runtime-name "count_leading_zeros" clz-method false)
+                              count-leading-zerosI ($i;INVOKESTATIC runtime-class "count_leading_zeros" clz-method false)
                               calc-max-shiftI (|>. subjectI count-leading-zerosI
                                                    paramI count-leading-zerosI
                                                    ($i;INVOKESTATIC "java.lang.Math" "min" ($t;method (list $t;int $t;int) (#;Some $t;int) (list)) false)
@@ -321,6 +322,12 @@
                     (|>. ($i;NEW "java.lang.IllegalStateException")
                          $i;DUP
                          ($i;string "Invalid expression for pattern-matching.")
+                         ($i;INVOKESPECIAL "java.lang.IllegalStateException" "<init>" ($t;method (list $String) #;None (list)) false)
+                         $i;ATHROW))
+         ($d;method #$;Public $;staticM "apply_fail" ($t;method (list) #;None (list))
+                    (|>. ($i;NEW "java.lang.IllegalStateException")
+                         $i;DUP
+                         ($i;string "Error while applying function.")
                          ($i;INVOKESPECIAL "java.lang.IllegalStateException" "<init>" ($t;method (list $String) #;None (list)) false)
                          $i;ATHROW))
          ($d;method #$;Public $;staticM "pm_push" ($t;method (list $Stack $Object) (#;Some $Stack) (list))
@@ -439,15 +446,65 @@
                              $i;ARETURN)))
          )))
 
-(def: #export generate
+(def: generate-runtime
   (Lux &common;Bytecode)
   (do Monad<Lux>
     [_ (wrap [])
-     #let [bytecode ($d;class #$;V1.6 #$;Public $;finalC runtime-name (list) ["java.lang.Object" (list)] (list)
+     #let [bytecode ($d;class #$;V1.6 #$;Public $;finalC runtime-class (list) ["java.lang.Object" (list)] (list)
                               (|>. adt-methods
                                    nat-methods
                                    frac-methods
                                    deg-methods
                                    pm-methods))]
-     _ (&common;store-class runtime-name bytecode)]
+     _ (&common;store-class runtime-class bytecode)]
     (wrap bytecode)))
+
+(def: #export partials-field Text "partials")
+(def: #export apply-method Text "apply")
+(def: #export num-apply-variants Nat +8)
+
+(def: #export (apply-signature arity)
+  (-> ls;Arity $;Method)
+  ($t;method (list;repeat arity $Object) (#;Some $Object) (list)))
+
+(def: generate-function
+  (Lux &common;Bytecode)
+  (do Monad<Lux>
+    [_ (wrap [])
+     #let [applyI (|> (list;n.range +2 num-apply-variants)
+                      (L/map (function [arity]
+                               ($d;method #$;Public $;noneM apply-method (apply-signature arity)
+                                          (let [preI (|> (list;n.range +0 (n.dec arity))
+                                                         (L/map $i;ALOAD)
+                                                         $i;fuse)]
+                                            (|>. preI
+                                                 ($i;INVOKEVIRTUAL function-class apply-method (apply-signature (n.dec arity)) false)
+                                                 ($i;CHECKCAST function-class)
+                                                 ($i;ALOAD arity)
+                                                 ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
+                                                 $i;ARETURN)))))
+                      (list& ($d;abstract-method #$;Public $;noneM apply-method (apply-signature +1))
+                             ## ($d;method #$;Public $;noneM apply-method (apply-signature +1)
+                             ##            (|>. $i;NULL
+                             ##                 $i;ARETURN))
+                             )
+                      $d;fuse)
+           bytecode ($d;abstract #$;V1.6 #$;Public $;noneC function-class (list) ["java.lang.Object" (list)] (list)
+                                 (|>. ($d;field #$;Public $;finalF partials-field $t;int)
+                                      ($d;method #$;Public $;noneM "<init>" ($t;method (list $t;int) #;None (list))
+                                                 (|>. ($i;ALOAD +0)
+                                                      ($i;INVOKESPECIAL "java.lang.Object" "<init>" ($t;method (list) #;None (list)) false)
+                                                      ($i;ALOAD +0)
+                                                      ($i;ILOAD +1)
+                                                      ($i;PUTFIELD function-class partials-field $t;int)
+                                                      $i;RETURN))
+                                      applyI))]
+     _ (&common;store-class function-class bytecode)]
+    (wrap bytecode)))
+
+(def: #export generate
+  (Lux Unit)
+  (do Monad<Lux>
+    [_ generate-runtime
+     _ generate-function]
+    (wrap [])))

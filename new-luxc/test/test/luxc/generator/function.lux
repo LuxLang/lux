@@ -1,0 +1,96 @@
+(;module:
+  lux
+  (lux [io]
+       (control [monad #+ do]
+                pipe)
+       (data text/format
+             [product]
+             ["R" result]
+             [bool "B/" Eq<Bool>]
+             [text "T/" Eq<Text>]
+             (coll ["a" array]
+                   [list "L/" Functor<List>]
+                   ["S" set]))
+       ["r" math/random "r/" Monad<Random>]
+       [macro #+ Monad<Lux>]
+       (macro [code])
+       [host]
+       test)
+  (luxc (lang ["ls" synthesis])
+        [analyser]
+        [synthesizer]
+        (generator ["@;" expr]
+                   ["@;" eval]
+                   ["@;" runtime]
+                   ["@;" common]))
+  (test/luxc common))
+
+(def: arity-limit Nat +10)
+
+(def: arity
+  (r;Random ls;Arity)
+  (|> r;nat (r/map (|>. (n.% arity-limit) (n.max +1)))))
+
+(def: gen-function
+  (r;Random [ls;Arity Nat ls;Synthesis])
+  (do r;Monad<Random>
+    [arity arity
+     arg (|> r;nat (:: @ map (n.% arity)))
+     #let [functionS (#ls;Function arity (list) (#ls;Variable (nat-to-int (n.inc arg))))]]
+    (wrap [arity arg functionS])))
+
+(context: "Function."
+  [[arity arg functionS] gen-function
+   cut-off (|> r;nat (:: @ map (n.% arity)))
+   args (r;list arity r;nat)
+   #let [arg-value (assume (list;nth arg args))
+         argsS (L/map (|>. #ls;Nat) args)
+         last-arg (n.dec arity)
+         cut-off (|> cut-off (n.min (n.dec last-arg)))]]
+  ($_ seq
+      (test "Can read arguments."
+            (|> (do Monad<Lux>
+                  [runtime-bytecode @runtime;generate]
+                  (@eval;eval (@expr;generate (#ls;Call argsS functionS))))
+                (macro;run (init-compiler []))
+                (case> (#R;Success valueG)
+                       (n.= arg-value (:! Nat valueG))
+
+                       (#R;Error error)
+                       false)))
+      (test "Can partially apply functions."
+            (or (n.= +1 arity)
+                (|> (do Monad<Lux>
+                      [#let [partial-arity (n.inc cut-off)
+                             preS (list;take partial-arity argsS)
+                             postS (list;drop partial-arity argsS)]
+                       runtime-bytecode @runtime;generate]
+                      (@eval;eval (@expr;generate (|> functionS (#ls;Call preS) (#ls;Call postS)))))
+                    (macro;run (init-compiler []))
+                    (case> (#R;Success valueG)
+                           (n.= arg-value (:! Nat valueG))
+
+                           (#R;Error error)
+                           false))))
+      (test "Can read environment."
+            (or (n.= +1 arity)
+                (|> (do Monad<Lux>
+                      [#let [env (|> (list;n.range +0 cut-off)
+                                     (L/map (|>. n.inc nat-to-int)))
+                             super-arity (n.inc cut-off)
+                             arg-var (if (n.<= cut-off arg)
+                                       (|> arg n.inc nat-to-int (i.* -1))
+                                       (|> arg n.inc (n.- super-arity) nat-to-int))
+                             sub-arity (|> arity (n.- super-arity))
+                             functionS (<| (#ls;Function super-arity (list))
+                                           (#ls;Function sub-arity env)
+                                           (#ls;Variable arg-var))]
+                       runtime-bytecode @runtime;generate]
+                      (@eval;eval (@expr;generate (#ls;Call argsS functionS))))
+                    (macro;run (init-compiler []))
+                    (case> (#R;Success valueG)
+                           (n.= arg-value (:! Nat valueG))
+
+                           (#R;Error error)
+                           false))))
+      ))
