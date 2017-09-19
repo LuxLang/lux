@@ -3,37 +3,28 @@
   (lux (control monad
                 [eq #+ Eq]
                 codec
-                ["p" parser "p/" Monad<Parser>])
+                ["p" parser "p/" Monad<Parser>]
+                ["ex" exception #+ exception:])
        (data [text "text/" Eq<Text> Monoid<Text>]
              (text ["l" lexer])
              [number]
              ["R" result]
              [product]
              [maybe "m/" Monad<Maybe>]
-             [ident "Ident/" Eq<Ident> Codec<Text,Ident>]
+             [ident "ident/" Eq<Ident> Codec<Text,Ident>]
              (coll [list "L/" Monad<List>]
-                   ["d" dict]
-                   (tree ["T" rose]
-                         ["Z" zipper])))
+                   ["d" dict]))
        ))
 
-## [Types]
 (type: #export Tag Ident)
 (type: #export Attrs (d;Dict Ident Text))
+
+(def: #export attrs Attrs (d;new ident;Hash<Ident>))
 
 (type: #export #rec XML
   (#Text Text)
   (#Node Tag Attrs (List XML)))
 
-(def: #export (text value)
-  (-> Text XML)
-  (#Text value))
-
-(def: #export (node tag attrs children)
-  (-> Tag Attrs (List XML) XML)
-  (#Node tag attrs children))
-
-## [Parsing]
 (def: xml-standard-escape-char^
   (l;Lexer Text)
   ($_ p;either
@@ -119,9 +110,9 @@
                 (p;after (l;this "/"))
                 (l;enclosed ["<" ">"]))]
     (p;assert ($_ text/append "Close tag does not match open tag.\n"
-                  "Expected: " (Ident/encode expected) "\n"
-                  "  Actual: " (Ident/encode actual) "\n")
-              (Ident/= expected actual))))
+                  "Expected: " (ident/encode expected) "\n"
+                  "  Actual: " (ident/encode actual) "\n")
+              (ident/= expected actual))))
 
 (def: comment^
   (l;Lexer Text)
@@ -163,12 +154,12 @@
                        attrs (spaced^ attrs^)
                        #let [no-children^ (do p;Monad<Parser>
                                             [_ (l;this "/>")]
-                                            (wrap (node tag attrs (list))))
+                                            (wrap (#Node tag attrs (list))))
                              with-children^ (do p;Monad<Parser>
                                               [_ (l;this ">")
                                                children (p;some node^)
                                                _ (close-tag^ tag)]
-                                              (wrap (node tag attrs children)))]]
+                                              (wrap (#Node tag attrs children)))]]
                       (p;either no-children^
                                 with-children^))))))
       ## This is put outside of the call to "rec" because comments
@@ -182,7 +173,6 @@
   (-> Text (R;Result XML))
   (l;run input xml^))
 
-## [Generation]
 (def: (sanitize-value input)
   (-> Text Text)
   (|> input
@@ -231,7 +221,6 @@
                       (text;join-with ""))
                   "</" tag ">")))))))
 
-## [Structs]
 (struct: #export _ (Codec Text XML)
   (def: encode write)
   (def: decode read))
@@ -244,7 +233,7 @@
 
       [(#Node reference/tag reference/attrs reference/children)
        (#Node sample/tag sample/attrs sample/children)]
-      (and (Ident/= reference/tag sample/tag)
+      (and (ident/= reference/tag sample/tag)
            (:: (d;Eq<Dict> text;Eq<Text>) = reference/attrs sample/attrs)
            (n.= (list;size reference/children)
                 (list;size sample/children))
@@ -253,3 +242,108 @@
 
       _
       false)))
+
+(type: #export (Reader a)
+  (p;Parser (List XML) a))
+
+(exception: #export Empty-Input)
+(exception: #export Unexpected-Input)
+(exception: #export Unknown-Attribute)
+(exception: #export Wrong-Tag)
+(exception: #export Unconsumed-Inputs)
+
+(def: #export text
+  (Reader Text)
+  (function [docs]
+    (case docs
+      #;Nil
+      (ex;throw Empty-Input "")
+      
+      (#;Cons head tail)
+      (case head
+        (#Text value)
+        (#R;Success [tail value])
+        
+        (#Node _)
+        (ex;throw Unexpected-Input "")))))
+
+(def: #export (attr name)
+  (-> Ident (Reader Text))
+  (function [docs]
+    (case docs
+      #;Nil
+      (ex;throw Empty-Input "")
+      
+      (#;Cons head _)
+      (case head
+        (#Text _)
+        (ex;throw Unexpected-Input "")
+        
+        (#Node tag attrs children)
+        (case (d;get name attrs)
+          #;None
+          (ex;throw Unknown-Attribute "")
+          
+          (#;Some value)
+          (#R;Success [docs value]))))))
+
+(def: (run' docs reader)
+  (All [a] (-> (List XML) (Reader a) (R;Result a)))
+  (case (p;run docs reader)
+    (#R;Success [remaining output])
+    (if (list;empty? remaining)
+      (#R;Success output)
+      (ex;throw Unconsumed-Inputs (|> remaining
+                                      (L/map (:: Codec<Text,XML> encode))
+                                      (text;join-with "\n\n"))))
+    
+    (#R;Error error)
+    (#R;Error error)))
+
+(def: #export (node tag)
+  (-> Ident (Reader Unit))
+  (function [docs]
+    (case docs
+      #;Nil
+      (ex;throw Empty-Input "")
+      
+      (#;Cons head _)
+      (case head
+        (#Text _)
+        (ex;throw Unexpected-Input "")
+        
+        (#Node _tag _attrs _children)
+        (if (ident/= tag _tag)
+          (#R;Success [docs []])
+          (ex;throw Wrong-Tag (ident/encode tag)))))))
+
+(def: #export (children reader)
+  (All [a] (-> (Reader a) (Reader a)))
+  (function [docs]
+    (case docs
+      #;Nil
+      (ex;throw Empty-Input "")
+      
+      (#;Cons head tail)
+      (case head
+        (#Text _)
+        (ex;throw Unexpected-Input "")
+        
+        (#Node _tag _attrs _children)
+        (do R;Monad<Result>
+          [output (run' _children reader)]
+          (wrap [tail output]))))))
+
+(def: #export ignore
+  (Reader Unit)
+  (function [docs]
+    (case docs
+      #;Nil
+      (ex;throw Empty-Input "")
+      
+      (#;Cons head tail)
+      (#R;Success [tail []]))))
+
+(def: #export (run document reader)
+  (All [a] (-> XML (Reader a) (R;Result a)))
+  (run' (list document) reader))
