@@ -228,7 +228,7 @@ Called by `imenu--generic-function'."
             "and" "or"
             "char"
             "exec" "let" "with-expansions" "if" "cond" "do" "be" "open" "loop" "recur" "comment" "list" "list&" "io" "vector" "tree"
-            "get@" "set@" "update@" "|>" "|>." "<|" "<|." "_$" "$_" "~" "~@" "~'" "::" ":::" "default"
+            "get@" "set@" "update@" "|>" "|>." "<|" "<|." "_$" "$_" "~" "~@" "~'" "::" ":::"
             "|" "&" "->" "All" "Ex" "Rec" "host" "$" "type"
             "^" "^or" "^slots" "^multi" "^~" "^@" "^template" "^open" "^|>" "^stream&" "^regex"
             "bin" "oct" "hex"
@@ -237,7 +237,7 @@ Called by `imenu--generic-function'."
             "infix"
             "format"
             "`" "`'" "'" "do-template"
-            "object" "import" "do-to" "with-open" "synchronized" "class-for"
+            "object" "do-to" "synchronized" "class-for"
             "doc"
             "regex"
             ) t)
@@ -394,9 +394,7 @@ This function also returns nil meaning don't specify the indentation."
   (import 'defun)
   (testing 'defun)
   (comment 'defun)
-  (doE 'defun)
   (^template 'defun)
-  (default 'defun)
   )
 
 ;;;###autoload
