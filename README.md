@@ -39,7 +39,7 @@ The `luxdoc` program was actually used to generate the documentation for the sta
 
 ### What's the license?
 
-Mozilla Public License v2.0
+[MIT](license.txt)
 
 ## What's interesting about the language?
 
