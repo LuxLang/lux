@@ -1,0 +1,89 @@
+(;module:
+  lux
+  (lux [io]
+       (control [monad #+ do]
+                pipe)
+       (data [bool "bool/" Eq<Bool>]
+             [text "text/" Eq<Text>]
+             (text format
+                   ["l" lexer])
+             [number]
+             ["R" result]
+             [product]
+             (coll [list "list/" Functor<List> Fold<List>]))
+       ["r" math/random "r/" Monad<Random>]
+       [type "type/" Eq<Type>]
+       [macro #+ Monad<Lux>]
+       (macro [code])
+       test)
+  (luxc ["&" base]
+        ["&;" module]
+        (lang ["~" analysis])
+        [analyser]
+        (analyser ["@" type]
+                  ["@;" common])
+        (generator ["@;" runtime])
+        [eval])
+  (.. common)
+  (test/luxc common))
+
+(def: check
+  (r;Random [Code Type Code])
+  (with-expansions [<triples> (do-template [<random> <type> <code>]
+                                [(do r;Monad<Random>
+                                   [value <random>]
+                                   (wrap [(` <type>)
+                                          <type>
+                                          (<code> value)]))]
+
+                                [r;bool (+0 "#Bool" (+0)) code;bool]
+                                [r;nat (+0 "#Nat" (+0)) code;nat]
+                                [r;int (+0 "#Int" (+0)) code;int]
+                                [r;deg (+0 "#Deg" (+0)) code;deg]
+                                [r;frac (+0 "#Frac" (+0)) code;frac]
+                                [(r;text +5) (+0 "#Text" (+0)) code;text]
+                                )]
+    ($_ r;either
+        <triples>)))
+
+(context: "Type checking/coercion."
+  [[typeC codeT exprC] check]
+  ($_ seq
+      (test (format "Can analyse type-checking.")
+            (|> (do Monad<Lux>
+                  [runtime-bytecode @runtime;generate]
+                  (&;with-scope
+                    (@common;with-unknown-type
+                      (@;analyse-check analyse eval;eval typeC exprC))))
+                (macro;run (init-compiler []))
+                (case> (#R;Success [_ [analysisT analysisA]])
+                       (and (type/= codeT analysisT)
+                            (case [exprC analysisA]
+                              (^template [<expected> <actual> <test>]
+                                [[_ (<expected> expected)] (<actual> actual)]
+                                (<test> expected actual))
+                              ([#;Bool #~;Bool bool/=]
+                               [#;Nat  #~;Nat  n.=]
+                               [#;Int  #~;Int  i.=]
+                               [#;Deg  #~;Deg  d.=]
+                               [#;Frac #~;Frac f.=]
+                               [#;Text #~;Text text/=])
+                              
+                              _
+                              false))
+
+                       (#R;Error error)
+                       false)))
+      (test (format "Can analyse type-coercion.")
+            (|> (do Monad<Lux>
+                  [runtime-bytecode @runtime;generate]
+                  (&;with-scope
+                    (@common;with-unknown-type
+                      (@;analyse-coerce analyse eval;eval typeC exprC))))
+                (macro;run (init-compiler []))
+                (case> (#R;Success [_ [analysisT analysisA]])
+                       (type/= codeT analysisT)
+
+                       (#R;Error error)
+                       false)))
+      ))
