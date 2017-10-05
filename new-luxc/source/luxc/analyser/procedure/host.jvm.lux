@@ -1,0 +1,425 @@
+(;module:
+  [lux #- char]
+  (lux (control [monad #+ do]
+                ["p" parser])
+       (concurrency ["A" atom])
+       (data ["R" result]
+             [text]
+             (text format
+                   ["l" lexer])
+             (coll [list "list/" Fold<List>]
+                   [array #+ Array]
+                   ["d" dict]))
+       [macro #+ Monad<Lux>]
+       (type ["TC" check])
+       [host])
+  (luxc ["&" base]
+        ["&;" host]
+        (lang ["la" analysis #+ Analysis])
+        (analyser ["&;" common]))
+  ["@" ../common]
+  )
+
+(def: Boolean Type (host java.lang.Boolean))
+(def: Byte Type (host java.lang.Byte))
+(def: Short Type (host java.lang.Short))
+(def: Integer Type (host java.lang.Integer))
+(def: Long Type (host java.lang.Long))
+(def: Float Type (host java.lang.Float))
+(def: Double Type (host java.lang.Double))
+(def: Character Type (host java.lang.Character))
+(def: String Type (host java.lang.String))
+
+(def: boolean Type (host boolean))
+(def: byte Type (host byte))
+(def: short Type (host short))
+(def: int Type (host int))
+(def: long Type (host long))
+(def: float Type (host float))
+(def: double Type (host double))
+(def: char Type (host char))
+
+(def: converter-procs
+  @;Bundle
+  (<| (@;prefix "convert")
+      (|> (d;new text;Hash<Text>)
+          (@;install "double-to-float" (@;unary Double Float))
+          (@;install "double-to-int" (@;unary Double Integer))
+          (@;install "double-to-long" (@;unary Double Long))
+          (@;install "float-to-double" (@;unary Float Double))
+          (@;install "float-to-int" (@;unary Float Integer))
+          (@;install "float-to-long" (@;unary Float Long))
+          (@;install "int-to-byte" (@;unary Integer Byte))
+          (@;install "int-to-char" (@;unary Integer Character))
+          (@;install "int-to-double" (@;unary Integer Double))
+          (@;install "int-to-float" (@;unary Integer Float))
+          (@;install "int-to-long" (@;unary Integer Long))
+          (@;install "int-to-short" (@;unary Integer Short))
+          (@;install "long-to-double" (@;unary Long Double))
+          (@;install "long-to-float" (@;unary Long Float))
+          (@;install "long-to-int" (@;unary Long Integer))
+          (@;install "long-to-short" (@;unary Long Short))
+          (@;install "long-to-byte" (@;unary Long Byte))
+          (@;install "char-to-byte" (@;unary Character Byte))
+          (@;install "char-to-short" (@;unary Character Short))
+          (@;install "char-to-int" (@;unary Character Integer))
+          (@;install "char-to-long" (@;unary Character Long))
+          (@;install "byte-to-long" (@;unary Byte Long))
+          (@;install "short-to-long" (@;unary Short Long))
+          )))
+
+(do-template [<name> <prefix> <type>]
+  [(def: <name>
+     @;Bundle
+     (<| (@;prefix <prefix>)
+         (|> (d;new text;Hash<Text>)
+             (@;install "add" (@;binary <type> <type> <type>))
+             (@;install "sub" (@;binary <type> <type> <type>))
+             (@;install "mul" (@;binary <type> <type> <type>))
+             (@;install "div" (@;binary <type> <type> <type>))
+             (@;install "rem" (@;binary <type> <type> <type>))
+             (@;install "eq" (@;binary <type> <type> Boolean))
+             (@;install "lt" (@;binary <type> <type> Boolean))
+             (@;install "gt" (@;binary <type> <type> Boolean))
+             (@;install "and" (@;binary <type> <type> <type>))
+             (@;install "or" (@;binary <type> <type> <type>))
+             (@;install "xor" (@;binary <type> <type> <type>))
+             (@;install "shl" (@;binary <type> Integer <type>))
+             (@;install "shr" (@;binary <type> Integer <type>))
+             (@;install "ushr" (@;binary <type> Integer <type>))
+             )))]
+
+  [int-procs  "int"  Integer]
+  [long-procs "long" Long]
+  )
+
+(do-template [<name> <prefix> <type>]
+  [(def: <name>
+     @;Bundle
+     (<| (@;prefix <prefix>)
+         (|> (d;new text;Hash<Text>)
+             (@;install "add" (@;binary <type> <type> <type>))
+             (@;install "sub" (@;binary <type> <type> <type>))
+             (@;install "mul" (@;binary <type> <type> <type>))
+             (@;install "div" (@;binary <type> <type> <type>))
+             (@;install "rem" (@;binary <type> <type> <type>))
+             (@;install "eq" (@;binary <type> <type> Boolean))
+             (@;install "lt" (@;binary <type> <type> Boolean))
+             (@;install "gt" (@;binary <type> <type> Boolean))
+             )))]
+
+  [float-procs  "float"  Float]
+  [double-procs "double" Double]
+  )
+
+(def: char-procs
+  @;Bundle
+  (<| (@;prefix "char")
+      (|> (d;new text;Hash<Text>)
+          (@;install "ceq" (@;binary Character Character Boolean))
+          (@;install "clt" (@;binary Character Character Boolean))
+          (@;install "cgt" (@;binary Character Character Boolean))
+          )))
+
+(def: primitive-boxes
+  (d;Dict Text Text)
+  (|> (list ["boolean" "java.lang.Boolean"]
+            ["byte" "java.lang.Byte"]
+            ["short" "java.lang.Short"]
+            ["int" "java.lang.Integer"]
+            ["long" "java.lang.Long"]
+            ["float" "java.lang.Float"]
+            ["double" "java.lang.Double"]
+            ["char" "java.lang.Character"])
+      (d;from-list text;Hash<Text>)))
+
+(def: array-type
+  (l;Lexer [Type Nat Text])
+  (do p;Monad<Parser>
+    [subs (p;some (l;this "["))
+     #let [level (list;size subs)]
+     class (l;many l;any)]
+    (wrap [(list/fold (function [_ inner]
+                        (type (Array inner)))
+                      (#;Host (|> (d;get class primitive-boxes)
+                                  (default class))
+                              (list))
+                      (list;n.range +1 level))
+           level
+           class])))
+
+(def: (array-length proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list arrayC))
+          (do Monad<Lux>
+            [arrayA (&;with-expected-type (type (Array varT))
+                      (analyse arrayC))
+             expectedT macro;expected-type
+             _ (&;within-type-env
+                (TC;check expectedT Nat))]
+            (wrap (#la;Procedure proc (list arrayA))))
+
+          _
+          (&;fail (@;wrong-amount-error proc +1 (list;size args))))))))
+
+(def: (array-new proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case args
+      (^ (list classC lengthC))
+      (case classC
+        [_ (#;Text classC)]
+        (do Monad<Lux>
+          [lengthA (&;with-expected-type Nat
+                     (analyse lengthC))
+           arrayT (case (l;run classC array-type)
+                    (#R;Success [innerT level elem-class])
+                    (wrap (type (Array innerT)))
+
+                    (#R;Error error)
+                    (&;fail error))
+           expectedT macro;expected-type
+           _ (&;within-type-env
+              (TC;check expectedT arrayT))]
+          (wrap (#la;Procedure proc (list (#la;Text classC) lengthA))))
+
+        _
+        (&;fail (format "Wrong syntax for '" proc "'.")))
+
+      _
+      (&;fail (@;wrong-amount-error proc +2 (list;size args))))))
+
+(def: (array-load proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list arrayC idxC))
+          (do Monad<Lux>
+            [arrayA (&;with-expected-type (type (Array varT))
+                      (analyse arrayC))
+             elemT (&;within-type-env
+                    (TC;read-var var-id))
+             elem-class (case elemT
+                          (#;Host name _)
+                          (wrap name)
+
+                          _
+                          (&;fail (format "Invalid type for array element: " (%type elemT))))
+             idxA (&;with-expected-type Nat
+                    (analyse idxC))
+             expectedT macro;expected-type
+             _ (&;within-type-env
+                (TC;check expectedT elemT))]
+            (wrap (#la;Procedure proc (list (#la;Text elem-class) arrayA idxA))))
+
+          _
+          (&;fail (@;wrong-amount-error proc +2 (list;size args))))))))
+
+(def: (array-store proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list arrayC idxC valueC))
+          (do Monad<Lux>
+            [arrayA (&;with-expected-type (type (Array varT))
+                      (analyse arrayC))
+             elemT (&;within-type-env
+                    (TC;read-var var-id))
+             elem-class (case elemT
+                          (#;Host name _)
+                          (wrap name)
+
+                          _
+                          (&;fail (format "Invalid type for array element: " (%type elemT))))
+             idxA (&;with-expected-type Nat
+                    (analyse idxC))
+             valueA (&;with-expected-type elemT
+                      (analyse valueC))
+             expectedT macro;expected-type
+             _ (&;within-type-env
+                (TC;check expectedT (type (Array elemT))))]
+            (wrap (#la;Procedure proc (list (#la;Text elem-class) arrayA idxA valueA))))
+
+          _
+          (&;fail (@;wrong-amount-error proc +3 (list;size args))))))))
+
+(def: array-procs
+  @;Bundle
+  (<| (@;prefix "array")
+      (|> (d;new text;Hash<Text>)
+          (@;install "length" array-length)
+          (@;install "new" array-new)
+          (@;install "load" array-load)
+          (@;install "store" array-store)
+          )))
+
+(def: (check-object objectT)
+  (-> Type (Lux Text))
+  (case objectT
+    (#;Host name _)
+    (if (d;contains? name primitive-boxes)
+      (&;fail (format "Primitives are not objects: " name))
+      (:: Monad<Lux> wrap name))
+
+    _
+    (&;fail (format "Non-object type: " (%type objectT)))))
+
+(def: (object-null proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case args
+      (^ (list))
+      (do Monad<Lux>
+        [expectedT macro;expected-type
+         _ (check-object expectedT)]
+        (wrap (#la;Procedure proc (list))))
+
+      _
+      (&;fail (@;wrong-amount-error proc +0 (list;size args))))))
+
+(def: (object-null? proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list objectC))
+          (do Monad<Lux>
+            [objectA (&;with-expected-type (type varT)
+                       (analyse objectC))
+             objectT (&;within-type-env
+                      (TC;read-var var-id))
+             _ (check-object objectT)
+             expectedT macro;expected-type
+             _ (&;within-type-env
+                (TC;check expectedT Bool))]
+            (wrap (#la;Procedure proc (list objectA))))
+
+          _
+          (&;fail (@;wrong-amount-error proc +1 (list;size args))))))))
+
+(def: (object-synchronized proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list monitorC exprC))
+          (do Monad<Lux>
+            [monitorA (&;with-expected-type (type varT)
+                        (analyse monitorC))
+             monitorT (&;within-type-env
+                       (TC;read-var var-id))
+             _ (check-object monitorT)
+             exprA (analyse exprC)]
+            (wrap (#la;Procedure proc (list monitorA exprA))))
+
+          _
+          (&;fail (@;wrong-amount-error proc +2 (list;size args))))))))
+
+(host;import java.lang.Object)
+
+(host;import java.lang.ClassLoader)
+
+(host;import (java.lang.Class c)
+  (#static forName [String boolean ClassLoader] #try (Class Object))
+  (isAssignableFrom [(Class Object)] boolean))
+
+(def: (load-class name)
+  (-> Text (Lux (Class Object)))
+  (do Monad<Lux>
+    [class-loader &host;class-loader]
+    (case (Class.forName [name false class-loader])
+      (#R;Success [class])
+      (wrap class)
+
+      (#R;Error error)
+      (&;fail (format "Unknown class: " name)))))
+
+(def: (sub-class? super sub)
+  (-> Text Text (Lux Bool))
+  (do Monad<Lux>
+    [super (load-class super)
+     sub (load-class sub)]
+    (wrap (Class.isAssignableFrom [sub] super))))
+
+(def: (object-throw proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list exceptionC))
+          (do Monad<Lux>
+            [exceptionA (&;with-expected-type (type varT)
+                          (analyse exceptionC))
+             exceptionT (&;within-type-env
+                         (TC;read-var var-id))
+             exception-class (check-object exceptionT)
+             ? (sub-class? "java.lang.Throwable" exception-class)
+             _ (: (Lux Unit)
+                  (if ?
+                    (wrap [])
+                    (&;fail (format "Must throw a sub-class of java.lang.Throwable: " exception-class))))
+             expectedT macro;expected-type
+             _ (&;within-type-env
+                (TC;check expectedT Bottom))]
+            (wrap (#la;Procedure proc (list exceptionA))))
+
+          _
+          (&;fail (@;wrong-amount-error proc +1 (list;size args))))))))
+
+(def: (object-class proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list classC))
+          (case classC
+            [_ (#;Text class)]
+            (do Monad<Lux>
+              [_ (load-class class)
+               expectedT macro;expected-type
+               _ (&;within-type-env
+                  (TC;check expectedT (#;Host "java.lang.Class" (list (#;Host class (list))))))]
+              (wrap (#la;Procedure proc (list (#la;Text class)))))
+
+            _
+            (&;fail (format "Wrong syntax for '" proc "'.")))
+
+          _
+          (&;fail (@;wrong-amount-error proc +1 (list;size args))))))))
+
+(def: object-procs
+  @;Bundle
+  (<| (@;prefix "object")
+      (|> (d;new text;Hash<Text>)
+          (@;install "null" object-null)
+          (@;install "null?" object-null?)
+          (@;install "synchronized" object-synchronized)
+          (@;install "throw" object-throw)
+          (@;install "class" object-class)
+          )))
+
+(def: #export procedures
+  @;Bundle
+  (<| (@;prefix "jvm")
+      (|> (d;new text;Hash<Text>)
+          (d;merge converter-procs)
+          (d;merge int-procs)
+          (d;merge long-procs)
+          (d;merge float-procs)
+          (d;merge double-procs)
+          (d;merge char-procs)
+          (d;merge array-procs)
+          (d;merge object-procs)
+          )))

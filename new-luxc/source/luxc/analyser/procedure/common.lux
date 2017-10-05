@@ -4,9 +4,9 @@
        (concurrency ["A" atom])
        (data [text]
              text/format
-             (coll [list]
+             (coll [list "list/" Functor<List>]
                    [array #+ Array]
-                   ["D" dict]))
+                   ["d" dict]))
        [macro #+ Monad<Lux>]
        (type ["TC" check])
        [io])
@@ -15,24 +15,31 @@
         (analyser ["&;" common])))
 
 ## [Utils]
-(type: Proc
+(type: #export Proc
   (-> &;Analyser (List Code) (Lux Analysis)))
 
-(type: Bundle
-  (D;Dict Text Proc))
+(type: #export Bundle
+  (d;Dict Text Proc))
 
-(def: (install name unnamed)
+(def: #export (install name unnamed)
   (-> Text (-> Text Proc)
       (-> Bundle Bundle))
-  (D;put name (unnamed name)))
+  (d;put name (unnamed name)))
 
-(def: (wrong-amount-error proc expected actual)
+(def: #export (prefix prefix bundle)
+  (-> Text Bundle Bundle)
+  (|> bundle
+      d;entries
+      (list/map (function [[key val]] [(format prefix " " key) val]))
+      (d;from-list text;Hash<Text>)))
+
+(def: #export (wrong-amount-error proc expected actual)
   (-> Text Nat Nat Text)
   (format "Wrong number of arguments for " (%t proc) "\n"
           "Expected: " (|> expected nat-to-int %i) "\n"
           "  Actual: " (|> actual nat-to-int %i)))
 
-(def: (simple-proc proc input-types output-type)
+(def: (simple proc input-types output-type)
   (-> Text (List Type) Type Proc)
   (let [num-expected (list;size input-types)]
     (function [analyse args]
@@ -50,39 +57,35 @@
             (wrap (#la;Procedure proc argsA)))
           (&;fail (wrong-amount-error proc num-expected num-actual)))))))
 
-(def: (binary-operation subjectT paramT outputT proc)
-  (-> Type Type Type Text Proc)
-  (simple-proc proc (list subjectT paramT) outputT))
-
-(def: (trinary-operation subjectT param0T param1T outputT proc)
-  (-> Type Type Type Type Text Proc)
-  (simple-proc proc (list subjectT param0T param1T) outputT))
-
-(def: (unary-operation inputT outputT proc)
-  (-> Type Type Text Proc)
-  (simple-proc proc (list inputT) outputT))
-
-(def: (special-value valueT proc)
+(def: #export (nullary valueT proc)
   (-> Type Text Proc)
-  (simple-proc proc (list) valueT))
+  (simple proc (list) valueT))
 
-(def: (converter fromT toT proc)
+(def: #export (unary inputT outputT proc)
   (-> Type Type Text Proc)
-  (simple-proc proc (list fromT) toT))
+  (simple proc (list inputT) outputT))
+
+(def: #export (binary subjectT paramT outputT proc)
+  (-> Type Type Type Text Proc)
+  (simple proc (list subjectT paramT) outputT))
+
+(def: #export (trinary subjectT param0T param1T outputT proc)
+  (-> Type Type Type Type Text Proc)
+  (simple proc (list subjectT param0T param1T) outputT))
 
 ## [Analysers]
 ## "lux is" represents reference/pointer equality.
-(def: (analyse-lux-is proc)
+(def: (lux-is proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
       (function [[var-id varT]]
-        ((binary-operation varT varT Bool proc)
+        ((binary varT varT Bool proc)
          analyse args)))))
 
 ## "lux try" provides a simple way to interact with the host platform's
 ## error-handling facilities.
-(def: (analyse-lux-try proc)
+(def: (lux-try proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
@@ -104,169 +107,178 @@
 
 (def: lux-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "lux is" analyse-lux-is)
-      (install "lux try" analyse-lux-try)))
+  (|> (d;new text;Hash<Text>)
+      (install "is" lux-is)
+      (install "try" lux-try)))
 
 (def: io-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "io log" (converter Text Unit))
-      (install "io error" (converter Text Bottom))
-      (install "io exit" (converter Nat Bottom))
-      (install "io current-time" (special-value Int))))
+  (<| (prefix "io")
+      (|> (d;new text;Hash<Text>)
+          (install "log" (unary Text Unit))
+          (install "error" (unary Text Bottom))
+          (install "exit" (unary Nat Bottom))
+          (install "current-time" (nullary Int)))))
 
 (def: bit-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "bit count" (unary-operation Nat Nat))
-      (install "bit and" (binary-operation Nat Nat Nat))
-      (install "bit or" (binary-operation Nat Nat Nat))
-      (install "bit xor" (binary-operation Nat Nat Nat))
-      (install "bit shift-left" (binary-operation Nat Nat Nat))
-      (install "bit unsigned-shift-right" (binary-operation Nat Nat Nat))
-      (install "bit shift-right" (binary-operation Int Nat Int))
-      ))
+  (<| (prefix "bit")
+      (|> (d;new text;Hash<Text>)
+          (install "count" (unary Nat Nat))
+          (install "and" (binary Nat Nat Nat))
+          (install "or" (binary Nat Nat Nat))
+          (install "xor" (binary Nat Nat Nat))
+          (install "shift-left" (binary Nat Nat Nat))
+          (install "unsigned-shift-right" (binary Nat Nat Nat))
+          (install "shift-right" (binary Int Nat Int))
+          )))
 
 (def: nat-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "nat +" (binary-operation Nat Nat Nat))
-      (install "nat -" (binary-operation Nat Nat Nat))
-      (install "nat *" (binary-operation Nat Nat Nat))
-      (install "nat /" (binary-operation Nat Nat Nat))
-      (install "nat %" (binary-operation Nat Nat Nat))
-      (install "nat =" (binary-operation Nat Nat Bool))
-      (install "nat <" (binary-operation Nat Nat Bool))
-      (install "nat min" (special-value Nat))
-      (install "nat max" (special-value Nat))
-      (install "nat to-int" (converter Nat Int))
-      (install "nat to-text" (converter Nat Text))))
+  (<| (prefix "nat")
+      (|> (d;new text;Hash<Text>)
+          (install "+" (binary Nat Nat Nat))
+          (install "-" (binary Nat Nat Nat))
+          (install "*" (binary Nat Nat Nat))
+          (install "/" (binary Nat Nat Nat))
+          (install "%" (binary Nat Nat Nat))
+          (install "=" (binary Nat Nat Bool))
+          (install "<" (binary Nat Nat Bool))
+          (install "min" (nullary Nat))
+          (install "max" (nullary Nat))
+          (install "to-int" (unary Nat Int))
+          (install "to-text" (unary Nat Text)))))
 
 (def: int-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "int +" (binary-operation Int Int Int))
-      (install "int -" (binary-operation Int Int Int))
-      (install "int *" (binary-operation Int Int Int))
-      (install "int /" (binary-operation Int Int Int))
-      (install "int %" (binary-operation Int Int Int))
-      (install "int =" (binary-operation Int Int Bool))
-      (install "int <" (binary-operation Int Int Bool))
-      (install "int min" (special-value Int))
-      (install "int max" (special-value Int))
-      (install "int to-nat" (converter Int Nat))
-      (install "int to-frac" (converter Int Frac))))
+  (<| (prefix "int")
+      (|> (d;new text;Hash<Text>)
+          (install "+" (binary Int Int Int))
+          (install "-" (binary Int Int Int))
+          (install "*" (binary Int Int Int))
+          (install "/" (binary Int Int Int))
+          (install "%" (binary Int Int Int))
+          (install "=" (binary Int Int Bool))
+          (install "<" (binary Int Int Bool))
+          (install "min" (nullary Int))
+          (install "max" (nullary Int))
+          (install "to-nat" (unary Int Nat))
+          (install "to-frac" (unary Int Frac)))))
 
 (def: deg-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "deg +" (binary-operation Deg Deg Deg))
-      (install "deg -" (binary-operation Deg Deg Deg))
-      (install "deg *" (binary-operation Deg Deg Deg))
-      (install "deg /" (binary-operation Deg Deg Deg))
-      (install "deg %" (binary-operation Deg Deg Deg))
-      (install "deg =" (binary-operation Deg Deg Bool))
-      (install "deg <" (binary-operation Deg Deg Bool))
-      (install "deg scale" (binary-operation Deg Nat Deg))
-      (install "deg reciprocal" (binary-operation Deg Nat Deg))
-      (install "deg min" (special-value Deg))
-      (install "deg max" (special-value Deg))
-      (install "deg to-frac" (converter Deg Frac))))
+  (<| (prefix "deg")
+      (|> (d;new text;Hash<Text>)
+          (install "+" (binary Deg Deg Deg))
+          (install "-" (binary Deg Deg Deg))
+          (install "*" (binary Deg Deg Deg))
+          (install "/" (binary Deg Deg Deg))
+          (install "%" (binary Deg Deg Deg))
+          (install "=" (binary Deg Deg Bool))
+          (install "<" (binary Deg Deg Bool))
+          (install "scale" (binary Deg Nat Deg))
+          (install "reciprocal" (binary Deg Nat Deg))
+          (install "min" (nullary Deg))
+          (install "max" (nullary Deg))
+          (install "to-frac" (unary Deg Frac)))))
 
 (def: frac-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "frac +" (binary-operation Frac Frac Frac))
-      (install "frac -" (binary-operation Frac Frac Frac))
-      (install "frac *" (binary-operation Frac Frac Frac))
-      (install "frac /" (binary-operation Frac Frac Frac))
-      (install "frac %" (binary-operation Frac Frac Frac))
-      (install "frac =" (binary-operation Frac Frac Bool))
-      (install "frac <" (binary-operation Frac Frac Bool))
-      (install "frac smallest" (special-value Frac))
-      (install "frac min" (special-value Frac))
-      (install "frac max" (special-value Frac))
-      (install "frac not-a-number" (special-value Frac))
-      (install "frac positive-infinity" (special-value Frac))
-      (install "frac negative-infinity" (special-value Frac))
-      (install "frac to-deg" (converter Frac Deg))
-      (install "frac to-int" (converter Frac Int))
-      (install "frac encode" (converter Frac Text))
-      (install "frac decode" (converter Text (type (Maybe Frac))))))
+  (<| (prefix "frac")
+      (|> (d;new text;Hash<Text>)
+          (install "+" (binary Frac Frac Frac))
+          (install "-" (binary Frac Frac Frac))
+          (install "*" (binary Frac Frac Frac))
+          (install "/" (binary Frac Frac Frac))
+          (install "%" (binary Frac Frac Frac))
+          (install "=" (binary Frac Frac Bool))
+          (install "<" (binary Frac Frac Bool))
+          (install "smallest" (nullary Frac))
+          (install "min" (nullary Frac))
+          (install "max" (nullary Frac))
+          (install "not-a-number" (nullary Frac))
+          (install "positive-infinity" (nullary Frac))
+          (install "negative-infinity" (nullary Frac))
+          (install "to-deg" (unary Frac Deg))
+          (install "to-int" (unary Frac Int))
+          (install "encode" (unary Frac Text))
+          (install "decode" (unary Text (type (Maybe Frac)))))))
 
 (def: text-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "text =" (binary-operation Text Text Bool))
-      (install "text <" (binary-operation Text Text Bool))
-      (install "text prepend" (binary-operation Text Text Text))
-      (install "text index" (trinary-operation Text Text Nat (type (Maybe Nat))))
-      (install "text size" (unary-operation Text Nat))
-      (install "text hash" (unary-operation Text Nat))
-      (install "text replace" (trinary-operation Text Text Text Text))
-      (install "text char" (binary-operation Text Nat Nat))
-      (install "text clip" (trinary-operation Text Nat Nat Text))
-      ))
+  (<| (prefix "text")
+      (|> (d;new text;Hash<Text>)
+          (install "=" (binary Text Text Bool))
+          (install "<" (binary Text Text Bool))
+          (install "prepend" (binary Text Text Text))
+          (install "index" (trinary Text Text Nat (type (Maybe Nat))))
+          (install "size" (unary Text Nat))
+          (install "hash" (unary Text Nat))
+          (install "replace" (trinary Text Text Text Text))
+          (install "char" (binary Text Nat Nat))
+          (install "clip" (trinary Text Nat Nat Text))
+          )))
 
-(def: (analyse-array-get proc)
+(def: (array-get proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
       (function [[var-id varT]]
-        ((binary-operation Nat (type (Array varT)) varT proc)
+        ((binary Nat (type (Array varT)) varT proc)
          analyse args)))))
 
-(def: (analyse-array-put proc)
+(def: (array-put proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
       (function [[var-id varT]]
-        ((trinary-operation Nat varT (type (Array varT)) (type (Array varT)) proc)
+        ((trinary Nat varT (type (Array varT)) (type (Array varT)) proc)
          analyse args)))))
 
-(def: (analyse-array-remove proc)
+(def: (array-remove proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
       (function [[var-id varT]]
-        ((binary-operation Nat (type (Array varT)) (type (Array varT)) proc)
+        ((binary Nat (type (Array varT)) (type (Array varT)) proc)
          analyse args)))))
 
 (def: array-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "array new" (unary-operation Nat Array))
-      (install "array get" analyse-array-get)
-      (install "array put" analyse-array-put)
-      (install "array remove" analyse-array-remove)
-      (install "array size" (unary-operation (type (Ex [a] (Array a))) Nat))
-      ))
+  (<| (prefix "array")
+      (|> (d;new text;Hash<Text>)
+          (install "new" (unary Nat Array))
+          (install "get" array-get)
+          (install "put" array-put)
+          (install "remove" array-remove)
+          (install "size" (unary (type (Ex [a] (Array a))) Nat))
+          )))
 
 (def: math-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "math cos" (unary-operation Frac Frac))
-      (install "math sin" (unary-operation Frac Frac))
-      (install "math tan" (unary-operation Frac Frac))
-      (install "math acos" (unary-operation Frac Frac))
-      (install "math asin" (unary-operation Frac Frac))
-      (install "math atan" (unary-operation Frac Frac))
-      (install "math cosh" (unary-operation Frac Frac))
-      (install "math sinh" (unary-operation Frac Frac))
-      (install "math tanh" (unary-operation Frac Frac))
-      (install "math exp" (unary-operation Frac Frac))
-      (install "math log" (unary-operation Frac Frac))
-      (install "math root2" (unary-operation Frac Frac))
-      (install "math root3" (unary-operation Frac Frac))
-      (install "math ceil" (unary-operation Frac Frac))
-      (install "math floor" (unary-operation Frac Frac))
-      (install "math round" (unary-operation Frac Frac))
-      (install "math atan2" (binary-operation Frac Frac Frac))
-      (install "math pow" (binary-operation Frac Frac Frac))
-      ))
+  (<| (prefix "math")
+      (|> (d;new text;Hash<Text>)
+          (install "cos" (unary Frac Frac))
+          (install "sin" (unary Frac Frac))
+          (install "tan" (unary Frac Frac))
+          (install "acos" (unary Frac Frac))
+          (install "asin" (unary Frac Frac))
+          (install "atan" (unary Frac Frac))
+          (install "cosh" (unary Frac Frac))
+          (install "sinh" (unary Frac Frac))
+          (install "tanh" (unary Frac Frac))
+          (install "exp" (unary Frac Frac))
+          (install "log" (unary Frac Frac))
+          (install "root2" (unary Frac Frac))
+          (install "root3" (unary Frac Frac))
+          (install "ceil" (unary Frac Frac))
+          (install "floor" (unary Frac Frac))
+          (install "round" (unary Frac Frac))
+          (install "atan2" (binary Frac Frac Frac))
+          (install "pow" (binary Frac Frac Frac))
+          )))
 
-(def: (analyse-atom-new proc)
+(def: (atom-new proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
@@ -286,50 +298,53 @@
           _
           (&;fail (wrong-amount-error proc +1 (list;size args))))))))
 
-(def: (analyse-atom-read proc)
+(def: (atom-read proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
       (function [[var-id varT]]
-        ((unary-operation (type (A;Atom varT)) varT proc)
+        ((unary (type (A;Atom varT)) varT proc)
          analyse args)))))
 
-(def: (analyse-atom-compare-and-swap proc)
+(def: (atom-compare-and-swap proc)
   (-> Text Proc)
   (function [analyse args]
     (&common;with-var
       (function [[var-id varT]]
-        ((trinary-operation varT varT (type (A;Atom varT)) Bool proc)
+        ((trinary varT varT (type (A;Atom varT)) Bool proc)
          analyse args)))))
 
 (def: atom-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "atom new" analyse-atom-new)
-      (install "atom read" analyse-atom-read)
-      (install "atom compare-and-swap" analyse-atom-compare-and-swap)
-      ))
+  (<| (prefix "atom")
+      (|> (d;new text;Hash<Text>)
+          (install "new" atom-new)
+          (install "read" atom-read)
+          (install "compare-and-swap" atom-compare-and-swap)
+          )))
 
 (def: process-procs
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (install "process concurrency-level" (special-value Nat))
-      (install "process future" (unary-operation (type (io;IO Top)) Unit))
-      (install "process schedule" (binary-operation Nat (type (io;IO Top)) Unit))
-      ))
+  (<| (prefix "process")
+      (|> (d;new text;Hash<Text>)
+          (install "concurrency-level" (nullary Nat))
+          (install "future" (unary (type (io;IO Top)) Unit))
+          (install "schedule" (binary Nat (type (io;IO Top)) Unit))
+          )))
 
 (def: #export procedures
   Bundle
-  (|> (D;new text;Hash<Text>)
-      (D;merge lux-procs)
-      (D;merge bit-procs)
-      (D;merge nat-procs)
-      (D;merge int-procs)
-      (D;merge deg-procs)
-      (D;merge frac-procs)
-      (D;merge text-procs)
-      (D;merge array-procs)
-      (D;merge math-procs)
-      (D;merge atom-procs)
-      (D;merge process-procs)
-      (D;merge io-procs)))
+  (<| (prefix "lux")
+      (|> (d;new text;Hash<Text>)
+          (d;merge lux-procs)
+          (d;merge bit-procs)
+          (d;merge nat-procs)
+          (d;merge int-procs)
+          (d;merge deg-procs)
+          (d;merge frac-procs)
+          (d;merge text-procs)
+          (d;merge array-procs)
+          (d;merge math-procs)
+          (d;merge atom-procs)
+          (d;merge process-procs)
+          (d;merge io-procs))))
