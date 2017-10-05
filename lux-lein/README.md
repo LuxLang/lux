@@ -10,8 +10,8 @@ Here's an example:
   :dependencies [[io.vertx/vertx-web "3.0.0"]]
   :source-paths ["source"]
   :test-paths ["test"]
-  :lux {:program "tutorial1
-        tests "tests"}
+  :lux {:program "tutorial1"
+        :tests "tests"}
   )
 ```
 
