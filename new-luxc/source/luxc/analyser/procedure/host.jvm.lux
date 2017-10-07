@@ -11,6 +11,7 @@
                    [array #+ Array]
                    ["d" dict]))
        [macro #+ Monad<Lux>]
+       [type]
        (type ["TC" check])
        [host])
   (luxc ["&" base]
@@ -20,26 +21,32 @@
   ["@" ../common]
   )
 
-(def: Boolean Type (host java.lang.Boolean))
-(def: Byte Type (host java.lang.Byte))
-(def: Short Type (host java.lang.Short))
-(def: Integer Type (host java.lang.Integer))
-(def: Long Type (host java.lang.Long))
-(def: Float Type (host java.lang.Float))
-(def: Double Type (host java.lang.Double))
-(def: Character Type (host java.lang.Character))
-(def: String Type (host java.lang.String))
+(do-template [<name> <class>]
+  [(def: #export <name> Type (#;Host <class> (list)))]
 
-(def: boolean Type (host boolean))
-(def: byte Type (host byte))
-(def: short Type (host short))
-(def: int Type (host int))
-(def: long Type (host long))
-(def: float Type (host float))
-(def: double Type (host double))
-(def: char Type (host char))
+  ## Boxes
+  [Boolean   "java.lang.Boolean"]
+  [Byte      "java.lang.Byte"]
+  [Short     "java.lang.Short"]
+  [Integer   "java.lang.Integer"]
+  [Long      "java.lang.Long"]
+  [Float     "java.lang.Float"]
+  [Double    "java.lang.Double"]
+  [Character "java.lang.Character"]
+  [String    "java.lang.String"]
 
-(def: converter-procs
+  ## Primitives
+  [boolean   "boolean"]
+  [byte      "byte"]
+  [short     "short"]
+  [int       "int"]
+  [long      "long"]
+  [float     "float"]
+  [double    "double"]
+  [char      "char"]
+  )
+
+(def: conversion-procs
   @;Bundle
   (<| (@;prefix "convert")
       (|> (d;new text;Hash<Text>)
@@ -73,14 +80,14 @@
      @;Bundle
      (<| (@;prefix <prefix>)
          (|> (d;new text;Hash<Text>)
-             (@;install "add" (@;binary <type> <type> <type>))
-             (@;install "sub" (@;binary <type> <type> <type>))
-             (@;install "mul" (@;binary <type> <type> <type>))
-             (@;install "div" (@;binary <type> <type> <type>))
-             (@;install "rem" (@;binary <type> <type> <type>))
-             (@;install "eq" (@;binary <type> <type> Boolean))
-             (@;install "lt" (@;binary <type> <type> Boolean))
-             (@;install "gt" (@;binary <type> <type> Boolean))
+             (@;install "+" (@;binary <type> <type> <type>))
+             (@;install "-" (@;binary <type> <type> <type>))
+             (@;install "*" (@;binary <type> <type> <type>))
+             (@;install "/" (@;binary <type> <type> <type>))
+             (@;install "%" (@;binary <type> <type> <type>))
+             (@;install "=" (@;binary <type> <type> Boolean))
+             (@;install "<" (@;binary <type> <type> Boolean))
+             (@;install ">" (@;binary <type> <type> Boolean))
              (@;install "and" (@;binary <type> <type> <type>))
              (@;install "or" (@;binary <type> <type> <type>))
              (@;install "xor" (@;binary <type> <type> <type>))
@@ -98,14 +105,14 @@
      @;Bundle
      (<| (@;prefix <prefix>)
          (|> (d;new text;Hash<Text>)
-             (@;install "add" (@;binary <type> <type> <type>))
-             (@;install "sub" (@;binary <type> <type> <type>))
-             (@;install "mul" (@;binary <type> <type> <type>))
-             (@;install "div" (@;binary <type> <type> <type>))
-             (@;install "rem" (@;binary <type> <type> <type>))
-             (@;install "eq" (@;binary <type> <type> Boolean))
-             (@;install "lt" (@;binary <type> <type> Boolean))
-             (@;install "gt" (@;binary <type> <type> Boolean))
+             (@;install "+" (@;binary <type> <type> <type>))
+             (@;install "-" (@;binary <type> <type> <type>))
+             (@;install "*" (@;binary <type> <type> <type>))
+             (@;install "/" (@;binary <type> <type> <type>))
+             (@;install "%" (@;binary <type> <type> <type>))
+             (@;install "=" (@;binary <type> <type> Boolean))
+             (@;install "<" (@;binary <type> <type> Boolean))
+             (@;install ">" (@;binary <type> <type> Boolean))
              )))]
 
   [float-procs  "float"  Float]
@@ -116,12 +123,12 @@
   @;Bundle
   (<| (@;prefix "char")
       (|> (d;new text;Hash<Text>)
-          (@;install "ceq" (@;binary Character Character Boolean))
-          (@;install "clt" (@;binary Character Character Boolean))
-          (@;install "cgt" (@;binary Character Character Boolean))
+          (@;install "=" (@;binary Character Character Boolean))
+          (@;install "<" (@;binary Character Character Boolean))
+          (@;install ">" (@;binary Character Character Boolean))
           )))
 
-(def: primitive-boxes
+(def: #export boxes
   (d;Dict Text Text)
   (|> (list ["boolean" "java.lang.Boolean"]
             ["byte" "java.lang.Byte"]
@@ -132,21 +139,6 @@
             ["double" "java.lang.Double"]
             ["char" "java.lang.Character"])
       (d;from-list text;Hash<Text>)))
-
-(def: array-type
-  (l;Lexer [Type Nat Text])
-  (do p;Monad<Parser>
-    [subs (p;some (l;this "["))
-     #let [level (list;size subs)]
-     class (l;many l;any)]
-    (wrap [(list/fold (function [_ inner]
-                        (type (Array inner)))
-                      (#;Host (|> (d;get class primitive-boxes)
-                                  (default class))
-                              (list))
-                      (list;n.range +1 level))
-           level
-           class])))
 
 (def: (array-length proc)
   (-> Text @;Proc)
@@ -166,34 +158,77 @@
           _
           (&;fail (@;wrong-amount-error proc +1 (list;size args))))))))
 
+(def: (invalid-array-type arrayT)
+  (-> Type Text)
+  (format "Invalid type for array: " (%type arrayT)))
+
 (def: (array-new proc)
   (-> Text @;Proc)
   (function [analyse args]
     (case args
-      (^ (list classC lengthC))
-      (case classC
-        [_ (#;Text classC)]
-        (do Monad<Lux>
-          [lengthA (&;with-expected-type Nat
-                     (analyse lengthC))
-           arrayT (case (l;run classC array-type)
-                    (#R;Success [innerT level elem-class])
-                    (wrap (type (Array innerT)))
+      (^ (list lengthC))
+      (do Monad<Lux>
+        [lengthA (&;with-expected-type Nat
+                   (analyse lengthC))
+         expectedT macro;expected-type
+         [level elem-class] (: (Lux [Nat Text])
+                               (loop [analysisT expectedT
+                                      level +0]
+                                 (case analysisT
+                                   (#;Apply inputT funcT)
+                                   (case (type;apply (list inputT) funcT)
+                                     (#;Some outputT)
+                                     (recur outputT level)
 
-                    (#R;Error error)
-                    (&;fail error))
-           expectedT macro;expected-type
-           _ (&;within-type-env
-              (TC;check expectedT arrayT))]
-          (wrap (#la;Procedure proc (list (#la;Text classC) lengthA))))
+                                     #;None
+                                     (&;fail (invalid-array-type expectedT)))
 
-        _
-        (&;fail (format "Wrong syntax for '" proc "'.")))
+                                   (^ (#;Host "#Array" (list elemT)))
+                                   (recur elemT (n.inc level))
+
+                                   (#;Host class _)
+                                   (wrap [level class])
+                                   
+                                   _
+                                   (&;fail (invalid-array-type expectedT)))))
+         _ (&;assert "Must have at least 1 level of nesting in array type."
+                     (n.> +0 level))]
+        (wrap (#la;Procedure proc (list (#la;Nat level) (#la;Text elem-class) lengthA))))
 
       _
-      (&;fail (@;wrong-amount-error proc +2 (list;size args))))))
+      (&;fail (@;wrong-amount-error proc +1 (list;size args))))))
 
-(def: (array-load proc)
+(def: (check-object objectT)
+  (-> Type (Lux Text))
+  (case objectT
+    (#;Host name _)
+    (if (d;contains? name boxes)
+      (&;fail (format "Primitives are not objects: " name))
+      (:: Monad<Lux> wrap name))
+
+    _
+    (&;fail (format "Non-object type: " (%type objectT)))))
+
+(def: (box-array-element-type elemT)
+  (-> Type (Lux [Type Text]))
+  (do Monad<Lux>
+    []
+    (case elemT
+      (#;Host name #;Nil)
+      (let [boxed-name (|> (d;get name boxes)
+                           (default name))]
+        (wrap [(#;Host boxed-name #;Nil)
+               boxed-name]))
+
+      (#;Host name _)
+      (if (d;contains? name boxes)
+        (&;fail (format "Primitives cannot be parameterized: " name))
+        (:: Monad<Lux> wrap [elemT name]))
+
+      _
+      (&;fail (format "Invalid type for array element: " (%type elemT))))))
+
+(def: (array-read proc)
   (-> Text @;Proc)
   (function [analyse args]
     (&common;with-var
@@ -205,12 +240,7 @@
                       (analyse arrayC))
              elemT (&;within-type-env
                     (TC;read-var var-id))
-             elem-class (case elemT
-                          (#;Host name _)
-                          (wrap name)
-
-                          _
-                          (&;fail (format "Invalid type for array element: " (%type elemT))))
+             [elemT elem-class] (box-array-element-type elemT)
              idxA (&;with-expected-type Nat
                     (analyse idxC))
              expectedT macro;expected-type
@@ -221,7 +251,7 @@
           _
           (&;fail (@;wrong-amount-error proc +2 (list;size args))))))))
 
-(def: (array-store proc)
+(def: (array-write proc)
   (-> Text @;Proc)
   (function [analyse args]
     (&common;with-var
@@ -233,15 +263,10 @@
                       (analyse arrayC))
              elemT (&;within-type-env
                     (TC;read-var var-id))
-             elem-class (case elemT
-                          (#;Host name _)
-                          (wrap name)
-
-                          _
-                          (&;fail (format "Invalid type for array element: " (%type elemT))))
+             [valueT elem-class] (box-array-element-type elemT)
              idxA (&;with-expected-type Nat
                     (analyse idxC))
-             valueA (&;with-expected-type elemT
+             valueA (&;with-expected-type valueT
                       (analyse valueC))
              expectedT macro;expected-type
              _ (&;within-type-env
@@ -257,20 +282,9 @@
       (|> (d;new text;Hash<Text>)
           (@;install "length" array-length)
           (@;install "new" array-new)
-          (@;install "load" array-load)
-          (@;install "store" array-store)
+          (@;install "read" array-read)
+          (@;install "write" array-write)
           )))
-
-(def: (check-object objectT)
-  (-> Type (Lux Text))
-  (case objectT
-    (#;Host name _)
-    (if (d;contains? name primitive-boxes)
-      (&;fail (format "Primitives are not objects: " name))
-      (:: Monad<Lux> wrap name))
-
-    _
-    (&;fail (format "Non-object type: " (%type objectT)))))
 
 (def: (object-null proc)
   (-> Text @;Proc)
@@ -414,7 +428,7 @@
   @;Bundle
   (<| (@;prefix "jvm")
       (|> (d;new text;Hash<Text>)
-          (d;merge converter-procs)
+          (d;merge conversion-procs)
           (d;merge int-procs)
           (d;merge long-procs)
           (d;merge float-procs)
