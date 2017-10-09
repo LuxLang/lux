@@ -137,7 +137,7 @@
           "V")
 
         (instance? GenericArrayType refl-type)
-        (&host-generics/->type-signature (str refl-type))
+        (str "[" (principal-class (.getGenericComponentType ^GenericArrayType refl-type)))
         
         (instance? ParameterizedType refl-type)
         (&host-generics/->type-signature (->> ^ParameterizedType refl-type ^Class (.getRawType) .getName))
