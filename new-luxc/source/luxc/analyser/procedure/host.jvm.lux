@@ -11,7 +11,7 @@
                    ["l" lexer])
              (coll [list "list/" Fold<List> Functor<List>]
                    [array #+ Array]
-                   ["d" dict]))
+                   [dict #+ Dict]))
        [macro "lux/" Monad<Lux>]
        [type]
        (type ["tc" check])
@@ -53,7 +53,7 @@
 (def: conversion-procs
   @;Bundle
   (<| (@;prefix "convert")
-      (|> (d;new text;Hash<Text>)
+      (|> (dict;new text;Hash<Text>)
           (@;install "double-to-float" (@;unary Double Float))
           (@;install "double-to-int" (@;unary Double Integer))
           (@;install "double-to-long" (@;unary Double Long))
@@ -83,7 +83,7 @@
   [(def: <name>
      @;Bundle
      (<| (@;prefix <prefix>)
-         (|> (d;new text;Hash<Text>)
+         (|> (dict;new text;Hash<Text>)
              (@;install "+" (@;binary <type> <type> <type>))
              (@;install "-" (@;binary <type> <type> <type>))
              (@;install "*" (@;binary <type> <type> <type>))
@@ -108,7 +108,7 @@
   [(def: <name>
      @;Bundle
      (<| (@;prefix <prefix>)
-         (|> (d;new text;Hash<Text>)
+         (|> (dict;new text;Hash<Text>)
              (@;install "+" (@;binary <type> <type> <type>))
              (@;install "-" (@;binary <type> <type> <type>))
              (@;install "*" (@;binary <type> <type> <type>))
@@ -126,14 +126,14 @@
 (def: char-procs
   @;Bundle
   (<| (@;prefix "char")
-      (|> (d;new text;Hash<Text>)
+      (|> (dict;new text;Hash<Text>)
           (@;install "=" (@;binary Character Character Boolean))
           (@;install "<" (@;binary Character Character Boolean))
           (@;install ">" (@;binary Character Character Boolean))
           )))
 
 (def: #export boxes
-  (d;Dict Text Text)
+  (Dict Text Text)
   (|> (list ["boolean" "java.lang.Boolean"]
             ["byte" "java.lang.Byte"]
             ["short" "java.lang.Short"]
@@ -142,7 +142,7 @@
             ["float" "java.lang.Float"]
             ["double" "java.lang.Double"]
             ["char" "java.lang.Character"])
-      (d;from-list text;Hash<Text>)))
+      (dict;from-list text;Hash<Text>)))
 
 (def: (array-length proc)
   (-> Text @;Proc)
@@ -204,27 +204,25 @@
   (-> Type Text)
   (format "Non-object type: " (%type type)))
 
-(def: (check-object objectT)
+(def: (check-jvm objectT)
   (-> Type (Lux Text))
   (case objectT
     (#;Host name _)
-    (if (d;contains? name boxes)
-      (&;fail (format "Primitives are not objects: " name))
-      (:: macro;Monad<Lux> wrap name))
+    (lux/wrap name)
 
     (#;Named name unnamed)
-    (check-object unnamed)
+    (check-jvm unnamed)
 
     (^template [<tag>]
       (<tag> env unquantified)
-      (check-object unquantified))
+      (check-jvm unquantified))
     ([#;UnivQ]
      [#;ExQ])
 
     (#;Apply inputT funcT)
     (case (type;apply (list inputT) funcT)
       (#;Some outputT)
-      (check-object outputT)
+      (check-jvm outputT)
 
       #;None
       (&;fail (not-object objectT)))
@@ -232,19 +230,27 @@
     _
     (&;fail (not-object objectT))))
 
+(def: (check-object objectT)
+  (-> Type (Lux Text))
+  (do macro;Monad<Lux>
+    [name (check-jvm objectT)]
+    (if (dict;contains? name boxes)
+      (&;fail (format "Primitives are not objects: " name))
+      (:: macro;Monad<Lux> wrap name))))
+
 (def: (box-array-element-type elemT)
   (-> Type (Lux [Type Text]))
   (do macro;Monad<Lux>
     []
     (case elemT
       (#;Host name #;Nil)
-      (let [boxed-name (|> (d;get name boxes)
+      (let [boxed-name (|> (dict;get name boxes)
                            (default name))]
         (wrap [(#;Host boxed-name #;Nil)
                boxed-name]))
 
       (#;Host name _)
-      (if (d;contains? name boxes)
+      (if (dict;contains? name boxes)
         (&;fail (format "Primitives cannot be parameterized: " name))
         (:: macro;Monad<Lux> wrap [elemT name]))
 
@@ -298,7 +304,7 @@
 (def: array-procs
   @;Bundle
   (<| (@;prefix "array")
-      (|> (d;new text;Hash<Text>)
+      (|> (dict;new text;Hash<Text>)
           (@;install "length" array-length)
           (@;install "new" array-new)
           (@;install "read" array-read)
@@ -491,7 +497,7 @@
 (def: object-procs
   @;Bundle
   (<| (@;prefix "object")
-      (|> (d;new text;Hash<Text>)
+      (|> (dict;new text;Hash<Text>)
           (@;install "null" object-null)
           (@;install "null?" object-null?)
           (@;install "synchronized" object-synchronized)
@@ -505,7 +511,7 @@
 (exception: #export Cannot-Convert-To-Class)
 (exception: #export Cannot-Convert-To-Lux-Type)
 (exception: #export Cannot-Cast-To-Primitive)
-(exception: #export Cannot-Cast-From-Primitive)
+(exception: #export JVM-Type-Is-Not-Class)
 
 (def: type-descriptor
   (-> java.lang.reflect.Type Text)
@@ -522,65 +528,118 @@
         ## else
         (&;throw Cannot-Convert-To-Class (type-descriptor type))))
 
-(def: (java-type-to-lux-type java-type)
-  (-> java.lang.reflect.Type (Lux Type))
-  (cond (host;instance? Class java-type)
-        (let [class-name (Class.getName [] (:! (Class Object) java-type))]
-          (lux/wrap (#;Host class-name (list))))
+(exception: #export Unknown-Type-Var)
+
+(type: Mappings
+  (Dict Text Type))
+
+(def: fresh-mappings Mappings (dict;new text;Hash<Text>))
+
+(def: (java-type-to-lux-type mappings java-type)
+  (-> Mappings java.lang.reflect.Type (Lux Type))
+  (cond (host;instance? TypeVariable java-type)
+        (let [var-name (TypeVariable.getName [] (:! TypeVariable java-type))]
+          (case (dict;get var-name mappings)
+            (#;Some var-type)
+            (lux/wrap var-type)
+            
+            #;None
+            (&;throw Unknown-Type-Var var-name)))
+
+        (host;instance? WildcardType java-type)
+        (let [java-type (:! WildcardType java-type)]
+          (case [(array;get +0 (WildcardType.getUpperBounds [] java-type))
+                 (array;get +0 (WildcardType.getLowerBounds [] java-type))]
+            (^or [(#;Some bound) _] [_ (#;Some bound)])
+            (java-type-to-lux-type mappings bound)
+            
+            _
+            (lux/wrap Top)))
+
+        (host;instance? Class java-type)
+        (let [java-type (:! (Class Object) java-type)
+              class-name (Class.getName [] java-type)]
+          (lux/wrap (case (array;size (Class.getTypeParameters [] java-type))
+                      +0
+                      (#;Host class-name (list))
+                      
+                      arity
+                      (|> (list;n.range +0 (n.dec arity))
+                          list;reverse
+                          (list/map (|>. (n.* +2) n.inc #;Bound))
+                          (#;Host class-name)
+                          (type;univ-q arity)))))
 
         (host;instance? ParameterizedType java-type)
-        (java-type-to-lux-type (ParameterizedType.getRawType [] (:! ParameterizedType java-type)))
+        (let [java-type (:! ParameterizedType java-type)
+              raw (ParameterizedType.getRawType [] java-type)]
+          (if (host;instance? Class raw)
+            (do macro;Monad<Lux>
+              [paramsT (|> java-type
+                           (ParameterizedType.getActualTypeArguments [])
+                           array;to-list
+                           (monad;map @ (java-type-to-lux-type mappings)))]
+              (lux/wrap (#;Host (Class.getName [] (:! (Class Object) raw))
+                                paramsT)))
+            (&;throw JVM-Type-Is-Not-Class (type-descriptor raw))))
 
         (host;instance? GenericArrayType java-type)
         (do macro;Monad<Lux>
-          [#let [innerJT (GenericArrayType.getGenericComponentType [] (:! GenericArrayType java-type))]
-           innerT (java-type-to-lux-type innerJT)]
+          [innerT (|> (:! GenericArrayType java-type)
+                      (GenericArrayType.getGenericComponentType [])
+                      (java-type-to-lux-type mappings))]
           (wrap (#;Host "#Array" (list innerT))))
 
         ## else
         (&;throw Cannot-Convert-To-Lux-Type (type-descriptor java-type))))
 
-(def: (up-cast super sub)
-  (-> Type Type (Lux Type))
+(def: (cast to from)
+  (-> Type Type (Lux [Text Type]))
   (do macro;Monad<Lux>
-    [super-name (check-object super)
-     sub-name (check-object sub)]
-    (cond (d;contains? super-name boxes)
-          (&;throw Cannot-Cast-To-Primitive super-name)
+    [to-name (check-jvm to)
+     from-name (check-jvm from)]
+    (cond (dict;contains? to-name boxes)
+          (let [box (assume (dict;get to-name boxes))]
+            (if (text/= box from-name)
+              (wrap [box (#;Host to-name (list))])
+              (&;throw Cannot-Cast-To-Primitive (format from-name " => " to-name))))
 
-          (d;contains? sub-name boxes)
-          (&;throw Cannot-Cast-From-Primitive sub-name)
+          (dict;contains? from-name boxes)
+          (let [box (assume (dict;get from-name boxes))]
+            (do @
+              [[_ castT] (cast to (#;Host box (list)))]
+              (wrap [from-name castT])))
 
-          (text/= super-name sub-name)
-          (wrap sub)
+          (text/= to-name from-name)
+          (wrap ["" from])
 
-          (text/= null-class sub-name)
-          (wrap super)
+          (text/= null-class from-name)
+          (wrap ["" to])
 
           ## else
           (do @
-            [super-class (load-class super-name)
-             sub-class (load-class sub-name)
-             _ (&;assert (format "Class '" sub-name "' is not a sub-class of class '" super-name "'.")
-                         (Class.isAssignableFrom [sub-class] super-class))
+            [to-class (load-class to-name)
+             from-class (load-class from-name)
+             _ (&;assert (format "Class '" from-name "' is not a sub-class of class '" to-name "'.")
+                         (Class.isAssignableFrom [from-class] to-class))
              candiate-parents (monad;map @
                                          (function [java-type]
                                            (do @
                                              [class-name (java-type-to-class java-type)
                                               class (load-class class-name)]
-                                             (wrap [java-type (Class.isAssignableFrom [sub-class] super-class)])))
-                                         (list& (Class.getGenericSuperclass [] sub-class)
-                                                (array;to-list (Class.getGenericInterfaces [] sub-class))))]
+                                             (wrap [java-type (Class.isAssignableFrom [from-class] to-class)])))
+                                         (list& (Class.getGenericSuperclass [] from-class)
+                                                (array;to-list (Class.getGenericInterfaces [] from-class))))]
             (case (|> candiate-parents
                       (list;filter product;right)
                       (list/map product;left))
               (#;Cons parent _)
               (do @
-                [parentT (java-type-to-lux-type parent)]
-                (up-cast super parentT))
-              
+                [parentT (java-type-to-lux-type fresh-mappings parent)]
+                (cast to parentT))
+
               #;Nil
-              (&;fail (format "No valid path between " (%type sub) "and " (%type super) ".")))))))
+              (&;fail (format "No valid path between " (%type from) "and " (%type to) ".")))))))
 
 (def: (find-field class-name field-name)
   (-> Text Text (Lux [(Class Object) Field]))
@@ -593,7 +652,7 @@
           (wrap [class field])
           (&;fail (format "Field '" field-name "' does not belong to class '" class-name "'.\n"
                           "Belongs to '" (Class.getName [] owner) "'."))))
-      
+
       (#R;Error _)
       (&;fail (format "Unknown field '" field-name "' for class '" class-name "'.")))))
 
@@ -605,9 +664,11 @@
     (if (Modifier.isStatic [modifiers])
       (let [fieldJT (Field.getGenericType [] fieldJ)]
         (do @
-          [fieldT (java-type-to-lux-type fieldJT)]
+          [fieldT (java-type-to-lux-type fresh-mappings fieldJT)]
           (wrap [fieldT (Modifier.isFinal [modifiers])])))
       (&;fail (format "Field '" field-name "' of class '" class-name "' is not static.")))))
+
+(exception: #export Non-Object-Type)
 
 (def: (virtual-field class-name field-name objectT)
   (-> Text Text Type (Lux [Type Bool]))
@@ -615,10 +676,27 @@
     [[class fieldJ] (find-field class-name field-name)
      #let [modifiers (Field.getModifiers [] fieldJ)]]
     (if (not (Modifier.isStatic [modifiers]))
-      (let [fieldJT (Field.getGenericType [] fieldJ)]
-        (do @
-          [fieldT (java-type-to-lux-type fieldJT)]
-          (wrap [fieldT (Modifier.isFinal [modifiers])])))
+      (do @
+        [#let [fieldJT (Field.getGenericType [] fieldJ)
+               var-names (|> class
+                             (Class.getTypeParameters [])
+                             array;to-list
+                             (list/map (TypeVariable.getName [])))]
+         mappings (: (Lux Mappings)
+                     (case objectT
+                       (#;Host _class-name _class-params)
+                       (do @
+                         [#let [num-params (list;size _class-params)
+                                num-vars (list;size var-names)]
+                          _ (&;assert (format "Number of paremeters in type does not match expected amount (" (%n num-vars) "): " (%type objectT))
+                                      (n.= num-params num-vars))]
+                         (wrap (|> (list;zip2 var-names _class-params)
+                                   (dict;from-list text;Hash<Text>))))
+
+                       _
+                       (&;throw Non-Object-Type (%type objectT))))
+         fieldT (java-type-to-lux-type mappings fieldJT)]
+        (wrap [fieldT (Modifier.isFinal [modifiers])]))
       (&;fail (format "Field '" field-name "' of class '" class-name "' is static.")))))
 
 (def: (analyse-object class analyse sourceC)
@@ -626,25 +704,28 @@
   (<| &common;with-var (function [[var-id varT]])
       (do macro;Monad<Lux>
         [target-class (load-class class)
-         targetT (java-type-to-lux-type (:! java.lang.reflect.Type
+         targetT (java-type-to-lux-type fresh-mappings
+                                        (:! java.lang.reflect.Type
                                             target-class))
          sourceA (&;with-expected-type varT
                    (analyse sourceC))
          sourceT (&;within-type-env
                   (tc;read-var var-id))
-         castT (up-cast targetT sourceT)]
+         [unboxed castT] (cast targetT sourceT)
+         _ (&;assert (format "Object cannot be a primitive: " unboxed)
+                     (text;empty? unboxed))]
         (wrap [castT sourceA]))))
 
 (def: (analyse-input analyse targetT sourceC)
-  (-> &;Analyser Type Code (Lux [Type la;Analysis]))
+  (-> &;Analyser Type Code (Lux [Type Text la;Analysis]))
   (<| &common;with-var (function [[var-id varT]])
       (do macro;Monad<Lux>
         [sourceA (&;with-expected-type varT
                    (analyse sourceC))
          sourceT (&;within-type-env
                   (tc;read-var var-id))
-         castT (up-cast targetT sourceT)]
-        (wrap [castT sourceA]))))
+         [unboxed castT] (cast targetT sourceT)]
+        (wrap [castT unboxed sourceA]))))
 
 (def: (static-get proc)
   (-> Text @;Proc)
@@ -656,10 +737,10 @@
         (do macro;Monad<Lux>
           [[fieldT final?] (static-field class field)
            expectedT macro;expected-type
-           castT (up-cast expectedT fieldT)
+           [unboxed castT] (cast expectedT fieldT)
            _ (&;within-type-env
               (tc;check expectedT castT))]
-          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field)))))
+          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) (#la;Text unboxed)))))
 
         _
         (&;fail (format "Wrong syntax for '" proc "'.")))
@@ -678,11 +759,11 @@
           [[fieldT final?] (static-field class field)
            _ (&;assert (Final-Field (format class "#" field))
                        (not final?))
-           [valueT valueA] (analyse-input analyse fieldT valueC)
+           [valueT unboxed valueA] (analyse-input analyse fieldT valueC)
            _ (&;within-type-env
               (tc;check fieldT valueT))
            _ (&;infer Unit)]
-          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) valueA))))
+          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) (#la;Text unboxed) valueA))))
 
         _
         (&;fail (format "Wrong syntax for '" proc "'.")))
@@ -701,10 +782,10 @@
           [[objectT objectA] (analyse-object class analyse objectC)
            [fieldT final?] (virtual-field class field objectT)
            expectedT macro;expected-type
-           castT (up-cast expectedT fieldT)
+           [unboxed castT] (cast expectedT fieldT)
            _ (&;within-type-env
               (tc;check expectedT castT))]
-          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) objectA))))
+          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) (#la;Text unboxed) objectA))))
 
         _
         (&;fail (format "Wrong syntax for '" proc "'.")))
@@ -724,11 +805,11 @@
            [fieldT final?] (virtual-field class field objectT)
            _ (&;assert (Final-Field (format class "#" field))
                        (not final?))
-           [valueT valueA] (analyse-input analyse fieldT valueC)
+           [valueT unboxed valueA] (analyse-input analyse fieldT valueC)
            _ (&;within-type-env
               (tc;check fieldT valueT))
            _ (&;infer Unit)]
-          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) valueA objectA))))
+          (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) (#la;Text unboxed) valueA objectA))))
 
         _
         (&;fail (format "Wrong syntax for '" proc "'.")))
@@ -739,30 +820,30 @@
 (def: member-procs
   @;Bundle
   (<| (@;prefix "member")
-      (|> (d;new text;Hash<Text>)
-          (d;merge (<| (@;prefix "static")
-                       (|> (d;new text;Hash<Text>)
-                           (@;install "get" static-get)
-                           (@;install "put" static-put)
-                           )))
-          (d;merge (<| (@;prefix "virtual")
-                       (|> (d;new text;Hash<Text>)
-                           (@;install "get" virtual-get)
-                           (@;install "put" virtual-put)
-                           )))
+      (|> (dict;new text;Hash<Text>)
+          (dict;merge (<| (@;prefix "static")
+                          (|> (dict;new text;Hash<Text>)
+                              (@;install "get" static-get)
+                              (@;install "put" static-put)
+                              )))
+          (dict;merge (<| (@;prefix "virtual")
+                          (|> (dict;new text;Hash<Text>)
+                              (@;install "get" virtual-get)
+                              (@;install "put" virtual-put)
+                              )))
           )))
 
 (def: #export procedures
   @;Bundle
   (<| (@;prefix "jvm")
-      (|> (d;new text;Hash<Text>)
-          (d;merge conversion-procs)
-          (d;merge int-procs)
-          (d;merge long-procs)
-          (d;merge float-procs)
-          (d;merge double-procs)
-          (d;merge char-procs)
-          (d;merge array-procs)
-          (d;merge object-procs)
-          (d;merge member-procs)
+      (|> (dict;new text;Hash<Text>)
+          (dict;merge conversion-procs)
+          (dict;merge int-procs)
+          (dict;merge long-procs)
+          (dict;merge float-procs)
+          (dict;merge double-procs)
+          (dict;merge char-procs)
+          (dict;merge array-procs)
+          (dict;merge object-procs)
+          (dict;merge member-procs)
           )))
