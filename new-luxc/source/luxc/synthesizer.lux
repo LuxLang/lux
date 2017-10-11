@@ -1,10 +1,11 @@
 (;module:
   lux
-  (lux (data text/format
+  (lux (data [maybe]
              [number]
              [product]
-             (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
-                   ["d" dict])))
+             text/format
+             (coll [list "list/" Functor<List> Fold<List> Monoid<List>]
+                   [dict #+ Dict])))
   (luxc ["&" base]
         (lang ["la" analysis]
               ["ls" synthesis])
@@ -15,7 +16,7 @@
         ))
 
 (def: init-env (List ls;Variable) (list))
-(def: init-resolver (d;Dict Int Int) (d;new number;Hash<Int>))
+(def: init-resolver (Dict Int Int) (dict;new number;Hash<Int>))
 
 (def: (prepare-body inner-arity arity body)
   (-> Nat Nat ls;Synthesis ls;Synthesis)
@@ -43,7 +44,7 @@
        [#la;Definition #ls;Definition])
 
       (#la;Product _)
-      (#ls;Tuple (L/map (recur +0 resolver num-locals) (&&structure;unfold-tuple exprA)))
+      (#ls;Tuple (list/map (recur +0 resolver num-locals) (&&structure;unfold-tuple exprA)))
 
       (#la;Sum choice)
       (let [[tag last? value] (&&structure;unfold-variant choice)]
@@ -55,14 +56,14 @@
         (if (&&function;nested? outer-arity)
           (if (n.= +0 register)
             (#ls;Call (|> (list;n.range +1 (n.dec outer-arity))
-                          (L/map (|>. &&function;to-local #ls;Variable)))
+                          (list/map (|>. &&function;to-local #ls;Variable)))
                       (#ls;Variable 0))
             (#ls;Variable (&&function;adjust-var outer-arity (&&function;to-local register))))
           (#ls;Variable (&&function;to-local register)))
         
         (#;Captured register)
         (#ls;Variable (let [var (&&function;to-captured register)]
-                        (default var (d;get var resolver)))))
+                        (maybe;default var (dict;get var resolver)))))
 
       (#la;Case inputA branchesA)
       (let [inputS (recur +0 resolver num-locals inputA)]
@@ -88,9 +89,9 @@
                                           #ls;ExecP
                                           (#ls;SeqP (&&case;path pattern)))))]
             (#ls;Case inputS
-                      (L/fold &&case;weave
-                              (transform-branch lastP lastA)
-                              (L/map (product;uncurry transform-branch) prevsPA))))
+                      (list/fold &&case;weave
+                                 (transform-branch lastP lastA)
+                                 (list/map (product;uncurry transform-branch) prevsPA))))
 
           _
           (undefined)
@@ -99,21 +100,21 @@
       (#la;Function scope bodyA)
       (let [inner-arity (n.inc outer-arity)
             raw-env (&&function;environment scope)
-            env (L/map (function [var] (default var (d;get var resolver))) raw-env)
+            env (list/map (function [var] (maybe;default var (dict;get var resolver))) raw-env)
             env-vars (let [env-size (list;size raw-env)]
                        (: (List ls;Variable)
                           (case env-size
                             +0 (list)
-                            _ (L/map &&function;to-captured (list;n.range +0 (n.dec env-size))))))
+                            _ (list/map &&function;to-captured (list;n.range +0 (n.dec env-size))))))
             resolver' (if (&&function;nested? inner-arity)
-                        (L/fold (function [[from to] resolver']
-                                  (d;put from to resolver'))
-                                init-resolver
-                                (list;zip2 env-vars env))
-                        (L/fold (function [var resolver']
-                                  (d;put var var resolver'))
-                                init-resolver
-                                env-vars))]
+                        (list/fold (function [[from to] resolver']
+                                     (dict;put from to resolver'))
+                                   init-resolver
+                                   (list;zip2 env-vars env))
+                        (list/fold (function [var resolver']
+                                     (dict;put var var resolver'))
+                                   init-resolver
+                                   env-vars))]
         (case (recur inner-arity resolver' +0 bodyA)
           (#ls;Function arity' env' bodyS')
           (let [arity (n.inc arity')]
@@ -125,7 +126,7 @@
       (#la;Apply _)
       (let [[funcA argsA] (&&function;unfold-apply exprA)
             funcS (recur +0 resolver num-locals funcA)
-            argsS (L/map (recur +0 resolver num-locals) argsA)]
+            argsS (list/map (recur +0 resolver num-locals) argsA)]
         (case funcS
           (^multi (#ls;Function _arity _env _bodyS)
                   (and (n.= _arity (list;size argsS))
@@ -137,11 +138,11 @@
                       (&&loop;adjust _env register-offset _bodyS)))
 
           (#ls;Call argsS' funcS')
-          (#ls;Call (L/append argsS' argsS) funcS')
+          (#ls;Call (list/compose argsS' argsS) funcS')
 
           _
           (#ls;Call argsS funcS)))
 
       (#la;Procedure name args)
-      (#ls;Procedure name (L/map (recur +0 resolver num-locals) args))
+      (#ls;Procedure name (list/map (recur +0 resolver num-locals) args))
       )))

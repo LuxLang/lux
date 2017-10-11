@@ -2,21 +2,20 @@
   lux
   (lux (control [monad #+ do]
                 pipe)
-       [io #- run]
        [function]
        (concurrency ["A" atom])
-       (data [text "T/" Eq<Text>]
-             text/format
-             [ident]
-             (coll [list "L/" Fold<List> Monoid<List> Monad<List>]
-                   ["D" dict]
-                   ["S" set])
+       (data [ident]
              [number]
-             [product])
-       [macro #+ Monad<Lux>]
+             [product]
+             [maybe]
+             (coll [list "list/" Functor<List>]
+                   [dict #+ Dict])
+             [text]
+             text/format)
+       [macro]
        (macro [code])
        [type]
-       (type ["TC" check]))
+       (type ["tc" check]))
   (luxc ["&" base]
         (lang ["la" analysis])
         ["&;" module]
@@ -37,7 +36,7 @@
 
 (def: #export (analyse-sum analyse tag valueC)
   (-> &;Analyser Nat Code (Lux la;Analysis))
-  (do Monad<Lux>
+  (do macro;Monad<Lux>
     [expected macro;expected-type]
     (&;with-stacked-errors
       (function [_] (not-variant expected))
@@ -62,12 +61,12 @@
 
         (#;Var id)
         (do @
-          [bound? (&;within-type-env
-                   (TC;bound? id))]
+          [bound? (&;with-type-env
+                    (tc;bound? id))]
           (if bound?
             (do @
-              [expected' (&;within-type-env
-                          (TC;read-var id))]
+              [expected' (&;with-type-env
+                           (tc;read id))]
               (&;with-expected-type expected'
                 (analyse-sum analyse tag valueC)))
             ## Cannot do inference when the tag is numeric.
@@ -77,15 +76,15 @@
 
         (#;UnivQ _)
         (do @
-          [[var-id var] (&;within-type-env
-                         TC;existential)]
-          (&;with-expected-type (assume (type;apply (list var) expected))
+          [[var-id var] (&;with-type-env
+                          tc;existential)]
+          (&;with-expected-type (maybe;assume (type;apply (list var) expected))
             (analyse-sum analyse tag valueC)))
 
         (#;ExQ _)
         (&common;with-var
           (function [[var-id var]]
-            (&;with-expected-type (assume (type;apply (list var) expected))
+            (&;with-expected-type (maybe;assume (type;apply (list var) expected))
               (analyse-sum analyse tag valueC))))
 
         (#;Apply inputT funT)
@@ -102,7 +101,7 @@
 
 (def: (analyse-typed-product analyse members)
   (-> &;Analyser (List Code) (Lux la;Analysis))
-  (do Monad<Lux>
+  (do macro;Monad<Lux>
     [expected macro;expected-type]
     (loop [expected expected
            members members]
@@ -150,7 +149,7 @@
 
 (def: #export (analyse-product analyse membersC)
   (-> &;Analyser (List Code) (Lux la;Analysis))
-  (do Monad<Lux>
+  (do macro;Monad<Lux>
     [expected macro;expected-type]
     (&;with-stacked-errors
       (function [_] (format "Invalid type for tuple: " (%type expected)))
@@ -164,34 +163,34 @@
 
         (#;Var id)
         (do @
-          [bound? (&;within-type-env
-                   (TC;bound? id))]
+          [bound? (&;with-type-env
+                    (tc;bound? id))]
           (if bound?
             (do @
-              [expected' (&;within-type-env
-                          (TC;read-var id))]
+              [expected' (&;with-type-env
+                           (tc;read id))]
               (&;with-expected-type expected'
                 (analyse-product analyse membersC)))
             ## Must do inference...
             (do @
               [membersTA (monad;map @ (|>. analyse &common;with-unknown-type)
                                     membersC)
-               _ (&;within-type-env
-                  (TC;check expected
-                            (type;tuple (L/map product;left membersTA))))]
-              (wrap (la;product (L/map product;right membersTA))))))
+               _ (&;with-type-env
+                   (tc;check expected
+                             (type;tuple (list/map product;left membersTA))))]
+              (wrap (la;product (list/map product;right membersTA))))))
 
         (#;UnivQ _)
         (do @
-          [[var-id var] (&;within-type-env
-                         TC;existential)]
-          (&;with-expected-type (assume (type;apply (list var) expected))
+          [[var-id var] (&;with-type-env
+                          tc;existential)]
+          (&;with-expected-type (maybe;assume (type;apply (list var) expected))
             (analyse-product analyse membersC)))
 
         (#;ExQ _)
         (&common;with-var
           (function [[var-id var]]
-            (&;with-expected-type (assume (type;apply (list var) expected))
+            (&;with-expected-type (maybe;assume (type;apply (list var) expected))
               (analyse-product analyse membersC))))
 
         (#;Apply inputT funT)
@@ -209,17 +208,17 @@
 
 (def: #export (analyse-tagged-sum analyse tag value)
   (-> &;Analyser Ident Code (Lux la;Analysis))
-  (do Monad<Lux>
+  (do macro;Monad<Lux>
     [tag (macro;normalize tag)
      [idx group variantT] (macro;resolve-tag tag)
      #let [case-size (list;size group)]
      inferenceT (&inference;variant-inference-type idx case-size variantT)
      [inferredT valueA+] (&inference;apply-function analyse inferenceT (list value))
      expectedT macro;expected-type
-     _ (&;within-type-env
-        (TC;check expectedT inferredT))
+     _ (&;with-type-env
+         (tc;check expectedT inferredT))
      temp &scope;next-local]
-    (wrap (la;sum idx case-size temp (|> valueA+ list;head assume)))))
+    (wrap (la;sum idx case-size temp (|> valueA+ list;head maybe;assume)))))
 
 ## There cannot be any ambiguity or improper syntax when analysing
 ## records, so they must be normalized for further analysis.
@@ -227,11 +226,11 @@
 ## canonical form (with their corresponding module identified).
 (def: #export (normalize record)
   (-> (List [Code Code]) (Lux (List [Ident Code])))
-  (monad;map Monad<Lux>
+  (monad;map macro;Monad<Lux>
              (function [[key val]]
                (case key
                  [_ (#;Tag key)]
-                 (do Monad<Lux>
+                 (do macro;Monad<Lux>
                    [key (macro;normalize key)]
                    (wrap [key val]))
 
@@ -247,10 +246,10 @@
   (case record
     ## empty-record = empty-tuple = unit = []
     #;Nil
-    (:: Monad<Lux> wrap [(list) Unit])
+    (:: macro;Monad<Lux> wrap [(list) Unit])
 
     (#;Cons [head-k head-v] _)
-    (do Monad<Lux>
+    (do macro;Monad<Lux>
       [head-k (macro;normalize head-k)
        [_ tag-set recordT] (macro;resolve-tag head-k)
        #let [size-record (list;size record)
@@ -262,36 +261,36 @@
                            "  Actual: " (|> size-record nat-to-int %i) "\n"
                            "For type: " (%type recordT))))
        #let [tuple-range (list;n.range +0 (n.dec size-ts))
-             tag->idx (D;from-list ident;Hash<Ident> (list;zip2 tag-set tuple-range))]
+             tag->idx (dict;from-list ident;Hash<Ident> (list;zip2 tag-set tuple-range))]
        idx->val (monad;fold @
                             (function [[key val] idx->val]
                               (do @
                                 [key (macro;normalize key)]
-                                (case (D;get key tag->idx)
+                                (case (dict;get key tag->idx)
                                   #;None
                                   (&;fail (format "Tag " (%code (code;tag key))
                                                   " does not belong to tag-set for type " (%type recordT)))
 
                                   (#;Some idx)
-                                  (if (D;contains? idx idx->val)
+                                  (if (dict;contains? idx idx->val)
                                     (&;fail (format "Cannot repeat tag inside record: " (%code (code;tag key))))
-                                    (wrap (D;put idx val idx->val))))))
-                            (: (D;Dict Nat Code)
-                               (D;new number;Hash<Nat>))
+                                    (wrap (dict;put idx val idx->val))))))
+                            (: (Dict Nat Code)
+                               (dict;new number;Hash<Nat>))
                             record)
-       #let [ordered-tuple (L/map (function [idx] (assume (D;get idx idx->val)))
-                                  tuple-range)]]
+       #let [ordered-tuple (list/map (function [idx] (maybe;assume (dict;get idx idx->val)))
+                                     tuple-range)]]
       (wrap [ordered-tuple recordT]))
     ))
 
 (def: #export (analyse-record analyse members)
   (-> &;Analyser (List [Code Code]) (Lux la;Analysis))
-  (do Monad<Lux>
+  (do macro;Monad<Lux>
     [members (normalize members)
      [members recordT] (order members)
      expectedT macro;expected-type
      inferenceT (&inference;record-inference-type recordT)
      [inferredT membersA] (&inference;apply-function analyse inferenceT members)
-     _ (&;within-type-env
-        (TC;check expectedT inferredT))]
+     _ (&;with-type-env
+         (tc;check expectedT inferredT))]
     (wrap (la;product membersA))))

@@ -2,18 +2,18 @@
   lux
   (lux (control [monad #+ do]
                 eq)
-       (data [bool "B/" Eq<Bool>]
+       (data [bool]
              [number]
+             [product]
+             ["R" result]
+             [maybe]
              [text]
              text/format
-             [product]
-             ["R" result "R/" Monad<Result>]
-             (coll [list "L/" Fold<List> Monoid<List> Monad<List>]
-                   ["D" dict]))
-       [macro #+ Monad<Lux>]
+             (coll [list "list/" Fold<List> Monoid<List> Functor<List>]))
+       [macro]
        (macro [code])
        [type]
-       (type ["TC" check]))
+       (type ["tc" check]))
   (../.. ["&" base]
          (lang ["la" analysis])
          ["&;" scope])
@@ -37,13 +37,13 @@
   (-> Type (Lux Type))
   (case type
     (#;Var id)
-    (do Monad<Lux>
-      [? (&;within-type-env
-          (TC;bound? id))]
+    (do macro;Monad<Lux>
+      [? (&;with-type-env
+           (tc;bound? id))]
       (if ?
         (do @
-          [type' (&;within-type-env
-                  (TC;read-var id))]
+          [type' (&;with-type-env
+                   (tc;read id))]
           (simplify-case-type type'))
         (&;fail (format "Cannot simplify type for pattern-matching: " (%type type)))))
 
@@ -51,13 +51,13 @@
     (simplify-case-type unnamedT)
 
     (^or (#;UnivQ _) (#;ExQ _))
-    (do Monad<Lux>
-      [[ex-id exT] (&;within-type-env
-                    TC;existential)]
-      (simplify-case-type (assume (type;apply (list exT) type))))
+    (do macro;Monad<Lux>
+      [[ex-id exT] (&;with-type-env
+                     tc;existential)]
+      (simplify-case-type (maybe;assume (type;apply (list exT) type))))
 
     _
-    (:: Monad<Lux> wrap type)))
+    (:: macro;Monad<Lux> wrap type)))
 
 ## This function handles several concerns at once, but it must be that
 ## way because those concerns are interleaved when doing
@@ -80,7 +80,7 @@
   (case pattern
     [cursor (#;Symbol ["" name])]
     (&;with-cursor cursor
-      (do Monad<Lux>
+      (do macro;Monad<Lux>
         [outputA (&scope;with-local [name inputT]
                    next)
          idx &scope;next-local]
@@ -93,9 +93,9 @@
     (^template [<type> <code-tag> <pattern-tag>]
       [cursor (<code-tag> test)]
       (&;with-cursor cursor
-        (do Monad<Lux>
-          [_ (&;within-type-env
-              (TC;check inputT <type>))
+        (do macro;Monad<Lux>
+          [_ (&;with-type-env
+               (tc;check inputT <type>))
            outputA next]
           (wrap [(<pattern-tag> test) outputA]))))
     ([Bool #;Bool #la;BoolP]
@@ -107,9 +107,9 @@
 
     (^ [cursor (#;Tuple (list))])
     (&;with-cursor cursor
-      (do Monad<Lux>
-        [_ (&;within-type-env
-            (TC;check inputT Unit))
+      (do macro;Monad<Lux>
+        [_ (&;with-type-env
+             (tc;check inputT Unit))
          outputA next]
         (wrap [(#la;TupleP (list)) outputA])))
 
@@ -118,39 +118,39 @@
     
     [cursor (#;Tuple sub-patterns)]
     (&;with-cursor cursor
-      (do Monad<Lux>
+      (do macro;Monad<Lux>
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Product _)
           (let [sub-types (type;flatten-tuple inputT)
-                num-sub-types (default (list;size sub-types)
-                                num-tags)
+                num-sub-types (maybe;default (list;size sub-types)
+                                             num-tags)
                 num-sub-patterns (list;size sub-patterns)
                 matches (cond (n.< num-sub-types num-sub-patterns)
                               (let [[prefix suffix] (list;split (n.dec num-sub-patterns) sub-types)]
-                                (list;zip2 (L/append prefix (list (type;tuple suffix))) sub-patterns))
+                                (list;zip2 (list/compose prefix (list (type;tuple suffix))) sub-patterns))
 
                               (n.> num-sub-types num-sub-patterns)
                               (let [[prefix suffix] (list;split (n.dec num-sub-types) sub-patterns)]
-                                (list;zip2 sub-types (L/append prefix (list (code;tuple suffix)))))
+                                (list;zip2 sub-types (list/compose prefix (list (code;tuple suffix)))))
                               
                               ## (n.= num-sub-types num-sub-patterns)
                               (list;zip2 sub-types sub-patterns)
                               )]
             (do @
-              [[memberP+ thenA] (L/fold (: (All [a]
-                                             (-> [Type Code] (Lux [(List la;Pattern) a])
-                                                 (Lux [(List la;Pattern) a])))
-                                           (function [[memberT memberC] then]
-                                             (do @
-                                               [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
-                                                                                analyse-pattern)
-                                                                            #;None memberT memberC then)]
-                                               (wrap [(list& memberP memberP+) thenA]))))
-                                        (do @
-                                          [nextA next]
-                                          (wrap [(list) nextA]))
-                                        matches)]
+              [[memberP+ thenA] (list/fold (: (All [a]
+                                                (-> [Type Code] (Lux [(List la;Pattern) a])
+                                                    (Lux [(List la;Pattern) a])))
+                                              (function [[memberT memberC] then]
+                                                (do @
+                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
+                                                                                   analyse-pattern)
+                                                                               #;None memberT memberC then)]
+                                                  (wrap [(list& memberP memberP+) thenA]))))
+                                           (do @
+                                             [nextA next]
+                                             (wrap [(list) nextA]))
+                                           matches)]
               (wrap [(#la;TupleP memberP+) thenA])))
 
           _
@@ -158,11 +158,11 @@
           )))
 
     [cursor (#;Record record)]
-    (do Monad<Lux>
+    (do macro;Monad<Lux>
       [record (&structure;normalize record)
        [members recordT] (&structure;order record)
-       _ (&;within-type-env
-          (TC;check inputT recordT))]
+       _ (&;with-type-env
+           (tc;check inputT recordT))]
       (analyse-pattern (#;Some (list;size members)) inputT [cursor (#;Tuple members)] next))
 
     [cursor (#;Tag tag)]
@@ -171,26 +171,26 @@
 
     (^ [cursor (#;Form (list& [_ (#;Nat idx)] values))])
     (&;with-cursor cursor
-      (do Monad<Lux>
+      (do macro;Monad<Lux>
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Sum _)
           (let [flat-sum (type;flatten-variant inputT)
                 size-sum (list;size flat-sum)
-                num-cases (default size-sum num-tags)]
+                num-cases (maybe;default size-sum num-tags)]
             (case (list;nth idx flat-sum)
               (^multi (#;Some case-type)
                       (n.< num-cases idx))
               (if (and (n.> num-cases size-sum)
                        (n.= (n.dec num-cases) idx))
-                (do Monad<Lux>
+                (do macro;Monad<Lux>
                   [[testP nextA] (analyse-pattern #;None
                                                   (type;variant (list;drop (n.dec num-cases) flat-sum))
                                                   (` [(~@ values)])
                                                   next)]
                   (wrap [(#la;VariantP idx num-cases testP)
                          nextA]))
-                (do Monad<Lux>
+                (do macro;Monad<Lux>
                   [[testP nextA] (analyse-pattern #;None case-type (` [(~@ values)]) next)]
                   (wrap [(#la;VariantP idx num-cases testP)
                          nextA])))
@@ -203,11 +203,11 @@
 
     (^ [cursor (#;Form (list& [_ (#;Tag tag)] values))])
     (&;with-cursor cursor
-      (do Monad<Lux>
+      (do macro;Monad<Lux>
         [tag (macro;normalize tag)
          [idx group variantT] (macro;resolve-tag tag)
-         _ (&;within-type-env
-            (TC;check inputT variantT))]
+         _ (&;with-type-env
+             (tc;check inputT variantT))]
         (analyse-pattern (#;Some (list;size group)) inputT (` ((~ (code;nat idx)) (~@ values))) next)))
 
     _
@@ -221,7 +221,7 @@
     (&;fail "Cannot have empty branches in pattern-matching expression.")
 
     (#;Cons [patternH bodyH] branchesT)
-    (do Monad<Lux>
+    (do macro;Monad<Lux>
       [[inputT inputA] (&common;with-unknown-type
                          (analyse input))
        outputH (analyse-pattern #;None inputT patternH (analyse bodyH))
@@ -232,7 +232,7 @@
        _ (case (monad;fold R;Monad<Result>
                            &&coverage;merge
                            (|> outputH product;left &&coverage;determine)
-                           (L/map (|>. product;left &&coverage;determine) outputT))
+                           (list/map (|>. product;left &&coverage;determine) outputT))
            (#R;Success coverage)
            (if (&&coverage;exhaustive? coverage)
              (wrap [])
