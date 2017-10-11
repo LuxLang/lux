@@ -25,7 +25,7 @@
    "imports"
    "tags"
    "types"
-   "module-anns"
+   "module-annotations"
    "module-state"])
 
 (defn ^:private new-module [hash]
@@ -41,8 +41,8 @@
         (&/|table)
         ;; "lux;types"
         (&/|table)
-        ;; module-anns
-        (&/|list)
+        ;; module-annotations
+        (&/T [(&/T ["" 0 0]) (&/$Record (&/|list))])
         ;; "module-state"
         $Active]
        ))
@@ -211,7 +211,7 @@
     (if-let [module (->> state
                          (&/get$ &/$modules)
                          (&/|get module-name))]
-      (return* state (&/get$ $module-anns module))
+      (return* state (&/get$ $module-annotations module))
       ((&/fail-with-loc (str "[Analyser Error] Module does not exist: " module-name))
        state))))
 
@@ -221,7 +221,7 @@
                   (&/update$ &/$modules
                              (fn [ms]
                                (&/|update module-name
-                                          #(&/set$ $module-anns anns %)
+                                          #(&/set$ $module-annotations anns %)
                                           ms))))
              nil)))
 
@@ -236,14 +236,14 @@
             (|let [[?type ?meta ?value] $def]
               (if (.equals ^Object current-module module)
                 (|case (&meta/meta-get &meta/alias-tag ?meta)
-                  (&/$Some (&/$IdentA [?r-module ?r-name]))
+                  (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
                   ((find-def ?r-module ?r-name)
                    state)
 
                   _
                   (return* state (&/T [(&/T [module name]) $def])))
                 (|case (&meta/meta-get &meta/export?-tag ?meta)
-                  (&/$Some (&/$BoolA true))
+                  (&/$Some [_ (&/$Bool true)])
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
@@ -396,7 +396,7 @@
                               (|let [[k _def-data] kv
                                      [_ ?def-meta _] _def-data]
                                 (|case (&meta/meta-get &meta/alias-tag ?def-meta)
-                                  (&/$Some (&/$IdentA [?r-module ?r-name]))
+                                  (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
                                   (&/T [k (str ?r-module ";" ?r-name) _def-data])
                                   
                                   _
@@ -406,7 +406,7 @@
 (do-template [<name> <type> <tag> <desc>]
   (defn <name> [module name meta type]
     (|case (&meta/meta-get <tag> meta)
-      (&/$Some (&/$BoolA true))
+      (&/$Some [_ (&/$Bool true)])
       (&/try-all% (&/|list (&type/check <type> type)
                            (&/fail-with-loc (str "[Analyser Error] Cannot tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
 
@@ -419,12 +419,12 @@
 
 (defn fetch-imports [meta]
   (|case (&meta/meta-get &meta/imports-tag meta)
-    (&/$Some (&/$ListA _parts))
+    (&/$Some [_ (&/$Tuple _parts)])
     (&/map% (fn [_part]
               (|case _part
-                (&/$ListA (&/$Cons [(&/$TextA _module)
-                                    (&/$Cons [(&/$TextA _alias)
-                                              (&/$Nil)])]))
+                [_ (&/$Tuple (&/$Cons [[_ (&/$Text _module)]
+                                       (&/$Cons [[_ (&/$Text _alias)]
+                                                 (&/$Nil)])]))]
                 (return (&/T [_module _alias]))
 
                 _

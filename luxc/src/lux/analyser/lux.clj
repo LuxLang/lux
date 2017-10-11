@@ -377,7 +377,7 @@
                                   ((&/fail-with-loc error) state)))
               ;; module-name &/get-module-name
               ;; :let [[r-prefix r-name] real-name
-              ;;       _ (when (= "syntax:" r-name)
+              ;;       _ (when (= "refer" r-name)
               ;;           (->> (&/|map &/show-ast macro-expansion)
               ;;                (&/|interpose "\n")
               ;;                (&/fold str "")
@@ -542,7 +542,7 @@
         =value (&/without-repl-closure
                 (&/with-scope ?name
                   (&&/analyse-1+ analyse ?value)))
-        =meta (&&/analyse-1 analyse &type/Anns ?meta)
+        =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
         _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
         _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
@@ -612,7 +612,7 @@
 
 (defn analyse-module [analyse optimize eval! compile-module ?meta]
   (|do [_ &/ensure-statement
-        =anns (&&/analyse-1 analyse &type/Anns ?meta)
+        =anns (&&/analyse-1 analyse &type/Code ?meta)
         ==anns (eval! (optimize =anns))
         module-name &/get-module-name
         _ (&&module/set-anns ==anns module-name)

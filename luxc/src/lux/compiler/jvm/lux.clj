@@ -254,20 +254,22 @@
     (|do [module-name &/get-module-name
           class-loader &/loader]
       (|case (&a-meta/meta-get &a-meta/alias-tag ?meta)
-        (&/$Some (&/$IdentA [r-module r-name]))
-        (if (= 1 (&/|length ?meta))
-          (|do [:let [current-class (&host-generics/->class-name (str (&host/->module-class r-module) "/" (&host/def-name r-name)))
-                      def-class (&&/load-class! class-loader current-class)
-                      def-meta ?meta
-                      def-value (-> def-class (.getField &/value-field) (.get nil))]
-                def-type (&a-module/def-type r-module r-name)
-                _ (&/without-repl-closure
-                   (&a-module/define module-name ?name def-type def-meta def-value))]
-            (return nil))
-          (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name)))
+        (&/$Some [_ (&/$Symbol [r-module r-name])])
+        (|case ?meta
+          [_ (&/$Record ?meta*)]
+          (if (= 1 (&/|length ?meta*))
+            (|do [:let [current-class (&host-generics/->class-name (str (&host/->module-class r-module) "/" (&host/def-name r-name)))
+                        def-class (&&/load-class! class-loader current-class)
+                        def-meta ?meta
+                        def-value (-> def-class (.getField &/value-field) (.get nil))]
+                  def-type (&a-module/def-type r-module r-name)
+                  _ (&/without-repl-closure
+                     (&a-module/define module-name ?name def-type def-meta def-value))]
+              (return nil))
+            (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name))))
 
         (&/$Some _)
-        (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an Ident.")
+        (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be a symbol.")
         
         _
         (|case (de-ann ?body)
@@ -301,7 +303,7 @@
                   :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
                         def-type (&a/expr-type* ?body)
                         is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                                   (&/$Some (&/$BoolA true))
+                                   (&/$Some [_ (&/$Bool true)])
                                    true
 
                                    _
@@ -315,7 +317,7 @@
                   _ (&/without-repl-closure
                      (&a-module/define module-name ?name def-type def-meta def-value))
                   _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                      [true (&/$Some (&/$ListA tags*))]
+                      [true (&/$Some [_ (&/$Tuple tags*)])]
                       (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
                                                   (&/$Some _)
                                                   true
@@ -324,7 +326,7 @@
                                                   false)]
                             tags (&/map% (fn [tag*]
                                            (|case tag*
-                                             (&/$TextA tag)
+                                             [_ (&/$Text tag)]
                                              (return tag)
 
                                              _
@@ -370,7 +372,7 @@
                 :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
                       def-type (&a/expr-type* ?body)
                       is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                                 (&/$Some (&/$BoolA true))
+                                 (&/$Some [_ (&/$Bool true)])
                                  true
 
                                  _
@@ -384,7 +386,7 @@
                 _ (&/without-repl-closure
                    (&a-module/define module-name ?name def-type def-meta def-value))
                 _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                    [true (&/$Some (&/$ListA tags*))]
+                    [true (&/$Some [_ (&/$Tuple tags*)])]
                     (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
                                                 (&/$Some _)
                                                 true
@@ -393,7 +395,7 @@
                                                 false)]
                           tags (&/map% (fn [tag*]
                                          (|case tag*
-                                           (&/$TextA tag)
+                                           [_ (&/$Text tag)]
                                            (return tag)
 
                                            _

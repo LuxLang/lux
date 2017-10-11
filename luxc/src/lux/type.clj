@@ -122,42 +122,53 @@
                                               (&/$Product Ident Type)))))))))))))
                                   )))))
 
-(def Ann-Value
-  (&/$Named (&/T ["lux" "Ann-Value"])
-            (let [Ann-Value (&/$Apply (&/$Bound 1) (&/$Bound 0))]
-              (&/$Apply &/$Void
-                        (&/$UnivQ empty-env
-                                  (&/$Sum
-                                   ;; BoolA
-                                   Bool
-                                   (&/$Sum
-                                    ;; NatA
-                                    Nat
-                                    (&/$Sum
-                                     ;; IntA
-                                     Int
-                                     (&/$Sum
-                                      ;; DegA
-                                      Deg
-                                      (&/$Sum
-                                       ;; FracA
-                                       Frac
-                                       (&/$Sum
-                                        ;; TextA
-                                        Text
-                                        (&/$Sum
-                                         ;; IdentA
-                                         Ident
-                                         (&/$Sum
-                                          ;; ListA
-                                          (&/$Apply Ann-Value List)
-                                          ;; DictA
-                                          (&/$Apply (&/$Product Text Ann-Value) List)))))))))
-                                  )))))
+(def Cursor
+  (&/$Named (&/T ["lux" "Cursor"])
+            (&/$Product Text (&/$Product Nat Nat))))
 
-(def Anns
-  (&/$Named (&/T ["lux" "Anns"])
-            (&/$Apply (&/$Product Ident Ann-Value) List)))
+(def Meta
+  (&/$Named (&/T ["lux" "Meta"])
+            (&/$UnivQ empty-env
+                      (&/$UnivQ empty-env
+                                (&/$Product (&/$Bound 3)
+                                            (&/$Bound 1))))))
+
+(def Code*
+  (&/$Named (&/T ["lux" "Code'"])
+            (let [Code (&/$Apply (&/$Apply (&/$Bound 1)
+                                           (&/$Bound 0))
+                                 (&/$Bound 1))
+                  Code-List (&/$Apply Code List)]
+              (&/$UnivQ empty-env
+                        (&/$Sum ;; "lux;Bool"
+                         Bool
+                         (&/$Sum ;; "lux;Nat"
+                          Nat
+                          (&/$Sum ;; "lux;Int"
+                           Int
+                           (&/$Sum ;; "lux;Deg"
+                            Deg
+                            (&/$Sum ;; "lux;Frac"
+                             Frac
+                             (&/$Sum ;; "lux;Text"
+                              Text
+                              (&/$Sum ;; "lux;Symbol"
+                               Ident
+                               (&/$Sum ;; "lux;Tag"
+                                Ident
+                                (&/$Sum ;; "lux;Form"
+                                 Code-List
+                                 (&/$Sum ;; "lux;Tuple"
+                                  Code-List
+                                  ;; "lux;Record"
+                                  (&/$Apply (&/$Product Code Code) List)
+                                  ))))))))))
+                        ))))
+
+(def Code
+  (&/$Named (&/T ["lux" "Code"])
+            (let [w (&/$Apply Cursor Meta)]
+              (&/$Apply (&/$Apply w Code*) w))))
 
 (def Macro)
 

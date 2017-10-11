@@ -14,20 +14,27 @@
 (def ^:private tag-prefix "lux")
 
 ;; [Values]
-(defn meta-get [ident dict]
-  "(-> Ident Anns (Maybe Ann-Value))"
-  (|case dict
-    (&/$Cons [k v] dict*)
-    (if (ident= k ident)
-      (&/$Some v)
-      (meta-get ident dict*))
+(defn meta-get [ident annotations]
+  "(-> Ident Code (Maybe Code))"
+  (|case annotations
+    [_ (&/$Record dict)]
+    (loop [dict dict]
+      (|case dict
+        (&/$Cons [_k v] dict*)
+        (|case _k
+          [_ (&/$Tag k)]
+          (if (ident= k ident)
+            (&/$Some v)
+            (recur dict*))
 
-    (&/$Nil)
-    &/$None
+          _
+          (recur dict*))
+
+        (&/$Nil)
+        &/$None))
 
     _
-    (assert false (println-str (&/adt->text ident)
-                               (&/adt->text dict)))))
+    &/$None))
 
 (do-template [<name> <tag-name>]
   (def <name> (&/T [tag-prefix <tag-name>]))

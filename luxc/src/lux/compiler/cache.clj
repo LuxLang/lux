@@ -83,17 +83,27 @@
     (|do [[was-exported? =type] (&a-module/type-def module _type)]
       (&a-module/declare-tags module _tags was-exported? =type))))
 
+(defn make-tag [ident]
+  (&/T [(&/T ["" 0 0]) (&/$Tag ident)]))
+
+(defn make-symbol [ident]
+  (&/T [(&/T ["" 0 0]) (&/$Symbol ident)]))
+
+(defn make-record [ident]
+  (&/T [(&/T ["" 0 0]) (&/$Record ident)]))
+
 (defn ^:private process-def-entry [load-def-value module ^String _def-entry]
   (let [parts (.split _def-entry &&core/datum-separator)]
     (case (alength parts)
       2 (let [[_name _alias] parts
               [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
-              def-anns (&/|list (&/T [&a-meta/alias-tag (&/$IdentA (&/T [__module __name]))]))]
+              def-anns (make-record (&/|list (&/T [(make-tag &a-meta/alias-tag)
+                                                   (make-symbol (&/T [__module __name]))])))]
           (|do [def-type (&a-module/def-type __module __name)
                 def-value (load-def-value __module __name)]
             (&a-module/define module _name def-type def-anns def-value)))
       3 (let [[_name _type _anns] parts
-              def-anns (&&&ann/deserialize-anns _anns)
+              [def-anns _] (&&&ann/deserialize _anns)
               [def-type _] (&&&type/deserialize-type _type)]
           (|do [def-value (load-def-value module _name)]
             (&a-module/define module _name def-type def-anns def-value))))))
@@ -134,7 +144,7 @@
                        (contains? cache-table* _module)))
                    imports)
       (let [tag-groups (parse-tag-groups _tags-section)
-            module-anns (&&&ann/deserialize-anns _module-anns-section)
+            [module-anns _] (&&&ann/deserialize _module-anns-section)
             def-entries (let [def-entries (vec (.split ^String _defs-section &&core/entry-separator))]
                           (if (= [""] def-entries)
                             &/$Nil

@@ -4,13 +4,13 @@
        (control ["F" functor]
                 ["A" applicative]
                 ["M" monad #+ do Monad])
-       (data (coll [list "L/" Monoid<List> Monad<List>])
-             [number]
-             [text "T/" Monoid<Text> Eq<Text>]
+       (data [number]
              [product]
-             [ident "Ident/" Codec<Text,Ident>]
+             [ident "ident/" Codec<Text,Ident> Eq<Ident>]
              [maybe]
-             ["R" result])))
+             ["R" result]
+             [text "text/" Monoid<Text> Eq<Text>]
+             (coll [list "list/" Monoid<List> Monad<List>]))))
 
 ## (type: (Lux a)
 ##   (-> Compiler (R;Result [Compiler a])))
@@ -66,7 +66,7 @@
     #;None
 
     (#;Cons [k' v] plist')
-    (if (T/= k k')
+    (if (text/= k k')
       (#;Some v)
       (get k plist'))))
 
@@ -117,7 +117,7 @@
       (#R;Success [state module])
 
       _
-      (#R;Error ($_ T/compose "Unknown module: " name)))))
+      (#R;Error ($_ text/compose "Unknown module: " name)))))
 
 (def: #export current-module-name
   (Lux Text)
@@ -143,56 +143,62 @@
 
 (def: #export (get-ann tag anns)
   {#;doc "Looks-up a particular annotation's value within the set of annotations."}
-  (-> Ident Anns (Maybe Ann-Value))
-  (let [[p n] tag]
-    (case anns
-      (#;Cons [[p' n'] dmv] anns')
-      (if (and (T/= p p')
-               (T/= n n'))
-        (#;Some dmv)
-        (get-ann tag anns'))
-      
-      #;Nil
-      #;None)))
+  (-> Ident Code (Maybe Code))
+  (case anns
+    [_ (#;Record anns)]
+    (loop [anns anns]
+      (case anns
+        (#;Cons [key value] anns')
+        (case key
+          [_ (#;Tag tag')]
+          (if (ident/= tag tag')
+            (#;Some value)
+            (recur anns'))
+
+          _
+          (recur anns'))
+        
+        #;Nil
+        #;None))
+
+    _
+    #;None))
 
 (do-template [<name> <tag> <type>]
   [(def: #export (<name> tag anns)
-     (-> Ident Anns (Maybe <type>))
+     (-> Ident Code (Maybe <type>))
      (case (get-ann tag anns)
-       (#;Some (<tag> value))
+       (#;Some [_ (<tag> value)])
        (#;Some value)
 
        _
        #;None))]
 
-  [get-bool-ann  #;BoolA  Bool]
-  [get-int-ann   #;IntA   Int]
-  [get-frac-ann  #;FracA  Frac]
-  [get-text-ann  #;TextA  Text]
-  [get-ident-ann #;IdentA Ident]
-  [get-list-ann  #;ListA  (List Ann-Value)]
-  [get-dict-ann  #;DictA  (List [Text Ann-Value])]
+  [get-bool-ann   #;Bool   Bool]
+  [get-int-ann    #;Int    Int]
+  [get-frac-ann   #;Frac   Frac]
+  [get-text-ann   #;Text   Text]
+  [get-symbol-ann #;Symbol Ident]
+  [get-tag-ann    #;Tag    Ident]
+  [get-form-ann   #;Form   (List Code)]
+  [get-tuple-ann  #;Tuple  (List Code)]
+  [get-record-ann #;Record (List [Code Code])]
   )
 
 (def: #export (get-doc anns)
   {#;doc "Looks-up a definition's documentation."}
-  (-> Anns (Maybe Text))
+  (-> Code (Maybe Text))
   (get-text-ann ["lux" "doc"] anns))
 
 (def: #export (flag-set? flag-name anns)
   {#;doc "Finds out whether an annotation-as-a-flag is set (has value 'true')."}
-  (-> Ident Anns Bool)
-  (case (get-ann flag-name anns)
-    (#;Some (#;BoolA true))
-    true
-
-    _
-    false))
+  (-> Ident Code Bool)
+  (maybe;default false (get-bool-ann flag-name anns)))
 
 (do-template [<name> <tag> <desc>]
   [(def: #export <name>
-     {#;doc (#;TextA ($_ T/compose "Checks whether a definition is " <desc> "."))}
-     (-> Anns Bool)
+     {#;doc (code;text ($_ text/compose "Checks whether a definition is " <desc> "."))}
+     (-> Code Bool)
      (flag-set? (ident-for <tag>)))]
 
   [export?   #;export?   "exported"]
@@ -205,28 +211,28 @@
   )
 
 (do-template [<name> <tag> <type>]
-  [(def: (<name> dmv)
-     (-> Ann-Value (Maybe <type>))
-     (case dmv
-       (<tag> actual-value)
+  [(def: (<name> input)
+     (-> Code (Maybe <type>))
+     (case input
+       [_ (<tag> actual-value)]
        (#;Some actual-value)
 
        _
        #;None))]
 
-  [try-mlist #;ListA (List Ann-Value)]
-  [try-mtext #;TextA Text]
+  [parse-tuple #;Tuple (List Code)]
+  [parse-text  #;Text  Text]
   )
 
 (do-template [<name> <tag> <desc>]
   [(def: #export (<name> anns)
-     {#;doc (#;TextA ($_ T/compose "Looks up the arguments of a " <desc> "."))}
-     (-> Anns (List Text))
+     {#;doc (code;text ($_ text/compose "Looks up the arguments of a " <desc> "."))}
+     (-> Code (List Text))
      (maybe;default (list)
                     (do maybe;Monad<Maybe>
                       [_args (get-ann (ident-for <tag>) anns)
-                       args (try-mlist _args)]
-                      (M;map @ try-mtext args))))]
+                       args (parse-tuple _args)]
+                      (M;map @ parse-text args))))]
 
   [func-args #;func-args "function"]
   [type-args #;type-args "parameterized type"]
@@ -239,10 +245,10 @@
     [$module (get module modules)
      [def-type def-anns def-value] (: (Maybe Def) (|> (: Module $module) (get@ #;defs) (get name)))]
     (if (and (macro? def-anns)
-             (or (export? def-anns) (T/= module this-module)))
+             (or (export? def-anns) (text/= module this-module)))
       (#;Some (:! Macro def-value))
-      (case (get-ann ["lux" "alias"] def-anns)
-        (#;Some (#;IdentA [r-module r-name]))
+      (case (get-symbol-ann ["lux" "alias"] def-anns)
+        (#;Some [r-module r-name])
         (find-macro' modules this-module r-module r-name)
 
         _
@@ -306,7 +312,7 @@
         (do Monad<Lux>
           [expansion (macro args)
            expansion' (M;map Monad<Lux> expand expansion)]
-          (wrap (L/join expansion')))
+          (wrap (list/join expansion')))
         
         #;None
         (:: Monad<Lux> wrap (list syntax))))
@@ -327,23 +333,23 @@
         (do Monad<Lux>
           [expansion (macro args)
            expansion' (M;map Monad<Lux> expand-all expansion)]
-          (wrap (L/join expansion')))
+          (wrap (list/join expansion')))
         
         #;None
         (do Monad<Lux>
           [parts' (M;map Monad<Lux> expand-all (list& (code;symbol name) args))]
-          (wrap (list (code;form (L/join parts')))))))
+          (wrap (list (code;form (list/join parts')))))))
 
     [_ (#;Form (#;Cons [harg targs]))]
     (do Monad<Lux>
       [harg+ (expand-all harg)
        targs+ (M;map Monad<Lux> expand-all targs)]
-      (wrap (list (code;form (L/compose harg+ (L/join (: (List (List Code)) targs+)))))))
+      (wrap (list (code;form (list/compose harg+ (list/join (: (List (List Code)) targs+)))))))
 
     [_ (#;Tuple members)]
     (do Monad<Lux>
       [members' (M;map Monad<Lux> expand-all members)]
-      (wrap (list (code;tuple (L/join members')))))
+      (wrap (list (code;tuple (list/join members')))))
 
     _
     (:: Monad<Lux> wrap (list syntax))))
@@ -355,7 +361,7 @@
   (-> Text (Lux Code))
   (function [state]
     (#R;Success [(update@ #;seed n.inc state)
-                 (code;symbol ["" ($_ T/compose "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
+                 (code;symbol ["" ($_ text/compose "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
 
 (def: (get-local-symbol ast)
   (-> Code (Lux Text))
@@ -364,7 +370,7 @@
     (:: Monad<Lux> wrap name)
 
     _
-    (fail (T/compose "Code is not a local symbol: " (code;to-text ast)))))
+    (fail (text/compose "Code is not a local symbol: " (code;to-text ast)))))
 
 (macro: #export (with-gensyms tokens)
   {#;doc (doc "Creates new symbols and offers them to the body expression."
@@ -380,9 +386,9 @@
     (^ (list [_ (#;Tuple symbols)] body))
     (do Monad<Lux>
       [symbol-names (M;map @ get-local-symbol symbols)
-       #let [symbol-defs (L/join (L/map (: (-> Text (List Code))
-                                           (function [name] (list (code;symbol ["" name]) (` (gensym (~ (code;text name)))))))
-                                        symbol-names))]]
+       #let [symbol-defs (list/join (list/map (: (-> Text (List Code))
+                                                 (function [name] (list (code;symbol ["" name]) (` (gensym (~ (code;text name)))))))
+                                              symbol-names))]]
       (wrap (list (` (do Monad<Lux>
                        [(~@ symbol-defs)]
                        (~ body))))))
@@ -424,7 +430,7 @@
   (-> Text (Lux Type))
   (function [state]
     (let [test (: (-> [Text [Type Top]] Bool)
-                  (|>. product;left (T/= name)))]
+                  (|>. product;left (text/= name)))]
       (case (do maybe;Monad<Maybe>
               [scope (list;find (function [env]
                                   (or (list;any? test (: (List [Text [Type Top]])
@@ -442,7 +448,7 @@
         (#R;Success [state var-type])
 
         #;None
-        (#R;Error ($_ T/compose "Unknown variable: " name))))))
+        (#R;Error ($_ text/compose "Unknown variable: " name))))))
 
 (def: #export (find-def name)
   {#;doc "Looks-up a definition's whole data in the available modules (including the current one)."}
@@ -457,7 +463,7 @@
       (#R;Success [state _anns])
 
       _
-      (#R;Error ($_ T/compose "Unknown definition: " (Ident/encode name))))))
+      (#R;Error ($_ text/compose "Unknown definition: " (ident/encode name))))))
 
 (def: #export (find-def-type name)
   {#;doc "Looks-up a definition's type in the available modules (including the current one)."}
@@ -488,7 +494,7 @@
   (-> Text (Lux (List [Text Def])))
   (function [state]
     (case (get module-name (get@ #;modules state))
-      #;None          (#R;Error ($_ T/compose "Unknown module: " module-name))
+      #;None          (#R;Error ($_ text/compose "Unknown module: " module-name))
       (#;Some module) (#R;Success [state (get@ #;defs module)])
       )))
 
@@ -558,12 +564,12 @@
     (case (get name (get@ #;tags =module))
       (#;Some [idx tag-list exported? type])
       (if (or exported?
-              (T/= this-module-name module))
+              (text/= this-module-name module))
         (wrap [idx tag-list type])
-        (fail ($_ T/compose "Cannot access tag: " (Ident/encode tag) " from module " this-module-name)))
+        (fail ($_ text/compose "Cannot access tag: " (ident/encode tag) " from module " this-module-name)))
 
       _
-      (fail ($_ T/compose "Unknown tag: " (Ident/encode tag))))))
+      (fail ($_ text/compose "Unknown tag: " (ident/encode tag))))))
 
 (def: #export (tag-lists module)
   {#;doc "All the tag-lists defined in a module, with their associated types."}
@@ -574,9 +580,9 @@
     (wrap (|> (get@ #;types =module)
               (list;filter (function [[type-name [tag-list exported? type]]]
                              (or exported?
-                                 (T/= this-module-name module))))
-              (L/map (function [[type-name [tag-list exported? type]]]
-                       [tag-list type]))))))
+                                 (text/= this-module-name module))))
+              (list/map (function [[type-name [tag-list exported? type]]]
+                          [tag-list type]))))))
 
 (def: #export locals
   {#;doc "All the local variables currently in scope, separated in different scopes."}
@@ -588,10 +594,10 @@
 
       (#;Some scopes)
       (#R;Success [state
-                   (L/map (|>. (get@ [#;locals #;mappings])
-                               (L/map (function [[name [type _]]]
-                                        [name type])))
-                          scopes)]))))
+                   (list/map (|>. (get@ [#;locals #;mappings])
+                                  (list/map (function [[name [type _]]]
+                                              [name type])))
+                             scopes)]))))
 
 (def: #export (un-alias def-name)
   {#;doc "Given an aliased definition's name, returns the original definition being referenced."}
@@ -599,8 +605,8 @@
   (do Monad<Lux>
     [def-name (normalize def-name)
      [_ def-anns _] (find-def def-name)]
-    (case (get-ann (ident-for #;alias) def-anns)
-      (#;Some (#;IdentA real-def-name))
+    (case (get-symbol-ann (ident-for #;alias) def-anns)
+      (#;Some real-def-name)
       (wrap real-def-name)
 
       _
@@ -631,19 +637,19 @@
                 token))
        (do Monad<Lux>
          [output (<func> token)
-          #let [_ (L/map (. log! code;to-text)
-                         output)]]
+          #let [_ (list/map (. log! code;to-text)
+                            output)]]
          (wrap (list)))
 
        (^ (list token))
        (do Monad<Lux>
          [output (<func> token)
-          #let [_ (L/map (. log! code;to-text)
-                         output)]]
+          #let [_ (list/map (. log! code;to-text)
+                            output)]]
          (wrap output))
 
        _
-       (fail ($_ T/compose "Wrong syntax for " <desc> "."))))]
+       (fail ($_ text/compose "Wrong syntax for " <desc> "."))))]
 
   [log-expand      expand      "log-expand"]
   [log-expand-all  expand-all  "log-expand-all"]

@@ -10,95 +10,90 @@
 (def ^:private nil-signal (->> 6 char str))
 (def ^:private ident-separator ";")
 
-(defn ^:private serialize-seq [serialize-ann params]
+(defn ^:private serialize-seq [serialize params]
   (str (&/fold (fn [so-far param]
-                 (str so-far cons-signal (serialize-ann param)))
+                 (str so-far cons-signal (serialize param)))
                ""
                params)
        nil-signal))
 
-(defn ^:private serialize-text [value]
-  (str "T" value stop))
-
 (defn ^:private serialize-ident [ident]
   (|let [[module name] ident]
-    (str "@" module ident-separator name stop)))
+    (str module ident-separator name)))
 
-(defn serialize-ann
-  "(-> Ann-Value Text)"
+(defn serialize
+  "(-> Code Text)"
   [ann]
   (|case ann
-    (&/$BoolA value)
+    [_ (&/$Bool value)]
     (str "B" value stop)
 
-    (&/$NatA value)
+    [_ (&/$Nat value)]
     (str "N" value stop)
 
-    (&/$IntA value)
+    [_ (&/$Int value)]
     (str "I" value stop)
 
-    (&/$DegA value)
+    [_ (&/$Deg value)]
     (str "D" value stop)
 
-    (&/$FracA value)
-    (str "R" value stop)
+    [_ (&/$Frac value)]
+    (str "F" value stop)
 
-    (&/$TextA value)
-    (serialize-text value)
+    [_ (&/$Text value)]
+    (str "T" value stop)
 
-    (&/$IdentA ident)
-    (serialize-ident ident)
+    [_ (&/$Symbol ident)]
+    (str "@" (serialize-ident ident) stop)
 
-    (&/$ListA elems)
-    (str "L" (serialize-seq serialize-ann elems))
+    [_ (&/$Tag ident)]
+    (str "#" (serialize-ident ident) stop)
 
-    (&/$DictA kvs)
-    (str "D" (serialize-seq (fn [kv]
+    [_ (&/$Form elems)]
+    (str "(" (serialize-seq serialize elems))
+
+    [_ (&/$Tuple elems)]
+    (str "[" (serialize-seq serialize elems))
+
+    [_ (&/$Record kvs)]
+    (str "{" (serialize-seq (fn [kv]
                               (|let [[k v] kv]
-                                (str (serialize-text k)
-                                     (serialize-ann v))))
+                                (str (serialize k)
+                                     (serialize v))))
                             kvs))
     
     _
     (assert false)
     ))
 
-(defn serialize-anns
-  "(-> Anns Text)"
-  [anns]
-  (serialize-seq (fn [kv]
-                   (|let [[k v] kv]
-                     (str (serialize-ident k)
-                          (serialize-ann v))))
-                 anns))
+(declare deserialize)
 
-(declare deserialize-ann)
+(def dummy-cursor
+  (&/T ["" 0 0]))
 
 (do-template [<name> <signal> <ctor> <parser>]
   (defn <name> [^String input]
     (when (.startsWith input <signal>)
       (let [[value* ^String input*] (.split (.substring input 1) stop 2)]
-        [(<ctor> (<parser> value*)) input*])))
+        [(&/T [dummy-cursor (<ctor> (<parser> value*))]) input*])))
 
-  ^:private deserialize-bool "B" &/$BoolA Boolean/parseBoolean
-  ^:private deserialize-nat  "N" &/$NatA  Long/parseLong
-  ^:private deserialize-int  "I" &/$IntA  Long/parseLong
-  ^:private deserialize-deg "D" &/$DegA Long/parseLong
-  ^:private deserialize-frac "R" &/$FracA Double/parseDouble
-  ^:private deserialize-text "T" &/$TextA identity
+  ^:private deserialize-bool "B" &/$Bool Boolean/parseBoolean
+  ^:private deserialize-nat  "N" &/$Nat  Long/parseLong
+  ^:private deserialize-int  "I" &/$Int  Long/parseLong
+  ^:private deserialize-deg  "D" &/$Deg  Long/parseLong
+  ^:private deserialize-frac "F" &/$Frac Double/parseDouble
+  ^:private deserialize-text "T" &/$Text identity
   )
 
-(defn ^:private deserialize-ident* [^String input]
-  (when (.startsWith input "@")
-    (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
-          [_module _name] (.split ident* ident-separator 2)]
-      [(&/T [_module _name]) input*])))
+(do-template [<name> <marker> <tag>]
+  (defn <name> [^String input]
+    (when (.startsWith input <marker>)
+      (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
+            [_module _name] (.split ident* ident-separator 2)]
+        [(&/T [dummy-cursor (<tag> (&/T [_module _name]))]) input*])))
 
-(defn ^:private deserialize-ident [^String input]
-  (when (.startsWith input "@")
-    (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
-          [_module _name] (.split ident* ident-separator 2)]
-      [(&/$IdentA (&/T [_module _name])) input*])))
+  ^:private deserialize-symbol "@" &/$Symbol
+  ^:private deserialize-tag    "#" &/$Tag)
 
 (defn ^:private deserialize-seq [deserializer ^String input]
   (cond (.startsWith input nil-signal)
@@ -110,29 +105,25 @@
             [(&/$Cons head tail) input*]))
         ))
 
-(do-template [<name> <deserialize-key>]
-  (defn <name> [input]
-    (when-let [[key input*] (<deserialize-key> input)]
-      (when-let [[ann input*] (deserialize-ann input*)]
-        [(&/T [key ann]) input*])))
-
-  ^:private deserialize-kv        deserialize-text
-  ^:private deserialize-ann-entry deserialize-ident*
-  )
+(defn ^:private deserialize-kv [input]
+  (when-let [[key input*] (deserialize input)]
+    (when-let [[ann input*] (deserialize input*)]
+      [(&/T [key ann]) input*])))
 
 (do-template [<name> <signal> <type> <deserializer>]
   (defn <name> [^String input]
     (when (.startsWith input <signal>)
       (when-let [[elems ^String input*] (deserialize-seq <deserializer>
                                                          (.substring input 1))]
-        [(<type> elems) input*])))
+        [(&/T [dummy-cursor (<type> elems)]) input*])))
 
-  ^:private deserialize-list "L" &/$ListA deserialize-ann
-  ^:private deserialize-dict "D" &/$DictA deserialize-kv
+  ^:private deserialize-form   "(" &/$Form   deserialize
+  ^:private deserialize-tuple  "[" &/$Tuple  deserialize
+  ^:private deserialize-record "{" &/$Record deserialize-kv
   )
 
-(defn ^:private deserialize-ann
-  "(-> Text Anns)"
+(defn deserialize
+  "(-> Text V[Code Text])"
   [input]
   (or (deserialize-bool input)
       (deserialize-nat input)
@@ -140,13 +131,9 @@
       (deserialize-deg input)
       (deserialize-frac input)
       (deserialize-text input)
-      (deserialize-ident input)
-      (deserialize-list input)
-      (deserialize-dict input)
-      (assert false "[Cache error] Cannot deserialize annocation.")))
-
-(defn deserialize-anns
-  "(-> Text Text)"
-  [^String input]
-  (let [[output _] (deserialize-seq deserialize-ann-entry input)]
-    output))
+      (deserialize-symbol input)
+      (deserialize-tag input)
+      (deserialize-form input)
+      (deserialize-tuple input)
+      (deserialize-record input)
+      (assert false "[Cache Error] Cannot deserialize annocation.")))

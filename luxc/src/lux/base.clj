@@ -215,18 +215,6 @@
   ("AbstractMethodAnalysis" 1)
   ("NativeMethodAnalysis" 1))
 
-;; Meta-data
-(defvariant
-  ("BoolA" 1)
-  ("NatA" 1)
-  ("IntA" 1)
-  ("DegA" 1)
-  ("FracA" 1)
-  ("TextA" 1)
-  ("IdentA" 1)
-  ("ListA" 1)
-  ("DictA" 1))
-
 ;; [Exports]
 (def ^:const value-field "_value")
 (def ^:const module-class-name "_")

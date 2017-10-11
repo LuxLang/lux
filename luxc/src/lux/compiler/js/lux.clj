@@ -317,7 +317,7 @@
 (defn compile-def [compile ?name ?body def-meta]
   (|do [module-name &/get-module-name]
     (|case (&a-meta/meta-get &a-meta/alias-tag def-meta)
-      (&/$Some (&/$IdentA [r-module r-name]))
+      (&/$Some [_ (&/$Symbol [r-module r-name])])
       (if (= 1 (&/|length def-meta))
         (|do [def-value (&&/run-js! (&&/js-var-name r-module r-name))
               def-type (&a-module/def-type r-module r-name)
@@ -334,7 +334,7 @@
             =body (compile ?body)
             :let [def-js (str "var " var-name " = " =body ";")
                   is-type? (|case (&a-meta/meta-get &a-meta/type?-tag def-meta)
-                             (&/$Some (&/$BoolA true))
+                             (&/$Some [_ (&/$Bool true)])
                              true
 
                              _
@@ -345,7 +345,7 @@
             _ (&/without-repl-closure
                (&a-module/define module-name ?name def-type def-meta def-value))
             _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                [true (&/$Some (&/$ListA tags*))]
+                [true (&/$Some [_ (&/$Tuple tags*)])]
                 (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
                                             (&/$Some _)
                                             true
@@ -354,7 +354,7 @@
                                             false)]
                       tags (&/map% (fn [tag*]
                                      (|case tag*
-                                       (&/$TextA tag)
+                                       [_ (&/$Text tag)]
                                        (return tag)
 
                                        _

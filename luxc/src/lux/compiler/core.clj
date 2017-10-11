@@ -52,7 +52,7 @@
                                (&/|map (fn [_def]
                                          (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
                                            (if (= "" ?alias)
-                                             (str ?name datum-separator (&&&type/serialize-type ?def-type) datum-separator (&&&ann/serialize-anns ?def-anns))
+                                             (str ?name datum-separator (&&&type/serialize-type ?def-type) datum-separator (&&&ann/serialize ?def-anns))
                                              (str ?name datum-separator ?alias)))))
                                (&/|interpose entry-separator)
                                (&/fold str ""))
@@ -75,7 +75,7 @@
                                               (Long/toUnsignedString file-hash)
                                               import-entries
                                               tag-entries
-                                              (&&&ann/serialize-anns module-anns)
+                                              (&&&ann/serialize module-anns)
                                               def-entries)
                                      (&/|interpose section-separator)
                                      (&/fold str ""))]]

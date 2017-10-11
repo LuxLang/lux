@@ -5,7 +5,7 @@
   (lux (control [monad #+ do Monad]
                 [eq #+ Eq]
                 codec
-                ["p" parser "p/" Monad<Parser>])
+                ["p" parser "parser/" Monad<Parser>])
        (data [bool]
              [text "text/" Eq<Text> Monoid<Text>]
              (text ["l" lexer])
@@ -14,9 +14,9 @@
              ["R" result]
              [sum]
              [product]
-             (coll [list "L/" Fold<List> Monad<List>]
-                   [vector #+ Vector vector "Vector/" Monad<Vector>]
-                   ["d" dict]))
+             (coll [list "list/" Fold<List> Monad<List>]
+                   [vector #+ Vector vector "vector/" Monad<Vector>]
+                   [dict #+ Dict]))
        [macro #+ Monad<Lux> with-gensyms]
        (macro ["s" syntax #+ syntax:]
               [code]
@@ -39,13 +39,13 @@
   (#Number  Number)
   (#String  String)
   (#Array   (Vector JSON))
-  (#Object  (d;Dict String JSON)))
+  (#Object  (Dict String JSON)))
 
 (do-template [<name> <type>]
   [(type: #export <name> <type>)]
 
   [Array   (Vector JSON)]
-  [Object  (d;Dict String JSON)]
+  [Object  (Dict String JSON)]
   )
 
 (type: #export (Reader a)
@@ -75,7 +75,7 @@
       (wrap (list (` (: JSON #Null))))
 
       [_ (#;Tuple members)]
-      (wrap (list (` (: JSON (#Array (vector (~@ (L/map wrapper members))))))))
+      (wrap (list (` (: JSON (#Array (vector (~@ (list/map wrapper members))))))))
 
       [_ (#;Record pairs)]
       (do Monad<Lux>
@@ -88,7 +88,7 @@
                                _
                                (macro;fail "Wrong syntax for JSON object.")))
                            pairs)]
-        (wrap (list (` (: JSON (#Object (d;from-list text;Hash<Text> (list (~@ pairs')))))))))
+        (wrap (list (` (: JSON (#Object (dict;from-list text;Hash<Text> (list (~@ pairs')))))))))
       
       _
       (wrap (list token))
@@ -99,7 +99,7 @@
   (-> JSON (R;Result (List String)))
   (case json
     (#Object obj)
-    (#R;Success (d;keys obj))
+    (#R;Success (dict;keys obj))
 
     _
     (#R;Error ($_ text/compose "Cannot get the fields of a non-object."))))
@@ -109,7 +109,7 @@
   (-> String JSON (R;Result JSON))
   (case json
     (#Object obj)
-    (case (d;get key obj)
+    (case (dict;get key obj)
       (#;Some value)
       (#R;Success value)
 
@@ -124,14 +124,14 @@
   (-> String JSON JSON (R;Result JSON))
   (case json
     (#Object obj)
-    (#R;Success (#Object (d;put key value obj)))
+    (#R;Success (#Object (dict;put key value obj)))
 
     _
     (#R;Error ($_ text/compose "Cannot set field \"" key "\" of a non-object."))))
 
 (do-template [<name> <tag> <type> <desc>]
   [(def: #export (<name> key json)
-     {#;doc (#;TextA ($_ text/compose "A JSON object field getter for " <desc> "."))}
+     {#;doc (code;text ($_ text/compose "A JSON object field getter for " <desc> "."))}
      (-> Text JSON (R;Result <type>))
      (case (get key json)
        (#R;Success (<tag> value))
@@ -165,25 +165,25 @@
 
       [(#Array xs) (#Array ys)]
       (and (n.= (vector;size xs) (vector;size ys))
-           (L/fold (function [idx prev]
-                     (and prev
-                          (maybe;default false
-                            (do maybe;Monad<Maybe>
-                              [x' (vector;nth idx xs)
-                               y' (vector;nth idx ys)]
-                              (wrap (= x' y'))))))
-                   true
-                   (list;indices (vector;size xs))))
+           (list/fold (function [idx prev]
+                        (and prev
+                             (maybe;default false
+                                            (do maybe;Monad<Maybe>
+                                              [x' (vector;nth idx xs)
+                                               y' (vector;nth idx ys)]
+                                              (wrap (= x' y'))))))
+                      true
+                      (list;indices (vector;size xs))))
       
       [(#Object xs) (#Object ys)]
-      (and (n.= (d;size xs) (d;size ys))
-           (L/fold (function [[xk xv] prev]
-                     (and prev
-                          (case (d;get xk ys)
-                            #;None   false
-                            (#;Some yv) (= xv yv))))
-                   true
-                   (d;entries xs)))
+      (and (n.= (dict;size xs) (dict;size ys))
+           (list/fold (function [[xk xv] prev]
+                        (and prev
+                             (case (dict;get xk ys)
+                               #;None   false
+                               (#;Some yv) (= xv yv))))
+                      true
+                      (dict;entries xs)))
       
       _
       false)))
@@ -226,7 +226,7 @@
 
 (do-template [<name> <type> <tag> <desc>]
   [(def: #export <name>
-     {#;doc (#;TextA ($_ text/compose "Reads a JSON value as " <desc> "."))}
+     {#;doc (code;text ($_ text/compose "Reads a JSON value as " <desc> "."))}
      (Reader <type>)
      (do p;Monad<Parser>
        [head any]
@@ -245,7 +245,7 @@
 
 (do-template [<test> <check> <type> <eq> <encoder> <tag> <desc> <pre>]
   [(def: #export (<test> test)
-     {#;doc (#;TextA ($_ text/compose "Asks whether a JSON value is a " <desc> "."))}
+     {#;doc (code;text ($_ text/compose "Asks whether a JSON value is a " <desc> "."))}
      (-> <type> (Reader Bool))
      (do p;Monad<Parser>
        [head any]
@@ -257,7 +257,7 @@
          (fail ($_ text/compose "JSON value is not " <desc> ".")))))
 
    (def: #export (<check> test)
-     {#;doc (#;TextA ($_ text/compose "Ensures a JSON value is a " <desc> "."))}
+     {#;doc (code;text ($_ text/compose "Ensures a JSON value is a " <desc> "."))}
      (-> <type> (Reader Unit))
      (do p;Monad<Parser>
        [head any]
@@ -305,19 +305,19 @@
 
 (def: #export (object parser)
   {#;doc "Parses a JSON object, assuming that every element can be parsed the same way."}
-  (All [a] (-> (Reader a) (Reader (d;Dict Text a))))
+  (All [a] (-> (Reader a) (Reader (Dict Text a))))
   (do p;Monad<Parser>
     [head any]
     (case head
       (#Object object)
       (case (do R;Monad<Result>
               []
-              (|> (d;entries object)
+              (|> (dict;entries object)
                   (monad;map @ (function [[key val]]
                                  (do @
                                    [val (run val parser)]
                                    (wrap [key val]))))
-                  (:: @ map (d;from-list text;Hash<Text>))))
+                  (:: @ map (dict;from-list text;Hash<Text>))))
         (#R;Success table)
         (wrap table)
 
@@ -334,12 +334,12 @@
     [head any]
     (case head
       (#Object object)
-      (case (d;get field-name object)
+      (case (dict;get field-name object)
         (#;Some value)
         (case (run value parser)
           (#R;Success output)
           (function [tail]
-            (#R;Success [(#;Cons (#Object (d;remove field-name object))
+            (#R;Success [(#;Cons (#Object (dict;remove field-name object))
                                  tail)
                          output]))
 
@@ -367,15 +367,15 @@
 (def: (show-array show-json elems)
   (-> (-> JSON Text) (-> Array Text))
   ($_ text/compose "["
-      (|> elems (Vector/map show-json) vector;to-list (text;join-with ","))
+      (|> elems (vector/map show-json) vector;to-list (text;join-with ","))
       "]"))
 
 (def: (show-object show-json object)
   (-> (-> JSON Text) (-> Object Text))
   ($_ text/compose "{"
       (|> object
-          d;entries
-          (L/map (function [[key value]] ($_ text/compose (show-string key) ":" (show-json value))))
+          dict;entries
+          (list/map (function [[key value]] ($_ text/compose (show-string key) ":" (show-json value))))
           (text;join-with ","))
       "}"))
 
@@ -428,15 +428,15 @@
     [signed? (l;this? "-")
      digits (l;many l;decimal)
      decimals (p;default "0"
-                (do @
-                  [_ (l;this ".")]
-                  (l;many l;decimal)))
+                         (do @
+                           [_ (l;this ".")]
+                           (l;many l;decimal)))
      exp (p;default ""
-           (do @
-             [mark (l;one-of "eE")
-              signed?' (l;this? "-")
-              offset (l;many l;decimal)]
-             (wrap ($_ text/compose mark (if signed?' "-" "") offset))))]
+                    (do @
+                      [mark (l;one-of "eE")
+                       signed?' (l;this? "-")
+                       offset (l;many l;decimal)]
+                      (wrap ($_ text/compose mark (if signed?' "-" "") offset))))]
     (case (frac/decode ($_ text/compose (if signed? "-" "") digits "." decimals exp))
       (#R;Error message)
       (p;fail message)
@@ -447,13 +447,13 @@
 (def: escaped~
   (l;Lexer Text)
   ($_ p;either
-      (p;after (l;this "\\t") (p/wrap "\t"))
-      (p;after (l;this "\\b") (p/wrap "\b"))
-      (p;after (l;this "\\n") (p/wrap "\n"))
-      (p;after (l;this "\\r") (p/wrap "\r"))
-      (p;after (l;this "\\f") (p/wrap "\f"))
-      (p;after (l;this "\\\"") (p/wrap "\""))
-      (p;after (l;this "\\\\") (p/wrap "\\"))))
+      (p;after (l;this "\\t") (parser/wrap "\t"))
+      (p;after (l;this "\\b") (parser/wrap "\b"))
+      (p;after (l;this "\\n") (parser/wrap "\n"))
+      (p;after (l;this "\\r") (parser/wrap "\r"))
+      (p;after (l;this "\\f") (parser/wrap "\f"))
+      (p;after (l;this "\\\"") (parser/wrap "\""))
+      (p;after (l;this "\\\\") (parser/wrap "\\"))))
 
 (def: string~
   (l;Lexer String)
@@ -491,7 +491,7 @@
        (wrap (<prep> elems))))]
 
   [array~  Array  "[" "]" (json~ [])  vector;from-list]
-  [object~ Object "{" "}" (kv~ json~) (d;from-list text;Hash<Text>)]
+  [object~ Object "{" "}" (kv~ json~) (dict;from-list text;Hash<Text>)]
   )
 
 (def: (json~' _)
