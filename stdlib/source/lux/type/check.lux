@@ -160,7 +160,7 @@
       #;None
       (#R;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
 
-(def: #export (read-var id)
+(def: #export (read id)
   (-> Nat (Check Type))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
@@ -173,7 +173,7 @@
       #;None
       (#R;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
 
-(def: #export (write-var id type)
+(def: #export (write id type)
   (-> Nat Type (Check Unit))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
@@ -187,7 +187,7 @@
       #;None
       (#R;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
 
-(def: (rewrite-var id type)
+(def: (update id type)
   (-> Nat Type (Check Unit))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
@@ -198,7 +198,7 @@
       #;None
       (#R;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
 
-(def: #export (clear-var id)
+(def: #export (clear id)
   (-> Nat (Check Unit))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
@@ -217,27 +217,27 @@
       (do Monad<Check>
         [? (bound? id)]
         (if ?
-          (read-var id)
+          (read id)
           (wrap type)))
       (do Monad<Check>
         [? (bound? id)]
         (if ?
           (do Monad<Check>
-            [=type (read-var id)
+            [=type (read id)
              ==type (clean t-id =type)]
             (case ==type
               (#;Var =id)
               (if (n.= t-id =id)
                 (do Monad<Check>
-                  [_ (clear-var id)]
+                  [_ (clear id)]
                   (wrap type))
                 (do Monad<Check>
-                  [_ (rewrite-var id ==type)]
+                  [_ (update id ==type)]
                   (wrap type)))
 
               _
               (do Monad<Check>
-                [_ (rewrite-var id ==type)]
+                [_ (update id ==type)]
                 (wrap type))))
           (wrap type))))
 
@@ -270,7 +270,7 @@
     (:: Monad<Check> wrap type)
     ))
 
-(def: #export create-var
+(def: #export create
   (Check [Nat Type])
   (function [context]
     (let [id (get@ #;var-counter context)]
@@ -291,18 +291,18 @@
     (#R;Success [(set@ #;var-bindings value context)
                  []])))
 
-(def: #export (delete-var id)
+(def: #export (delete id)
   (-> Nat (Check Unit))
   (function [context]
     (#R;Success [(update@ #;var-bindings (var::remove id) context)
                  []])))
 
-(def: #export (with-var k)
+(def: #export (with k)
   (All [a] (-> (-> [Nat Type] (Check a)) (Check a)))
   (do Monad<Check>
-    [[id var] create-var
+    [[id var] create
      output (k [id var])
-     _ (delete-var id)]
+     _ (delete id)]
     (wrap output)))
 
 (def: #export fresh-context
@@ -355,15 +355,15 @@
   (-> [Type Type] Bool Assumptions Assumptions)
   (#;Cons [ea status] assumptions))
 
-(def: (on-var id type then else)
+(def: (on id type then else)
   (All [a]
     (-> Nat Type (Check a) (-> Type (Check a))
         (Check a)))
   (either (do Monad<Check>
-            [_ (write-var id type)]
+            [_ (write id type)]
             then)
           (do Monad<Check>
-            [bound (read-var id)]
+            [bound (read id)]
             (else bound))))
 
 (def: #export (check' expected actual assumptions)
@@ -376,12 +376,12 @@
       (if (n.= e-id a-id)
         (Check/wrap assumptions)
         (do Monad<Check>
-          [ebound (attempt (read-var e-id))
-           abound (attempt (read-var a-id))]
+          [ebound (attempt (read e-id))
+           abound (attempt (read a-id))]
           (case [ebound abound]
             [#;None #;None]
             (do @
-              [_ (write-var e-id actual)]
+              [_ (write e-id actual)]
               (wrap assumptions))
             
             [(#;Some etype) #;None]
@@ -394,14 +394,14 @@
             (check' etype atype assumptions))))
       
       [(#;Var id) _]
-      (on-var id actual (Check/wrap assumptions)
-              (function [bound]
-                (check' bound actual assumptions)))
+      (on id actual (Check/wrap assumptions)
+          (function [bound]
+            (check' bound actual assumptions)))
       
       [_ (#;Var id)]
-      (on-var id expected (Check/wrap assumptions)
-              (function [bound]
-                (check' expected bound assumptions)))
+      (on id expected (Check/wrap assumptions)
+          (function [bound]
+            (check' expected bound assumptions)))
 
       [(#;Apply eA (#;Ex eid)) (#;Apply aA (#;Ex aid))]
       (if (n.= eid aid)
@@ -410,7 +410,7 @@
 
       [(#;Apply A1 (#;Var id)) (#;Apply A2 F2)]
       (either (do Monad<Check>
-                [F1 (read-var id)]
+                [F1 (read id)]
                 (check' (#;Apply A1 F1) actual assumptions))
               (do Monad<Check>
                 [assumptions (check' (#;Var id) F2 assumptions)
@@ -420,7 +420,7 @@
       
       [(#;Apply A1 F1) (#;Apply A2 (#;Var id))]
       (either (do Monad<Check>
-                [F2 (read-var id)]
+                [F2 (read id)]
                 (check' expected (#;Apply A2 F2) assumptions))
               (do Monad<Check>
                 [assumptions (check' F1 (#;Var id) assumptions)
@@ -453,22 +453,22 @@
         (check' expected' actual assumptions))
 
       [_ (#;UnivQ _)]
-      (with-var
-        (function [[var-id var]]
-          (do Monad<Check>
-            [actual' (apply-type! actual var)
-             assumptions (check' expected actual' assumptions)
-             _ (clean var-id expected)]
-            (Check/wrap assumptions))))
+      (with
+       (function [[var-id var]]
+         (do Monad<Check>
+           [actual' (apply-type! actual var)
+            assumptions (check' expected actual' assumptions)
+            _ (clean var-id expected)]
+           (Check/wrap assumptions))))
 
       [(#;ExQ e!env e!def) _]
-      (with-var
-        (function [[var-id var]]
-          (do Monad<Check>
-            [expected' (apply-type! expected var)
-             assumptions (check' expected' actual assumptions)
-             _ (clean var-id actual)]
-            (Check/wrap assumptions))))
+      (with
+       (function [[var-id var]]
+         (do Monad<Check>
+           [expected' (apply-type! expected var)
+            assumptions (check' expected' actual assumptions)
+            _ (clean var-id actual)]
+           (Check/wrap assumptions))))
 
       [_ (#;ExQ a!env a!def)]
       (do Monad<Check>
