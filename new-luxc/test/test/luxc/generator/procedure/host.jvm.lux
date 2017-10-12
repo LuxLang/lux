@@ -4,6 +4,8 @@
        (control [monad #+ do]
                 pipe)
        (data ["R" result]
+             [bit]
+             [bool "bool/" Eq<Bool>]
              [number "int/" Number<Int>]
              text/format)
        ["r" math/random "r/" Monad<Random>]
@@ -98,3 +100,136 @@
         <3step>
         <4step>
         )))
+
+(def: gen-nat
+  (r;Random Nat)
+  (|> r;nat
+      (r/map (n.% +128))
+      (r;filter (|>. (n.= +0) not))))
+
+(def: gen-int
+  (r;Random Int)
+  (|> gen-nat (r/map nat-to-int)))
+
+(def: gen-frac
+  (r;Random Frac)
+  (|> gen-int (r/map int-to-frac)))
+
+(do-template [<domain> <generator> <tag> <type> <test> <augmentation> <+> <-> <*> </> <%> <pre> <post>]
+  [(context: (format "Arithmetic [" <domain> "]")
+     [param <generator>
+      #let [subject (<augmentation> param)]]
+     (with-expansions [<tests> (do-template [<procedure> <reference>]
+                                 [(test <procedure>
+                                        (|> (do macro;Monad<Lux>
+                                              [sampleI (@;generate (<post> (#ls;Procedure <procedure> (list (<pre> (<tag> subject))
+                                                                                                            (<pre> (<tag> param))))))]
+                                              (@eval;eval sampleI))
+                                            (macro;run (init-compiler []))
+                                            (case> (#R;Success valueG)
+                                                   (<test> (<reference> param subject)
+                                                           (:! <type> valueG))
+
+                                                   (#R;Error error)
+                                                   false)))]
+
+                                 [(format "jvm " <domain> " +") <+>]
+                                 [(format "jvm " <domain> " -") <->]
+                                 [(format "jvm " <domain> " *") <*>]
+                                 [(format "jvm " <domain> " /") </>]
+                                 [(format "jvm " <domain> " %") <%>]
+                                 )]
+       ($_ seq
+           <tests>
+           )))]
+
+  ["int" gen-int #ls;Int Int i.= (i.* 10) i.+ i.- i.* i./ i.% (|>. (list) (#ls;Procedure "jvm convert long-to-int")) (|>. (list) (#ls;Procedure "jvm convert int-to-long"))]
+  ["long" gen-int #ls;Int Int i.= (i.* 10) i.+ i.- i.* i./ i.% id id]
+  ["float" gen-frac #ls;Frac Frac f.= (f.* 10.0) f.+ f.- f.* f./ f.% (|>. (list) (#ls;Procedure "jvm convert double-to-float")) (|>. (list) (#ls;Procedure "jvm convert float-to-double"))]
+  ["double" gen-frac #ls;Frac Frac f.= (f.* 10.0) f.+ f.- f.* f./ f.% id id]
+  )
+
+(do-template [<domain> <post> <convert>]
+  [(context: (format "Bit-wise [" <domain> "]")
+     [param gen-nat
+      subject gen-nat
+      #let [shift (n.% +10 param)]]
+     (with-expansions [<combiners> (do-template [<procedure> <reference>]
+                                     [(test <procedure>
+                                            (|> (do macro;Monad<Lux>
+                                                  [sampleI (@;generate (<post> (#ls;Procedure <procedure> (list (<convert> (#ls;Nat subject))
+                                                                                                                (<convert> (#ls;Nat param))))))]
+                                                  (@eval;eval sampleI))
+                                                (macro;run (init-compiler []))
+                                                (case> (#R;Success valueG)
+                                                       (n.= (<reference> param subject)
+                                                            (:! Nat valueG))
+
+                                                       (#R;Error error)
+                                                       false)))]
+
+                                     [(format "jvm " <domain> " and") bit;and]
+                                     [(format "jvm " <domain> " or") bit;or]
+                                     [(format "jvm " <domain> " xor") bit;xor]
+                                     )
+                       <shifters> (do-template [<procedure> <reference> <type> <test> <pre-subject> <pre>]
+                                    [(test <procedure>
+                                           (|> (do macro;Monad<Lux>
+                                                 [sampleI (@;generate (<post> (#ls;Procedure <procedure> (list (<convert> (<pre> subject))
+                                                                                                               (|> (#ls;Nat shift)
+                                                                                                                   (list)
+                                                                                                                   (#ls;Procedure "jvm convert long-to-int"))))))]
+                                                 (@eval;eval sampleI))
+                                               (macro;run (init-compiler []))
+                                               (case> (#R;Success valueG)
+                                                      (<test> (<reference> shift (<pre-subject> subject))
+                                                              (:! <type> valueG))
+
+                                                      (#R;Error error)
+                                                      false)))]
+
+                                    [(format "jvm " <domain> " shl") bit;shift-left Nat n.= id #ls;Nat]
+                                    [(format "jvm " <domain> " shr") bit;signed-shift-right Int i.= nat-to-int (|>. nat-to-int #ls;Int)]
+                                    [(format "jvm " <domain> " ushr") bit;shift-right Nat n.= id #ls;Nat]
+                                    )]
+       ($_ seq
+           <combiners>
+           <shifters>
+           )))]
+
+  ["int" (|>. (list) (#ls;Procedure "jvm convert int-to-long")) (|>. (list) (#ls;Procedure "jvm convert long-to-int"))]
+  ["long" id id]
+  )
+
+(do-template [<domain> <generator> <tag> <=> <<> <pre>]
+  [(context: (format "Order [" <domain> "]")
+     [param <generator>
+      subject <generator>]
+     (with-expansions [<tests> (do-template [<procedure> <reference>]
+                                 [(test <procedure>
+                                        (|> (do macro;Monad<Lux>
+                                              [sampleI (@;generate (#ls;Procedure <procedure> (list (<pre> (<tag> subject))
+                                                                                                    (<pre> (<tag> param)))))]
+                                              (@eval;eval sampleI))
+                                            (macro;run (init-compiler []))
+                                            (case> (#R;Success valueG)
+                                                   (bool/= (<reference> param subject)
+                                                           (:! Bool valueG))
+
+                                                   (#R;Error error)
+                                                   false)))]
+
+                                 [(format "jvm " <domain> " =") <=>]
+                                 [(format "jvm " <domain> " <") <<>]
+                                 )]
+       ($_ seq
+           <tests>
+           )))]
+
+  ["int" gen-int #ls;Int i.= i.< (|>. (list) (#ls;Procedure "jvm convert long-to-int"))]
+  ["long" gen-int #ls;Int i.= i.< id]
+  ["float" gen-frac #ls;Frac f.= f.< (|>. (list) (#ls;Procedure "jvm convert double-to-float"))]
+  ["double" gen-frac #ls;Frac f.= f.< id]
+  ["char" gen-int #ls;Int i.= i.< (|>. (list) (#ls;Procedure "jvm convert long-to-int")
+                                       (list) (#ls;Procedure "jvm convert int-to-char"))]
+  )
