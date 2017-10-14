@@ -3,11 +3,14 @@
   (lux [io]
        (control [monad #+ do]
                 pipe)
-       (data ["R" result]
+       (data [maybe]
+             ["R" result]
              [bit]
              [bool "bool/" Eq<Bool>]
              [number "int/" Number<Int>]
-             text/format)
+             [text "text/" Eq<Text>]
+             text/format
+             (coll [list]))
        ["r" math/random "r/" Monad<Random>]
        [macro #+ Monad<Lux>]
        [host]
@@ -341,3 +344,96 @@
                          (#R;Error error)
                          false)))
         )))
+
+(host;import java.lang.Class
+  (getName [] String))
+
+(def: classes
+  (List Text)
+  (list "java.lang.Object" "java.lang.Class"
+        "java.lang.String" "java.lang.Number"))
+
+(def: instances
+  (List [Text (r;Random ls;Synthesis)])
+  (let [gen-boolean (|> r;bool (:: r;Functor<Random> map (|>. #ls;Bool)))
+        gen-integer (|> r;int (:: r;Functor<Random> map (|>. #ls;Int)))
+        gen-double (|> r;frac (:: r;Functor<Random> map (|>. #ls;Frac)))
+        gen-string (|> (r;text +5) (:: r;Functor<Random> map (|>. #ls;Text)))]
+    (list ["java.lang.Boolean" gen-boolean]
+          ["java.lang.Long" gen-integer]
+          ["java.lang.Double" gen-double]
+          ["java.lang.String" gen-string]
+          ["java.lang.Object" (r;either (r;either gen-boolean
+                                                  gen-integer)
+                                        (r;either gen-double
+                                                  gen-string))])))
+
+(context: "Object."
+  [#let [num-classes (list;size classes)]
+   #let [num-instances (list;size instances)]
+   class-idx (|> r;nat (:: @ map (n.% num-classes)))
+   instance-idx (|> r;nat (:: @ map (n.% num-instances)))
+   #let [class (maybe;assume (list;nth class-idx classes))
+         [instance-class instance-gen] (maybe;assume (list;nth instance-idx instances))]
+   sample r;int
+   monitor r;int
+   instance instance-gen]
+  ($_ seq
+      (test "jvm object null"
+            (|> (do macro;Monad<Lux>
+                  [sampleI (@;generate (|> (#ls;Procedure "jvm object null" (list))
+                                           (list) (#ls;Procedure "jvm object null?")))]
+                  (@eval;eval sampleI))
+                (macro;run (init-compiler []))
+                (case> (#R;Success outputG)
+                       (:! Bool outputG)
+
+                       (#R;Error error)
+                       false)))
+      (test "jvm object null?"
+            (|> (do macro;Monad<Lux>
+                  [sampleI (@;generate (|> (#ls;Int sample)
+                                           (list) (#ls;Procedure "jvm object null?")))]
+                  (@eval;eval sampleI))
+                (macro;run (init-compiler []))
+                (case> (#R;Success outputG)
+                       (not (:! Bool outputG))
+
+                       (#R;Error error)
+                       false)))
+      (test "jvm object synchronized"
+            (|> (do macro;Monad<Lux>
+                  [sampleI (@;generate (#ls;Procedure "jvm object synchronized"
+                                                      (list (#ls;Int monitor)
+                                                            (#ls;Int sample))))]
+                  (@eval;eval sampleI))
+                (macro;run (init-compiler []))
+                (case> (#R;Success outputG)
+                       (i.= sample (:! Int outputG))
+
+                       (#R;Error error)
+                       false)))
+      (test "jvm object throw"
+            false)
+      (test "jvm object class"
+            (|> (do macro;Monad<Lux>
+                  [sampleI (@;generate (#ls;Procedure "jvm object class" (list (#ls;Text class))))]
+                  (@eval;eval sampleI))
+                (macro;run (init-compiler []))
+                (case> (#R;Success outputG)
+                       (|> outputG (:! Class) (Class.getName []) (text/= class))
+
+                       (#R;Error error)
+                       false)))
+      (test "jvm object instance?"
+            (|> (do macro;Monad<Lux>
+                  [sampleI (@;generate (#ls;Procedure "jvm object instance?" (list (#ls;Text instance-class)
+                                                                                   instance)))]
+                  (@eval;eval sampleI))
+                (macro;run (init-compiler []))
+                (case> (#R;Success outputG)
+                       (:! Bool outputG)
+
+                       (#R;Error error)
+                       false)))
+      ))
