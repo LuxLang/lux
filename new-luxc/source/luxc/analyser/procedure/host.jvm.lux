@@ -7,20 +7,23 @@
        (data ["R" result]
              [maybe]
              [product]
+             [bool "bool/" Eq<Bool>]
              [text "text/" Eq<Text>]
              (text format
                    ["l" lexer])
-             (coll [list "list/" Fold<List> Functor<List>]
+             (coll [list "list/" Fold<List> Functor<List> Monoid<List>]
                    [array #+ Array]
                    [dict #+ Dict]))
        [macro "lux/" Monad<Lux>]
+       (macro ["s" syntax])
        [type]
        (type ["tc" check])
        [host])
   (luxc ["&" base]
         ["&;" host]
         (lang ["la" analysis])
-        (analyser ["&;" common]))
+        (analyser ["&;" common]
+                  ["&;" inference]))
   ["@" ../common]
   )
 
@@ -360,7 +363,8 @@
           _
           (&;fail (@;wrong-arity proc +2 (list;size args))))))))
 
-(host;import java.lang.Object)
+(host;import java.lang.Object
+  (equals [Object] boolean))
 
 (host;import java.lang.ClassLoader)
 
@@ -384,21 +388,42 @@
 
 (host;import java.lang.reflect.Modifier
   (#static isStatic [int] boolean)
-  (#static isFinal [int] boolean))
+  (#static isFinal [int] boolean)
+  (#static isInterface [int] boolean)
+  (#static isAbstract [int] boolean))
 
 (host;import java.lang.reflect.Field
   (getDeclaringClass [] (java.lang.Class Object))
   (getModifiers [] int)
   (getGenericType [] java.lang.reflect.Type))
 
+(host;import java.lang.reflect.Method
+  (getName [] String)
+  (getModifiers [] int)
+  (getDeclaringClass [] (Class Object))
+  (getTypeParameters [] (Array (TypeVariable Method)))
+  (getGenericParameterTypes [] (Array java.lang.reflect.Type))
+  (getGenericReturnType [] java.lang.reflect.Type)
+  (getGenericExceptionTypes [] (Array java.lang.reflect.Type)))
+
+(host;import (java.lang.reflect.Constructor c)
+  (getModifiers [] int)
+  (getDeclaringClass [] (Class c))
+  (getTypeParameters [] (Array (TypeVariable (Constructor c))))
+  (getGenericParameterTypes [] (Array java.lang.reflect.Type))
+  (getGenericExceptionTypes [] (Array java.lang.reflect.Type)))
+
 (host;import (java.lang.Class c)
   (getName [] String)
+  (getModifiers [] int)
   (#static forName [String boolean ClassLoader] #try (Class Object))
   (isAssignableFrom [(Class Object)] boolean)
   (getTypeParameters [] (Array (TypeVariable (Class c))))
   (getGenericInterfaces [] (Array java.lang.reflect.Type))
   (getGenericSuperclass [] java.lang.reflect.Type)
-  (getDeclaredField [String] #try Field))
+  (getDeclaredField [String] #try Field)
+  (getConstructors [] (Array (Constructor Object)))
+  (getDeclaredMethods [] (Array Method)))
 
 (def: (load-class name)
   (-> Text (Lux (Class Object)))
@@ -507,6 +532,7 @@
 (exception: #export Final-Field)
 
 (exception: #export Cannot-Convert-To-Class)
+(exception: #export Cannot-Convert-To-Parameter)
 (exception: #export Cannot-Convert-To-Lux-Type)
 (exception: #export Cannot-Cast-To-Primitive)
 (exception: #export JVM-Type-Is-Not-Class)
@@ -826,6 +852,284 @@
       _
       (&;fail (@;wrong-arity proc +4 (list;size args))))))
 
+(def: (java-type-to-parameter type)
+  (-> java.lang.reflect.Type (Lux Text))
+  (cond (host;instance? Class type)
+        (lux/wrap (Class.getName [] (:! Class type)))
+
+        (host;instance? ParameterizedType type)
+        (java-type-to-parameter (ParameterizedType.getRawType [] (:! ParameterizedType type)))
+
+        (or (host;instance? TypeVariable type)
+            (host;instance? WildcardType type))
+        (lux/wrap "java.lang.Object")
+
+        ## else
+        (&;throw Cannot-Convert-To-Parameter (type-descriptor type))))
+
+(type: Method-Type
+  #Static
+  #Abstract
+  #Virtual
+  #Special
+  #Interface)
+
+(def: (check-method class method-name method-type arg-classes method)
+  (-> (Class Object) Text Method-Type (List Text) Method (Lux Bool))
+  (do macro;Monad<Lux>
+    [parameters (|> (Method.getGenericParameterTypes [] method)
+                    array;to-list
+                    (monad;map @ java-type-to-parameter))
+     #let [modifiers (Method.getModifiers [] method)]]
+    (wrap (and (Object.equals [class] (Method.getDeclaringClass [] method))
+               (text/= method-name (Method.getName [] method))
+               (case #Static
+                 #Special
+                 (Modifier.isStatic [modifiers])
+
+                 _
+                 true)
+               (case method-type
+                 #Special
+                 (not (or (Modifier.isInterface [(Class.getModifiers [] class)])
+                          (Modifier.isAbstract [modifiers])))
+
+                 _
+                 true)
+               (n.= (list;size arg-classes) (list;size parameters))
+               (list/fold (function [[expectedJC actualJC] prev]
+                            (and prev
+                                 (text/= expectedJC actualJC)))
+                          true
+                          (list;zip2 arg-classes parameters))))))
+
+(def: (check-constructor class arg-classes constructor)
+  (-> (Class Object) (List Text) (Constructor Object) (Lux Bool))
+  (do macro;Monad<Lux>
+    [parameters (|> (Constructor.getGenericParameterTypes [] constructor)
+                    array;to-list
+                    (monad;map @ java-type-to-parameter))]
+    (wrap (and (Object.equals [class] (Constructor.getDeclaringClass [] constructor))
+               (n.= (list;size arg-classes) (list;size parameters))
+               (list/fold (function [[expectedJC actualJC] prev]
+                            (and prev
+                                 (text/= expectedJC actualJC)))
+                          true
+                          (list;zip2 arg-classes parameters))))))
+
+(def: idx-to-bound
+  (-> Nat Type)
+  (|>. (n.* +2) n.inc #;Bound))
+
+(def: (method-to-type method-type method)
+  (-> Method-Type Method (Lux [Type (List Type)]))
+  (let [owner (Method.getDeclaringClass [] method)
+        owner-name (Class.getName [] owner)
+        owner-tvars (case method-type
+                      #Static
+                      (list)
+
+                      _
+                      (|> (Class.getTypeParameters [] owner)
+                          array;to-list
+                          (list/map (TypeVariable.getName []))))
+        method-tvars (|> (Method.getTypeParameters [] method)
+                         array;to-list
+                         (list/map (TypeVariable.getName [])))
+        num-owner-tvars (list;size owner-tvars)
+        all-tvars (list/compose owner-tvars method-tvars)
+        num-all-tvars (list;size all-tvars)
+        owner-tvarsT (|> (list;n.range +0 (n.dec num-owner-tvars)) (list/map idx-to-bound))
+        method-tvarsT (|> (list;n.range num-owner-tvars (n.dec num-all-tvars)) (list/map idx-to-bound))
+        mappings (: Mappings
+                    (if (list;empty? all-tvars)
+                      fresh-mappings
+                      (|> (list/compose owner-tvarsT method-tvarsT)
+                          list;reverse
+                          (list;zip2 all-tvars)
+                          (dict;from-list text;Hash<Text>))))]
+    (do macro;Monad<Lux>
+      [inputsT (|> (Method.getGenericParameterTypes [] method)
+                   array;to-list
+                   (monad;map @ (java-type-to-lux-type fresh-mappings)))
+       outputT (java-type-to-lux-type mappings (Method.getGenericReturnType [] method))
+       exceptionsT (|> (Method.getGenericExceptionTypes [] method)
+                       array;to-list
+                       (monad;map @ (java-type-to-lux-type fresh-mappings)))
+       #let [methodT (<| (type;univ-q num-all-tvars)
+                         (type;function (case method-type
+                                          #Static
+                                          inputsT
+
+                                          _
+                                          (list& (#;Host owner-name (list;reverse owner-tvarsT))
+                                                 inputsT)))
+                         outputT)]]
+      (wrap [methodT exceptionsT]))))
+
+(exception: #export No-Candidate-Method)
+(exception: #export Too-Many-Candidate-Methods)
+
+(def: (methods class-name method-name method-type arg-classes)
+  (-> Text Text Method-Type (List Text) (Lux [Type (List Type)]))
+  (do macro;Monad<Lux>
+    [class (load-class class-name)
+     candidates (|> class
+                    (Class.getDeclaredMethods [])
+                    array;to-list
+                    (monad;map @ (function [method]
+                                   (do @
+                                     [passes? (check-method class method-name method-type arg-classes method)]
+                                     (wrap [passes? method])))))]
+    (case (list;filter product;left candidates)
+      #;Nil
+      (&;throw No-Candidate-Method (format class-name "#" method-name))
+      
+      (#;Cons candidate #;Nil)
+      (|> candidate product;right (method-to-type method-type))
+
+      _
+      (&;throw Too-Many-Candidate-Methods (format class-name "#" method-name)))))
+
+(def: (constructor-to-type constructor)
+  (-> (Constructor Object) (Lux [Type (List Type)]))
+  (let [owner (Constructor.getDeclaringClass [] constructor)
+        owner-name (Class.getName [] owner)
+        owner-tvars (|> (Class.getTypeParameters [] owner)
+                        array;to-list
+                        (list/map (TypeVariable.getName [])))
+        constructor-tvars (|> (Constructor.getTypeParameters [] constructor)
+                              array;to-list
+                              (list/map (TypeVariable.getName [])))
+        num-owner-tvars (list;size owner-tvars)
+        all-tvars (list/compose owner-tvars constructor-tvars)
+        num-all-tvars (list;size all-tvars)
+        owner-tvarsT (|> (list;n.range +0 (n.dec num-owner-tvars)) (list/map idx-to-bound))
+        constructor-tvarsT (|> (list;n.range num-owner-tvars (n.dec num-all-tvars)) (list/map idx-to-bound))
+        mappings (: Mappings
+                    (if (list;empty? all-tvars)
+                      fresh-mappings
+                      (|> (list/compose owner-tvarsT constructor-tvarsT)
+                          list;reverse
+                          (list;zip2 all-tvars)
+                          (dict;from-list text;Hash<Text>))))]
+    (do macro;Monad<Lux>
+      [inputsT (|> (Constructor.getGenericParameterTypes [] constructor)
+                   array;to-list
+                   (monad;map @ (java-type-to-lux-type fresh-mappings)))
+       exceptionsT (|> (Constructor.getGenericExceptionTypes [] constructor)
+                       array;to-list
+                       (monad;map @ (java-type-to-lux-type fresh-mappings)))
+       #let [objectT (#;Host owner-name (list;reverse owner-tvarsT))
+             constructorT (<| (type;univ-q num-all-tvars)
+                              (type;function inputsT)
+                              objectT)]]
+      (wrap [constructorT exceptionsT]))))
+
+(exception: #export No-Candidate-Constructor)
+(exception: #export Too-Many-Candidate-Constructors)
+
+(def: (constructor-methods class-name arg-classes)
+  (-> Text (List Text) (Lux [Type (List Type)]))
+  (do macro;Monad<Lux>
+    [class (load-class class-name)
+     candidates (|> class
+                    (Class.getConstructors [])
+                    array;to-list
+                    (monad;map @ (function [constructor]
+                                   (do @
+                                     [passes? (check-constructor class arg-classes constructor)]
+                                     (wrap [passes? constructor])))))]
+    (case (list;filter product;left candidates)
+      #;Nil
+      (&;throw No-Candidate-Constructor class-name)
+      
+      (#;Cons candidate #;Nil)
+      (|> candidate product;right constructor-to-type)
+
+      _
+      (&;throw Too-Many-Candidate-Constructors class-name))))
+
+(def: (invoke//static proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case (: (R;Result [(List Code) [Text Text (List [Text Code]) Unit]])
+             (p;run args ($_ p;seq s;text s;text (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
+      (#R;Success [_ [class method argsTC _]])
+      (do macro;Monad<Lux>
+        [[methodT exceptionsT] (methods class method #Static (list/map product;left argsTC))
+         [outputT argsA] (&inference;apply-function analyse methodT (list/map product;right argsTC))
+         _ (&;infer outputT)]
+        (wrap (#la;Procedure proc (list& (#la;Text class) (#la;Text method) argsA))))
+
+      _
+      (&;fail (format "Wrong syntax for '" proc "'.")))))
+
+(def: (invoke//virtual proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case (: (R;Result [(List Code) [Text Text Code (List [Text Code]) Unit]])
+             (p;run args ($_ p;seq s;text s;text s;any (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
+      (#R;Success [_ [class method objectC argsTC _]])
+      (do macro;Monad<Lux>
+        [[methodT exceptionsT] (methods class method #Virtual (list/map product;left argsTC))
+         [outputT argsA] (&inference;apply-function analyse methodT (list& objectC (list/map product;right argsTC)))
+         _ (&;infer outputT)]
+        (wrap (#la;Procedure proc (list& (#la;Text class) (#la;Text method) argsA))))
+
+      _
+      (&;fail (format "Wrong syntax for '" proc "'.")))))
+
+(def: (invoke//special proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case (: (R;Result [(List Code) [Text Text Code (List [Text Code]) Unit]])
+             (p;run args ($_ p;seq s;text s;text s;any (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
+      (#R;Success [_ [class method objectC argsTC _]])
+      (do macro;Monad<Lux>
+        [[methodT exceptionsT] (methods class method #Special (list/map product;left argsTC))
+         [outputT argsA] (&inference;apply-function analyse methodT (list& objectC (list/map product;right argsTC)))
+         _ (&;infer outputT)]
+        (wrap (#la;Procedure proc (list& (#la;Text class) (#la;Text method) argsA))))
+
+      _
+      (&;fail (format "Wrong syntax for '" proc "'.")))))
+
+(exception: #export Not-Interface)
+
+(def: (invoke//interface proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case (: (R;Result [(List Code) [Text Text Code (List [Text Code]) Unit]])
+             (p;run args ($_ p;seq s;text s;text s;any (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
+      (#R;Success [_ [class-name method objectC argsTC _]])
+      (do macro;Monad<Lux>
+        [class (load-class class-name)
+         _ (&;assert (Not-Interface class-name)
+                     (Modifier.isInterface [(Class.getModifiers [] class)]))
+         [methodT exceptionsT] (methods class-name method #Interface (list/map product;left argsTC))
+         [outputT argsA] (&inference;apply-function analyse methodT (list& objectC (list/map product;right argsTC)))
+         _ (&;infer outputT)]
+        (wrap (#la;Procedure proc (list& (#la;Text class-name) (#la;Text method) argsA))))
+
+      _
+      (&;fail (format "Wrong syntax for '" proc "'.")))))
+
+(def: (invoke//constructor proc)
+  (-> Text @;Proc)
+  (function [analyse args]
+    (case (: (R;Result [(List Code) [Text (List [Text Code]) Unit]])
+             (p;run args ($_ p;seq s;text (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
+      (#R;Success [_ [class argsTC _]])
+      (do macro;Monad<Lux>
+        [[methodT exceptionsT] (constructor-methods class (list/map product;left argsTC))
+         [outputT argsA] (&inference;apply-function analyse methodT (list/map product;right argsTC))
+         _ (&;infer outputT)]
+        (wrap (#la;Procedure proc (list& (#la;Text class) argsA))))
+
+      _
+      (&;fail (format "Wrong syntax for '" proc "'.")))))
+
 (def: member-procs
   @;Bundle
   (<| (@;prefix "member")
@@ -838,6 +1142,14 @@
                           (|> (dict;new text;Hash<Text>)
                               (@;install "get" virtual-get)
                               (@;install "put" virtual-put))))
+          (dict;merge (<| (@;prefix "invoke")
+                          (|> (dict;new text;Hash<Text>)
+                              (@;install "static" invoke//static)
+                              (@;install "virtual" invoke//virtual)
+                              (@;install "special" invoke//special)
+                              (@;install "interface" invoke//interface)
+                              (@;install "constructor" invoke//constructor)
+                              )))
           )))
 
 (def: #export procedures
