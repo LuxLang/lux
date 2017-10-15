@@ -1,7 +1,7 @@
 (;module:
   lux
   (lux (control [monad #+ do])
-       (data [text]
+       (data [text "text/" Eq<Text>]
              text/format
              (coll [list "list/" Functor<List>]
                    [dict #+ Dict]))
@@ -13,6 +13,7 @@
         (lang ["la" analysis]
               ["ls" synthesis])
         ["&;" analyser]
+        (analyser (procedure ["&;" host]))
         ["&;" synthesizer]
         (synthesizer [function])
         (generator ["&;" common]
@@ -428,6 +429,159 @@
           (@;install "instance?" object//instance?)
           )))
 
+(def: primitives
+  (Dict Text $;Primitive)
+  (|> (list ["boolean" #$;Boolean]
+            ["byte" #$;Byte]
+            ["short" #$;Short]
+            ["int" #$;Int]
+            ["long" #$;Long]
+            ["float" #$;Float]
+            ["double" #$;Double]
+            ["char" #$;Char])
+      (dict;from-list text;Hash<Text>)))
+
+(def: (static//get proc generate inputs)
+  (-> Text @;Proc)
+  (case inputs
+    (^ (list (#ls;Text class) (#ls;Text field) (#ls;Text unboxed)))
+    (do macro;Monad<Lux>
+      []
+      (case (dict;get unboxed primitives)
+        (#;Some primitive)
+        (let [primitive (case unboxed
+                          "boolean" #$;Boolean
+                          "byte" #$;Byte
+                          "short" #$;Short
+                          "int" #$;Int
+                          "long" #$;Long
+                          "float" #$;Float
+                          "double" #$;Double
+                          "char" #$;Char
+                          _ (undefined))]
+          (wrap (|>. ($i;GETSTATIC class field (#$;Primitive primitive))
+                     ($i;wrap primitive))))
+        
+        #;None
+        (wrap ($i;GETSTATIC class field ($t;class unboxed (list))))))
+
+    _
+    (&;fail (format "Wrong syntax for '" proc "'."))))
+
+(def: (static//put proc generate inputs)
+  (-> Text @;Proc)
+  (case inputs
+    (^ (list (#ls;Text class) (#ls;Text field) (#ls;Text unboxed) valueS))
+    (do macro;Monad<Lux>
+      [valueI (generate valueS)]
+      (case (dict;get unboxed primitives)
+        (#;Some primitive)
+        (let [primitive (case unboxed
+                          "boolean" #$;Boolean
+                          "byte" #$;Byte
+                          "short" #$;Short
+                          "int" #$;Int
+                          "long" #$;Long
+                          "float" #$;Float
+                          "double" #$;Double
+                          "char" #$;Char
+                          _ (undefined))]
+          (wrap (|>. valueI
+                     ($i;unwrap primitive)
+                     ($i;PUTSTATIC class field (#$;Primitive primitive))
+                     ($i;string &runtime;unit))))
+        
+        #;None
+        (wrap (|>. valueI
+                   ($i;CHECKCAST class)
+                   ($i;PUTSTATIC class field ($t;class class (list)))
+                   ($i;string &runtime;unit)))))
+
+    _
+    (&;fail (format "Wrong syntax for '" proc "'."))))
+
+(def: (virtual//get proc generate inputs)
+  (-> Text @;Proc)
+  (case inputs
+    (^ (list (#ls;Text class) (#ls;Text field) (#ls;Text unboxed) objectS))
+    (do macro;Monad<Lux>
+      [objectI (generate objectS)]
+      (case (dict;get unboxed primitives)
+        (#;Some primitive)
+        (let [primitive (case unboxed
+                          "boolean" #$;Boolean
+                          "byte" #$;Byte
+                          "short" #$;Short
+                          "int" #$;Int
+                          "long" #$;Long
+                          "float" #$;Float
+                          "double" #$;Double
+                          "char" #$;Char
+                          _ (undefined))]
+          (wrap (|>. objectI
+                     ($i;CHECKCAST class)
+                     ($i;GETFIELD class field (#$;Primitive primitive))
+                     ($i;wrap primitive))))
+        
+        #;None
+        (wrap (|>. objectI
+                   ($i;CHECKCAST class)
+                   ($i;GETFIELD class field ($t;class class (list)))))))
+
+    _
+    (&;fail (format "Wrong syntax for '" proc "'."))))
+
+(def: (virtual//put proc generate inputs)
+  (-> Text @;Proc)
+  (case inputs
+    (^ (list (#ls;Text class) (#ls;Text field) (#ls;Text unboxed) valueS objectS))
+    (do macro;Monad<Lux>
+      [valueI (generate valueS)
+       objectI (generate objectS)]
+      (case (dict;get unboxed primitives)
+        (#;Some primitive)
+        (let [primitive (case unboxed
+                          "boolean" #$;Boolean
+                          "byte" #$;Byte
+                          "short" #$;Short
+                          "int" #$;Int
+                          "long" #$;Long
+                          "float" #$;Float
+                          "double" #$;Double
+                          "char" #$;Char
+                          _ (undefined))]
+          (wrap (|>. objectI
+                     ($i;CHECKCAST class)
+                     valueI
+                     ($i;unwrap primitive)
+                     ($i;PUTFIELD class field (#$;Primitive primitive))
+                     ($i;string &runtime;unit))))
+        
+        #;None
+        (wrap (|>. objectI
+                   ($i;CHECKCAST class)
+                   valueI
+                   ($i;CHECKCAST class)
+                   ($i;PUTFIELD class field ($t;class class (list)))
+                   ($i;string &runtime;unit)))))
+
+    _
+    (&;fail (format "Wrong syntax for '" proc "'."))))
+
+(def: member-procs
+  @;Bundle
+  (<| (@;prefix "member")
+      (|> (dict;new text;Hash<Text>)
+          (dict;merge (<| (@;prefix "static")
+                          (|> (dict;new text;Hash<Text>)
+                              (@;install "get" static//get)
+                              (@;install "put" static//put))))
+          (dict;merge (<| (@;prefix "virtual")
+                          (|> (dict;new text;Hash<Text>)
+                              (@;install "get" virtual//get)
+                              (@;install "put" virtual//put))))
+          )))
+
 (def: #export procedures
   @;Bundle
   (<| (@;prefix "jvm")
@@ -440,4 +594,5 @@
           (dict;merge char-procs)
           (dict;merge array-procs)
           (dict;merge object-procs)
+          (dict;merge member-procs)
           )))

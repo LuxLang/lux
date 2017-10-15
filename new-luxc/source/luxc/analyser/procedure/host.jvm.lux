@@ -24,7 +24,7 @@
   ["@" ../common]
   )
 
-(def: null-class Text "#Null")
+(def: #export null-class Text "#Null")
 
 (do-template [<name> <class>]
   [(def: #export <name> Type (#;Host <class> (list)))]
@@ -591,28 +591,38 @@
         ## else
         (&;throw Cannot-Convert-To-Lux-Type (type-descriptor java-type))))
 
-(def: (cast to from)
-  (-> Type Type (Lux [Text Type]))
+(type: Direction
+  #In
+  #Out)
+
+(def: (choose direction to from)
+  (-> Direction Text Text Text)
+  (case direction
+    #In to
+    #Out from))
+
+(def: (cast direction to from)
+  (-> Direction Type Type (Lux [Text Type]))
   (do macro;Monad<Lux>
     [to-name (check-jvm to)
      from-name (check-jvm from)]
     (cond (dict;contains? to-name boxes)
           (let [box (maybe;assume (dict;get to-name boxes))]
             (if (text/= box from-name)
-              (wrap [box (#;Host to-name (list))])
+              (wrap [(choose direction to-name from-name) (#;Host to-name (list))])
               (&;throw Cannot-Cast-To-Primitive (format from-name " => " to-name))))
 
           (dict;contains? from-name boxes)
           (let [box (maybe;assume (dict;get from-name boxes))]
             (do @
-              [[_ castT] (cast to (#;Host box (list)))]
-              (wrap [from-name castT])))
+              [[_ castT] (cast direction to (#;Host box (list)))]
+              (wrap [(choose direction to-name from-name) castT])))
 
           (text/= to-name from-name)
-          (wrap ["" from])
+          (wrap [(choose direction to-name from-name) from])
 
           (text/= null-class from-name)
-          (wrap ["" to])
+          (wrap [(choose direction to-name from-name) to])
 
           ## else
           (do @
@@ -633,8 +643,9 @@
                       (list/map product;left))
               (#;Cons parent _)
               (do @
-                [parentT (java-type-to-lux-type fresh-mappings parent)]
-                (cast to parentT))
+                [parentT (java-type-to-lux-type fresh-mappings parent)
+                 [_ castT] (cast direction to parentT)]
+                (wrap [(choose direction to-name from-name) castT]))
 
               #;Nil
               (&;fail (format "No valid path between " (%type from) "and " (%type to) ".")))))))
@@ -709,9 +720,9 @@
                    (analyse sourceC))
          sourceT (&;with-type-env
                    (tc;read var-id))
-         [unboxed castT] (cast targetT sourceT)
+         [unboxed castT] (cast #Out targetT sourceT)
          _ (&;assert (format "Object cannot be a primitive: " unboxed)
-                     (text;empty? unboxed))]
+                     (not (dict;contains? unboxed boxes)))]
         (wrap [castT sourceA]))))
 
 (def: (analyse-input analyse targetT sourceC)
@@ -722,7 +733,7 @@
                    (analyse sourceC))
          sourceT (&;with-type-env
                    (tc;read var-id))
-         [unboxed castT] (cast targetT sourceT)]
+         [unboxed castT] (cast #In targetT sourceT)]
         (wrap [castT unboxed sourceA]))))
 
 (def: (static-get proc)
@@ -735,7 +746,7 @@
         (do macro;Monad<Lux>
           [[fieldT final?] (static-field class field)
            expectedT macro;expected-type
-           [unboxed castT] (cast expectedT fieldT)
+           [unboxed castT] (cast #Out expectedT fieldT)
            _ (&;with-type-env
                (tc;check expectedT castT))]
           (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) (#la;Text unboxed)))))
@@ -780,7 +791,7 @@
           [[objectT objectA] (analyse-object class analyse objectC)
            [fieldT final?] (virtual-field class field objectT)
            expectedT macro;expected-type
-           [unboxed castT] (cast expectedT fieldT)
+           [unboxed castT] (cast #Out expectedT fieldT)
            _ (&;with-type-env
                (tc;check expectedT castT))]
           (wrap (#la;Procedure proc (list (#la;Text class) (#la;Text field) (#la;Text unboxed) objectA))))
