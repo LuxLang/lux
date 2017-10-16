@@ -11,7 +11,7 @@
              (text ["l" lexer])
              [number "frac/" Codec<Text,Frac> "nat/" Codec<Text,Nat>]
              [maybe]
-             ["R" result]
+             ["E" error]
              [sum]
              [product]
              (coll [list "list/" Fold<List> Monad<List>]
@@ -96,52 +96,52 @@
 
 (def: #export (get-fields json)
   {#;doc "Get all the fields in a JSON object."}
-  (-> JSON (R;Result (List String)))
+  (-> JSON (E;Error (List String)))
   (case json
     (#Object obj)
-    (#R;Success (dict;keys obj))
+    (#E;Success (dict;keys obj))
 
     _
-    (#R;Error ($_ text/compose "Cannot get the fields of a non-object."))))
+    (#E;Error ($_ text/compose "Cannot get the fields of a non-object."))))
 
 (def: #export (get key json)
   {#;doc "A JSON object field getter."}
-  (-> String JSON (R;Result JSON))
+  (-> String JSON (E;Error JSON))
   (case json
     (#Object obj)
     (case (dict;get key obj)
       (#;Some value)
-      (#R;Success value)
+      (#E;Success value)
 
       #;None
-      (#R;Error ($_ text/compose "Missing field \"" key "\" on object.")))
+      (#E;Error ($_ text/compose "Missing field \"" key "\" on object.")))
 
     _
-    (#R;Error ($_ text/compose "Cannot get field \"" key "\" of a non-object."))))
+    (#E;Error ($_ text/compose "Cannot get field \"" key "\" of a non-object."))))
 
 (def: #export (set key value json)
   {#;doc "A JSON object field setter."}
-  (-> String JSON JSON (R;Result JSON))
+  (-> String JSON JSON (E;Error JSON))
   (case json
     (#Object obj)
-    (#R;Success (#Object (dict;put key value obj)))
+    (#E;Success (#Object (dict;put key value obj)))
 
     _
-    (#R;Error ($_ text/compose "Cannot set field \"" key "\" of a non-object."))))
+    (#E;Error ($_ text/compose "Cannot set field \"" key "\" of a non-object."))))
 
 (do-template [<name> <tag> <type> <desc>]
   [(def: #export (<name> key json)
      {#;doc (code;text ($_ text/compose "A JSON object field getter for " <desc> "."))}
-     (-> Text JSON (R;Result <type>))
+     (-> Text JSON (E;Error <type>))
      (case (get key json)
-       (#R;Success (<tag> value))
-       (#R;Success value)
+       (#E;Success (<tag> value))
+       (#E;Success value)
 
-       (#R;Success _)
-       (#R;Error ($_ text/compose "Wrong value type at key: " key))
+       (#E;Success _)
+       (#E;Error ($_ text/compose "Wrong value type at key: " key))
 
-       (#R;Error error)
-       (#R;Error error)))]
+       (#E;Error error)
+       (#E;Error error)))]
 
   [get-boolean #Boolean Boolean "booleans"]
   [get-number  #Number  Number  "numbers"]
@@ -195,23 +195,23 @@
 (def: unconsumed-input-error Text "Unconsumed JSON.")
 
 (def: #export (run json parser)
-  (All [a] (-> JSON (Reader a) (R;Result a)))
+  (All [a] (-> JSON (Reader a) (E;Error a)))
   (case (p;run (list json) parser)
-    (#R;Success [remainder output])
+    (#E;Success [remainder output])
     (case remainder
       #;Nil
-      (#R;Success output)
+      (#E;Success output)
 
       _
-      (#R;Error unconsumed-input-error))
+      (#E;Error unconsumed-input-error))
     
-    (#R;Error error)
-    (#R;Error error)))
+    (#E;Error error)
+    (#E;Error error)))
 
 (def: #export (fail error)
   (All [a] (-> Text (Reader a)))
   (function [inputs]
-    (#R;Error error)))
+    (#E;Error error)))
 
 (def: #export any
   {#;doc "Just returns the JSON input without applying any logic."}
@@ -219,10 +219,10 @@
   (<| (function [inputs])
       (case inputs
         #;Nil
-        (#R;Error "Empty JSON stream.")
+        (#E;Error "Empty JSON stream.")
         
         (#;Cons head tail)
-        (#R;Success [tail head]))))
+        (#E;Success [tail head]))))
 
 (do-template [<name> <type> <tag> <desc>]
   [(def: #export <name>
@@ -289,10 +289,10 @@
     (case head
       (#Array values)
       (case (p;run (vector;to-list values) parser)
-        (#R;Error error)
+        (#E;Error error)
         (fail error)
 
-        (#R;Success [remainder output])
+        (#E;Success [remainder output])
         (case remainder
           #;Nil
           (wrap output)
@@ -310,7 +310,7 @@
     [head any]
     (case head
       (#Object object)
-      (case (do R;Monad<Result>
+      (case (do E;Monad<Error>
               []
               (|> (dict;entries object)
                   (monad;map @ (function [[key val]]
@@ -318,10 +318,10 @@
                                    [val (run val parser)]
                                    (wrap [key val]))))
                   (:: @ map (dict;from-list text;Hash<Text>))))
-        (#R;Success table)
+        (#E;Success table)
         (wrap table)
 
-        (#R;Error error)
+        (#E;Error error)
         (fail error))
 
       _
@@ -337,13 +337,13 @@
       (case (dict;get field-name object)
         (#;Some value)
         (case (run value parser)
-          (#R;Success output)
+          (#E;Success output)
           (function [tail]
-            (#R;Success [(#;Cons (#Object (dict;remove field-name object))
+            (#E;Success [(#;Cons (#Object (dict;remove field-name object))
                                  tail)
                          output]))
 
-          (#R;Error error)
+          (#E;Error error)
           (fail error))
 
         _
@@ -438,10 +438,10 @@
                        offset (l;many l;decimal)]
                       (wrap ($_ text/compose mark (if signed?' "-" "") offset))))]
     (case (frac/decode ($_ text/compose (if signed? "-" "") digits "." decimals exp))
-      (#R;Error message)
+      (#E;Error message)
       (p;fail message)
       
-      (#R;Success value)
+      (#E;Success value)
       (wrap value))))
 
 (def: escaped~
