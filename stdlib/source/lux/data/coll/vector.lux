@@ -1,17 +1,16 @@
 (;module:
   lux
-  (lux (control ["F" functor]
-                ["A" applicative]
-                ["M" monad #+ do Monad]
+  (lux (control [functor #+ Functor]
+                [applicative #+ Applicative]
+                [monad #+ do Monad]
                 [eq #+ Eq]
                 monoid
                 fold
                 ["p" parser])
        (data [maybe]
-             (coll [list "List/" Fold<List> Functor<List> Monoid<List>]
-                   [array #+ Array "Array/" Functor<Array> Fold<Array>])
+             (coll [list "list/" Fold<List> Functor<List> Monoid<List>]
+                   [array "array/" Functor<Array> Fold<Array>])
              [bit]
-             [number "Int/" Number<Int>]
              [product])
        [macro #+ with-gensyms]
        (macro [code]
@@ -80,14 +79,14 @@
     (#Base tail)
     (|> (: (Hierarchy ($ +0))
            (new-hierarchy []))
-        (array;put +0 (new-path (level-down level) tail))
+        (array;write +0 (new-path (level-down level) tail))
         #Hierarchy)))
 
 (def: (new-tail singleton)
   (All [a] (-> a (Base a)))
   (|> (: (Base ($ +0))
          (array;new +1))
-      (array;put +0 singleton)))
+      (array;write +0 singleton)))
 
 (def: (push-tail size level tail parent)
   (All [a] (-> Nat Level (Base a) (Hierarchy a) (Hierarchy a)))
@@ -97,7 +96,7 @@
                    ## Just add the tail to it
                    (#Base tail)
                    ## Otherwise, check whether there's a vacant spot
-                   (case (array;get sub-idx parent)
+                   (case (array;read sub-idx parent)
                      ## If so, set the path to the tail
                      #;None
                      (new-path (level-down level) tail)
@@ -109,7 +108,7 @@
                      (undefined))
                    )]
     (|> (array;clone parent)
-        (array;put sub-idx sub-node))))
+        (array;write sub-idx sub-node))))
 
 (def: (expand-tail val tail)
   (All [a] (-> a (Base a) (Base a)))
@@ -117,23 +116,23 @@
     (|> (: (Base ($ +0))
            (array;new (n.inc tail-size)))
         (array;copy tail-size +0 tail +0)
-        (array;put tail-size val)
+        (array;write tail-size val)
         )))
 
 (def: (put' level idx val hierarchy)
   (All [a] (-> Level Index a (Hierarchy a) (Hierarchy a)))
   (let [sub-idx (branch-idx (bit;shift-right level idx))]
-    (case (array;get sub-idx hierarchy)
+    (case (array;read sub-idx hierarchy)
       (#;Some (#Hierarchy sub-node))
       (|> (array;clone hierarchy)
-          (array;put sub-idx (#Hierarchy (put' (level-down level) idx val sub-node))))
+          (array;write sub-idx (#Hierarchy (put' (level-down level) idx val sub-node))))
 
       (^multi (#;Some (#Base base))
               (n.= +0 (level-down level)))
       (|> (array;clone hierarchy)
-          (array;put sub-idx (|> (array;clone base)
-                                 (array;put (branch-idx idx) val)
-                                 #Base)))
+          (array;write sub-idx (|> (array;clone base)
+                                   (array;write (branch-idx idx) val)
+                                   #Base)))
 
       _
       (undefined))))
@@ -146,7 +145,7 @@
 
           (n.> branching-exponent level)
           (do maybe;Monad<Maybe>
-            [base|hierarchy (array;get sub-idx hierarchy)
+            [base|hierarchy (array;read sub-idx hierarchy)
              sub (case base|hierarchy
                    (#Hierarchy sub)
                    (pop-tail size (level-down level) sub)
@@ -154,12 +153,12 @@
                    (#Base _)
                    (undefined))]
             (|> (array;clone hierarchy)
-                (array;put sub-idx (#Hierarchy sub))
+                (array;write sub-idx (#Hierarchy sub))
                 #;Some))
 
           ## Else...
           (|> (array;clone hierarchy)
-              (array;remove sub-idx)
+              (array;delete sub-idx)
               #;Some)
           )))
 
@@ -173,7 +172,7 @@
     (|> hierarchy
         array;to-list
         list;reverse
-        (List/fold (function [sub acc] (List/compose (to-list' sub) acc))
+        (list/fold (function [sub acc] (list/compose (to-list' sub) acc))
                    #;Nil))))
 
 ## [Types]
@@ -214,8 +213,8 @@
             (|> vec
                 (set@ #root (|> (: (Hierarchy ($ +0))
                                    (new-hierarchy []))
-                                (array;put +0 (#Hierarchy (get@ #root vec)))
-                                (array;put +1 (new-path (get@ #level vec) (get@ #tail vec)))))
+                                (array;write +0 (#Hierarchy (get@ #root vec)))
+                                (array;write +1 (new-path (get@ #level vec) (get@ #tail vec)))))
                 (update@ #level level-up))
             ## Otherwise, just push the current tail onto the root.
             (|> vec
@@ -236,7 +235,7 @@
         (loop [level (get@ #level vec)
                hierarchy (get@ #root vec)]
           (case [(n.> branching-exponent level)
-                 (array;get (branch-idx (bit;shift-right level idx)) hierarchy)]
+                 (array;read (branch-idx (bit;shift-right level idx)) hierarchy)]
             [true (#;Some (#Hierarchy sub))]
             (recur (level-down level) sub)
 
@@ -254,7 +253,7 @@
   (All [a] (-> Nat (Vector a) (Maybe a)))
   (do maybe;Monad<Maybe>
     [base (base-for idx vec)]
-    (array;get (branch-idx idx) base)))
+    (array;read (branch-idx idx) base)))
 
 (def: #export (put idx val vec)
   (All [a] (-> Nat a (Vector a) (Vector a)))
@@ -264,7 +263,7 @@
       (if (n.>= (tail-off vec-size) idx)
         (|> vec
             (update@ #tail (: (-> (Base ($ +0)) (Base ($ +0)))
-                              (|>. array;clone (array;put (branch-idx idx) val)))))
+                              (|>. array;clone (array;write (branch-idx idx) val)))))
         (|> vec
             (update@ #root (put' (get@ #level vec) idx val))))
       vec)))
@@ -305,7 +304,7 @@
                                                    (maybe;default (new-hierarchy [])
                                                                   (pop-tail vec-size init-level (get@ #root vec))))]
                                       (if (n.> branching-exponent level)
-                                        (case [(array;get +1 root) (array;get +0 root)]
+                                        (case [(array;read +1 root) (array;read +0 root)]
                                           [#;None (#;Some (#Hierarchy sub-node))]
                                           (recur (level-down level) sub-node)
 
@@ -324,12 +323,12 @@
 
 (def: #export (to-list vec)
   (All [a] (-> (Vector a) (List a)))
-  (List/compose (to-list' (#Hierarchy (get@ #root vec)))
+  (list/compose (to-list' (#Hierarchy (get@ #root vec)))
                 (to-list' (#Base (get@ #tail vec)))))
 
 (def: #export (from-list list)
   (All [a] (-> (List a) (Vector a)))
-  (List/fold add
+  (list/fold add
              (: (Vector ($ +0))
                 empty)
              list))
@@ -372,10 +371,10 @@
   (def: (fold f init xs)
     (case xs
       (#Base base)
-      (Array/fold f init base)
+      (array/fold f init base)
       
       (#Hierarchy hierarchy)
-      (Array/fold (function [node init'] (fold f init' node))
+      (array/fold (function [node init'] (fold f init' node))
                   init
                   hierarchy))
     ))
@@ -394,27 +393,27 @@
                                   (Monoid (Vector a)))
   (def: identity empty)
   (def: (compose xs ys)
-    (List/fold add xs (to-list ys))))
+    (list/fold add xs (to-list ys))))
 
-(struct: _ (F;Functor Node)
+(struct: _ (Functor Node)
   (def: (map f xs)
     (case xs
       (#Base base)
-      (#Base (Array/map f base))
+      (#Base (array/map f base))
       
       (#Hierarchy hierarchy)
-      (#Hierarchy (Array/map (map f) hierarchy)))
+      (#Hierarchy (array/map (map f) hierarchy)))
     ))
 
-(struct: #export _ (F;Functor Vector)
+(struct: #export _ (Functor Vector)
   (def: (map f xs)
     {#level (get@ #level xs)
      #size (get@ #size xs)
-     #root (|> xs (get@ #root) (Array/map (:: Functor<Node> map f)))
-     #tail (|> xs (get@ #tail) (Array/map f))
+     #root (|> xs (get@ #root) (array/map (:: Functor<Node> map f)))
+     #tail (|> xs (get@ #tail) (array/map f))
      }))
 
-(struct: #export _ (A;Applicative Vector)
+(struct: #export _ (Applicative Vector)
   (def: functor Functor<Vector>)
 
   (def: (wrap x)
