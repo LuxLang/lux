@@ -181,23 +181,29 @@
       (#E;Success [input value])
       )))
 
-(def: #export (local local-inputs syntax)
+(def: #export (run inputs syntax)
+  (All [a] (-> (List Code) (Syntax a) (E;Error a)))
+  (case (syntax inputs)
+    (#E;Error error)
+    (#E;Error error)
+
+    (#E;Success [unconsumed value])
+    (case unconsumed
+      #;Nil
+      (#E;Success value)
+
+      _
+      (#E;Error (text/compose "Unconsumed inputs: "
+                              (|> (list/map code;to-text unconsumed)
+                                  (text;join-with ", ")))))))
+
+(def: #export (local inputs syntax)
   {#;doc "Run a syntax parser with the given list of inputs, instead of the real ones."}
   (All [a] (-> (List Code) (Syntax a) (Syntax a)))
-  (function [real-inputs]
-    (case (syntax local-inputs)
-      (#E;Error error)
-      (#E;Error error)
-
-      (#E;Success [unconsumed-inputs value])
-      (case unconsumed-inputs
-        #;Nil
-        (#E;Success [real-inputs value])
-
-        _
-        (#E;Error (text/compose "Unconsumed inputs: "
-                                (|> (list/map code;to-text unconsumed-inputs)
-                                    (text;join-with ", "))))))))
+  (function [real]
+    (do E;Monad<Error>
+      [value (run inputs syntax)]
+      (wrap [real value]))))
 
 ## [Syntax]
 (def: #hidden text.join-with text;join-with)
@@ -262,7 +268,6 @@
                                           (meta;fail "Syntax pattern expects tuples or symbols."))))
                                    args)
            #let [g!state (code;symbol ["" "*compiler*"])
-                 g!end (code;symbol ["" ""])
                  error-msg (code;text (text/compose "Wrong syntax for " name))
                  export-ast (: (List Code) (case exported?
                                              (#;Some #E;Error)
@@ -273,22 +278,20 @@
 
                                              _
                                              (list)))]]
-          (wrap (list (` (macro: (~@ export-ast) ((~ (code;symbol ["" name])) (~ g!tokens))
+          (wrap (list (` (macro: (~@ export-ast) ((~ (code;symbol ["" name])) (~ g!tokens) (~ g!state))
                            (~ meta)
-                           (function [(~ g!state)]
-                             (;_lux_case (;;_run_ (~ g!tokens)
-                                                  (: (Syntax (Meta (List Code)))
-                                                     (do ;;_Monad<Parser>_
-                                                       [(~@ (join-pairs vars+parsers))
-                                                        (~ g!end) ;;end!]
-                                                       ((~' wrap) (do meta;Monad<Meta>
-                                                                    []
-                                                                    (~ body))))))
-                               (#E;Success [(~ g!tokens) (~ g!body)])
-                               ((~ g!body) (~ g!state))
+                           (;_lux_case (;;run (~ g!tokens)
+                                              (: (Syntax (Meta (List Code)))
+                                                 (do ;;_Monad<Parser>_
+                                                   [(~@ (join-pairs vars+parsers))]
+                                                   ((~' wrap) (do meta;Monad<Meta>
+                                                                []
+                                                                (~ body))))))
+                             (#E;Success (~ g!body))
+                             ((~ g!body) (~ g!state))
 
-                               (#E;Error (~ g!msg))
-                               (#E;Error (text.join-with ": " (list (~ error-msg) (~ g!msg))))))))))))
+                             (#E;Error (~ g!msg))
+                             (#E;Error (text.join-with ": " (list (~ error-msg) (~ g!msg)))))))))))
       
       _
       (meta;fail "Wrong syntax for syntax:"))))
