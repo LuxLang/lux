@@ -11,10 +11,10 @@
              [text "text/" Eq<Text> Monoid<Text>]
              text/format
              [bool "bool/" Codec<Text,Bool>])
-       [macro #+ with-gensyms Functor<Lux> Monad<Lux>]
-       (macro [code]
-              ["s" syntax #+ syntax: Syntax])
-       [type]
+       [meta #+ with-gensyms Functor<Meta> Monad<Meta>]
+       (meta [code]
+             ["s" syntax #+ syntax: Syntax]
+             [type])
        ))
 
 (do-template [<name> <op> <from> <to>]
@@ -352,21 +352,21 @@
 
 (def: (class-imports compiler)
   (-> Compiler ClassImports)
-  (case (macro;run compiler
-                   (: (Lux ClassImports)
-                      (do Monad<Lux>
-                        [current-module macro;current-module-name
-                         defs (macro;defs current-module)]
-                        (wrap (list/fold (: (-> [Text Def] ClassImports ClassImports)
-                                            (function [[short-name [_ meta _]] imports]
-                                              (case (macro;get-text-ann (ident-for #;;jvm-class) meta)
-                                                (#;Some full-class-name)
-                                                (add-import [short-name full-class-name] imports)
+  (case (meta;run compiler
+                  (: (Meta ClassImports)
+                     (do Monad<Meta>
+                       [current-module meta;current-module-name
+                        defs (meta;defs current-module)]
+                       (wrap (list/fold (: (-> [Text Def] ClassImports ClassImports)
+                                           (function [[short-name [_ meta _]] imports]
+                                             (case (meta;get-text-ann (ident-for #;;jvm-class) meta)
+                                               (#;Some full-class-name)
+                                               (add-import [short-name full-class-name] imports)
 
-                                                _
-                                                imports)))
-                                         empty-imports
-                                         defs)))))
+                                               _
+                                               imports)))
+                                        empty-imports
+                                        defs)))))
     (#;Left _)        (list)
     (#;Right imports) imports))
 
@@ -1304,8 +1304,8 @@
               "(.new! []) for calling the class's constructor."
               "(.resolve! container [value]) for calling the \"resolve\" method."
               )}
-  (do Monad<Lux>
-    [current-module macro;current-module-name
+  (do Monad<Meta>
+    [current-module meta;current-module-name
      #let [fully-qualified-class-name (format (text;replace-all "/" "." current-module) "." full-class-name)
            field-parsers (list/map (field->parser fully-qualified-class-name) fields)
            method-parsers (list/map (method->parser (product;right class-decl) fully-qualified-class-name) methods)
@@ -1435,7 +1435,7 @@
 
     #;None
     (do @
-      [g!obj (macro;gensym "obj")]
+      [g!obj (meta;gensym "obj")]
       (wrap (list (` (: (-> (host (~' java.lang.Object)) Bool)
                         (function [(~ g!obj)]
                           (;_lux_proc ["jvm" (~ (code;text (format "instanceof" ":" (simple-class$ (list) class))))] [(~ g!obj)])))))))
@@ -1500,13 +1500,13 @@
     class-tvars))
 
 (def: (member-def-arg-bindings type-params class member)
-  (-> (List TypeParam) ClassDecl ImportMemberDecl (Lux [(List Code) (List Code) (List Text) (List Code)]))
+  (-> (List TypeParam) ClassDecl ImportMemberDecl (Meta [(List Code) (List Code) (List Text) (List Code)]))
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (let [(^slots [#import-member-tvars #import-member-args]) commons]
-      (do Monad<Lux>
+      (do Monad<Meta>
         [arg-inputs (monad;map @
-                               (: (-> [Bool GenericType] (Lux [Code Code]))
+                               (: (-> [Bool GenericType] (Meta [Code Code]))
                                   (function [[maybe? _]]
                                     (with-gensyms [arg-name]
                                       (wrap [arg-name (if maybe?
@@ -1528,19 +1528,19 @@
         (wrap [arg-function-inputs arg-method-inputs arg-classes arg-types])))
 
     _
-    (:: Monad<Lux> wrap [(list) (list) (list) (list)])))
+    (:: Monad<Meta> wrap [(list) (list) (list) (list)])))
 
 (def: (member-def-return mode type-params class member)
-  (-> Primitive-Mode (List TypeParam) ClassDecl ImportMemberDecl (Lux Code))
+  (-> Primitive-Mode (List TypeParam) ClassDecl ImportMemberDecl (Meta Code))
   (case member
     (#ConstructorDecl _)
-    (:: Monad<Lux> wrap (class-decl-type$ class))
+    (:: Monad<Meta> wrap (class-decl-type$ class))
 
     (#MethodDecl [_ method])
-    (:: Monad<Lux> wrap (class->type mode type-params (get@ #import-method-return method)))
+    (:: Monad<Meta> wrap (class->type mode type-params (get@ #import-method-return method)))
 
     _
-    (macro;fail "Only methods have return values.")))
+    (meta;fail "Only methods have return values.")))
 
 (def: (decorate-return-maybe member [return-type return-term])
   (-> ImportMemberDecl [Code Code] [Code Code])
@@ -1668,14 +1668,14 @@
       _       input)))
 
 (def: (member-def-interop type-params kind class [arg-function-inputs arg-method-inputs arg-classes arg-types] member method-prefix)
-  (-> (List TypeParam) ClassKind ClassDecl [(List Code) (List Code) (List Text) (List Code)] ImportMemberDecl Text (Lux (List Code)))
+  (-> (List TypeParam) ClassKind ClassDecl [(List Code) (List Code) (List Text) (List Code)] ImportMemberDecl Text (Meta (List Code)))
   (let [[full-name class-tvars] class
         all-params (|> (member-type-vars class-tvars member)
                        (list;filter free-type-param?)
                        (list/map type-param->type-arg))]
     (case member
       (#EnumDecl enum-members)
-      (do Monad<Lux>
+      (do Monad<Meta>
         [#let [enum-type (: Code
                             (case class-tvars
                               #;Nil
@@ -1695,7 +1695,7 @@
         (wrap (list/map getter-interop enum-members)))
       
       (#ConstructorDecl [commons _])
-      (do Monad<Lux>
+      (do Monad<Meta>
         [return-type (member-def-return (get@ #import-member-mode commons) type-params class member)
          #let [def-name (code;symbol ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
                def-params (list (code;tuple arg-function-inputs))
@@ -1755,7 +1755,7 @@
                            (~ jvm-interop)))))))
 
       (#FieldAccessDecl fad)
-      (do Monad<Lux>
+      (do Monad<Meta>
         [#let [(^open) fad
                base-gtype (class->type import-field-mode type-params import-field-type)
                g!class (class-decl-type$ class)
@@ -1817,12 +1817,12 @@
       )))
 
 (def: (member-import$ type-params long-name? kind class member)
-  (-> (List TypeParam) Bool ClassKind ClassDecl ImportMemberDecl (Lux (List Code)))
+  (-> (List TypeParam) Bool ClassKind ClassDecl ImportMemberDecl (Meta (List Code)))
   (let [[full-name _] class
         method-prefix (if long-name?
                         full-name
                         (short-class-name full-name))]
-    (do Monad<Lux>
+    (do Monad<Meta>
       [=args (member-def-arg-bindings type-params class member)]
       (member-def-interop type-params kind class =args member method-prefix))))
 
@@ -1835,15 +1835,15 @@
   (try (_lux_proc ["jvm" "invokestatic:java.lang.Class:forName:java.lang.String"] [class-name])))
 
 (def: (class-kind [class-name _])
-  (-> ClassDecl (Lux ClassKind))
+  (-> ClassDecl (Meta ClassKind))
   (case (load-class class-name)
     (#;Right class)
-    (:: Monad<Lux> wrap (if (interface? class)
-                          #Interface
-                          #Class))
+    (:: Monad<Meta> wrap (if (interface? class)
+                           #Interface
+                           #Class))
 
     (#;Left _)
-    (macro;fail (format "Unknown class: " class-name))))
+    (meta;fail (format "Unknown class: " class-name))))
 
 (syntax: #export (import [#let [imports (class-imports *compiler*)]]
                    [long-name? (s;this? (' #long))]
@@ -1898,7 +1898,7 @@
               (java.util.List.size [] my-list)
               Character$UnicodeScript.LATIN
               )}
-  (do Monad<Lux>
+  (do Monad<Meta>
     [kind (class-kind class-decl)
      =members (monad;map @ (member-import$ (product;right class-decl) long-name? kind class-decl) members)]
     (wrap (list& (class-import$ long-name? class-decl) (list/join =members)))))
@@ -1930,15 +1930,15 @@
   (wrap (list (` (;_lux_proc ["jvm" "arraylength"] [(~ array)])))))
 
 (def: (type->class-name type)
-  (-> Type (Lux Text))
+  (-> Type (Meta Text))
   (case type
     (#;Host name params)
-    (:: Monad<Lux> wrap name)
+    (:: Monad<Meta> wrap name)
 
     (#;Apply A F)
     (case (type;apply (list A) F)
       #;None
-      (macro;fail (format "Cannot apply type: " (type;to-text F) " to " (type;to-text A)))
+      (meta;fail (format "Cannot apply type: " (type;to-text F) " to " (type;to-text A)))
 
       (#;Some type')
       (type->class-name type'))
@@ -1947,10 +1947,10 @@
     (type->class-name type')
 
     #;Unit
-    (:: Monad<Lux> wrap "java.lang.Object")
+    (:: Monad<Meta> wrap "java.lang.Object")
     
     (^or #;Void (#;Var _) (#;Ex _) (#;Bound _) (#;Sum _) (#;Product _) (#;Function _) (#;UnivQ _) (#;ExQ _))
-    (macro;fail (format "Cannot convert to JvmType: " (type;to-text type)))
+    (meta;fail (format "Cannot convert to JvmType: " (type;to-text type)))
     ))
 
 (syntax: #export (array-read idx array)
@@ -1958,8 +1958,8 @@
               (array-read +10 my-array))}
   (case array
     [_ (#;Symbol array-name)]
-    (do Monad<Lux>
-      [array-type (macro;find-type array-name)
+    (do Monad<Meta>
+      [array-type (meta;find-type array-name)
        array-jvm-type (type->class-name array-type)]
       (case array-jvm-type
         (^template [<type> <array-op>]
@@ -1987,8 +1987,8 @@
               (array-write +10 my-object my-array))}
   (case array
     [_ (#;Symbol array-name)]
-    (do Monad<Lux>
-      [array-type (macro;find-type array-name)
+    (do Monad<Meta>
+      [array-type (meta;find-type array-name)
        array-jvm-type (type->class-name array-type)]
       (case array-jvm-type
         (^template [<type> <array-op>]
@@ -2045,7 +2045,7 @@
   (wrap (list (` (;_lux_proc ["jvm" "load-class"] [(~ (code;text (simple-class$ (list) type)))])))))
 
 (def: get-compiler
-  (Lux Compiler)
+  (Meta Compiler)
   (function [compiler]
     (#;Right [compiler compiler])))
 
@@ -2065,15 +2065,15 @@
               (resolve-class "String")
               =>
               "java.lang.String")}
-  (-> Text (Lux Text))
-  (do Monad<Lux>
+  (-> Text (Meta Text))
+  (do Monad<Meta>
     [*compiler* get-compiler]
     (case (fully-qualify-class-name+ (class-imports *compiler*) class)
       (#;Some fqcn)
       (wrap fqcn)
 
       #;None
-      (macro;fail (text/compose "Unknown class: " class)))))
+      (meta;fail (text/compose "Unknown class: " class)))))
 
 (syntax: #export (type [#let [imports (class-imports *compiler*)]]
                        [type (generic-type^ imports (list))])

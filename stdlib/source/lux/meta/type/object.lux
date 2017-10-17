@@ -9,13 +9,13 @@
              [ident #+ "Ident/" Eq<Ident>]
              (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
                    [set #+ Set]))
-       [macro #+ Monad<Lux> "Lux/" Monad<Lux>]
-       (macro [code]
-              ["s" syntax #+ syntax:]
-              (syntax ["cs" common]
-                      (common ["csr" reader]
-                              ["csw" writer])))
-       [type]))
+       [meta #+ Monad<Meta> "Meta/" Monad<Meta>]
+       (meta [code]
+             ["s" syntax #+ syntax:]
+             (syntax ["cs" common]
+                     (common ["csr" reader]
+                             ["csw" writer]))
+             [type])))
 
 ## [Common]
 (type: Declaration
@@ -141,12 +141,12 @@
 
 (do-template [<name> <name-tag> <parent-tag> <desc>]
   [(def: (<name> name)
-     (-> Ident (Lux [Ident (List Ident)]))
-     (do Monad<Lux>
-       [name (macro;normalize name)
-        [_ annotations _] (macro;find-def name)]
-       (case [(macro;get-tag-ann (ident-for <name-tag>) annotations)
-              (macro;get-tag-ann (ident-for <parent-tag>) annotations)]
+     (-> Ident (Meta [Ident (List Ident)]))
+     (do Monad<Meta>
+       [name (meta;normalize name)
+        [_ annotations _] (meta;find-def name)]
+       (case [(meta;get-tag-ann (ident-for <name-tag>) annotations)
+              (meta;get-tag-ann (ident-for <parent-tag>) annotations)]
          [(#;Some real-name) (#;Some parent)]
          (if (Ident/= no-parent parent)
            (wrap [real-name (list)])
@@ -155,14 +155,14 @@
              (wrap [real-name (#;Cons parent ancestors)])))
 
          _
-         (macro;fail (format "Wrong format for " <desc> " lineage.")))))]
+         (meta;fail (format "Wrong format for " <desc> " lineage.")))))]
 
   [interfaceN #;;interface-name #;;interface-parent "interface"]
   [classN     #;;class-name     #;;class-parent     "class"]
   )
 
 (def: (extract newT)
-  (-> Type (Lux [Nat (List Type)]))
+  (-> Type (Meta [Nat (List Type)]))
   (loop [depth +0
          currentT newT]
     (case currentT
@@ -171,10 +171,10 @@
 
       (#;Function inputT outputT)
       (let [[stateT+ objectT] (type;flatten-function currentT)]
-        (Lux/wrap [depth stateT+]))
+        (Meta/wrap [depth stateT+]))
 
       _
-      (macro;fail (format "Cannot extract inheritance from type: " (type;to-text newT))))))
+      (meta;fail (format "Cannot extract inheritance from type: " (type;to-text newT))))))
 
 (def: (specialize mappings typeC)
   (-> (List Code) Code Code)
@@ -310,30 +310,30 @@
 
 ## [Macros]
 (def: (type-to-code type)
-  (-> Type (Lux Code))
+  (-> Type (Meta Code))
   (case type
     (#;Host name params)
-    (do Monad<Lux>
+    (do Monad<Meta>
       [paramsC+ (M;map @ type-to-code params)]
       (wrap (` (;host (~ (code;symbol ["" name]))
                       (~@ paramsC+)))))
 
     #;Void
-    (Lux/wrap (` (;|)))
+    (Meta/wrap (` (;|)))
     
     #;Unit
-    (Lux/wrap (` (;&)))
+    (Meta/wrap (` (;&)))
 
     (^template [<tag> <macro> <flatten>]
       (<tag> _)
-      (do Monad<Lux>
+      (do Monad<Meta>
         [partsC+ (M;map @ type-to-code (<flatten> type))]
         (wrap (` (<macro> (~@ partsC+))))))
     ([#;Sum     ;| type;flatten-variant]
      [#;Product ;& type;flatten-tuple])
 
     (#;Function input output)
-    (do Monad<Lux>
+    (do Monad<Meta>
       [#let [[insT+ outT] (type;flatten-function type)]
        insC+ (M;map @ type-to-code insT+)
        outC (type-to-code outT)]
@@ -341,23 +341,23 @@
 
     (^template [<tag>]
       (<tag> idx)
-      (Lux/wrap (` (<tag> (~ (code;nat idx))))))
+      (Meta/wrap (` (<tag> (~ (code;nat idx))))))
     ([#;Bound]
      [#;Var]
      [#;Ex])
 
     (#;Apply param fun)
-    (do Monad<Lux>
+    (do Monad<Meta>
       [#let [[funcT argsT+] (type;flatten-application type)]
        funcC (type-to-code funcT)
        argsC+ (M;map @ type-to-code argsT+)]
       (wrap (` ((~ funcC) (~@ argsC+)))))
 
     (#;Named name unnamedT)
-    (Lux/wrap (code;symbol name))
+    (Meta/wrap (code;symbol name))
 
     _
-    (macro;fail (format "Cannot convert type to code: " (type;to-text type)))))
+    (meta;fail (format "Cannot convert type to code: " (type;to-text type)))))
 
 (syntax: #export (interface: [export csr;export]
                    [(^@ decl [interface parameters]) declarationS]
@@ -365,10 +365,10 @@
                    [alias aliasS]
                    [annotations (p;default cs;empty-annotations csr;annotations)]
                    [methods (p;many (method (var-set parameters)))])
-  (macro;with-gensyms [g!self-class g!child g!ext]
+  (meta;with-gensyms [g!self-class g!child g!ext]
     (do @
-      [module macro;current-module-name
-       [parent ancestors mappings] (: (Lux [Ident (List Ident) (List Code)])
+      [module meta;current-module-name
+       [parent ancestors mappings] (: (Meta [Ident (List Ident) (List Code)])
                                       (case ?extends
                                         #;None
                                         (wrap [no-parent (list) (list)])
@@ -433,11 +433,11 @@
                    [super (p;maybe inheritance)]
                    state-type
                    [impls (p;many s;any)])
-  (macro;with-gensyms [g!init g!extension]
+  (meta;with-gensyms [g!init g!extension]
     (do @
-      [module macro;current-module-name
+      [module meta;current-module-name
        [interface _] (interfaceN interface)
-       [parent ancestors parent-mappings] (: (Lux [Ident (List Ident) (List Code)])
+       [parent ancestors parent-mappings] (: (Meta [Ident (List Ident) (List Code)])
                                              (case super
                                                (#;Some [super-class super-mappings])
                                                (do @
@@ -446,11 +446,11 @@
 
                                                #;None
                                                (wrap [no-parent (list) (list)])))
-       g!inheritance (: (Lux (List Code))
+       g!inheritance (: (Meta (List Code))
                         (if (no-parent? parent)
                           (wrap (list))
                           (do @
-                            [newT (macro;find-def-type (product;both id newN parent))
+                            [newT (meta;find-def-type (product;both id newN parent))
                              [depth rawT+] (extract newT)
                              codeT+ (M;map @ type-to-code rawT+)]
                             (wrap (L/map (specialize parent-mappings) codeT+)))))
@@ -466,7 +466,7 @@
              g!parent-structs (if (no-parent? parent)
                                 (list)
                                 (L/map (|>. (product;both id structN) code;symbol) (list& parent ancestors)))]
-       g!parent-inits (M;map @ (function [_] (macro;gensym "parent-init"))
+       g!parent-inits (M;map @ (function [_] (meta;gensym "parent-init"))
                              g!parent-structs)
        #let [g!full-init (L/fold (function [[parent-struct parent-state] child]
                                    (` [(~ parent-struct) (~ parent-state) (~ child)]))

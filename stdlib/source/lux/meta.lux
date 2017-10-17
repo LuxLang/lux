@@ -1,7 +1,6 @@
 (;module: {#;doc "Functions for extracting information from the state of the compiler."}
   lux
-  (lux (macro [code])
-       (control ["F" functor]
+  (lux (control ["F" functor]
                 ["A" applicative]
                 ["M" monad #+ do Monad])
        (data [number]
@@ -10,12 +9,13 @@
              [maybe]
              ["E" error]
              [text "text/" Monoid<Text> Eq<Text>]
-             (coll [list "list/" Monoid<List> Monad<List>]))))
+             (coll [list "list/" Monoid<List> Monad<List>])))
+  (. [code]))
 
-## (type: (Lux a)
+## (type: (Meta a)
 ##   (-> Compiler (E;Error [Compiler a])))
 
-(struct: #export _ (F;Functor Lux)
+(struct: #export _ (F;Functor Meta)
   (def: (map f fa)
     (function [state]
       (case (fa state)
@@ -25,8 +25,8 @@
         (#E;Success [state' a])
         (#E;Success [state' (f a)])))))
 
-(struct: #export _ (A;Applicative Lux)
-  (def: functor Functor<Lux>)
+(struct: #export _ (A;Applicative Meta)
+  (def: functor Functor<Meta>)
 
   (def: (wrap x)
     (function [state]
@@ -46,8 +46,8 @@
         (#E;Error msg)
         (#E;Error msg)))))
 
-(struct: #export _ (Monad Lux)
-  (def: applicative Applicative<Lux>)
+(struct: #export _ (Monad Meta)
+  (def: applicative Applicative<Meta>)
   
   (def: (join mma)
     (function [state]
@@ -71,11 +71,11 @@
       (get k plist'))))
 
 (def: #export (run' compiler action)
-  (All [a] (-> Compiler (Lux a) (E;Error [Compiler a])))
+  (All [a] (-> Compiler (Meta a) (E;Error [Compiler a])))
   (action compiler))
 
 (def: #export (run compiler action)
-  (All [a] (-> Compiler (Lux a) (E;Error a)))
+  (All [a] (-> Compiler (Meta a) (E;Error a)))
   (case (action compiler)
     (#E;Error error)
     (#E;Error error)
@@ -85,7 +85,7 @@
 
 (def: #export (either left right)
   {#;doc "Pick whichever computation succeeds."}
-  (All [a] (-> (Lux a) (Lux a) (Lux a)))
+  (All [a] (-> (Meta a) (Meta a) (Meta a)))
   (function [compiler]
     (case (left compiler)
       (#E;Error error)
@@ -96,7 +96,7 @@
 
 (def: #export (assert message test)
   {#;doc "Fails with the given message if the test is false."}
-  (-> Text Bool (Lux Unit))
+  (-> Text Bool (Meta Unit))
   (function [compiler]
     (if test
       (#E;Success [compiler []])
@@ -105,12 +105,12 @@
 (def: #export (fail msg)
   {#;doc "Fails with the given message."}
   (All [a]
-    (-> Text (Lux a)))
+    (-> Text (Meta a)))
   (function [_]
     (#E;Error msg)))
 
 (def: #export (find-module name)
-  (-> Text (Lux Module))
+  (-> Text (Meta Module))
   (function [state]
     (case (get name (get@ #;modules state))
       (#;Some module)
@@ -120,7 +120,7 @@
       (#E;Error ($_ text/compose "Unknown module: " name)))))
 
 (def: #export current-module-name
-  (Lux Text)
+  (Meta Text)
   (function [state]
     (case (list;last (get@ #;scopes state))
       (#;Some scope)
@@ -136,8 +136,8 @@
       )))
 
 (def: #export current-module
-  (Lux Module)
-  (do Monad<Lux>
+  (Meta Module)
+  (do Monad<Meta>
     [this-module-name current-module-name]
     (find-module this-module-name)))
 
@@ -255,11 +255,11 @@
         #;None))))
 
 (def: #export (find-macro ident)
-  (-> Ident (Lux (Maybe Macro)))
-  (do Monad<Lux>
+  (-> Ident (Meta (Maybe Macro)))
+  (do Monad<Meta>
     [this-module current-module-name]
     (let [[module name] ident]
-      (: (Lux (Maybe Macro))
+      (: (Meta (Maybe Macro))
          (function [state]
            (#E;Success [state (find-macro' (get@ #;modules state) this-module module name)]))))))
 
@@ -267,24 +267,24 @@
   {#;doc "If given an identifier without a module prefix, gives it the current module's name as prefix.
 
           Otherwise, returns the identifier as-is."}
-  (-> Ident (Lux Ident))
+  (-> Ident (Meta Ident))
   (case ident
     ["" name]
-    (do Monad<Lux>
+    (do Monad<Meta>
       [module-name current-module-name]
       (wrap [module-name name]))
 
     _
-    (:: Monad<Lux> wrap ident)))
+    (:: Monad<Meta> wrap ident)))
 
 (def: #export (expand-once syntax)
   {#;doc "Given code that requires applying a macro, does it once and returns the result.
 
           Otherwise, returns the code as-is."}
-  (-> Code (Lux (List Code)))
+  (-> Code (Meta (List Code)))
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol name)] args]))]
-    (do Monad<Lux>
+    (do Monad<Meta>
       [name' (normalize name)
        ?macro (find-macro name')]
       (case ?macro
@@ -292,82 +292,82 @@
         (macro args)
         
         #;None
-        (:: Monad<Lux> wrap (list syntax))))
+        (:: Monad<Meta> wrap (list syntax))))
 
     _
-    (:: Monad<Lux> wrap (list syntax))))
+    (:: Monad<Meta> wrap (list syntax))))
 
 (def: #export (expand syntax)
   {#;doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left.
 
           Otherwise, returns the code as-is."}
-  (-> Code (Lux (List Code)))
+  (-> Code (Meta (List Code)))
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol name)] args]))]
-    (do Monad<Lux>
+    (do Monad<Meta>
       [name' (normalize name)
        ?macro (find-macro name')]
       (case ?macro
         (#;Some macro)
-        (do Monad<Lux>
+        (do Monad<Meta>
           [expansion (macro args)
-           expansion' (M;map Monad<Lux> expand expansion)]
+           expansion' (M;map Monad<Meta> expand expansion)]
           (wrap (list/join expansion')))
         
         #;None
-        (:: Monad<Lux> wrap (list syntax))))
+        (:: Monad<Meta> wrap (list syntax))))
 
     _
-    (:: Monad<Lux> wrap (list syntax))))
+    (:: Monad<Meta> wrap (list syntax))))
 
 (def: #export (expand-all syntax)
   {#;doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
-  (-> Code (Lux (List Code)))
+  (-> Code (Meta (List Code)))
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol name)] args]))]
-    (do Monad<Lux>
+    (do Monad<Meta>
       [name' (normalize name)
        ?macro (find-macro name')]
       (case ?macro
         (#;Some macro)
-        (do Monad<Lux>
+        (do Monad<Meta>
           [expansion (macro args)
-           expansion' (M;map Monad<Lux> expand-all expansion)]
+           expansion' (M;map Monad<Meta> expand-all expansion)]
           (wrap (list/join expansion')))
         
         #;None
-        (do Monad<Lux>
-          [parts' (M;map Monad<Lux> expand-all (list& (code;symbol name) args))]
+        (do Monad<Meta>
+          [parts' (M;map Monad<Meta> expand-all (list& (code;symbol name) args))]
           (wrap (list (code;form (list/join parts')))))))
 
     [_ (#;Form (#;Cons [harg targs]))]
-    (do Monad<Lux>
+    (do Monad<Meta>
       [harg+ (expand-all harg)
-       targs+ (M;map Monad<Lux> expand-all targs)]
+       targs+ (M;map Monad<Meta> expand-all targs)]
       (wrap (list (code;form (list/compose harg+ (list/join (: (List (List Code)) targs+)))))))
 
     [_ (#;Tuple members)]
-    (do Monad<Lux>
-      [members' (M;map Monad<Lux> expand-all members)]
+    (do Monad<Meta>
+      [members' (M;map Monad<Meta> expand-all members)]
       (wrap (list (code;tuple (list/join members')))))
 
     _
-    (:: Monad<Lux> wrap (list syntax))))
+    (:: Monad<Meta> wrap (list syntax))))
 
 (def: #export (gensym prefix)
   {#;doc "Generates a unique identifier as an Code node (ready to be used in code templates).
 
           A prefix can be given (or just be empty text \"\") to better identify the code for debugging purposes."}
-  (-> Text (Lux Code))
+  (-> Text (Meta Code))
   (function [state]
     (#E;Success [(update@ #;seed n.inc state)
                  (code;symbol ["" ($_ text/compose "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
 
 (def: (get-local-symbol ast)
-  (-> Code (Lux Text))
+  (-> Code (Meta Text))
   (case ast
     [_ (#;Symbol [_ name])]
-    (:: Monad<Lux> wrap name)
+    (:: Monad<Meta> wrap name)
 
     _
     (fail (text/compose "Code is not a local symbol: " (code;to-text ast)))))
@@ -384,12 +384,12 @@
                   )))}
   (case tokens
     (^ (list [_ (#;Tuple symbols)] body))
-    (do Monad<Lux>
+    (do Monad<Meta>
       [symbol-names (M;map @ get-local-symbol symbols)
        #let [symbol-defs (list/join (list/map (: (-> Text (List Code))
                                                  (function [name] (list (code;symbol ["" name]) (` (gensym (~ (code;text name)))))))
                                               symbol-names))]]
-      (wrap (list (` (do Monad<Lux>
+      (wrap (list (` (do Monad<Meta>
                        [(~@ symbol-defs)]
                        (~ body))))))
 
@@ -398,8 +398,8 @@
 
 (def: #export (expand-1 token)
   {#;doc "Works just like expand, except that it ensures that the output is a single Code token."}
-  (-> Code (Lux Code))
-  (do Monad<Lux>
+  (-> Code (Meta Code))
+  (do Monad<Meta>
     [token+ (expand token)]
     (case token+
       (^ (list token'))
@@ -409,7 +409,7 @@
       (fail "Macro expanded to more than 1 element."))))
 
 (def: #export (module-exists? module)
-  (-> Text (Lux Bool))
+  (-> Text (Meta Bool))
   (function [state]
     (#E;Success [state (case (get module (get@ #;modules state))
                          (#;Some _)
@@ -427,7 +427,7 @@
 
 (def: #export (find-var-type name)
   {#;doc "Looks-up the type of a local variable somewhere in the environment."}
-  (-> Text (Lux Type))
+  (-> Text (Meta Type))
   (function [state]
     (let [test (: (-> [Text [Type Top]] Bool)
                   (|>. product;left (text/= name)))]
@@ -452,7 +452,7 @@
 
 (def: #export (find-def name)
   {#;doc "Looks-up a definition's whole data in the available modules (including the current one)."}
-  (-> Ident (Lux Def))
+  (-> Ident (Meta Def))
   (function [state]
     (case (: (Maybe Def)
              (do maybe;Monad<Maybe>
@@ -467,15 +467,15 @@
 
 (def: #export (find-def-type name)
   {#;doc "Looks-up a definition's type in the available modules (including the current one)."}
-  (-> Ident (Lux Type))
-  (do Monad<Lux>
+  (-> Ident (Meta Type))
+  (do Monad<Meta>
     [[def-type def-data def-value] (find-def name)]
     (wrap def-type)))
 
 (def: #export (find-type name)
   {#;doc "Looks-up the type of either a local variable or a definition."}
-  (-> Ident (Lux Type))
-  (do Monad<Lux>
+  (-> Ident (Meta Type))
+  (do Monad<Meta>
     [#let [[_ _name] name]]
     (either (find-var-type _name)
             (do @
@@ -484,14 +484,14 @@
 
 (def: #export (find-type-def name)
   {#;doc "Finds the value of a type definition (such as Int, Top or Compiler)."}
-  (-> Ident (Lux Type))
-  (do Monad<Lux>
+  (-> Ident (Meta Type))
+  (do Monad<Meta>
     [[def-type def-data def-value] (find-def name)]
     (wrap (:! Type def-value))))
 
 (def: #export (defs module-name)
   {#;doc "The entire list of definitions in a module (including the unexported/private ones)."}
-  (-> Text (Lux (List [Text Def])))
+  (-> Text (Meta (List [Text Def])))
   (function [state]
     (case (get module-name (get@ #;modules state))
       #;None          (#E;Error ($_ text/compose "Unknown module: " module-name))
@@ -500,8 +500,8 @@
 
 (def: #export (exports module-name)
   {#;doc "All the exported definitions in a module."}
-  (-> Text (Lux (List [Text Def])))
-  (do Monad<Lux>
+  (-> Text (Meta (List [Text Def])))
+  (do Monad<Meta>
     [defs (defs module-name)]
     (wrap (list;filter (function [[name [def-type def-anns def-value]]]
                          (and (export? def-anns)
@@ -510,7 +510,7 @@
 
 (def: #export modules
   {#;doc "All the available modules (including the current one)."}
-  (Lux (List [Text Module]))
+  (Meta (List [Text Module]))
   (function [state]
     (|> state
         (get@ #;modules)
@@ -519,8 +519,8 @@
 
 (def: #export (tags-of type-name)
   {#;doc "All the tags associated with a type definition."}
-  (-> Ident (Lux (List Ident)))
-  (do Monad<Lux>
+  (-> Ident (Meta (List Ident)))
+  (do Monad<Meta>
     [#let [[module name] type-name]
      module (find-module module)]
     (case (get name (get@ #;types module))
@@ -532,13 +532,13 @@
 
 (def: #export cursor
   {#;doc "The cursor of the current expression being analyzed."}
-  (Lux Cursor)
+  (Meta Cursor)
   (function [state]
     (#E;Success [state (get@ #;cursor state)])))
 
 (def: #export expected-type
   {#;doc "The expected type of the current expression being analyzed."}
-  (Lux Type)
+  (Meta Type)
   (function [state]
     (case (get@ #;expected state)
       (#;Some type)
@@ -549,15 +549,15 @@
 
 (def: #export (imported-modules module-name)
   {#;doc "All the modules imported by a specified module."}
-  (-> Text (Lux (List Text)))
-  (do Monad<Lux>
+  (-> Text (Meta (List Text)))
+  (do Monad<Meta>
     [(^slots [#;imports]) (find-module module-name)]
     (wrap imports)))
 
 (def: #export (resolve-tag tag)
   {#;doc "Given a tag, finds out what is its index, its related tag-list and it's associated type."}
-  (-> Ident (Lux [Nat (List Ident) Type]))
-  (do Monad<Lux>
+  (-> Ident (Meta [Nat (List Ident) Type]))
+  (do Monad<Meta>
     [#let [[module name] tag]
      =module (find-module module)
      this-module-name current-module-name]
@@ -573,8 +573,8 @@
 
 (def: #export (tag-lists module)
   {#;doc "All the tag-lists defined in a module, with their associated types."}
-  (-> Text (Lux (List [(List Ident) Type])))
-  (do Monad<Lux>
+  (-> Text (Meta (List [(List Ident) Type])))
+  (do Monad<Meta>
     [=module (find-module module)
      this-module-name current-module-name]
     (wrap (|> (get@ #;types =module)
@@ -586,7 +586,7 @@
 
 (def: #export locals
   {#;doc "All the local variables currently in scope, separated in different scopes."}
-  (Lux (List (List [Text Type])))
+  (Meta (List (List [Text Type])))
   (function [state]
     (case (list;inits (get@ #;scopes state))
       #;None
@@ -601,8 +601,8 @@
 
 (def: #export (un-alias def-name)
   {#;doc "Given an aliased definition's name, returns the original definition being referenced."}
-  (-> Ident (Lux Ident))
-  (do Monad<Lux>
+  (-> Ident (Meta Ident))
+  (do Monad<Meta>
     [def-name (normalize def-name)
      [_ def-anns _] (find-def def-name)]
     (case (get-symbol-ann (ident-for #;alias) def-anns)
@@ -614,12 +614,12 @@
 
 (def: #export get-compiler
   {#;doc "Obtains the current state of the compiler."}
-  (Lux Compiler)
+  (Meta Compiler)
   (function [compiler]
     (#E;Success [compiler compiler])))
 
 (def: #export type-context
-  (Lux Type-Context)
+  (Meta Type-Context)
   (function [compiler]
     (#E;Success [compiler (get@ #;type-context compiler)])))
 
@@ -635,14 +635,14 @@
      (case tokens
        (^ (list [_ (#;Tag ["" "omit"])]
                 token))
-       (do Monad<Lux>
+       (do Monad<Meta>
          [output (<func> token)
           #let [_ (list/map (. log! code;to-text)
                             output)]]
          (wrap (list)))
 
        (^ (list token))
-       (do Monad<Lux>
+       (do Monad<Meta>
          [output (<func> token)
           #let [_ (list/map (. log! code;to-text)
                             output)]]
