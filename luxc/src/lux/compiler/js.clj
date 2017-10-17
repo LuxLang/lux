@@ -173,7 +173,7 @@
                            :let [full-program-file (str @&&core/!output-dir java.io.File/separator "program.js")
                                  _ (&&core/write-file full-program-file (.getBytes (.toString total-buffer)))]]
                        (return nil))]
-        (|case (m-action (&/init-state "Lux/JS" mode (&&/js-host)))
+        (|case (m-action (&/init-state "JS" mode (&&/js-host)))
           (&/$Right ?state _)
           (do (println "Compilation complete!")
             (&&cache/clean ?state))

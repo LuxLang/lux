@@ -71,7 +71,7 @@
                                                 (str type datum-separator)))))
                                (&/|interpose entry-separator)
                                (&/fold str ""))
-              module-descriptor (->> (&/|list &/compiler-version
+              module-descriptor (->> (&/|list &/version
                                               (Long/toUnsignedString file-hash)
                                               import-entries
                                               tag-entries

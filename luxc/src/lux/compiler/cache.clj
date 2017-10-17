@@ -193,7 +193,7 @@
                                       _ (uninstall-all-defs-in-module module-name)]
                                   (return cache-table))]]
           (if (and (= module-hash (Long/parseUnsignedLong ^String _hash))
-                   (= &/compiler-version _compiler))
+                   (= &/version _compiler))
             (|do [[success? cache-table*] (process-module pre-load! source-dirs cache-table module-name module-hash
                                                           _imports-section _tags-section _module-anns-section _defs-section
                                                           load-def-value install-all-defs-in-module uninstall-all-defs-in-module)

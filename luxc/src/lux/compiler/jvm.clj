@@ -245,7 +245,7 @@
                                                     &&jvm-cache/uninstall-all-defs-in-module)
                          _ (compile-module source-dirs "lux")]
                      (compile-module source-dirs program-module))]
-      (|case (m-action (&/init-state "Lux/JVM" mode (jvm-host)))
+      (|case (m-action (&/init-state "JVM" mode (jvm-host)))
         (&/$Right ?state _)
         (do (println "Compilation complete!")
           (&&cache/clean ?state))

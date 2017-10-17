@@ -138,9 +138,9 @@
   ("REPL" 0))
 
 (deftuple
-  ["compiler-name"
-   "compiler-version"
-   "compiler-mode"])
+  ["target"
+   "version"
+   "mode"])
 
 ;; Hosts
 (defvariant
@@ -220,7 +220,7 @@
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ";")
 
-(def ^:const ^String compiler-version "0.6.0")
+(def ^:const ^String version "0.6.0")
 
 ;; Constructors
 (def empty-cursor (T ["" -1 -1]))
@@ -803,18 +803,18 @@
               _
               class-name))))
 
-(defn default-compiler-info [name mode]
-  (T [;; compiler-name
-      name
-      ;; compiler-version
-      compiler-version
-      ;; compiler-mode
+(defn default-info [target mode]
+  (T [;; target
+      target
+      ;; version
+      version
+      ;; mode
       mode]
      ))
 
 (defn init-state [name mode host-data]
   (T [;; "lux;info"
-      (default-compiler-info name mode)
+      (default-info name mode)
       ;; "lux;source"
       $Nil
       ;; "lux;cursor"
@@ -861,21 +861,21 @@
 
 (defn with-eval [body]
   (fn [state]
-    (let [old-mode (->> state (get$ $info) (get$ $compiler-mode))]
-      (|case (body (update$ $info #(set$ $compiler-mode $Eval %) state))
+    (let [old-mode (->> state (get$ $info) (get$ $mode))]
+      (|case (body (update$ $info #(set$ $mode $Eval %) state))
         ($Right state* output)
-        (return* (update$ $info #(set$ $compiler-mode old-mode %) state*) output)
+        (return* (update$ $info #(set$ $mode old-mode %) state*) output)
 
         ($Left msg)
         (fail* msg)))))
 
 (def get-eval
   (fn [state]
-    (return* state (->> state (get$ $info) (get$ $compiler-mode) in-eval?))))
+    (return* state (->> state (get$ $info) (get$ $mode) in-eval?))))
 
 (def get-mode
   (fn [state]
-    (return* state (->> state (get$ $info) (get$ $compiler-mode)))))
+    (return* state (->> state (get$ $info) (get$ $mode)))))
 
 (def get-top-local-env
   (fn [state]
@@ -994,11 +994,11 @@
   (|do [_mode get-mode]
     (fn [state]
       (let [output (body (if (in-repl? _mode)
-                           (update$ $info #(set$ $compiler-mode $Build %) state)
+                           (update$ $info #(set$ $mode $Build %) state)
                            state))]
         (|case output
           ($Right state* datum)
-          (return* (update$ $info #(set$ $compiler-mode _mode %) state*) datum)
+          (return* (update$ $info #(set$ $mode _mode %) state*) datum)
           
           _
           output)))))
