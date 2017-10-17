@@ -4,59 +4,55 @@
        (control ["M" monad #+ do Monad]
                 pipe
                 ["p" parser])
-       (data text/format
-             [text "Text/" Eq<Text>]
-             [number]
-             [product]
+       (data [product]
              [sum]
+             ["E" error]
+             [number]
+             [text "text/" Eq<Text>]
+             text/format
              (coll [list]))
-       ["&" cli]
-       ["r" math/random])
+       ["r" math/random]
+       ["." cli])
   lux/test)
 
 (context: "CLI"
   [num-args (|> r;nat (:: @ map (n.% +10)))
    #let [(^open "Nat/") number;Codec<Text,Nat>
          gen-arg (:: @ map Nat/encode r;nat)]
-   option-name (r;text +5)
-   singleton gen-arg]
+   yes gen-arg
+   #let [gen-ignore (|> (r;text +5) (r;filter (|>. (text/= yes) not)))]
+   no gen-ignore
+   pre-ignore (r;list +5 gen-ignore)
+   post-ignore (r;list +5 gen-ignore)]
   ($_ seq
       (test "Can read any argument."
-            (|> (&;run (list singleton) &;any)
-                (case> (#;Left _)
+            (|> (.;run (list yes) .;any)
+                (case> (#E;Error _)
                        false
                        
-                       (#;Right arg)
-                       (Text/= arg singleton))))
-
+                       (#E;Success arg)
+                       (text/= arg yes))))
+      (test "Can test tokens."
+            (and (|> (.;run (list yes) (.;this yes))
+                     (case> (#E;Error _) false (#E;Success _) true))
+                 (|> (.;run (list no) (.;this yes))
+                     (case> (#E;Error _) true (#E;Success _) false))))
       (test "Can use custom token parsers."
-            (|> (&;run (list singleton) (&;parse Nat/decode))
-                (case> (#;Left _)
+            (|> (.;run (list yes) (.;parse Nat/decode))
+                (case> (#E;Error _)
                        false
                        
-                       (#;Right parsed)
-                       (Text/= (Nat/encode parsed)
-                               singleton))))
-
-      (test "Can obtain option values."
-            (and (|> (&;run (list option-name singleton) (&;option (list option-name)))
-                     (case> (#;Left _)
-                            false
-                            
-                            (#;Right value)
-                            (Text/= value singleton)))
-                 (|> (&;run (list singleton) (&;option (list option-name)))
-                     (case> (#;Left _) true (#;Right _) false))))
-
-      (test "Can check flags."
-            (and (|> (&;run (list option-name) (&;flag (list option-name)))
-                     (case> (#;Right true) true _ false))
-                 (|> (&;run (list) (&;flag (list option-name)))
-                     (case> (#;Right false) true _ false))))
-
+                       (#E;Success parsed)
+                       (text/= (Nat/encode parsed)
+                               yes))))
       (test "Can query if there are any more inputs."
-            (and (|> (&;run (list) &;end)
-                     (case> (#;Right []) true _ false))
-                 (|> (&;run (list singleton) (p;not &;end))
-                     (case> (#;Right []) false _ true))))
+            (and (|> (.;run (list) .;end)
+                     (case> (#E;Success []) true _ false))
+                 (|> (.;run (list yes) (p;not .;end))
+                     (case> (#E;Success []) false _ true))))
+      (test "Can parse CLI input anywhere."
+            (|> (.;run (list;concat (list pre-ignore (list yes) post-ignore))
+                       (|> (.;somewhere (.;this yes))
+                           (p;before (p;some .;any))))
+                (case> (#E;Error _) false (#E;Success _) true)))
       ))

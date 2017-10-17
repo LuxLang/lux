@@ -2,11 +2,10 @@
   lux
   (lux (control monad
                 ["p" parser])
-       (data (coll [list "L/" Monoid<List> Monad<List>])
-             [text "T/" Monoid<Text>]
+       (data (coll [list "list/" Monoid<List> Monad<List>])
+             [text "text/" Eq<Text>]
              text/format
-             ["E" error]
-             [sum])
+             ["E" error])
        [io]
        [meta #+ with-gensyms]
        (meta [code]
@@ -47,45 +46,40 @@
   {#;doc "Parses the next input with a parsing function."}
   (All [a] (-> (-> Text (E;Error a)) (CLI a)))
   (function [inputs]
-    (case inputs
-      (#;Cons arg inputs')
-      (case (parser arg)
-        (#E;Success value)
-        (#E;Success [inputs' value])
+    (do E;Monad<Error>
+      [[remaining raw] (any inputs)
+       output (parser raw)]
+      (wrap [remaining output]))))
 
-        (#E;Error parser-error)
-        (#E;Error parser-error))
-      
-      _
-      (#E;Error "Cannot parse empty arguments."))))
-
-(def: #export (option names)
-  {#;doc "Checks that a given option (with multiple possible names) has a value."}
-  (-> (List Text) (CLI Text))
+(def: #export (this reference)
+  {#;doc "Checks that a token is in the inputs."}
+  (-> Text (CLI Unit))
   (function [inputs]
-    (let [[pre post] (list;split-with (. ;not (list;member? text;Eq<Text> names)) inputs)]
-      (case post
-        #;Nil
-        (#E;Error ($_ T/compose "Missing option (" (text;join-with " " names) ")"))
+    (do E;Monad<Error>
+      [[remaining raw] (any inputs)]
+      (if (text/= reference raw)
+        (wrap [remaining []])
+        (E;fail (format "Missing token: \"" reference "\""))))))
 
-        (^ (list& _ value post'))
-        (#E;Success [(L/compose pre post') value])
-
-        _
-        (#E;Error ($_ T/compose "Option lacks value (" (text;join-with " " names) ")"))
-        ))))
-
-(def: #export (flag names)
-  {#;doc "Checks that a given flag (with multiple possible names) is set."}
-  (-> (List Text) (CLI Bool))
+(def: #export (somewhere cli)
+  {#;doc "Given a parser, tries to parse it somewhere in the inputs (i.e. not necessarily parsing the immediate inputs)."}
+  (All [a] (-> (CLI a) (CLI a)))
   (function [inputs]
-    (let [[pre post] (list;split-with (. ;not (list;member? text;Eq<Text> names)) inputs)]
-      (case post
-        #;Nil
-        (#E;Success [pre false])
+    (loop [immediate inputs]
+      (case (p;run immediate cli)
+        (#E;Success [remaining output])
+        (#E;Success [remaining output])
 
-        (#;Cons _ post')
-        (#E;Success [(L/compose pre post') true])))))
+        (#E;Error error)
+        (case immediate
+          #;Nil
+          (#E;Error error)
+          
+          (#;Cons to-omit immediate')
+          (do E;Monad<Error>
+            [[remaining output] (recur immediate')]
+            (wrap [(#;Cons to-omit remaining)
+                   output])))))))
 
 (def: #export end
   {#;doc "Ensures there are no more inputs."}
@@ -93,7 +87,7 @@
   (function [inputs]
     (case inputs
       #;Nil (#E;Success [inputs []])
-      _     (#E;Error (T/compose "Unknown parameters: " (text;join-with " " inputs))))))
+      _     (#E;Error (format "Unknown parameters: " (text;join-with " " inputs))))))
 
 ## [Syntax]
 (type: Program-Args
@@ -118,7 +112,7 @@
                   (wrap [])))
 
               (program: (name)
-                (io (log! (T/compose "Hello, " name))))
+                (io (log! (text/compose "Hello, " name))))
 
               (program: ([config config^])
                 (do Monad<IO>
@@ -137,9 +131,9 @@
                                     (case ((: (;;CLI (io;IO Unit))
                                               (do ;;Monad<CLI>
                                                 [(~@ (|> args
-                                                         (L/map (function [[binding parser]]
-                                                                  (list binding parser)))
-                                                         L/join))
+                                                         (list/map (function [[binding parser]]
+                                                                     (list binding parser)))
+                                                         list/join))
                                                  (~ g!_) ;;end]
                                                 ((~' wrap) (do io;Monad<IO>
                                                              []
