@@ -3,9 +3,9 @@
   (lux (control [monad #+ do])
        (data [text "T/" Eq<Text>]
              text/format
-             ["R" result]
+             ["e" error]
              (coll [list "L/" Fold<List> Functor<List>]))
-       [macro #+ Monad<Lux>])
+       [meta #+ Monad<Meta>])
   (luxc ["&" base]
         ["&;" scope]))
 
@@ -22,13 +22,13 @@
 
 (def: #export (define (^@ full-name [module-name def-name])
                       definition)
-  (-> Ident Def (Lux Unit))
+  (-> Ident Def (Meta Unit))
   (function [compiler]
     (case (&;pl-get module-name (get@ #;modules compiler))
       (#;Some module)
       (case (&;pl-get def-name (get@ #;defs module))
         #;None
-        (#R;Success [(update@ #;modules
+        (#e;Success [(update@ #;modules
                               (&;pl-put module-name
                                         (update@ #;defs
                                                  (: (-> (List [Text Def]) (List [Text Def]))
@@ -38,31 +38,31 @@
                      []])
 
         (#;Some already-existing)
-        (#R;Error (format "Cannot re-define definiton: " (%ident full-name))))
+        (#e;Error (format "Cannot re-define definiton: " (%ident full-name))))
 
       #;None
-      (#R;Error (format "Cannot define in unknown module: " module-name)))))
+      (#e;Error (format "Cannot define in unknown module: " module-name)))))
 
 (def: #export (create hash name)
-  (-> Nat Text (Lux Module))
+  (-> Nat Text (Meta Module))
   (function [compiler]
     (let [module (new-module hash)]
-      (#R;Success [(update@ #;modules
+      (#e;Success [(update@ #;modules
                             (&;pl-put name module)
                             compiler)
                    module]))))
 
 (def: #export (with-module hash name action)
-  (All [a] (-> Nat Text (Lux a) (Lux [Module a])))
-  (do Monad<Lux>
+  (All [a] (-> Nat Text (Meta a) (Meta [Module a])))
+  (do Monad<Meta>
     [_ (create hash name)
      output (&scope;with-scope name action)
-     module (macro;find-module name)]
+     module (meta;find-module name)]
     (wrap [module output])))
 
 (do-template [<flagger> <asker> <tag>]
   [(def: #export (<flagger> module-name)
-     (-> Text (Lux Unit))
+     (-> Text (Meta Unit))
      (function [compiler]
        (case (|> compiler (get@ #;modules) (&;pl-get module-name))
          (#;Some module)
@@ -70,26 +70,26 @@
                          #;Active true
                          _     false)]
            (if active?
-             (#R;Success [(update@ #;modules
+             (#e;Success [(update@ #;modules
                                    (&;pl-put module-name (set@ #;module-state <tag> module))
                                    compiler)
                           []])
-             (#R;Error "Can only change the state of a currently-active module.")))
+             (#e;Error "Can only change the state of a currently-active module.")))
 
          #;None
-         (#R;Error (format "Module does not exist: " module-name)))))
+         (#e;Error (format "Module does not exist: " module-name)))))
    (def: #export (<asker> module-name)
-     (-> Text (Lux Bool))
+     (-> Text (Meta Bool))
      (function [compiler]
        (case (|> compiler (get@ #;modules) (&;pl-get module-name))
          (#;Some module)
-         (#R;Success [compiler
+         (#e;Success [compiler
                       (case (get@ #;module-state module)
                         <tag> true
                         _     false)])
 
          #;None
-         (#R;Error (format "Module does not exist: " module-name)))
+         (#e;Error (format "Module does not exist: " module-name)))
        ))]
 
   [flag-active!   active?   #;Active]
@@ -99,14 +99,14 @@
 
 (do-template [<name> <tag> <type>]
   [(def: (<name> module-name)
-     (-> Text (Lux <type>))
+     (-> Text (Meta <type>))
      (function [compiler]
        (case (|> compiler (get@ #;modules) (&;pl-get module-name))
          (#;Some module)
-         (#R;Success [compiler (get@ <tag> module)])
+         (#e;Success [compiler (get@ <tag> module)])
 
          #;None
-         (macro;run compiler (&;fail (format "Unknown module: " module-name))))
+         (meta;run compiler (&;fail (format "Unknown module: " module-name))))
        ))]
 
   [tags-by-module  #;tags        (List [Text [Nat (List Ident) Bool Type]])]
@@ -115,8 +115,8 @@
   )
 
 (def: (ensure-undeclared-tags module-name tags)
-  (-> Text (List Text) (Lux Unit))
-  (do Monad<Lux>
+  (-> Text (List Text) (Meta Unit))
+  (do Monad<Meta>
     [bindings (tags-by-module module-name)
      _ (monad;map @
                   (function [tag]
@@ -130,9 +130,9 @@
     (wrap [])))
 
 (def: #export (declare-tags tags exported? type)
-  (-> (List Text) Bool Type (Lux Unit))
-  (do Monad<Lux>
-    [current-module macro;current-module-name
+  (-> (List Text) Bool Type (Meta Unit))
+  (do Monad<Meta>
+    [current-module meta;current-module-name
      [type-module type-name] (case type
                                (#;Named type-ident _)
                                (wrap type-ident)
@@ -140,13 +140,13 @@
                                _
                                (&;fail (format "Cannot define tags for an unnamed type: " (%type type))))
      _ (ensure-undeclared-tags current-module tags)
-     _ (macro;assert (format "Cannot define tags for a type belonging to a foreign module: " (%type type))
-                     (T/= current-module type-module))]
+     _ (meta;assert (format "Cannot define tags for a type belonging to a foreign module: " (%type type))
+                    (T/= current-module type-module))]
     (function [compiler]
       (case (|> compiler (get@ #;modules) (&;pl-get current-module))
         (#;Some module)
         (let [namespaced-tags (L/map (|>. [current-module]) tags)]
-          (#R;Success [(update@ #;modules
+          (#e;Success [(update@ #;modules
                                 (&;pl-update current-module
                                              (|>. (update@ #;tags (function [tag-bindings]
                                                                     (L/fold (function [[idx tag] table]
@@ -157,4 +157,4 @@
                                 compiler)
                        []]))
         #;None
-        (macro;run compiler (&;fail (format "Unknown module: " current-module)))))))
+        (meta;run compiler (&;fail (format "Unknown module: " current-module)))))))

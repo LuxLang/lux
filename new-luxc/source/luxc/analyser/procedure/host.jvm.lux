@@ -4,7 +4,7 @@
                 ["p" parser]
                 ["ex" exception #+ exception:])
        (concurrency ["A" atom])
-       (data ["R" result]
+       (data ["e" error]
              [maybe]
              [product]
              [bool "bool/" Eq<Bool>]
@@ -12,12 +12,12 @@
              (text format
                    ["l" lexer])
              (coll [list "list/" Fold<List> Functor<List> Monoid<List>]
-                   [array #+ Array]
+                   [array]
                    [dict #+ Dict]))
-       [macro "lux/" Monad<Lux>]
-       (macro ["s" syntax])
-       [type]
-       (type ["tc" check])
+       [meta "meta/" Monad<Meta>]
+       (meta ["s" syntax]
+             [type]
+             (type ["tc" check]))
        [host])
   (luxc ["&" base]
         ["&;" host]
@@ -152,7 +152,7 @@
       (function [[var-id varT]]
         (case args
           (^ (list arrayC))
-          (do macro;Monad<Lux>
+          (do meta;Monad<Meta>
             [arrayA (&;with-expected-type (type (Array varT))
                       (analyse arrayC))
              _ (&;infer Nat)]
@@ -170,11 +170,11 @@
   (function [analyse args]
     (case args
       (^ (list lengthC))
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [lengthA (&;with-expected-type Nat
                    (analyse lengthC))
-         expectedT macro;expected-type
-         [level elem-class] (: (Lux [Nat Text])
+         expectedT meta;expected-type
+         [level elem-class] (: (Meta [Nat Text])
                                (loop [analysisT expectedT
                                       level +0]
                                  (case analysisT
@@ -206,10 +206,10 @@
   (format "Non-object type: " (%type type)))
 
 (def: (check-jvm objectT)
-  (-> Type (Lux Text))
+  (-> Type (Meta Text))
   (case objectT
     (#;Host name _)
-    (lux/wrap name)
+    (meta/wrap name)
 
     (#;Named name unnamed)
     (check-jvm unnamed)
@@ -232,16 +232,16 @@
     (&;fail (not-object objectT))))
 
 (def: (check-object objectT)
-  (-> Type (Lux Text))
-  (do macro;Monad<Lux>
+  (-> Type (Meta Text))
+  (do meta;Monad<Meta>
     [name (check-jvm objectT)]
     (if (dict;contains? name boxes)
       (&;fail (format "Primitives are not objects: " name))
-      (:: macro;Monad<Lux> wrap name))))
+      (:: meta;Monad<Meta> wrap name))))
 
 (def: (box-array-element-type elemT)
-  (-> Type (Lux [Type Text]))
-  (do macro;Monad<Lux>
+  (-> Type (Meta [Type Text]))
+  (do meta;Monad<Meta>
     []
     (case elemT
       (#;Host name #;Nil)
@@ -253,7 +253,7 @@
       (#;Host name _)
       (if (dict;contains? name boxes)
         (&;fail (format "Primitives cannot be parameterized: " name))
-        (:: macro;Monad<Lux> wrap [elemT name]))
+        (:: meta;Monad<Meta> wrap [elemT name]))
 
       _
       (&;fail (format "Invalid type for array element: " (%type elemT))))))
@@ -265,7 +265,7 @@
       (function [[var-id varT]]
         (case args
           (^ (list arrayC idxC))
-          (do macro;Monad<Lux>
+          (do meta;Monad<Meta>
             [arrayA (&;with-expected-type (type (Array varT))
                       (analyse arrayC))
              elemT (&;with-type-env
@@ -286,7 +286,7 @@
       (function [[var-id varT]]
         (case args
           (^ (list arrayC idxC valueC))
-          (do macro;Monad<Lux>
+          (do meta;Monad<Meta>
             [arrayA (&;with-expected-type (type (Array varT))
                       (analyse arrayC))
              elemT (&;with-type-env
@@ -317,8 +317,8 @@
   (function [analyse args]
     (case args
       (^ (list))
-      (do macro;Monad<Lux>
-        [expectedT macro;expected-type
+      (do meta;Monad<Meta>
+        [expectedT meta;expected-type
          _ (check-object expectedT)]
         (wrap (#la;Procedure proc (list))))
 
@@ -332,7 +332,7 @@
       (function [[var-id varT]]
         (case args
           (^ (list objectC))
-          (do macro;Monad<Lux>
+          (do meta;Monad<Meta>
             [objectA (&;with-expected-type varT
                        (analyse objectC))
              objectT (&;with-type-env
@@ -351,7 +351,7 @@
       (function [[var-id varT]]
         (case args
           (^ (list monitorC exprC))
-          (do macro;Monad<Lux>
+          (do meta;Monad<Meta>
             [monitorA (&;with-expected-type varT
                         (analyse monitorC))
              monitorT (&;with-type-env
@@ -426,19 +426,19 @@
   (getDeclaredMethods [] (Array Method)))
 
 (def: (load-class name)
-  (-> Text (Lux (Class Object)))
-  (do macro;Monad<Lux>
+  (-> Text (Meta (Class Object)))
+  (do meta;Monad<Meta>
     [class-loader &host;class-loader]
     (case (Class.forName [name false class-loader])
-      (#R;Success [class])
+      (#e;Success [class])
       (wrap class)
 
-      (#R;Error error)
+      (#e;Error error)
       (&;fail (format "Unknown class: " name)))))
 
 (def: (sub-class? super sub)
-  (-> Text Text (Lux Bool))
-  (do macro;Monad<Lux>
+  (-> Text Text (Meta Bool))
+  (do meta;Monad<Meta>
     [super (load-class super)
      sub (load-class sub)]
     (wrap (Class.isAssignableFrom [sub] super))))
@@ -452,14 +452,14 @@
       (function [[var-id varT]]
         (case args
           (^ (list exceptionC))
-          (do macro;Monad<Lux>
+          (do meta;Monad<Meta>
             [exceptionA (&;with-expected-type varT
                           (analyse exceptionC))
              exceptionT (&;with-type-env
                           (tc;read var-id))
              exception-class (check-object exceptionT)
              ? (sub-class? "java.lang.Throwable" exception-class)
-             _ (: (Lux Unit)
+             _ (: (Meta Unit)
                   (if ?
                     (wrap [])
                     (&;throw Not-Throwable exception-class)))
@@ -476,7 +476,7 @@
       (^ (list classC))
       (case classC
         [_ (#;Text class)]
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [_ (load-class class)
            _ (&;infer (#;Host "java.lang.Class" (list (#;Host class (list)))))]
           (wrap (#la;Procedure proc (list (#la;Text class)))))
@@ -498,7 +498,7 @@
           (^ (list classC objectC))
           (case classC
             [_ (#;Text class)]
-            (do macro;Monad<Lux>
+            (do meta;Monad<Meta>
               [objectA (&;with-expected-type varT
                          (analyse objectC))
                objectT (&;with-type-env
@@ -542,9 +542,9 @@
   (java.lang.reflect.Type.getTypeName []))
 
 (def: (java-type-to-class type)
-  (-> java.lang.reflect.Type (Lux Text))
+  (-> java.lang.reflect.Type (Meta Text))
   (cond (host;instance? Class type)
-        (lux/wrap (Class.getName [] (:! Class type)))
+        (meta/wrap (Class.getName [] (:! Class type)))
 
         (host;instance? ParameterizedType type)
         (java-type-to-class (ParameterizedType.getRawType [] (:! ParameterizedType type)))
@@ -560,55 +560,55 @@
 (def: fresh-mappings Mappings (dict;new text;Hash<Text>))
 
 (def: (java-type-to-lux-type mappings java-type)
-  (-> Mappings java.lang.reflect.Type (Lux Type))
+  (-> Mappings java.lang.reflect.Type (Meta Type))
   (cond (host;instance? TypeVariable java-type)
         (let [var-name (TypeVariable.getName [] (:! TypeVariable java-type))]
           (case (dict;get var-name mappings)
             (#;Some var-type)
-            (lux/wrap var-type)
+            (meta/wrap var-type)
             
             #;None
             (&;throw Unknown-Type-Var var-name)))
 
         (host;instance? WildcardType java-type)
         (let [java-type (:! WildcardType java-type)]
-          (case [(array;get +0 (WildcardType.getUpperBounds [] java-type))
-                 (array;get +0 (WildcardType.getLowerBounds [] java-type))]
+          (case [(array;read +0 (WildcardType.getUpperBounds [] java-type))
+                 (array;read +0 (WildcardType.getLowerBounds [] java-type))]
             (^or [(#;Some bound) _] [_ (#;Some bound)])
             (java-type-to-lux-type mappings bound)
             
             _
-            (lux/wrap Top)))
+            (meta/wrap Top)))
 
         (host;instance? Class java-type)
         (let [java-type (:! (Class Object) java-type)
               class-name (Class.getName [] java-type)]
-          (lux/wrap (case (array;size (Class.getTypeParameters [] java-type))
-                      +0
-                      (#;Host class-name (list))
-                      
-                      arity
-                      (|> (list;n.range +0 (n.dec arity))
-                          list;reverse
-                          (list/map (|>. (n.* +2) n.inc #;Bound))
-                          (#;Host class-name)
-                          (type;univ-q arity)))))
+          (meta/wrap (case (array;size (Class.getTypeParameters [] java-type))
+                       +0
+                       (#;Host class-name (list))
+                       
+                       arity
+                       (|> (list;n.range +0 (n.dec arity))
+                           list;reverse
+                           (list/map (|>. (n.* +2) n.inc #;Bound))
+                           (#;Host class-name)
+                           (type;univ-q arity)))))
 
         (host;instance? ParameterizedType java-type)
         (let [java-type (:! ParameterizedType java-type)
               raw (ParameterizedType.getRawType [] java-type)]
           (if (host;instance? Class raw)
-            (do macro;Monad<Lux>
+            (do meta;Monad<Meta>
               [paramsT (|> java-type
                            (ParameterizedType.getActualTypeArguments [])
                            array;to-list
                            (monad;map @ (java-type-to-lux-type mappings)))]
-              (lux/wrap (#;Host (Class.getName [] (:! (Class Object) raw))
-                                paramsT)))
+              (meta/wrap (#;Host (Class.getName [] (:! (Class Object) raw))
+                                 paramsT)))
             (&;throw JVM-Type-Is-Not-Class (type-descriptor raw))))
 
         (host;instance? GenericArrayType java-type)
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [innerT (|> (:! GenericArrayType java-type)
                       (GenericArrayType.getGenericComponentType [])
                       (java-type-to-lux-type mappings))]
@@ -628,8 +628,8 @@
     #Out from))
 
 (def: (cast direction to from)
-  (-> Direction Type Type (Lux [Text Type]))
-  (do macro;Monad<Lux>
+  (-> Direction Type Type (Meta [Text Type]))
+  (do meta;Monad<Meta>
     [to-name (check-jvm to)
      from-name (check-jvm from)]
     (cond (dict;contains? to-name boxes)
@@ -677,23 +677,23 @@
               (&;fail (format "No valid path between " (%type from) "and " (%type to) ".")))))))
 
 (def: (find-field class-name field-name)
-  (-> Text Text (Lux [(Class Object) Field]))
-  (do macro;Monad<Lux>
+  (-> Text Text (Meta [(Class Object) Field]))
+  (do meta;Monad<Meta>
     [class (load-class class-name)]
     (case (Class.getDeclaredField [field-name] class)
-      (#R;Success field)
+      (#e;Success field)
       (let [owner (Field.getDeclaringClass [] field)]
         (if (is owner class)
           (wrap [class field])
           (&;fail (format "Field '" field-name "' does not belong to class '" class-name "'.\n"
                           "Belongs to '" (Class.getName [] owner) "'."))))
 
-      (#R;Error _)
+      (#e;Error _)
       (&;fail (format "Unknown field '" field-name "' for class '" class-name "'.")))))
 
 (def: (static-field class-name field-name)
-  (-> Text Text (Lux [Type Bool]))
-  (do macro;Monad<Lux>
+  (-> Text Text (Meta [Type Bool]))
+  (do meta;Monad<Meta>
     [[class fieldJ] (find-field class-name field-name)
      #let [modifiers (Field.getModifiers [] fieldJ)]]
     (if (Modifier.isStatic [modifiers])
@@ -706,8 +706,8 @@
 (exception: #export Non-Object-Type)
 
 (def: (virtual-field class-name field-name objectT)
-  (-> Text Text Type (Lux [Type Bool]))
-  (do macro;Monad<Lux>
+  (-> Text Text Type (Meta [Type Bool]))
+  (do meta;Monad<Meta>
     [[class fieldJ] (find-field class-name field-name)
      #let [modifiers (Field.getModifiers [] fieldJ)]]
     (if (not (Modifier.isStatic [modifiers]))
@@ -717,7 +717,7 @@
                              (Class.getTypeParameters [])
                              array;to-list
                              (list/map (TypeVariable.getName [])))]
-         mappings (: (Lux Mappings)
+         mappings (: (Meta Mappings)
                      (case objectT
                        (#;Host _class-name _class-params)
                        (do @
@@ -735,9 +735,9 @@
       (&;fail (format "Field '" field-name "' of class '" class-name "' is static.")))))
 
 (def: (analyse-object class analyse sourceC)
-  (-> Text &;Analyser Code (Lux [Type la;Analysis]))
+  (-> Text &;Analyser Code (Meta [Type la;Analysis]))
   (<| &common;with-var (function [[var-id varT]])
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [target-class (load-class class)
          targetT (java-type-to-lux-type fresh-mappings
                                         (:! java.lang.reflect.Type
@@ -752,9 +752,9 @@
         (wrap [castT sourceA]))))
 
 (def: (analyse-input analyse targetT sourceC)
-  (-> &;Analyser Type Code (Lux [Type Text la;Analysis]))
+  (-> &;Analyser Type Code (Meta [Type Text la;Analysis]))
   (<| &common;with-var (function [[var-id varT]])
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [sourceA (&;with-expected-type varT
                    (analyse sourceC))
          sourceT (&;with-type-env
@@ -769,9 +769,9 @@
       (^ (list classC fieldC))
       (case [classC fieldC]
         [[_ (#;Text class)] [_ (#;Text field)]]
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [[fieldT final?] (static-field class field)
-           expectedT macro;expected-type
+           expectedT meta;expected-type
            [unboxed castT] (cast #Out expectedT fieldT)
            _ (&;with-type-env
                (tc;check expectedT castT))]
@@ -790,7 +790,7 @@
       (^ (list classC fieldC valueC))
       (case [classC fieldC]
         [[_ (#;Text class)] [_ (#;Text field)]]
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [[fieldT final?] (static-field class field)
            _ (&;assert (Final-Field (format class "#" field))
                        (not final?))
@@ -813,10 +813,10 @@
       (^ (list classC fieldC objectC))
       (case [classC fieldC]
         [[_ (#;Text class)] [_ (#;Text field)]]
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [[objectT objectA] (analyse-object class analyse objectC)
            [fieldT final?] (virtual-field class field objectT)
-           expectedT macro;expected-type
+           expectedT meta;expected-type
            [unboxed castT] (cast #Out expectedT fieldT)
            _ (&;with-type-env
                (tc;check expectedT castT))]
@@ -835,7 +835,7 @@
       (^ (list classC fieldC valueC objectC))
       (case [classC fieldC]
         [[_ (#;Text class)] [_ (#;Text field)]]
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [[objectT objectA] (analyse-object class analyse objectC)
            [fieldT final?] (virtual-field class field objectT)
            _ (&;assert (Final-Field (format class "#" field))
@@ -853,16 +853,16 @@
       (&;fail (@;wrong-arity proc +4 (list;size args))))))
 
 (def: (java-type-to-parameter type)
-  (-> java.lang.reflect.Type (Lux Text))
+  (-> java.lang.reflect.Type (Meta Text))
   (cond (host;instance? Class type)
-        (lux/wrap (Class.getName [] (:! Class type)))
+        (meta/wrap (Class.getName [] (:! Class type)))
 
         (host;instance? ParameterizedType type)
         (java-type-to-parameter (ParameterizedType.getRawType [] (:! ParameterizedType type)))
 
         (or (host;instance? TypeVariable type)
             (host;instance? WildcardType type))
-        (lux/wrap "java.lang.Object")
+        (meta/wrap "java.lang.Object")
 
         ## else
         (&;throw Cannot-Convert-To-Parameter (type-descriptor type))))
@@ -875,8 +875,8 @@
   #Interface)
 
 (def: (check-method class method-name method-type arg-classes method)
-  (-> (Class Object) Text Method-Type (List Text) Method (Lux Bool))
-  (do macro;Monad<Lux>
+  (-> (Class Object) Text Method-Type (List Text) Method (Meta Bool))
+  (do meta;Monad<Meta>
     [parameters (|> (Method.getGenericParameterTypes [] method)
                     array;to-list
                     (monad;map @ java-type-to-parameter))
@@ -904,8 +904,8 @@
                           (list;zip2 arg-classes parameters))))))
 
 (def: (check-constructor class arg-classes constructor)
-  (-> (Class Object) (List Text) (Constructor Object) (Lux Bool))
-  (do macro;Monad<Lux>
+  (-> (Class Object) (List Text) (Constructor Object) (Meta Bool))
+  (do meta;Monad<Meta>
     [parameters (|> (Constructor.getGenericParameterTypes [] constructor)
                     array;to-list
                     (monad;map @ java-type-to-parameter))]
@@ -922,7 +922,7 @@
   (|>. (n.* +2) n.inc #;Bound))
 
 (def: (method-to-type method-type method)
-  (-> Method-Type Method (Lux [Type (List Type)]))
+  (-> Method-Type Method (Meta [Type (List Type)]))
   (let [owner (Method.getDeclaringClass [] method)
         owner-name (Class.getName [] owner)
         owner-tvars (case method-type
@@ -948,7 +948,7 @@
                           list;reverse
                           (list;zip2 all-tvars)
                           (dict;from-list text;Hash<Text>))))]
-    (do macro;Monad<Lux>
+    (do meta;Monad<Meta>
       [inputsT (|> (Method.getGenericParameterTypes [] method)
                    array;to-list
                    (monad;map @ (java-type-to-lux-type fresh-mappings)))
@@ -971,8 +971,8 @@
 (exception: #export Too-Many-Candidate-Methods)
 
 (def: (methods class-name method-name method-type arg-classes)
-  (-> Text Text Method-Type (List Text) (Lux [Type (List Type)]))
-  (do macro;Monad<Lux>
+  (-> Text Text Method-Type (List Text) (Meta [Type (List Type)]))
+  (do meta;Monad<Meta>
     [class (load-class class-name)
      candidates (|> class
                     (Class.getDeclaredMethods [])
@@ -992,7 +992,7 @@
       (&;throw Too-Many-Candidate-Methods (format class-name "#" method-name)))))
 
 (def: (constructor-to-type constructor)
-  (-> (Constructor Object) (Lux [Type (List Type)]))
+  (-> (Constructor Object) (Meta [Type (List Type)]))
   (let [owner (Constructor.getDeclaringClass [] constructor)
         owner-name (Class.getName [] owner)
         owner-tvars (|> (Class.getTypeParameters [] owner)
@@ -1013,7 +1013,7 @@
                           list;reverse
                           (list;zip2 all-tvars)
                           (dict;from-list text;Hash<Text>))))]
-    (do macro;Monad<Lux>
+    (do meta;Monad<Meta>
       [inputsT (|> (Constructor.getGenericParameterTypes [] constructor)
                    array;to-list
                    (monad;map @ (java-type-to-lux-type fresh-mappings)))
@@ -1030,8 +1030,8 @@
 (exception: #export Too-Many-Candidate-Constructors)
 
 (def: (constructor-methods class-name arg-classes)
-  (-> Text (List Text) (Lux [Type (List Type)]))
-  (do macro;Monad<Lux>
+  (-> Text (List Text) (Meta [Type (List Type)]))
+  (do meta;Monad<Meta>
     [class (load-class class-name)
      candidates (|> class
                     (Class.getConstructors [])
@@ -1053,10 +1053,10 @@
 (def: (invoke//static proc)
   (-> Text @;Proc)
   (function [analyse args]
-    (case (: (R;Result [(List Code) [Text Text (List [Text Code]) Unit]])
+    (case (: (e;Error [(List Code) [Text Text (List [Text Code]) Unit]])
              (p;run args ($_ p;seq s;text s;text (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
-      (#R;Success [_ [class method argsTC _]])
-      (do macro;Monad<Lux>
+      (#e;Success [_ [class method argsTC _]])
+      (do meta;Monad<Meta>
         [[methodT exceptionsT] (methods class method #Static (list/map product;left argsTC))
          [outputT argsA] (&inference;apply-function analyse methodT (list/map product;right argsTC))
          _ (&;infer outputT)]
@@ -1068,10 +1068,10 @@
 (def: (invoke//virtual proc)
   (-> Text @;Proc)
   (function [analyse args]
-    (case (: (R;Result [(List Code) [Text Text Code (List [Text Code]) Unit]])
+    (case (: (e;Error [(List Code) [Text Text Code (List [Text Code]) Unit]])
              (p;run args ($_ p;seq s;text s;text s;any (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
-      (#R;Success [_ [class method objectC argsTC _]])
-      (do macro;Monad<Lux>
+      (#e;Success [_ [class method objectC argsTC _]])
+      (do meta;Monad<Meta>
         [[methodT exceptionsT] (methods class method #Virtual (list/map product;left argsTC))
          [outputT argsA] (&inference;apply-function analyse methodT (list& objectC (list/map product;right argsTC)))
          _ (&;infer outputT)]
@@ -1083,10 +1083,10 @@
 (def: (invoke//special proc)
   (-> Text @;Proc)
   (function [analyse args]
-    (case (: (R;Result [(List Code) [Text Text Code (List [Text Code]) Unit]])
+    (case (: (e;Error [(List Code) [Text Text Code (List [Text Code]) Unit]])
              (p;run args ($_ p;seq s;text s;text s;any (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
-      (#R;Success [_ [class method objectC argsTC _]])
-      (do macro;Monad<Lux>
+      (#e;Success [_ [class method objectC argsTC _]])
+      (do meta;Monad<Meta>
         [[methodT exceptionsT] (methods class method #Special (list/map product;left argsTC))
          [outputT argsA] (&inference;apply-function analyse methodT (list& objectC (list/map product;right argsTC)))
          _ (&;infer outputT)]
@@ -1100,10 +1100,10 @@
 (def: (invoke//interface proc)
   (-> Text @;Proc)
   (function [analyse args]
-    (case (: (R;Result [(List Code) [Text Text Code (List [Text Code]) Unit]])
+    (case (: (e;Error [(List Code) [Text Text Code (List [Text Code]) Unit]])
              (p;run args ($_ p;seq s;text s;text s;any (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
-      (#R;Success [_ [class-name method objectC argsTC _]])
-      (do macro;Monad<Lux>
+      (#e;Success [_ [class-name method objectC argsTC _]])
+      (do meta;Monad<Meta>
         [class (load-class class-name)
          _ (&;assert (Not-Interface class-name)
                      (Modifier.isInterface [(Class.getModifiers [] class)]))
@@ -1118,10 +1118,10 @@
 (def: (invoke//constructor proc)
   (-> Text @;Proc)
   (function [analyse args]
-    (case (: (R;Result [(List Code) [Text (List [Text Code]) Unit]])
+    (case (: (e;Error [(List Code) [Text (List [Text Code]) Unit]])
              (p;run args ($_ p;seq s;text (p;some (s;tuple (p;seq s;text s;any))) s;end!)))
-      (#R;Success [_ [class argsTC _]])
-      (do macro;Monad<Lux>
+      (#e;Success [_ [class argsTC _]])
+      (do meta;Monad<Meta>
         [[methodT exceptionsT] (constructor-methods class (list/map product;left argsTC))
          [outputT argsA] (&inference;apply-function analyse methodT (list/map product;right argsTC))
          _ (&;infer outputT)]

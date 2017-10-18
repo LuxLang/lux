@@ -5,15 +5,15 @@
        (data [bool]
              [number]
              [product]
-             ["R" result]
+             ["e" error]
              [maybe]
              [text]
              text/format
              (coll [list "list/" Fold<List> Monoid<List> Functor<List>]))
-       [macro]
-       (macro [code])
-       [type]
-       (type ["tc" check]))
+       [meta]
+       (meta [code]
+             [type]
+             (type ["tc" check])))
   (../.. ["&" base]
          (lang ["la" analysis])
          ["&;" scope])
@@ -34,10 +34,10 @@
 ## This function makes it easier for "case" analysis to properly
 ## type-check the input with respect to the patterns.
 (def: (simplify-case-type type)
-  (-> Type (Lux Type))
+  (-> Type (Meta Type))
   (case type
     (#;Var id)
-    (do macro;Monad<Lux>
+    (do meta;Monad<Meta>
       [? (&;with-type-env
            (tc;bound? id))]
       (if ?
@@ -51,13 +51,13 @@
     (simplify-case-type unnamedT)
 
     (^or (#;UnivQ _) (#;ExQ _))
-    (do macro;Monad<Lux>
+    (do meta;Monad<Meta>
       [[ex-id exT] (&;with-type-env
                      tc;existential)]
       (simplify-case-type (maybe;assume (type;apply (list exT) type))))
 
     _
-    (:: macro;Monad<Lux> wrap type)))
+    (:: meta;Monad<Meta> wrap type)))
 
 ## This function handles several concerns at once, but it must be that
 ## way because those concerns are interleaved when doing
@@ -76,11 +76,11 @@
 ## That is why the body must be analysed in the context of the
 ## pattern, and not separately.
 (def: (analyse-pattern num-tags inputT pattern next)
-  (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
+  (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [la;Pattern a])))
   (case pattern
     [cursor (#;Symbol ["" name])]
     (&;with-cursor cursor
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [outputA (&scope;with-local [name inputT]
                    next)
          idx &scope;next-local]
@@ -93,7 +93,7 @@
     (^template [<type> <code-tag> <pattern-tag>]
       [cursor (<code-tag> test)]
       (&;with-cursor cursor
-        (do macro;Monad<Lux>
+        (do meta;Monad<Meta>
           [_ (&;with-type-env
                (tc;check inputT <type>))
            outputA next]
@@ -107,7 +107,7 @@
 
     (^ [cursor (#;Tuple (list))])
     (&;with-cursor cursor
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [_ (&;with-type-env
              (tc;check inputT Unit))
          outputA next]
@@ -118,7 +118,7 @@
     
     [cursor (#;Tuple sub-patterns)]
     (&;with-cursor cursor
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Product _)
@@ -139,11 +139,11 @@
                               )]
             (do @
               [[memberP+ thenA] (list/fold (: (All [a]
-                                                (-> [Type Code] (Lux [(List la;Pattern) a])
-                                                    (Lux [(List la;Pattern) a])))
+                                                (-> [Type Code] (Meta [(List la;Pattern) a])
+                                                    (Meta [(List la;Pattern) a])))
                                               (function [[memberT memberC] then]
                                                 (do @
-                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Lux a) (Lux [la;Pattern a])))
+                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [la;Pattern a])))
                                                                                    analyse-pattern)
                                                                                #;None memberT memberC then)]
                                                   (wrap [(list& memberP memberP+) thenA]))))
@@ -158,7 +158,7 @@
           )))
 
     [cursor (#;Record record)]
-    (do macro;Monad<Lux>
+    (do meta;Monad<Meta>
       [record (&structure;normalize record)
        [members recordT] (&structure;order record)
        _ (&;with-type-env
@@ -171,7 +171,7 @@
 
     (^ [cursor (#;Form (list& [_ (#;Nat idx)] values))])
     (&;with-cursor cursor
-      (do macro;Monad<Lux>
+      (do meta;Monad<Meta>
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Sum _)
@@ -183,14 +183,14 @@
                       (n.< num-cases idx))
               (if (and (n.> num-cases size-sum)
                        (n.= (n.dec num-cases) idx))
-                (do macro;Monad<Lux>
+                (do meta;Monad<Meta>
                   [[testP nextA] (analyse-pattern #;None
                                                   (type;variant (list;drop (n.dec num-cases) flat-sum))
                                                   (` [(~@ values)])
                                                   next)]
                   (wrap [(#la;VariantP idx num-cases testP)
                          nextA]))
-                (do macro;Monad<Lux>
+                (do meta;Monad<Meta>
                   [[testP nextA] (analyse-pattern #;None case-type (` [(~@ values)]) next)]
                   (wrap [(#la;VariantP idx num-cases testP)
                          nextA])))
@@ -203,9 +203,9 @@
 
     (^ [cursor (#;Form (list& [_ (#;Tag tag)] values))])
     (&;with-cursor cursor
-      (do macro;Monad<Lux>
-        [tag (macro;normalize tag)
-         [idx group variantT] (macro;resolve-tag tag)
+      (do meta;Monad<Meta>
+        [tag (meta;normalize tag)
+         [idx group variantT] (meta;resolve-tag tag)
          _ (&;with-type-env
              (tc;check inputT variantT))]
         (analyse-pattern (#;Some (list;size group)) inputT (` ((~ (code;nat idx)) (~@ values))) next)))
@@ -215,13 +215,13 @@
     ))
 
 (def: #export (analyse-case analyse input branches)
-  (-> &;Analyser Code (List [Code Code]) (Lux la;Analysis))
+  (-> &;Analyser Code (List [Code Code]) (Meta la;Analysis))
   (case branches
     #;Nil
     (&;fail "Cannot have empty branches in pattern-matching expression.")
 
     (#;Cons [patternH bodyH] branchesT)
-    (do macro;Monad<Lux>
+    (do meta;Monad<Meta>
       [[inputT inputA] (&common;with-unknown-type
                          (analyse input))
        outputH (analyse-pattern #;None inputT patternH (analyse bodyH))
@@ -229,15 +229,15 @@
                           (function [[patternT bodyT]]
                             (analyse-pattern #;None inputT patternT (analyse bodyT)))
                           branchesT)
-       _ (case (monad;fold R;Monad<Result>
+       _ (case (monad;fold e;Monad<Error>
                            &&coverage;merge
                            (|> outputH product;left &&coverage;determine)
                            (list/map (|>. product;left &&coverage;determine) outputT))
-           (#R;Success coverage)
+           (#e;Success coverage)
            (if (&&coverage;exhaustive? coverage)
              (wrap [])
              (&;fail "Pattern-matching is not exhaustive."))
 
-           (#R;Error error)
+           (#e;Error error)
            (&;fail error))]
       (wrap (#la;Case inputA (#;Cons outputH outputT))))))

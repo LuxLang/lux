@@ -3,12 +3,12 @@
   (lux (control monad)
        (concurrency ["A" atom]
                     ["P" promise])
-       (data ["R" result]
+       (data ["e" error]
              [text "T/" Hash<Text>]
              text/format
              (coll ["D" dict]
-                   [array #+ Array]))
-       [macro #+ Monad<Lux>]
+                   [array]))
+       [meta #+ Monad<Meta>]
        [host]
        [io])
   (luxc ["&" base]
@@ -22,7 +22,7 @@
         ))
 
 (def: (compile ast)
-  (-> Code (Lux Unit))
+  (-> Code (Meta Unit))
   (case ast
     (^ [_ (#;Form (list [_ (#;Symbol ["" "_lux_def"])]
                         [_ (#;Symbol ["" def-name])]
@@ -39,16 +39,16 @@
     (&;fail (format "Unrecognized statement: " (%code ast)))))
 
 (def: (exhaust action)
-  (All [a] (-> (Lux a) (Lux Unit)))
-  (do Monad<Lux>
+  (All [a] (-> (Meta a) (Meta Unit)))
+  (do Monad<Meta>
     [result action]
     (exhaust action)))
 
 (def: (ensure-new-module! file-hash module-name)
-  (-> Nat Text (Lux Unit))
-  (do Monad<Lux>
-    [module-exists? (macro;module-exists? module-name)
-     _ (: (Lux Unit)
+  (-> Nat Text (Meta Unit))
+  (do Monad<Meta>
+    [module-exists? (meta;module-exists? module-name)
+     _ (: (Meta Unit)
           (if module-exists?
             (&;fail (format "Cannot re-define a module: " module-name))
             (wrap [])))
@@ -58,8 +58,8 @@
 (def: prelude Text "lux")
 
 (def: (with-active-compilation [module-name file-name source-code] action)
-  (All [a] (-> [Text Text Text] (Lux a) (Lux a)))
-  (do Monad<Lux>
+  (All [a] (-> [Text Text Text] (Meta a) (Meta a)))
+  (do Monad<Meta>
     [_ (ensure-new-module! (T/hash source-code) module-name)
      #let [init-cursor [file-name +0 +0]]
      output (&;with-source-code [init-cursor source-code]
@@ -68,23 +68,23 @@
     (wrap output)))
 
 (def: parse
-  (Lux Code)
+  (Meta Code)
   (function [compiler]
     (case (&parser;parse (get@ #;source compiler))
-      (#R;Error error)
-      (#R;Error error)
+      (#e;Error error)
+      (#e;Error error)
 
-      (#R;Success [source' output])
-      (#R;Success [(set@ #;source source' compiler)
+      (#e;Success [source' output])
+      (#e;Success [(set@ #;source source' compiler)
                    output]))))
 
 (def: (compile-module source-dirs module-name compiler)
-  (-> (List &;Path) Text Compiler (P;Promise (R;Result Compiler)))
+  (-> (List &;Path) Text Compiler (P;Promise (e;Error Compiler)))
   (do P;Monad<Promise>
     [?input (&io;read-module source-dirs module-name)]
     (case ?input
-      (#R;Success [file-name file-content])
-      (let [compilation (do Monad<Lux>
+      (#e;Success [file-name file-content])
+      (let [compilation (do Monad<Meta>
                           [_ (with-active-compilation [module-name
                                                        file-name
                                                        file-content]
@@ -95,18 +95,18 @@
                           (wrap [])
                           ## (&module;generate-descriptor module-name)
                           )]
-        (case (macro;run' compiler compilation)
-          (#R;Success [compiler module-descriptor])
+        (case (meta;run' compiler compilation)
+          (#e;Success [compiler module-descriptor])
           (do @
             [## _ (&io;write-module module-name module-descriptor)
              ]
-            (wrap (#R;Success compiler)))
+            (wrap (#e;Success compiler)))
           
-          (#R;Error error)
-          (wrap (#R;Error error))))
+          (#e;Error error)
+          (wrap (#e;Error error))))
 
-      (#R;Error error)
-      (wrap (#R;Error error)))))
+      (#e;Error error)
+      (wrap (#e;Error error)))))
 
 (host;import org.objectweb.asm.MethodVisitor)
 
@@ -118,15 +118,15 @@
    #;var-counter +0
    #;var-bindings (list)})
 
-(def: #export init-compiler-info
-  Compiler-Info
-  {#;compiler-name    "Lux/JVM"
-   #;compiler-version &;compiler-version
-   #;compiler-mode    #;Build})
+(def: #export init-info
+  Info
+  {#;target  "JVM"
+   #;version &;version
+   #;mode    #;Build})
 
 (def: #export (init-compiler host)
   (-> &&common;Host Compiler)
-  {#;info            init-compiler-info
+  {#;info            init-info
    #;source          [init-cursor ""]
    #;cursor          init-cursor
    #;modules         (list)
@@ -138,14 +138,14 @@
    #;host            (:! Void host)})
 
 (def: (or-crash! action)
-  (All [a] (-> (P;Promise (R;Result a)) (P;Promise a)))
+  (All [a] (-> (P;Promise (e;Error a)) (P;Promise a)))
   (do P;Monad<Promise>
     [?output action]
     (case ?output
-      (#R;Error error)
+      (#e;Error error)
       (error! error)
 
-      (#R;Success output)
+      (#e;Success output)
       (wrap output))))
 
 (def: #export (compile-program program target sources)
