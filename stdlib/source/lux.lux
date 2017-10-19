@@ -4556,8 +4556,8 @@
           ## =>
           (function [<arg>]
             (fold text/compose \"\"
-                   (interpose \" \"
-                              (map int/encode <arg>))))"}
+                  (interpose \" \"
+                             (map int/encode <arg>))))"}
   (do Monad<Meta>
     [g!arg (gensym "arg")]
     (return (list (` (function [(~ g!arg)] (|> (~ g!arg) (~@ tokens))))))))
@@ -4568,8 +4568,8 @@
           ## =>
           (function [<arg>]
             (fold text/compose \"\"
-                   (interpose \" \"
-                              (map int/encode <arg>))))"}
+                  (interpose \" \"
+                             (map int/encode <arg>))))"}
   (do Monad<Meta>
     [g!arg (gensym "arg")]
     (return (list (` (function [(~ g!arg)] (<| (~@ tokens) (~ g!arg))))))))
@@ -5906,3 +5906,60 @@
 
       _
       (fail "Wrong syntax for 'for'"))))
+
+(do-template [<name> <type> <output>]
+  [(def: (<name> xy)
+     (All [a b] (-> [a b] <type>))
+     (let [[x y] xy]
+       <output>))]
+
+  [left  a x]
+  [right b y])
+
+(def: (label-code code)
+  (-> Code (Meta [(List [Code Code]) Code]))
+  (case code
+    (^ [ann (#Form (list [_ (#Symbol ["" "~~"])] expansion))])
+    (do Monad<Meta>
+      [g!expansion (gensym "g!expansion")]
+      (wrap [(list [g!expansion expansion]) g!expansion]))
+
+    (^template [<tag>]
+      [ann (<tag> parts)]
+      (do Monad<Meta>
+        [=parts (mapM Monad<Meta> label-code parts)]
+        (wrap [(fold list/compose (list) (map left =parts))
+               [ann (<tag> (map right =parts))]])))
+    ([#Form] [#Tuple])
+
+    [ann (#Record kvs)]
+    (do Monad<Meta>
+      [=kvs (mapM Monad<Meta>
+                  (function [[key val]]
+                    (do Monad<Meta>
+                      [=key (label-code key)
+                       =val (label-code val)
+                       #let [[key-labels key-labelled] =key
+                             [val-labels val-labelled] =val]]
+                      (wrap [(list/compose key-labels val-labels) [key-labelled val-labelled]])))
+                  kvs)]
+      (wrap [(fold list/compose (list) (map left =kvs))
+             [ann (#Record (map right =kvs))]]))
+    
+    _
+    (:: Monad<Meta> wrap [(list) code])))
+
+(macro: #export (`` tokens)
+  (case tokens
+    (^ (list raw))
+    (do Monad<Meta>
+      [=raw (label-code raw)
+       #let [[labels labelled] =raw]]
+      (wrap (list (` (with-expansions [(~@ (|> labels
+                                               (map (function [[label expansion]] (list label expansion)))
+                                               list/join))]
+                       (~ labelled))))))
+
+    _
+    (fail "Wrong syntax for ``")
+    ))
