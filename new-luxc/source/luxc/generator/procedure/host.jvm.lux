@@ -1,11 +1,16 @@
 (;module:
   lux
-  (lux (control [monad #+ do])
-       (data [text "text/" Eq<Text>]
-             text/format
+  (lux (control [monad #+ do]
+                ["p" parser "parser/" Monad<Parser>]
+                ["ex" exception #+ exception:])
+       (data [product]
+             ["e" error]
+             [text "text/" Eq<Text>]
+             (text format
+                   ["l" lexer])
              (coll [list "list/" Functor<List>]
                    [dict #+ Dict]))
-       [meta #+ with-gensyms]
+       [meta #+ with-gensyms "meta/" Monad<Meta>]
        (meta [code]
              ["s" syntax #+ syntax:])
        [host])
@@ -568,6 +573,157 @@
     _
     (&;fail (format "Wrong syntax for '" proc "'."))))
 
+(exception: #export Invalid-Syntax-For-Argument-Generation)
+
+(def: base-type
+  (l;Lexer $;Type)
+  ($_ p;either
+      (p;after (l;this "boolean") (parser/wrap $t;boolean))
+      (p;after (l;this "byte") (parser/wrap $t;byte))
+      (p;after (l;this "short") (parser/wrap $t;short))
+      (p;after (l;this "int") (parser/wrap $t;int))
+      (p;after (l;this "long") (parser/wrap $t;long))
+      (p;after (l;this "float") (parser/wrap $t;float))
+      (p;after (l;this "double") (parser/wrap $t;double))
+      (p;after (l;this "char") (parser/wrap $t;char))
+      (parser/map (function [name]
+                    ($t;class name (list)))
+                  (l;many (l;none-of "[")))
+      ))
+
+(def: java-type
+  (l;Lexer $;Type)
+  (do p;Monad<Parser>
+    [raw base-type
+     nesting (p;some (l;this "[]"))]
+    (wrap ($t;array (list;size nesting) raw))))
+
+(def: (generate-type argD)
+  (-> Text (Meta $;Type))
+  (case (l;run argD java-type)
+    (#e;Error error)
+    (&;fail error)
+
+    (#e;Success type)
+    (meta/wrap type)))
+
+(def: (prepare-input inputT inputI)
+  (-> $;Type $;Inst $;Inst)
+  (case inputT
+    (#$;Primitive primitive)
+    (|>. inputI ($i;unwrap primitive))
+
+    (#$;Generic generic)
+    (case generic
+      (^or (#$;Var _) (#$;Wildcard _))
+      (|>. inputI ($i;CHECKCAST "java.lang.Object"))
+      
+      (#$;Class class-name _)
+      (|>. inputI ($i;CHECKCAST class-name)))
+
+    _
+    (|>. inputI ($i;CHECKCAST ($t;descriptor inputT)))))
+
+(def: (generate-args generate argsS)
+  (-> (-> ls;Synthesis (Meta $;Inst)) (List ls;Synthesis)
+      (Meta (List [$;Type $;Inst])))
+  (case argsS
+    #;Nil
+    (meta/wrap #;Nil)
+
+    (^ (list& [(#ls;Tuple (list (#ls;Text argD) argS))] tail))
+    (do meta;Monad<Meta>
+      [argT (generate-type argD)
+       argI (:: @ map (prepare-input argT) (generate argS))
+       =tail (generate-args generate tail)]
+      (wrap (list& [argT argI] =tail)))
+
+    _
+    (&;throw Invalid-Syntax-For-Argument-Generation "")))
+
+(def: (method-return-type description)
+  (-> Text (Meta (Maybe $;Type)))
+  (case description
+    "void"
+    (meta/wrap #;None)
+
+    _
+    (:: meta;Monad<Meta> map (|>. #;Some) (generate-type description))))
+
+(def: (prepare-return returnT returnI)
+  (-> (Maybe $;Type) $;Inst $;Inst)
+  (case returnT
+    #;None
+    (|>. returnI
+         ($i;string &runtime;unit))
+
+    (#;Some type)
+    (case type
+      (#$;Primitive primitive)
+      (|>. returnI ($i;wrap primitive))
+
+      _
+      returnI)))
+
+(def: (invoke//static proc generate inputs)
+  (-> Text @;Proc)
+  (case inputs
+    (^ (list& (#ls;Text class) (#ls;Text method)
+              (#ls;Text unboxed) argsS))
+    (do meta;Monad<Meta>
+      [argsTI (generate-args generate argsS)
+       returnT (method-return-type unboxed)
+       #let [callI (|>. ($i;fuse (list/map product;right argsTI))
+                        ($i;INVOKESTATIC class method
+                                         ($t;method (list/map product;left argsTI) returnT (list))
+                                         false))]]
+      (wrap (prepare-return returnT callI)))
+
+    _
+    (&;fail (format "Wrong syntax for '" proc "'."))))
+
+(do-template [<name> <invoke> <interface?>]
+  [(def: (<name> proc generate inputs)
+     (-> Text @;Proc)
+     (case inputs
+       (^ (list& (#ls;Text class) (#ls;Text method)
+                 (#ls;Text unboxed) objectS argsS))
+       (do meta;Monad<Meta>
+         [objectI (generate objectS)
+          argsTI (generate-args generate argsS)
+          returnT (method-return-type unboxed)
+          #let [callI (|>. objectI
+                           ($i;CHECKCAST class)
+                           ($i;fuse (list/map product;right argsTI))
+                           (<invoke> class method
+                                     ($t;method (list/map product;left argsTI) returnT (list))
+                                     <interface?>))]]
+         (wrap (prepare-return returnT callI)))
+
+       _
+       (&;fail (format "Wrong syntax for '" proc "'."))))]
+
+  [invoke//virtual $i;INVOKEVIRTUAL false]
+  [invoke//special $i;INVOKESPECIAL false]
+  [invoke//interface $i;INVOKEINTERFACE true]
+  )
+
+(def: (invoke//constructor proc generate inputs)
+  (-> Text @;Proc)
+  (case inputs
+    (^ (list& (#ls;Text class) argsS))
+    (do meta;Monad<Meta>
+      [argsTI (generate-args generate argsS)]
+      (wrap (|>. ($i;NEW class)
+                 $i;DUP
+                 ($i;fuse (list/map product;right argsTI))
+                 ($i;INVOKESPECIAL class "<init>"
+                                   ($t;method (list/map product;left argsTI) #;None (list))
+                                   false))))
+
+    _
+    (&;fail (format "Wrong syntax for '" proc "'."))))
+
 (def: member-procs
   @;Bundle
   (<| (@;prefix "member")
@@ -580,6 +736,14 @@
                           (|> (dict;new text;Hash<Text>)
                               (@;install "get" virtual//get)
                               (@;install "put" virtual//put))))
+          (dict;merge (<| (@;prefix "invoke")
+                          (|> (dict;new text;Hash<Text>)
+                              (@;install "static" invoke//static)
+                              (@;install "virtual" invoke//virtual)
+                              (@;install "special" invoke//special)
+                              (@;install "interface" invoke//interface)
+                              (@;install "constructor" invoke//constructor)
+                              )))
           )))
 
 (def: #export procedures
