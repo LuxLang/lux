@@ -49,7 +49,7 @@
   (-> Counters Counters Counters)
   [(n.+ s ts) (n.+ f tf)])
 
-(def: (fail message)
+(def: #export (fail message)
   (All [a] (-> Text Test))
   (|> [failure (format "  [Error] " message)]
       (:: Monad<Promise> wrap)
@@ -109,33 +109,17 @@
         test
 
         ## else
-        (function [prng]
-          (let [[prng' instance] (r;run prng test)]
-            [prng' (do Monad<Promise>
-                     [[counters documentation] instance]
-                     (if (failed? counters)
-                       (wrap [counters documentation])
-                       (product;right (r;run prng' (times (n.dec amount) test)))))]))))
+        (do r;Monad<Random>
+          [seed r;nat]
+          (function [prng]
+            (let [[prng' instance] (r;run (r;pcg-32 [pcg-32-magic-inc seed]) test)]
+              [prng' (do Monad<Promise>
+                       [[counters documentation] instance]
+                       (if (failed? counters)
+                         (wrap [counters (format "Failed with this seed: " (%n seed) "\n" documentation)])
+                         (product;right (r;run prng' (times (n.dec amount) test)))))])))))
 
 ## [Syntax]
-(def: #hidden (try-test test)
-  (-> (IO Test) (IO Test))
-  (do Monad<IO>
-    [now instant;now
-     #let [seed (|> now instant;to-millis int-to-nat)]]
-    (io (do r;Monad<Random>
-          [instance (case (_lux_proc ["lux" "try"] [test])
-                      (#e;Success test)
-                      test
-
-                      (#e;Error error)
-                      (fail error))]
-          (wrap (do Monad<Promise>
-                  [[counter documentation] instance]
-                  (if (failed? counter)
-                    (wrap [counter (format "Context failed with this seed: " (%n seed) "\n" documentation)])
-                    (wrap [counter documentation]))))))))
-
 (def: #hidden _code/text_ code;text)
 
 (syntax: #export (context: description test)
@@ -202,11 +186,16 @@
                             (and (|> x (- y) (+ y) (= x))
                                  (|> x (+ y) (- y) (= x)))))))
               )}
-  (with-gensyms [g!test]
-    (wrap (list (` (def: #export (~ g!test)
+  (with-gensyms [g!context g!test g!error]
+    (wrap (list (` (def: #export (~ g!context)
                      {#;;test (;;_code/text_ (~ description))}
                      (IO Test)
-                     (;;try-test (io (do ;;Monad<Random> [] (~ test))))))))))
+                     (io (case ((~' _lux_proc) ["lux" "try"] [(io (do ;;Monad<Random> [] (~ test)))])
+                           (#;Right (~ g!test))
+                           (~ g!test)
+
+                           (#;Left (~ g!error))
+                           (;;fail (~ g!error))))))))))
 
 (def: (exported-tests module-name)
   (-> Text (Meta (List [Text Text Text])))
