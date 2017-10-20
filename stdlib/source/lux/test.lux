@@ -3,15 +3,15 @@
   (lux [meta #+ Monad<Meta> with-gensyms]
        (meta ["s" syntax #+ syntax: Syntax]
              [code])
-       (control ["M" monad #+ do Monad]
+       (control [monad #+ do Monad]
                 ["p" parser])
        (concurrency [promise #+ Promise Monad<Promise>])
-       (data (coll [list "L/" Monad<List> Fold<List>])
+       (data (coll [list "list/" Monad<List> Fold<List>])
              [product]
              [maybe]
              [text]
              text/format
-             ["E" error])
+             ["e" error])
        [io #- run]
        (time [instant]
              [duration])
@@ -27,13 +27,20 @@
   )
 
 ## [Types]
-(type: Counters [Nat Nat])
+(type: #export Counters [Nat Nat])
+
+(type: #export Seed
+  {#;doc "The seed value used for random testing (if that feature is used)."}
+  Nat)
 
 (type: #export Test
-  {#;doc "Tests are asynchronous process which may fail."}
-  (Promise [Counters Text]))
+  (r;Random (Promise [Counters Text])))
+
+(def: pcg-32-magic-inc Nat +12345)
 
 ## [Values]
+(def: #hidden Monad<Random> (Monad r;Random) r;Monad<Random>)
+
 (def: success Counters [+1 +0])
 (def: failure Counters [+0 +1])
 (def: start Counters [+0 +0])
@@ -44,131 +51,94 @@
 
 (def: (fail message)
   (All [a] (-> Text Test))
-  (:: Monad<Promise> wrap [failure (format "  [Error] " (%t message))]))
+  (|> [failure (format "  [Error] " message)]
+      (:: Monad<Promise> wrap)
+      (:: r;Monad<Random> wrap)))
+
+(def: #export (assert message condition)
+  {#;doc "Check that a condition is true, and fail with the given message otherwise."}
+  (-> Text Bool (Promise [Counters Text]))
+  (if condition
+    (:: Monad<Promise> wrap [success (format "[Success] " message)])
+    (:: Monad<Promise> wrap [failure (format "  [Error] " message)])))
 
 (def: #export (test message condition)
   {#;doc "Check that a condition is true, and fail with the given message otherwise."}
   (-> Text Bool Test)
-  (if condition
-    (:: Monad<Promise> wrap [success (format "[Success] " message)])
-    (:: Monad<Promise> wrap [failure (format "  [Error] " message)])))
+  (:: r;Monad<Random> wrap (assert message condition)))
 
 (def: #hidden (run' tests)
   (-> (List [Text (IO Test) Text]) (Promise Counters))
   (do Monad<Promise>
     [test-runs (|> tests
-                   (L/map (: (-> [Text (IO Test) Text] (Promise Counters))
-                             (function [[module test description]]
-                               (do @
-                                 [#let [pre (io;run instant;now)]
-                                  [counters documentation] (io;run test)
-                                  #let [post (io;run instant;now)
-                                        _ (log! (format "@ " module " "
-                                                        "(" (%i (duration;to-millis (instant;span pre post))) "ms" ")"
-                                                        "\n"
-                                                        description "\n"
-                                                        "\n" documentation "\n"))]]
-                                 (wrap counters)))))
-                   (M;seq @))]
-    (wrap (L/fold add-counters start test-runs))))
-
-(def: pcg-32-magic-inc Nat +12345)
-
-(type: #export Seed
-  {#;doc "The seed value used for random testing (if that feature is used)."}
-  Nat)
+                   (list/map (: (-> [Text (IO Test) Text] (Promise Counters))
+                                (function [[module test description]]
+                                  (do @
+                                    [#let [pre (io;run instant;now)
+                                           seed (int-to-nat (instant;to-millis pre))]
+                                     [counters documentation] (|> (io;run test)
+                                                                  (r;run (r;pcg-32 [pcg-32-magic-inc seed]))
+                                                                  product;right)
+                                     #let [post (io;run instant;now)
+                                           _ (log! (format "@ " module " "
+                                                           "(" (%i (duration;to-millis (instant;span pre post))) "ms" ")"
+                                                           "\n"
+                                                           description "\n"
+                                                           "\n" documentation "\n"))]]
+                                    (wrap counters)))))
+                   (monad;seq @))]
+    (wrap (list/fold add-counters start test-runs))))
 
 (def: failed?
   (-> Counters Bool)
   (|>. product;right (n.> +0)))
 
-(def: (try seed random-test)
-  (-> Seed (r;Random Test) (Promise [Seed [Counters Text]]))
-  (let [[prng [new-seed test]] (r;run (r;pcg-32 [pcg-32-magic-inc seed])
-                                      (do r;Monad<Random>
-                                        [test random-test
-                                         next-seed r;nat]
-                                        (wrap [next-seed test])))]
-    (do Monad<Promise>
-      [result test]
-      (wrap [new-seed result]))))
+(def: #export (seed value test)
+  (-> Seed Test Test)
+  (function [prng]
+    (let [[_ result] (r;run (r;pcg-32 [pcg-32-magic-inc value])
+                            test)]
+      [prng result])))
 
-(def: (repeat' seed times random-test)
-  (-> Seed Nat (r;Random Test) Test)
-  (if (n.= +0 times)
-    (fail "Cannot try a test 0 times.")
-    (do Monad<Promise>
-      [[seed' [counters documentation]] (try seed random-test)]
-      (cond (failed? counters)
-            (wrap [counters
-                   (format "Context failed with this seed: " (%n seed) "\n" documentation)])
+(def: #export (times amount test)
+  (-> Nat Test Test)
+  (cond (n.= +0 amount)
+        (fail "Cannot try a test 0 times.")
 
-            (n.= +1 times)
-            (wrap [counters documentation])
+        (n.= +1 amount)
+        test
 
-            ## else
-            (repeat' seed' (n.dec times) random-test)))))
-
-(def: #hidden (repeat ?seed times random-test)
-  (-> (Maybe Nat) Nat (r;Random Test) Test)
-  (repeat' (maybe;default (|> (io;run instant;now) instant;to-millis int-to-nat)
-                          ?seed)
-           (case ?seed
-             #;None times
-             (#;Some _) +1)
-           random-test))
+        ## else
+        (function [prng]
+          (let [[prng' instance] (r;run prng test)]
+            [prng' (do Monad<Promise>
+                     [[counters documentation] instance]
+                     (if (failed? counters)
+                       (wrap [counters documentation])
+                       (product;right (r;run prng' (times (n.dec amount) test)))))]))))
 
 ## [Syntax]
-(type: Test-Config
-  (#Seed Nat)
-  (#Times Nat))
+(def: #hidden (try-test test)
+  (-> (IO Test) (IO Test))
+  (do Monad<IO>
+    [now instant;now
+     #let [seed (|> now instant;to-millis int-to-nat)]]
+    (io (do r;Monad<Random>
+          [instance (case (_lux_proc ["lux" "try"] [test])
+                      (#e;Success test)
+                      test
 
-(type: Property-Test
-  {#seed (Maybe Test-Config)
-   #bindings (List [Code Code])
-   #body Code})
-
-(type: Test-Kind
-  (#Property Property-Test)
-  (#Simple Code))
-
-(def: config^
-  (Syntax Test-Config)
-  (p;alt (do p;Monad<Parser>
-           [_ (s;this (' #seed))]
-           s;nat)
-         (do p;Monad<Parser>
-           [_ (s;this (' #times))]
-           s;nat)))
-
-(def: property-test^
-  (Syntax Property-Test)
-  ($_ p;seq
-      (p;maybe config^)
-      (s;tuple (p;some (p;seq s;any s;any)))
-      s;any))
-
-(def: test^
-  (Syntax Test-Kind)
-  (p;alt property-test^
-         s;any))
-
-(def: (pair-to-list [x y])
-  (All [a] (-> [a a] (List a)))
-  (list x y))
-
-(def: #hidden (try-body lazy-body)
-  (-> (IO Test) Test)
-  (case (_lux_proc ["lux" "try"] [lazy-body])
-    (#E;Success output)
-    output
-
-    (#E;Error error)
-    (test error false)))
+                      (#e;Error error)
+                      (fail error))]
+          (wrap (do Monad<Promise>
+                  [[counter documentation] instance]
+                  (if (failed? counter)
+                    (wrap [counter (format "Context failed with this seed: " (%n seed) "\n" documentation)])
+                    (wrap [counter documentation]))))))))
 
 (def: #hidden _code/text_ code;text)
 
-(syntax: #export (context: description [body test^])
+(syntax: #export (context: description test)
   {#;doc (doc "Macro for definint tests."
               (context: "Simple macros and constructs"
                 ($_ seq
@@ -202,70 +172,56 @@
                                (is "lol" (maybe;default "yolo"
                                                         (#;Some "lol")))))
                     ))
+              
               "Also works with random generation of values for property-based testing."
               (context: "Addition & Substraction"
-                [x (:: @ map <prep> rand-gen)
-                 y (:: @ map <prep> rand-gen)]
-                (test ""
-                      (and (|> x (- y) (+ y) (= x))
-                           (|> x (+ y) (- y) (= x)))))
+                (do @
+                  [x (:: @ map <prep> rand-gen)
+                   y (:: @ map <prep> rand-gen)]
+                  (test ""
+                        (and (|> x (- y) (+ y) (= x))
+                             (|> x (+ y) (- y) (= x))))))
+              
               "By default, random tests will be tried 100 times, you can specify the amount you want:"
               (context: "Addition & Substraction"
-                #times +1234
-                [x (:: @ map <prep> rand-gen)
-                 y (:: @ map <prep> rand-gen)]
-                (test ""
-                      (and (|> x (- y) (+ y) (= x))
-                           (|> x (+ y) (- y) (= x)))))
+                (<| (times +1234)
+                    (do @
+                      [x (:: @ map <prep> rand-gen)
+                       y (:: @ map <prep> rand-gen)]
+                      (test ""
+                            (and (|> x (- y) (+ y) (= x))
+                                 (|> x (+ y) (- y) (= x)))))))
+              
               "If a test fails, you'll be shown a seed that you can then use to reproduce a failing scenario."
               (context: "Addition & Substraction"
-                #seed +987654321
-                [x (:: @ map <prep> rand-gen)
-                 y (:: @ map <prep> rand-gen)]
-                (test ""
-                      (and (|> x (- y) (+ y) (= x))
-                           (|> x (+ y) (- y) (= x)))))
+                (<| (seed +987654321)
+                    (do @
+                      [x (:: @ map <prep> rand-gen)
+                       y (:: @ map <prep> rand-gen)]
+                      (test ""
+                            (and (|> x (- y) (+ y) (= x))
+                                 (|> x (+ y) (- y) (= x)))))))
               )}
-  (let [body (case body
-               (#Property config bindings body)
-               (let [[=seed =times] (case config
-                                      #;None
-                                      [(` #;None) +100]
-                                      
-                                      (#;Some (#Seed value))
-                                      [(` (#;Some (~ (code;nat value)))) +100]
-
-                                      (#;Some (#Times value))
-                                      [(` #;None) value])
-                     bindings' (|> bindings (L/map pair-to-list) L/join)]
-                 (` (repeat (~ =seed)
-                            (~ (code;nat =times))
-                            (do r;Monad<Random>
-                              [(~@ bindings')]
-                              ((~' wrap) (;;try-body (io;io (~ body))))))))
-               
-               (#Simple body)
-               body)]
-    (with-gensyms [g!test]
-      (wrap (list (` (def: #export (~ g!test)
-                       {#;;test (;;_code/text_ (~ description))}
-                       (IO Test)
-                       (io (~ body)))))))))
+  (with-gensyms [g!test]
+    (wrap (list (` (def: #export (~ g!test)
+                     {#;;test (;;_code/text_ (~ description))}
+                     (IO Test)
+                     (;;try-test (io (do ;;Monad<Random> [] (~ test))))))))))
 
 (def: (exported-tests module-name)
   (-> Text (Meta (List [Text Text Text])))
   (do Monad<Meta>
     [defs (meta;exports module-name)]
     (wrap (|> defs
-              (L/map (function [[def-name [_ def-anns _]]]
-                       (case (meta;get-text-ann (ident-for #;;test) def-anns)
-                         (#;Some description)
-                         [true module-name def-name description]
+              (list/map (function [[def-name [_ def-anns _]]]
+                          (case (meta;get-text-ann (ident-for #;;test) def-anns)
+                            (#;Some description)
+                            [true module-name def-name description]
 
-                         _
-                         [false module-name def-name ""])))
+                            _
+                            [false module-name def-name ""])))
               (list;filter product;left)
-              (L/map product;right)))))
+              (list/map product;right)))))
 
 (def: #hidden _composeT_ (-> Text Text Text) (:: text;Monoid<Text> compose))
 (def: #hidden _%i_ (-> Int Text) %i)
@@ -280,22 +236,22 @@
        tests (: (Meta (List [Text Text Text]))
                 (|> (#;Cons current-module modules)
                     list;reverse
-                    (M;map @ exported-tests)
-                    (:: @ map L/join)))
-       #let [tests+ (L/map (function [[module-name test desc]]
-                             (` [(~ (code;text module-name)) (~ (code;symbol [module-name test])) (~ (code;text desc))]))
-                           tests)
+                    (monad;map @ exported-tests)
+                    (:: @ map list/join)))
+       #let [tests+ (list/map (function [[module-name test desc]]
+                                (` [(~ (code;text module-name)) (~ (code;symbol [module-name test])) (~ (code;text desc))]))
+                              tests)
              num-tests (list;size tests+)
              groups (list;split-all promise;concurrency-level tests+)]]
       (wrap (list (` (: (IO Unit)
                         (io (exec (do Monad<Promise>
                                     [(~' #let) [(~ g!total-successes) +0
                                                 (~ g!total-failures) +0]
-                                     (~@ (L/join (L/map (function [group]
-                                                          (list (` [(~ g!successes) (~ g!failures)]) (` (run' (list (~@ group))))
-                                                                (' #let) (` [(~ g!total-successes) (n.+ (~ g!successes) (~ g!total-successes))
-                                                                             (~ g!total-failures) (n.+ (~ g!failures) (~ g!total-failures))])))
-                                                        groups)))]
+                                     (~@ (list/join (list/map (function [group]
+                                                                (list (` [(~ g!successes) (~ g!failures)]) (` (run' (list (~@ group))))
+                                                                      (' #let) (` [(~ g!total-successes) (n.+ (~ g!successes) (~ g!total-successes))
+                                                                                   (~ g!total-failures) (n.+ (~ g!failures) (~ g!total-failures))])))
+                                                              groups)))]
                                     (exec (log! ($_ _composeT_
                                                     "Test-suite finished."
                                                     "\n"
@@ -314,8 +270,11 @@
 (def: #export (seq left right)
   {#;doc "Sequencing combinator."}
   (-> Test Test Test)
-  (do Monad<Promise>
-    [[l-counter l-documentation] left
-     [r-counter r-documentation] right]
-    (wrap [(add-counters l-counter r-counter)
-           (format l-documentation "\n" r-documentation)])))
+  (do r;Monad<Random>
+    [left left
+     right right]
+    (wrap (do Monad<Promise>
+            [[l-counter l-documentation] left
+             [r-counter r-documentation] right]
+            (wrap [(add-counters l-counter r-counter)
+                   (format l-documentation "\n" r-documentation)])))))
