@@ -85,7 +85,7 @@
 
 ;; Type
 (defvariant
-  ("Host" 2)
+  ("Primitive" 2)
   ("Void" 0)
   ("Unit" 0)
   ("Sum" 2)

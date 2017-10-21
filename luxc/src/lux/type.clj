@@ -23,17 +23,17 @@
 
 (def empty-env &/$Nil)
 
-(def Bool (&/$Named (&/T ["lux" "Bool"]) (&/$Host "#Bool" &/$Nil)))
-(def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Host &&host/nat-data-tag &/$Nil)))
-(def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Host &&host/deg-data-tag &/$Nil)))
-(def Int (&/$Named (&/T ["lux" "Int"]) (&/$Host "#Int" &/$Nil)))
-(def Frac (&/$Named (&/T ["lux" "Frac"]) (&/$Host "#Frac" &/$Nil)))
-(def Text (&/$Named (&/T ["lux" "Text"]) (&/$Host "#Text" &/$Nil)))
+(def Bool (&/$Named (&/T ["lux" "Bool"]) (&/$Primitive "#Bool" &/$Nil)))
+(def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Primitive &&host/nat-data-tag &/$Nil)))
+(def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Primitive &&host/deg-data-tag &/$Nil)))
+(def Int (&/$Named (&/T ["lux" "Int"]) (&/$Primitive "#Int" &/$Nil)))
+(def Frac (&/$Named (&/T ["lux" "Frac"]) (&/$Primitive "#Frac" &/$Nil)))
+(def Text (&/$Named (&/T ["lux" "Text"]) (&/$Primitive "#Text" &/$Nil)))
 (def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
 
 (do-template [<name> <tag>]
   (defn <name> [elem-type]
-    (&/$Host <tag> (&/|list elem-type)))
+    (&/$Primitive <tag> (&/|list elem-type)))
 
   Array "#Array"
   Atom  "#Atom"
@@ -83,7 +83,7 @@
               (&/$Apply &/$Void
                         (&/$UnivQ empty-env
                                   (&/$Sum
-                                   ;; Host
+                                   ;; Primitive
                                    (&/$Product Text TypeList)
                                    (&/$Sum
                                     ;; Void
@@ -222,7 +222,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
-                                                               ts))
+                                                                ts))
                             state)
                  nil))
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -345,9 +345,9 @@
           (return type)))
       )
 
-    (&/$Host ?name ?params)
+    (&/$Primitive ?name ?params)
     (|do [=params (&/map% (partial clean* ?tid) ?params)]
-      (return (&/$Host ?name =params)))
+      (return (&/$Primitive ?name =params)))
     
     (&/$Function ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
@@ -456,13 +456,13 @@
 
 (defn show-type [^objects type]
   (|case type
-    (&/$Host name params)
+    (&/$Primitive name params)
     (|case params
       (&/$Nil)
-      (str "(host " name ")")
+      (str "(primitive " name ")")
 
       _
-      (str "(host " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+      (str "(primitive " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
     (&/$Void)
     "Void"
@@ -514,7 +514,7 @@
                      (and (= ?xmodule ?ymodule)
                           (= ?xname ?yname))
 
-                     [(&/$Host xname xparams) (&/$Host yname yparams)]
+                     [(&/$Primitive xname xparams) (&/$Primitive yname yparams)]
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
@@ -604,8 +604,8 @@
 
 (defn beta-reduce [env type]
   (|case type
-    (&/$Host ?name ?params)
-    (&/$Host ?name (&/|map (partial beta-reduce env) ?params))
+    (&/$Primitive ?name ?params)
+    (&/$Primitive ?name (&/|map (partial beta-reduce env) ?params))
 
     (&/$Sum ?left ?right)
     (&/$Sum (beta-reduce env ?left) (beta-reduce env ?right))
@@ -841,7 +841,7 @@
               actual* (apply-type actual $arg)]
           (check* fixpoints invariant?? expected actual*))
 
-        [(&/$Host e!data) (&/$Host a!data)]
+        [(&/$Primitive e!data) (&/$Primitive a!data)]
         (|do [? &/jvm?]
           (if ?
             (|do [class-loader &/loader]

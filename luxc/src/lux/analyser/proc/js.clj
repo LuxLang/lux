@@ -10,9 +10,9 @@
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons ?function ?args) ?values]
-          =function (&&/analyse-1 analyse (&/$Host "function" &/$Nil) ?function)
+          =function (&&/analyse-1 analyse (&/$Primitive "function" &/$Nil) ?function)
           =args (&/map% (partial &&/analyse-1+ analyse) ?args)
-          _ (&type/check exo-type (&/$Host "object" &/$Nil))
+          _ (&type/check exo-type (&/$Primitive "object" &/$Nil))
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["js" <proc>]) (&/$Cons =function =args) (&/|list)))))))
@@ -23,17 +23,17 @@
 
 (defn ^:private analyse-js-object-call [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?object (&/$Cons ?field ?args)) ?values]
-        =object (&&/analyse-1 analyse (&/$Host "object" &/$Nil) ?object)
+        =object (&&/analyse-1 analyse (&/$Primitive "object" &/$Nil) ?object)
         =field (&&/analyse-1 analyse &type/Text ?field)
         =args (&/map% (partial &&/analyse-1+ analyse) ?args)
-        _ (&type/check exo-type (&/$Host "object" &/$Nil))
+        _ (&type/check exo-type (&/$Primitive "object" &/$Nil))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["js" "object-call"]) (&/$Cons =object (&/$Cons =field =args)) (&/|list)))))))
 
 (defn ^:private analyse-js-ref [analyse exo-type ?values]
   (|do [:let [(&/$Cons [_ (&/$Text ?ref-name)] (&/$Nil)) ?values]
-        _ (&type/check exo-type (&/$Host "object" &/$Nil))
+        _ (&type/check exo-type (&/$Primitive "object" &/$Nil))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["js" "ref"]) (&/|list) (&/|list ?ref-name)))))))
@@ -41,9 +41,9 @@
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons ?object (&/$Cons ?field (&/$Nil))) ?values]
-          =object (&&/analyse-1 analyse (&/$Host "object" &/$Nil) ?object)
+          =object (&&/analyse-1 analyse (&/$Primitive "object" &/$Nil) ?object)
           =field (&&/analyse-1 analyse &type/Text ?field)
-          _ (&type/check exo-type (&/$Host "object" &/$Nil))
+          _ (&type/check exo-type (&/$Primitive "object" &/$Nil))
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["js" <proc>]) (&/|list =object =field) (&/|list)))))))
@@ -54,10 +54,10 @@
 
 (defn ^:private analyse-js-set-field [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?object (&/$Cons ?field (&/$Cons ?value (&/$Nil)))) ?values]
-        =object (&&/analyse-1 analyse (&/$Host "object" &/$Nil) ?object)
+        =object (&&/analyse-1 analyse (&/$Primitive "object" &/$Nil) ?object)
         =field (&&/analyse-1 analyse &type/Text ?field)
         =value (&&/analyse-1+ analyse ?value)
-        _ (&type/check exo-type (&/$Host "object" &/$Nil))
+        _ (&type/check exo-type (&/$Primitive "object" &/$Nil))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["js" "set-field"]) (&/|list =object =field =value) (&/|list)))))))
@@ -65,7 +65,7 @@
 (do-template [<name> <proc> <type>]
   (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Nil) ?values]
-          :let [output-type (&/$Host <type> &/$Nil)]
+          :let [output-type (&/$Primitive <type> &/$Nil)]
           _ (&type/check exo-type output-type)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor

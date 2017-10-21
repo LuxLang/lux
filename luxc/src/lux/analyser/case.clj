@@ -68,9 +68,9 @@
       (&/$Bound (+ (* 2 level) bound-idx))
       type)
 
-    (&/$Host ?name ?params)
-    (&/$Host ?name (&/|map (partial clean! level ?tid bound-idx)
-                           ?params))
+    (&/$Primitive ?name ?params)
+    (&/$Primitive ?name (&/|map (partial clean! level ?tid bound-idx)
+                                ?params))
     
     (&/$Function ?arg ?return)
     (&/$Function (clean! level ?tid bound-idx ?arg)
@@ -102,8 +102,8 @@
 
 (defn beta-reduce! [level env type]
   (|case type
-    (&/$Host ?name ?params)
-    (&/$Host ?name (&/|map (partial beta-reduce! level env) ?params))
+    (&/$Primitive ?name ?params)
+    (&/$Primitive ?name (&/|map (partial beta-reduce! level env) ?params))
 
     (&/$Sum ?left ?right)
     (&/$Sum (beta-reduce! level env ?left)

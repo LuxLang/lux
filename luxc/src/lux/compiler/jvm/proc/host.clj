@@ -51,31 +51,31 @@
       (&/$Unit)
       (.visitLdcInsn *writer* &/unit-tag)
 
-      (&/$Host "boolean" (&/$Nil))
+      (&/$Primitive "boolean" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
       
-      (&/$Host "byte" (&/$Nil))
+      (&/$Primitive "byte" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
-      (&/$Host "short" (&/$Nil))
+      (&/$Primitive "short" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
-      (&/$Host "int" (&/$Nil))
+      (&/$Primitive "int" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
-      (&/$Host "long" (&/$Nil))
+      (&/$Primitive "long" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
-      (&/$Host "float" (&/$Nil))
+      (&/$Primitive "float" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
-      (&/$Host "double" (&/$Nil))
+      (&/$Primitive "double" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
-      (&/$Host "char" (&/$Nil))
+      (&/$Primitive "char" (&/$Nil))
       (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
       
-      (&/$Host _ _)
+      (&/$Primitive _ _)
       nil
 
       (&/$Named ?name ?type)

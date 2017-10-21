@@ -24,7 +24,7 @@
   (if (clojure.lang.Util/identical &type/Type type)
     "T"
     (|case type
-      (&/$Host name params)
+      (&/$Primitive name params)
       (str "^" name stop (serialize-list serialize-type params))
 
       (&/$Void)
@@ -137,7 +137,7 @@
   (when (.startsWith input "^")
     (let [[name ^String input*] (.split (.substring input 1) stop 2)]
       (when-let [[params ^String input*] (deserialize-list input*)]
-        [(&/$Host name params) input*]))))
+        [(&/$Primitive name params) input*]))))
 
 (defn deserialize-type
   "(-> Text Type)"

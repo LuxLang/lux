@@ -230,7 +230,7 @@ Called by `imenu--generic-function'."
             "exec" "let" "if" "cond" "do" "be" "open" "loop" "recur" "comment" "for"
             "list" "list&" "io" "sequence" "tree"
             "get@" "set@" "update@" "|>" "|>." "<|" "<|." "_$" "$_" "~" "~@" "~'" "::" ":::"
-            "|" "&" "->" "All" "Ex" "Rec" "host" "$" "type"
+            "|" "&" "->" "All" "Ex" "Rec" "primitive" "$" "type"
             "^" "^or" "^slots" "^multi" "^~" "^@" "^template" "^open" "^|>" "^stream&" "^regex"
             "bin" "oct" "hex"
             "pre" "post"
@@ -244,23 +244,23 @@ Called by `imenu--generic-function'."
             ) t)
          "\\>")
        1 font-lock-builtin-face)
-      ; Bool literals
+                                        ; Bool literals
       (,(concat
          "\\<"
          (regexp-opt
           '("true" "false") t)
          "\\>")
        0 font-lock-constant-face)
-      ; Nat literals
+                                        ; Nat literals
       ("\\<\\+\\(0\\|[1-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
-      ; Int|Frac literals
+                                        ; Int|Frac literals
       ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\)?\\>" 0 font-lock-constant-face)
       ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\(\\(e\\|E\\)\\(-\\|\\+\\)?[1-9][0-9_]*\\)?\\)?\\>" 0 font-lock-constant-face)
-      ; Frac "ratio" literals
+                                        ; Frac "ratio" literals
       ("\\<-?\\(0\\|[1-9][0-9_]*\\)/[1-9][0-9_]*\\>" 0 font-lock-constant-face)
-      ; Deg literals
+                                        ; Deg literals
       ("\\<\\(\\.[0-9_]+\\)\\>" 0 font-lock-constant-face)
-      ; Tags
+                                        ; Tags
       ("#;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
       ("#;;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
       ("#[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+\\(;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+\\)?" 0 font-lock-type-face)
@@ -368,7 +368,7 @@ This function also returns nil meaning don't specify the indentation."
   "Call `put-lux-indent' on a series, KVS."
   `(progn
      ,@(mapcar (lambda (x) `(put-lux-indent
-                             (quote ,(first x)) ,(second x)))
+                        (quote ,(first x)) ,(second x)))
                kvs)))
 
 (define-lux-indent
