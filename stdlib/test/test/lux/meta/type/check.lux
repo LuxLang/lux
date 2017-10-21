@@ -1,14 +1,17 @@
 (;module:
   lux
   (lux [io]
-       (control [monad #+ do Monad])
-       (data [text "text/" Monoid<Text> Eq<Text>]
-             text/format
+       (control [monad #+ do Monad]
+                [pipe #+ case>])
+       (data [product]
+             [maybe]
              [number]
-             maybe
-             (coll [list]))
+             [text "text/" Monoid<Text> Eq<Text>]
+             text/format
+             (coll [list "list/" Functor<List>]
+                   [set]))
        ["r" math/random]
-       (meta [type]
+       (meta [type "type/" Eq<Type>]
              ["@" type/check]))
   lux/test)
 
@@ -162,7 +165,7 @@
             (and (type-checks? (@;with (function [[id var]] (@;check var #;Unit))))
                  (type-checks? (@;with (function [[id var]] (@;check #;Unit var))))))
 
-      (test "Can't rebind already bound type-vars."
+      (test "Cannot rebind already bound type-vars."
             (not (type-checks? (@;with (function [[id var]]
                                          (do @;Monad<Check>
                                            [_ (@;check var #;Unit)]
@@ -179,4 +182,102 @@
                                     (do @;Monad<Check>
                                       [_ (@;check var Bottom)]
                                       (@;check #;Unit var))))))
+      ))
+
+(def: (build-ring num-connections)
+  (-> Nat (@;Check [[Nat Type] (List [Nat Type]) [Nat Type]]))
+  (do @;Monad<Check>
+    [[head-id head-type] @;create
+     ids+types (monad;seq @ (list;repeat num-connections @;create))
+     [tail-id tail-type] (monad;fold @ (function [[tail-id tail-type] [_head-id _head-type]]
+                                         (do @
+                                           [_ (@;check head-type tail-type)]
+                                           (wrap [tail-id tail-type])))
+                                     [head-id head-type]
+                                     ids+types)]
+    (wrap [[head-id head-type] ids+types [tail-id tail-type]])))
+
+(context: "Rings."
+  (<| (times +100)
+      (do @
+        [num-connections (|> r;nat (:: @ map (n.% +100)))
+         bound (|> gen-type (r;filter (|>. (case> (#;Var _) false _ true))))
+         pick-pcg (r;seq r;nat r;nat)]
+        ($_ seq
+            (test "Can create rings of variables."
+                  (type-checks? (do @;Monad<Check>
+                                  [[[head-id head-type] ids+types [tail-id tail-type]] (build-ring num-connections)
+                                   #let [ids (list/map product;left ids+types)]
+                                   headR (@;ring head-id)
+                                   tailR (@;ring tail-id)]
+                                  (@;assert ""
+                                            (let [same-rings? (:: set;Eq<Set> = headR tailR)
+                                                  expected-size? (n.= (n.inc num-connections) (set;size headR))
+                                                  same-vars? (|> (set;to-list headR)
+                                                                 (list;sort n.<)
+                                                                 (:: (list;Eq<List> number;Eq<Nat>) = (list;sort n.< (#;Cons head-id ids))))]
+                                              (and same-rings?
+                                                   expected-size?
+                                                   same-vars?))))))
+            (test "When a var in a ring is bound, all the ring is bound."
+                  (type-checks? (do @;Monad<Check>
+                                  [[[head-id head-type] ids+types tail-type] (build-ring num-connections)
+                                   #let [ids (list/map product;left ids+types)]
+                                   _ (@;check head-type bound)
+                                   head-bound (@;read head-id)
+                                   tail-bound (monad;map @ @;read ids)
+                                   headR (@;ring head-id)
+                                   tailR+ (monad;map @ @;ring ids)]
+                                  (let [rings-were-erased? (and (set;empty? headR)
+                                                                (list;every? set;empty? tailR+))
+                                        same-types? (list;every? (type/= bound) (list& head-bound tail-bound))]
+                                    (@;assert ""
+                                              (and rings-were-erased?
+                                                   same-types?))))))
+            (test "Can delete variables from rings."
+                  (type-checks? (do @;Monad<Check>
+                                  [[[head-id head-type] ids+types [tail-id tail-type]] (build-ring num-connections)
+                                   #let [ids (list/map product;left ids+types)
+                                         all-ids (#;Cons head-id ids)
+                                         num-all-ids (list;size all-ids)
+                                         [_ idx] (r;run (r;pcg-32 pick-pcg)
+                                                        (|> r;nat (:: r;Monad<Random> map (n.% num-all-ids))))]
+                                   #let [pick (maybe;assume (list;nth idx all-ids))]
+                                   _ (@;delete pick)]
+                                  (if (n.= +0 num-connections)
+                                    (wrap [])
+                                    (do @
+                                      [ring (@;ring (if (n.= head-id pick)
+                                                      tail-id
+                                                      head-id))
+                                       #let [without-removal (|> (list (list;take idx all-ids)
+                                                                       (list;drop (n.inc idx) all-ids))
+                                                                 list;concat
+                                                                 (list;sort n.<))]]
+                                      (let [missing-link? (n.= (n.dec num-all-ids) (set;size ring))
+                                            ids-match? (|> (set;to-list ring)
+                                                           (list;sort n.<)
+                                                           (:: (list;Eq<List> number;Eq<Nat>) = without-removal))]
+                                        (@;assert ""
+                                                  (and missing-link?
+                                                       ids-match?)))))
+                                  )))
+            (test "Can merge multiple rings of variables."
+                  (type-checks? (do @;Monad<Check>
+                                  [[[head-idL head-typeL] ids+typesL [tail-idL tail-typeL]] (build-ring num-connections)
+                                   [[head-idR head-typeR] ids+typesR [tail-idR tail-typeR]] (build-ring num-connections)
+                                   headRL-pre (@;ring head-idL)
+                                   headRR-pre (@;ring head-idR)
+                                   _ (@;check head-typeL head-typeR)
+                                   headRL-post (@;ring head-idL)
+                                   headRR-post (@;ring head-idR)]
+                                  (@;assert ""
+                                            (let [same-rings? (:: set;Eq<Set> = headRL-post headRR-post)
+                                                  expected-size? (n.= (n.* +2 (n.inc num-connections))
+                                                                      (set;size headRL-post))
+                                                  union? (:: set;Eq<Set> = headRL-post (set;union headRL-pre headRR-pre))]
+                                              (and same-rings?
+                                                   expected-size?
+                                                   union?))))))
+            ))
       ))

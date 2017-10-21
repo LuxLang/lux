@@ -1,36 +1,38 @@
-(;module: {#;doc "Type-checking functionality.
-
-                  Very useful for writing advanced macros."}
+(;module: {#;doc "Type-checking functionality."}
   lux
   (lux (control [functor #+ Functor]
                 [applicative #+ Applicative]
-                [monad #+ do Monad])
+                [monad #+ do Monad]
+                ["ex" exception #+ exception:])
        (data [text "text/" Monoid<Text> Eq<Text>]
              [number "nat/" Codec<Text,Nat>]
              maybe
              [product]
-             (coll [list])
-             ["E" error])
+             (coll [list]
+                   [set #+ Set])
+             ["e" error])
        (meta [type "type/" Eq<Type>])
        ))
+
+(type: #export Var Nat)
 
 (type: #export Assumptions (List [[Type Type] Bool]))
 
 (type: #export (Check a)
-  (-> Type-Context (E;Error [Type-Context a])))
+  (-> Type-Context (e;Error [Type-Context a])))
 
 (type: #export Type-Vars
-  (List [Nat (Maybe Type)]))
+  (List [Var (Maybe Type)]))
 
 (struct: #export _ (Functor Check)
   (def: (map f fa)
     (function [context]
       (case (fa context)
-        (#E;Error error)
-        (#E;Error error)
+        (#e;Error error)
+        (#e;Error error)
 
-        (#E;Success [context' output])
-        (#E;Success [context' (f output)])
+        (#e;Success [context' output])
+        (#e;Success [context' (f output)])
         ))))
 
 (struct: #export _ (Applicative Check)
@@ -38,21 +40,21 @@
 
   (def: (wrap x)
     (function [context]
-      (#E;Success [context x])))
+      (#e;Success [context x])))
 
   (def: (apply ff fa)
     (function [context]
       (case (ff context)
-        (#E;Success [context' f])
+        (#e;Success [context' f])
         (case (fa context')
-          (#E;Success [context'' a])
-          (#E;Success [context'' (f a)])
+          (#e;Success [context'' a])
+          (#e;Success [context'' (f a)])
 
-          (#E;Error error)
-          (#E;Error error))
+          (#e;Error error)
+          (#e;Error error))
 
-        (#E;Error error)
-        (#E;Error error)
+        (#e;Error error)
+        (#e;Error error)
         )))
   )
 
@@ -62,23 +64,23 @@
   (def: (join ffa)
     (function [context]
       (case (ffa context)
-        (#E;Success [context' fa])
+        (#e;Success [context' fa])
         (case (fa context')
-          (#E;Success [context'' a])
-          (#E;Success [context'' a])
+          (#e;Success [context'' a])
+          (#e;Success [context'' a])
 
-          (#E;Error error)
-          (#E;Error error))
+          (#e;Error error)
+          (#e;Error error))
 
-        (#E;Error error)
-        (#E;Error error)
+        (#e;Error error)
+        (#e;Error error)
         )))
   )
 
 (open Monad<Check> "check/")
 
 (def: (var::get id plist)
-  (-> Nat Type-Vars (Maybe (Maybe Type)))
+  (-> Var Type-Vars (Maybe (Maybe Type)))
   (case plist
     #;Nil
     #;None
@@ -91,7 +93,7 @@
     ))
 
 (def: (var::put id value plist)
-  (-> Nat (Maybe Type) Type-Vars Type-Vars)
+  (-> Var (Maybe Type) Type-Vars Type-Vars)
   (case plist
     #;Nil
     (list [id value])
@@ -106,7 +108,7 @@
     ))
 
 (def: (var::remove id plist)
-  (-> Nat Type-Vars Type-Vars)
+  (-> Var Type-Vars Type-Vars)
   (case plist
     #;Nil
     #;Nil
@@ -121,96 +123,100 @@
 
 ## [[Logic]]
 (def: #export (run context proc)
-  (All [a] (-> Type-Context (Check a) (E;Error a)))
+  (All [a] (-> Type-Context (Check a) (e;Error a)))
   (case (proc context)
-    (#E;Error error)
-    (#E;Error error)
+    (#e;Error error)
+    (#e;Error error)
 
-    (#E;Success [context' output])
-    (#E;Success output)))
+    (#e;Success [context' output])
+    (#e;Success output)))
 
 (def: (apply-type! t-func t-arg)
   (-> Type Type (Check Type))
   (function [context]
     (case (type;apply (list t-arg) t-func)
       #;None
-      (#E;Error ($_ text/compose "Invalid type application: " (type;to-text t-func) " on " (type;to-text t-arg)))
+      (#e;Error ($_ text/compose "Invalid type application: " (type;to-text t-func) " on " (type;to-text t-arg)))
 
       (#;Some output)
-      (#E;Success [context output]))))
+      (#e;Success [context output]))))
 
 (def: #export existential
   {#;doc "A producer of existential types."}
   (Check [Nat Type])
   (function [context]
     (let [id (get@ #;ex-counter context)]
-      (#E;Success [(update@ #;ex-counter n.inc context)
+      (#e;Success [(update@ #;ex-counter n.inc context)
                    [id (#;Ex id)]]))))
 
+(exception: #export Unknown-Type-Var)
+(exception: #export Unbound-Type-Var)
+(exception: #export Improper-Ring)
+
 (def: #export (bound? id)
-  (-> Nat (Check Bool))
+  (-> Var (Check Bool))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some _))
-      (#E;Success [context true])
+      (#e;Success [context true])
 
       (#;Some #;None)
-      (#E;Success [context false])
+      (#e;Success [context false])
       
       #;None
-      (#E;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
+      (ex;throw Unknown-Type-Var (nat/encode id)))))
 
 (def: #export (read id)
-  (-> Nat (Check Type))
+  (-> Var (Check Type))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some type))
-      (#E;Success [context type])
+      (#e;Success [context type])
 
       (#;Some #;None)
-      (#E;Error ($_ text/compose "Unbound type-var: " (nat/encode id)))
+      (ex;throw Unbound-Type-Var (nat/encode id))
       
       #;None
-      (#E;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
+      (ex;throw Unknown-Type-Var (nat/encode id)))))
 
-(def: #export (write id type)
-  (-> Nat Type (Check Unit))
+(def: #export (write type id)
+  (-> Type Var (Check Unit))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some bound))
-      (#E;Error ($_ text/compose "Cannot rebind type-var: " (nat/encode id) " | Current type: " (type;to-text bound)))
+      (#e;Error ($_ text/compose "Cannot re-bind type-var: " (nat/encode id) " | Current type: " (type;to-text bound)))
       
       (#;Some #;None)
-      (#E;Success [(update@ #;var-bindings (var::put id (#;Some type)) context)
+      (#e;Success [(update@ #;var-bindings (var::put id (#;Some type)) context)
                    []])
 
       #;None
-      (#E;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
+      (ex;throw Unknown-Type-Var (nat/encode id)))))
 
-(def: (update id type)
-  (-> Nat Type (Check Unit))
+(def: (update type id)
+  (-> Type Var (Check Unit))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some _)
-      (#E;Success [(update@ #;var-bindings (var::put id (#;Some type)) context)
+      (#e;Success [(update@ #;var-bindings (var::put id (#;Some type)) context)
                    []])
       
       #;None
-      (#E;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
+      (ex;throw Unknown-Type-Var (nat/encode id)))))
 
 (def: #export (clear id)
-  (-> Nat (Check Unit))
+  (-> Var (Check Unit))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some _)
-      (#E;Success [(update@ #;var-bindings (var::put id #;None) context)
+      (#e;Success [(update@ #;var-bindings (var::put id #;None) context)
                    []])
       
       #;None
-      (#E;Error ($_ text/compose "Unknown type-var: " (nat/encode id))))))
+      (ex;throw Unknown-Type-Var (nat/encode id)))))
 
 (def: #export (clean t-id type)
-  (-> Nat Type (Check Type))
+  (-> Var Type (Check Type))
   (case type
     (#;Var id)
     (if (n.= t-id id)
@@ -232,12 +238,12 @@
                   [_ (clear id)]
                   (wrap type))
                 (do Monad<Check>
-                  [_ (update id ==type)]
+                  [_ (update ==type id)]
                   (wrap type)))
 
               _
               (do Monad<Check>
-                [_ (update id ==type)]
+                [_ (update ==type id)]
                 (wrap type))))
           (wrap type))))
 
@@ -271,34 +277,97 @@
     ))
 
 (def: #export create
-  (Check [Nat Type])
+  (Check [Var Type])
   (function [context]
     (let [id (get@ #;var-counter context)]
-      (#E;Success [(|> context
+      (#e;Success [(|> context
                        (update@ #;var-counter n.inc)
                        (update@ #;var-bindings (var::put id #;None)))
                    [id (#;Var id)]]))))
 
 (def: get-bindings
-  (Check (List [Nat (Maybe Type)]))
+  (Check (List [Var (Maybe Type)]))
   (function [context]
-    (#E;Success [context
+    (#e;Success [context
                  (get@ #;var-bindings context)])))
 
 (def: (set-bindings value)
-  (-> (List [Nat (Maybe Type)]) (Check Unit))
+  (-> (List [Var (Maybe Type)]) (Check Unit))
   (function [context]
-    (#E;Success [(set@ #;var-bindings value context)
+    (#e;Success [(set@ #;var-bindings value context)
+                 []])))
+
+(def: (pre-link id)
+  (-> Var (Check (Maybe Var)))
+  (function [context]
+    (loop [current id]
+      (case (|> context (get@ #;var-bindings) (var::get current))
+        (#;Some (#;Some type))
+        (case type
+          (#;Var post)
+          (if (n.= id post)
+            (#e;Success [context (#;Some current)])
+            (recur post))
+          
+          _
+          (if (n.= current id)
+            (#e;Success [context #;None])
+            (ex;throw Improper-Ring (nat/encode id))))
+
+        (#;Some #;None)
+        (#e;Success [context #;None])
+        
+        #;None
+        (ex;throw Unknown-Type-Var (nat/encode current))))))
+
+(type: #export Ring (Set Var))
+
+(def: empty-ring Ring (set;new number;Hash<Nat>))
+
+(def: #export (ring id)
+  (-> Var (Check Ring))
+  (function [context]
+    (loop [current id
+           output (set;add id empty-ring)]
+      (case (|> context (get@ #;var-bindings) (var::get current))
+        (#;Some (#;Some type))
+        (case type
+          (#;Var post)
+          (if (n.= id post)
+            (#e;Success [context output])
+            (recur post (set;add post output)))
+          
+          _
+          (#e;Success [context empty-ring]))
+
+        (#;Some #;None)
+        (#e;Success [context output])
+        
+        #;None
+        (ex;throw Unknown-Type-Var (nat/encode current))))))
+
+(def: (delete' id)
+  (-> Var (Check Unit))
+  (function [context]
+    (#e;Success [(update@ #;var-bindings (var::remove id) context)
                  []])))
 
 (def: #export (delete id)
-  (-> Nat (Check Unit))
-  (function [context]
-    (#E;Success [(update@ #;var-bindings (var::remove id) context)
-                 []])))
+  (-> Var (Check Unit))
+  (do Monad<Check>
+    [?link (pre-link id)]
+    (case ?link
+      #;None
+      (delete' id)
+
+      (#;Some pre)
+      (do @
+        [post (read id)
+         _ (update post pre)]
+        (delete' id)))))
 
 (def: #export (with k)
-  (All [a] (-> (-> [Nat Type] (Check a)) (Check a)))
+  (All [a] (-> (-> [Var Type] (Check a)) (Check a)))
   (do Monad<Check>
     [[id var] create
      output (k [id var])
@@ -316,16 +385,23 @@
   (All [a] (-> (Check a) (Check (Maybe a))))
   (function [context]
     (case (op context)
-      (#E;Success [context' output])
-      (#E;Success [context' (#;Some output)])
+      (#e;Success [context' output])
+      (#e;Success [context' (#;Some output)])
 
-      (#E;Error _)
-      (#E;Success [context #;None]))))
+      (#e;Error _)
+      (#e;Success [context #;None]))))
 
 (def: #export (fail message)
   (All [a] (-> Text (Check a)))
   (function [context]
-    (#E;Error message)))
+    (#e;Error message)))
+
+(def: #export (assert message test)
+  (-> Text Bool (Check Unit))
+  (function [context]
+    (if test
+      (#e;Success [context []])
+      (#e;Error message))))
 
 (def: (fail-check expected actual)
   (All [a] (-> Type Type (Check a)))
@@ -337,10 +413,10 @@
   (All [a] (-> (Check a) (Check a) (Check a)))
   (function [context]
     (case (left context)
-      (#E;Success [context' output])
-      (#E;Success [context' output])
+      (#e;Success [context' output])
+      (#e;Success [context' output])
 
-      (#E;Error _)
+      (#e;Error _)
       (right context))))
 
 (def: (assumed? [e a] assumptions)
@@ -357,14 +433,104 @@
 
 (def: (on id type then else)
   (All [a]
-    (-> Nat Type (Check a) (-> Type (Check a))
+    (-> Var Type (Check a) (-> Type (Check a))
         (Check a)))
-  (either (do Monad<Check>
-            [_ (write id type)]
-            then)
-          (do Monad<Check>
-            [bound (read id)]
-            (else bound))))
+  ($_ either
+      (do Monad<Check>
+        [_ (write type id)]
+        then)
+      (do Monad<Check>
+        [ring (ring id)
+         _ (assert "" (n.> +1 (set;size ring)))
+         _ (monad;map @ (update type) (set;to-list ring))]
+        then)
+      (do Monad<Check>
+        [bound (read id)]
+        (else bound))))
+
+(def: (link-2 left right)
+  (-> Var Var (Check Unit))
+  (do Monad<Check>
+    [_ (write (#;Var right) left)]
+    (write (#;Var left) right)))
+
+(def: (link-3 interpose to from)
+  (-> Var Var Var (Check Unit))
+  (do Monad<Check>
+    [_ (update (#;Var interpose) from)]
+    (update (#;Var to) interpose)))
+
+(def: (check-vars check' assumptions idE idA)
+  (-> (-> Type Type Assumptions (Check Assumptions))
+      Assumptions
+      Var Var
+      (Check Assumptions))
+  (if (n.= idE idA)
+    (check/wrap assumptions)
+    (do Monad<Check>
+      [ebound (attempt (read idE))
+       abound (attempt (read idA))]
+      (case [ebound abound]
+        ## Link the 2 variables circularily
+        [#;None #;None]
+        (do @
+          [_ (link-2 idE idA)]
+          (wrap assumptions))
+
+        ## Interpose new variable between 2 existing links
+        [(#;Some etype) #;None]
+        (case etype
+          (#;Var targetE)
+          (do @
+            [_ (link-3 idA targetE idE)]
+            (wrap assumptions))
+
+          _
+          (check' etype (#;Var idA) assumptions))
+
+        ## Interpose new variable between 2 existing links
+        [#;None (#;Some atype)]
+        (case atype
+          (#;Var targetA)
+          (do @
+            [_ (link-3 idE targetA idA)]
+            (wrap assumptions))
+
+          _
+          (check' (#;Var idE) atype assumptions))
+
+        [(#;Some etype) (#;Some atype)]
+        (case [etype atype]
+          [(#;Var targetE) (#;Var targetA)]
+          (do @
+            [ringE (ring idE)
+             ringA (ring idA)]
+            (if (:: set;Eq<Set> = ringE ringA)
+              (wrap assumptions)
+              ## Fuse 2 rings
+              (do @
+                [_ (monad;fold @ (function [interpose to]
+                                   (do @
+                                     [_ (link-3 interpose to idE)]
+                                     (wrap interpose)))
+                               targetE
+                               (set;to-list ringA))]
+                (wrap assumptions))))
+          
+          [(#;Var targetE) _]
+          (do @
+            [ring (ring idE)
+             _ (monad;map @ (update atype) (set;to-list ring))]
+            (wrap assumptions))
+          
+          [_ (#;Var targetA)]
+          (do @
+            [ring (ring idA)
+             _ (monad;map @ (update etype) (set;to-list ring))]
+            (wrap assumptions))
+          
+          _
+          (check' etype atype assumptions))))))
 
 (def: #export (check' expected actual assumptions)
   {#;doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
@@ -372,34 +538,18 @@
   (if (is expected actual)
     (check/wrap assumptions)
     (case [expected actual]
-      [(#;Var e-id) (#;Var a-id)]
-      (if (n.= e-id a-id)
-        (check/wrap assumptions)
-        (do Monad<Check>
-          [ebound (attempt (read e-id))
-           abound (attempt (read a-id))]
-          (case [ebound abound]
-            [#;None #;None]
-            (do @
-              [_ (write e-id actual)]
-              (wrap assumptions))
-            
-            [(#;Some etype) #;None]
-            (check' etype actual assumptions)
-
-            [#;None (#;Some atype)]
-            (check' expected atype assumptions)
-
-            [(#;Some etype) (#;Some atype)]
-            (check' etype atype assumptions))))
+      [(#;Var idE) (#;Var idA)]
+      (check-vars check' assumptions idE idA)
       
       [(#;Var id) _]
-      (on id actual (check/wrap assumptions)
+      (on id actual
+          (check/wrap assumptions)
           (function [bound]
             (check' bound actual assumptions)))
       
       [_ (#;Var id)]
-      (on id expected (check/wrap assumptions)
+      (on id expected
+          (check/wrap assumptions)
           (function [bound]
             (check' expected bound assumptions)))
 
@@ -529,13 +679,13 @@
   {#;doc "A simple type-checking function that just returns a yes/no answer."}
   (-> Type Type Bool)
   (case (run fresh-context (check expected actual))
-    (#E;Error error)
+    (#e;Error error)
     false
 
-    (#E;Success _)
+    (#e;Success _)
     true))
 
 (def: #export get-context
   (Check Type-Context)
   (function [context]
-    (#E;Success [context context])))
+    (#e;Success [context context])))
