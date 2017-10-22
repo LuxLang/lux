@@ -157,8 +157,21 @@
   (-> Var (Check Bool))
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
-      (#;Some (#;Some _))
+      (#;Some (#;Some bound))
       (#e;Success [context true])
+
+      (#;Some #;None)
+      (#e;Success [context false])
+      
+      #;None
+      (ex;throw Unknown-Type-Var (nat/encode id)))))
+
+(def: #export (concrete? id)
+  (-> Var (Check Bool))
+  (function [context]
+    (case (|> context (get@ #;var-bindings) (var::get id))
+      (#;Some (#;Some bound))
+      (#e;Success [context (case bound (#;Var _) false _ true)])
 
       (#;Some #;None)
       (#e;Success [context false])
@@ -215,6 +228,13 @@
       #;None
       (ex;throw Unknown-Type-Var (nat/encode id)))))
 
+(def: #export (throw exception message)
+  (All [a] (-> ex;Exception Text (Check a)))
+  (function [context]
+    (ex;throw exception message)))
+
+(exception: #export Cannot-Clean-Unbound-Var)
+
 (def: #export (clean t-id type)
   (-> Var Type (Check Type))
   (case type
@@ -224,27 +244,15 @@
         [? (bound? id)]
         (if ?
           (read id)
-          (wrap type)))
+          (throw Cannot-Clean-Unbound-Var (type;to-text type))))
       (do Monad<Check>
-        [? (bound? id)]
+        [? (concrete? id)]
         (if ?
           (do Monad<Check>
             [=type (read id)
-             ==type (clean t-id =type)]
-            (case ==type
-              (#;Var =id)
-              (if (n.= t-id =id)
-                (do Monad<Check>
-                  [_ (clear id)]
-                  (wrap type))
-                (do Monad<Check>
-                  [_ (update ==type id)]
-                  (wrap type)))
-
-              _
-              (do Monad<Check>
-                [_ (update ==type id)]
-                (wrap type))))
+             ==type (clean t-id =type)
+             _ (update ==type id)]
+            (wrap type))
           (wrap type))))
 
     (#;Primitive name params)
@@ -355,7 +363,8 @@
 (def: #export (delete id)
   (-> Var (Check Unit))
   (do Monad<Check>
-    [?link (pre-link id)]
+    [_ (wrap [])
+     ?link (pre-link id)]
     (case ?link
       #;None
       (delete' id)
@@ -363,7 +372,9 @@
       (#;Some pre)
       (do @
         [post (read id)
-         _ (update post pre)]
+         _ (if (type/= (#;Var pre) post)
+             (clear pre)
+             (update post pre))]
         (delete' id)))))
 
 (def: #export (with k)
