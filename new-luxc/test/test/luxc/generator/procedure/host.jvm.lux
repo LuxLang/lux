@@ -389,8 +389,11 @@
          #let [num-instances (list;size instances)]
          class-idx (|> r;nat (:: @ map (n.% num-classes)))
          instance-idx (|> r;nat (:: @ map (n.% num-instances)))
+         exception-message (r;text +5)
          #let [class (maybe;assume (list;nth class-idx classes))
-               [instance-class instance-gen] (maybe;assume (list;nth instance-idx instances))]
+               [instance-class instance-gen] (maybe;assume (list;nth instance-idx instances))
+               exception-message$ (|> (#ls;Text exception-message)
+                                      (list (#ls;Text "java.lang.String")) #ls;Tuple)]
          sample r;int
          monitor r;int
          instance instance-gen]
@@ -430,7 +433,25 @@
                              (#e;Error error)
                              false)))
             (test "jvm object throw"
-                  false)
+                  (|> (do meta;Monad<Meta>
+                        [_ @runtime;generate
+                         sampleI (@;generate (|> (#ls;Procedure "jvm member invoke constructor" (list (#ls;Text "java.lang.Throwable")
+                                                                                                      exception-message$))
+                                                 (list) (#ls;Procedure "jvm object throw")
+                                                 (#ls;Function +1 (list))
+                                                 (list) (#ls;Procedure "lux try")))]
+                        (@eval;eval sampleI))
+                      (meta;run (init-compiler []))
+                      (case> (#e;Success outputG)
+                             (case (:! (e;Error Top) outputG)
+                               (#e;Error error)
+                               (text/= exception-message error)
+
+                               (#e;Success outputG)
+                               false)
+
+                             (#e;Error error)
+                             false)))
             (test "jvm object class"
                   (|> (do meta;Monad<Meta>
                         [sampleI (@;generate (#ls;Procedure "jvm object class" (list (#ls;Text class))))]
@@ -458,34 +479,85 @@
   (#static AD int))
 
 (context: "Member [Field]"
-  ($_ seq
-      (test "jvm member static get"
-            (|> (do meta;Monad<Meta>
-                  [sampleI (@;generate (|> (#ls;Procedure "jvm member static get" (list (#ls;Text "java.util.GregorianCalendar") (#ls;Text "AD") (#ls;Text "int")))
-                                           (list) (#ls;Procedure "jvm convert int-to-long")))]
-                  (@eval;eval sampleI))
-                (meta;run (init-compiler []))
-                (case> (#e;Success outputG)
-                       (i.= GregorianCalendar.AD (:! Int outputG))
+  (<| (times +100)
+      (do @
+        [sample-short (|> r;int (:: @ map (|>. int/abs (i.% 100))))
+         sample-string (r;text +5)
+         other-sample-string (r;text +5)
+         #let [shortS (|> (#ls;Int sample-short)
+                          (list) (#ls;Procedure "jvm convert long-to-short")
+                          (list (#ls;Text "short")) #ls;Tuple)
+               stringS (|> (#ls;Text sample-string)
+                           (list (#ls;Text "java.lang.String")) #ls;Tuple)
+               type-codeS (|> (#ls;Procedure "jvm object null" (list))
+                              (list (#ls;Text "org.omg.CORBA.TypeCode")) #ls;Tuple)
+               idl-typeS (|> (#ls;Procedure "jvm object null" (list))
+                             (list (#ls;Text "org.omg.CORBA.IDLType")) #ls;Tuple)
+               value-member$ (#ls;Procedure "jvm member invoke constructor" (list (#ls;Text "org.omg.CORBA.ValueMember")
+                                                                                  stringS
+                                                                                  stringS
+                                                                                  stringS
+                                                                                  stringS
+                                                                                  type-codeS
+                                                                                  idl-typeS
+                                                                                  shortS))]]
+        ($_ seq
+            (test "jvm member static get"
+                  (|> (do meta;Monad<Meta>
+                        [sampleI (@;generate (|> (#ls;Procedure "jvm member static get" (list (#ls;Text "java.util.GregorianCalendar") (#ls;Text "AD") (#ls;Text "int")))
+                                                 (list) (#ls;Procedure "jvm convert int-to-long")))]
+                        (@eval;eval sampleI))
+                      (meta;run (init-compiler []))
+                      (case> (#e;Success outputG)
+                             (i.= GregorianCalendar.AD (:! Int outputG))
 
-                       (#e;Error error)
-                       false)))
-      (test "jvm member static put"
-            (|> (do meta;Monad<Meta>
-                  [sampleI (@;generate (#ls;Procedure "jvm member static put" (list (#ls;Text "java.awt.datatransfer.DataFlavor") (#ls;Text "allHtmlFlavor") (#ls;Text "java.awt.datatransfer.DataFlavor")
-                                                                                    (#ls;Procedure "jvm member static get" (list (#ls;Text "java.awt.datatransfer.DataFlavor") (#ls;Text "allHtmlFlavor") (#ls;Text "java.awt.datatransfer.DataFlavor"))))))]
-                  (@eval;eval sampleI))
-                (meta;run (init-compiler []))
-                (case> (#e;Success outputG)
-                       (is @runtime;unit (:! Text outputG))
+                             (#e;Error error)
+                             false)))
+            (test "jvm member static put"
+                  (|> (do meta;Monad<Meta>
+                        [sampleI (@;generate (#ls;Procedure "jvm member static put" (list (#ls;Text "java.awt.datatransfer.DataFlavor") (#ls;Text "allHtmlFlavor") (#ls;Text "java.awt.datatransfer.DataFlavor")
+                                                                                          (#ls;Procedure "jvm member static get" (list (#ls;Text "java.awt.datatransfer.DataFlavor") (#ls;Text "allHtmlFlavor") (#ls;Text "java.awt.datatransfer.DataFlavor"))))))]
+                        (@eval;eval sampleI))
+                      (meta;run (init-compiler []))
+                      (case> (#e;Success outputG)
+                             (is @runtime;unit (:! Text outputG))
 
-                       (#e;Error error)
-                       false)))
-      (test "jvm member virtual get"
-            false)
-      (test "jvm member virtual put"
-            false)
-      ))
+                             (#e;Error error)
+                             false)))
+            (test "jvm member virtual get"
+                  (|> (do meta;Monad<Meta>
+                        [sampleI (@;generate (|> value-member$
+                                                 (list (#ls;Text "org.omg.CORBA.ValueMember")
+                                                       (#ls;Text "name")
+                                                       (#ls;Text "java.lang.String"))
+                                                 (#ls;Procedure "jvm member virtual get")))]
+                        (@eval;eval sampleI))
+                      (meta;run (init-compiler []))
+                      (case> (#e;Success outputG)
+                             (text/= sample-string (:! Text outputG))
+
+                             (#e;Error error)
+                             false)))
+            (test "jvm member virtual put"
+                  (|> (do meta;Monad<Meta>
+                        [sampleI (@;generate (|> value-member$
+                                                 (list (#ls;Text "org.omg.CORBA.ValueMember")
+                                                       (#ls;Text "name")
+                                                       (#ls;Text "java.lang.String")
+                                                       (#ls;Text other-sample-string))
+                                                 (#ls;Procedure "jvm member virtual put")
+                                                 (list (#ls;Text "org.omg.CORBA.ValueMember")
+                                                       (#ls;Text "name")
+                                                       (#ls;Text "java.lang.String"))
+                                                 (#ls;Procedure "jvm member virtual get")))]
+                        (@eval;eval sampleI))
+                      (meta;run (init-compiler []))
+                      (case> (#e;Success outputG)
+                             (text/= other-sample-string (:! Text outputG))
+
+                             (#e;Error error)
+                             false)))
+            ))))
 
 (host;import java.lang.Object)
 
