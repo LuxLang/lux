@@ -108,14 +108,44 @@
 
       (&/$Form (&/$Cons [command-meta command] parameters))
       (|case command
-        (&/$Symbol _ command-name)
+        (&/$Text command-name)
         (case command-name
-          "_lux_case"
+          "lux check"
+          (|let [(&/$Cons ?type
+                          (&/$Cons ?value
+                                   (&/$Nil))) parameters]
+            (&/with-analysis-meta cursor exo-type
+              (&&lux/analyse-ann analyse eval! exo-type ?type ?value)))
+
+          "lux coerce"
+          (|let [(&/$Cons ?type
+                          (&/$Cons ?value
+                                   (&/$Nil))) parameters]
+            (&/with-analysis-meta cursor exo-type
+              (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)))
+
+          "lux def"
+          (|let [(&/$Cons [_ (&/$Symbol "" ?name)]
+                          (&/$Cons ?value
+                                   (&/$Cons ?meta
+                                            (&/$Nil))
+                                   )) parameters]
+            (&/with-cursor cursor
+              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)))
+
+          "lux program"
+          (|let [(&/$Cons [_ (&/$Symbol "" ?args)]
+                          (&/$Cons ?body
+                                   (&/$Nil))) parameters]
+            (&/with-cursor cursor
+              (&&lux/analyse-program analyse optimize compile-program ?args ?body)))
+
+          "lux case"
           (|let [(&/$Cons ?value ?branches) parameters]
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-case analyse exo-type ?value ?branches)))
 
-          "_lux_function"
+          "lux function"
           (|let [(&/$Cons [_ (&/$Symbol "" ?self)]
                           (&/$Cons [_ (&/$Symbol "" ?arg)]
                                    (&/$Cons ?body
@@ -123,10 +153,15 @@
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
+          ;; else
+          (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
+        
+        (&/$Symbol _ command-name)
+        (case command-name
           "_lux_proc"
           (|let [(&/$Cons [_ (&/$Tuple (&/$Cons [_ (&/$Text ?category)]
-                                                 (&/$Cons [_ (&/$Text ?proc)]
-                                                          (&/$Nil))))]
+                                                (&/$Cons [_ (&/$Text ?proc)]
+                                                         (&/$Nil))))]
                           (&/$Cons [_ (&/$Tuple ?args)]
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
@@ -139,40 +174,10 @@
                 (&&common/analyse-proc analyse exo-type ?category ?proc ?args))
               ))
 
-          "_lux_:"
-          (|let [(&/$Cons ?type
-                          (&/$Cons ?value
-                                   (&/$Nil))) parameters]
-            (&/with-analysis-meta cursor exo-type
-              (&&lux/analyse-ann analyse eval! exo-type ?type ?value)))
-
-          "_lux_:!"
-          (|let [(&/$Cons ?type
-                          (&/$Cons ?value
-                                   (&/$Nil))) parameters]
-            (&/with-analysis-meta cursor exo-type
-              (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)))
-
-          "_lux_def"
-          (|let [(&/$Cons [_ (&/$Symbol "" ?name)]
-                          (&/$Cons ?value
-                                   (&/$Cons ?meta
-                                            (&/$Nil))
-                                   )) parameters]
-            (&/with-cursor cursor
-              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)))
-
           "_lux_module"
           (|let [(&/$Cons ?meta (&/$Nil)) parameters]
             (&/with-cursor cursor
               (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
-
-          "_lux_program"
-          (|let [(&/$Cons [_ (&/$Symbol "" ?args)]
-                          (&/$Cons ?body
-                                   (&/$Nil))) parameters]
-            (&/with-cursor cursor
-              (&&lux/analyse-program analyse optimize compile-program ?args ?body)))
 
           ;; else
           (&/with-cursor cursor
