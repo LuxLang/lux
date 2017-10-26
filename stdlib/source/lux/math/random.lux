@@ -8,7 +8,7 @@
              [text "text/" Monoid<Text>]
              [product]
              [maybe]
-             [number]
+             [number #+ hex]
              (number ["r" ratio]
                      ["c" complex])
              (coll [list "list/" Fold<List>]
@@ -54,6 +54,15 @@
     (function [state]
       (let [[state' fa] (ffa state)]
         (fa state')))))
+
+(def: #export (filter pred gen)
+  {#;doc "Retries the generator until the output satisfies a predicate."}
+  (All [a] (-> (-> a Bool) (Random a) (Random a)))
+  (do Monad<Random>
+    [sample gen]
+    (if (pred sample)
+      (wrap sample)
+      (filter pred gen))))
 
 (def: #export nat
   (Random Nat)
@@ -107,9 +116,89 @@
        xs (text' char-gen (n.dec size))]
       (wrap (text/compose (text;from-code x) xs)))))
 
+(type: Char-Range [Nat Nat])
+
+(do-template [<name> <from> <to>]
+  [(def: <name> Char-Range [(hex <from>) (hex <to>)])]
+
+  [Thaana               "+0780" "+07BF"]
+  [Khmer-Symbols        "+19E0" "+19FF"]
+  [Phonetic-Extensions "+1D00" "+1D7F"]
+  [Hangul-Syllables     "+AC00" "+D7AF"]
+
+  [Cypriot-Syllabary                       "+10800" "+1083F"]
+  [Tai-Xuan-Jing-Symbols                   "+1D300" "+1D35F"]
+  [Mathematical-Alphanumeric-Symbols       "+1D400" "+1D7FF"]
+  [CJK-Unified-Ideographs-Extension-B      "+20000" "+2A6DF"]
+  [CJK-Compatibility-Ideographs-Supplement "+2F800" "+2FA1F"]
+  )
+
+(def: (within? [from to] char)
+  (-> Char-Range Nat Bool)
+  (and (n.>= from char) (n.<= to char)))
+
+(def: unicode-ceiling (n.inc (product;right CJK-Compatibility-Ideographs-Supplement)))
+
+(def: #export unicode
+  (Random Nat)
+  (|> ;;nat
+      (:: Monad<Random> map (n.% unicode-ceiling))
+      (;;filter (function [raw]
+                  ## From "Basic Latin" to "Syriac"
+                  (or (n.<= (hex "+074F") raw)
+                      (within? Thaana raw)
+                      ## From "Devanagari" to "Ethiopic"
+                      (and (n.>= (hex "+0900") raw)
+                           (n.<= (hex "+137F") raw))
+                      ## From "Cherokee" to "Mongolian"
+                      (and (n.>= (hex "+13A0") raw)
+                           (n.<= (hex "+18AF") raw))
+                      ## From "Limbu" to "Tai Le"
+                      (and (n.>= (hex "+1900") raw)
+                           (n.<= (hex "+197F") raw))
+                      (within? Khmer-Symbols raw)
+                      (within? Phonetic-Extensions raw)
+                      ## From "Latin Extended Additional" to "Miscellaneous Symbols and Arrows"
+                      (and (n.>= (hex "+1E00") raw)
+                           (n.<= (hex "+2BFF") raw))
+                      ## From "CJK Radicals Supplement" to "Kangxi Radicals"
+                      (and (n.>= (hex "+2E80") raw)
+                           (n.<= (hex "+2FDF") raw))
+                      ## From "Ideographic Description Characters" to "Bopomofo Extended"
+                      (and (n.>= (hex "+2FF0") raw)
+                           (n.<= (hex "+31BF") raw))
+                      ## From "Katakana Phonetic Extensions" to "CJK Unified Ideographs"
+                      (and (n.>= (hex "+31F0") raw)
+                           (n.<= (hex "+9FAF") raw))
+                      ## From "Yi Syllables" to "Yi Radicals"
+                      (and (n.>= (hex "+A000") raw)
+                           (n.<= (hex "+A4CF") raw))
+                      (within? Hangul-Syllables raw)
+                      ## From "CJK Compatibility Ideographs" to "Arabic Presentation Forms-A"
+                      (and (n.>= (hex "+F900") raw)
+                           (n.<= (hex "+FDFF") raw))
+                      ## From "Combining Half Marks" to "Halfwidth and Fullwidth Forms"
+                      (and (n.>= (hex "+FE20") raw)
+                           (n.<= (hex "+FFEF") raw))
+                      ## From "Linear B Syllabary" to "Aegean Numbers"
+                      (and (n.>= (hex "+10000") raw)
+                           (n.<= (hex "+1013F") raw))
+                      ## From "Old Italic" to "Osmanya"
+                      (and (n.>= (hex "+10300") raw)
+                           (n.<= (hex "+104AF") raw))
+                      (within? Cypriot-Syllabary raw)
+                      ## From "Byzantine Musical Symbols" to "Musical Symbols"
+                      (and (n.>= (hex "+1D000") raw)
+                           (n.<= (hex "+1D1FF") raw))
+                      (within? Tai-Xuan-Jing-Symbols raw)
+                      (within? Mathematical-Alphanumeric-Symbols raw)
+                      (within? CJK-Unified-Ideographs-Extension-B raw)
+                      (within? CJK-Compatibility-Ideographs-Supplement raw)
+                      )))))
+
 (def: #export (text size)
   (-> Nat (Random Text))
-  (text' nat size))
+  (text' unicode size))
 
 (do-template [<name> <type> <ctor> <gen>]
   [(def: #export <name>
@@ -159,15 +248,6 @@
   (function [state]
     (let [gen' (gen (rec gen))]
       (gen' state))))
-
-(def: #export (filter pred gen)
-  {#;doc "Retries the generator until the output satisfies a predicate."}
-  (All [a] (-> (-> a Bool) (Random a) (Random a)))
-  (do Monad<Random>
-    [sample gen]
-    (if (pred sample)
-      (wrap sample)
-      (filter pred gen))))
 
 (def: #export (maybe value-gen)
   (All [a] (-> (Random a) (Random (Maybe a))))
