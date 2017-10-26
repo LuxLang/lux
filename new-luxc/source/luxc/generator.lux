@@ -1,52 +1,83 @@
 (;module:
   lux
-  (lux (control monad)
-       (concurrency ["A" atom]
-                    ["P" promise])
+  (lux (control [monad #+ do])
+       (concurrency ["T" task])
        (data ["e" error]
-             [text "T/" Hash<Text>]
+             [text "text/" Hash<Text>]
              text/format
-             (coll ["D" dict]
-                   [array]))
-       [meta #+ Monad<Meta>]
+             (coll [dict]))
+       [meta]
        [host]
-       [io])
+       [io]
+       (world [file #+ File]))
   (luxc ["&" base]
         ["&;" io]
         ["&;" module]
         ["&;" parser]
         ["&;" host]
-        (compiler ["&&;" runtime]
-                  ["&&;" statement]
-                  ["&&;" common])
+        ["&;" analyser]
+        ["&;" analyser/common]
+        ["&;" synthesizer]
+        ["&;" eval]
+        (generator ["&&;" runtime]
+                   ["&&;" statement]
+                   ["&&;" common]
+                   ["&&;" expr]
+                   ["&&;" eval])
         ))
 
-(def: (compile ast)
-  (-> Code (Meta Unit))
-  (case ast
-    (^ [_ (#;Form (list [_ (#;Symbol ["" "_lux_def"])]
-                        [_ (#;Symbol ["" def-name])]
-                        def-value
-                        def-meta))])
-    (&&statement;compile-def def-name def-value def-meta)
+(def: analyse
+  (&;Analyser)
+  (&analyser;analyser &eval;eval))
 
-    (^ [_ (#;Form (list [_ (#;Symbol ["" "_lux_program"])]
-                        [_ (#;Symbol ["" prog-args])]
-                        prog-body))])
-    (&&statement;compile-program prog-args prog-body)
+(def: (generate code)
+  (-> Code (Meta Unit))
+  (case code
+    (^ [_ (#;Form (list [_ (#;Text "lux def")]
+                        [_ (#;Symbol ["" def-name])]
+                        valueC
+                        metaC))])
+    (do meta;Monad<Meta>
+      [[_ metaA] (&;with-scope
+                   (&;with-expected-type Code
+                     (analyse metaC)))
+       metaI (&&expr;generate (&synthesizer;synthesize metaA))
+       metaV (&&eval;eval metaI)
+       [_ valueT valueA] (&;with-scope
+                           (if (meta;type? (:! Code metaV))
+                             (&;with-expected-type Type
+                               (do @
+                                 [valueA (analyse valueC)]
+                                 (wrap [Type valueA])))
+                             (&analyser/common;with-unknown-type
+                               (analyse valueC))))
+       valueI (&&expr;generate (&synthesizer;synthesize valueA))
+       _ (&;with-scope
+           (&&statement;generate-def def-name valueT valueI metaI (:! Code metaV)))]
+      (wrap []))
+
+    (^ [_ (#;Form (list [_ (#;Text "lux program")]
+                        [_ (#;Symbol ["" program-args])]
+                        programC))])
+    (do meta;Monad<Meta>
+      [[_ programA] (&;with-scope
+                      (&;with-expected-type (type (io;IO Unit))
+                        (analyse programC)))
+       programI (&&expr;generate (&synthesizer;synthesize programA))]
+      (&&statement;generate-program program-args programI))
 
     _
-    (&;fail (format "Unrecognized statement: " (%code ast)))))
+    (&;fail (format "Unrecognized statement: " (%code code)))))
 
 (def: (exhaust action)
   (All [a] (-> (Meta a) (Meta Unit)))
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [result action]
     (exhaust action)))
 
 (def: (ensure-new-module! file-hash module-name)
   (-> Nat Text (Meta Unit))
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [module-exists? (meta;module-exists? module-name)
      _ (: (Meta Unit)
           (if module-exists?
@@ -59,10 +90,10 @@
 
 (def: (with-active-compilation [module-name file-name source-code] action)
   (All [a] (-> [Text Text Text] (Meta a) (Meta a)))
-  (do Monad<Meta>
-    [_ (ensure-new-module! (T/hash source-code) module-name)
+  (do meta;Monad<Meta>
+    [_ (ensure-new-module! (text/hash source-code) module-name)
      #let [init-cursor [file-name +0 +0]]
-     output (&;with-source-code [init-cursor source-code]
+     output (&;with-source-code [init-cursor +0 source-code]
               action)
      _ (&module;flag-compiled! module-name)]
     (wrap output)))
@@ -78,37 +109,35 @@
       (#e;Success [(set@ #;source source' compiler)
                    output]))))
 
-(def: (compile-module source-dirs module-name compiler)
-  (-> (List &;Path) Text Compiler (P;Promise (e;Error Compiler)))
-  (do P;Monad<Promise>
-    [?input (&io;read-module source-dirs module-name)]
-    (case ?input
-      (#e;Success [file-name file-content])
-      (let [compilation (do Monad<Meta>
-                          [_ (with-active-compilation [module-name
-                                                       file-name
-                                                       file-content]
-                               (exhaust
-                                (do @
-                                  [ast parse]
-                                  (compile ast))))]
-                          (wrap [])
-                          ## (&module;generate-descriptor module-name)
-                          )]
-        (case (meta;run' compiler compilation)
-          (#e;Success [compiler module-descriptor])
-          (do @
-            [## _ (&io;write-module module-name module-descriptor)
-             ]
-            (wrap (#e;Success compiler)))
-          
-          (#e;Error error)
-          (wrap (#e;Error error))))
-
+(def: (generate-module source-dirs module-name target-dir compiler)
+  (-> (List File) Text File Compiler (T;Task Compiler))
+  (do T;Monad<Task>
+    [_ (&io;prepare-module target-dir module-name)
+     [file-name file-content] (&io;read-module source-dirs module-name)]
+    (case (meta;run' compiler
+                     (do meta;Monad<Meta>
+                       [[artifacts _] (&&common;with-artifacts
+                                        (with-active-compilation [module-name
+                                                                  file-name
+                                                                  file-content]
+                                          (exhaust
+                                           (do @
+                                             [code parse]
+                                             (generate code)))))]
+                       (wrap artifacts)
+                       ## (&module;generate-descriptor module-name)
+                       ))
+      (#e;Success [compiler artifacts ## module-descriptor
+                   ])
+      (do @
+        [## _ (&io;write-module module-name module-descriptor)
+         _ (monad;map @ (function [[class-name class-bytecode]]
+                          (&io;write-file target-dir class-name class-bytecode))
+                      (dict;entries artifacts))]
+        (wrap compiler))
+      
       (#e;Error error)
-      (wrap (#e;Error error)))))
-
-(host;import org.objectweb.asm.MethodVisitor)
+      (T;fail error))))
 
 (def: init-cursor Cursor ["" +0 +0])
 
@@ -127,7 +156,7 @@
 (def: #export (init-compiler host)
   (-> &&common;Host Compiler)
   {#;info            init-info
-   #;source          [init-cursor ""]
+   #;source          [init-cursor +0 ""]
    #;cursor          init-cursor
    #;modules         (list)
    #;scopes          (list)
@@ -137,23 +166,21 @@
    #;scope-type-vars (list)
    #;host            (:! Void host)})
 
-(def: (or-crash! action)
-  (All [a] (-> (P;Promise (e;Error a)) (P;Promise a)))
-  (do P;Monad<Promise>
-    [?output action]
-    (case ?output
-      (#e;Error error)
-      (error! error)
+(def: #export (generate-program program target sources)
+  (-> Text File (List File) (T;Task Unit))
+  (do T;Monad<Task>
+    [compiler (|> (case (&&runtime;generate (init-compiler (io;run &host;init-host)))
+                    (#e;Error error)
+                    (T;fail error)
 
-      (#e;Success output)
-      (wrap output))))
-
-(def: #export (compile-program program target sources)
-  (-> &;Path &;Path (List &;Path) (P;Promise Unit))
-  (do P;Monad<Promise>
-    [#let [compiler (init-compiler (&host;init-host []))]
-     compiler (or-crash! (&&runtime;compile-runtime compiler))
-     compiler (or-crash! (compile-module sources prelude compiler))
-     compiler (or-crash! (compile-module sources program compiler))
+                    (#e;Success [compiler [runtime-bc function-bc]])
+                    (do @
+                      [_ (&io;prepare-target target)
+                       _ (&io;write-file target &&runtime;runtime-class runtime-bc)
+                       _ (&io;write-file target &&runtime;function-class function-bc)]
+                      (wrap compiler)))
+                  (: (T;Task Compiler))
+                  (:: @ map (generate-module sources prelude target)) (:: @ join)
+                  (:: @ map (generate-module sources program target)) (:: @ join))
      #let [_ (log! "Compilation complete!")]]
     (wrap [])))

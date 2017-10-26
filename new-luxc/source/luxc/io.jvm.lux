@@ -1,94 +1,95 @@
 (;module:
   lux
-  (lux (control monad)
+  (lux (control monad
+                ["ex" exception #+ exception:])
        [io #- run]
-       (concurrency ["P" promise])
+       (concurrency ["P" promise]
+                    ["T" task])
        (data ["e" error]
-             [text "T/" Eq<Text>]
+             [text "text/" Eq<Text>]
              text/format)
        [meta]
-       [host])
+       [host]
+       (world [file #+ File]
+              [blob #+ Blob]))
   (luxc ["&" base]))
 
-(host;import java.io.File
-  (new [String String])
-  (exists [] #io #try boolean))
-
-(host;import java.io.Reader
-  (close [] #io #try void))
-
-(host;import java.io.FileReader
-  (new [File]))
-
-(host;import java.io.BufferedReader
-  (new [Reader])
-  (readLine [] #io #try #? String))
+(host;import java.lang.String
+  (new [(Array byte)]))
 
 (def: host-extension Text ".jvm")
+(def: lux-extension Text ".lux")
 
-(def: (find-in-sources path source-dirs)
-  (-> &;Path (List &;Path) (P;Promise (Maybe File)))
-  (loop [source-dirs source-dirs]
-    (case source-dirs
-      #;Nil
-      (:: P;Monad<Promise> wrap #;None)
+(exception: #export File-Not-Found)
+(exception: #export Module-Not-Found)
 
-      (#;Cons dir source-dirs')
-      (do P;Monad<Promise>
-        [#let [file (File.new [dir path])]
-         ?? (P;future (File.exists [] file))]
-        (case ??
-          (#;Right true)
-          (wrap (#;Some file))
+(def: (find-source path dirs)
+  (-> Text (List File) (T;Task [Text File]))
+  (case dirs
+    #;Nil
+    (T;throw File-Not-Found path)
 
-          _
-          (recur source-dirs'))))))
+    (#;Cons dir dirs')
+    (do T;Monad<Task>
+      [#let [file (format dir "/" path)]
+       ? (file;exists? file)]
+      (if ?
+        (wrap [path file])
+        (find-source path dirs')))))
 
-(def: (read-source-code lux-file)
-  (-> File (P;Promise (e;Error Text)))
-  (P;future
-   (let [reader (|> lux-file FileReader.new BufferedReader.new)]
-     (loop [total ""]
-       (do Monad<IO>
-         [?line (BufferedReader.readLine [] reader)]
-         (case ?line
-           (#e;Error error)
-           (wrap (#e;Error error))
+(def: (either left right)
+  (All [a] (-> (T;Task a) (T;Task a) (T;Task a)))
+  (do P;Monad<Promise>
+    [?output left]
+    (case ?output
+      (#e;Success output)
+      (wrap (#e;Success output))
 
-           (#e;Success #;None)
-           (wrap (#e;Success total))
+      (#e;Error error)
+      right)))
 
-           (#e;Success (#;Some line))
-           (if (T/= "" total)
-             (recur line)
-             (recur (format total "\n" line)))))))))
+(def: #export (read-module dirs name)
+  (-> (List File) Text (T;Task [File Text]))
+  (let [host-path (format name host-extension lux-extension)
+        lux-path (format name lux-extension)]
+    (do T;Monad<Task>
+      [[path file] (: (T;Task [Text File])
+                      ($_ either
+                          (find-source host-path dirs)
+                          (find-source lux-path dirs)
+                          (T;throw Module-Not-Found name)))
+       blob (file;read file)]
+      (wrap [path (String.new blob)]))))
 
-(def: #export (read-module source-dirs module-name)
-  (-> (List &;Path) Text (P;Promise (e;Error [&;Path Text])))
-  (let [host-path (format module-name host-extension ".lux")
-        lux-path (format module-name ".lux")]
-    (with-expansions
-      [<tries> (do-template [<path>]
-                 [(do P;Monad<Promise>
-                    [?file (find-in-sources <path> source-dirs)])
-                  (case ?file
-                    (#;Some file)
-                    (do @
-                      [?code (read-source-code file)]
-                      (case ?code
-                        (#e;Error error)
-                        (wrap (#e;Error error))
+(def: #export (write-module name descriptor)
+  (-> Text Text (T;Task Unit))
+  (T;fail "'write-module' is undefined."))
 
-                        (#e;Success code)
-                        (wrap (#e;Success [<path> code]))))
+(def: (platform-target root-target)
+  (-> File File)
+  (format root-target "/" (for {"JVM" "jvm"
+                                "JS" "js"})))
 
-                    #;None)]
+(def: (platform-file root-file)
+  (-> File File)
+  (format root-file (for {"JVM" ".class"
+                          "JS" ".js"})))
 
-                 [host-path]
-                 [lux-path])]
-      (<| <tries>
-          (wrap (#e;Error (format "Module cannot be found: " module-name)))))))
+(def: #export (prepare-target target-dir)
+  (-> File (T;Task Unit))
+  (do T;Monad<Task>
+    [_ (file;make-dir target-dir)
+     _ (file;make-dir (platform-target target-dir))]
+    (wrap [])))
 
-(def: #export (write-module module-name module-descriptor)
-  (-> Text Text (P;Promise Unit))
-  (undefined))
+(def: #export (prepare-module target-dir module-name)
+  (-> File Text (T;Task Unit))
+  (do T;Monad<Task>
+    [_ (file;make-dir (format (platform-target target-dir) "/" module-name))]
+    (wrap [])))
+
+(def: #export (write-file target-dir file-name content)
+  (-> File Text Blob (T;Task Unit))
+  (file;write content
+              (format (platform-target target-dir)
+                      "/" (platform-file file-name))))

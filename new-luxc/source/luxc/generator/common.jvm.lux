@@ -4,8 +4,11 @@
        [io]
        (concurrency ["A" atom])
        (data ["e" error]
-             (coll ["d" dict]))
-       [host])
+             [text]
+             text/format
+             (coll [dict #+ Dict]))
+       [host]
+       (world [blob #+ Blob]))
   (luxc (generator (host ["$" jvm]
                          (jvm ["$t" type]
                               ["$d" def]
@@ -23,16 +26,52 @@
 
 (type: #export Bytecode (host;type (Array byte)))
 
-(type: #export Class-Store (A;Atom (d;Dict Text Bytecode)))
+(type: #export Class-Store (A;Atom (Dict Text Bytecode)))
+
+(type: #export Artifacts (Dict Text Blob))
 
 (type: #export Host
   {#loader ClassLoader
    #store Class-Store
-   #function-class (Maybe Text)})
+   #function-class (Maybe Text)
+   #artifacts Artifacts})
 
 (exception: Unknown-Class)
 (exception: Class-Already-Stored)
 (exception: No-Function-Being-Compiled)
+(exception: Cannot-Overwrite-Artifact)
+
+(def: #export (with-artifacts action)
+  (All [a] (-> (Meta a) (Meta [Artifacts a])))
+  (;function [compiler]
+    (case (action (update@ #;host
+                           (|>. (:! Host)
+                                (set@ #artifacts (dict;new text;Hash<Text>))
+                                (:! Void))
+                           compiler))
+      (#e;Success [compiler' output])
+      (#e;Success [(update@ #;host
+                            (|>. (:! Host)
+                                 (set@ #artifacts (|> (get@ #;host compiler) (:! Host) (get@ #artifacts)))
+                                 (:! Void))
+                            compiler')
+                   [(|> compiler' (get@ #;host) (:! Host) (get@ #artifacts))
+                    output]])
+      
+      (#e;Error error)
+      (#e;Error error))))
+
+(def: #export (record-artifact name content)
+  (-> Text Blob (Meta Unit))
+  (;function [compiler]
+    (if (|> compiler (get@ #;host) (:! Host) (get@ #artifacts) (dict;contains? name))
+      (ex;throw Cannot-Overwrite-Artifact name)
+      (#e;Success [(update@ #;host
+                            (|>. (:! Host)
+                                 (update@ #artifacts (dict;put name content))
+                                 (:! Void))
+                            compiler)
+                   []]))))
 
 (def: #export (store-class name byte-code)
   (-> Text Bytecode (Meta Unit))
@@ -40,9 +79,9 @@
     (let [store (|> (get@ #;host compiler)
                     (:! Host)
                     (get@ #store))]
-      (if (d;contains? name (|> store A;get io;run))
+      (if (dict;contains? name (|> store A;get io;run))
         (ex;throw Class-Already-Stored name)
-        (#e;Success [compiler (io;run (A;update (d;put name byte-code) store))])
+        (#e;Success [compiler (io;run (A;update (dict;put name byte-code) store))])
         ))))
 
 (def: #export (load-class name)
@@ -50,7 +89,7 @@
   (;function [compiler]
     (let [host (:! Host (get@ #;host compiler))
           store (|> host (get@ #store) A;get io;run)]
-      (if (d;contains? name store)
+      (if (dict;contains? name store)
         (#e;Success [compiler (ClassLoader.loadClass [name] (get@ #loader host))])
         (ex;throw Unknown-Class name)))))
 
@@ -87,3 +126,6 @@
         (#e;Success [compiler function-class])))))
 
 (def: #export bytecode-version Int Opcodes.V1_6)
+
+(def: #export value-field Text "_value")
+(def: #export $Object $;Type ($t;class "java.lang.Object" (list)))

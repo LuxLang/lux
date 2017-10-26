@@ -1,25 +1,84 @@
 (;module:
   lux
-  (lux (control monad)
-       [io #- run]
-       (data [text "T/" Eq<Text>]
-             text/format)
-       [meta #+ Monad<Meta>])
+  (lux (control monad
+                ["ex" exception #+ exception:])
+       (concurrency ["T" task])
+       (data ["e" error]
+             [maybe]
+             [text "text/" Monoid<Text>]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List>]))
+       [meta]
+       [host])
   (luxc ["&" base]
-        ["&;" module]
         ["&;" scope]
-        (compiler ["&;" expr])))
+        ["&;" module]
+        ["&;" io]
+        (generator ["&;" expr]
+                   ["&;" eval]
+                   ["&;" common]
+                   (host ["$" jvm]
+                         (jvm ["$t" type]
+                              ["$d" def]
+                              ["$i" inst])))))
 
-(def: #export (compile-def def-name def-value def-meta)
-  (-> Text Code Code (Meta Unit))
-  (do Monad<Meta>
-    [=def-value (&expr;compile def-value)
-     =def-meta (&expr;compile def-meta)]
-    (undefined)))
+(exception: #export Invalid-Definition-Value)
 
-(def: #export (compile-program prog-args prog-body)
-  (-> Text Code (Meta Unit))
-  (do Monad<Meta>
-    [=prog-body (&scope;with-local [prog-args (type (List Text))]
-                  (&expr;compile prog-body))]
-    (undefined)))
+(host;import java.lang.Object
+  (toString [] String))
+
+(host;import java.lang.reflect.Field
+  (get [#? Object] #try #? Object))
+
+(host;import (java.lang.Class c)
+  (getField [String] #try Field))
+
+(def: #export (generate-def def-name valueT valueI metaI metaV)
+  (-> Text Type $;Inst $;Inst Code (Meta Unit))
+  (do meta;Monad<Meta>
+    [current-module meta;current-module-name
+     #let [def-ident [current-module def-name]
+           normal-name (&;normalize-name def-name)
+           bytecode-name (format current-module "/" normal-name)
+           class-name (format current-module "." normal-name)
+           bytecode ($d;class #$;V1.6
+                              #$;Public $;finalC
+                              bytecode-name
+                              (list) ["java.lang.Object" (list)]
+                              (list)
+                              (|>. ($d;field #$;Public ($;++F $;finalF $;staticF) &common;value-field &common;$Object)
+                                   ($d;method #$;Public $;staticM "<clinit>" ($t;method (list) #;None (list))
+                                              (|>. valueI
+                                                   ($i;PUTSTATIC bytecode-name &common;value-field &common;$Object)
+                                                   $i;RETURN))))]
+     _ (&common;store-class class-name bytecode)
+     class (&common;load-class class-name)
+     valueV (: (Meta Top)
+               (case (do e;Monad<Error>
+                       [field (Class.getField [&common;value-field] class)]
+                       (Field.get [#;None] field))
+                 (#e;Success #;None)
+                 (&;throw Invalid-Definition-Value (format current-module ";" def-name))
+                 
+                 (#e;Success (#;Some valueV))
+                 (wrap valueV)
+                 
+                 (#e;Error error)
+                 (&;fail error)))
+     _ (&module;define [current-module def-name] [valueT metaV valueV])
+     _ (if (meta;type? metaV)
+         (case (meta;declared-tags metaV)
+           #;Nil
+           (wrap [])
+
+           tags
+           (&module;declare-tags tags (meta;export? metaV) (:! Type valueV)))
+         (wrap []))
+     #let [_ (log! (format "DEF " current-module ";" def-name))]]
+    (&common;record-artifact bytecode-name bytecode)))
+
+(def: #export (generate-program program-args programI)
+  (-> Text $;Inst (Meta Unit))
+  (do meta;Monad<Meta>
+    []
+    (&;fail "'lux program' is unimplemented.")))

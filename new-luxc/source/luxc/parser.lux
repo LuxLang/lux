@@ -48,19 +48,19 @@
 ## chunk of white-space.
 (def: (space^ where)
   (-> Cursor (l;Lexer [Cursor Text]))
-  (do p;Monad<Parser>
-    [head (l;some (l;one-of white-space))]
-    ## New-lines must be handled as a separate case to ensure line
-    ## information is handled properly.
-    (p;either (p;after (l;one-of new-line)
-                       (do @
-                         [[end tail] (space^ (|> where
-                                                 (update@ #;line n.inc)
-                                                 (set@ #;column +0)))]
-                         (wrap [end
-                                (format head tail)])))
-              (wrap [(update@ #;column (n.+ (text;size head)) where)
-                     head]))))
+  (p;either (do p;Monad<Parser>
+              [content (l;many (l;one-of white-space))]
+              (wrap [(update@ #;column (n.+ (text;size content)) where)
+                     content]))
+            ## New-lines must be handled as a separate case to ensure line
+            ## information is handled properly.
+            (do p;Monad<Parser>
+              [content (l;many (l;one-of new-line))]
+              (wrap [(|> where
+                         (update@ #;line (n.+ (text;size content)))
+                         (set@ #;column +0))
+                     content]))
+            ))
 
 ## Single-line comments can start anywhere, but only go up to the
 ## next new-line.
@@ -144,13 +144,14 @@
 ## The cursor gets updated, but the padding gets ignored.
 (def: (left-padding^ where)
   (-> Cursor (l;Lexer Cursor))
-  (p;either (do p;Monad<Parser>
-              [[where comment] (comment^ where)]
-              (left-padding^ where))
-            (do p;Monad<Parser>
-              [[where white-space] (space^ where)]
-              (wrap where))
-            ))
+  ($_ p;either
+      (do p;Monad<Parser>
+        [[where comment] (comment^ where)]
+        (left-padding^ where))
+      (do p;Monad<Parser>
+        [[where white-space] (space^ where)]
+        (left-padding^ where))
+      (:: p;Monad<Parser> wrap where)))
 
 ## Escaped character sequences follow the usual syntax of
 ## back-slash followed by a letter (e.g. \n).
@@ -599,11 +600,11 @@
         (text where)
         )))
 
-(def: #export (parse [where code])
-  (-> [Cursor Text] (e;Error [[Cursor Text] Code]))
-  (case (p;run [+0 code] (ast where))
+(def: #export (parse [where offset source])
+  (-> Source (e;Error [Source Code]))
+  (case (p;run [offset source] (ast where))
     (#e;Error error)
     (#e;Error error)
 
-    (#e;Success [[_ remaining] [where' output]])
-    (#e;Success [[where' remaining] output])))
+    (#e;Success [[offset' remaining] [where' output]])
+    (#e;Success [[where' offset' remaining] output])))
