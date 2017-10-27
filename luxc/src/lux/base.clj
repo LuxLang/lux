@@ -151,6 +151,7 @@
   ["info"
    "source"
    "cursor"
+   "current-module"
    "modules"
    "scopes"
    "type-context"
@@ -819,6 +820,8 @@
       $Nil
       ;; "lux;cursor"
       (T ["" -1 -1])
+      ;; "current-module"
+      $None
       ;; "lux;modules"
       (|table)
       ;; "lux;scopes"
@@ -910,13 +913,13 @@
 
 (def get-module-name
   (fn [state]
-    (|case (|reverse (get$ $scopes state))
-      ($Nil)
+    (|case (get$ $current-module state)
+      ($None)
       ((fail-with-loc "[Analyser Error] Cannot get the module-name without a module.")
        state)
 
-      ($Cons ?global _)
-      (return* state (|head (get$ $name ?global))))))
+      ($Some module-name)
+      (return* state module-name))))
 
 (defn find-module [name]
   "(-> Text (Lux (Module Compiler)))"

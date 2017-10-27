@@ -279,7 +279,8 @@
   (fn [state]
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name (new-module hash) %))
-                  (&/set$ &/$scopes (&/|list (&/env name &/$Nil))))
+                  (&/set$ &/$scopes (&/|list (&/env name &/$Nil)))
+                  (&/set$ &/$current-module (&/$Some name)))
              nil)))
 
 (do-template [<name> <tag> <type>]
