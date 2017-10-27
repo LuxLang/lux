@@ -1,12 +1,11 @@
 (;module:
   lux
   (lux (control monad)
-       (data ["R" error]
-             text/format
-             (coll [list "L/" Functor<List>]))
+       (data text/format
+             (coll [list "list/" Functor<List>]))
        [math]
-       [meta #+ Monad<Meta> "Meta/" Monad<Meta>]
-       [host #+ do-to])
+       [meta]
+       [host])
   (luxc ["&" base]
         (lang ["la" analysis]
               ["ls" synthesis])
@@ -55,6 +54,7 @@
 (def: #export $Flag $;Type $Object)
 (def: #export $Datum $;Type $Object)
 (def: #export $Function $;Type ($t;class function-class (list)))
+(def: $Throwable $;Type ($t;class "java.lang.Throwable" (list)))
 
 (def: #export logI
   $;Inst
@@ -468,27 +468,42 @@
 
 (def: io-methods
   $;Def
-  (|>. ($d;method #$;Public $;staticM "try" ($t;method (list $Function) (#;Some $Variant) (list))
-                  (<| $i;with-label (function [@from])
-                      $i;with-label (function [@to])
-                      $i;with-label (function [@handler])
-                      (|>. ($i;try @from @to @handler "java.lang.Throwable")
-                           ($i;label @from)
-                           ($i;ALOAD +0)
-                           $i;NULL
-                           ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
-                           rightI
-                           $i;ARETURN
-                           ($i;label @to)
-                           ($i;label @handler)
-                           ($i;INVOKEVIRTUAL "java.lang.Throwable" "getMessage" ($t;method (list) (#;Some $String) (list)) false)
-                           leftI
-                           $i;ARETURN)))
-       ))
+  (let [string-writerI (|>. ($i;NEW "java.io.StringWriter")
+                            $i;DUP
+                            ($i;INVOKESPECIAL "java.io.StringWriter" "<init>" ($t;method (list) #;None (list)) false))
+        print-writerI (|>. ($i;NEW "java.io.PrintWriter")
+                           $i;SWAP
+                           $i;DUP2
+                           $i;POP
+                           $i;SWAP
+                           ($i;boolean true)
+                           ($i;INVOKESPECIAL "java.io.PrintWriter" "<init>" ($t;method (list ($t;class "java.io.Writer" (list)) $t;boolean) #;None (list)) false)
+                           )]
+    (|>. ($d;method #$;Public $;staticM "try" ($t;method (list $Function) (#;Some $Variant) (list))
+                    (<| $i;with-label (function [@from])
+                        $i;with-label (function [@to])
+                        $i;with-label (function [@handler])
+                        (|>. ($i;try @from @to @handler "java.lang.Throwable")
+                             ($i;label @from)
+                             ($i;ALOAD +0)
+                             $i;NULL
+                             ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
+                             rightI
+                             $i;ARETURN
+                             ($i;label @to)
+                             ($i;label @handler)
+                             string-writerI ## TW
+                             $i;DUP2 ## TWTW
+                             print-writerI ## TWTP
+                             ($i;INVOKEVIRTUAL "java.lang.Throwable" "printStackTrace" ($t;method (list ($t;class "java.io.PrintWriter" (list))) #;None (list)) false) ## TW
+                             ($i;INVOKEVIRTUAL "java.io.StringWriter" "toString" ($t;method (list) (#;Some $String) (list)) false) ## TS
+                             $i;SWAP $i;POP leftI
+                             $i;ARETURN)))
+         )))
 
 (def: generate-runtime
   (Meta &common;Bytecode)
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [_ (wrap [])
      #let [bytecode ($d;class #$;V1.6 #$;Public $;finalC runtime-class (list) ["java.lang.Object" (list)] (list)
                               (|>. adt-methods
@@ -502,25 +517,21 @@
 
 (def: generate-function
   (Meta &common;Bytecode)
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [_ (wrap [])
      #let [applyI (|> (list;n.range +2 num-apply-variants)
-                      (L/map (function [arity]
-                               ($d;method #$;Public $;noneM apply-method (apply-signature arity)
-                                          (let [preI (|> (list;n.range +0 (n.dec arity))
-                                                         (L/map $i;ALOAD)
-                                                         $i;fuse)]
-                                            (|>. preI
-                                                 ($i;INVOKEVIRTUAL function-class apply-method (apply-signature (n.dec arity)) false)
-                                                 ($i;CHECKCAST function-class)
-                                                 ($i;ALOAD arity)
-                                                 ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
-                                                 $i;ARETURN)))))
-                      (list& ($d;abstract-method #$;Public $;noneM apply-method (apply-signature +1))
-                             ## ($d;method #$;Public $;noneM apply-method (apply-signature +1)
-                             ##            (|>. $i;NULL
-                             ##                 $i;ARETURN))
-                             )
+                      (list/map (function [arity]
+                                  ($d;method #$;Public $;noneM apply-method (apply-signature arity)
+                                             (let [preI (|> (list;n.range +0 (n.dec arity))
+                                                            (list/map $i;ALOAD)
+                                                            $i;fuse)]
+                                               (|>. preI
+                                                    ($i;INVOKEVIRTUAL function-class apply-method (apply-signature (n.dec arity)) false)
+                                                    ($i;CHECKCAST function-class)
+                                                    ($i;ALOAD arity)
+                                                    ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
+                                                    $i;ARETURN)))))
+                      (list& ($d;abstract-method #$;Public $;noneM apply-method (apply-signature +1)))
                       $d;fuse)
            bytecode ($d;abstract #$;V1.6 #$;Public $;noneC function-class (list) ["java.lang.Object" (list)] (list)
                                  (|>. ($d;field #$;Public $;finalF partials-field $t;int)
@@ -537,7 +548,7 @@
 
 (def: #export generate
   (Meta [&common;Bytecode &common;Bytecode])
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [runtime-bc generate-runtime
      function-bc generate-function]
     (wrap [runtime-bc function-bc])))

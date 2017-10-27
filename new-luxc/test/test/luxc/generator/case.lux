@@ -3,18 +3,10 @@
   (lux [io]
        (control [monad #+ do]
                 pipe)
-       (data text/format
-             [product]
-             ["e" error]
-             [bool "B/" Eq<Bool>]
-             [text "T/" Eq<Text>]
-             (coll ["a" array]
-                   [list "L/" Functor<List>]
-                   ["S" set]))
+       (data ["e" error]
+             (coll [list]))
        ["r" math/random "r/" Monad<Random>]
-       [meta #+ Monad<Meta>]
-       (meta [code])
-       [host]
+       [meta]
        test)
   (luxc (lang ["ls" synthesis])
         [analyser]
@@ -34,54 +26,51 @@
 (def: gen-case
   (r;Random [ls;Synthesis ls;Path])
   (<| r;rec (function [gen-case])
-      (with-expansions [<simple> (do-template [<gen> <synth> <path>]
-                                   [(do r;Monad<Random>
-                                      [value <gen>]
-                                      (wrap [(<synth> value) (<path> value)]))]
+      (`` ($_ r;either
+              (r/wrap [#ls;Unit #ls;UnitP])
+              (~~ (do-template [<gen> <synth> <path>]
+                    [(do r;Monad<Random>
+                       [value <gen>]
+                       (wrap [(<synth> value) (<path> value)]))]
 
-                                   [r;bool #ls;Bool #ls;BoolP]
-                                   [r;nat #ls;Nat #ls;NatP]
-                                   [r;int #ls;Int #ls;IntP]
-                                   [r;deg #ls;Deg #ls;DegP]
-                                   [r;frac #ls;Frac #ls;FracP]
-                                   [(r;text +5) #ls;Text #ls;TextP])]
-        ($_ r;either
-            (r/wrap [#ls;Unit #ls;UnitP])
-            <simple>
-            (do r;Monad<Random>
-              [size (|> r;nat (:: @ map (|>. (n.% struct-limit) (n.max +2))))
-               idx (|> r;nat (:: @ map (n.% size)))
-               [subS subP] gen-case
-               #let [dummyS (list;repeat (n.dec size) #ls;Unit)
-                     caseS (#ls;Tuple (list;concat (list (list;take idx dummyS)
-                                                         (list subS)
-                                                         (list;drop idx dummyS))))
-                     caseP (#ls;TupleP (if (tail? idx idx)
-                                         (#;Right idx)
-                                         (#;Left idx))
-                                       subP)]]
-              (wrap [caseS caseP]))
-            (do r;Monad<Random>
-              [size (|> r;nat (:: @ map (|>. (n.% struct-limit) (n.max +2))))
-               idx (|> r;nat (:: @ map (n.% size)))
-               [subS subP] gen-case
-               #let [caseS (#ls;Variant idx (tail? idx idx) subS)
-                     caseP (#ls;VariantP (if (tail? idx idx)
+                    [r;bool #ls;Bool #ls;BoolP]
+                    [r;nat #ls;Nat #ls;NatP]
+                    [r;int #ls;Int #ls;IntP]
+                    [r;deg #ls;Deg #ls;DegP]
+                    [r;frac #ls;Frac #ls;FracP]
+                    [(r;text +5) #ls;Text #ls;TextP]))
+              (do r;Monad<Random>
+                [size (|> r;nat (:: @ map (|>. (n.% struct-limit) (n.max +2))))
+                 idx (|> r;nat (:: @ map (n.% size)))
+                 [subS subP] gen-case
+                 #let [caseS (#ls;Tuple (list;concat (list (list;repeat idx #ls;Unit)
+                                                           (list subS)
+                                                           (list;repeat (|> size n.dec (n.- idx)) #ls;Unit))))
+                       caseP (#ls;TupleP (if (tail? size idx)
                                            (#;Right idx)
                                            (#;Left idx))
                                          subP)]]
-              (wrap [caseS caseP]))
-            ))))
+                (wrap [caseS caseP]))
+              (do r;Monad<Random>
+                [size (|> r;nat (:: @ map (|>. (n.% struct-limit) (n.max +2))))
+                 idx (|> r;nat (:: @ map (n.% size)))
+                 [subS subP] gen-case
+                 #let [caseS (#ls;Variant idx (tail? idx idx) subS)
+                       caseP (#ls;VariantP (if (tail? idx idx)
+                                             (#;Right idx)
+                                             (#;Left idx))
+                                           subP)]]
+                (wrap [caseS caseP]))
+              ))))
 
 (context: "Pattern-matching."
-  (<| (seed +17952275935008918762)
-      ## (times +100)
+  (<| (times +100)
       (do @
         [[valueS path] gen-case
          to-bind r;nat]
         ($_ seq
             (test "Can generate pattern-matching."
-                  (|> (do Monad<Meta>
+                  (|> (do meta;Monad<Meta>
                         [runtime-bytecode @runtime;generate
                          sampleI (@;generate valueS
                                              (#ls;AltP (#ls;SeqP path (#ls;ExecP (#ls;Bool true)))
@@ -94,7 +83,7 @@
                              _
                              false)))
             (test "Can bind values."
-                  (|> (do Monad<Meta>
+                  (|> (do meta;Monad<Meta>
                         [runtime-bytecode @runtime;generate
                          sampleI (@;generate (#ls;Nat to-bind)
                                              (#ls;SeqP (#ls;BindP +1) (#ls;ExecP (#ls;Variable 1))))]
