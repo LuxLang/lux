@@ -1,15 +1,21 @@
 (;module:
   lux
-  (lux (control monad)
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
        (data [maybe]
+             [text]
              text/format
-             (coll [list "L/" Functor<List>]))
+             (coll [list "list/" Functor<List>]))
        [meta #+ Monad<Meta>]
        (meta [type]
              (type ["tc" check])))
   (luxc ["&" base]
         (lang ["la" analysis #+ Analysis])
         (analyser ["&;" common])))
+
+(exception: #export Cannot-Infer)
+(exception: #export Cannot-Infer-Argument)
+(exception: #export Smaller-Variant-Than-Expected)
 
 ## When doing inference, type-variables often need to be created in
 ## order to figure out which types are present in the expression being
@@ -23,7 +29,7 @@
   (-> Nat Nat Type Type)
   (case type
     (#;Primitive name params)
-    (#;Primitive name (L/map (replace-var var-id bound-idx) params))
+    (#;Primitive name (list/map (replace-var var-id bound-idx) params))
 
     (^template [<tag>]
       (<tag> left right)
@@ -41,15 +47,41 @@
 
     (^template [<tag>]
       (<tag> env quantified)
-      (<tag> (L/map (replace-var var-id bound-idx) env)
+      (<tag> (list/map (replace-var var-id bound-idx) env)
              (replace-var var-id (n.+ +2 bound-idx) quantified)))
     ([#;UnivQ]
      [#;ExQ])
     
-    (#;Named name unnamedT)
-    (#;Named name
-             (replace-var var-id bound-idx unnamedT))
+    _
+    type))
 
+(def: (replace-bound bound-idx replacementT type)
+  (-> Nat Type Type Type)
+  (case type
+    (#;Primitive name params)
+    (#;Primitive name (list/map (replace-bound bound-idx replacementT) params))
+
+    (^template [<tag>]
+      (<tag> left right)
+      (<tag> (replace-bound bound-idx replacementT left)
+             (replace-bound bound-idx replacementT right)))
+    ([#;Sum]
+     [#;Product]
+     [#;Function]
+     [#;Apply])
+    
+    (#;Bound idx)
+    (if (n.= bound-idx idx)
+      replacementT
+      type)
+
+    (^template [<tag>]
+      (<tag> env quantified)
+      (<tag> (list/map (replace-bound bound-idx replacementT) env)
+             (replace-bound (n.+ +2 bound-idx) replacementT quantified)))
+    ([#;UnivQ]
+     [#;ExQ])
+    
     _
     type))
 
@@ -66,7 +98,7 @@
     #;Nil
     (:: Monad<Meta> wrap [funcT (list)])
     
-    (#;Cons arg args')
+    (#;Cons argC args')
     (case funcT
       (#;Named name unnamedT)
       (apply-function analyse unnamedT args)
@@ -104,29 +136,31 @@
       (do Monad<Meta>
         [[outputT' args'A] (apply-function analyse outputT args')
          argA (&;with-stacked-errors
-                (function [_] (format "Expected type: " (%type inputT) "\n"
-                                      " For argument: " (%code arg)))
+                (function [_] (Cannot-Infer-Argument
+                               (format "Inferred Type: " (%type inputT) "\n"
+                                       "     Argument: " (%code argC))))
                 (&;with-expected-type inputT
-                  (analyse arg)))]
+                  (analyse argC)))]
         (wrap [outputT' (list& argA args'A)]))
 
       _
-      (&;fail (format "Cannot apply a non-function: " (%type funcT))))
+      (&;throw Cannot-Infer (format "Inference Type: " (%type funcT)
+                                    "     Arguments: " (|> args (list/map %code) (text;join-with " ")))))
     ))
 
 ## Turns a record type into the kind of function type suitable for inference.
-(def: #export (record-inference-type type)
+(def: #export (record type)
   (-> Type (Meta Type))
   (case type
     (#;Named name unnamedT)
     (do Monad<Meta>
-      [unnamedT+ (record-inference-type unnamedT)]
-      (wrap (#;Named name unnamedT+)))
+      [unnamedT+ (record unnamedT)]
+      (wrap unnamedT+))
 
     (^template [<tag>]
       (<tag> env bodyT)
       (do Monad<Meta>
-        [bodyT+ (record-inference-type bodyT)]
+        [bodyT+ (record bodyT)]
         (wrap (<tag> env bodyT+))))
     ([#;UnivQ]
      [#;ExQ])
@@ -138,47 +172,57 @@
     (&;fail (format "Not a record type: " (%type type)))))
 
 ## Turns a variant type into the kind of function type suitable for inference.
-(def: #export (variant-inference-type tag expected-size type)
+(def: #export (variant tag expected-size type)
   (-> Nat Nat Type (Meta Type))
-  (case type
-    (#;Named name unnamedT)
-    (do Monad<Meta>
-      [unnamedT+ (variant-inference-type tag expected-size unnamedT)]
-      (wrap (#;Named name unnamedT+)))
-
-    (^template [<tag>]
-      (<tag> env bodyT)
+  (loop [depth +0
+         currentT type]
+    (case currentT
+      (#;Named name unnamedT)
       (do Monad<Meta>
-        [bodyT+ (variant-inference-type tag expected-size bodyT)]
-        (wrap (<tag> env bodyT+))))
-    ([#;UnivQ]
-     [#;ExQ])
+        [unnamedT+ (recur depth unnamedT)]
+        (wrap unnamedT+))
 
-    (#;Sum _)
-    (let [cases (type;flatten-variant type)
-          actual-size (list;size cases)
-          boundary (n.dec expected-size)]
-      (cond (or (n.= expected-size actual-size)
-                (and (n.> expected-size actual-size)
-                     (n.< boundary tag)))
-            (case (list;nth tag cases)
-              (#;Some caseT)
-              (:: Monad<Meta> wrap (type;function (list caseT) type))
+      (^template [<tag>]
+        (<tag> env bodyT)
+        (do Monad<Meta>
+          [bodyT+ (recur (n.inc depth) bodyT)]
+          (wrap (<tag> env bodyT+))))
+      ([#;UnivQ]
+       [#;ExQ])
 
-              #;None
-              (&common;variant-out-of-bounds-error type expected-size tag))
-            
-            (n.< expected-size actual-size)
-            (&;fail (format "Variant type is smaller than expected." "\n"
-                            "Expected: " (%i (nat-to-int expected-size)) "\n"
-                            "  Actual: " (%i (nat-to-int actual-size))))
+      (#;Sum _)
+      (let [cases (type;flatten-variant currentT)
+            actual-size (list;size cases)
+            boundary (n.dec expected-size)]
+        (cond (or (n.= expected-size actual-size)
+                  (and (n.> expected-size actual-size)
+                       (n.< boundary tag)))
+              (case (list;nth tag cases)
+                (#;Some caseT)
+                (:: Monad<Meta> wrap (if (n.= +0 depth)
+                                       (type;function (list caseT) currentT)
+                                       (let [replace! (replace-bound (|> depth n.dec (n.* +2)) type)]
+                                         (type;function (list (replace! caseT))
+                                           (replace! currentT)))))
 
-            (n.= boundary tag)
-            (let [caseT (type;variant (list;drop boundary cases))]
-              (:: Monad<Meta> wrap (type;function (list caseT) type)))
-            
-            ## else
-            (&common;variant-out-of-bounds-error type expected-size tag)))
+                #;None
+                (&common;variant-out-of-bounds-error type expected-size tag))
+              
+              (n.< expected-size actual-size)
+              (&;throw Smaller-Variant-Than-Expected
+                       (format "Expected: " (%i (nat-to-int expected-size)) "\n"
+                               "  Actual: " (%i (nat-to-int actual-size))))
 
-    _
-    (&;fail (format "Not a variant type: " (%type type)))))
+              (n.= boundary tag)
+              (let [caseT (type;variant (list;drop boundary cases))]
+                (:: Monad<Meta> wrap (if (n.= +0 depth)
+                                       (type;function (list caseT) currentT)
+                                       (let [replace! (replace-bound (|> depth n.dec (n.* +2)) type)]
+                                         (type;function (list (replace! caseT))
+                                           (replace! currentT))))))
+              
+              ## else
+              (&common;variant-out-of-bounds-error type expected-size tag)))
+
+      _
+      (&;fail (format "Not a variant type: " (%type type))))))

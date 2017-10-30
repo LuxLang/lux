@@ -11,10 +11,10 @@
        [io]
        (world [file #+ File]))
   (luxc ["&" base]
+        [";L" host]
         ["&;" io]
         ["&;" module]
         ["&;" parser]
-        ["&;" host]
         ["&;" analyser]
         ["&;" analyser/common]
         ["&;" synthesizer]
@@ -75,24 +75,12 @@
     [result action]
     (exhaust action)))
 
-(def: (ensure-new-module! file-hash module-name)
-  (-> Nat Text (Meta Unit))
-  (do meta;Monad<Meta>
-    [module-exists? (meta;module-exists? module-name)
-     _ (: (Meta Unit)
-          (if module-exists?
-            (&;fail (format "Cannot re-define a module: " module-name))
-            (wrap [])))
-     _ (&module;create file-hash module-name)]
-    (wrap [])))
-
 (def: prelude Text "lux")
 
 (def: (with-active-compilation [module-name file-name source-code] action)
   (All [a] (-> [Text Text Text] (Meta a) (Meta a)))
   (do meta;Monad<Meta>
-    [_ (ensure-new-module! (text/hash source-code) module-name)
-     #let [init-cursor [file-name +0 +0]]
+    [#let [init-cursor [file-name +1 +0]]
      output (&;with-source-code [init-cursor +0 source-code]
               action)
      _ (&module;flag-compiled! module-name)]
@@ -113,17 +101,21 @@
   (-> (List File) Text File Compiler (T;Task Compiler))
   (do T;Monad<Task>
     [_ (&io;prepare-module target-dir module-name)
-     [file-name file-content] (&io;read-module source-dirs module-name)]
+     [file-name file-content] (&io;read-module source-dirs module-name)
+     #let [module-hash (text/hash file-content)]]
     (case (meta;run' compiler
                      (do meta;Monad<Meta>
-                       [[artifacts _] (&&common;with-artifacts
-                                        (with-active-compilation [module-name
-                                                                  file-name
-                                                                  file-content]
-                                          (exhaust
-                                           (do @
-                                             [code parse]
-                                             (generate code)))))]
+                       [[_ artifacts _] (&module;with-module module-hash module-name
+                                          (&&common;with-artifacts
+                                            (with-active-compilation [module-name
+                                                                      file-name
+                                                                      file-content]
+                                              (exhaust
+                                               (do @
+                                                 [code parse
+                                                  #let [[cursor _] code]]
+                                                 (&;with-cursor cursor
+                                                   (generate code)))))))]
                        (wrap artifacts)
                        ## (&module;generate-descriptor module-name)
                        ))
@@ -139,7 +131,7 @@
       (#e;Error error)
       (T;fail error))))
 
-(def: init-cursor Cursor ["" +0 +0])
+(def: init-cursor Cursor ["" +1 +0])
 
 (def: #export init-type-context
   Type-Context
@@ -170,15 +162,15 @@
 (def: #export (generate-program program target sources)
   (-> Text File (List File) (T;Task Unit))
   (do T;Monad<Task>
-    [compiler (|> (case (&&runtime;generate (init-compiler (io;run &host;init-host)))
+    [compiler (|> (case (&&runtime;generate (init-compiler (io;run hostL;init-host)))
                     (#e;Error error)
                     (T;fail error)
 
                     (#e;Success [compiler [runtime-bc function-bc]])
                     (do @
                       [_ (&io;prepare-target target)
-                       _ (&io;write-file target &&runtime;runtime-class runtime-bc)
-                       _ (&io;write-file target &&runtime;function-class function-bc)]
+                       _ (&io;write-file target hostL;runtime-class runtime-bc)
+                       _ (&io;write-file target hostL;function-class function-bc)]
                       (wrap compiler)))
                   (: (T;Task Compiler))
                   (:: @ map (generate-module sources prelude target)) (:: @ join)

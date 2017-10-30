@@ -1,6 +1,7 @@
 (;module:
   lux
   (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
                 eq)
        (data [bool]
              [number]
@@ -21,10 +22,15 @@
       ["&;" structure])
   (. ["&&;" coverage]))
 
+(exception: #export Cannot-Match-Type-With-Pattern)
+(exception: #export Sum-Type-Has-No-Case)
+(exception: #export Unrecognized-Pattern-Syntax)
+
 (def: (pattern-error type pattern)
   (-> Type Code Text)
-  (format "Cannot match this type: " (%type type) "\n"
-          "     With this pattern: " (%code pattern)))
+  (Cannot-Match-Type-With-Pattern
+   (format "   Type: " (%type type) "\n"
+           "Pattern: " (%code pattern))))
 
 ## Type-checking on the input value is done during the analysis of a
 ## "case" expression, to ensure that the patterns being used make
@@ -55,6 +61,14 @@
       [[ex-id exT] (&;with-type-env
                      tc;existential)]
       (simplify-case-type (maybe;assume (type;apply (list exT) type))))
+
+    (#;Apply inputT funcT)
+    (case (type;apply (list inputT) funcT)
+      (#;Some outputT)
+      (:: meta;Monad<Meta> wrap outputT)
+
+      #;None
+      (&;fail (format "Cannot apply type " (%type funcT) " to  type " (%type inputT))))
 
     _
     (:: meta;Monad<Meta> wrap type)))
@@ -122,7 +136,7 @@
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Product _)
-          (let [sub-types (type;flatten-tuple inputT)
+          (let [sub-types (type;flatten-tuple inputT')
                 num-sub-types (maybe;default (list;size sub-types)
                                              num-tags)
                 num-sub-patterns (list;size sub-patterns)
@@ -175,7 +189,7 @@
         [inputT' (simplify-case-type inputT)]
         (case inputT'
           (#;Sum _)
-          (let [flat-sum (type;flatten-variant inputT)
+          (let [flat-sum (type;flatten-variant inputT')
                 size-sum (list;size flat-sum)
                 num-cases (maybe;default size-sum num-tags)]
             (case (list;nth idx flat-sum)
@@ -196,7 +210,9 @@
                          nextA])))
 
               _
-              (&;fail (format "Cannot match index " (%n idx) " against type: " (%type inputT)))))
+              (&;throw Sum-Type-Has-No-Case
+                       (format "Case: " (%n idx) "\n"
+                               "Type: " (%type inputT)))))
 
           _
           (&;fail (pattern-error inputT pattern)))))
@@ -211,10 +227,10 @@
         (analyse-pattern (#;Some (list;size group)) inputT (` ((~ (code;nat idx)) (~@ values))) next)))
 
     _
-    (&;fail (format "Unrecognized pattern syntax: " (%code pattern)))
+    (&;throw Unrecognized-Pattern-Syntax (%code pattern))
     ))
 
-(def: #export (analyse-case analyse input branches)
+(def: #export (analyse-case analyse inputC branches)
   (-> &;Analyser Code (List [Code Code]) (Meta la;Analysis))
   (case branches
     #;Nil
@@ -223,7 +239,7 @@
     (#;Cons [patternH bodyH] branchesT)
     (do meta;Monad<Meta>
       [[inputT inputA] (&common;with-unknown-type
-                         (analyse input))
+                         (analyse inputC))
        outputH (analyse-pattern #;None inputT patternH (analyse bodyH))
        outputT (monad;map @
                           (function [[patternT bodyT]]

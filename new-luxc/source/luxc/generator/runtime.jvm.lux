@@ -7,6 +7,7 @@
        [meta]
        [host])
   (luxc ["&" base]
+        [";L" host]
         (lang ["la" analysis]
               ["ls" synthesis])
         ["&;" analyser]
@@ -40,20 +41,16 @@
   (visitEnd [] void)
   (toByteArray [] (Array byte)))
 
-(def: #export runtime-class Text "LuxRuntime")
-(def: #export function-class Text "LuxFunction")
-(def: #export unit Text "\u0000")
-
 (def: $Object $;Type ($t;class "java.lang.Object" (list)))
 (def: $Object-Array $;Type ($t;array +1 $Object))
 (def: $String $;Type ($t;class "java.lang.String" (list)))
 (def: #export $Stack $;Type ($t;array +1 $Object))
-(def: #export $Tuple $;Type ($t;array +1 $Object))
-(def: #export $Variant $;Type ($t;array +1 $Object))
+(def: #export $Tuple $;Type $Object-Array)
+(def: #export $Variant $;Type $Object-Array)
 (def: #export $Tag $;Type $t;int)
 (def: #export $Flag $;Type $Object)
 (def: #export $Datum $;Type $Object)
-(def: #export $Function $;Type ($t;class function-class (list)))
+(def: #export $Function $;Type ($t;class hostL;function-class (list)))
 (def: $Throwable $;Type ($t;class "java.lang.Throwable" (list)))
 
 (def: #export logI
@@ -69,7 +66,7 @@
 
 (def: variantI
   $;Inst
-  ($i;INVOKESTATIC runtime-class "variant_make" variant-method false))
+  ($i;INVOKESTATIC hostL;runtime-class "variant_make" variant-method false))
 
 (def: #export leftI
   $;Inst
@@ -93,8 +90,12 @@
   $;Inst
   (|>. ($i;int 0)
        $i;NULL
-       ($i;string unit)
+       ($i;string hostL;unit)
        variantI))
+
+(def: #export string-concatI
+  $;Inst
+  ($i;INVOKEVIRTUAL "java.lang.String" "concat" ($t;method (list $String) (#;Some $String) (list)) false))
 
 (def: #export partials-field Text "partials")
 (def: #export apply-method Text "apply")
@@ -108,8 +109,59 @@
   $;Def
   (let [store-tagI (|>. $i;DUP ($i;int 0) ($i;ILOAD +0) ($i;wrap #$;Int) $i;AASTORE)
         store-flagI (|>. $i;DUP ($i;int 1) ($i;ALOAD +1) $i;AASTORE)
-        store-valueI (|>. $i;DUP ($i;int 2) ($i;ALOAD +2) $i;AASTORE)]
-    (|>. ($d;method #$;Public $;staticM "variant_make"
+        store-valueI (|>. $i;DUP ($i;int 2) ($i;ALOAD +2) $i;AASTORE)
+        force-textMT ($t;method (list $Object) (#;Some $String) (list))]
+    (|>. ($d;method #$;Public $;staticM "force_text" force-textMT
+                    (<| $i;with-label (function [@is-null])
+                        $i;with-label (function [@normal-object])
+                        $i;with-label (function [@array-loop])
+                        $i;with-label (function [@within-bounds])
+                        $i;with-label (function [@is-first])
+                        $i;with-label (function [@elem-end])
+                        $i;with-label (function [@fold-end])
+                        (let [on-normal-objectI (|>. ($i;ALOAD +0)
+                                                     ($i;INVOKEVIRTUAL "java.lang.Object" "toString" ($t;method (list) (#;Some $String) (list)) false))
+                              on-null-objectI ($i;string "NULL")
+                              arrayI (|>. ($i;ALOAD +0)
+                                          ($i;CHECKCAST ($t;descriptor $Object-Array)))
+                              recurseI ($i;INVOKESTATIC hostL;runtime-class "force_text" force-textMT false)
+                              force-elemI (|>. $i;DUP arrayI $i;SWAP $i;AALOAD recurseI)
+                              swap2 (|>. $i;DUP2_X2 ## X,Y => Y,X,Y
+                                         $i;POP2 ## Y,X,Y => Y,X
+                                         )
+                              add-spacingI (|>. ($i;string ", ") $i;SWAP string-concatI)
+                              merge-with-totalI (|>. $i;DUP_X2 $i;POP ## TSIP => TPSI
+                                                     swap2 ## TPSI => SITP
+                                                     string-concatI ## SITP => SIT
+                                                     $i;DUP_X2 $i;POP ## SIT => TSI
+                                                     )
+                              foldI (|>. $i;DUP ## TSI => TSII
+                                         ($i;IFEQ @is-first) ## TSI
+                                         force-elemI add-spacingI merge-with-totalI ($i;GOTO @elem-end)
+                                         ($i;label @is-first) ## TSI
+                                         force-elemI merge-with-totalI
+                                         ($i;label @elem-end) ## TSI
+                                         )
+                              inc-idxI (|>. ($i;int 1) $i;IADD)
+                              on-array-objectI (|>. ($i;string "[") ## T
+                                                    arrayI $i;ARRAYLENGTH ## TS
+                                                    ($i;int 0) ## TSI
+                                                    ($i;label @array-loop) ## TSI
+                                                    $i;DUP2
+                                                    ($i;IF_ICMPGT @within-bounds) ## TSI
+                                                    $i;POP2 ($i;string "]") string-concatI ($i;GOTO @fold-end)
+                                                    ($i;label @within-bounds)
+                                                    foldI inc-idxI ($i;GOTO @array-loop)
+                                                    ($i;label @fold-end))])
+                        (|>. ($i;ALOAD +0)
+                             ($i;IFNULL @is-null)
+                             ($i;ALOAD +0)
+                             ($i;INSTANCEOF ($t;descriptor $Object-Array))
+                             ($i;IFEQ @normal-object)
+                             on-array-objectI $i;ARETURN
+                             ($i;label @normal-object) on-normal-objectI $i;ARETURN
+                             ($i;label @is-null) on-null-objectI $i;ARETURN)))
+         ($d;method #$;Public $;staticM "variant_make"
                     ($t;method (list $t;int $Object $Object)
                                (#;Some $Variant)
                                (list))
@@ -120,14 +172,18 @@
                          store-valueI
                          $i;ARETURN)))))
 
+(def: #export force-textI
+  $;Inst
+  ($i;INVOKESTATIC hostL;runtime-class "force_text" ($t;method (list $Object) (#;Some $String) (list)) false))
+
 (def: nat-methods
   $;Def
   (let [compare-nat-method ($t;method (list $t;long $t;long) (#;Some $t;int) (list))
-        less-thanI (function [@where] (|>. ($i;INVOKESTATIC runtime-class "compare_nat" compare-nat-method false) ($i;IFLT @where)))
+        less-thanI (function [@where] (|>. ($i;INVOKESTATIC hostL;runtime-class "compare_nat" compare-nat-method false) ($i;IFLT @where)))
         $BigInteger ($t;class "java.math.BigInteger" (list))
         upcast-method ($t;method (list $t;long) (#;Some $BigInteger) (list))
         div-method ($t;method (list $t;long $t;long) (#;Some $t;long) (list))
-        upcastI ($i;INVOKESTATIC runtime-class "_toUnsignedBigInteger" upcast-method false)
+        upcastI ($i;INVOKESTATIC hostL;runtime-class "_toUnsignedBigInteger" upcast-method false)
         downcastI ($i;INVOKEVIRTUAL "java.math.BigInteger" "longValue" ($t;method (list) (#;Some $t;long) (list)) false)]
     ## http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8u40-b25/java/lang/Long.java#215
     (|>. ($d;method #$;Public $;staticM "_toUnsignedBigInteger" upcast-method
@@ -300,7 +356,7 @@
                         (let [subjectI ($i;LLOAD +0)
                               paramI ($i;LLOAD +2)
                               equal?I (function [@where] (|>. $i;LCMP ($i;IFEQ @where)))
-                              count-leading-zerosI ($i;INVOKESTATIC runtime-class "count_leading_zeros" clz-method false)
+                              count-leading-zerosI ($i;INVOKESTATIC hostL;runtime-class "count_leading_zeros" clz-method false)
                               calc-max-shiftI (|>. subjectI count-leading-zerosI
                                                    paramI count-leading-zerosI
                                                    ($i;INVOKESTATIC "java.lang.Math" "min" ($t;method (list $t;int $t;int) (#;Some $t;int) (list)) false)
@@ -373,7 +429,7 @@
                          ($i;int 1)
                          $i;AALOAD
                          $i;ARETURN))
-         ($d;method #$;Public $;staticM "pm_variant" ($t;method (list $Stack $t;int $Object) (#;Some $Object) (list))
+         ($d;method #$;Public $;staticM "pm_variant" ($t;method (list $Variant $Tag $Flag) (#;Some $Object) (list))
                     (<| $i;with-label (function [@begin])
                         $i;with-label (function [@just-return])
                         $i;with-label (function [@then])
@@ -487,7 +543,7 @@
                              ($i;label @from)
                              ($i;ALOAD +0)
                              $i;NULL
-                             ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
+                             ($i;INVOKEVIRTUAL hostL;function-class apply-method (apply-signature +1) false)
                              rightI
                              $i;ARETURN
                              ($i;label @to)
@@ -505,14 +561,14 @@
   (Meta &common;Bytecode)
   (do meta;Monad<Meta>
     [_ (wrap [])
-     #let [bytecode ($d;class #$;V1.6 #$;Public $;finalC runtime-class (list) ["java.lang.Object" (list)] (list)
+     #let [bytecode ($d;class #$;V1.6 #$;Public $;finalC hostL;runtime-class (list) ["java.lang.Object" (list)] (list)
                               (|>. adt-methods
                                    nat-methods
                                    frac-methods
                                    deg-methods
                                    pm-methods
                                    io-methods))]
-     _ (&common;store-class runtime-class bytecode)]
+     _ (&common;store-class hostL;runtime-class bytecode)]
     (wrap bytecode)))
 
 (def: generate-function
@@ -526,24 +582,24 @@
                                                             (list/map $i;ALOAD)
                                                             $i;fuse)]
                                                (|>. preI
-                                                    ($i;INVOKEVIRTUAL function-class apply-method (apply-signature (n.dec arity)) false)
-                                                    ($i;CHECKCAST function-class)
+                                                    ($i;INVOKEVIRTUAL hostL;function-class apply-method (apply-signature (n.dec arity)) false)
+                                                    ($i;CHECKCAST hostL;function-class)
                                                     ($i;ALOAD arity)
-                                                    ($i;INVOKEVIRTUAL function-class apply-method (apply-signature +1) false)
+                                                    ($i;INVOKEVIRTUAL hostL;function-class apply-method (apply-signature +1) false)
                                                     $i;ARETURN)))))
                       (list& ($d;abstract-method #$;Public $;noneM apply-method (apply-signature +1)))
                       $d;fuse)
-           bytecode ($d;abstract #$;V1.6 #$;Public $;noneC function-class (list) ["java.lang.Object" (list)] (list)
+           bytecode ($d;abstract #$;V1.6 #$;Public $;noneC hostL;function-class (list) ["java.lang.Object" (list)] (list)
                                  (|>. ($d;field #$;Public $;finalF partials-field $t;int)
                                       ($d;method #$;Public $;noneM "<init>" ($t;method (list $t;int) #;None (list))
                                                  (|>. ($i;ALOAD +0)
                                                       ($i;INVOKESPECIAL "java.lang.Object" "<init>" ($t;method (list) #;None (list)) false)
                                                       ($i;ALOAD +0)
                                                       ($i;ILOAD +1)
-                                                      ($i;PUTFIELD function-class partials-field $t;int)
+                                                      ($i;PUTFIELD hostL;function-class partials-field $t;int)
                                                       $i;RETURN))
                                       applyI))]
-     _ (&common;store-class function-class bytecode)]
+     _ (&common;store-class hostL;function-class bytecode)]
     (wrap bytecode)))
 
 (def: #export generate

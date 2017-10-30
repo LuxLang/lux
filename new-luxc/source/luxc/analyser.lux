@@ -1,14 +1,19 @@
 (;module:
   lux
-  (lux (control monad)
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
        (data ["e" error]
+             [product]
              text/format)
        [meta]
        (meta [type]
-             (type ["tc" check])))
+             (type ["tc" check]))
+       [host #+ do-to])
   (luxc ["&" base]
+        [";L" host]
         (lang ["la" analysis])
-        ["&;" module])
+        ["&;" module]
+        (generator [";G" common]))
   (. ["&&;" common]
      ["&&;" function]
      ["&&;" primitive]
@@ -17,6 +22,37 @@
      ["&&;" structure]
      ["&&;" case]
      ["&&;" procedure]))
+
+(for {"JVM" (as-is (host;import java.lang.reflect.Method
+                     (invoke [Object (Array Object)] #try Object))
+                   (host;import (java.lang.Class c)
+                     (getMethod [String (Array (Class Object))] #try Method))
+                   (host;import java.lang.Object
+                     (getClass [] (Class Object))
+                     (toString [] String))
+                   (def: _object-class (Class Object) (host;class-for Object))
+                   (def: _apply-args
+                     (Array (Class Object))
+                     (|> (host;array (Class Object) +2)
+                         (host;array-write +0 _object-class)
+                         (host;array-write +1 _object-class)))
+                   (def: (call-macro macro inputs)
+                     (-> Macro (List Code) (Meta (List Code)))
+                     (do meta;Monad<Meta>
+                       [class (commonG;load-class hostL;function-class)]
+                       (function [compiler]
+                         (do e;Monad<Error>
+                           [apply-method (Class.getMethod ["apply" _apply-args] class)
+                            output (Method.invoke [(:! Object macro)
+                                                   (|> (host;array Object +2)
+                                                       (host;array-write +0 (:! Object inputs))
+                                                       (host;array-write +1 (:! Object compiler)))]
+                                                  apply-method)]
+                           (:! (e;Error [Compiler (List Code)])
+                               output))))))
+      })
+
+(exception: #export Macro-Expression-Must-Have-Single-Expansion)
 
 (def: (to-branches raw)
   (-> (List Code) (Meta (List [Code Code])))
@@ -36,104 +72,113 @@
   (-> &;Eval &;Analyser)
   (: (-> Code (Meta la;Analysis))
      (function analyse [ast]
-       (let [[cursor ast'] ast]
-         ## The cursor must be set in the compiler for the sake
-         ## of having useful error messages.
-         (&;with-cursor cursor
-           (case ast'
-             (^template [<tag> <analyser>]
-               (<tag> value)
-               (<analyser> value))
-             ([#;Bool &&primitive;analyse-bool]
-              [#;Nat  &&primitive;analyse-nat]
-              [#;Int  &&primitive;analyse-int]
-              [#;Deg  &&primitive;analyse-deg]
-              [#;Frac &&primitive;analyse-frac]
-              [#;Text &&primitive;analyse-text])
+       (do meta;Monad<Meta>
+         [expectedT meta;expected-type]
+         (let [[cursor ast'] ast]
+           ## The cursor must be set in the compiler for the sake
+           ## of having useful error messages.
+           (&;with-cursor cursor
+             (case ast'
+               (^template [<tag> <analyser>]
+                 (<tag> value)
+                 (<analyser> value))
+               ([#;Bool &&primitive;analyse-bool]
+                [#;Nat  &&primitive;analyse-nat]
+                [#;Int  &&primitive;analyse-int]
+                [#;Deg  &&primitive;analyse-deg]
+                [#;Frac &&primitive;analyse-frac]
+                [#;Text &&primitive;analyse-text])
 
-             (^ (#;Tuple (list)))
-             &&primitive;analyse-unit
+               (^ (#;Tuple (list)))
+               &&primitive;analyse-unit
 
-             ## Singleton tuples are equivalent to the element they contain.
-             (^ (#;Tuple (list singleton)))
-             (analyse singleton)
+               ## Singleton tuples are equivalent to the element they contain.
+               (^ (#;Tuple (list singleton)))
+               (analyse singleton)
 
-             (^ (#;Tuple elems))
-             (&&structure;analyse-product analyse elems)
+               (^ (#;Tuple elems))
+               (&&structure;analyse-product analyse elems)
 
-             (^ (#;Record pairs))
-             (&&structure;analyse-record analyse pairs)
+               (^ (#;Record pairs))
+               (&&structure;analyse-record analyse pairs)
 
-             (#;Symbol reference)
-             (&&reference;analyse-reference reference)
+               (#;Symbol reference)
+               (&&reference;analyse-reference reference)
 
-             (^ (#;Form (list [_ (#;Text "lux function")]
-                              [_ (#;Symbol ["" func-name])]
-                              [_ (#;Symbol ["" arg-name])]
-                              body)))
-             (&&function;analyse-function analyse func-name arg-name body)
+               (^ (#;Form (list [_ (#;Text "lux function")]
+                                [_ (#;Symbol ["" func-name])]
+                                [_ (#;Symbol ["" arg-name])]
+                                body)))
+               (&&function;analyse-function analyse func-name arg-name body)
 
-             (^template [<special> <analyser>]
-               (^ (#;Form (list [_ (#;Text <special>)] type value)))
-               (<analyser> analyse eval type value))
-             (["lux check" &&type;analyse-check]
-              ["lux coerce" &&type;analyse-coerce])
-             
-             (^ (#;Form (list& [_ (#;Text "lux case")]
-                               input
-                               branches)))
-             (do meta;Monad<Meta>
-               [paired (to-branches branches)]
-               (&&case;analyse-case analyse input paired))
+               (^template [<special> <analyser>]
+                 (^ (#;Form (list [_ (#;Text <special>)] type value)))
+                 (<analyser> analyse eval type value))
+               (["lux check" &&type;analyse-check]
+                ["lux coerce" &&type;analyse-coerce])
 
-             (^ (#;Form (list& [_ (#;Text proc-name)] proc-args)))
-             (&&procedure;analyse-procedure analyse proc-name proc-args)
+               (^ (#;Form (list [_ (#;Text "lux check type")] valueC)))
+               (do meta;Monad<Meta>
+                 [valueA (&;with-expected-type Type
+                           (analyse valueC))
+                  expected meta;expected-type
+                  _ (&;with-type-env
+                      (tc;check expected Type))]
+                 (wrap valueA))
+               
+               (^ (#;Form (list& [_ (#;Text "lux case")]
+                                 input
+                                 branches)))
+               (do meta;Monad<Meta>
+                 [paired (to-branches branches)]
+                 (&&case;analyse-case analyse input paired))
 
-             (^template [<tag> <analyser>]
-               (^ (#;Form (list& [_ (<tag> tag)]
-                                 values)))
-               (case values
-                 (#;Cons value #;Nil)
-                 (<analyser> analyse tag value)
+               (^ (#;Form (list& [_ (#;Text proc-name)] proc-args)))
+               (&&procedure;analyse-procedure analyse proc-name proc-args)
 
-                 _
-                 (<analyser> analyse tag (` [(~@ values)]))))
-             ([#;Nat &&structure;analyse-sum]
-              [#;Tag &&structure;analyse-tagged-sum])
+               (^template [<tag> <analyser>]
+                 (^ (#;Form (list& [_ (<tag> tag)]
+                                   values)))
+                 (case values
+                   (#;Cons value #;Nil)
+                   (<analyser> analyse tag value)
 
-             (#;Tag tag)
-             (&&structure;analyse-tagged-sum analyse tag (' []))
-             
-             (^ (#;Form (list& func args)))
-             (do meta;Monad<Meta>
-               [[funcT =func] (&&common;with-unknown-type
-                                (analyse func))]
-               (case =func
-                 (#la;Definition def-name)
-                 (do @
-                   [[def-type def-anns def-value] (meta;find-def def-name)]
-                   (if (meta;macro? def-anns)
-                     (do @
-                       [## macro-expansion (function [compiler]
-                        ##                   (case (macro-caller def-value args compiler)
-                        ##                     (#e;Success [compiler' output])
-                        ##                     (#e;Success [compiler' output])
+                   _
+                   (<analyser> analyse tag (` [(~@ values)]))))
+               ([#;Nat &&structure;analyse-sum]
+                [#;Tag &&structure;analyse-tagged-sum])
 
-                        ##                     (#e;Error error)
-                        ##                     ((&;fail error) compiler)))
-                        macro-expansion (: (Meta (List Code))
-                                           (undefined))]
-                       (case macro-expansion
-                         (^ (list single-expansion))
-                         (analyse single-expansion)
+               (#;Tag tag)
+               (&&structure;analyse-tagged-sum analyse tag (' []))
+               
+               (^ (#;Form (list& func args)))
+               (do meta;Monad<Meta>
+                 [[funcT =func] (&&common;with-unknown-type
+                                  (analyse func))]
+                 (case =func
+                   (#la;Definition def-name)
+                   (do @
+                     [[def-type def-anns def-value] (meta;find-def def-name)]
+                     (if (meta;macro? def-anns)
+                       (do @
+                         [expansion (function [compiler]
+                                      (case (call-macro (:! Macro def-value) args compiler)
+                                        (#e;Success [compiler' output])
+                                        (#e;Success [compiler' output])
 
-                         _
-                         (&;fail (format "Macro expressions must expand to a single expression: " (%code ast)))))
-                     (&&function;analyse-apply analyse funcT =func args)))
+                                        (#e;Error error)
+                                        ((&;fail error) compiler)))]
+                         (case expansion
+                           (^ (list single))
+                           (analyse single)
 
-                 _
-                 (&&function;analyse-apply analyse funcT =func args)))
+                           _
+                           (&;throw Macro-Expression-Must-Have-Single-Expansion (%code ast))))
+                       (&&function;analyse-apply analyse funcT =func args)))
 
-             _
-             (&;fail (format "Unrecognized syntax: " (%code ast)))
-             ))))))
+                   _
+                   (&&function;analyse-apply analyse funcT =func args)))
+
+               _
+               (&;fail (format "Unrecognized syntax: " (%code ast)))
+               )))))))

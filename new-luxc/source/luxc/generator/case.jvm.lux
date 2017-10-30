@@ -2,9 +2,9 @@
   lux
   (lux (control [monad #+ do])
        [meta "meta/" Monad<Meta>])
-  (luxc (lang ["ls" synthesis])
-        (generator [expr]
-                   (host ["$" jvm]
+  (luxc [";L" host]
+        (lang ["ls" synthesis])
+        (generator (host ["$" jvm]
                          (jvm ["$t" type]
                               ["$i" inst]))))
   [../runtime])
@@ -24,7 +24,7 @@
 (def: peekI
   $;Inst
   (|>. $i;DUP
-       ($i;INVOKESTATIC ../runtime;runtime-class
+       ($i;INVOKESTATIC hostL;runtime-class
                         "pm_peek"
                         ($t;method (list ../runtime;$Stack)
                                    (#;Some $Object)
@@ -33,7 +33,7 @@
 
 (def: popI
   $;Inst
-  (|>. ($i;INVOKESTATIC ../runtime;runtime-class
+  (|>. ($i;INVOKESTATIC hostL;runtime-class
                         "pm_pop"
                         ($t;method (list ../runtime;$Stack)
                                    (#;Some ../runtime;$Stack)
@@ -42,19 +42,20 @@
 
 (def: pushI
   $;Inst
-  (|>. ($i;INVOKESTATIC ../runtime;runtime-class
+  (|>. ($i;INVOKESTATIC hostL;runtime-class
                         "pm_push"
                         ($t;method (list ../runtime;$Stack $Object)
                                    (#;Some ../runtime;$Stack)
                                    (list))
                         false)))
 
-(def: (generate-pattern' stack-depth @else @end path)
-  (-> Nat $;Label $;Label ls;Path (Meta $;Inst))
+(def: (generate-pattern' generate stack-depth @else @end path)
+  (-> (-> ls;Synthesis (Meta $;Inst))
+      Nat $;Label $;Label ls;Path (Meta $;Inst))
   (case path
     (#ls;ExecP bodyS)
     (do meta;Monad<Meta>
-      [bodyI (expr;generate bodyS)]
+      [bodyI (generate bodyS)]
       (wrap (|>. (pop-altI stack-depth)
                  bodyI
                  ($i;GOTO @end))))
@@ -104,7 +105,7 @@
 
     (#ls;TupleP idx subP)
     (do meta;Monad<Meta>
-      [subI (generate-pattern' stack-depth @else @end subP)
+      [subI (generate-pattern' generate stack-depth @else @end subP)
        #let [[idx tail?] (case idx
                            (#;Left idx)
                            [idx false]
@@ -124,7 +125,7 @@
               (|>. peekI
                    ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
                    ($i;int (nat-to-int idx))
-                   ($i;INVOKESTATIC ../runtime;runtime-class
+                   ($i;INVOKESTATIC hostL;runtime-class
                                     (if tail? "pm_right" "pm_left")
                                     ($t;method (list ../runtime;$Tuple $t;int)
                                                (#;Some $Object)
@@ -135,7 +136,7 @@
 
     (#ls;VariantP idx subP)
     (do meta;Monad<Meta>
-      [subI (generate-pattern' stack-depth @else @end subP)
+      [subI (generate-pattern' generate stack-depth @else @end subP)
        #let [[idx last?] (case idx
                            (#;Left idx)
                            [idx false]
@@ -151,7 +152,7 @@
                      ($i;CHECKCAST ($t;descriptor ../runtime;$Variant))
                      ($i;int (nat-to-int idx))
                      flagI
-                     ($i;INVOKESTATIC ../runtime;runtime-class "pm_variant"
+                     ($i;INVOKESTATIC hostL;runtime-class "pm_variant"
                                       ($t;method (list ../runtime;$Variant ../runtime;$Tag ../runtime;$Flag)
                                                  (#;Some ../runtime;$Datum)
                                                  (list))
@@ -168,16 +169,16 @@
 
     (#ls;SeqP leftP rightP)
     (do meta;Monad<Meta>
-      [leftI (generate-pattern' stack-depth @else @end leftP)
-       rightI (generate-pattern' stack-depth @else @end rightP)]
+      [leftI (generate-pattern' generate stack-depth @else @end leftP)
+       rightI (generate-pattern' generate stack-depth @else @end rightP)]
       (wrap (|>. leftI
                  rightI)))
 
     (#ls;AltP leftP rightP)
     (do meta;Monad<Meta>
       [@alt-else $i;make-label
-       leftI (generate-pattern' (n.inc stack-depth) @alt-else @end leftP)
-       rightI (generate-pattern' stack-depth @else @end rightP)]
+       leftI (generate-pattern' generate (n.inc stack-depth) @alt-else @end leftP)
+       rightI (generate-pattern' generate stack-depth @else @end rightP)]
       (wrap (|>. $i;DUP
                  leftI
                  ($i;label @alt-else)
@@ -185,30 +186,42 @@
                  rightI)))
     ))
 
-(def: (generate-pattern path @end)
-  (-> ls;Path $;Label (Meta $;Inst))
+(def: (generate-pattern generate path @end)
+  (-> (-> ls;Synthesis (Meta $;Inst))
+      ls;Path $;Label (Meta $;Inst))
   (do meta;Monad<Meta>
     [@else $i;make-label
-     pathI (generate-pattern' +1 @else @end path)]
+     pathI (generate-pattern' generate +1 @else @end path)]
     (wrap (|>. pathI
                ($i;label @else)
                $i;POP
-               ($i;INVOKESTATIC ../runtime;runtime-class
+               ($i;INVOKESTATIC hostL;runtime-class
                                 "pm_fail"
                                 ($t;method (list) #;None (list))
                                 false)
                $i;NULL
                ($i;GOTO @end)))))
 
-(def: #export (generate valueS path)
-  (-> ls;Synthesis ls;Path (Meta $;Inst))
+(def: #export (generate-case generate valueS path)
+  (-> (-> ls;Synthesis (Meta $;Inst))
+      ls;Synthesis ls;Path (Meta $;Inst))
   (do meta;Monad<Meta>
     [@end $i;make-label
-     valueI (expr;generate valueS)
-     pathI (generate-pattern path @end)]
+     valueI (generate valueS)
+     pathI (generate-pattern generate path @end)]
     (wrap (|>. valueI
                $i;NULL
                $i;SWAP
                pushI
                pathI
                ($i;label @end)))))
+
+(def: #export (generate-let generate register inputS exprS)
+  (-> (-> ls;Synthesis (Meta $;Inst))
+      Nat ls;Synthesis ls;Synthesis (Meta $;Inst))
+  (do meta;Monad<Meta>
+    [inputI (generate inputS)
+     exprI (generate exprS)]
+    (wrap (|>. inputI
+               ($i;ASTORE register)
+               exprI))))

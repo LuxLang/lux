@@ -1,6 +1,7 @@
 (;module:
   lux
   (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
                 pipe)
        [function]
        (concurrency ["A" atom])
@@ -23,12 +24,12 @@
         (analyser ["&;" common]
                   ["&;" inference])))
 
+(exception: #export Not-Variant-Type)
+(exception: #export Not-Tuple-Type)
+(exception: #export Cannot-Infer-Numeric-Tag)
+
 (type: Type-Error
   (-> Type Text))
-
-(def: (not-variant type)
-  Type-Error
-  (format "Invalid type for variant: " (%type type)))
 
 (def: (not-quantified type)
   Type-Error
@@ -37,12 +38,14 @@
 (def: #export (analyse-sum analyse tag valueC)
   (-> &;Analyser Nat Code (Meta la;Analysis))
   (do meta;Monad<Meta>
-    [expected meta;expected-type]
+    [expectedT meta;expected-type]
     (&;with-stacked-errors
-      (function [_] (not-variant expected))
-      (case expected
+      (function [_] (Not-Variant-Type (format "  Tag: " (%n tag) "\n"
+                                              "Value: " (%code  valueC) "\n"
+                                              " Type: " (%type expectedT))))
+      (case expectedT
         (#;Sum _)
-        (let [flat (type;flatten-variant expected)
+        (let [flat (type;flatten-variant expectedT)
               type-size (list;size flat)]
           (case (list;nth tag flat)
             (#;Some variant-type)
@@ -53,7 +56,7 @@
               (wrap (la;sum tag type-size temp valueA)))
 
             #;None
-            (&common;variant-out-of-bounds-error expected type-size tag)))
+            (&common;variant-out-of-bounds-error expectedT type-size tag)))
 
         (#;Named name unnamedT)
         (&;with-expected-type unnamedT
@@ -65,26 +68,28 @@
                     (tc;bound? id))]
           (if bound?
             (do @
-              [expected' (&;with-type-env
-                           (tc;read id))]
-              (&;with-expected-type expected'
+              [expectedT' (&;with-type-env
+                            (tc;read id))]
+              (&;with-expected-type expectedT'
                 (analyse-sum analyse tag valueC)))
             ## Cannot do inference when the tag is numeric.
             ## This is because there is no way of knowing how many
             ## cases the inferred sum type would have.
-            (&;fail (not-variant expected))))
+            (&;throw Cannot-Infer-Numeric-Tag (format "  Tag: " (%n tag) "\n"
+                                                      "Value: " (%code  valueC) "\n"
+                                                      " Type: " (%type expectedT)))))
 
         (#;UnivQ _)
         (do @
           [[var-id var] (&;with-type-env
                           tc;existential)]
-          (&;with-expected-type (maybe;assume (type;apply (list var) expected))
+          (&;with-expected-type (maybe;assume (type;apply (list var) expectedT))
             (analyse-sum analyse tag valueC)))
 
         (#;ExQ _)
         (&common;with-var
           (function [[var-id var]]
-            (&;with-expected-type (maybe;assume (type;apply (list var) expected))
+            (&;with-expected-type (maybe;assume (type;apply (list var) expectedT))
               (analyse-sum analyse tag valueC))))
 
         (#;Apply inputT funT)
@@ -97,15 +102,17 @@
             (analyse-sum analyse tag valueC)))
         
         _
-        (&;fail "")))))
+        (&;throw Not-Variant-Type (format "  Tag: " (%n tag) "\n"
+                                          "Value: " (%code  valueC) "\n"
+                                          " Type: " (%type expectedT)))))))
 
 (def: (analyse-typed-product analyse members)
   (-> &;Analyser (List Code) (Meta la;Analysis))
   (do meta;Monad<Meta>
-    [expected meta;expected-type]
-    (loop [expected expected
+    [expectedT meta;expected-type]
+    (loop [expectedT expectedT
            members members]
-      (case [expected members]
+      (case [expectedT members]
         ## If the type and the code are still ongoing, match each
         ## sub-expression to its corresponding type.
         [(#;Product leftT rightT) (#;Cons leftC rightC)]
@@ -150,10 +157,11 @@
 (def: #export (analyse-product analyse membersC)
   (-> &;Analyser (List Code) (Meta la;Analysis))
   (do meta;Monad<Meta>
-    [expected meta;expected-type]
+    [expectedT meta;expected-type]
     (&;with-stacked-errors
-      (function [_] (format "Invalid type for tuple: " (%type expected)))
-      (case expected
+      (function [_] (Not-Tuple-Type (format " Type: " (%type expectedT) "\n"
+                                            "Value: " (%code (` [(~@ membersC)])))))
+      (case expectedT
         (#;Product _)
         (analyse-typed-product analyse membersC)
 
@@ -167,16 +175,16 @@
                     (tc;bound? id))]
           (if bound?
             (do @
-              [expected' (&;with-type-env
-                           (tc;read id))]
-              (&;with-expected-type expected'
+              [expectedT' (&;with-type-env
+                            (tc;read id))]
+              (&;with-expected-type expectedT'
                 (analyse-product analyse membersC)))
             ## Must do inference...
             (do @
               [membersTA (monad;map @ (|>. analyse &common;with-unknown-type)
                                     membersC)
                _ (&;with-type-env
-                   (tc;check expected
+                   (tc;check expectedT
                              (type;tuple (list/map product;left membersTA))))]
               (wrap (la;product (list/map product;right membersTA))))))
 
@@ -184,13 +192,13 @@
         (do @
           [[var-id var] (&;with-type-env
                           tc;existential)]
-          (&;with-expected-type (maybe;assume (type;apply (list var) expected))
+          (&;with-expected-type (maybe;assume (type;apply (list var) expectedT))
             (analyse-product analyse membersC)))
 
         (#;ExQ _)
         (&common;with-var
           (function [[var-id var]]
-            (&;with-expected-type (maybe;assume (type;apply (list var) expected))
+            (&;with-expected-type (maybe;assume (type;apply (list var) expectedT))
               (analyse-product analyse membersC))))
 
         (#;Apply inputT funT)
@@ -203,7 +211,8 @@
             (analyse-product analyse membersC)))
         
         _
-        (&;fail "")
+        (&;throw Not-Tuple-Type (format " Type: " (%type expectedT) "\n"
+                                        "Value: " (%code (` [(~@ membersC)]))))
         ))))
 
 (def: #export (analyse-tagged-sum analyse tag valueC)
@@ -216,7 +225,7 @@
       (#;Var _)
       (do @
         [#let [case-size (list;size group)]
-         inferenceT (&inference;variant-inference-type idx case-size variantT)
+         inferenceT (&inference;variant idx case-size variantT)
          [inferredT valueA+] (&inference;apply-function analyse inferenceT (list valueC))
          _ (&;with-type-env
              (tc;check expectedT inferredT))
@@ -295,7 +304,7 @@
     [members (normalize members)
      [members recordT] (order members)
      expectedT meta;expected-type
-     inferenceT (&inference;record-inference-type recordT)
+     inferenceT (&inference;record recordT)
      [inferredT membersA] (&inference;apply-function analyse inferenceT members)
      _ (&;with-type-env
          (tc;check expectedT inferredT))]
