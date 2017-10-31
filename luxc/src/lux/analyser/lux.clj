@@ -393,9 +393,7 @@
   )
 
 (defn analyse-case [analyse exo-type ?value ?branches]
-  (|do [:let [num-branches (&/|length ?branches)]
-        _ (&/assert! (> num-branches 0) "[Analyser Error] Cannot have empty branches in \"case\" expression.")
-        _ (&/assert! (even? num-branches) "[Analyser Error] Unbalanced branches in \"case\" expression.")
+  (|do [_ (&/assert! (> (&/|length ?branches) 0) "[Analyser Error] Cannot have empty branches in \"case\" expression.")
         =value (&&/analyse-1+ analyse ?value)
         :let [var?? (|case =value
                       [_ (&&/$var =var-kind)]
@@ -403,7 +401,7 @@
 
                       _
                       &/$None)]
-        =match (&&case/analyse-branches analyse exo-type var?? (&&/expr-type* =value) (&/|as-pairs ?branches))
+        =match (&&case/analyse-branches analyse exo-type var?? (&&/expr-type* =value) ?branches)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$case =value =match)

@@ -145,7 +145,7 @@
               (&&lux/analyse-program analyse optimize compile-program ?args ?body)))
 
           "lux case"
-          (|let [(&/$Cons ?value ?branches) parameters]
+          (|let [(&/$Cons ?value (&/$Cons [_ (&/$Record ?branches)] (&/$Nil))) parameters]
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-case analyse exo-type ?value ?branches)))
 

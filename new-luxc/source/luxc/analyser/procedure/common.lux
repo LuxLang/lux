@@ -12,11 +12,14 @@
        [io])
   (luxc ["&" base]
         (lang ["la" analysis])
-        (analyser ["&;" common])))
+        (analyser ["&;" common]
+                  [";A" function]
+                  [";A" case]
+                  [";A" type])))
 
 ## [Utils]
 (type: #export Proc
-  (-> &;Analyser (List Code) (Meta la;Analysis)))
+  (-> &;Analyser &;Eval (List Code) (Meta la;Analysis)))
 
 (type: #export Bundle
   (Dict Text Proc))
@@ -42,7 +45,7 @@
 (def: (simple proc input-types output-type)
   (-> Text (List Type) Type Proc)
   (let [num-expected (list;size input-types)]
-    (function [analyse args]
+    (function [analyse eval args]
       (let [num-actual (list;size args)]
         (if (n.= num-expected num-actual)
           (do Monad<Meta>
@@ -77,17 +80,17 @@
 ## "lux is" represents reference/pointer equality.
 (def: (lux-is proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         ((binary varT varT Bool proc)
-         analyse args)))))
+         analyse eval args)))))
 
 ## "lux try" provides a simple way to interact with the host platform's
 ## error-handling facilities.
 (def: (lux-try proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         (case args
@@ -105,11 +108,74 @@
           _
           (&;fail (wrong-arity proc +1 (list;size args))))))))
 
+(def: (lux//function proc)
+  (-> Text Proc)
+  (function [analyse eval args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list [_ (#;Symbol ["" func-name])]
+                   [_ (#;Symbol ["" arg-name])]
+                   body))
+          (functionA;analyse-function analyse func-name arg-name body)
+          
+          _
+          (&;fail (wrong-arity proc +3 (list;size args))))))))
+
+(def: (lux//case proc)
+  (-> Text Proc)
+  (function [analyse eval args]
+    (&common;with-var
+      (function [[var-id varT]]
+        (case args
+          (^ (list input [_ (#;Record branches)]))
+          (caseA;analyse-case analyse input branches)
+          
+          _
+          (&;fail (wrong-arity proc +2 (list;size args))))))))
+
+(do-template [<name> <analyser>]
+  [(def: (<name> proc)
+     (-> Text Proc)
+     (function [analyse eval args]
+       (&common;with-var
+         (function [[var-id varT]]
+           (case args
+             (^ (list typeC valueC))
+             (<analyser> analyse eval typeC valueC)
+             
+             _
+             (&;fail (wrong-arity proc +2 (list;size args))))))))]
+
+  [lux//check typeA;analyse-check]
+  [lux//coerce typeA;analyse-coerce])
+
+(def: (lux//check//type proc)
+  (-> Text Proc)
+  (function [analyse eval args]
+    (case args
+      (^ (list valueC))
+      (do meta;Monad<Meta>
+        [valueA (&;with-expected-type Type
+                  (analyse valueC))
+         expected meta;expected-type
+         _ (&;with-type-env
+             (tc;check expected Type))]
+        (wrap valueA))
+      
+      _
+      (&;fail (wrong-arity proc +1 (list;size args))))))
+
 (def: lux-procs
   Bundle
   (|> (dict;new text;Hash<Text>)
       (install "is" lux-is)
-      (install "try" lux-try)))
+      (install "try" lux-try)
+      (install "function" lux//function)
+      (install "case" lux//case)
+      (install "check" lux//check)
+      (install "coerce" lux//coerce)
+      (install "check type" lux//check//type)))
 
 (def: io-procs
   Bundle
@@ -222,27 +288,27 @@
 
 (def: (array-get proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         ((binary Nat (type (Array varT)) varT proc)
-         analyse args)))))
+         analyse eval args)))))
 
 (def: (array-put proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         ((trinary Nat varT (type (Array varT)) (type (Array varT)) proc)
-         analyse args)))))
+         analyse eval args)))))
 
 (def: (array-remove proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         ((binary Nat (type (Array varT)) (type (Array varT)) proc)
-         analyse args)))))
+         analyse eval args)))))
 
 (def: array-procs
   Bundle
@@ -281,7 +347,7 @@
 
 (def: (atom-new proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         (case args
@@ -301,19 +367,19 @@
 
 (def: (atom-read proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         ((unary (type (A;Atom varT)) varT proc)
-         analyse args)))))
+         analyse eval args)))))
 
 (def: (atom-compare-and-swap proc)
   (-> Text Proc)
-  (function [analyse args]
+  (function [analyse eval args]
     (&common;with-var
       (function [[var-id varT]]
         ((trinary varT varT (type (A;Atom varT)) Bool proc)
-         analyse args)))))
+         analyse eval args)))))
 
 (def: atom-procs
   Bundle
