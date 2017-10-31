@@ -117,6 +117,10 @@
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-ann analyse eval! exo-type ?type ?value)))
 
+          "lux check type"
+          (|let [(&/$Cons ?value (&/$Nil)) parameters]
+            (analyse-ast optimize eval! compile-module compilers &type/Type ?value))
+
           "lux coerce"
           (|let [(&/$Cons ?type
                           (&/$Cons ?value
