@@ -5973,3 +5973,79 @@
     _
     (fail "Wrong syntax for ``")
     ))
+
+(def: (ident$ [module name])
+  (-> Ident Code)
+  (` [(~ (text$ module)) (~ (text$ name))]))
+
+(def: (untemplate-list& last inits)
+  (-> Code (List Code) Code)
+  (case inits
+    #Nil
+    last
+
+    (#Cons [init inits'])
+    (` (#;Cons (~ init) (~ (untemplate-list& last inits'))))))
+
+(def: (untemplate-pattern pattern)
+  (-> Code (Meta Code))
+  (case pattern
+    (^template [<tag> <name> <gen>]
+      [_ (<tag> value)]
+      (do Monad<Meta>
+        [g!meta (gensym "g!meta")]
+        (wrap (` [(~ g!meta) (<tag> (~ (<gen> value)))]))))
+    ([#Bool "Bool" bool$]
+     [#Nat "Nat" nat$]
+     [#Int "Int" int$]
+     [#Deg "Deg" deg$]
+     [#Frac "Frac" frac$]
+     [#Text "Text" text$]
+     [#Tag "Tag" ident$]
+     [#Symbol "Symbol" ident$])
+
+    [_ (#Record fields)]
+    (do Monad<Meta>
+      [=fields (mapM Monad<Meta>
+                     (function [[key value]]
+                       (do Monad<Meta>
+                         [=key (untemplate-pattern key)
+                          =value (untemplate-pattern value)]
+                         (wrap (` [(~ =key) (~ =value)]))))
+                     fields)
+       g!meta (gensym "g!meta")]
+      (wrap (` [(~ g!meta) (#;Record (~ (untemplate-list =fields)))])))
+
+    [_ (#Form (#Cons [[_ (#Symbol ["" "~"])] (#Cons [unquoted #Nil])]))]
+    (:: Monad<Meta> wrap unquoted)
+
+    [_ (#Form (#Cons [[_ (#Symbol ["" "~@"])] (#Cons [spliced #Nil])]))]
+    (fail "Cannot use (~@) inside of ^code unless it is the last element in a form or a tuple.")
+
+    (^template [<tag>]
+      [_ (<tag> elems)]
+      (case (reverse elems)
+        (#;Cons [_ (#Form (#Cons [[_ (#Symbol ["" "~@"])] (#Cons [spliced #Nil])]))]
+                inits)
+        (do Monad<Meta>
+          [=inits (mapM Monad<Meta> untemplate-pattern (reverse inits))
+           g!meta (gensym "g!meta")]
+          (wrap (` [(~ g!meta) (<tag> (~ (untemplate-list& spliced =inits)))])))
+
+        _
+        (do Monad<Meta>
+          [=elems (mapM Monad<Meta> untemplate-pattern elems)
+           g!meta (gensym "g!meta")]
+          (wrap (` [(~ g!meta) (<tag> (~ (untemplate-list =elems)))])))))
+    ([#;Tuple] [#;Form])
+    ))
+
+(macro: #export (^code tokens)
+  (case tokens
+    (^ (list& [_meta (#;Form (list template))] body branches))
+    (do Monad<Meta>
+      [pattern (untemplate-pattern template)]
+      (wrap (list& pattern body branches)))
+    
+    _
+    (fail "Wrong syntax for ^code")))
