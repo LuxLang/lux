@@ -1,61 +1,71 @@
 (;module:
   lux
-  (lux (data [maybe]
-             text/format
-             (coll [list "L/" Functor<List>])))
+  (lux (control [monad #+ do]
+                ["p" parser])
+       (data [maybe]
+             (coll [list "list/" Functor<List>]))
+       (meta [code]
+             [syntax]))
   (luxc (lang ["ls" synthesis])
         (synthesizer ["&&;" function])))
 
 (def: #export (contains-self-reference? exprS)
   (-> ls;Synthesis Bool)
   (case exprS
-    (#ls;Variant tag last? memberS)
+    (^ [_ (#;Form (list [_ (#;Nat tag)] [_ (#;Bool last?)] memberS))])
     (contains-self-reference? memberS)
 
-    (#ls;Tuple membersS)
+    [_ (#;Tuple membersS)]
     (list;any? contains-self-reference? membersS)
 
-    (#ls;Case inputS pathS)
+    (^ [_ (#;Form (list [_ (#;Int var)]))])
+    (&&function;self? var)
+
+    (^ [_ (#;Form (list [_ (#;Text "lux case")] inputS pathS))])
     (or (contains-self-reference? inputS)
         (loop [pathS pathS]
           (case pathS
-            (^or (#ls;AltP leftS rightS)
-                 (#ls;SeqP leftS rightS))
+            (^or (^ [_ (#;Form (list [_ (#;Text "lux case alt")] leftS rightS))])
+                 (^ [_ (#;Form (list [_ (#;Text "lux case seq")] leftS rightS))]))
             (or (recur leftS)
                 (recur rightS))
-            
-            (#ls;ExecP bodyS)
+
+            (^ [_ (#;Form (list [_ (#;Text "lux case exec")] bodyS))])
             (contains-self-reference? bodyS)
             
             _
             false)))
 
-    (#ls;Function arity environment bodyS)
-    (list;any? &&function;self? environment)
-    
-    (#ls;Call argsS funcS)
+    (^ [_ (#;Form (list [_ (#;Text "lux function")] arity [_ (#;Tuple environment)] bodyS))])
+    (list;any? (function [captured]
+                 (case captured
+                   (^ [_ (#;Form (list [_ (#;Int var)]))])
+                   (&&function;self? var)
+
+                   _
+                   false))
+               environment)
+
+    (^ [_ (#;Form (list& [_ (#;Text "lux call")] funcS argsS))])
     (or (contains-self-reference? funcS)
         (list;any? contains-self-reference? argsS))
-    
-    (^or (#ls;Recur argsS)
-         (#ls;Procedure name argsS))
-    (list;any? contains-self-reference? argsS)
 
-    (#ls;Variable idx)
-    (&&function;self? idx)
-
-    (#ls;Let register inputS bodyS)
+    (^ [_ (#;Form (list [_ (#;Text "lux let")] register inputS bodyS))])
     (or (contains-self-reference? inputS)
         (contains-self-reference? bodyS))
 
-    (#ls;If inputS thenS elseS)
+    (^ [_ (#;Form (list [_ (#;Text "lux if")] inputS thenS elseS))])
     (or (contains-self-reference? inputS)
         (contains-self-reference? thenS)
         (contains-self-reference? elseS))
 
-    (#ls;Loop offset argsS bodyS)
-    (or (list;any? contains-self-reference? argsS)
+    (^ [_ (#;Form (list [_ (#;Text "lux loop")] offset [_ (#;Tuple initsS)] bodyS))])
+    (or (list;any? contains-self-reference? initsS)
         (contains-self-reference? bodyS))
+    
+    (^or (^ [_ (#;Form (list& [_ (#;Text "lux recur")] argsS))])
+         (^ [_ (#;Form (list& [_ (#;Text procedure)] argsS))]))
+    (list;any? contains-self-reference? argsS)
 
     _
     false
@@ -65,37 +75,34 @@
   (-> Nat ls;Synthesis ls;Synthesis)
   (loop [exprS exprS]
     (case exprS
-      (#ls;Case inputS pathS)
-      (#ls;Case inputS
-                (let [reify-recursion' recur]
-                  (loop [pathS pathS]
-                    (case pathS
-                      (#ls;AltP leftS rightS)
-                      (#ls;AltP (recur leftS) (recur rightS))
+      (^ [_ (#;Form (list [_ (#;Text "lux case")] inputS pathS))])
+      (` ("lux case" (~ inputS)
+          (~ (let [reify-recursion' recur]
+               (loop [pathS pathS]
+                 (case pathS
+                   (^ [_ (#;Form (list [_ (#;Text "lux case alt")] leftS rightS))])
+                   (` ("lux case alt" (~ (recur leftS)) (~ (recur rightS))))
 
-                      (#ls;SeqP leftS rightS)
-                      (#ls;SeqP leftS (recur rightS))
-                      
-                      (#ls;ExecP bodyS)
-                      (#ls;ExecP (reify-recursion' bodyS))
-                      
-                      _
-                      pathS))))
+                   (^ [_ (#;Form (list [_ (#;Text "lux case seq")] leftS rightS))])
+                   (` ("lux case seq" (~ leftS) (~ (recur rightS))))
+                   
+                   (^ [_ (#;Form (list [_ (#;Text "lux case exec")] bodyS))])
+                   (` ("lux case exec" (~ (reify-recursion' bodyS))))
+                   
+                   _
+                   pathS))))))
 
-      (^multi (#ls;Call argsS (#ls;Variable 0))
+      (^multi (^ [_ (#;Form (list& [_ (#;Text "lux call")]
+                                   [_ (#;Form (list [_ (#;Int 0)]))]
+                                   argsS))])
               (n.= arity (list;size argsS)))
-      (#ls;Recur argsS)
+      (` ("lux recur" (~@ argsS)))
 
-      (#ls;Call argsS (#ls;Variable var))
-      exprS
+      (^ [_ (#;Form (list [_ (#;Text "lux let")] register inputS bodyS))])
+      (` ("lux let" (~ register) (~ inputS) (~ (recur bodyS))))
 
-      (#ls;Let register inputS bodyS)
-      (#ls;Let register inputS (recur bodyS))
-
-      (#ls;If inputS thenS elseS)
-      (#ls;If inputS
-              (recur thenS)
-              (recur elseS))
+      (^ [_ (#;Form (list [_ (#;Text "lux if")] inputS thenS elseS))])
+      (` ("lux if" (~ inputS) (~ (recur thenS)) (~ (recur elseS))))
 
       _
       exprS
@@ -109,58 +116,69 @@
                                 (|> env (list;nth idx) maybe;assume))))]
     (loop [exprS exprS]
       (case exprS
-        (#ls;Variant tag last? valueS)
-        (#ls;Variant tag last? (recur valueS))
+        (^ [_ (#;Form (list [_ (#;Nat tag)] last? valueS))])
+        (` ((~ (code;nat tag)) (~ last?) (~ (recur valueS))))
         
-        (#ls;Tuple members)
-        (#ls;Tuple (L/map recur members))
+        [_ (#;Tuple members)]
+        [_ (#;Tuple (list/map recur members))]
 
-        (#ls;Case inputS pathS)
-        (#ls;Case (recur inputS)
-                  (let [adjust' recur]
-                    (loop [pathS pathS]
-                      (case pathS
-                        (^template [<tag>]
-                          (<tag> leftS rightS)
-                          (<tag> (recur leftS) (recur rightS)))
-                        ([#ls;AltP]
-                         [#ls;SeqP])
-                        
-                        (#ls;ExecP bodyS)
-                        (#ls;ExecP (adjust' bodyS))
-                        
-                        _
-                        pathS))))
+        (^ [_ (#;Form (list [_ (#;Text "lux case")] inputS pathS))])
+        (` ("lux case" (~ (recur inputS))
+            (~ (let [adjust' recur]
+                 (loop [pathS pathS]
+                   (case pathS
+                     (^template [<pattern>]
+                       (^ [_ (#;Form (list [_ (#;Text <pattern>)] leftS rightS))])
+                       (` (<pattern> (~ (recur leftS)) (~ (recur rightS)))))
+                     (["lux case alt"]
+                      ["lux case seq"])
 
-        (#ls;Function arity scope bodyS)
-        (#ls;Function arity
-                      (L/map resolve-captured scope)
-                      (recur bodyS))
+                     (^ [_ (#;Form (list [_ (#;Text "lux case exec")] bodyS))])
+                     (` ("lux case exec" (~ (adjust' bodyS))))
+                     
+                     _
+                     pathS))))))
 
-        (#ls;Call argsS funcS)
-        (#ls;Call (L/map recur argsS) (recur funcS))
+        (^ [_ (#;Form (list [_ (#;Text "lux function")] arity [_ (#;Tuple environment)] bodyS))])
+        (` ("lux function" (~ arity)
+            (~ [_ (#;Tuple (list/map (function [_var]
+                                       (case _var
+                                         (^ [_ (#;Form (list [_ (#;Int var)]))])
+                                         (` ((~ (code;int (resolve-captured var)))))
 
-        (#ls;Recur argsS)
-        (#ls;Recur (L/map recur argsS))
+                                         _
+                                         _var))
+                                     environment))])
+            (~ (recur bodyS))))
 
-        (#ls;Procedure name argsS)
-        (#ls;Procedure name (L/map recur argsS))
+        (^ [_ (#;Form (list& [_ (#;Text "lux call")] funcS argsS))])
+        (` ("lux call" (~ (recur funcS)) (~@ (list/map recur argsS))))
 
-        (#ls;Variable var)
+        (^ [_ (#;Form (list& [_ (#;Text "lux recur")] argsS))])
+        (` ("lux recur" (~@ (list/map recur argsS))))
+        
+        (^ [_ (#;Form (list& [_ (#;Text procedure)] argsS))])
+        (` ((~ (code;text procedure)) (~@ (list/map recur argsS))))
+
+        (^ [_ (#;Form (list [_ (#;Int var)]))])
         (if (&&function;captured? var)
-          (#ls;Variable (resolve-captured var))
-          (#ls;Variable (|> outer-offset nat-to-int (i.+ var))))
+          (` ((~ (code;int (resolve-captured var)))))
+          (` ((~ (code;int (|> outer-offset nat-to-int (i.+ var)))))))
 
-        (#ls;Let register inputS bodyS)
-        (#ls;Let (n.+ outer-offset register) (recur inputS) (recur bodyS))
+        (^ [_ (#;Form (list [_ (#;Text "lux let")] [_ (#;Nat register)] inputS bodyS))])
+        (` ("lux let" (~ (code;nat (n.+ outer-offset register)))
+            (~ (recur inputS))
+            (~ (recur bodyS))))
 
-        (#ls;If inputS thenS elseS)
-        (#ls;If (recur inputS) (recur thenS) (recur elseS))
+        (^ [_ (#;Form (list [_ (#;Text "lux if")] inputS thenS elseS))])
+        (` ("lux if" (~ (recur inputS))
+            (~ (recur thenS))
+            (~ (recur elseS))))
 
-        (#ls;Loop inner-offset argsS bodyS)
-        (#ls;Loop (n.+ outer-offset inner-offset)
-                  (L/map recur argsS)
-                  (recur bodyS))
+        (^ [_ (#;Form (list [_ (#;Text "lux loop")] [_ (#;Nat inner-offset)] [_ (#;Tuple initsS)] bodyS))])
+        (` ("lux loop" (~ (code;nat (n.+ outer-offset inner-offset)))
+            [(~@ (list/map recur initsS))]
+            (~ (recur bodyS))))
 
         _
         exprS

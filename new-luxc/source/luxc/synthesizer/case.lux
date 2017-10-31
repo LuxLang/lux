@@ -1,10 +1,10 @@
 (;module:
   lux
-  (lux (data [bool "B/" Eq<Bool>]
-             [text "T/" Eq<Text>]
+  (lux (data [bool "bool/" Eq<Bool>]
+             [text "text/" Eq<Text>]
              [number]
-             (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
-                   ["s" set])))
+             (coll [list "list/" Fold<List>]))
+       (meta [code "code/" Eq<Code>]))
   (luxc (lang ["la" analysis]
               ["ls" synthesis])
         (synthesizer ["&;" function])))
@@ -12,21 +12,23 @@
 (def: #export (path pattern)
   (-> la;Pattern ls;Path)
   (case pattern
+    (#la;BindP register)
+    (` ("lux case bind" (~ (code;nat register))))
+    
     (^template [<from> <to>]
-      (<from> register)
-      (<to> register))
-    ([#la;BindP #ls;BindP]
-     [#la;BoolP #ls;BoolP]
-     [#la;NatP  #ls;NatP]
-     [#la;IntP  #ls;IntP]
-     [#la;DegP  #ls;DegP]
-     [#la;FracP #ls;FracP]
-     [#la;TextP #ls;TextP])
+      (<from> value)
+      (<to> value))
+    ([#la;BoolP code;bool]
+     [#la;NatP  code;nat]
+     [#la;IntP  code;int]
+     [#la;DegP  code;deg]
+     [#la;FracP code;frac]
+     [#la;TextP code;text])
     
     (#la;TupleP membersP)
     (case (list;reverse membersP)
       #;Nil
-      #ls;UnitP
+      (' ("lux case pop"))
 
       (#;Cons singletonP #;Nil)
       (path singletonP)
@@ -34,58 +36,46 @@
       (#;Cons lastP prevsP)
       (let [length (list;size membersP)
             last-idx (n.dec length)
-            last-path (#ls;TupleP (#;Right last-idx) (path lastP))
-            [_ tuple-path] (L/fold (function [current-pattern [current-idx next-path]]
-                                     [(n.dec current-idx)
-                                      (#ls;SeqP (#ls;TupleP (#;Left current-idx)
-                                                            (path current-pattern))
-                                                next-path)])
-                                   [(n.dec last-idx) last-path]
-                                   prevsP)]
+            [_ tuple-path] (list/fold (function [current-pattern [current-idx next-path]]
+                                        [(n.dec current-idx)
+                                         (` ("lux case seq"
+                                             ("lux case tuple left" (~ (code;nat current-idx)) (~ (path current-pattern)))
+                                             (~ next-path)))])
+                                      [(n.dec last-idx)
+                                       (` ("lux case tuple right" (~ (code;nat last-idx)) (~ (path lastP))))]
+                                      prevsP)]
         tuple-path))
     
     (#la;VariantP tag num-tags memberP)
-    (let [last? (n.= (n.dec num-tags) tag)]
-      (#ls;VariantP (if last? (#;Right tag) (#;Left tag))
-                    (path memberP)))))
+    (if (n.= (n.dec num-tags) tag)
+      (` ("lux case variant right" (~ (code;nat tag)) (~ (path memberP))))
+      (` ("lux case variant left" (~ (code;nat tag)) (~ (path memberP)))))))
 
 (def: #export (weave leftP rightP)
   (-> ls;Path ls;Path ls;Path)
-  (with-expansions [<default> (as-is (#ls;AltP leftP rightP))]
+  (with-expansions [<default> (as-is (` ("lux case alt" (~ leftP) (~ rightP))))]
     (case [leftP rightP]
-      [#ls;UnitP #ls;UnitP]
-      #ls;UnitP
-
-      (^template [<tag> <test>]
-        [(<tag> left) (<tag> right)]
-        (if (<test> left right)
-          leftP
-          <default>))
-      ([#ls;BindP n.=]
-       [#ls;BoolP B/=]
-       [#ls;NatP  n.=]
-       [#ls;IntP  i.=]
-       [#ls;DegP  d.=]
-       [#ls;FracP f.=]
-       [#ls;TextP T/=])
-
-      (^template [<tag> <side>]
-        [(<tag> (<side> left-idx) left-then) (<tag> (<side> right-idx) right-then)]
+      (^template [<special>]
+        (^ [[_ (#;Form (list [_ (#;Text <special>)] [_ (#;Nat left-idx)] left-then))]
+            [_ (#;Form (list [_ (#;Text <special>)] [_ (#;Nat right-idx)] right-then))]])
         (if (n.= left-idx right-idx)
-          (weave left-then right-then)
+          (` (<special> (~ (code;nat left-idx)) (~ (weave left-then right-then))))
           <default>))
-      ([#ls;TupleP   #;Left]
-       [#ls;TupleP   #;Right]
-       [#ls;VariantP #;Left]
-       [#ls;VariantP #;Right])
+      (["lux case tuple left"]
+       ["lux case tuple right"]
+       ["lux case variant left"]
+       ["lux case variant right"])
 
-      [(#ls;SeqP left-pre left-post) (#ls;SeqP right-pre right-post)]
+      (^ [[_ (#;Form (list [_ (#;Text "lux case seq")] left-pre left-post))]
+          [_ (#;Form (list [_ (#;Text "lux case seq")] right-pre right-post))]])
       (case (weave left-pre right-pre)
-        (#ls;AltP _ _)
+        (^ [_ (#;Form (list [_ (#;Text "lux case alt")] _ _))])
         <default>
 
         weavedP
-        (#ls;SeqP weavedP (weave left-post right-post)))
+        (` ("lux case seq" (~ weavedP) (~ (weave left-post right-post)))))
 
       _
-      <default>)))
+      (if (code/= leftP rightP)
+        leftP
+        <default>))))

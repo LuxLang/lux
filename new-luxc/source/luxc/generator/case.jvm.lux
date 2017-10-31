@@ -1,8 +1,11 @@
 (;module:
   lux
-  (lux (control [monad #+ do])
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data text/format)
        [meta "meta/" Monad<Meta>])
-  (luxc [";L" host]
+  (luxc ["_" base]
+        [";L" host]
         (lang ["ls" synthesis])
         (generator (host ["$" jvm]
                          (jvm ["$t" type]
@@ -49,50 +52,52 @@
                                    (list))
                         false)))
 
-(def: (generate-pattern' generate stack-depth @else @end path)
+(exception: #export Unrecognized-Path)
+
+(def: (generate-path' generate stack-depth @else @end path)
   (-> (-> ls;Synthesis (Meta $;Inst))
       Nat $;Label $;Label ls;Path (Meta $;Inst))
   (case path
-    (#ls;ExecP bodyS)
+    (^ [_ (#;Form (list [_ (#;Text "lux case exec")] bodyS))])
     (do meta;Monad<Meta>
       [bodyI (generate bodyS)]
       (wrap (|>. (pop-altI stack-depth)
                  bodyI
                  ($i;GOTO @end))))
 
-    #ls;UnitP
+    (^ [_ (#;Form (list [_ (#;Text "lux case pop")]))])
     (meta/wrap popI)
 
-    (#ls;BindP register)
+    (^ [_ (#;Form (list [_ (#;Text "lux case bind")] [_ (#;Nat register)]))])
     (meta/wrap (|>. peekI
                     ($i;ASTORE register)
                     popI))
 
-    (#ls;BoolP value)
+    [_ (#;Bool value)]
     (meta/wrap (let [jumpI (if value $i;IFEQ $i;IFNE)]
                  (|>. peekI
                       ($i;unwrap #$;Boolean)
                       (jumpI @else))))
 
     (^template [<tag> <prep>]
-      (<tag> value)
+      [_ (<tag> value)]
       (meta/wrap (|>. peekI
                       ($i;unwrap #$;Long)
                       ($i;long (|> value <prep>))
                       $i;LCMP
                       ($i;IFNE @else))))
-    ([#ls;NatP (:! Int)]
-     [#ls;IntP (: Int)]
-     [#ls;DegP (:! Int)])
+    ([#;Nat (:! Int)]
+     [#;Int (: Int)]
+     [#;Deg (:! Int)])
 
-    (#ls;FracP value)
+    [_ (#;Frac value)]
     (meta/wrap (|>. peekI
                     ($i;unwrap #$;Double)
                     ($i;double value)
                     $i;DCMPL
                     ($i;IFNE @else)))
     
-    (#ls;TextP value)
+    [_ (#;Text value)]
     (meta/wrap (|>. peekI
                     ($i;string value)
                     ($i;INVOKEVIRTUAL "java.lang.Object"
@@ -103,95 +108,88 @@
                                       false)
                     ($i;IFEQ @else)))
 
-    (#ls;TupleP idx subP)
-    (do meta;Monad<Meta>
-      [subI (generate-pattern' generate stack-depth @else @end subP)
-       #let [[idx tail?] (case idx
-                           (#;Left idx)
-                           [idx false]
-
-                           (#;Right idx)
-                           [idx true])]]
-      (wrap (case idx
-              +0
-              (|>. peekI
-                   ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
-                   ($i;int 0)
-                   $i;AALOAD
-                   pushI
-                   subI)
-              
-              _
-              (|>. peekI
-                   ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
-                   ($i;int (nat-to-int idx))
-                   ($i;INVOKESTATIC hostL;runtime-class
-                                    (if tail? "pm_right" "pm_left")
-                                    ($t;method (list ../runtime;$Tuple $t;int)
-                                               (#;Some $Object)
-                                               (list))
-                                    false)
-                   pushI
-                   subI))))
-
-    (#ls;VariantP idx subP)
-    (do meta;Monad<Meta>
-      [subI (generate-pattern' generate stack-depth @else @end subP)
-       #let [[idx last?] (case idx
-                           (#;Left idx)
-                           [idx false]
-
-                           (#;Right idx)
-                           [idx true])
-             flagI (if last?
-                     ($i;string "")
-                     $i;NULL)]]
-      (wrap (<| $i;with-label (function [@success])
-                $i;with-label (function [@fail])
+    (^template [<special> <method>]
+      (^ [_ (#;Form (list [_ (#;Text <special>)] [_ (#;Nat idx)] subP))])
+      (do meta;Monad<Meta>
+        [subI (generate-path' generate stack-depth @else @end subP)]
+        (wrap (case idx
+                +0
                 (|>. peekI
-                     ($i;CHECKCAST ($t;descriptor ../runtime;$Variant))
+                     ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
+                     ($i;int 0)
+                     $i;AALOAD
+                     pushI
+                     subI)
+                
+                _
+                (|>. peekI
+                     ($i;CHECKCAST ($t;descriptor ../runtime;$Tuple))
                      ($i;int (nat-to-int idx))
-                     flagI
-                     ($i;INVOKESTATIC hostL;runtime-class "pm_variant"
-                                      ($t;method (list ../runtime;$Variant ../runtime;$Tag ../runtime;$Flag)
-                                                 (#;Some ../runtime;$Datum)
+                     ($i;INVOKESTATIC hostL;runtime-class
+                                      <method>
+                                      ($t;method (list ../runtime;$Tuple $t;int)
+                                                 (#;Some $Object)
                                                  (list))
                                       false)
-                     $i;DUP
-                     ($i;IFNULL @fail)
-                     ($i;GOTO @success)
-                     ($i;label @fail)
-                     $i;POP
-                     ($i;GOTO @else)
-                     ($i;label @success)
                      pushI
-                     subI))))
+                     subI)))))
+    (["lux case tuple left" "pm_left"]
+     ["lux case tuple right" "pm_right"])
 
-    (#ls;SeqP leftP rightP)
+    (^template [<special> <flag>]
+      (^ [_ (#;Form (list [_ (#;Text <special>)] [_ (#;Nat idx)] subP))])
+      (do meta;Monad<Meta>
+        [subI (generate-path' generate stack-depth @else @end subP)]
+        (wrap (<| $i;with-label (function [@success])
+                  $i;with-label (function [@fail])
+                  (|>. peekI
+                       ($i;CHECKCAST ($t;descriptor ../runtime;$Variant))
+                       ($i;int (nat-to-int idx))
+                       <flag>
+                       ($i;INVOKESTATIC hostL;runtime-class "pm_variant"
+                                        ($t;method (list ../runtime;$Variant ../runtime;$Tag ../runtime;$Flag)
+                                                   (#;Some ../runtime;$Datum)
+                                                   (list))
+                                        false)
+                       $i;DUP
+                       ($i;IFNULL @fail)
+                       ($i;GOTO @success)
+                       ($i;label @fail)
+                       $i;POP
+                       ($i;GOTO @else)
+                       ($i;label @success)
+                       pushI
+                       subI)))))
+    (["lux case variant left" $i;NULL]
+     ["lux case variant right" ($i;string "")])
+    
+    (^ [_ (#;Form (list [_ (#;Text "lux case seq")] leftP rightP))])
     (do meta;Monad<Meta>
-      [leftI (generate-pattern' generate stack-depth @else @end leftP)
-       rightI (generate-pattern' generate stack-depth @else @end rightP)]
+      [leftI (generate-path' generate stack-depth @else @end leftP)
+       rightI (generate-path' generate stack-depth @else @end rightP)]
       (wrap (|>. leftI
                  rightI)))
 
-    (#ls;AltP leftP rightP)
+    (^ [_ (#;Form (list [_ (#;Text "lux case alt")] leftP rightP))])
     (do meta;Monad<Meta>
       [@alt-else $i;make-label
-       leftI (generate-pattern' generate (n.inc stack-depth) @alt-else @end leftP)
-       rightI (generate-pattern' generate stack-depth @else @end rightP)]
+       leftI (generate-path' generate (n.inc stack-depth) @alt-else @end leftP)
+       rightI (generate-path' generate stack-depth @else @end rightP)]
       (wrap (|>. $i;DUP
                  leftI
                  ($i;label @alt-else)
                  $i;POP
                  rightI)))
-    ))
 
-(def: (generate-pattern generate path @end)
+    _
+    (_;throw Unrecognized-Path (%code path))))
+
+(def: (generate-path generate path @end)
   (-> (-> ls;Synthesis (Meta $;Inst))
       ls;Path $;Label (Meta $;Inst))
   (do meta;Monad<Meta>
     [@else $i;make-label
-     pathI (generate-pattern' generate +1 @else @end path)]
+     pathI (generate-path' generate +1 @else @end path)]
     (wrap (|>. pathI
                ($i;label @else)
                $i;POP
@@ -208,7 +206,7 @@
   (do meta;Monad<Meta>
     [@end $i;make-label
      valueI (generate valueS)
-     pathI (generate-pattern generate path @end)]
+     pathI (generate-path generate path @end)]
     (wrap (|>. valueI
                $i;NULL
                $i;SWAP

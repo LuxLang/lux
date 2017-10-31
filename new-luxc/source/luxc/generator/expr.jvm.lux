@@ -1,9 +1,12 @@
 (;module:
   lux
   (lux (control monad
-                ["ex" exception #+ exception:])
-       (data text/format)
-       [meta #+ Monad<Meta> "Meta/" Monad<Meta>])
+                ["ex" exception #+ exception:]
+                ["p" parser])
+       (data ["e" error]
+             text/format)
+       [meta]
+       (meta ["s" syntax]))
   (luxc ["&" base]
         (lang ["ls" synthesis])
         ["&;" analyser]
@@ -24,48 +27,52 @@
 (def: #export (generate synthesis)
   (-> ls;Synthesis (Meta $;Inst))
   (case synthesis
-    #ls;Unit
+    [_ (#;Tuple #;Nil)]
     &primitive;generate-unit
 
-    (^template [<tag> <generator>]
-      (<tag> value)
-      (<generator> value))
-    ([#ls;Bool &primitive;generate-bool]
-     [#ls;Nat  &primitive;generate-nat]
-     [#ls;Int  &primitive;generate-int]
-     [#ls;Deg  &primitive;generate-deg]
-     [#ls;Frac &primitive;generate-frac]
-     [#ls;Text &primitive;generate-text])
+    (^ [_ (#;Tuple (list singleton))])
+    (generate singleton)
 
-    (#ls;Variant tag tail? member)
-    (&structure;generate-variant generate tag tail? member)
+    (^template [<tag> <generator>]
+      [_ (<tag> value)]
+      (<generator> value))
+    ([#;Bool &primitive;generate-bool]
+     [#;Nat  &primitive;generate-nat]
+     [#;Int  &primitive;generate-int]
+     [#;Deg  &primitive;generate-deg]
+     [#;Frac &primitive;generate-frac]
+     [#;Text &primitive;generate-text])
+
+    (^ [_ (#;Form (list [_ (#;Nat tag)] [_ (#;Bool last?)] valueS))])
+    (&structure;generate-variant generate tag last? valueS)
     
-    (#ls;Tuple members)
+    [_ (#;Tuple members)]
     (&structure;generate-tuple generate members)
 
-    (#ls;Variable var)
+    (^ [_ (#;Form (list [_ (#;Int var)]))])
     (if (functionS;captured? var)
       (&reference;generate-captured var)
       (&reference;generate-variable var))
 
-    (#ls;Definition definition)
+    [_ (#;Symbol definition)]
     (&reference;generate-definition definition)
 
-    (#ls;Let register inputS exprS)
+    (^ [_ (#;Form (list [_ (#;Text "lux let")] [_ (#;Nat register)] inputS exprS))])
     (caseG;generate-let generate register inputS exprS)
 
-    (#ls;Case inputS pathPS)
+    (^ [_ (#;Form (list [_ (#;Text "lux case")] inputS pathPS))])
     (caseG;generate-case generate inputS pathPS)
 
-    (#ls;Function arity env body)
-    (&function;generate-function generate env arity body)
+    (^multi (^ [_ (#;Form (list [_ (#;Text "lux function")] [_ (#;Nat arity)] [_ (#;Tuple environment)] bodyS))])
+            [(s;run environment (p;some s;int)) (#e;Success environment)])
+    (&function;generate-function generate environment arity bodyS)
 
-    (#ls;Call args function)
-    (&function;generate-call generate function args)
+    (^ [_ (#;Form (list& [_ (#;Text "lux call")] functionS argsS))])
+    (&function;generate-call generate functionS argsS)
 
-    (#ls;Procedure name args)
-    (&procedure;generate-procedure generate name args)
+    (^ [_ (#;Form (list& [_ (#;Text procedure)] argsS))])
+    (&procedure;generate-procedure generate procedure argsS)
 
     _
-    (&;throw Unrecognized-Synthesis "")
+    (&;throw Unrecognized-Synthesis (%code synthesis))
     ))
