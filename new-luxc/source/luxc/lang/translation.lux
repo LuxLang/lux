@@ -1,6 +1,7 @@
 (;module:
   lux
-  (lux (control [monad #+ do])
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
        (concurrency ["T" task])
        (data ["e" error]
              [text "text/" Hash<Text>]
@@ -12,6 +13,7 @@
        (world [file #+ File]))
   (luxc ["&" base]
         [";L" host]
+        (host [";H" macro])
         ["&;" io]
         ["&;" module]
         ["&;" eval]
@@ -30,18 +32,17 @@
   (&;Analyser)
   (expressionA;analyser &eval;eval))
 
-(def: (generate code)
+(exception: #export Unrecognized-Statement)
+
+(def: (translate code)
   (-> Code (Meta Unit))
   (case code
-    (^ [_ (#;Form (list [_ (#;Text "lux def")]
-                        [_ (#;Symbol ["" def-name])]
-                        valueC
-                        metaC))])
+    (^code ("lux def" (~ [_ (#;Symbol ["" def-name])]) (~ valueC) (~ metaC)))
     (do meta;Monad<Meta>
       [[_ metaA] (&;with-scope
                    (&;with-expected-type Code
                      (analyse metaC)))
-       metaI (expressionT;generate (expressionS;synthesize metaA))
+       metaI (expressionT;translate (expressionS;synthesize metaA))
        metaV (evalT;eval metaI)
        [_ valueT valueA] (&;with-scope
                            (if (meta;type? (:! Code metaV))
@@ -51,23 +52,38 @@
                                  (wrap [Type valueA])))
                              (commonA;with-unknown-type
                                (analyse valueC))))
-       valueI (expressionT;generate (expressionS;synthesize valueA))
+       valueI (expressionT;translate (expressionS;synthesize valueA))
        _ (&;with-scope
-           (statementT;generate-def def-name valueT valueI metaI (:! Code metaV)))]
+           (statementT;translate-def def-name valueT valueI metaI (:! Code metaV)))]
       (wrap []))
 
-    (^ [_ (#;Form (list [_ (#;Text "lux program")]
-                        [_ (#;Symbol ["" program-args])]
-                        programC))])
+    (^code ("lux program" (~ [_ (#;Symbol ["" program-args])]) (~ programC)))
     (do meta;Monad<Meta>
       [[_ programA] (&;with-scope
                       (&;with-expected-type (type (io;IO Unit))
                         (analyse programC)))
-       programI (expressionT;generate (expressionS;synthesize programA))]
-      (statementT;generate-program program-args programI))
+       programI (expressionT;translate (expressionS;synthesize programA))]
+      (statementT;translate-program program-args programI))
+
+    (^code ((~ [_ (#;Symbol macro-name)]) (~@ args)))
+    (do meta;Monad<Meta>
+      [macro-name (meta;normalize macro-name)
+       [def-type def-anns def-value] (meta;find-def macro-name)]
+      (if (meta;macro? def-anns)
+        (do @
+          [expansion (function [compiler]
+                       (case (macroH;expand (:! Macro def-value) args compiler)
+                         (#e;Success [compiler' output])
+                         (#e;Success [compiler' output])
+
+                         (#e;Error error)
+                         ((&;fail error) compiler)))
+           _ (monad;map @ translate expansion)]
+          (wrap []))
+        (&;throw Unrecognized-Statement (%code code))))
 
     _
-    (&;fail (format "Unrecognized statement: " (%code code)))))
+    (&;throw Unrecognized-Statement (%code code))))
 
 (def: (exhaust action)
   (All [a] (-> (Meta a) (Meta Unit)))
@@ -97,7 +113,7 @@
       (#e;Success [(set@ #;source source' compiler)
                    output]))))
 
-(def: (generate-module source-dirs module-name target-dir compiler)
+(def: (translate-module source-dirs module-name target-dir compiler)
   (-> (List File) Text File Compiler (T;Task Compiler))
   (do T;Monad<Task>
     [_ (&io;prepare-module target-dir module-name)
@@ -115,9 +131,9 @@
                                                  [code parse
                                                   #let [[cursor _] code]]
                                                  (&;with-cursor cursor
-                                                   (generate code)))))))]
+                                                   (translate code)))))))]
                        (wrap artifacts)
-                       ## (&module;generate-descriptor module-name)
+                       ## (&module;translate-descriptor module-name)
                        ))
       (#e;Success [compiler artifacts ## module-descriptor
                    ])
@@ -159,10 +175,10 @@
    #;scope-type-vars (list)
    #;host            (:! Void host)})
 
-(def: #export (generate-program program target sources)
+(def: #export (translate-program program target sources)
   (-> Text File (List File) (T;Task Unit))
   (do T;Monad<Task>
-    [compiler (|> (case (runtimeT;generate (init-compiler (io;run hostL;init-host)))
+    [compiler (|> (case (runtimeT;translate (init-compiler (io;run hostL;init-host)))
                     (#e;Error error)
                     (T;fail error)
 
@@ -173,7 +189,7 @@
                        _ (&io;write-file target hostL;function-class function-bc)]
                       (wrap compiler)))
                   (: (T;Task Compiler))
-                  (:: @ map (generate-module sources prelude target)) (:: @ join)
-                  (:: @ map (generate-module sources program target)) (:: @ join))
+                  (:: @ map (translate-module sources prelude target)) (:: @ join)
+                  (:: @ map (translate-module sources program target)) (:: @ join))
      #let [_ (log! "Compilation complete!")]]
     (wrap [])))
