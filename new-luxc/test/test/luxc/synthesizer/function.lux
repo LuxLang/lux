@@ -10,28 +10,14 @@
              (coll [list "list/" Functor<List> Fold<List>]
                    [dict #+ Dict]
                    [set]))
+       (meta [code])
        ["r" math/random "r/" Monad<Random>]
        test)
   (luxc (lang ["la" analysis]
-              ["ls" synthesis])
-        [synthesizer]
-        (synthesizer ["&&;" function]))
+              ["ls" synthesis]
+              [";L" variable #+ Variable])
+        [synthesizer])
   (.. common))
-
-(def: (reference var)
-  (-> ls;Variable Ref)
-  (if (&&function;captured? var)
-    (#;Captured (|> var (i.* -1) int-to-nat n.dec))
-    (#;Local (int-to-nat var))))
-
-(def: (make-scope env)
-  (-> (List ls;Variable) Scope)
-  {#;name     (list)
-   #;inner    +0
-   #;locals   {#;counter +0 #;mappings (list)}
-   #;captured {#;counter +0
-               #;mappings (list/map (|>. reference [Void] [""])
-                                    env)}})
 
 (def: gen-function//constant
   (r;Random [Nat la;Analysis la;Analysis])
@@ -44,7 +30,7 @@
            [[num-args outputA subA] gen-function//constant]
            (wrap [(n.inc num-args)
                   outputA
-                  (#la;Function (make-scope (list)) subA)]))
+                  (` ("lux function" [] (~ subA)))]))
          (do @
            [outputA gen-primitive]
            (wrap [+0 outputA outputA])))))))
@@ -58,8 +44,8 @@
   (do r;Monad<Random>
     [num-locals (|> r;nat (:: @ map (|>. (n.% +100) (n.max +10))))
      #let [indices (list;n.range +0 (n.dec num-locals))
-           absolute-env (list/map &&function;to-local indices)
-           relative-env (list/map &&function;to-captured indices)]
+           absolute-env (list/map variableL;local indices)
+           relative-env (list/map variableL;captured indices)]
      [total-args prediction bodyA] (: (r;Random [Nat Int la;Analysis])
                                       (loop [num-args +1
                                              global-env relative-env]
@@ -80,14 +66,16 @@
                                                  [total-args prediction bodyA] (recur (n.inc num-args)
                                                                                       (list/map (function [pick] (maybe;assume (list;nth pick global-env)))
                                                                                                 picks))]
-                                                (wrap [total-args prediction (#la;Function (make-scope (list/map &&function;to-captured picks))
-                                                                                           bodyA)]))
+                                                (wrap [total-args prediction (` ("lux function" [(~@ (list/map (|>. variableL;captured code;int) picks))]
+                                                                                 (~ bodyA)))]))
                                               (do @
                                                 [chosen (pick (list;size global-env))]
                                                 (wrap [num-args
                                                        (maybe;assume (dict;get chosen resolver))
-                                                       (#la;Variable (#;Captured chosen))])))))))]
-    (wrap [total-args prediction (#la;Function (make-scope absolute-env) bodyA)])
+                                                       (la;var (variableL;captured chosen))])))))))]
+    (wrap [total-args prediction (` ("lux function"
+                                     [(~@ (list/map code;int absolute-env))]
+                                     (~ bodyA)))])
     ))
 
 (def: gen-function//local
@@ -98,12 +86,12 @@
       (do r;Monad<Random>
         [nest?' r;bool
          [total-args prediction bodyA] (recur (n.inc num-args) nest?')]
-        (wrap [total-args prediction (#la;Function (make-scope (list)) bodyA)]))
+        (wrap [total-args prediction (` ("lux function" [] (~ bodyA)))]))
       (do r;Monad<Random>
         [chosen (|> r;nat (:: @ map (|>. (n.% +100) (n.max +2))))]
         (wrap [num-args
                (|> chosen (n.+ (n.dec num-args)) nat-to-int)
-               (#la;Variable (#;Local chosen))])))))
+               (la;var (variableL;local chosen))])))))
 
 (context: "Function definition."
   (<| (times +100)

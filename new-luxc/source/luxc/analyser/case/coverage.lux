@@ -1,13 +1,17 @@
 (;module:
   lux
   (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
                 eq)
-       (data [bool "B/" Eq<Bool>]
+       (data [bool "bool/" Eq<Bool>]
              [number]
              ["e" error "error/" Monad<Error>]
-             (coll [list "L/" Fold<List>]
-                   ["D" dict])))
-  (luxc (lang ["la" analysis])))
+             text/format
+             (coll [list "list/" Fold<List>]
+                   [dict #+ Dict]))
+       [meta "meta/" Monad<Meta>])
+  (luxc ["&" base]
+        (lang ["la" analysis])))
 
 ## The coverage of a pattern-matching expression summarizes how well
 ## all the possible values of an input are being covered by the
@@ -24,7 +28,7 @@
 (type: #export #rec Coverage
   #Partial
   (#Bool Bool)
-  (#Variant Nat (D;Dict Nat Coverage))
+  (#Variant Nat (Dict Nat Coverage))
   (#Seq Coverage Coverage)
   (#Alt Coverage Coverage)
   #Exhaustive)
@@ -38,52 +42,60 @@
     _
     false))
 
+(exception: #export Unknown-Pattern)
+
 (def: #export (determine pattern)
-  (-> la;Pattern Coverage)
+  (-> la;Pattern (Meta Coverage))
   (case pattern
     ## Binding amounts to exhaustive coverage because any value can be
     ## matched that way.
     ## Unit [] amounts to exhaustive coverage because there is only one
     ## possible value, so matching against it covers all cases.
-    (^or (#la;BindP _) (^ (#la;TupleP (list))))
-    #Exhaustive
+    (^or (^code ("lux case bind" (~ _))) (^code ("lux case tuple" [])))
+    (meta/wrap #Exhaustive)
 
-    (^ (#la;TupleP (list singleton)))
+    (^code ("lux case tuple" [(~ singleton)]))
     (determine singleton)
 
     ## Primitive patterns always have partial coverage because there
     ## are too many possibilities as far as values go.
-    (^or (#la;NatP _)  (#la;IntP _)  (#la;DegP _)
-         (#la;FracP _) (#la;TextP _))
-    #Partial
+    (^or [_ (#;Nat _)]  [_ (#;Int _)]  [_ (#;Deg _)]
+         [_ (#;Frac _)] [_ (#;Text _)])
+    (meta/wrap #Partial)
 
     ## Bools are the exception, since there is only "true" and
     ## "false", which means it is possible for boolean
     ## pattern-matching to become exhaustive if complementary parts meet.
-    (#la;BoolP value)
-    (#Bool value)
+    [_ (#;Bool value)]
+    (meta/wrap (#Bool value))
 
     ## Tuple patterns can be exhaustive if there is exhaustiveness for all of
     ## their sub-patterns.
-    (#la;TupleP subs)
+    (^code ("lux case tuple" [(~@ subs)]))
     (loop [subs subs]
       (case subs
         #;Nil
-        #Exhaustive
+        (meta/wrap #Exhaustive)
 
         (#;Cons sub subs')
-        (let [post (recur subs')]
+        (do meta;Monad<Meta>
+          [pre (determine sub)
+           post (recur subs')]
           (if (exhaustive? post)
-            (determine sub)
-            (#Seq (determine sub)
-                  post)))))
+            (wrap pre)
+            (wrap (#Seq pre post))))))
 
     ## Variant patterns can be shown to be exhaustive if all the possible
     ## cases are handled exhaustively.
-    (#la;VariantP tag-id num-tags sub)
-    (#Variant num-tags
-              (|> (D;new number;Hash<Nat>)
-                  (D;put tag-id (determine sub))))))
+    (^code ("lux case variant" (~ [_ (#;Nat tag-id)]) (~ [_ (#;Nat num-tags)]) (~ sub)))
+    (do meta;Monad<Meta>
+      [=sub (determine sub)]
+      (wrap (#Variant num-tags
+                      (|> (dict;new number;Hash<Nat>)
+                          (dict;put tag-id =sub)))))
+
+    _
+    (&;throw Unknown-Pattern (%code pattern))))
 
 (def: (xor left right)
   (-> Bool Bool Bool)
@@ -116,11 +128,11 @@
       true
 
       [(#Bool sideR) (#Bool sideS)]
-      (B/= sideR sideS)
+      (bool/= sideR sideS)
 
       [(#Variant allR casesR) (#Variant allS casesS)]
       (and (n.= allR allS)
-           (:: (D;Eq<Dict> =) = casesR casesS))
+           (:: (dict;Eq<Dict> =) = casesR casesS))
 
       [(#Seq leftR rightR) (#Seq leftS rightS)]
       (and (= leftR leftS)
@@ -166,23 +178,23 @@
     (cond (not (n.= allSF allA))
           (e;fail "Variants do not match.")
 
-          (:: (D;Eq<Dict> Eq<Coverage>) = casesSF casesA)
+          (:: (dict;Eq<Dict> Eq<Coverage>) = casesSF casesA)
           redundant-pattern
 
           ## else
           (do e;Monad<Error>
             [casesM (monad;fold @
                                 (function [[tagA coverageA] casesSF']
-                                  (case (D;get tagA casesSF')
+                                  (case (dict;get tagA casesSF')
                                     (#;Some coverageSF)
                                     (do @
                                       [coverageM (merge coverageA coverageSF)]
-                                      (wrap (D;put tagA coverageM casesSF')))
+                                      (wrap (dict;put tagA coverageM casesSF')))
 
                                     #;None
-                                    (wrap (D;put tagA coverageA casesSF'))))
-                                casesSF (D;entries casesA))]
-            (wrap (if (let [case-coverages (D;values casesM)]
+                                    (wrap (dict;put tagA coverageA casesSF'))))
+                                casesSF (dict;entries casesA))]
+            (wrap (if (let [case-coverages (dict;values casesM)]
                         (and (n.= allSF (list;size case-coverages))
                              (list;every? exhaustive? case-coverages)))
                     #Exhaustive
@@ -272,9 +284,9 @@
           #;None
           (case (list;reverse possibilities)
             (#;Cons last prevs)
-            (wrap (L/fold (function [left right] (#Alt left right))
-                          last
-                          prevs))
+            (wrap (list/fold (function [left right] (#Alt left right))
+                             last
+                             prevs))
 
             #;Nil
             (undefined)))))

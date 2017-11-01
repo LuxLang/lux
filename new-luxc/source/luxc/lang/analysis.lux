@@ -1,35 +1,13 @@
 (;module:
   lux
   (lux [function]
-       (data (coll [list "L/" Fold<List>]))))
+       (data (coll [list "list/" Fold<List>]))
+       (meta [code]))
+  (luxc (lang [";L" variable #+ Variable])))
 
-(type: #export #rec Pattern
-  (#BoolP Bool)
-  (#NatP Nat)
-  (#IntP Int)
-  (#DegP Deg)
-  (#FracP Frac)
-  (#TextP Text)
-  (#TupleP (List Pattern))
-  (#VariantP Nat Nat Pattern)
-  (#BindP Nat))
+(type: #export Pattern Code)
 
-(type: #export #rec Analysis
-  #Unit
-  (#Bool Bool)
-  (#Nat Nat)
-  (#Int Int)
-  (#Deg Deg)
-  (#Frac Frac)
-  (#Text Text)
-  (#Sum (Either Analysis Analysis))
-  (#Product Analysis Analysis)
-  (#Case Analysis (List [Pattern Analysis]))
-  (#Function Scope Analysis)
-  (#Apply Analysis Analysis)
-  (#Procedure Text (List Analysis))
-  (#Variable Ref)
-  (#Definition Ident))
+(type: #export Analysis Code)
 
 ## Variants get analysed as binary sum types for the sake of semantic
 ## simplicity.
@@ -39,28 +17,34 @@
 (do-template [<name> <side>]
   [(def: (<name> inner)
      (-> Analysis Analysis)
-     (#Sum (<side> inner)))]
+     (` (<side> (~ inner))))]
 
-  [sum-left  #;Left]
-  [sum-right #;Right])
+  [sum-left  "lux sum left"]
+  [sum-right "lux sum right"])
+
+(def: (local-variable idx)
+  (-> Nat Int)
+  (nat-to-int idx))
 
 (def: #export (sum tag size temp value)
   (-> Nat Nat Nat Analysis Analysis)
   (if (n.= (n.dec size) tag)
     (if (n.= +1 tag)
       (sum-right value)
-      (L/fold (function;const sum-left)
-              (sum-right value)
-              (list;n.range +0 (n.- +2 tag))))
-    (L/fold (function;const sum-left)
-            (case value
-              (#Sum _)
-              (#Case value (list [(#BindP temp)
-                                  (#Variable (#;Local temp))]))
+      (list/fold (function;const sum-left)
+                 (sum-right value)
+                 (list;n.range +0 (n.- +2 tag))))
+    (list/fold (function;const sum-left)
+               (case value
+                 (^or (^code ("lux sum left" (~ inner)))
+                      (^code ("lux sum right" (~ inner))))
+                 (` ("lux case" (~ value)
+                     {("lux case bind" (~ (code;nat temp)))
+                      ((~ (code;int (local-variable temp))))}))
 
-              _
-              value)
-            (list;n.range +0 tag))))
+                 _
+                 value)
+               (list;n.range +0 tag))))
 
 ## Tuples get analysed into binary products for the sake of semantic
 ## simplicity, since products/pairs can encode tuples of any length
@@ -70,13 +54,13 @@
   (-> (List Analysis) Analysis)
   (case members
     #;Nil
-    #Unit
+    (` [])
 
     (#;Cons singleton #;Nil)
     singleton
 
     (#;Cons left right)
-    (#Product left (product right))))
+    (` [(~ left) (~ (product right))])))
 
 ## Function application gets analysed into single-argument
 ## applications, since every other kind of application can be encoded
@@ -84,6 +68,44 @@
 
 (def: #export (apply args func)
   (-> (List Analysis) Analysis Analysis)
-  (L/fold (function [arg func] (#Apply arg func))
-          func
-          args))
+  (list/fold (function [arg func]
+               (` ("lux apply" (~ arg) (~ func))))
+             func
+             args))
+
+(def: #export (procedure name args)
+  (-> Text (List Analysis) Analysis)
+  (` ((~ (code;text name)) (~@ args))))
+
+(def: #export (var idx)
+  (-> Variable Analysis)
+  (` ((~ (code;int idx)))))
+
+(def: #export (unfold-tuple analysis)
+  (-> Analysis (List Analysis))
+  (case analysis
+    (^code [(~ left) (~ right)])
+    (#;Cons left (unfold-tuple right))
+
+    _
+    (list analysis)))
+
+(def: #export (unfold-variant analysis)
+  (-> Analysis (Maybe [Nat Bool Analysis]))
+  (loop [so-far +0
+         variantA analysis]
+    (case variantA
+      (^code ("lux sum left" (~ valueA)))
+      (case valueA
+        (^or (^code ("lux sum left" (~ _)))
+             (^code ("lux sum right" (~ _))))
+        (recur (n.inc so-far) valueA)
+
+        _
+        (#;Some [so-far false valueA]))
+      
+      (^code ("lux sum right" (~ valueA)))
+      (#;Some [(n.inc so-far) true valueA])
+
+      _
+      #;None)))

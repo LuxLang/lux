@@ -7,6 +7,7 @@
              (coll [list "list/" Functor<List> Fold<List>]
                    ["s" set])
              text/format)
+       (meta [code])
        ["r" math/random "r/" Monad<Random>]
        test)
   (luxc (lang ["la" analysis]
@@ -53,49 +54,39 @@
   (-> Nat la;Analysis (r;Random la;Analysis))
   (r;either (r;either (r/wrap output)
                       (do r;Monad<Random>
-                        [inputA (|> r;nat (:: @ map (|>. #la;Nat)))
+                        [inputA (|> r;nat (:: @ map code;nat))
                          num-cases (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))
                          tests (|> (r;set number;Hash<Nat> num-cases r;nat)
-                                   (:: @ map (|>. s;to-list (list/map (|>. #la;NatP)))))
-                         #let [bad-bodies (list;repeat num-cases #la;Unit)]
+                                   (:: @ map (|>. s;to-list (list/map code;nat))))
+                         #let [bad-bodies (list;repeat num-cases (' []))]
                          good-body (gen-body arity output)
                          where-to-set (|> r;nat (:: @ map (n.% num-cases)))
                          #let [bodies (list;concat (list (list;take where-to-set bad-bodies)
                                                          (list good-body)
                                                          (list;drop (n.inc where-to-set) bad-bodies)))]]
-                        (wrap (#la;Case inputA
-                                        (list;zip2 tests bodies)))))
+                        (wrap (` ("lux case" (~ inputA)
+                                  (~ (code;record (list;zip2 tests bodies))))))))
             (r;either (do r;Monad<Random>
                         [valueS r;bool
                          output' (gen-body (n.inc arity) output)]
-                        (wrap (#la;Case (#la;Bool valueS) (list [(#la;BindP arity) output']))))
+                        (wrap (` ("lux case" (~ (code;bool valueS))
+                                  {("lux case bind" (~ (code;nat arity))) (~ output')}))))
                       (do r;Monad<Random>
                         [valueS r;bool
                          then|else r;bool
                          output' (gen-body arity output)
-                         #let [thenA (if then|else output' #la;Unit)
-                               elseA (if (not then|else) output' #la;Unit)]]
-                        (wrap (#la;Case (#la;Bool valueS)
-                                        (list [(#la;BoolP then|else) thenA]
-                                              [(#la;BoolP (not then|else)) elseA])))))
+                         #let [thenA (if then|else output' (' []))
+                               elseA (if (not then|else) output' (' []))]]
+                        (wrap (` ("lux case" (~ (code;bool valueS))
+                                  {(~ (code;bool then|else)) (~ thenA)
+                                   (~ (code;bool (not then|else))) (~ elseA)})))))
             ))
-
-(def: (make-apply func args)
-  (-> la;Analysis (List la;Analysis) la;Analysis)
-  (list/fold (function [arg' func']
-               (#la;Apply arg' func'))
-             func
-             args))
 
 (def: (make-function arity body)
   (-> ls;Arity la;Analysis la;Analysis)
   (case arity
     +0 body
-    _ (#la;Function {#;name     (list)
-                     #;inner    +0
-                     #;locals   {#;counter +0 #;mappings (list)}
-                     #;captured {#;counter +0 #;mappings (list)}}
-                    (make-function (n.dec arity) body))))
+    _ (` ("lux function" [] (~ (make-function (n.dec arity) body))))))
 
 (def: gen-recursion
   (r;Random [Bool Nat la;Analysis])
@@ -103,14 +94,12 @@
     [arity (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))
      recur? r;bool
      outputS (if recur?
-               (wrap (make-apply (#la;Variable (#;Local +0))
-                                 (list;repeat arity #la;Unit)))
+               (wrap (la;apply (list;repeat arity (' [])) (la;var 0)))
                (do @
                  [plus-or-minus? r;bool
                   how-much (|> r;nat (:: @ map (|>. (n.% arity) (n.max +1))))
                   #let [shift (if plus-or-minus? n.+ n.-)]]
-                 (wrap (make-apply (#la;Variable (#;Local +0))
-                                   (list;repeat (shift how-much arity) #la;Unit)))))
+                 (wrap (la;apply (list;repeat (shift how-much arity) (' [])) (la;var 0)))))
      bodyS (gen-body arity outputS)]
     (wrap [recur? arity (make-function arity bodyS)])))
 
@@ -120,15 +109,15 @@
     [arity (|> r;nat (:: @ map (|>. (n.% +10) (n.max +1))))
      recur? r;bool
      self-ref? r;bool
-     #let [selfA (#la;Variable (#;Local +0))
-           argA (if self-ref? selfA #la;Unit)]
+     #let [selfA (la;var 0)
+           argA (if self-ref? selfA (' []))]
      outputS (if recur?
-               (wrap (make-apply selfA (list;repeat arity argA)))
+               (wrap (la;apply (list;repeat arity argA) selfA))
                (do @
                  [plus-or-minus? r;bool
                   how-much (|> r;nat (:: @ map (|>. (n.% arity) (n.max +1))))
                   #let [shift (if plus-or-minus? n.+ n.-)]]
-                 (wrap (make-apply selfA (list;repeat (shift how-much arity) #la;Unit)))))
+                 (wrap (la;apply (list;repeat (shift how-much arity) (' [])) selfA))))
      bodyS (gen-body arity outputS)]
     (wrap [(and recur? (not self-ref?))
            arity
@@ -156,7 +145,7 @@
         [[prediction arity analysis] gen-recursion]
         ($_ seq
             (test "Can reify loops."
-                  (case (synthesizer;synthesize (make-apply analysis (list;repeat arity #la;Unit)))
+                  (case (synthesizer;synthesize (la;apply (list;repeat arity (' [])) analysis))
                     (^ [_ (#;Form (list [_ (#;Text "lux loop")] [_ (#;Nat in_register)] [_ (#;Tuple _inits)] _body))])
                     (and (n.= arity (list;size _inits))
                          (not (&&loop;contains-self-reference? _body)))

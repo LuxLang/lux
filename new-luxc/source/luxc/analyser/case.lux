@@ -25,6 +25,7 @@
 (exception: #export Cannot-Match-Type-With-Pattern)
 (exception: #export Sum-Type-Has-No-Case)
 (exception: #export Unrecognized-Pattern-Syntax)
+(exception: #export Cannot-Simplify-Type-For-Pattern-Matching)
 
 (def: (pattern-error type pattern)
   (-> Type Code Text)
@@ -51,7 +52,7 @@
           [type' (&;with-type-env
                    (tc;read id))]
           (simplify-case-type type'))
-        (&;fail (format "Cannot simplify type for pattern-matching: " (%type type)))))
+        (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type type))))
 
     (#;Named name unnamedT)
     (simplify-case-type unnamedT)
@@ -98,26 +99,26 @@
         [outputA (&scope;with-local [name inputT]
                    next)
          idx &scope;next-local]
-        (wrap [(#la;BindP idx) outputA])))
+        (wrap [(` ("lux case bind" (~ (code;nat idx)))) outputA])))
 
     [cursor (#;Symbol ident)]
     (&;with-cursor cursor
       (&;fail (format "Symbols must be unqualified inside patterns: " (%ident ident))))
 
-    (^template [<type> <code-tag> <pattern-tag>]
+    (^template [<type> <code-tag>]
       [cursor (<code-tag> test)]
       (&;with-cursor cursor
         (do meta;Monad<Meta>
           [_ (&;with-type-env
                (tc;check inputT <type>))
            outputA next]
-          (wrap [(<pattern-tag> test) outputA]))))
-    ([Bool #;Bool #la;BoolP]
-     [Nat  #;Nat  #la;NatP]
-     [Int  #;Int  #la;IntP]
-     [Deg  #;Deg  #la;DegP]
-     [Frac #;Frac #la;FracP]
-     [Text #;Text #la;TextP])
+          (wrap [pattern outputA]))))
+    ([Bool #;Bool]
+     [Nat  #;Nat]
+     [Int  #;Int]
+     [Deg  #;Deg]
+     [Frac #;Frac]
+     [Text #;Text])
 
     (^ [cursor (#;Tuple (list))])
     (&;with-cursor cursor
@@ -125,7 +126,7 @@
         [_ (&;with-type-env
              (tc;check inputT Unit))
          outputA next]
-        (wrap [(#la;TupleP (list)) outputA])))
+        (wrap [(` ("lux case tuple" [])) outputA])))
 
     (^ [cursor (#;Tuple (list singleton))])
     (analyse-pattern #;None inputT singleton next)
@@ -165,7 +166,8 @@
                                              [nextA next]
                                              (wrap [(list) nextA]))
                                            matches)]
-              (wrap [(#la;TupleP memberP+) thenA])))
+              (wrap [(` ("lux case tuple" [(~@ memberP+)]))
+                     thenA])))
 
           _
           (&;fail (pattern-error inputT pattern))
@@ -202,11 +204,11 @@
                                                   (type;variant (list;drop (n.dec num-cases) flat-sum))
                                                   (` [(~@ values)])
                                                   next)]
-                  (wrap [(#la;VariantP idx num-cases testP)
+                  (wrap [(` ("lux case variant" (~ (code;nat idx)) (~ (code;nat num-cases)) (~ testP)))
                          nextA]))
                 (do meta;Monad<Meta>
                   [[testP nextA] (analyse-pattern #;None case-type (` [(~@ values)]) next)]
-                  (wrap [(#la;VariantP idx num-cases testP)
+                  (wrap [(` ("lux case variant" (~ (code;nat idx)) (~ (code;nat num-cases)) (~ testP)))
                          nextA])))
 
               _
@@ -245,10 +247,9 @@
                           (function [[patternT bodyT]]
                             (analyse-pattern #;None inputT patternT (analyse bodyT)))
                           branchesT)
-       _ (case (monad;fold e;Monad<Error>
-                           &&coverage;merge
-                           (|> outputH product;left &&coverage;determine)
-                           (list/map (|>. product;left &&coverage;determine) outputT))
+       outputHC (|> outputH product;left &&coverage;determine)
+       outputTC (monad;map @ (|>. product;left &&coverage;determine) outputT)
+       _ (case (monad;fold e;Monad<Error> &&coverage;merge outputHC outputTC)
            (#e;Success coverage)
            (if (&&coverage;exhaustive? coverage)
              (wrap [])
@@ -256,4 +257,4 @@
 
            (#e;Error error)
            (&;fail error))]
-      (wrap (#la;Case inputA (#;Cons outputH outputT))))))
+      (wrap (` ("lux case" (~ inputA) (~ (code;record (list& outputH outputT)))))))))
