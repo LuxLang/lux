@@ -1,6 +1,7 @@
 (;module:
   lux
-  (lux (control [monad #+ do])
+  (lux (control [monad #+ do]
+                pipe)
        (concurrency ["A" atom])
        (data ["e" error]
              [text]
@@ -83,8 +84,56 @@
                         (A;atom (dict;new text;Hash<Text>)))]
            {#commonT;loader (memory-class-loader store)
             #commonT;store store
-            #commonT;function-class #;None
-            #commonT;artifacts (dict;new text;Hash<Text>)})))
+            #commonT;artifacts (dict;new text;Hash<Text>)
+            #commonT;context ["" +0]})))
+
+(def: #export (with-context name expr)
+  (All [a] (-> Text (Meta a) (Meta a)))
+  (;function [compiler]
+    (let [old (:! commonT;Host (get@ #;host compiler))]
+      (case (expr (set@ #;host
+                        (:! Void (set@ #commonT;context [name +0] old))
+                        compiler))
+        (#e;Success [compiler' output])
+        (#e;Success [(update@ #;host
+                              (|>. (:! commonT;Host)
+                                   (set@ #commonT;context (get@ #commonT;context old))
+                                   (:! Void))
+                              compiler')
+                     output])
+
+        (#e;Error error)
+        (#e;Error error)))))
+
+(def: #export (with-sub-context expr)
+  (All [a] (-> (Meta a) (Meta [Text a])))
+  (;function [compiler]
+    (let [old (:! commonT;Host (get@ #;host compiler))
+          [old-name old-sub] (get@ #commonT;context old)
+          new-name (format old-name "/" (%n old-sub))]
+      (case (expr (set@ #;host
+                        (:! Void (set@ #commonT;context [new-name +0] old))
+                        compiler))
+        (#e;Success [compiler' output])
+        (#e;Success [(update@ #;host
+                              (|>. (:! commonT;Host)
+                                   (set@ #commonT;context [old-name (n.inc old-sub)])
+                                   (:! Void))
+                              compiler')
+                     [new-name output]])
+
+        (#e;Error error)
+        (#e;Error error)))))
+
+(def: #export context
+  (Meta Text)
+  (;function [compiler]
+    (#e;Success [compiler
+                 (|> (get@ #;host compiler)
+                     (:! commonT;Host)
+                     (get@ #commonT;context)
+                     (let> [name sub]
+                           name))])))
 
 (def: #export class-loader
   (Meta ClassLoader)
