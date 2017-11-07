@@ -899,157 +899,159 @@
 
 (defn analyse-host [analyse exo-type compilers proc ?values]
   (|let [[_ _ _ compile-class compile-interface] compilers]
-    (case proc
-      "synchronized" (analyse-jvm-synchronized analyse exo-type ?values)
-      "load-class"   (analyse-jvm-load-class analyse exo-type ?values)
-      "throw"        (analyse-jvm-throw analyse exo-type ?values)
-      "null?"        (analyse-jvm-null? analyse exo-type ?values)
-      "null"         (analyse-jvm-null analyse exo-type ?values)
-      "anewarray"    (analyse-jvm-anewarray analyse exo-type ?values)
-      "aaload"       (analyse-jvm-aaload analyse exo-type ?values)
-      "aastore"      (analyse-jvm-aastore analyse exo-type ?values)
-      "arraylength"  (analyse-jvm-arraylength analyse exo-type ?values)
-      "znewarray"    (analyse-jvm-znewarray analyse exo-type ?values)
-      "bnewarray"    (analyse-jvm-bnewarray analyse exo-type ?values)
-      "snewarray"    (analyse-jvm-snewarray analyse exo-type ?values)
-      "inewarray"    (analyse-jvm-inewarray analyse exo-type ?values)
-      "lnewarray"    (analyse-jvm-lnewarray analyse exo-type ?values)
-      "fnewarray"    (analyse-jvm-fnewarray analyse exo-type ?values)
-      "dnewarray"    (analyse-jvm-dnewarray analyse exo-type ?values)
-      "cnewarray"    (analyse-jvm-cnewarray analyse exo-type ?values)
-      "zaload" (analyse-jvm-zaload analyse exo-type ?values)
-      "zastore" (analyse-jvm-zastore analyse exo-type ?values)
-      "baload" (analyse-jvm-baload analyse exo-type ?values)
-      "bastore" (analyse-jvm-bastore analyse exo-type ?values)
-      "saload" (analyse-jvm-saload analyse exo-type ?values)
-      "sastore" (analyse-jvm-sastore analyse exo-type ?values)
-      "iaload" (analyse-jvm-iaload analyse exo-type ?values)
-      "iastore" (analyse-jvm-iastore analyse exo-type ?values)
-      "laload" (analyse-jvm-laload analyse exo-type ?values)
-      "lastore" (analyse-jvm-lastore analyse exo-type ?values)
-      "faload" (analyse-jvm-faload analyse exo-type ?values)
-      "fastore" (analyse-jvm-fastore analyse exo-type ?values)
-      "daload" (analyse-jvm-daload analyse exo-type ?values)
-      "dastore" (analyse-jvm-dastore analyse exo-type ?values)
-      "caload" (analyse-jvm-caload analyse exo-type ?values)
-      "castore" (analyse-jvm-castore analyse exo-type ?values)
-      "iadd"         (analyse-jvm-iadd analyse exo-type ?values)
-      "isub"         (analyse-jvm-isub analyse exo-type ?values)
-      "imul"         (analyse-jvm-imul analyse exo-type ?values)
-      "idiv"         (analyse-jvm-idiv analyse exo-type ?values)
-      "irem"         (analyse-jvm-irem analyse exo-type ?values)
-      "ieq"          (analyse-jvm-ieq analyse exo-type ?values)
-      "ilt"          (analyse-jvm-ilt analyse exo-type ?values)
-      "igt"          (analyse-jvm-igt analyse exo-type ?values)
-      "ceq"          (analyse-jvm-ceq analyse exo-type ?values)
-      "clt"          (analyse-jvm-clt analyse exo-type ?values)
-      "cgt"          (analyse-jvm-cgt analyse exo-type ?values)
-      "ladd"         (analyse-jvm-ladd analyse exo-type ?values)
-      "lsub"         (analyse-jvm-lsub analyse exo-type ?values)
-      "lmul"         (analyse-jvm-lmul analyse exo-type ?values)
-      "ldiv"         (analyse-jvm-ldiv analyse exo-type ?values)
-      "lrem"         (analyse-jvm-lrem analyse exo-type ?values)
-      "leq"          (analyse-jvm-leq analyse exo-type ?values)
-      "llt"          (analyse-jvm-llt analyse exo-type ?values)
-      "lgt"          (analyse-jvm-lgt analyse exo-type ?values)
-      "fadd"         (analyse-jvm-fadd analyse exo-type ?values)
-      "fsub"         (analyse-jvm-fsub analyse exo-type ?values)
-      "fmul"         (analyse-jvm-fmul analyse exo-type ?values)
-      "fdiv"         (analyse-jvm-fdiv analyse exo-type ?values)
-      "frem"         (analyse-jvm-frem analyse exo-type ?values)
-      "feq"          (analyse-jvm-feq analyse exo-type ?values)
-      "flt"          (analyse-jvm-flt analyse exo-type ?values)
-      "fgt"          (analyse-jvm-fgt analyse exo-type ?values)
-      "dadd"         (analyse-jvm-dadd analyse exo-type ?values)
-      "dsub"         (analyse-jvm-dsub analyse exo-type ?values)
-      "dmul"         (analyse-jvm-dmul analyse exo-type ?values)
-      "ddiv"         (analyse-jvm-ddiv analyse exo-type ?values)
-      "drem"         (analyse-jvm-drem analyse exo-type ?values)
-      "deq"          (analyse-jvm-deq analyse exo-type ?values)
-      "dlt"          (analyse-jvm-dlt analyse exo-type ?values)
-      "dgt"          (analyse-jvm-dgt analyse exo-type ?values)
-      "iand"         (analyse-jvm-iand analyse exo-type ?values)
-      "ior"          (analyse-jvm-ior analyse exo-type ?values)
-      "ixor"         (analyse-jvm-ixor analyse exo-type ?values)
-      "ishl"         (analyse-jvm-ishl analyse exo-type ?values)
-      "ishr"         (analyse-jvm-ishr analyse exo-type ?values)
-      "iushr"        (analyse-jvm-iushr analyse exo-type ?values)
-      "land"         (analyse-jvm-land analyse exo-type ?values)
-      "lor"          (analyse-jvm-lor analyse exo-type ?values)
-      "lxor"         (analyse-jvm-lxor analyse exo-type ?values)
-      "lshl"         (analyse-jvm-lshl analyse exo-type ?values)
-      "lshr"         (analyse-jvm-lshr analyse exo-type ?values)
-      "lushr"        (analyse-jvm-lushr analyse exo-type ?values)
-      "d2f"          (analyse-jvm-d2f analyse exo-type ?values)
-      "d2i"          (analyse-jvm-d2i analyse exo-type ?values)
-      "d2l"          (analyse-jvm-d2l analyse exo-type ?values)
-      "f2d"          (analyse-jvm-f2d analyse exo-type ?values)
-      "f2i"          (analyse-jvm-f2i analyse exo-type ?values)
-      "f2l"          (analyse-jvm-f2l analyse exo-type ?values)
-      "i2b"          (analyse-jvm-i2b analyse exo-type ?values)
-      "i2c"          (analyse-jvm-i2c analyse exo-type ?values)
-      "i2d"          (analyse-jvm-i2d analyse exo-type ?values)
-      "i2f"          (analyse-jvm-i2f analyse exo-type ?values)
-      "i2l"          (analyse-jvm-i2l analyse exo-type ?values)
-      "i2s"          (analyse-jvm-i2s analyse exo-type ?values)
-      "l2d"          (analyse-jvm-l2d analyse exo-type ?values)
-      "l2f"          (analyse-jvm-l2f analyse exo-type ?values)
-      "l2i"          (analyse-jvm-l2i analyse exo-type ?values)
-      "l2s"          (analyse-jvm-l2s analyse exo-type ?values)
-      "l2b"          (analyse-jvm-l2b analyse exo-type ?values)
-      "c2b"          (analyse-jvm-c2b analyse exo-type ?values)
-      "c2s"          (analyse-jvm-c2s analyse exo-type ?values)
-      "c2i"          (analyse-jvm-c2i analyse exo-type ?values)
-      "c2l"          (analyse-jvm-c2l analyse exo-type ?values)
-      "b2l"          (analyse-jvm-b2l analyse exo-type ?values)
-      "s2l"          (analyse-jvm-s2l analyse exo-type ?values)
-      ;; else
-      (->> (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " ["jvm" proc]))
-           (if-let [[_ _def-code] (re-find #"^interface:(.*)$" proc)]
-             (|do [[_module _line _column] &/cursor]
-               (&reader/with-source (str "interface@" "(" _module "," _line "," _column ")") _def-code
-                 (|do [[=gclass-decl =supers =anns =methods] &&a-parser/parse-interface-def]
-                   (analyse-jvm-interface analyse compile-interface =gclass-decl =supers =anns =methods)))))
-           
-           (if-let [[_ _def-code] (re-find #"^class:(.*)$" proc)]
-             (|do [[_module _line _column] &/cursor]
-               (&reader/with-source (str "class@" "(" _module "," _line "," _column ")") _def-code
-                 (|do [[=gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods] &&a-parser/parse-class-def]
-                   (analyse-jvm-class analyse compile-class =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods)))))
-           
-           (if-let [[_ _def-code] (re-find #"^anon-class:(.*)$" proc)]
-             (|do [[_module _line _column] &/cursor]
-               (&reader/with-source (str "anon-class@" "(" _module "," _line "," _column ")") _def-code
-                 (|do [[=super-class =interfaces =ctor-args =methods] &&a-parser/parse-anon-class-def]
-                   (analyse-jvm-anon-class analyse compile-class exo-type =super-class =interfaces =ctor-args =methods)))))
-           
-           (if-let [[_ _class] (re-find #"^instanceof:([^:]+)$" proc)]
-             (analyse-jvm-instanceof analyse exo-type _class ?values))
-           
-           (if-let [[_ _class _arg-classes] (re-find #"^new:([^:]+):([^:]*)$" proc)]
-             (analyse-jvm-new analyse exo-type _class (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
-           
-           (if-let [[_ _class _method _arg-classes] (re-find #"^invokestatic:([^:]+):([^:]+):([^:]*)$" proc)]
-             (analyse-jvm-invokestatic analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
-           
-           (if-let [[_ _class _method _arg-classes] (re-find #"^invokeinterface:([^:]+):([^:]+):([^:]*)$" proc)]
-             (analyse-jvm-invokeinterface analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
-           
-           (if-let [[_ _class _method _arg-classes] (re-find #"^invokevirtual:([^:]+):([^:]+):([^:]*)$" proc)]
-             (analyse-jvm-invokevirtual analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
-           
-           (if-let [[_ _class _method _arg-classes] (re-find #"^invokespecial:([^:]+):([^:]+):([^:]*)$" proc)]
-             (analyse-jvm-invokespecial analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
-           
-           (if-let [[_ _class _field] (re-find #"^getstatic:([^:]+):([^:]+)$" proc)]
-             (analyse-jvm-getstatic analyse exo-type _class _field ?values))
-           
-           (if-let [[_ _class _field] (re-find #"^getfield:([^:]+):([^:]+)$" proc)]
-             (analyse-jvm-getfield analyse exo-type _class _field ?values))
-           
-           (if-let [[_ _class _field] (re-find #"^putstatic:([^:]+):([^:]+)$" proc)]
-             (analyse-jvm-putstatic analyse exo-type _class _field ?values))
-           
-           (if-let [[_ _class _field] (re-find #"^putfield:([^:]+):([^:]+)$" proc)]
-             (analyse-jvm-putfield analyse exo-type _class _field ?values))))
+    (try (case proc
+           "jvm synchronized" (analyse-jvm-synchronized analyse exo-type ?values)
+           "jvm load-class"   (analyse-jvm-load-class analyse exo-type ?values)
+           "jvm throw"        (analyse-jvm-throw analyse exo-type ?values)
+           "jvm null?"        (analyse-jvm-null? analyse exo-type ?values)
+           "jvm null"         (analyse-jvm-null analyse exo-type ?values)
+           "jvm anewarray"    (analyse-jvm-anewarray analyse exo-type ?values)
+           "jvm aaload"       (analyse-jvm-aaload analyse exo-type ?values)
+           "jvm aastore"      (analyse-jvm-aastore analyse exo-type ?values)
+           "jvm arraylength"  (analyse-jvm-arraylength analyse exo-type ?values)
+           "jvm znewarray"    (analyse-jvm-znewarray analyse exo-type ?values)
+           "jvm bnewarray"    (analyse-jvm-bnewarray analyse exo-type ?values)
+           "jvm snewarray"    (analyse-jvm-snewarray analyse exo-type ?values)
+           "jvm inewarray"    (analyse-jvm-inewarray analyse exo-type ?values)
+           "jvm lnewarray"    (analyse-jvm-lnewarray analyse exo-type ?values)
+           "jvm fnewarray"    (analyse-jvm-fnewarray analyse exo-type ?values)
+           "jvm dnewarray"    (analyse-jvm-dnewarray analyse exo-type ?values)
+           "jvm cnewarray"    (analyse-jvm-cnewarray analyse exo-type ?values)
+           "jvm zaload" (analyse-jvm-zaload analyse exo-type ?values)
+           "jvm zastore" (analyse-jvm-zastore analyse exo-type ?values)
+           "jvm baload" (analyse-jvm-baload analyse exo-type ?values)
+           "jvm bastore" (analyse-jvm-bastore analyse exo-type ?values)
+           "jvm saload" (analyse-jvm-saload analyse exo-type ?values)
+           "jvm sastore" (analyse-jvm-sastore analyse exo-type ?values)
+           "jvm iaload" (analyse-jvm-iaload analyse exo-type ?values)
+           "jvm iastore" (analyse-jvm-iastore analyse exo-type ?values)
+           "jvm laload" (analyse-jvm-laload analyse exo-type ?values)
+           "jvm lastore" (analyse-jvm-lastore analyse exo-type ?values)
+           "jvm faload" (analyse-jvm-faload analyse exo-type ?values)
+           "jvm fastore" (analyse-jvm-fastore analyse exo-type ?values)
+           "jvm daload" (analyse-jvm-daload analyse exo-type ?values)
+           "jvm dastore" (analyse-jvm-dastore analyse exo-type ?values)
+           "jvm caload" (analyse-jvm-caload analyse exo-type ?values)
+           "jvm castore" (analyse-jvm-castore analyse exo-type ?values)
+           "jvm iadd"         (analyse-jvm-iadd analyse exo-type ?values)
+           "jvm isub"         (analyse-jvm-isub analyse exo-type ?values)
+           "jvm imul"         (analyse-jvm-imul analyse exo-type ?values)
+           "jvm idiv"         (analyse-jvm-idiv analyse exo-type ?values)
+           "jvm irem"         (analyse-jvm-irem analyse exo-type ?values)
+           "jvm ieq"          (analyse-jvm-ieq analyse exo-type ?values)
+           "jvm ilt"          (analyse-jvm-ilt analyse exo-type ?values)
+           "jvm igt"          (analyse-jvm-igt analyse exo-type ?values)
+           "jvm ceq"          (analyse-jvm-ceq analyse exo-type ?values)
+           "jvm clt"          (analyse-jvm-clt analyse exo-type ?values)
+           "jvm cgt"          (analyse-jvm-cgt analyse exo-type ?values)
+           "jvm ladd"         (analyse-jvm-ladd analyse exo-type ?values)
+           "jvm lsub"         (analyse-jvm-lsub analyse exo-type ?values)
+           "jvm lmul"         (analyse-jvm-lmul analyse exo-type ?values)
+           "jvm ldiv"         (analyse-jvm-ldiv analyse exo-type ?values)
+           "jvm lrem"         (analyse-jvm-lrem analyse exo-type ?values)
+           "jvm leq"          (analyse-jvm-leq analyse exo-type ?values)
+           "jvm llt"          (analyse-jvm-llt analyse exo-type ?values)
+           "jvm lgt"          (analyse-jvm-lgt analyse exo-type ?values)
+           "jvm fadd"         (analyse-jvm-fadd analyse exo-type ?values)
+           "jvm fsub"         (analyse-jvm-fsub analyse exo-type ?values)
+           "jvm fmul"         (analyse-jvm-fmul analyse exo-type ?values)
+           "jvm fdiv"         (analyse-jvm-fdiv analyse exo-type ?values)
+           "jvm frem"         (analyse-jvm-frem analyse exo-type ?values)
+           "jvm feq"          (analyse-jvm-feq analyse exo-type ?values)
+           "jvm flt"          (analyse-jvm-flt analyse exo-type ?values)
+           "jvm fgt"          (analyse-jvm-fgt analyse exo-type ?values)
+           "jvm dadd"         (analyse-jvm-dadd analyse exo-type ?values)
+           "jvm dsub"         (analyse-jvm-dsub analyse exo-type ?values)
+           "jvm dmul"         (analyse-jvm-dmul analyse exo-type ?values)
+           "jvm ddiv"         (analyse-jvm-ddiv analyse exo-type ?values)
+           "jvm drem"         (analyse-jvm-drem analyse exo-type ?values)
+           "jvm deq"          (analyse-jvm-deq analyse exo-type ?values)
+           "jvm dlt"          (analyse-jvm-dlt analyse exo-type ?values)
+           "jvm dgt"          (analyse-jvm-dgt analyse exo-type ?values)
+           "jvm iand"         (analyse-jvm-iand analyse exo-type ?values)
+           "jvm ior"          (analyse-jvm-ior analyse exo-type ?values)
+           "jvm ixor"         (analyse-jvm-ixor analyse exo-type ?values)
+           "jvm ishl"         (analyse-jvm-ishl analyse exo-type ?values)
+           "jvm ishr"         (analyse-jvm-ishr analyse exo-type ?values)
+           "jvm iushr"        (analyse-jvm-iushr analyse exo-type ?values)
+           "jvm land"         (analyse-jvm-land analyse exo-type ?values)
+           "jvm lor"          (analyse-jvm-lor analyse exo-type ?values)
+           "jvm lxor"         (analyse-jvm-lxor analyse exo-type ?values)
+           "jvm lshl"         (analyse-jvm-lshl analyse exo-type ?values)
+           "jvm lshr"         (analyse-jvm-lshr analyse exo-type ?values)
+           "jvm lushr"        (analyse-jvm-lushr analyse exo-type ?values)
+           "jvm d2f"          (analyse-jvm-d2f analyse exo-type ?values)
+           "jvm d2i"          (analyse-jvm-d2i analyse exo-type ?values)
+           "jvm d2l"          (analyse-jvm-d2l analyse exo-type ?values)
+           "jvm f2d"          (analyse-jvm-f2d analyse exo-type ?values)
+           "jvm f2i"          (analyse-jvm-f2i analyse exo-type ?values)
+           "jvm f2l"          (analyse-jvm-f2l analyse exo-type ?values)
+           "jvm i2b"          (analyse-jvm-i2b analyse exo-type ?values)
+           "jvm i2c"          (analyse-jvm-i2c analyse exo-type ?values)
+           "jvm i2d"          (analyse-jvm-i2d analyse exo-type ?values)
+           "jvm i2f"          (analyse-jvm-i2f analyse exo-type ?values)
+           "jvm i2l"          (analyse-jvm-i2l analyse exo-type ?values)
+           "jvm i2s"          (analyse-jvm-i2s analyse exo-type ?values)
+           "jvm l2d"          (analyse-jvm-l2d analyse exo-type ?values)
+           "jvm l2f"          (analyse-jvm-l2f analyse exo-type ?values)
+           "jvm l2i"          (analyse-jvm-l2i analyse exo-type ?values)
+           "jvm l2s"          (analyse-jvm-l2s analyse exo-type ?values)
+           "jvm l2b"          (analyse-jvm-l2b analyse exo-type ?values)
+           "jvm c2b"          (analyse-jvm-c2b analyse exo-type ?values)
+           "jvm c2s"          (analyse-jvm-c2s analyse exo-type ?values)
+           "jvm c2i"          (analyse-jvm-c2i analyse exo-type ?values)
+           "jvm c2l"          (analyse-jvm-c2l analyse exo-type ?values)
+           "jvm b2l"          (analyse-jvm-b2l analyse exo-type ?values)
+           "jvm s2l"          (analyse-jvm-s2l analyse exo-type ?values)
+           ;; else
+           (->> (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " ["jvm" proc]))
+                (if-let [[_ _def-code] (re-find #"^jvm interface:(.*)$" proc)]
+                  (|do [[_module _line _column] &/cursor]
+                    (&reader/with-source (str "interface@" "(" _module "," _line "," _column ")") _def-code
+                      (|do [[=gclass-decl =supers =anns =methods] &&a-parser/parse-interface-def]
+                        (analyse-jvm-interface analyse compile-interface =gclass-decl =supers =anns =methods)))))
+                
+                (if-let [[_ _def-code] (re-find #"^jvm class:(.*)$" proc)]
+                  (|do [[_module _line _column] &/cursor]
+                    (&reader/with-source (str "class@" "(" _module "," _line "," _column ")") _def-code
+                      (|do [[=gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods] &&a-parser/parse-class-def]
+                        (analyse-jvm-class analyse compile-class =gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods)))))
+                
+                (if-let [[_ _def-code] (re-find #"^jvm anon-class:(.*)$" proc)]
+                  (|do [[_module _line _column] &/cursor]
+                    (&reader/with-source (str "anon-class@" "(" _module "," _line "," _column ")") _def-code
+                      (|do [[=super-class =interfaces =ctor-args =methods] &&a-parser/parse-anon-class-def]
+                        (analyse-jvm-anon-class analyse compile-class exo-type =super-class =interfaces =ctor-args =methods)))))
+                
+                (if-let [[_ _class] (re-find #"^jvm instanceof:([^:]+)$" proc)]
+                  (analyse-jvm-instanceof analyse exo-type _class ?values))
+                
+                (if-let [[_ _class _arg-classes] (re-find #"^jvm new:([^:]+):([^:]*)$" proc)]
+                  (analyse-jvm-new analyse exo-type _class (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+                
+                (if-let [[_ _class _method _arg-classes] (re-find #"^jvm invokestatic:([^:]+):([^:]+):([^:]*)$" proc)]
+                  (analyse-jvm-invokestatic analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+                
+                (if-let [[_ _class _method _arg-classes] (re-find #"^jvm invokeinterface:([^:]+):([^:]+):([^:]*)$" proc)]
+                  (analyse-jvm-invokeinterface analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+                
+                (if-let [[_ _class _method _arg-classes] (re-find #"^jvm invokevirtual:([^:]+):([^:]+):([^:]*)$" proc)]
+                  (analyse-jvm-invokevirtual analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+                
+                (if-let [[_ _class _method _arg-classes] (re-find #"^jvm invokespecial:([^:]+):([^:]+):([^:]*)$" proc)]
+                  (analyse-jvm-invokespecial analyse exo-type _class _method (if (= "" _arg-classes) (&/|list) (&/->list (string/split _arg-classes #","))) ?values))
+                
+                (if-let [[_ _class _field] (re-find #"^jvm getstatic:([^:]+):([^:]+)$" proc)]
+                  (analyse-jvm-getstatic analyse exo-type _class _field ?values))
+                
+                (if-let [[_ _class _field] (re-find #"^jvm getfield:([^:]+):([^:]+)$" proc)]
+                  (analyse-jvm-getfield analyse exo-type _class _field ?values))
+                
+                (if-let [[_ _class _field] (re-find #"^jvm putstatic:([^:]+):([^:]+)$" proc)]
+                  (analyse-jvm-putstatic analyse exo-type _class _field ?values))
+                
+                (if-let [[_ _class _field] (re-find #"^jvm putfield:([^:]+):([^:]+)$" proc)]
+                  (analyse-jvm-putfield analyse exo-type _class _field ?values))))
+      (catch Exception ex
+        (&/fail-with-loc (str "[Analyser Error] Invalid syntax for procedure: " proc))))
     ))

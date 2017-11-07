@@ -108,8 +108,8 @@
 
       (&/$Form (&/$Cons [command-meta command] parameters))
       (|case command
-        (&/$Text command-name)
-        (case command-name
+        (&/$Text ?procedure)
+        (case ?procedure
           "lux check"
           (|let [(&/$Cons ?type
                           (&/$Cons ?value
@@ -158,26 +158,20 @@
               (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
           ;; else
-          (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
+          (&/with-analysis-meta cursor exo-type
+            (cond (.startsWith ^String ?procedure "jvm")
+                  (|do [_ &/jvm-host]
+                    (&&jvm/analyse-host analyse exo-type compilers ?procedure parameters))
+                  
+                  (.startsWith ^String ?procedure "js")
+                  (|do [_ &/js-host]
+                    (&&js/analyse-host analyse exo-type ?procedure parameters))
+
+                  :else
+                  (&&common/analyse-proc analyse exo-type ?procedure parameters))))
         
         (&/$Symbol _ command-name)
         (case command-name
-          "_lux_proc"
-          (|let [(&/$Cons [_ (&/$Tuple (&/$Cons [_ (&/$Text ?category)]
-                                                (&/$Cons [_ (&/$Text ?proc)]
-                                                         (&/$Nil))))]
-                          (&/$Cons [_ (&/$Tuple ?args)]
-                                   (&/$Nil))) parameters]
-            (&/with-analysis-meta cursor exo-type
-              (case ?category
-                "jvm" (|do [_ &/jvm-host]
-                        (&&jvm/analyse-host analyse exo-type compilers ?proc ?args))
-                "js" (|do [_ &/js-host]
-                       (&&js/analyse-host analyse exo-type ?proc ?args))
-                ;; common
-                (&&common/analyse-proc analyse exo-type ?category ?proc ?args))
-              ))
-
           "_lux_module"
           (|let [(&/$Cons ?meta (&/$Nil)) parameters]
             (&/with-cursor cursor
