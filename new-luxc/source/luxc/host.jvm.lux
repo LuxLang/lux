@@ -1,6 +1,7 @@
 (;module:
   lux
   (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
                 pipe)
        (concurrency ["A" atom])
        (data ["e" error]
@@ -12,7 +13,10 @@
        [host #+ do-to object]
        [io])
   (luxc ["&" base]
-        (lang (translation [";T" common]))))
+        (lang [";L" variable #+ Register]
+              (translation [";T" common]))))
+
+(host;import org.objectweb.asm.Label)
 
 (host;import java.lang.reflect.AccessibleObject
   (setAccessible [boolean] void))
@@ -85,14 +89,46 @@
            {#commonT;loader (memory-class-loader store)
             #commonT;store store
             #commonT;artifacts (dict;new text;Hash<Text>)
-            #commonT;context ["" +0]})))
+            #commonT;context ["" +0]
+            #commonT;anchor #;None})))
+
+(def: #export (with-anchor anchor expr)
+  (All [a] (-> [Label Register] (Meta a) (Meta a)))
+  (;function [compiler]
+    (let [old (:! commonT;Host (get@ #;host compiler))]
+      (case (expr (set@ #;host
+                        (:! Void (set@ #commonT;anchor (#;Some anchor) old))
+                        compiler))
+        (#e;Success [compiler' output])
+        (#e;Success [(update@ #;host
+                              (|>. (:! commonT;Host)
+                                   (set@ #commonT;anchor (get@ #commonT;anchor old))
+                                   (:! Void))
+                              compiler')
+                     output])
+
+        (#e;Error error)
+        (#e;Error error)))))
+
+(exception: #export No-Anchor)
+
+(def: #export anchor
+  (Meta [Label Register])
+  (;function [compiler]
+    (case (|> compiler (get@ #;host) (:! commonT;Host) (get@ #commonT;anchor))
+      (#;Some anchor)
+      (#e;Success [compiler
+                   anchor])
+
+      #;None
+      ((&;throw No-Anchor "") compiler))))
 
 (def: #export (with-context name expr)
   (All [a] (-> Text (Meta a) (Meta a)))
   (;function [compiler]
     (let [old (:! commonT;Host (get@ #;host compiler))]
       (case (expr (set@ #;host
-                        (:! Void (set@ #commonT;context [name +0] old))
+                        (:! Void (set@ #commonT;context [(&;normalize-name name) +0] old))
                         compiler))
         (#e;Success [compiler' output])
         (#e;Success [(update@ #;host
@@ -110,7 +146,7 @@
   (;function [compiler]
     (let [old (:! commonT;Host (get@ #;host compiler))
           [old-name old-sub] (get@ #commonT;context old)
-          new-name (format old-name "/" (%n old-sub))]
+          new-name (format old-name "$" (%i (nat-to-int old-sub)))]
       (case (expr (set@ #;host
                         (:! Void (set@ #commonT;context [new-name +0] old))
                         compiler))

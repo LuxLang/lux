@@ -23,7 +23,7 @@
 (def: init-resolver (Dict Int Int) (dict;new number;Hash<Int>))
 
 (def: (prepare-body inner-arity arity body)
-  (-> Nat Nat ls;Synthesis ls;Synthesis)
+  (-> ls;Arity ls;Arity ls;Synthesis ls;Synthesis)
   (if (functionS;nested? inner-arity)
     body
     (loopS;reify-recursion arity body)))
@@ -73,7 +73,11 @@
       inputS
 
       (^ (list [(^code ("lux case bind" (~ [_ (#;Nat register)]))) bodyA]))
-      (let$ register inputS (synthesize bodyA))
+      (let$ (if (functionS;nested? outer-arity)
+              (|> register variableL;local (functionS;adjust-var outer-arity) variableL;local-register)
+              register)
+            inputS
+            (synthesize bodyA))
       
       (^or (^ (list [(^code true) thenA] [(^code false) elseA]))
            (^ (list [(^code false) elseA] [(^code true) thenA])))
@@ -121,16 +125,17 @@
   (-> la;Analysis ls;Synthesis)
   (loop [outer-arity +0
          resolver init-resolver
+         direct? false
          num-locals +0
          expressionA expressionA]
     (case expressionA
       (^code [(~ _left) (~ _right)])
-      (` [(~@ (list/map (recur outer-arity resolver num-locals) (la;unfold-tuple expressionA)))])
+      (` [(~@ (list/map (recur outer-arity resolver false num-locals) (la;unfold-tuple expressionA)))])
 
       (^or (^code ("lux sum left" (~ _)))
            (^code ("lux sum right" (~ _))))
       (let [[tag last? value] (maybe;assume (la;unfold-variant expressionA))]
-        (variant$ tag last? (recur outer-arity resolver num-locals value)))
+        (variant$ tag last? (recur outer-arity resolver false num-locals value)))
 
       (^code ((~ [_ (#;Int var)])))
       (if (variableL;local? var)
@@ -143,17 +148,34 @@
         (var$ (maybe;default var (dict;get var resolver))))
 
       (^code ("lux case" (~ inputA) (~ [_ (#;Record branchesA)])))
-      (synthesize-case (recur outer-arity resolver num-locals) outer-arity inputA branchesA)
+      (synthesize-case (recur outer-arity resolver false num-locals) outer-arity inputA branchesA)
 
       (^multi (^code ("lux function" [(~@ scope)] (~ bodyA)))
               [(s;run scope (p;some s;int)) (#e;Success raw-env)])
-      (let [inner-arity (n.inc outer-arity)
-            env (list/map (function [var] (maybe;default var (dict;get var resolver))) raw-env)
+      (let [inner-arity (if direct?
+                          (n.inc outer-arity)
+                          +1)
+            env (list/map (function [closure]
+                            (case (dict;get closure resolver)
+                              (#;Some resolved)
+                              (if (and (variableL;local? resolved)
+                                       (functionS;nested? outer-arity)
+                                       (|> resolved variableL;local-register (n.>= outer-arity)))
+                                (functionS;adjust-var outer-arity resolved)
+                                resolved)
+
+                              #;None
+                              (if (and (variableL;local? closure)
+                                       (functionS;nested? outer-arity))
+                                (functionS;adjust-var outer-arity closure)
+                                closure)))
+                          raw-env)
             env-vars (: (List Variable)
                         (case raw-env
                           #;Nil (list)
                           _ (|> (list;size raw-env) n.dec (list;n.range +0) (list/map variableL;captured))))
-            resolver' (if (functionS;nested? inner-arity)
+            resolver' (if (and (functionS;nested? inner-arity)
+                               direct?)
                         (list/fold (function [[from to] resolver']
                                      (dict;put from to resolver'))
                                    init-resolver
@@ -162,7 +184,7 @@
                                      (dict;put var var resolver'))
                                    init-resolver
                                    env-vars))]
-        (case (recur inner-arity resolver' num-locals bodyA)
+        (case (recur inner-arity resolver' true num-locals bodyA)
           (^ [_ (#;Form (list [_ (#;Text "lux function")] [_ (#;Nat arity')] env' bodyS'))])
           (let [arity (n.inc arity')]
             (function$ arity env (prepare-body inner-arity arity bodyS')))
@@ -171,10 +193,10 @@
           (function$ +1 env (prepare-body inner-arity +1 bodyS))))
 
       (^code ("lux apply" (~@ _)))
-      (synthesize-apply (recur outer-arity resolver num-locals) outer-arity num-locals expressionA)
+      (synthesize-apply (recur outer-arity resolver false num-locals) outer-arity num-locals expressionA)
 
       (^code ((~ [_ (#;Text name)]) (~@ args)))
-      (procedure$ name (list/map (recur outer-arity resolver num-locals) args))
+      (procedure$ name (list/map (recur outer-arity resolver false num-locals) args))
 
       _
       expressionA)))

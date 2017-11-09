@@ -267,42 +267,42 @@
                     $i;ARETURN
                     ))))
 
-(def: #export (with-function class env arity bodyI)
-  (-> Text (List Variable) ls;Arity $;Inst
-      (Meta [$;Def $;Inst]))
-  (do meta;Monad<Meta>
-    [@begin $i;make-label
-     #let [env-size (list;size env)
-           applyD (: $;Def
-                     (if (poly-arg? arity)
-                       (|> (n.min arity runtimeT;num-apply-variants)
-                           (list;n.range +1)
-                           (list/map (with-apply class env arity @begin bodyI))
-                           (list& (with-implementation arity @begin bodyI))
-                           $d;fuse)
-                       ($d;method #$;Public $;strictM runtimeT;apply-method (runtimeT;apply-signature +1)
-                                  (|>. ($i;label @begin)
-                                       bodyI
-                                       $i;ARETURN))))
-           functionD (: $;Def
-                        (|>. ($d;int-field #$;Public ($_ $;++F $;staticF $;finalF) arity-field (nat-to-int arity))
-                             (with-captured env)
-                             (with-partial arity)
-                             (with-init class env arity)
-                             (with-reset class arity env)
-                             applyD))
-           instanceI (instance class arity env)]]
-    (wrap [functionD instanceI])))
+(def: #export (with-function @begin class env arity bodyI)
+  (-> $;Label Text (List Variable) ls;Arity $;Inst
+      [$;Def $;Inst])
+  (let [env-size (list;size env)
+        applyD (: $;Def
+                  (if (poly-arg? arity)
+                    (|> (n.min arity runtimeT;num-apply-variants)
+                        (list;n.range +1)
+                        (list/map (with-apply class env arity @begin bodyI))
+                        (list& (with-implementation arity @begin bodyI))
+                        $d;fuse)
+                    ($d;method #$;Public $;strictM runtimeT;apply-method (runtimeT;apply-signature +1)
+                               (|>. ($i;label @begin)
+                                    bodyI
+                                    $i;ARETURN))))
+        functionD (: $;Def
+                     (|>. ($d;int-field #$;Public ($_ $;++F $;staticF $;finalF) arity-field (nat-to-int arity))
+                          (with-captured env)
+                          (with-partial arity)
+                          (with-init class env arity)
+                          (with-reset class arity env)
+                          applyD
+                          ))
+        instanceI (instance class arity env)]
+    [functionD instanceI]))
 
-(def: #export (translate-function translate env arity body)
+(def: #export (translate-function translate env arity bodyS)
   (-> (-> ls;Synthesis (Meta $;Inst))
       (List Variable) ls;Arity ls;Synthesis
       (Meta $;Inst))
   (do meta;Monad<Meta>
-    [[context bodyI] (hostL;with-sub-context
-                       (translate body))
-     #let [function-class (&;normalize-name context)]
-     [functionD instanceI] (with-function function-class env arity bodyI)
+    [@begin $i;make-label
+     [function-class bodyI] (hostL;with-sub-context
+                              (hostL;with-anchor [@begin +1]
+                                (translate bodyS)))
+     #let [[functionD instanceI] (with-function @begin function-class env arity bodyI)]
      _ (commonT;store-class function-class
                             ($d;class #$;V1.6 #$;Public $;finalC
                                       function-class (list)
@@ -332,3 +332,28 @@
                       $i;fuse)]]
     (wrap (|>. functionI
                applyI))))
+
+(def: #export (translate-recur translate argsS)
+  (-> (-> ls;Synthesis (Meta $;Inst))
+      (List ls;Synthesis)
+      (Meta $;Inst))
+  (do meta;Monad<Meta>
+    [[@begin offset] hostL;anchor
+     argsI (monad;map @ (function [[register argS]]
+                          (let [register' (n.+ offset register)]
+                            (: (Meta $;Inst)
+                               (case argS
+                                 (^multi (^code ((~ [_ (#;Int var)])))
+                                         (i.= (variableL;local register')
+                                              var))
+                                 (wrap id)
+
+                                 _
+                                 (do @
+                                   [argI (translate argS)]
+                                   (wrap (|>. argI
+                                              ($i;ASTORE register'))))))))
+                      (list;zip2 (list;n.range +0 (n.dec (list;size argsS)))
+                                 argsS))]
+    (wrap (|>. ($i;fuse argsI)
+               ($i;GOTO @begin)))))
