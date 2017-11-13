@@ -16,6 +16,9 @@
 (exception: #export Cannot-Infer)
 (exception: #export Cannot-Infer-Argument)
 (exception: #export Smaller-Variant-Than-Expected)
+(exception: #export Invalid-Type-Application)
+(exception: #export Not-A-Record-Type)
+(exception: #export Not-A-Variant-Type)
 
 ## When doing inference, type-variables often need to be created in
 ## order to figure out which types are present in the expression being
@@ -90,16 +93,16 @@
 ## Function types are used for this, although inference is not always
 ## done for function application (alternative uses may be records and
 ## tagged variants).
-## But, so long as the type being used for the inference can be trated
+## But, so long as the type being used for the inference can be treated
 ## as a function type, this method of inference should work.
-(def: #export (apply-function analyse funcT args)
+(def: #export (apply-function analyse inferT args)
   (-> &;Analyser Type (List Code) (Meta [Type (List Analysis)]))
   (case args
     #;Nil
-    (:: Monad<Meta> wrap [funcT (list)])
+    (:: Monad<Meta> wrap [inferT (list)])
     
     (#;Cons argC args')
-    (case funcT
+    (case inferT
       (#;Named name unnamedT)
       (apply-function analyse unnamedT args)
 
@@ -107,7 +110,7 @@
       (&common;with-var
         (function [[var-id varT]]
           (do Monad<Meta>
-            [[outputT argsA] (apply-function analyse (maybe;assume (type;apply (list varT) funcT)) args)]
+            [[outputT argsA] (apply-function analyse (maybe;assume (type;apply (list varT) inferT)) args)]
             (do @
               [? (&;with-type-env
                    (tc;bound? var-id))
@@ -123,7 +126,15 @@
       (do Monad<Meta>
         [[ex-id exT] (&;with-type-env
                        tc;existential)]
-        (apply-function analyse (maybe;assume (type;apply (list exT) funcT)) args))
+        (apply-function analyse (maybe;assume (type;apply (list exT) inferT)) args))
+
+      (#;Apply inputT transT)
+      (case (type;apply (list inputT) transT)
+        (#;Some outputT)
+        (apply-function analyse outputT args)
+
+        #;None
+        (&;throw Invalid-Type-Application (%type inferT)))
 
       ## Arguments are inferred back-to-front because, by convention,
       ## Lux functions take the most important arguments *last*, which
@@ -134,18 +145,23 @@
       ## things together more easily.
       (#;Function inputT outputT)
       (do Monad<Meta>
-        [[outputT' args'A] (apply-function analyse outputT args')
-         argA (&;with-stacked-errors
+        [argA (&;with-stacked-errors
                 (function [_] (Cannot-Infer-Argument
                                (format "Inferred Type: " (%type inputT) "\n"
                                        "     Argument: " (%code argC))))
                 (&;with-expected-type inputT
-                  (analyse argC)))]
+                  (analyse argC)))
+         [outputT' args'A] (apply-function analyse outputT args')]
         (wrap [outputT' (list& argA args'A)]))
 
       _
-      (&;throw Cannot-Infer (format "Inference Type: " (%type funcT)
-                                    "     Arguments: " (|> args (list/map %code) (text;join-with " ")))))
+      (&;throw Cannot-Infer (format "     Type: " (%type inferT) "\n"
+                                    "Arguments:"
+                                    (|> args
+                                        list;enumerate
+                                        (list/map (function [[idx argC]]
+                                                    (format "\n  " (%n idx) " " (%code argC))))
+                                        (text;join-with "")))))
     ))
 
 ## Turns a record type into the kind of function type suitable for inference.
@@ -153,9 +169,7 @@
   (-> Type (Meta Type))
   (case type
     (#;Named name unnamedT)
-    (do Monad<Meta>
-      [unnamedT+ (record unnamedT)]
-      (wrap unnamedT+))
+    (record unnamedT)
 
     (^template [<tag>]
       (<tag> env bodyT)
@@ -169,7 +183,7 @@
     (:: Monad<Meta> wrap (type;function (type;flatten-tuple type) type))
 
     _
-    (&;fail (format "Not a record type: " (%type type)))))
+    (&;throw Not-A-Record-Type (%type type))))
 
 ## Turns a variant type into the kind of function type suitable for inference.
 (def: #export (variant tag expected-size type)
@@ -225,4 +239,4 @@
               (&common;variant-out-of-bounds-error type expected-size tag)))
 
       _
-      (&;fail (format "Not a variant type: " (%type type))))))
+      (&;throw Not-A-Variant-Type (%type type)))))

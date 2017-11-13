@@ -4,73 +4,77 @@
              [text "text/" Eq<Text>]
              text/format
              [number]
-             (coll [list "list/" Fold<List>]))
+             (coll [list "list/" Fold<List> Monoid<List>]))
        (meta [code "code/" Eq<Code>]))
   (luxc (lang [";L" variable #+ Variable]
               ["la" analysis]
               ["ls" synthesis]
               (synthesis [";S" function]))))
 
-(def: #export (path outer-arity pattern)
-  (-> ls;Arity la;Pattern ls;Path)
+(def: popPS ls;Path (' ("lux case pop")))
+
+(def: (path' outer-arity pattern)
+  (-> ls;Arity la;Pattern (List ls;Path))
   (case pattern
     (^code ("lux case tuple" [(~@ membersP)]))
-    (case (list;reverse membersP)
+    (case membersP
       #;Nil
-      (' ("lux case pop"))
+      (list popPS)
 
       (#;Cons singletonP #;Nil)
-      (path outer-arity singletonP)
+      (path' outer-arity singletonP)
 
-      (#;Cons lastP prevsP)
-      (let [length (list;size membersP)
-            last-idx (n.dec length)
-            [_ tuple-path] (list/fold (function [current-pattern [current-idx next-path]]
+      (#;Cons _)
+      (let [last-idx (n.dec (list;size membersP))
+            [_ tuple-path] (list/fold (function [current-pattern [current-idx next]]
                                         [(n.dec current-idx)
-                                         (` ("lux case seq"
-                                             ("lux case tuple left" (~ (code;nat current-idx)) (~ (path outer-arity current-pattern)))
-                                             (~ next-path)))])
-                                      [(n.dec last-idx)
-                                       (` ("lux case tuple right" (~ (code;nat last-idx)) (~ (path outer-arity lastP))))]
-                                      prevsP)]
-        (` ("lux case seq"
-            (~ tuple-path)
-            ("lux case pop")))))
+                                         (|> (list (if (n.= last-idx current-idx)
+                                                     (` ("lux case tuple right" (~ (code;nat current-idx))))
+                                                     (` ("lux case tuple left" (~ (code;nat current-idx))))))
+                                             (list/compose (path' outer-arity current-pattern))
+                                             (list/compose next))])
+                                      [last-idx (list popPS)]
+                                      (list;reverse membersP))]
+        tuple-path))
 
     (^code ("lux case variant" (~ [_ (#;Nat tag)]) (~ [_ (#;Nat num-tags)]) (~ memberP)))
-    (` ("lux case seq"
-        (~ (if (n.= (n.dec num-tags) tag)
-             (` ("lux case variant right" (~ (code;nat tag)) (~ (path outer-arity memberP))))
-             (` ("lux case variant left" (~ (code;nat tag)) (~ (path outer-arity memberP))))))
-        ("lux case pop")))
+    (|> (list (if (n.= (n.dec num-tags) tag)
+                (` ("lux case variant right" (~ (code;nat tag))))
+                (` ("lux case variant left" (~ (code;nat tag))))))
+        (list/compose (path' outer-arity memberP))
+        (list& popPS))
 
     (^code ("lux case bind" (~ [_ (#;Nat register)])))
-    (` ("lux case seq"
-        ("lux case bind" (~ (if (functionS;nested? outer-arity)
-                              (code;nat (|> register variableL;local (functionS;adjust-var outer-arity) variableL;local-register))
-                              (code;nat register))))
-        ("lux case pop")))
+    (list popPS
+          (` ("lux case bind" (~ (code;nat (if (functionS;nested? outer-arity)
+                                             (|> register variableL;local (functionS;adjust-var outer-arity) variableL;local-register)
+                                             register))))))
 
     _
-    (` ("lux case seq"
-        (~ pattern)
-        ("lux case pop")))))
+    (list popPS pattern)))
+
+(def: (clean-unnecessary-pops paths)
+  (-> (List ls;Path) (List ls;Path))
+  (case paths
+    (#;Cons path paths')
+    (if (is popPS path)
+      (clean-unnecessary-pops paths')
+      paths)
+
+    #;Nil
+    paths))
+
+(def: #export (path outer-arity pattern body)
+  (-> ls;Arity la;Pattern ls;Synthesis ls;Path)
+  (|> (path' outer-arity pattern) clean-unnecessary-pops
+      (list/fold (function [pre post]
+                   (` ("lux case seq" (~ pre) (~ post))))
+                 (` ("lux case exec" (~ body))))))
 
 (def: #export (weave leftP rightP)
   (-> ls;Path ls;Path ls;Path)
   (with-expansions [<default> (as-is (` ("lux case alt" (~ leftP) (~ rightP))))]
     (case [leftP rightP]
-      (^template [<special>]
-        (^ [[_ (#;Form (list [_ (#;Text <special>)] [_ (#;Nat left-idx)] left-then))]
-            [_ (#;Form (list [_ (#;Text <special>)] [_ (#;Nat right-idx)] right-then))]])
-        (if (n.= left-idx right-idx)
-          (` (<special> (~ (code;nat left-idx)) (~ (weave left-then right-then))))
-          <default>))
-      (["lux case tuple left"]
-       ["lux case tuple right"]
-       ["lux case variant left"]
-       ["lux case variant right"])
-
       (^ [(^code ("lux case seq" (~ preL) (~ postL)))
           (^code ("lux case seq" (~ preR) (~ postR)))])
       (case (weave preL preR)

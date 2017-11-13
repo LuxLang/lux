@@ -14,6 +14,14 @@
        (meta [type "type/" Eq<Type>])
        ))
 
+(exception: #export Unknown-Type-Var)
+(exception: #export Unbound-Type-Var)
+(exception: #export Improper-Ring)
+(exception: #export Cannot-Clean-Unbound-Var)
+(exception: #export Invalid-Type-Application)
+(exception: #export Cannot-Rebind-Var)
+(exception: #export Type-Check-Failed)
+
 (type: #export Var Nat)
 
 (type: #export Assumptions (List [[Type Type] Bool]))
@@ -131,12 +139,17 @@
     (#e;Success [context' output])
     (#e;Success output)))
 
-(def: (apply-type! t-func t-arg)
+(def: #export (throw exception message)
+  (All [a] (-> ex;Exception Text (Check a)))
+  (function [context]
+    (ex;throw exception message)))
+
+(def: (apply-type! funcT argT)
   (-> Type Type (Check Type))
   (function [context]
-    (case (type;apply (list t-arg) t-func)
+    (case (type;apply (list argT) funcT)
       #;None
-      (#e;Error ($_ text/compose "Invalid type application: " (type;to-text t-func) " on " (type;to-text t-arg)))
+      (ex;throw Invalid-Type-Application (type;to-text (#;Apply argT funcT)))
 
       (#;Some output)
       (#e;Success [context output]))))
@@ -148,10 +161,6 @@
     (let [id (get@ #;ex-counter context)]
       (#e;Success [(update@ #;ex-counter n.inc context)
                    [id (#;Ex id)]]))))
-
-(exception: #export Unknown-Type-Var)
-(exception: #export Unbound-Type-Var)
-(exception: #export Improper-Ring)
 
 (def: #export (bound? id)
   (-> Var (Check Bool))
@@ -197,7 +206,11 @@
   (function [context]
     (case (|> context (get@ #;var-bindings) (var::get id))
       (#;Some (#;Some bound))
-      (#e;Error ($_ text/compose "Cannot re-bind type-var: " (nat/encode id) " | Current type: " (type;to-text bound)))
+      (ex;throw Cannot-Rebind-Var
+                ($_ text/compose
+                    "         Var: " (nat/encode id) "\n"
+                    " Wanted Type: " (type;to-text type) "\n"
+                    "Current Type: " (type;to-text bound)))
       
       (#;Some #;None)
       (#e;Success [(update@ #;var-bindings (var::put id (#;Some type)) context)
@@ -228,13 +241,6 @@
       #;None
       (ex;throw Unknown-Type-Var (nat/encode id)))))
 
-(def: #export (throw exception message)
-  (All [a] (-> ex;Exception Text (Check a)))
-  (function [context]
-    (ex;throw exception message)))
-
-(exception: #export Cannot-Clean-Unbound-Var)
-
 (def: #export (clean t-id type)
   (-> Var Type (Check Type))
   (case type
@@ -244,7 +250,7 @@
         [? (bound? id)]
         (if ?
           (read id)
-          (throw Cannot-Clean-Unbound-Var (type;to-text type))))
+          (wrap type)))
       (do Monad<Check>
         [? (concrete? id)]
         (if ?
@@ -414,12 +420,6 @@
       (#e;Success [context []])
       (#e;Error message))))
 
-(def: (fail-check expected actual)
-  (All [a] (-> Type Type (Check a)))
-  (fail ($_ text/compose
-            "Expected: " (type;to-text expected) "\n\n"
-            "Actual:   " (type;to-text actual))))
-
 (def: (either left right)
   (All [a] (-> (Check a) (Check a) (Check a)))
   (function [context]
@@ -543,141 +543,180 @@
           _
           (check' etype atype assumptions))))))
 
+(def: (with-error-stack on-error check)
+  (All [a] (-> (-> Unit Text) (Check a) (Check a)))
+  (function [context]
+    (case (check context)
+      (#e;Error error)
+      (#e;Error (case error
+                  ""
+                  (on-error [])
+
+                  _
+                  ($_ text/compose
+                      (on-error [])
+                      "\n\n-----------------------------------------\n\n"
+                      error)))
+
+      output
+      output)))
+
+(def: (check-apply check' assumptions [eAT eFT] [aAT aFT])
+  (-> (-> Type Type Assumptions (Check Assumptions)) Assumptions
+      [Type Type] [Type Type]
+      (Check Assumptions))
+  (case [eFT aFT]
+    (^or [(#;Ex _) _] [_ (#;Ex _)])
+    (do Monad<Check>
+      [assumptions (check' eFT aFT assumptions)]
+      (check' eAT aAT assumptions))
+
+    [(#;Var id) _]
+    (either (do Monad<Check>
+              [rFT (read id)]
+              (check' (#;Apply eAT rFT) (#;Apply aAT aFT) assumptions))
+            (do Monad<Check>
+              [assumptions (check' (#;Var id) aFT assumptions)
+               e' (apply-type! aFT eAT)
+               a' (apply-type! aFT aAT)]
+              (check' e' a' assumptions)))
+
+    [_ (#;Var id)]
+    (either (do Monad<Check>
+              [rFT (read id)]
+              (check' (#;Apply eAT eFT) (#;Apply aAT rFT) assumptions))
+            (do Monad<Check>
+              [assumptions (check' eFT (#;Var id) assumptions)
+               e' (apply-type! eFT eAT)
+               a' (apply-type! eFT aAT)]
+              (check' e' a' assumptions)))
+
+    _
+    (fail "")))
+
 (def: #export (check' expected actual assumptions)
   {#;doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
   (-> Type Type Assumptions (Check Assumptions))
   (if (is expected actual)
     (check/wrap assumptions)
-    (case [expected actual]
-      [(#;Var idE) (#;Var idA)]
-      (check-vars check' assumptions idE idA)
-      
-      [(#;Var id) _]
-      (on id actual
-          (check/wrap assumptions)
-          (function [bound]
-            (check' bound actual assumptions)))
-      
-      [_ (#;Var id)]
-      (on id expected
-          (check/wrap assumptions)
-          (function [bound]
-            (check' expected bound assumptions)))
-
-      [(#;Apply eA (#;Ex eid)) (#;Apply aA (#;Ex aid))]
-      (if (n.= eid aid)
-        (check' eA aA assumptions)
-        (fail-check expected actual))
-
-      [(#;Apply A1 (#;Var id)) (#;Apply A2 F2)]
-      (either (do Monad<Check>
-                [F1 (read id)]
-                (check' (#;Apply A1 F1) actual assumptions))
-              (do Monad<Check>
-                [assumptions (check' (#;Var id) F2 assumptions)
-                 e' (apply-type! F2 A1)
-                 a' (apply-type! F2 A2)]
-                (check' e' a' assumptions)))
-      
-      [(#;Apply A1 F1) (#;Apply A2 (#;Var id))]
-      (either (do Monad<Check>
-                [F2 (read id)]
-                (check' expected (#;Apply A2 F2) assumptions))
-              (do Monad<Check>
-                [assumptions (check' F1 (#;Var id) assumptions)
-                 e' (apply-type! F1 A1)
-                 a' (apply-type! F1 A2)]
-                (check' e' a' assumptions)))
-
-      [(#;Apply A F) _]
-      (let [fx-pair [expected actual]]
-        (case (assumed? fx-pair assumptions)
-          (#;Some ?)
-          (if ?
-            (check/wrap assumptions)
-            (fail-check expected actual))
-
-          #;None
-          (do Monad<Check>
-            [expected' (apply-type! F A)]
-            (check' expected' actual (assume! fx-pair true assumptions)))))
-
-      [_ (#;Apply A F)]
-      (do Monad<Check>
-        [actual' (apply-type! F A)]
-        (check' expected actual' assumptions))
-
-      [(#;UnivQ _) _]
-      (do Monad<Check>
-        [[ex-id ex] existential
-         expected' (apply-type! expected ex)]
-        (check' expected' actual assumptions))
-
-      [_ (#;UnivQ _)]
-      (with
-       (function [[var-id var]]
-         (do Monad<Check>
-           [actual' (apply-type! actual var)
-            assumptions (check' expected actual' assumptions)
-            _ (clean var-id expected)]
-           (check/wrap assumptions))))
-
-      [(#;ExQ e!env e!def) _]
-      (with
-       (function [[var-id var]]
-         (do Monad<Check>
-           [expected' (apply-type! expected var)
-            assumptions (check' expected' actual assumptions)
-            _ (clean var-id actual)]
-           (check/wrap assumptions))))
-
-      [_ (#;ExQ a!env a!def)]
-      (do Monad<Check>
-        [[ex-id ex] existential
-         actual' (apply-type! actual ex)]
-        (check' expected actual' assumptions))
-
-      [(#;Primitive e-name e-params) (#;Primitive a-name a-params)]
-      (if (and (text/= e-name a-name)
-               (n.= (list;size e-params)
-                    (list;size a-params)))
-        (do Monad<Check>
-          [assumptions (monad;fold Monad<Check>
-                                   (function [[e a] assumptions] (check' e a assumptions))
-                                   assumptions
-                                   (list;zip2 e-params a-params))]
-          (check/wrap assumptions))
-        (fail-check expected actual))
-
-      (^template [<identity> <compose>]
-        [<identity> <identity>]
-        (check/wrap assumptions)
+    (with-error-stack
+      (function [_] (Type-Check-Failed
+                     ($_ text/compose
+                         "Expected: " (type;to-text expected) "\n\n"
+                         "  Actual: " (type;to-text actual))))
+      (case [expected actual]
+        [(#;Var idE) (#;Var idA)]
+        (check-vars check' assumptions idE idA)
         
-        [(<compose> eL eR) (<compose> aL aR)]
+        [(#;Var id) _]
+        (on id actual
+            (check/wrap assumptions)
+            (function [bound]
+              (check' bound actual assumptions)))
+        
+        [_ (#;Var id)]
+        (on id expected
+            (check/wrap assumptions)
+            (function [bound]
+              (check' expected bound assumptions)))
+
+        (^template [<fe> <fa>]
+          [(#;Apply A1 <fe>) (#;Apply A2 <fa>)]
+          (check-apply check' assumptions [A1 <fe>] [A2 <fa>]))
+        ([F1 (#;Ex ex)]
+         [(#;Ex ex) F2]
+         [F1 (#;Var id)]
+         [(#;Var id) F2])
+        
+        [(#;Apply A F) _]
+        (let [fx-pair [expected actual]]
+          (case (assumed? fx-pair assumptions)
+            (#;Some ?)
+            (if ?
+              (check/wrap assumptions)
+              (fail ""))
+
+            #;None
+            (do Monad<Check>
+              [expected' (apply-type! F A)]
+              (check' expected' actual (assume! fx-pair true assumptions)))))
+
+        [_ (#;Apply A F)]
         (do Monad<Check>
-          [assumptions (check' eL aL assumptions)]
-          (check' eR aR assumptions)))
-      ([#;Void #;Sum]
-       [#;Unit #;Product])
-      
-      [(#;Function eI eO) (#;Function aI aO)]
-      (do Monad<Check>
-        [assumptions (check' aI eI assumptions)]
-        (check' eO aO assumptions))
+          [actual' (apply-type! F A)]
+          (check' expected actual' assumptions))
 
-      [(#;Ex e!id) (#;Ex a!id)]
-      (if (n.= e!id a!id)
-        (check/wrap assumptions)
-        (fail-check expected actual))
+        [(#;UnivQ _) _]
+        (do Monad<Check>
+          [[ex-id ex] existential
+           expected' (apply-type! expected ex)]
+          (check' expected' actual assumptions))
 
-      [(#;Named _ ?etype) _]
-      (check' ?etype actual assumptions)
+        [_ (#;UnivQ _)]
+        (with
+         (function [[var-id var]]
+           (do Monad<Check>
+             [actual' (apply-type! actual var)
+              assumptions (check' expected actual' assumptions)
+              _ (clean var-id expected)]
+             (check/wrap assumptions))))
 
-      [_ (#;Named _ ?atype)]
-      (check' expected ?atype assumptions)
+        [(#;ExQ e!env e!def) _]
+        (with
+         (function [[var-id var]]
+           (do Monad<Check>
+             [expected' (apply-type! expected var)
+              assumptions (check' expected' actual assumptions)
+              _ (clean var-id actual)]
+             (check/wrap assumptions))))
 
-      _
-      (fail-check expected actual))))
+        [_ (#;ExQ a!env a!def)]
+        (do Monad<Check>
+          [[ex-id ex] existential
+           actual' (apply-type! actual ex)]
+          (check' expected actual' assumptions))
+
+        [(#;Primitive e-name e-params) (#;Primitive a-name a-params)]
+        (if (and (text/= e-name a-name)
+                 (n.= (list;size e-params)
+                      (list;size a-params)))
+          (do Monad<Check>
+            [assumptions (monad;fold Monad<Check>
+                                     (function [[e a] assumptions] (check' e a assumptions))
+                                     assumptions
+                                     (list;zip2 e-params a-params))]
+            (check/wrap assumptions))
+          (fail ""))
+
+        (^template [<identity> <compose>]
+          [<identity> <identity>]
+          (check/wrap assumptions)
+          
+          [(<compose> eL eR) (<compose> aL aR)]
+          (do Monad<Check>
+            [assumptions (check' eL aL assumptions)]
+            (check' eR aR assumptions)))
+        ([#;Void #;Sum]
+         [#;Unit #;Product])
+        
+        [(#;Function eI eO) (#;Function aI aO)]
+        (do Monad<Check>
+          [assumptions (check' aI eI assumptions)]
+          (check' eO aO assumptions))
+
+        [(#;Ex e!id) (#;Ex a!id)]
+        (if (n.= e!id a!id)
+          (check/wrap assumptions)
+          (fail ""))
+
+        [(#;Named _ ?etype) _]
+        (check' ?etype actual assumptions)
+
+        [_ (#;Named _ ?atype)]
+        (check' expected ?atype assumptions)
+
+        _
+        (fail "")))))
 
 (def: #export (check expected actual)
   {#;doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
