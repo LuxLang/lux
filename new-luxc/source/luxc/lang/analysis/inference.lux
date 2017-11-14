@@ -14,49 +14,21 @@
               (analysis ["&;" common]))))
 
 (exception: #export Cannot-Infer)
+(def: (cannot-infer type args)
+  (-> Type (List Code) Text)
+  (format "     Type: " (%type type) "\n"
+          "Arguments:"
+          (|> args
+              list;enumerate
+              (list/map (function [[idx argC]]
+                          (format "\n  " (%n idx) " " (%code argC))))
+              (text;join-with ""))))
+
 (exception: #export Cannot-Infer-Argument)
 (exception: #export Smaller-Variant-Than-Expected)
 (exception: #export Invalid-Type-Application)
 (exception: #export Not-A-Record-Type)
 (exception: #export Not-A-Variant-Type)
-
-## When doing inference, type-variables often need to be created in
-## order to figure out which types are present in the expression being
-## inferred.
-## If a type-variable never gets bound/resolved to a type, then that
-## means the expression can be generalized through universal
-## quantification.
-## When that happens, the type-variable must be replaced by an
-## argument to the universally-quantified type.
-(def: #export (replace-var var-id bound-idx type)
-  (-> Nat Nat Type Type)
-  (case type
-    (#;Primitive name params)
-    (#;Primitive name (list/map (replace-var var-id bound-idx) params))
-
-    (^template [<tag>]
-      (<tag> left right)
-      (<tag> (replace-var var-id bound-idx left)
-             (replace-var var-id bound-idx right)))
-    ([#;Sum]
-     [#;Product]
-     [#;Function]
-     [#;Apply])
-    
-    (#;Var id)
-    (if (n.= var-id id)
-      (#;Bound bound-idx)
-      type)
-
-    (^template [<tag>]
-      (<tag> env quantified)
-      (<tag> (list/map (replace-var var-id bound-idx) env)
-             (replace-var var-id (n.+ +2 bound-idx) quantified)))
-    ([#;UnivQ]
-     [#;ExQ])
-    
-    _
-    type))
 
 (def: (replace-bound bound-idx replacementT type)
   (-> Nat Type Type Type)
@@ -110,18 +82,8 @@
 
       (#;UnivQ _)
       (do meta;Monad<Meta>
-        [[var-id varT] (&;with-type-env tc;var)
-         [outputT argsA] (general analyse (maybe;assume (type;apply (list varT) inferT)) args)]
-        (do @
-          [? (&;with-type-env
-               (tc;concrete? var-id))
-           ## Quantify over the type if genericity/parametricity
-           ## is discovered.
-           outputT' (if ?
-                      (&;with-type-env
-                        (tc;clean var-id outputT))
-                      (wrap (type;univ-q +1 (replace-var var-id +1 outputT))))]
-          (wrap [outputT' argsA])))
+        [[var-id varT] (&;with-type-env tc;var)]
+        (general analyse (maybe;assume (type;apply (list varT) inferT)) args))
 
       (#;ExQ _)
       (do meta;Monad<Meta>
@@ -155,14 +117,18 @@
                   (analyse argC)))]
         (wrap [outputT' (list& argA args'A)]))
 
+      (#;Var infer-id)
+      (do meta;Monad<Meta>
+        [?inferT' (&;with-type-env (tc;read infer-id))]
+        (case ?inferT'
+          (#;Some inferT')
+          (general analyse inferT' args)
+
+          _
+          (&;throw Cannot-Infer (cannot-infer inferT args))))
+
       _
-      (&;throw Cannot-Infer (format "     Type: " (%type inferT) "\n"
-                                    "Arguments:"
-                                    (|> args
-                                        list;enumerate
-                                        (list/map (function [[idx argC]]
-                                                    (format "\n  " (%n idx) " " (%code argC))))
-                                        (text;join-with "")))))
+      (&;throw Cannot-Infer (cannot-infer inferT args)))
     ))
 
 ## Turns a record type into the kind of function type suitable for inference.
