@@ -518,18 +518,20 @@
      tail tail-lexer]
     (wrap (format head tail))))
 
-(def: ident^
-  (l;Lexer [Ident Nat])
+(def: current-module-mark Text (format identifier-separator identifier-separator))
+
+(def: (ident^ current-module)
+  (-> Text (l;Lexer [Ident Nat]))
   ($_ p;either
-      ## When an identifier starts with 2 marks, it's module is
+      ## When an identifier starts with 2 marks, its module is
       ## taken to be the current-module being compiled at the moment.
       ## This can be useful when mentioning identifiers and tags
       ## inside quoted/templated code in macros.
       (do p;Monad<Parser>
-        [#let [current-module-mark (format identifier-separator identifier-separator)]
-         _ (l;this current-module-mark)
+        [_ (l;this current-module-mark)
          def-name ident-part^]
-        (p;fail (format "Cannot handle " current-module-mark " syntax for identifiers.")))
+        (wrap [[current-module def-name]
+               (n.+ +2 (text;size def-name))]))
       ## If the identifier is prefixed by the mark, but no module
       ## part, the module is assumed to be "lux" (otherwise known as
       ## the 'prelude').
@@ -571,38 +573,40 @@
 ## provide the compiler with information related to data-structure
 ## construction and de-structuring (during pattern-matching).
 (do-template [<name> <tag> <lexer> <extra>]
-  [(def: #export (<name> where)
-     (-> Cursor (l;Lexer [Cursor Code]))
+  [(def: #export (<name> current-module where)
+     (-> Text Cursor (l;Lexer [Cursor Code]))
      (do p;Monad<Parser>
        [[value length] <lexer>]
        (wrap [(update@ #;column (|>. ($_ n.+ <extra> length)) where)
               [where (<tag> value)]])))]
 
-  [symbol #;Symbol ident^                        +0]
-  [tag    #;Tag    (p;after (l;this "#") ident^) +1]
+  [symbol #;Symbol (ident^ current-module)                        +0]
+  [tag    #;Tag    (p;after (l;this "#") (ident^ current-module)) +1]
   )
 
-(def: (ast where)
-  (-> Cursor (l;Lexer [Cursor Code]))
-  (do p;Monad<Parser>
-    [where (left-padding^ where)]
-    ($_ p;either
-        (form where ast)
-        (tuple where ast)
-        (record where ast)
-        (bool where)
-        (nat where)
-        (frac where)
-        (int where)
-        (deg where)
-        (symbol where)
-        (tag where)
-        (text where)
-        )))
+(def: (ast current-module)
+  (-> Text Cursor (l;Lexer [Cursor Code]))
+  (: (-> Cursor (l;Lexer [Cursor Code]))
+     (function ast' [where]
+       (do p;Monad<Parser>
+         [where (left-padding^ where)]
+         ($_ p;either
+             (form where ast')
+             (tuple where ast')
+             (record where ast')
+             (bool where)
+             (nat where)
+             (frac where)
+             (int where)
+             (deg where)
+             (symbol current-module where)
+             (tag current-module where)
+             (text where)
+             )))))
 
-(def: #export (parse [where offset source])
-  (-> Source (e;Error [Source Code]))
-  (case (p;run [offset source] (ast where))
+(def: #export (parse current-module [where offset source])
+  (-> Text Source (e;Error [Source Code]))
+  (case (p;run [offset source] (ast current-module where))
     (#e;Error error)
     (#e;Error error)
 

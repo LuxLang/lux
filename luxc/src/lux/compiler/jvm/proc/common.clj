@@ -512,7 +512,7 @@
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I))]
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)Ljava/lang/String;"))]]
     (return nil)))
 
 (do-template [<name> <method>]
@@ -548,7 +548,6 @@
       (return nil)))
 
   ^:private compile-text-index      "indexOf"
-  ^:private compile-text-last-index "lastIndexOf"
   )
 
 (do-template [<name> <class> <method>]
@@ -828,7 +827,6 @@
       "concat"               (compile-text-concat compile ?values special-args)
       "clip"                 (compile-text-clip compile ?values special-args)
       "index"                (compile-text-index compile ?values special-args)
-      "last-index"           (compile-text-last-index compile ?values special-args)
       "size"                 (compile-text-size compile ?values special-args)
       "hash"                 (compile-text-hash compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)

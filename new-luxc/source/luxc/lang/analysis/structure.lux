@@ -85,26 +85,47 @@
          [#;ExQ tc;var])
 
         (#;Apply inputT funT)
-        (case (type;apply (list inputT) funT)
-          #;None
-          (&;throw Not-Quantified-Type (%type funT))
-          
-          (#;Some outputT)
-          (&;with-expected-type outputT
-            (analyse-sum analyse tag valueC)))
+        (case funT
+          (#;Var funT-id)
+          (do @
+            [?funT' (&;with-type-env (tc;read funT-id))]
+            (case ?funT'
+              (#;Some funT')
+              (&;with-expected-type (#;Apply inputT funT')
+                (analyse-sum analyse tag valueC))
+
+              _
+              (&;throw Not-Variant-Type (format " Type: " (%type expectedT) "\n"
+                                                "  Tag: " (%n tag) "\n"
+                                                "Value: " (%code  valueC)))))
+
+          _
+          (case (type;apply (list inputT) funT)
+            #;None
+            (&;throw Not-Quantified-Type (%type funT))
+            
+            (#;Some outputT)
+            (&;with-expected-type outputT
+              (analyse-sum analyse tag valueC))))
         
         _
         (&;throw Not-Variant-Type (format " Type: " (%type expectedT) "\n"
                                           "  Tag: " (%n tag) "\n"
                                           "Value: " (%code  valueC)))))))
 
-(def: (analyse-typed-product analyse members)
+(def: (analyse-typed-product analyse membersC+)
   (-> &;Analyser (List Code) (Meta la;Analysis))
   (do meta;Monad<Meta>
     [expectedT meta;expected-type]
     (loop [expectedT expectedT
-           members members]
-      (case [expectedT members]
+           membersC+ membersC+]
+      (case [expectedT membersC+]
+        ## If the tuple runs out, whatever expression is the last gets
+        ## matched to the remaining type.
+        [tailT (#;Cons tailC #;Nil)]
+        (&;with-expected-type tailT
+          (analyse tailC))
+
         ## If the type and the code are still ongoing, match each
         ## sub-expression to its corresponding type.
         [(#;Product leftT rightT) (#;Cons leftC rightC)]
@@ -113,12 +134,6 @@
                    (analyse leftC))
            rightA (recur rightT rightC)]
           (wrap (` [(~ leftA) (~ rightA)])))
-
-        ## If the tuple runs out, whatever expression is the last gets
-        ## matched to the remaining type.
-        [tailT (#;Cons tailC #;Nil)]
-        (&;with-expected-type tailT
-          (analyse tailC))
 
         ## If, however, the type runs out but there is still enough
         ## tail, the remaining elements get packaged into another
@@ -190,13 +205,27 @@
          [#;ExQ tc;var])
 
         (#;Apply inputT funT)
-        (case (type;apply (list inputT) funT)
-          #;None
-          (&;throw Not-Quantified-Type (%type funT))
-          
-          (#;Some outputT)
-          (&;with-expected-type outputT
-            (analyse-product analyse membersC)))
+        (case funT
+          (#;Var funT-id)
+          (do @
+            [?funT' (&;with-type-env (tc;read funT-id))]
+            (case ?funT'
+              (#;Some funT')
+              (&;with-expected-type (#;Apply inputT funT')
+                (analyse-product analyse membersC))
+
+              _
+              (&;throw Not-Tuple-Type (format " Type: " (%type expectedT) "\n"
+                                              "Value: " (%code (` [(~@ membersC)]))))))
+
+          _
+          (case (type;apply (list inputT) funT)
+            #;None
+            (&;throw Not-Quantified-Type (%type funT))
+            
+            (#;Some outputT)
+            (&;with-expected-type outputT
+              (analyse-product analyse membersC))))
         
         _
         (&;throw Not-Tuple-Type (format " Type: " (%type expectedT) "\n"

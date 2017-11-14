@@ -58,7 +58,6 @@
                                            (&/|list)))))))
 
   ^:private analyse-text-index      "index"      (&/$Apply &type/Nat &type/Maybe)
-  ^:private analyse-text-last-index "last-index" (&/$Apply &type/Nat &type/Maybe)
   )
 
 (defn ^:private analyse-text-contains? [analyse exo-type ?values]
@@ -77,7 +76,7 @@
         =text (&&/analyse-1 analyse &type/Text text)
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
-        _ (&type/check exo-type (&/$Apply &type/Text &type/Maybe))
+        _ (&type/check exo-type &type/Text)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "clip"])
@@ -489,7 +488,6 @@
          "lux text concat"               (analyse-text-concat analyse exo-type ?values)
          "lux text clip"                 (analyse-text-clip analyse exo-type ?values)
          "lux text index"                (analyse-text-index analyse exo-type ?values)
-         "lux text last-index"           (analyse-text-last-index analyse exo-type ?values)
          "lux text size"                 (analyse-text-size analyse exo-type ?values)
          "lux text hash"                 (analyse-text-hash analyse exo-type ?values)
          "lux text replace-all"          (analyse-text-replace-all analyse exo-type ?values)

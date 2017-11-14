@@ -2364,7 +2364,7 @@
                   ""
                   "-")]
           (("lux check" (-> Int Text Text)
-            (function' recur [input  output]
+            (function' recur [input output]
                        (if (i.= 0 input)
                          ("lux text concat" sign output)
                          (recur (i./ 10 input)
@@ -3355,22 +3355,57 @@
       (#Some y)
       (#Some y))))
 
-(do-template [<name> <proc> <start>]
-  [(def: (<name> part text)
-     (-> Text Text (Maybe Nat))
-     (<proc> text part <start>))]
+(do-template [<name> <form> <message> <doc-msg>]
+  [(macro: #export (<name> tokens)
+     {#;doc <doc-msg>}
+     (case (reverse tokens)
+       (^ (list& last init))
+       (return (list (fold (: (-> Code Code Code)
+                              (function [pre post] (` <form>)))
+                           last
+                           init)))
+       
+       _
+       (fail <message>)))]
 
-  [index-of      "lux text index"      +0]
-  [last-index-of "lux text last-index" ("lux text size" text)]
-  )
+  [and (if (~ pre) (~ post) false) "'and' requires >=1 clauses." "Short-circuiting \"and\".\n(and true false true) ## => false"]
+  [or  (if (~ pre) true (~ post))  "'or' requires >=1 clauses."  "Short-circuiting \"or\".\n(or true false true) ## => true"])
+
+(def: (index-of part text)
+  (-> Text Text (Maybe Nat))
+  ("lux text index" text part +0))
+
+(def: (last-index-of' part part-size since text)
+  (-> Text Nat Nat Text (Maybe Nat))
+  (case ("lux text index" text part (n.+ part-size since))
+    #;None
+    (#;Some since)
+
+    (#;Some since')
+    (last-index-of' part part-size since' text)))
+
+(def: (last-index-of part text)
+  (-> Text Text (Maybe Nat))
+  (case ("lux text index" text part +0)
+    (#;Some since)
+    (last-index-of' part ("lux text size" part) since text)
+
+    #;None
+    #;None))
 
 (def: (clip1 from text)
   (-> Nat Text (Maybe Text))
-  ("lux text clip" text from ("lux text size" text)))
+  (let [to ("lux text size" text)]
+    (if (n.<= to from)
+      (#;Some ("lux text clip" text from to))
+      #;None)))
 
 (def: (clip2 from to text)
   (-> Nat Nat Text (Maybe Text))
-  ("lux text clip" text from to))
+  (if (and (n.<= ("lux text size" text) to)
+           (n.<= to from))
+    (#;Some ("lux text clip" text from to))
+    #;None))
 
 (def: #export (error! message)
   {#;doc "## Causes an error, with the given error message.
@@ -3761,22 +3796,6 @@
           Does nothing to it's argument and just returns it."}
   (All [a] (-> a a))
   x)
-
-(do-template [<name> <form> <message> <doc-msg>]
-  [(macro: #export (<name> tokens)
-     {#;doc <doc-msg>}
-     (case (reverse tokens)
-       (^ (list& last init))
-       (return (list (fold (: (-> Code Code Code)
-                              (function [pre post] (` <form>)))
-                           last
-                           init)))
-       
-       _
-       (fail <message>)))]
-
-  [and (if (~ pre) (~ post) false) "'and' requires >=1 clauses." "Short-circuiting \"and\".\n(and true false true) ## => false"]
-  [or  (if (~ pre) true (~ post))  "'or' requires >=1 clauses."  "Short-circuiting \"or\".\n(or true false true) ## => true"])
 
 (macro: #export (type: tokens)
   {#;doc "## The type-definition macro.
@@ -5094,10 +5113,6 @@
   (-> Text Nat)
   ("lux text size" x))
 
-(def: (text/trim x)
-  (-> Text Text)
-  ("lux text trim" x))
-
 (def: (update-cursor [file line column] code-text)
   (-> Cursor Text Cursor)
   [file line (n.+ column (text/size code-text))])
@@ -5181,7 +5196,6 @@
                     (#;Text (~ (|> tokens
                                    (map (. doc-fragment->Text identify-doc-fragment))
                                    text/join
-                                   text/trim
                                    text$)))]))))
 
 (def: (interleave xs ys)
@@ -5746,13 +5760,13 @@
   (-> (List Code) (Meta [(Maybe Export-Level') (List Code)]))
   (case tokens
     (^ (list& [_ (#Tag ["" "export"])] tokens'))
-    (:: Monad<Meta> wrap [(#;Some #Export) tokens'])
+    (return [(#;Some #Export) tokens'])
 
     (^ (list& [_ (#Tag ["" "hidden"])] tokens'))
-    (:: Monad<Meta> wrap [(#;Some #Hidden) tokens'])
+    (return [(#;Some #Hidden) tokens'])
 
     _
-    (:: Monad<Meta> wrap [#;None tokens])
+    (return [#;None tokens])
     ))
 
 (def: (gen-export-level ?export-level)
@@ -5792,7 +5806,7 @@
   (-> (List Code) (Meta [Code (List Code)]))
   (case tokens
     (^ (list& token tokens'))
-    (:: Monad<Meta> wrap [token tokens'])
+    (return [token tokens'])
     
     _
     (fail "Could not parse anything.")
@@ -5802,7 +5816,7 @@
   (-> (List Code) (Meta Unit))
   (case tokens
     (^ (list))
-    (:: Monad<Meta> wrap [])
+    (return [])
     
     _
     (fail "Expected input Codes to be empty.")
@@ -5812,10 +5826,10 @@
   (-> (List Code) (Meta [Code (List Code)]))
   (case tokens
     (^ (list& [_ (#Record _anns)] tokens'))
-    (:: Monad<Meta> wrap [(record$ _anns) tokens'])
+    (return [(record$ _anns) tokens'])
 
     _
-    (:: Monad<Meta> wrap [(' {}) tokens])
+    (return [(' {}) tokens])
     ))
 
 (macro: #export (template: tokens)
@@ -5957,7 +5971,7 @@
              [ann (#Record (map right =kvs))]]))
     
     _
-    (:: Monad<Meta> wrap [(list) code])))
+    (return [(list) code])))
 
 (macro: #export (`` tokens)
   (case tokens
@@ -6017,7 +6031,7 @@
       (wrap (` [(~ g!meta) (#;Record (~ (untemplate-list =fields)))])))
 
     [_ (#Form (#Cons [[_ (#Symbol ["" "~"])] (#Cons [unquoted #Nil])]))]
-    (:: Monad<Meta> wrap unquoted)
+    (return unquoted)
 
     [_ (#Form (#Cons [[_ (#Symbol ["" "~@"])] (#Cons [spliced #Nil])]))]
     (fail "Cannot use (~@) inside of ^code unless it is the last element in a form or a tuple.")
