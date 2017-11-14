@@ -26,6 +26,7 @@
 (exception: #export Sum-Type-Has-No-Case)
 (exception: #export Unrecognized-Pattern-Syntax)
 (exception: #export Cannot-Simplify-Type-For-Pattern-Matching)
+(exception: #export Cannot-Apply-Type)
 
 (def: (pattern-error type pattern)
   (-> Type Code Text)
@@ -40,19 +41,19 @@
 ## type-variables or quantifications.
 ## This function makes it easier for "case" analysis to properly
 ## type-check the input with respect to the patterns.
-(def: (simplify-case-type type)
+(def: (simplify-case-type caseT)
   (-> Type (Meta Type))
-  (case type
+  (case caseT
     (#;Var id)
     (do meta;Monad<Meta>
       [? (&;with-type-env
            (tc;concrete? id))]
       (if ?
         (do @
-          [type' (&;with-type-env
-                   (tc;read id))]
-          (simplify-case-type type'))
-        (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type type))))
+          [caseT' (&;with-type-env
+                    (tc;read id))]
+          (simplify-case-type caseT'))
+        (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
 
     (#;Named name unnamedT)
     (simplify-case-type unnamedT)
@@ -61,18 +62,30 @@
     (do meta;Monad<Meta>
       [[ex-id exT] (&;with-type-env
                      tc;existential)]
-      (simplify-case-type (maybe;assume (type;apply (list exT) type))))
+      (simplify-case-type (maybe;assume (type;apply (list exT) caseT))))
 
     (#;Apply inputT funcT)
-    (case (type;apply (list inputT) funcT)
-      (#;Some outputT)
-      (:: meta;Monad<Meta> wrap outputT)
+    (case funcT
+      (#;Var funcT-id)
+      (do meta;Monad<Meta>
+        [funcT' (&;with-type-env
+                  (do tc;Monad<Check>
+                    [? (tc;concrete? funcT-id)]
+                    (if ?
+                      (tc;read funcT-id)
+                      (tc;throw Cannot-Apply-Type (%type caseT)))))]
+        (simplify-case-type (#;Apply inputT funcT')))
 
-      #;None
-      (&;fail (format "Cannot apply type " (%type funcT) " to  type " (%type inputT))))
+      _
+      (case (type;apply (list inputT) funcT)
+        (#;Some outputT)
+        (:: meta;Monad<Meta> wrap outputT)
+
+        #;None
+        (&;throw Cannot-Apply-Type (%type caseT))))
 
     _
-    (:: meta;Monad<Meta> wrap type)))
+    (:: meta;Monad<Meta> wrap caseT)))
 
 ## This function handles several concerns at once, but it must be that
 ## way because those concerns are interleaved when doing
