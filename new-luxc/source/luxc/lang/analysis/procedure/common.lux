@@ -1,6 +1,7 @@
 (;module:
   lux
-  (lux (control [monad #+ do])
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
        (concurrency [atom #+ Atom])
        (data [text]
              text/format
@@ -17,6 +18,8 @@
                         [";A" function]
                         [";A" case]
                         [";A" type]))))
+
+(exception: #export Incorrect-Procedure-Arity)
 
 ## [Utils]
 (type: #export Proc
@@ -39,27 +42,25 @@
 
 (def: #export (wrong-arity proc expected actual)
   (-> Text Nat Nat Text)
-  (format "Wrong arity for " (%t proc) "\n"
-          "Expected: " (|> expected nat-to-int %i) "\n"
-          "  Actual: " (|> actual nat-to-int %i)))
+  (format "      Procedure: " (%t proc) "\n"
+          " Expected Arity: " (|> expected nat-to-int %i) "\n"
+          "   Actual Arity: " (|> actual nat-to-int %i)))
 
-(def: (simple proc input-types output-type)
+(def: (simple proc inputsT+ outputT)
   (-> Text (List Type) Type Proc)
-  (let [num-expected (list;size input-types)]
+  (let [num-expected (list;size inputsT+)]
     (function [analyse eval args]
       (let [num-actual (list;size args)]
         (if (n.= num-expected num-actual)
           (do meta;Monad<Meta>
-            [argsA (monad;map @
+            [_ (&;infer outputT)
+             argsA (monad;map @
                               (function [[argT argC]]
                                 (&;with-expected-type argT
                                   (analyse argC)))
-                              (list;zip2 input-types args))
-             expected meta;expected-type
-             _ (&;with-type-env
-                 (tc;check expected output-type))]
+                              (list;zip2 inputsT+ args))]
             (wrap (la;procedure proc argsA)))
-          (&;fail (wrong-arity proc num-expected num-actual)))))))
+          (&;throw Incorrect-Procedure-Arity (wrong-arity proc num-expected num-actual)))))))
 
 (def: #export (nullary valueT proc)
   (-> Type Text Proc)
@@ -82,71 +83,60 @@
 (def: (lux-is proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        ((binary varT varT Bool proc)
-         analyse eval args)))))
+    (do meta;Monad<Meta>
+      [[var-id varT] (&;with-type-env tc;var)]
+      ((binary varT varT Bool proc)
+       analyse eval args))))
 
 ## "lux try" provides a simple way to interact with the host platform's
 ## error-handling facilities.
 (def: (lux-try proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list opC))
-          (do meta;Monad<Meta>
-            [opA (&;with-expected-type (type (io;IO varT))
-                   (analyse opC))
-             outputT (&;with-type-env
-                       (tc;clean var-id (type (Either Text varT))))
-             expected meta;expected-type
-             _ (&;with-type-env
-                 (tc;check expected outputT))]
-            (wrap (la;procedure proc (list opA))))
-          
-          _
-          (&;fail (wrong-arity proc +1 (list;size args))))))))
+    (case args
+      (^ (list opC))
+      (do meta;Monad<Meta>
+        [[var-id varT] (&;with-type-env tc;var)
+         _ (&;infer (type (Either Text varT)))
+         opA (&;with-expected-type (type (io;IO varT))
+               (analyse opC))]
+        (wrap (la;procedure proc (list opA))))
+      
+      _
+      (&;throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list;size args))))))
 
 (def: (lux//function proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list [_ (#;Symbol ["" func-name])]
-                   [_ (#;Symbol ["" arg-name])]
-                   body))
-          (functionA;analyse-function analyse func-name arg-name body)
-          
-          _
-          (&;fail (wrong-arity proc +3 (list;size args))))))))
+    (case args
+      (^ (list [_ (#;Symbol ["" func-name])]
+               [_ (#;Symbol ["" arg-name])]
+               body))
+      (functionA;analyse-function analyse func-name arg-name body)
+      
+      _
+      (&;throw Incorrect-Procedure-Arity (wrong-arity proc +3 (list;size args))))))
 
 (def: (lux//case proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list input [_ (#;Record branches)]))
-          (caseA;analyse-case analyse input branches)
-          
-          _
-          (&;fail (wrong-arity proc +2 (list;size args))))))))
+    (case args
+      (^ (list input [_ (#;Record branches)]))
+      (caseA;analyse-case analyse input branches)
+      
+      _
+      (&;throw Incorrect-Procedure-Arity (wrong-arity proc +2 (list;size args))))))
 
 (do-template [<name> <analyser>]
   [(def: (<name> proc)
      (-> Text Proc)
      (function [analyse eval args]
-       (&common;with-var
-         (function [[var-id varT]]
-           (case args
-             (^ (list typeC valueC))
-             (<analyser> analyse eval typeC valueC)
-             
-             _
-             (&;fail (wrong-arity proc +2 (list;size args))))))))]
+       (case args
+         (^ (list typeC valueC))
+         (<analyser> analyse eval typeC valueC)
+         
+         _
+         (&;throw Incorrect-Procedure-Arity (wrong-arity proc +2 (list;size args))))))]
 
   [lux//check typeA;analyse-check]
   [lux//coerce typeA;analyse-coerce])
@@ -193,15 +183,13 @@
     (case args
       (^ (list valueC))
       (do meta;Monad<Meta>
-        [valueA (&;with-expected-type Type
-                  (analyse valueC))
-         expected meta;expected-type
-         _ (&;with-type-env
-             (tc;check expected Type))]
+        [_ (&;infer (type Type))
+         valueA (&;with-expected-type Type
+                  (analyse valueC))]
         (wrap valueA))
       
       _
-      (&;fail (wrong-arity proc +1 (list;size args))))))
+      (&;throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list;size args))))))
 
 (def: lux-procs
   Bundle
@@ -326,26 +314,26 @@
 (def: (array-get proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        ((binary Nat (type (Array varT)) varT proc)
-         analyse eval args)))))
+    (do meta;Monad<Meta>
+      [[var-id varT] (&;with-type-env tc;var)]
+      ((binary Nat (type (Array varT)) varT proc)
+       analyse eval args))))
 
 (def: (array-put proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        ((trinary Nat varT (type (Array varT)) (type (Array varT)) proc)
-         analyse eval args)))))
+    (do meta;Monad<Meta>
+      [[var-id varT] (&;with-type-env tc;var)]
+      ((trinary Nat varT (type (Array varT)) (type (Array varT)) proc)
+       analyse eval args))))
 
 (def: (array-remove proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        ((binary Nat (type (Array varT)) (type (Array varT)) proc)
-         analyse eval args)))))
+    (do meta;Monad<Meta>
+      [[var-id varT] (&;with-type-env tc;var)]
+      ((binary Nat (type (Array varT)) (type (Array varT)) proc)
+       analyse eval args))))
 
 (def: array-procs
   Bundle
@@ -385,38 +373,33 @@
 (def: (atom-new proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list initC))
-          (do meta;Monad<Meta>
-            [initA (&;with-expected-type varT
-                     (analyse initC))
-             outputT (&;with-type-env
-                       (tc;clean var-id (type (Atom varT))))
-             expected meta;expected-type
-             _ (&;with-type-env
-                 (tc;check expected outputT))]
-            (wrap (la;procedure proc (list initA))))
-          
-          _
-          (&;fail (wrong-arity proc +1 (list;size args))))))))
+    (case args
+      (^ (list initC))
+      (do meta;Monad<Meta>
+        [[var-id varT] (&;with-type-env tc;var)
+         _ (&;infer (type (Atom varT)))
+         initA (&;with-expected-type varT
+                 (analyse initC))]
+        (wrap (la;procedure proc (list initA))))
+      
+      _
+      (&;throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list;size args))))))
 
 (def: (atom-read proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        ((unary (type (Atom varT)) varT proc)
-         analyse eval args)))))
+    (do meta;Monad<Meta>
+      [[var-id varT] (&;with-type-env tc;var)]
+      ((unary (type (Atom varT)) varT proc)
+       analyse eval args))))
 
 (def: (atom-compare-and-swap proc)
   (-> Text Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        ((trinary varT varT (type (Atom varT)) Bool proc)
-         analyse eval args)))))
+    (do meta;Monad<Meta>
+      [[var-id varT] (&;with-type-env tc;var)]
+      ((trinary varT varT (type (Atom varT)) Bool proc)
+       analyse eval args))))
 
 (def: atom-procs
   Bundle

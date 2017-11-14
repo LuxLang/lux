@@ -28,6 +28,49 @@
   ["@" ../common]
   )
 
+(exception: #export Wrong-Syntax)
+(def: (wrong-syntax procedure args)
+  (-> Text (List Code) Text)
+  (format "Procedure: " procedure "\n"
+          "Arguments: " (%code (code;tuple args))))
+
+(exception: #export JVM-Type-Is-Not-Class)
+
+(exception: #export Non-Interface)
+(exception: #export Non-Object)
+(exception: #export Non-Array)
+(exception: #export Non-Throwable)
+(exception: #export Non-JVM-Type)
+
+(exception: #export Unknown-Class)
+(exception: #export Primitives-Cannot-Have-Type-Parameters)
+(exception: #export Primitives-Are-Not-Objects)
+(exception: #export Invalid-Type-For-Array-Element)
+
+(exception: #export Unknown-Field)
+(exception: #export Mistaken-Field-Owner)
+(exception: #export Not-Virtual-Field)
+(exception: #export Not-Static-Field)
+(exception: #export Cannot-Set-Final-Field)
+
+(exception: #export No-Candidates)
+(exception: #export Too-Many-Candidates)
+
+(exception: #export Cannot-Cast)
+(def: (cannot-cast to from)
+  (-> Type Type Text)
+  (format "From: " (%type from) "\n"
+          "  To: " (%type to)))
+
+(exception: #export Cannot-Possibly-Be-Instance)
+
+(exception: #export Cannot-Convert-To-Class)
+(exception: #export Cannot-Convert-To-Parameter)
+(exception: #export Cannot-Convert-To-Lux-Type)
+(exception: #export Unknown-Type-Var)
+(exception: #export Type-Parameter-Mismatch)
+(exception: #export Cannot-Correspond-Type-With-Class)
+
 (def: #export null-class Text "#Null")
 
 (do-template [<name> <class>]
@@ -149,22 +192,17 @@
 (def: (array-length proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list arrayC))
-          (do meta;Monad<Meta>
-            [arrayA (&;with-expected-type (type (Array varT))
-                      (analyse arrayC))
-             _ (&;infer Nat)]
-            (wrap (la;procedure proc (list arrayA))))
+    (case args
+      (^ (list arrayC))
+      (do meta;Monad<Meta>
+        [_ (&;infer Nat)
+         [var-id varT] (&;with-type-env tc;var)
+         arrayA (&;with-expected-type (type (Array varT))
+                  (analyse arrayC))]
+        (wrap (la;procedure proc (list arrayA))))
 
-          _
-          (&;fail (@;wrong-arity proc +1 (list;size args))))))))
-
-(def: (invalid-array-type arrayT)
-  (-> Type Text)
-  (format "Invalid type for array: " (%type arrayT)))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +1 (list;size args))))))
 
 (def: (array-new proc)
   (-> Text @;Proc)
@@ -185,7 +223,7 @@
                                      (recur outputT level)
 
                                      #;None
-                                     (&;fail (invalid-array-type expectedT)))
+                                     (&;throw Non-Array (%type expectedT)))
 
                                    (^ (#;Primitive "#Array" (list elemT)))
                                    (recur elemT (n.inc level))
@@ -194,15 +232,14 @@
                                    (wrap [level class])
                                    
                                    _
-                                   (&;fail (invalid-array-type expectedT)))))
-         _ (&;assert "Must have at least 1 level of nesting in array type."
-                     (n.> +0 level))]
+                                   (&;throw Non-Array (%type expectedT)))))
+         _ (if (n.> +0 level)
+             (wrap [])
+             (&;throw Non-Array (%type expectedT)))]
         (wrap (la;procedure proc (list (code;nat (n.dec level)) (code;text elem-class) lengthA))))
 
       _
-      (&;fail (@;wrong-arity proc +1 (list;size args))))))
-
-(exception: #export Not-Object-Type)
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +1 (list;size args))))))
 
 (def: (check-jvm objectT)
   (-> Type (Meta Text))
@@ -228,81 +265,77 @@
       (check-jvm outputT)
 
       #;None
-      (&;throw Not-Object-Type (%type objectT)))
+      (&;throw Non-Object (%type objectT)))
 
     _
-    (&;throw Not-Object-Type (%type objectT))))
+    (&;throw Non-Object (%type objectT))))
 
 (def: (check-object objectT)
   (-> Type (Meta Text))
   (do meta;Monad<Meta>
     [name (check-jvm objectT)]
     (if (dict;contains? name boxes)
-      (&;fail (format "Primitives are not objects: " name))
-      (:: meta;Monad<Meta> wrap name))))
+      (&;throw Primitives-Are-Not-Objects name)
+      (meta/wrap name))))
 
 (def: (box-array-element-type elemT)
   (-> Type (Meta [Type Text]))
-  (do meta;Monad<Meta>
-    []
-    (case elemT
-      (#;Primitive name #;Nil)
-      (let [boxed-name (|> (dict;get name boxes)
-                           (maybe;default name))]
-        (wrap [(#;Primitive boxed-name #;Nil)
-               boxed-name]))
+  (case elemT
+    (#;Primitive name #;Nil)
+    (let [boxed-name (|> (dict;get name boxes)
+                         (maybe;default name))]
+      (meta/wrap [(#;Primitive boxed-name #;Nil)
+                  boxed-name]))
 
-      (#;Primitive name _)
-      (if (dict;contains? name boxes)
-        (&;fail (format "Primitives cannot be parameterized: " name))
-        (:: meta;Monad<Meta> wrap [elemT name]))
+    (#;Primitive name _)
+    (if (dict;contains? name boxes)
+      (&;throw Primitives-Cannot-Have-Type-Parameters name)
+      (meta/wrap [elemT name]))
 
-      _
-      (&;fail (format "Invalid type for array element: " (%type elemT))))))
+    _
+    (&;throw Invalid-Type-For-Array-Element (%type elemT))))
 
 (def: (array-read proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list arrayC idxC))
-          (do meta;Monad<Meta>
-            [arrayA (&;with-expected-type (type (Array varT))
-                      (analyse arrayC))
-             elemT (&;with-type-env
-                     (tc;read var-id))
-             [elemT elem-class] (box-array-element-type elemT)
-             idxA (&;with-expected-type Nat
-                    (analyse idxC))
-             _ (&;infer elemT)]
-            (wrap (la;procedure proc (list (code;text elem-class) idxA arrayA))))
+    (case args
+      (^ (list arrayC idxC))
+      (do meta;Monad<Meta>
+        [[var-id varT] (&;with-type-env tc;var)
+         _ (&;infer varT)
+         arrayA (&;with-expected-type (type (Array varT))
+                  (analyse arrayC))
+         elemT (&;with-type-env
+                 (tc;read var-id))
+         [elemT elem-class] (box-array-element-type elemT)
+         idxA (&;with-expected-type Nat
+                (analyse idxC))]
+        (wrap (la;procedure proc (list (code;text elem-class) idxA arrayA))))
 
-          _
-          (&;fail (@;wrong-arity proc +2 (list;size args))))))))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +2 (list;size args))))))
 
 (def: (array-write proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list arrayC idxC valueC))
-          (do meta;Monad<Meta>
-            [arrayA (&;with-expected-type (type (Array varT))
-                      (analyse arrayC))
-             elemT (&;with-type-env
-                     (tc;read var-id))
-             [valueT elem-class] (box-array-element-type elemT)
-             idxA (&;with-expected-type Nat
-                    (analyse idxC))
-             valueA (&;with-expected-type valueT
-                      (analyse valueC))
-             _ (&;infer (type (Array elemT)))]
-            (wrap (la;procedure proc (list (code;text elem-class) idxA valueA arrayA))))
+    (case args
+      (^ (list arrayC idxC valueC))
+      (do meta;Monad<Meta>
+        [[var-id varT] (&;with-type-env tc;var)
+         _ (&;infer (type (Array varT)))
+         arrayA (&;with-expected-type (type (Array varT))
+                  (analyse arrayC))
+         elemT (&;with-type-env
+                 (tc;read var-id))
+         [valueT elem-class] (box-array-element-type elemT)
+         idxA (&;with-expected-type Nat
+                (analyse idxC))
+         valueA (&;with-expected-type valueT
+                  (analyse valueC))]
+        (wrap (la;procedure proc (list (code;text elem-class) idxA valueA arrayA))))
 
-          _
-          (&;fail (@;wrong-arity proc +3 (list;size args))))))))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +3 (list;size args))))))
 
 (def: array-procs
   @;Bundle
@@ -325,45 +358,43 @@
         (wrap (la;procedure proc (list))))
 
       _
-      (&;fail (@;wrong-arity proc +0 (list;size args))))))
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +0 (list;size args))))))
 
 (def: (object-null? proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list objectC))
-          (do meta;Monad<Meta>
-            [objectA (&;with-expected-type varT
-                       (analyse objectC))
-             objectT (&;with-type-env
-                       (tc;read var-id))
-             _ (check-object objectT)
-             _ (&;infer Bool)]
-            (wrap (la;procedure proc (list objectA))))
+    (case args
+      (^ (list objectC))
+      (do meta;Monad<Meta>
+        [_ (&;infer Bool)
+         [var-id varT] (&;with-type-env tc;var)
+         objectA (&;with-expected-type varT
+                   (analyse objectC))
+         objectT (&;with-type-env
+                   (tc;read var-id))
+         _ (check-object objectT)]
+        (wrap (la;procedure proc (list objectA))))
 
-          _
-          (&;fail (@;wrong-arity proc +1 (list;size args))))))))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +1 (list;size args))))))
 
 (def: (object-synchronized proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list monitorC exprC))
-          (do meta;Monad<Meta>
-            [monitorA (&;with-expected-type varT
-                        (analyse monitorC))
-             monitorT (&;with-type-env
-                        (tc;read var-id))
-             _ (check-object monitorT)
-             exprA (analyse exprC)]
-            (wrap (la;procedure proc (list monitorA exprA))))
+    (case args
+      (^ (list monitorC exprC))
+      (do meta;Monad<Meta>
+        [[var-id varT] (&;with-type-env tc;var)
+         monitorA (&;with-expected-type varT
+                    (analyse monitorC))
+         monitorT (&;with-type-env
+                    (tc;read var-id))
+         _ (check-object monitorT)
+         exprA (analyse exprC)]
+        (wrap (la;procedure proc (list monitorA exprA))))
 
-          _
-          (&;fail (@;wrong-arity proc +2 (list;size args))))))))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +2 (list;size args))))))
 
 (host;import java.lang.Object
   (equals [Object] boolean))
@@ -436,7 +467,7 @@
       (wrap class)
 
       (#e;Error error)
-      (&;fail (format "Unknown class: " name)))))
+      (&;throw Unknown-Class name))))
 
 (def: (sub-class? super sub)
   (-> Text Text (Meta Bool))
@@ -445,31 +476,28 @@
      sub (load-class sub)]
     (wrap (Class.isAssignableFrom [sub] super))))
 
-(exception: #export Not-Throwable)
-
 (def: (object-throw proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list exceptionC))
-          (do meta;Monad<Meta>
-            [exceptionA (&;with-expected-type varT
-                          (analyse exceptionC))
-             exceptionT (&;with-type-env
-                          (tc;read var-id))
-             exception-class (check-object exceptionT)
-             ? (sub-class? "java.lang.Throwable" exception-class)
-             _ (: (Meta Unit)
-                  (if ?
-                    (wrap [])
-                    (&;throw Not-Throwable exception-class)))
-             _ (&;infer Bottom)]
-            (wrap (la;procedure proc (list exceptionA))))
+    (case args
+      (^ (list exceptionC))
+      (do meta;Monad<Meta>
+        [_ (&;infer Bottom)
+         [var-id varT] (&;with-type-env tc;var)
+         exceptionA (&;with-expected-type varT
+                      (analyse exceptionC))
+         exceptionT (&;with-type-env
+                      (tc;read var-id))
+         exception-class (check-object exceptionT)
+         ? (sub-class? "java.lang.Throwable" exception-class)
+         _ (: (Meta Unit)
+              (if ?
+                (wrap [])
+                (&;throw Non-Throwable exception-class)))]
+        (wrap (la;procedure proc (list exceptionA))))
 
-          _
-          (&;fail (@;wrong-arity proc +1 (list;size args))))))))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +1 (list;size args))))))
 
 (def: (object-class proc)
   (-> Text @;Proc)
@@ -479,45 +507,38 @@
       (case classC
         [_ (#;Text class)]
         (do meta;Monad<Meta>
-          [_ (load-class class)
-           _ (&;infer (#;Primitive "java.lang.Class" (list (#;Primitive class (list)))))]
+          [_ (&;infer (#;Primitive "java.lang.Class" (list (#;Primitive class (list)))))
+           _ (load-class class)]
           (wrap (la;procedure proc (list (code;text class)))))
 
         _
-        (&;fail (format "Wrong syntax for '" proc "'.")))
+        (&;throw Wrong-Syntax (wrong-syntax proc args)))
 
       _
-      (&;fail (@;wrong-arity proc +1 (list;size args))))))
-
-(exception: #export Cannot-Be-Instance)
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +1 (list;size args))))))
 
 (def: (object-instance? proc)
   (-> Text @;Proc)
   (function [analyse eval args]
-    (&common;with-var
-      (function [[var-id varT]]
-        (case args
-          (^ (list classC objectC))
-          (case classC
-            [_ (#;Text class)]
-            (do meta;Monad<Meta>
-              [objectA (&;with-expected-type varT
-                         (analyse objectC))
-               objectT (&;with-type-env
-                         (tc;read var-id))
-               object-class (check-object objectT)
-               ? (sub-class? class object-class)]
-              (if ?
-                (do @
-                  [_ (&;infer Bool)]
-                  (wrap (la;procedure proc (list (code;text class)))))
-                (&;throw Cannot-Be-Instance (format object-class " !<= "  class))))
+    (case args
+      (^ (list classC objectC))
+      (case classC
+        [_ (#;Text class)]
+        (do meta;Monad<Meta>
+          [_ (&;infer Bool)
+           [objectT objectA] (&common;with-unknown-type
+                               (analyse objectC))
+           object-class (check-object objectT)
+           ? (sub-class? class object-class)]
+          (if ?
+            (wrap (la;procedure proc (list (code;text class))))
+            (&;throw Cannot-Possibly-Be-Instance (format object-class " !<= "  class))))
 
-            _
-            (&;fail (format "Wrong syntax for '" proc "'.")))
+        _
+        (&;throw Wrong-Syntax (wrong-syntax proc args)))
 
-          _
-          (&;fail (@;wrong-arity proc +2 (list;size args))))))))
+      _
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +2 (list;size args))))))
 
 (def: object-procs
   @;Bundle
@@ -530,14 +551,6 @@
           (@;install "class" object-class)
           (@;install "instance?" object-instance?)
           )))
-
-(exception: #export Final-Field)
-
-(exception: #export Cannot-Convert-To-Class)
-(exception: #export Cannot-Convert-To-Parameter)
-(exception: #export Cannot-Convert-To-Lux-Type)
-(exception: #export Cannot-Cast-To-Primitive)
-(exception: #export JVM-Type-Is-Not-Class)
 
 (def: type-descriptor
   (-> java.lang.reflect.Type Text)
@@ -553,8 +566,6 @@
 
         ## else
         (&;throw Cannot-Convert-To-Class (type-descriptor type))))
-
-(exception: #export Unknown-Type-Var)
 
 (type: Mappings
   (Dict Text Type))
@@ -634,18 +645,29 @@
   (case type
     (#;Primitive name params)
     (let [class-name (Class.getName [] class)
-          class-params (array;to-list (Class.getTypeParameters [] class))]
-      (if (text/= class-name name)
-        (if (n.= (list;size class-params)
-                 (list;size params))
-          (meta/wrap (|> params
-                         (list;zip2 (list/map (TypeVariable.getName []) class-params))
-                         (dict;from-list text;Hash<Text>)))
-          (&;fail (format "Class and host-type parameters do not match: " "class = " class-name " | host type = " name)))
-        (&;fail (format "Class and host-type names do not match: " "class = " class-name " | host type = " name))))
+          class-params (array;to-list (Class.getTypeParameters [] class))
+          num-class-params (list;size class-params)
+          num-type-params (list;size params)]
+      (cond (not (text/= class-name name))
+            (&;throw Cannot-Correspond-Type-With-Class
+                     (format "Class = " class-name "\n"
+                             "Type = " (%type type)))
+
+            (not (n.= num-class-params num-type-params))
+            (&;throw Type-Parameter-Mismatch
+                     (format "Expected: " (%i (nat-to-int num-class-params)) "\n"
+                             "  Actual: " (%i (nat-to-int num-type-params)) "\n"
+                             "   Class: " class-name "\n"
+                             "    Type: " (%type type)))
+
+            ## else
+            (meta/wrap (|> params
+                           (list;zip2 (list/map (TypeVariable.getName []) class-params))
+                           (dict;from-list text;Hash<Text>)))
+            ))
 
     _
-    (&;fail (format "Not a host type: " (%type type)))))
+    (&;throw Non-JVM-Type (%type type))))
 
 (def: (cast direction to from)
   (-> Direction Type Type (Meta [Text Type]))
@@ -656,7 +678,7 @@
           (let [box (maybe;assume (dict;get to-name boxes))]
             (if (text/= box from-name)
               (wrap [(choose direction to-name from-name) (#;Primitive to-name (list))])
-              (&;throw Cannot-Cast-To-Primitive (format from-name " => " to-name))))
+              (&;throw Cannot-Cast (cannot-cast to from))))
 
           (dict;contains? from-name boxes)
           (let [box (maybe;assume (dict;get from-name boxes))]
@@ -674,7 +696,7 @@
           (do @
             [to-class (load-class to-name)
              from-class (load-class from-name)
-             _ (&;assert (format "Class '" from-name "' is not a sub-class of class '" to-name "'.")
+             _ (&;assert Cannot-Cast (cannot-cast to from)
                          (Class.isAssignableFrom [from-class] to-class))
              candiate-parents (monad;map @
                                          (function [java-type]
@@ -695,7 +717,7 @@
                 (wrap [(choose direction to-name from-name) castT]))
 
               #;Nil
-              (&;fail (format "No valid path between " (%type from) "and " (%type to) ".")))))))
+              (&;throw Cannot-Cast (cannot-cast to from)))))))
 
 (def: (infer-out outputT)
   (-> Type (Meta [Text Type]))
@@ -715,11 +737,13 @@
       (let [owner (Field.getDeclaringClass [] field)]
         (if (is owner class)
           (wrap [class field])
-          (&;fail (format "Field '" field-name "' does not belong to class '" class-name "'.\n"
-                          "Belongs to '" (Class.getName [] owner) "'."))))
+          (&;throw Mistaken-Field-Owner
+                   (format "       Field: " field-name "\n"
+                           " Owner Class: " (Class.getName [] owner) "\n"
+                           "Target Class: " class-name "\n"))))
 
       (#e;Error _)
-      (&;fail (format "Unknown field '" field-name "' for class '" class-name "'.")))))
+      (&;throw Unknown-Field (format class-name "#" field-name)))))
 
 (def: (static-field class-name field-name)
   (-> Text Text (Meta [Type Bool]))
@@ -731,9 +755,7 @@
         (do @
           [fieldT (java-type-to-lux-type fresh-mappings fieldJT)]
           (wrap [fieldT (Modifier.isFinal [modifiers])])))
-      (&;fail (format "Field '" field-name "' of class '" class-name "' is not static.")))))
-
-(exception: #export Non-Object-Type)
+      (&;throw Not-Static-Field (format class-name "#" field-name)))))
 
 (def: (virtual-field class-name field-name objectT)
   (-> Text Text Type (Meta [Type Bool]))
@@ -753,44 +775,48 @@
                        (do @
                          [#let [num-params (list;size _class-params)
                                 num-vars (list;size var-names)]
-                          _ (&;assert (format "Number of paremeters in type does not match expected amount (" (%n num-vars) "): " (%type objectT))
+                          _ (&;assert Type-Parameter-Mismatch
+                                      (format "Expected: " (%i (nat-to-int num-params)) "\n"
+                                              "  Actual: " (%i (nat-to-int num-vars)) "\n"
+                                              "   Class: " _class-name "\n"
+                                              "    Type: " (%type objectT))
                                       (n.= num-params num-vars))]
                          (wrap (|> (list;zip2 var-names _class-params)
                                    (dict;from-list text;Hash<Text>))))
 
                        _
-                       (&;throw Non-Object-Type (%type objectT))))
+                       (&;throw Non-Object (%type objectT))))
          fieldT (java-type-to-lux-type mappings fieldJT)]
         (wrap [fieldT (Modifier.isFinal [modifiers])]))
-      (&;fail (format "Field '" field-name "' of class '" class-name "' is static.")))))
+      (&;throw Not-Virtual-Field (format class-name "#" field-name)))))
 
 (def: (analyse-object class analyse sourceC)
   (-> Text &;Analyser Code (Meta [Type la;Analysis]))
-  (<| &common;with-var (function [[var-id varT]])
-      (do meta;Monad<Meta>
-        [target-class (load-class class)
-         targetT (java-type-to-lux-type fresh-mappings
-                                        (:! java.lang.reflect.Type
-                                            target-class))
-         sourceA (&;with-expected-type varT
-                   (analyse sourceC))
-         sourceT (&;with-type-env
-                   (tc;read var-id))
-         [unboxed castT] (cast #Out targetT sourceT)
-         _ (&;assert (format "Object cannot be a primitive: " unboxed)
-                     (not (dict;contains? unboxed boxes)))]
-        (wrap [castT sourceA]))))
+  (do meta;Monad<Meta>
+    [[var-id varT] (&;with-type-env tc;var)
+     target-class (load-class class)
+     targetT (java-type-to-lux-type fresh-mappings
+                                    (:! java.lang.reflect.Type
+                                        target-class))
+     sourceA (&;with-expected-type varT
+               (analyse sourceC))
+     sourceT (&;with-type-env
+               (tc;read var-id))
+     [unboxed castT] (cast #Out targetT sourceT)
+     _ (&;assert Cannot-Cast (cannot-cast targetT sourceT)
+                 (not (dict;contains? unboxed boxes)))]
+    (wrap [castT sourceA])))
 
 (def: (analyse-input analyse targetT sourceC)
   (-> &;Analyser Type Code (Meta [Type Text la;Analysis]))
-  (<| &common;with-var (function [[var-id varT]])
-      (do meta;Monad<Meta>
-        [sourceA (&;with-expected-type varT
-                   (analyse sourceC))
-         sourceT (&;with-type-env
-                   (tc;read var-id))
-         [unboxed castT] (cast #In targetT sourceT)]
-        (wrap [castT unboxed sourceA]))))
+  (do meta;Monad<Meta>
+    [[var-id varT] (&;with-type-env tc;var)
+     sourceA (&;with-expected-type varT
+               (analyse sourceC))
+     sourceT (&;with-type-env
+               (tc;read var-id))
+     [unboxed castT] (cast #In targetT sourceT)]
+    (wrap [castT unboxed sourceA])))
 
 (def: (static-get proc)
   (-> Text @;Proc)
@@ -806,10 +832,10 @@
                                          (code;text unboxed)))))
 
         _
-        (&;fail (format "Wrong syntax for '" proc "'.")))
+        (&;throw Wrong-Syntax (wrong-syntax proc args)))
 
       _
-      (&;fail (@;wrong-arity proc +2 (list;size args))))))
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +2 (list;size args))))))
 
 (def: (static-put proc)
   (-> Text @;Proc)
@@ -819,21 +845,21 @@
       (case [classC fieldC]
         [[_ (#;Text class)] [_ (#;Text field)]]
         (do meta;Monad<Meta>
-          [[fieldT final?] (static-field class field)
-           _ (&;assert (Final-Field (format class "#" field))
+          [_ (&;infer Unit)
+           [fieldT final?] (static-field class field)
+           _ (&;assert Cannot-Set-Final-Field (format class "#" field)
                        (not final?))
            [valueT unboxed valueA] (analyse-input analyse fieldT valueC)
            _ (&;with-type-env
-               (tc;check fieldT valueT))
-           _ (&;infer Unit)]
+               (tc;check fieldT valueT))]
           (wrap (la;procedure proc (list (code;text class) (code;text field)
                                          (code;text unboxed) valueA))))
 
         _
-        (&;fail (format "Wrong syntax for '" proc "'.")))
+        (&;throw Wrong-Syntax (wrong-syntax proc args)))
 
       _
-      (&;fail (@;wrong-arity proc +3 (list;size args))))))
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +3 (list;size args))))))
 
 (def: (virtual-get proc)
   (-> Text @;Proc)
@@ -850,10 +876,10 @@
                                          (code;text unboxed) objectA))))
 
         _
-        (&;fail (format "Wrong syntax for '" proc "'.")))
+        (&;throw Wrong-Syntax (wrong-syntax proc args)))
 
       _
-      (&;fail (@;wrong-arity proc +3 (list;size args))))))
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +3 (list;size args))))))
 
 (def: (virtual-put proc)
   (-> Text @;Proc)
@@ -864,20 +890,18 @@
         [[_ (#;Text class)] [_ (#;Text field)]]
         (do meta;Monad<Meta>
           [[objectT objectA] (analyse-object class analyse objectC)
+           _ (&;infer objectT)
            [fieldT final?] (virtual-field class field objectT)
-           _ (&;assert (Final-Field (format class "#" field))
+           _ (&;assert Cannot-Set-Final-Field (format class "#" field)
                        (not final?))
-           [valueT unboxed valueA] (analyse-input analyse fieldT valueC)
-           _ (&;with-type-env
-               (tc;check fieldT valueT))
-           _ (&;infer objectT)]
+           [valueT unboxed valueA] (analyse-input analyse fieldT valueC)]
           (wrap (la;procedure proc (list (code;text class) (code;text field) (code;text unboxed) valueA objectA))))
 
         _
-        (&;fail (format "Wrong syntax for '" proc "'.")))
+        (&;throw Wrong-Syntax (wrong-syntax proc args)))
 
       _
-      (&;fail (@;wrong-arity proc +4 (list;size args))))))
+      (&;throw @;Incorrect-Procedure-Arity (@;wrong-arity proc +4 (list;size args))))))
 
 (def: (java-type-to-parameter type)
   (-> java.lang.reflect.Type (Meta Text))
@@ -1007,9 +1031,6 @@
                          outputT)]]
       (wrap [methodT exceptionsT]))))
 
-(exception: #export No-Candidate-Method)
-(exception: #export Too-Many-Candidate-Methods)
-
 (def: (methods class-name method-name method-type arg-classes)
   (-> Text Text Method-Type (List Text) (Meta [Type (List Type)]))
   (do meta;Monad<Meta>
@@ -1023,13 +1044,13 @@
                                      (wrap [passes? method])))))]
     (case (list;filter product;left candidates)
       #;Nil
-      (&;throw No-Candidate-Method (format class-name "#" method-name))
+      (&;throw No-Candidates (format class-name "#" method-name))
       
       (#;Cons candidate #;Nil)
       (|> candidate product;right (method-to-type method-type))
 
       _
-      (&;throw Too-Many-Candidate-Methods (format class-name "#" method-name)))))
+      (&;throw Too-Many-Candidates (format class-name "#" method-name)))))
 
 (def: (constructor-to-type constructor)
   (-> (Constructor Object) (Meta [Type (List Type)]))
@@ -1066,9 +1087,6 @@
                               objectT)]]
       (wrap [constructorT exceptionsT]))))
 
-(exception: #export No-Candidate-Constructor)
-(exception: #export Too-Many-Candidate-Constructors)
-
 (def: (constructor-methods class-name arg-classes)
   (-> Text (List Text) (Meta [Type (List Type)]))
   (do meta;Monad<Meta>
@@ -1082,13 +1100,13 @@
                                      (wrap [passes? constructor])))))]
     (case (list;filter product;left candidates)
       #;Nil
-      (&;throw No-Candidate-Constructor (format class-name "(" (text;join-with ", " arg-classes) ")"))
+      (&;throw No-Candidates (format class-name "(" (text;join-with ", " arg-classes) ")"))
       
       (#;Cons candidate #;Nil)
       (|> candidate product;right constructor-to-type)
 
       _
-      (&;throw Too-Many-Candidate-Constructors class-name))))
+      (&;throw Too-Many-Candidates class-name))))
 
 (def: (decorate-inputs typesT inputsA)
   (-> (List Text) (List la;Analysis) (List la;Analysis))
@@ -1122,7 +1140,7 @@
                                         (code;text unboxed) (decorate-inputs argsT argsA)))))
 
       _
-      (&;fail (format "Wrong syntax for '" proc "'.")))))
+      (&;throw Wrong-Syntax (wrong-syntax proc args)))))
 
 (def: (invoke//virtual proc)
   (-> Text @;Proc)
@@ -1145,7 +1163,7 @@
                                         (code;text unboxed) objectA (decorate-inputs argsT argsA)))))
 
       _
-      (&;fail (format "Wrong syntax for '" proc "'.")))))
+      (&;throw Wrong-Syntax (wrong-syntax proc args)))))
 
 (def: (invoke//special proc)
   (-> Text @;Proc)
@@ -1162,9 +1180,7 @@
                                         (code;text unboxed) (decorate-inputs argsT argsA)))))
 
       _
-      (&;fail (format "Wrong syntax for '" proc "'.")))))
-
-(exception: #export Not-Interface)
+      (&;throw Wrong-Syntax (wrong-syntax proc args)))))
 
 (def: (invoke//interface proc)
   (-> Text @;Proc)
@@ -1175,7 +1191,7 @@
       (do meta;Monad<Meta>
         [#let [argsT (list/map product;left argsTC)]
          class (load-class class-name)
-         _ (&;assert (Not-Interface class-name)
+         _ (&;assert Non-Interface class-name
                      (Modifier.isInterface [(Class.getModifiers [] class)]))
          [methodT exceptionsT] (methods class-name method #Interface argsT)
          [outputT argsA] (&inference;apply-function (sub-type-analyser analyse) methodT (list& objectC (list/map product;right argsTC)))
@@ -1185,7 +1201,7 @@
                                    (decorate-inputs argsT argsA)))))
 
       _
-      (&;fail (format "Wrong syntax for '" proc "'.")))))
+      (&;throw Wrong-Syntax (wrong-syntax proc args)))))
 
 (def: (invoke//constructor proc)
   (-> Text @;Proc)
@@ -1201,7 +1217,7 @@
         (wrap (la;procedure proc (list& (code;text class) (decorate-inputs argsT argsA)))))
 
       _
-      (&;fail (format "Wrong syntax for '" proc "'.")))))
+      (&;throw Wrong-Syntax (wrong-syntax proc args)))))
 
 (def: member-procs
   @;Bundle

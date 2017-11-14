@@ -26,13 +26,14 @@
 (exception: #export Sum-Type-Has-No-Case)
 (exception: #export Unrecognized-Pattern-Syntax)
 (exception: #export Cannot-Simplify-Type-For-Pattern-Matching)
-(exception: #export Cannot-Apply-Type)
+(exception: #export Cannot-Have-Empty-Branches)
+(exception: #export Non-Exhaustive-Pattern-Matching)
+(exception: #export Symbols-Must-Be-Unqualified-Inside-Patterns)
 
 (def: (pattern-error type pattern)
   (-> Type Code Text)
-  (Cannot-Match-Type-With-Pattern
-   (format "   Type: " (%type type) "\n"
-           "Pattern: " (%code pattern))))
+  (format "   Type: " (%type type) "\n"
+          "Pattern: " (%code pattern)))
 
 ## Type-checking on the input value is done during the analysis of a
 ## "case" expression, to ensure that the patterns being used make
@@ -73,7 +74,7 @@
                     [? (tc;concrete? funcT-id)]
                     (if ?
                       (tc;read funcT-id)
-                      (tc;throw Cannot-Apply-Type (%type caseT)))))]
+                      (tc;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT)))))]
         (simplify-case-type (#;Apply inputT funcT')))
 
       _
@@ -82,7 +83,7 @@
         (:: meta;Monad<Meta> wrap outputT)
 
         #;None
-        (&;throw Cannot-Apply-Type (%type caseT))))
+        (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
 
     _
     (:: meta;Monad<Meta> wrap caseT)))
@@ -116,7 +117,7 @@
 
     [cursor (#;Symbol ident)]
     (&;with-cursor cursor
-      (&;fail (format "Symbols must be unqualified inside patterns: " (%ident ident))))
+      (&;throw Symbols-Must-Be-Unqualified-Inside-Patterns (%ident ident)))
 
     (^template [<type> <code-tag>]
       [cursor (<code-tag> test)]
@@ -183,7 +184,7 @@
                      thenA])))
 
           _
-          (&;fail (pattern-error inputT pattern))
+          (&;throw Cannot-Match-Type-With-Pattern (pattern-error inputT pattern))
           )))
 
     [cursor (#;Record record)]
@@ -230,7 +231,7 @@
                                "Type: " (%type inputT)))))
 
           _
-          (&;fail (pattern-error inputT pattern)))))
+          (&;throw Cannot-Match-Type-With-Pattern (pattern-error inputT pattern)))))
 
     (^ [cursor (#;Form (list& [_ (#;Tag tag)] values))])
     (&;with-cursor cursor
@@ -249,7 +250,7 @@
   (-> &;Analyser Code (List [Code Code]) (Meta la;Analysis))
   (case branches
     #;Nil
-    (&;fail "Cannot have empty branches in pattern-matching expression.")
+    (&;throw Cannot-Have-Empty-Branches "")
 
     (#;Cons [patternH bodyH] branchesT)
     (do meta;Monad<Meta>
@@ -264,9 +265,8 @@
        outputTC (monad;map @ (|>. product;left coverageA;determine) outputT)
        _ (case (monad;fold e;Monad<Error> coverageA;merge outputHC outputTC)
            (#e;Success coverage)
-           (if (coverageA;exhaustive? coverage)
-             (wrap [])
-             (&;fail "Pattern-matching is not exhaustive."))
+           (&;assert Non-Exhaustive-Pattern-Matching ""
+                     (coverageA;exhaustive? coverage))
 
            (#e;Error error)
            (&;fail error))]

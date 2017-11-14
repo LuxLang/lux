@@ -1,13 +1,20 @@
 (;module:
   lux
-  (lux (control [monad #+ do])
-       (data [text "T/" Eq<Text>]
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data [text "text/" Eq<Text>]
              text/format
              ["e" error]
-             (coll [list "L/" Fold<List> Functor<List>]))
-       [meta #+ Monad<Meta>])
+             (coll [list "list/" Fold<List> Functor<List>]))
+       [meta]
+       (meta [code]))
   (luxc ["&" base]
         ["&;" scope]))
+
+(exception: #export Unknown-Module)
+(exception: #export Cannot-Declare-Tag-Twice)
+(exception: #export Cannot-Declare-Tags-For-Unnamed-Type)
+(exception: #export Cannot-Declare-Tags-For-Foreign-Type)
 
 (def: (new-module hash)
   (-> Nat Module)
@@ -54,7 +61,7 @@
 
 (def: #export (with-module hash name action)
   (All [a] (-> Nat Text (Meta a) (Meta [Module a])))
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [_ (create hash name)
      output (&;with-current-module name
               (&scope;with-scope name action))
@@ -107,7 +114,7 @@
          (#e;Success [compiler (get@ <tag> module)])
 
          #;None
-         (meta;run compiler (&;fail (format "Unknown module: " module-name))))
+         (meta;run compiler (&;throw Unknown-Module module-name)))
        ))]
 
   [tags-by-module  #;tags        (List [Text [Nat (List Ident) Bool Type]])]
@@ -117,7 +124,7 @@
 
 (def: (ensure-undeclared-tags module-name tags)
   (-> Text (List Text) (Meta Unit))
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [bindings (tags-by-module module-name)
      _ (monad;map @
                   (function [tag]
@@ -126,36 +133,41 @@
                       (wrap [])
 
                       (#;Some _)
-                      (&;fail (format "Cannot re-declare tag: " tag))))
+                      (&;throw Cannot-Declare-Tag-Twice (format "Module: " module-name "\n"
+                                                                "   Tag: " tag))))
                   tags)]
     (wrap [])))
 
 (def: #export (declare-tags tags exported? type)
   (-> (List Text) Bool Type (Meta Unit))
-  (do Monad<Meta>
+  (do meta;Monad<Meta>
     [current-module meta;current-module-name
      [type-module type-name] (case type
                                (#;Named type-ident _)
                                (wrap type-ident)
 
                                _
-                               (&;fail (format "Cannot define tags for an unnamed type: " (%type type))))
+                               (&;throw Cannot-Declare-Tags-For-Unnamed-Type
+                                        (format "Tags: " (|> tags (list/map code;text) code;tuple %code) "\n"
+                                                "Type: " (%type type))))
      _ (ensure-undeclared-tags current-module tags)
-     _ (meta;assert (format "Cannot define tags for a type belonging to a foreign module: " (%type type))
-                    (T/= current-module type-module))]
+     _ (&;assert Cannot-Declare-Tags-For-Foreign-Type
+                 (format "Tags: " (|> tags (list/map code;text) code;tuple %code) "\n"
+                         "Type: " (%type type))
+                 (text/= current-module type-module))]
     (function [compiler]
       (case (|> compiler (get@ #;modules) (&;pl-get current-module))
         (#;Some module)
-        (let [namespaced-tags (L/map (|>. [current-module]) tags)]
+        (let [namespaced-tags (list/map (|>. [current-module]) tags)]
           (#e;Success [(update@ #;modules
                                 (&;pl-update current-module
                                              (|>. (update@ #;tags (function [tag-bindings]
-                                                                    (L/fold (function [[idx tag] table]
-                                                                              (&;pl-put tag [idx namespaced-tags exported? type] table))
-                                                                            tag-bindings
-                                                                            (list;enumerate tags))))
+                                                                    (list/fold (function [[idx tag] table]
+                                                                                 (&;pl-put tag [idx namespaced-tags exported? type] table))
+                                                                               tag-bindings
+                                                                               (list;enumerate tags))))
                                                   (update@ #;types (&;pl-put type-name [namespaced-tags exported? type]))))
                                 compiler)
                        []]))
         #;None
-        (meta;run compiler (&;fail (format "Unknown module: " current-module)))))))
+        (meta;run compiler (&;throw Unknown-Module current-module))))))
