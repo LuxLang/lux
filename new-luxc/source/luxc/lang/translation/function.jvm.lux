@@ -14,21 +14,13 @@
         (lang ["la" analysis]
               ["ls" synthesis]
               (translation [";T" common]
-                           [";T" runtime])
+                           [";T" runtime]
+                           [";T" reference])
               [";L" variable #+ Variable])))
 
 
 (def: arity-field Text "arity")
 (def: $Object $;Type ($t;class "java.lang.Object" (list)))
-
-(do-template [<name> <prefix>]
-  [(def: #export (<name> idx)
-     (-> Nat Text)
-     (|> idx nat-to-int %i (format <prefix>)))]
-
-  [captured "c"]
-  [partial  "p"]
-  )
 
 (def: (poly-arg? arity)
   (-> ls;Arity Bool)
@@ -97,7 +89,7 @@
   (-> (List Variable) $;Def)
   (|> (list;enumerate env)
       (list/map (function [[env-idx env-source]]
-                  ($d;field #$;Private $;finalF (captured env-idx) $Object)))
+                  ($d;field #$;Private $;finalF (referenceT;captured env-idx) $Object)))
       $d;fuse))
 
 (def: (with-partial arity)
@@ -105,28 +97,24 @@
   (if (poly-arg? arity)
     (|> (list;n.range +0 (n.- +2 arity))
         (list/map (function [idx]
-                    ($d;field #$;Private $;finalF (partial idx) $Object)))
+                    ($d;field #$;Private $;finalF (referenceT;partial idx) $Object)))
         $d;fuse)
     id))
 
 (def: (instance class arity env)
-  (-> Text ls;Arity (List Variable) $;Inst)
-  (let [captureI (|> env
-                     (list/map (function [source]
-                                 (if (variableL;captured? source)
-                                   ($i;GETFIELD class (captured (variableL;captured-register source)) $Object)
-                                   ($i;ALOAD (int-to-nat source)))))
-                     $i;fuse)
-        argsI (if (poly-arg? arity)
-                (|> (nullsI (n.dec arity))
-                    (list ($i;int 0))
-                    $i;fuse)
-                id)]
-    (|>. ($i;NEW class)
-         $i;DUP
-         captureI
-         argsI
-         ($i;INVOKESPECIAL class "<init>" (init-method env arity) false))))
+  (-> Text ls;Arity (List Variable) (Meta $;Inst))
+  (do meta;Monad<Meta>
+    [captureI+ (monad;map @ referenceT;translate-variable env)
+     #let [argsI (if (poly-arg? arity)
+                   (|> (nullsI (n.dec arity))
+                       (list ($i;int 0))
+                       $i;fuse)
+                   id)]]
+    (wrap (|>. ($i;NEW class)
+               $i;DUP
+               ($i;fuse captureI+)
+               argsI
+               ($i;INVOKESPECIAL class "<init>" (init-method env arity) false)))))
 
 (def: (with-reset class arity env)
   (-> Text ls;Arity (List Variable) $;Def)
@@ -138,7 +126,7 @@
                                     _ (list;n.range +0 (n.dec env-size)))
                                   (list/map (function [source]
                                               (|>. ($i;ALOAD +0)
-                                                   ($i;GETFIELD class (captured source) $Object))))
+                                                   ($i;GETFIELD class (referenceT;captured source) $Object))))
                                   $i;fuse)
                      argsI (|> (nullsI (n.dec arity))
                                (list ($i;int 0))
@@ -182,7 +170,7 @@
                             (list/map (function [register]
                                         (|>. ($i;ALOAD +0)
                                              ($i;ALOAD (n.inc register))
-                                             ($i;PUTFIELD class (captured register) $Object))))
+                                             ($i;PUTFIELD class (referenceT;captured register) $Object))))
                             $i;fuse)
         store-partialI (if (poly-arg? arity)
                          (|> (list;n.range +0 (n.- +2 arity))
@@ -190,7 +178,7 @@
                                          (let [register (offset-partial idx)]
                                            (|>. ($i;ALOAD +0)
                                                 ($i;ALOAD (n.inc register))
-                                                ($i;PUTFIELD class (partial idx) $Object)))))
+                                                ($i;PUTFIELD class (referenceT;partial idx) $Object)))))
                              $i;fuse)
                          id)]
     ($d;method #$;Public $;noneM "<init>" (init-method env arity)
@@ -212,7 +200,7 @@
                    (list/map (function [[stage @label]]
                                (let [load-partialsI (if (n.> +0 stage)
                                                       (|> (list;n.range +0 (n.dec stage))
-                                                          (list/map (|>. partial (load-fieldI class)))
+                                                          (list/map (|>. referenceT;partial (load-fieldI class)))
                                                           $i;fuse)
                                                       id)]
                                  (cond (i.= arity-over-extent (nat-to-int stage))
@@ -242,7 +230,7 @@
                                              load-capturedI (|> (case env-size
                                                                   +0 (list)
                                                                   _ (list;n.range +0 (n.dec env-size)))
-                                                                (list/map (|>. captured (load-fieldI class)))
+                                                                (list/map (|>. referenceT;captured (load-fieldI class)))
                                                                 $i;fuse)]
                                          (|>. ($i;label @label)
                                               ($i;NEW class)
@@ -269,7 +257,7 @@
 
 (def: #export (with-function @begin class env arity bodyI)
   (-> $;Label Text (List Variable) ls;Arity $;Inst
-      [$;Def $;Inst])
+      (Meta [$;Def $;Inst]))
   (let [env-size (list;size env)
         applyD (: $;Def
                   (if (poly-arg? arity)
@@ -289,9 +277,10 @@
                           (with-init class env arity)
                           (with-reset class arity env)
                           applyD
-                          ))
-        instanceI (instance class arity env)]
-    [functionD instanceI]))
+                          ))]
+    (do meta;Monad<Meta>
+      [instanceI (instance class arity env)]
+      (wrap [functionD instanceI]))))
 
 (def: #export (translate-function translate env arity bodyS)
   (-> (-> ls;Synthesis (Meta $;Inst))
@@ -302,7 +291,7 @@
      [function-class bodyI] (hostL;with-sub-context
                               (hostL;with-anchor [@begin +1]
                                 (translate bodyS)))
-     #let [[functionD instanceI] (with-function @begin function-class env arity bodyI)]
+     [functionD instanceI] (with-function @begin function-class env arity bodyI)
      _ (commonT;store-class function-class
                             ($d;class #$;V1.6 #$;Public $;finalC
                                       function-class (list)

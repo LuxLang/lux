@@ -230,7 +230,7 @@
   ^:private compile-char-lt "<"
   )
 
-(defn ^:private compile-text-append [compile ?values special-args]
+(defn ^:private compile-text-concat [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
         =x (compile ?x)
         =y (compile ?y)]
@@ -446,7 +446,7 @@
     (case proc
       "="                    (compile-text-eq compile ?values special-args)
       "<"                    (compile-text-lt compile ?values special-args)
-      "append"               (compile-text-append compile ?values special-args)
+      "concat"               (compile-text-concat compile ?values special-args)
       "clip"                 (compile-text-clip compile ?values special-args)
       "index"                (compile-text-index compile ?values special-args)
       "last-index"           (compile-text-last-index compile ?values special-args)

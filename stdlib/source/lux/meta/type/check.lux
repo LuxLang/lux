@@ -230,36 +230,21 @@
       #;None
       (ex;throw Unknown-Type-Var (nat/encode id)))))
 
-(def: #export (clear id)
-  (-> Var (Check Unit))
-  (function [context]
-    (case (|> context (get@ #;var-bindings) (var::get id))
-      (#;Some _)
-      (#e;Success [(update@ #;var-bindings (var::put id #;None) context)
-                   []])
-      
-      #;None
-      (ex;throw Unknown-Type-Var (nat/encode id)))))
-
 (def: #export (clean t-id type)
   (-> Var Type (Check Type))
   (case type
     (#;Var id)
-    (if (n.= t-id id)
-      (do Monad<Check>
-        [? (bound? id)]
-        (if ?
+    (do Monad<Check>
+      [? (concrete? id)]
+      (if ?
+        (if (n.= t-id id)
           (read id)
-          (wrap type)))
-      (do Monad<Check>
-        [? (concrete? id)]
-        (if ?
           (do Monad<Check>
             [=type (read id)
              ==type (clean t-id =type)
              _ (update ==type id)]
-            (wrap type))
-          (wrap type))))
+            (wrap type)))
+        (wrap type)))
 
     (#;Primitive name params)
     (do Monad<Check>
@@ -290,7 +275,7 @@
     (:: Monad<Check> wrap type)
     ))
 
-(def: #export create
+(def: #export var
   (Check [Var Type])
   (function [context]
     (let [id (get@ #;var-counter context)]
@@ -310,29 +295,6 @@
   (function [context]
     (#e;Success [(set@ #;var-bindings value context)
                  []])))
-
-(def: (pre-link id)
-  (-> Var (Check (Maybe Var)))
-  (function [context]
-    (loop [current id]
-      (case (|> context (get@ #;var-bindings) (var::get current))
-        (#;Some (#;Some type))
-        (case type
-          (#;Var post)
-          (if (n.= id post)
-            (#e;Success [context (#;Some current)])
-            (recur post))
-          
-          _
-          (if (n.= current id)
-            (#e;Success [context #;None])
-            (ex;throw Improper-Ring (nat/encode id))))
-
-        (#;Some #;None)
-        (#e;Success [context #;None])
-        
-        #;None
-        (ex;throw Unknown-Type-Var (nat/encode current))))))
 
 (type: #export Ring (Set Var))
 
@@ -359,37 +321,6 @@
         
         #;None
         (ex;throw Unknown-Type-Var (nat/encode current))))))
-
-(def: (delete' id)
-  (-> Var (Check Unit))
-  (function [context]
-    (#e;Success [(update@ #;var-bindings (var::remove id) context)
-                 []])))
-
-(def: #export (delete id)
-  (-> Var (Check Unit))
-  (do Monad<Check>
-    [_ (wrap [])
-     ?link (pre-link id)]
-    (case ?link
-      #;None
-      (delete' id)
-
-      (#;Some pre)
-      (do @
-        [post (read id)
-         _ (if (type/= (#;Var pre) post)
-             (clear pre)
-             (update post pre))]
-        (delete' id)))))
-
-(def: #export (with k)
-  (All [a] (-> (-> [Var Type] (Check a)) (Check a)))
-  (do Monad<Check>
-    [[id var] create
-     output (k [id var])
-     _ (delete id)]
-    (wrap output)))
 
 (def: #export fresh-context
   Type-Context
@@ -653,22 +584,20 @@
           (check' expected' actual assumptions))
 
         [_ (#;UnivQ _)]
-        (with
-         (function [[var-id var]]
-           (do Monad<Check>
-             [actual' (apply-type! actual var)
-              assumptions (check' expected actual' assumptions)
-              _ (clean var-id expected)]
-             (check/wrap assumptions))))
+        (do Monad<Check>
+          [[var-id var] ;;var
+           actual' (apply-type! actual var)
+           assumptions (check' expected actual' assumptions)
+           _ (clean var-id expected)]
+          (check/wrap assumptions))
 
         [(#;ExQ e!env e!def) _]
-        (with
-         (function [[var-id var]]
-           (do Monad<Check>
-             [expected' (apply-type! expected var)
-              assumptions (check' expected' actual assumptions)
-              _ (clean var-id actual)]
-             (check/wrap assumptions))))
+        (do Monad<Check>
+          [[var-id var] ;;var
+           expected' (apply-type! expected var)
+           assumptions (check' expected' actual assumptions)
+           _ (clean var-id actual)]
+          (check/wrap assumptions))
 
         [_ (#;ExQ a!env a!def)]
         (do Monad<Check>

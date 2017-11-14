@@ -41,7 +41,7 @@
 
   ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bool
   ^:private analyse-text-lt     ["text" "<"]      &type/Text &type/Bool
-  ^:private analyse-text-append ["text" "append"] &type/Text &type/Text
+  ^:private analyse-text-concat ["text" "concat"] &type/Text &type/Text
   )
 
 (do-template [<name> <proc-name> <output-type>]
@@ -486,7 +486,7 @@
          
          "lux text ="                    (analyse-text-eq analyse exo-type ?values)
          "lux text <"                    (analyse-text-lt analyse exo-type ?values)
-         "lux text append"               (analyse-text-append analyse exo-type ?values)
+         "lux text concat"               (analyse-text-concat analyse exo-type ?values)
          "lux text clip"                 (analyse-text-clip analyse exo-type ?values)
          "lux text index"                (analyse-text-index analyse exo-type ?values)
          "lux text last-index"           (analyse-text-last-index analyse exo-type ?values)
