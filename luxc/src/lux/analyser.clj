@@ -157,6 +157,11 @@
             (&/with-analysis-meta cursor exo-type
               (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
+          "lux module"
+          (|let [(&/$Cons ?meta (&/$Nil)) parameters]
+            (&/with-cursor cursor
+              (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
+
           ;; else
           (&/with-analysis-meta cursor exo-type
             (cond (.startsWith ^String ?procedure "jvm")
@@ -170,18 +175,6 @@
                   :else
                   (&&common/analyse-proc analyse exo-type ?procedure parameters))))
         
-        (&/$Symbol _ command-name)
-        (case command-name
-          "_lux_module"
-          (|let [(&/$Cons ?meta (&/$Nil)) parameters]
-            (&/with-cursor cursor
-              (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
-
-          ;; else
-          (&/with-cursor cursor
-            (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
-              (&&lux/analyse-apply analyse cursor exo-type macro-caller =fn parameters))))
-
         (&/$Nat idx)
         (&/with-analysis-meta cursor exo-type
           (&&lux/analyse-variant analyse (&/$Right exo-type) idx nil parameters))

@@ -14,7 +14,8 @@
        (world [file #+ File]))
   (luxc ["&" base]
         [";L" host]
-        (host [";H" macro])
+        (host [";H" macro]
+              ["$" jvm])
         ["&;" io]
         ["&;" module]
         ["&;" eval]
@@ -73,20 +74,26 @@
     ([#;UnivQ] [#;ExQ])
     ))
 
+(def: (process-annotations annsC)
+  (-> Code (Meta [$;Inst Code]))
+  (do meta;Monad<Meta>
+    [[_ annsA] (&;with-scope
+                 (&;with-expected-type Code
+                   (analyse annsC)))
+     annsI (expressionT;translate (expressionS;synthesize annsA))
+     annsV (evalT;eval annsI)]
+    (wrap [annsI (:! Code annsV)])))
+
 (def: (translate code)
   (-> Code (Meta Unit))
   (case code
-    (^code ("lux def" (~ [_ (#;Symbol ["" def-name])]) (~ valueC) (~ metaC)))
+    (^code ("lux def" (~ [_ (#;Symbol ["" def-name])]) (~ valueC) (~ annsC)))
     (hostL;with-context def-name
       (&;with-fresh-type-env
         (do meta;Monad<Meta>
-          [[_ metaA] (&;with-scope
-                       (&;with-expected-type Code
-                         (analyse metaC)))
-           metaI (expressionT;translate (expressionS;synthesize metaA))
-           metaV (evalT;eval metaI)
+          [[annsI annsV] (process-annotations annsC)
            [_ valueT valueA] (&;with-scope
-                               (if (meta;type? (:! Code metaV))
+                               (if (meta;type? (:! Code annsV))
                                  (do @
                                    [valueA (&;with-expected-type Type
                                              (analyse valueC))]
@@ -97,7 +104,7 @@
                     (clean valueT))
            valueI (expressionT;translate (expressionS;synthesize valueA))
            _ (&;with-scope
-               (statementT;translate-def def-name valueT valueI metaI (:! Code metaV)))]
+               (statementT;translate-def def-name valueT valueI annsI annsV))]
           (wrap []))))
 
     (^code ("lux program" (~ [_ (#;Symbol ["" program-args])]) (~ programC)))
@@ -107,6 +114,11 @@
                         (analyse programC)))
        programI (expressionT;translate (expressionS;synthesize programA))]
       (statementT;translate-program program-args programI))
+
+    (^code ("lux module" (~ annsC)))
+    (do meta;Monad<Meta>
+      [[annsI annsV] (process-annotations annsC)]
+      (&;fail (%code annsV)))
 
     (^code ((~ [_ (#;Symbol macro-name)]) (~@ args)))
     (do meta;Monad<Meta>
@@ -130,9 +142,15 @@
 
 (def: (exhaust action)
   (All [a] (-> (Meta a) (Meta Unit)))
-  (do meta;Monad<Meta>
-    [result action]
-    (exhaust action)))
+  (function [compiler]
+    (case (action compiler)
+      (#e;Success [compiler' _])
+      ((exhaust action) compiler')
+      
+      (#e;Error error)
+      (if (ex;match? &syntax;End-Of-File error)
+        (#e;Success [compiler []])
+        (#e;Error error)))))
 
 (def: prelude Text "lux")
 
