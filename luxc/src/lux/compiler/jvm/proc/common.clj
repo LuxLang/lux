@@ -512,7 +512,7 @@
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I))]
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)Ljava/lang/String;"))]]
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;"))]]
     (return nil)))
 
 (do-template [<name> <method>]
@@ -606,7 +606,6 @@
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" <method> "()Ljava/lang/String;"))]]
       (return nil)))
 
-  ^:private compile-text-trim       "trim"
   ^:private compile-text-upper-case "toUpperCase"
   ^:private compile-text-lower-case "toLowerCase"
   )
@@ -830,7 +829,6 @@
       "size"                 (compile-text-size compile ?values special-args)
       "hash"                 (compile-text-hash compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)
-      "trim"                 (compile-text-trim compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
       "upper-case"           (compile-text-upper-case compile ?values special-args)
       "lower-case"           (compile-text-lower-case compile ?values special-args)

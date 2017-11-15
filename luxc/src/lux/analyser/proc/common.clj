@@ -76,7 +76,7 @@
         =text (&&/analyse-1 analyse &type/Text text)
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
-        _ (&type/check exo-type &type/Text)
+        _ (&type/check exo-type (&/$Apply &type/Text &type/Maybe))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "clip"])
@@ -121,7 +121,6 @@
                                            (&/|list =text)
                                            (&/|list)))))))
 
-  ^:private analyse-text-trim "trim"
   ^:private analyse-text-upper-case "upper-case"
   ^:private analyse-text-lower-case "lower-case"
   )
@@ -491,7 +490,6 @@
          "lux text size"                 (analyse-text-size analyse exo-type ?values)
          "lux text hash"                 (analyse-text-hash analyse exo-type ?values)
          "lux text replace-all"          (analyse-text-replace-all analyse exo-type ?values)
-         "lux text trim"                 (analyse-text-trim analyse exo-type ?values)
          "lux text char"                 (analyse-text-char analyse exo-type ?values)
          "lux text upper-case"           (analyse-text-upper-case analyse exo-type ?values)
          "lux text lower-case"           (analyse-text-lower-case analyse exo-type ?values)
