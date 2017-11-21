@@ -7,10 +7,10 @@
        (data ["e" error]
              [text "text/" Hash<Text>]
              text/format
-             (coll [list]
+             (coll [list "list/" Functor<List>]
                    [dict]))
        [macro]
-       (lang [syntax]
+       (lang [syntax #+ Aliases]
              (type ["tc" check]))
        [host]
        [io #+ IO Process io]
@@ -52,9 +52,12 @@
     (wrap [annsI (:! Code annsV)])))
 
 (def: (switch-compiler new-compiler)
-  (-> Compiler (Meta Unit))
+  (-> Compiler (Meta Aliases))
   (function [old-compiler]
-    (#e;Success [new-compiler []])))
+    ((do macro;Monad<Meta>
+       [this macro;current-module]
+       (wrap (|> this (get@ #;module-aliases) (dict;from-list text;Hash<Text>) (: Aliases))))
+     new-compiler)))
 
 (def: (ensure-valid-alias def-name annotations value)
   (-> Text Code Code (Meta Unit))
@@ -66,8 +69,8 @@
     _
     (&;throw Invalid-Alias def-name)))
 
-(def: (translate translate-module code)
-  (-> (-> Text Compiler (Process Compiler)) Code (Meta Unit))
+(def: (translate translate-module aliases code)
+  (-> (-> Text Compiler (Process Compiler)) Aliases Code (Meta Aliases))
   (case code
     (^code ((~ [_ (#;Symbol macro-name)]) (~@ args)))
     (do macro;Monad<Meta>
@@ -76,15 +79,26 @@
       (case ?macro
         (#;Some macro)
         (do @
-          [expansion (function [compiler]
-                       (case (macroL;expand macro args compiler)
-                         (#e;Success [compiler' output])
-                         (#e;Success [compiler' output])
+          [expansion (: (Meta (List Code))
+                        (function [compiler]
+                          (case (macroL;expand macro args compiler)
+                            (#e;Error error)
+                            ((&;throw Macro-Expansion-Failed error) compiler)
 
-                         (#e;Error error)
-                         ((&;throw Macro-Expansion-Failed error) compiler)))
-           _ (monad;map @ (translate translate-module) expansion)]
-          (wrap []))
+                            output
+                            output)))
+           expansion-aliases (monad;map @ (translate translate-module aliases) expansion)]
+          (if (dict;empty? aliases)
+            (loop [expansion-aliases expansion-aliases]
+              (case expansion-aliases
+                #;Nil
+                (wrap aliases)
+
+                (#;Cons head tail)
+                (if (dict;empty? head)
+                  (recur tail)
+                  (wrap head))))
+            (wrap aliases)))
 
         #;None
         (&;throw Unrecognized-Statement (%code code))))
@@ -100,7 +114,7 @@
               [_ (ensure-valid-alias def-name annsV valueC)
                _ (&;with-scope
                    (statementT;translate-def def-name Void id annsI annsV))]
-              (wrap []))
+              (wrap aliases))
 
             #;None
             (do @
@@ -114,10 +128,15 @@
                                        (analyse valueC))))
                valueT (&;with-type-env
                         (tc;clean valueT))
+               ## #let [_ (if (or (text/= "list/size" def-name))
+               ##           (log! (format "{" def-name "}\n"
+               ##                         " ANALYSIS: " (%code valueA) "\n"
+               ##                         "SYNTHESIS: " (%code (expressionS;synthesize valueA))))
+               ##           [])]
                valueI (expressionT;translate (expressionS;synthesize valueA))
                _ (&;with-scope
                    (statementT;translate-def def-name valueT valueI annsI annsV))]
-              (wrap []))))))
+              (wrap aliases))))))
 
     (^code ("lux module" (~ annsC)))
     (do macro;Monad<Meta>
@@ -135,23 +154,24 @@
       [[_ programA] (&;with-scope
                       (&;with-type (type (io;IO Unit))
                         (analyse programC)))
-       programI (expressionT;translate (expressionS;synthesize programA))]
-      (statementT;translate-program program-args programI))
+       programI (expressionT;translate (expressionS;synthesize programA))
+       _ (statementT;translate-program program-args programI)]
+      (wrap aliases))
 
     _
     (&;throw Unrecognized-Statement (%code code))))
 
-(def: (exhaust action)
-  (All [a] (-> (Meta a) (Meta Unit)))
+(def: (forgive-eof action)
+  (-> (Meta Unit) (Meta Unit))
   (function [compiler]
     (case (action compiler)
-      (#e;Success [compiler' _])
-      ((exhaust action) compiler')
-      
       (#e;Error error)
       (if (ex;match? syntax;End-Of-File error)
         (#e;Success [compiler []])
-        (#e;Error error)))))
+        (#e;Error error))
+
+      output
+      output)))
 
 (def: prelude Text "lux")
 
@@ -164,10 +184,10 @@
      _ (moduleL;flag-compiled! module-name)]
     (wrap output)))
 
-(def: (read current-module)
-  (-> Text (Meta Code))
+(def: (read current-module aliases)
+  (-> Text Aliases (Meta Code))
   (function [compiler]
-    (case (syntax;read current-module (get@ #;source compiler))
+    (case (syntax;read current-module aliases (get@ #;source compiler))
       (#e;Error error)
       (#e;Error error)
 
@@ -178,8 +198,7 @@
 (def: (translate-module source-dirs target-dir module-name compiler)
   (-> (List File) File Text Compiler (Process Compiler))
   (do io;Monad<Process>
-    [#let [_ (log! (format "{translate-module} " module-name))]
-     ## _ (&io;prepare-module target-dir module-name)
+    [## _ (&io;prepare-module target-dir module-name)
      [file-name file-content] (&io;read-module source-dirs module-name)
      #let [module-hash (text/hash file-content)
            translate-module (translate-module source-dirs target-dir)]]
@@ -190,12 +209,15 @@
                                              (with-active-compilation [module-name
                                                                        file-name
                                                                        file-content]
-                                               (exhaust
-                                                (do @
-                                                  [code (read module-name)
-                                                   #let [[cursor _] code]]
-                                                  (&;with-cursor cursor
-                                                    (translate translate-module code)))))))]
+                                               (forgive-eof
+                                                (loop [aliases (: Aliases
+                                                                  (dict;new text;Hash<Text>))]
+                                                  (do @
+                                                    [code (read module-name aliases)
+                                                     #let [[cursor _] code]
+                                                     aliases' (&;with-cursor cursor
+                                                                (translate translate-module aliases code))]
+                                                    (forgive-eof (recur aliases'))))))))]
                         (wrap artifacts)))
       (#e;Success [compiler artifacts])
       (do @

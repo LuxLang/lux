@@ -13,45 +13,52 @@
 
 (def: popPS ls;Path (' ("lux case pop")))
 
-(def: (path' outer-arity pattern)
-  (-> ls;Arity la;Pattern (List ls;Path))
+(def: (path' arity num-locals pattern)
+  (-> ls;Arity Nat la;Pattern [Nat (List ls;Path)])
   (case pattern
     (^code ("lux case tuple" [(~@ membersP)]))
     (case membersP
       #;Nil
-      (list popPS)
+      [num-locals
+       (list popPS)]
 
       (#;Cons singletonP #;Nil)
-      (path' outer-arity singletonP)
+      (path' arity num-locals singletonP)
 
       (#;Cons _)
       (let [last-idx (n.dec (list;size membersP))
-            [_ tuple-path] (list/fold (function [current-pattern [current-idx next]]
-                                        [(n.dec current-idx)
-                                         (|> (list (if (n.= last-idx current-idx)
-                                                     (` ("lux case tuple right" (~ (code;nat current-idx))))
-                                                     (` ("lux case tuple left" (~ (code;nat current-idx))))))
-                                             (list/compose (path' outer-arity current-pattern))
-                                             (list/compose next))])
-                                      [last-idx (list popPS)]
-                                      (list;reverse membersP))]
-        tuple-path))
+            [_ output] (list/fold (: (-> la;Pattern [Nat [Nat (List ls;Path)]] [Nat [Nat (List ls;Path)]])
+                                     (function [current-pattern [current-idx num-locals' next]]
+                                       (let [[num-locals'' current-path] (path' arity num-locals' current-pattern)]
+                                         [(n.dec current-idx)
+                                          num-locals''
+                                          (|> (list (if (n.= last-idx current-idx)
+                                                      (` ("lux case tuple right" (~ (code;nat current-idx))))
+                                                      (` ("lux case tuple left" (~ (code;nat current-idx))))))
+                                              (list/compose current-path)
+                                              (list/compose next))])))
+                                  [last-idx num-locals (list popPS)]
+                                  (list;reverse membersP))]
+        output))
 
     (^code ("lux case variant" (~ [_ (#;Nat tag)]) (~ [_ (#;Nat num-tags)]) (~ memberP)))
-    (|> (list (if (n.= (n.dec num-tags) tag)
-                (` ("lux case variant right" (~ (code;nat tag))))
-                (` ("lux case variant left" (~ (code;nat tag))))))
-        (list/compose (path' outer-arity memberP))
-        (list& popPS))
+    (let [[num-locals' member-path] (path' arity num-locals memberP)]
+      [num-locals' (|> (list (if (n.= (n.dec num-tags) tag)
+                               (` ("lux case variant right" (~ (code;nat tag))))
+                               (` ("lux case variant left" (~ (code;nat tag))))))
+                       (list/compose member-path)
+                       (list& popPS))])
 
     (^code ("lux case bind" (~ [_ (#;Nat register)])))
-    (list popPS
-          (` ("lux case bind" (~ (code;nat (if (functionS;nested? outer-arity)
-                                             (|> register variableL;local (functionS;adjust-var outer-arity) variableL;local-register)
-                                             register))))))
+    [(n.inc num-locals)
+     (list popPS
+           (` ("lux case bind" (~ (code;nat (if (functionS;nested? arity)
+                                              (n.+ (n.dec arity) register)
+                                              register))))))]
 
     _
-    (list popPS pattern)))
+    [num-locals
+     (list popPS pattern)]))
 
 (def: (clean-unnecessary-pops paths)
   (-> (List ls;Path) (List ls;Path))
@@ -64,12 +71,14 @@
     #;Nil
     paths))
 
-(def: #export (path outer-arity pattern body)
-  (-> ls;Arity la;Pattern ls;Synthesis ls;Path)
-  (|> (path' outer-arity pattern) clean-unnecessary-pops
-      (list/fold (function [pre post]
-                   (` ("lux case seq" (~ pre) (~ post))))
-                 (` ("lux case exec" (~ body))))))
+(def: #export (path arity num-locals synthesize pattern bodyA)
+  (->  ls;Arity Nat (-> Nat la;Analysis ls;Synthesis) la;Pattern la;Analysis ls;Path)
+  (let [[num-locals' pieces] (path' arity num-locals pattern)]
+    (|> pieces
+        clean-unnecessary-pops
+        (list/fold (function [pre post]
+                     (` ("lux case seq" (~ pre) (~ post))))
+                   (` ("lux case exec" (~ (synthesize num-locals' bodyA))))))))
 
 (def: #export (weave leftP rightP)
   (-> ls;Path ls;Path ls;Path)

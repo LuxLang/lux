@@ -108,7 +108,7 @@
       exprS
       )))
 
-(def: #export (adjust env outer-offset exprS)
+(def: #export (adjust env offset exprS)
   (-> (List Variable) Register ls;Synthesis ls;Synthesis)
   (let [resolve-captured (: (-> Variable Variable)
                             (function [var]
@@ -116,13 +116,13 @@
                                 (|> env (list;nth idx) maybe;assume))))]
     (loop [exprS exprS]
       (case exprS
-        (^ [_ (#;Form (list [_ (#;Nat tag)] last? valueS))])
+        (^code ((~ [_ (#;Nat tag)]) (~ last?) (~ valueS)))
         (` ((~ (code;nat tag)) (~ last?) (~ (recur valueS))))
         
-        [_ (#;Tuple members)]
-        [_ (#;Tuple (list/map recur members))]
+        (^code [(~@ members)])
+        (` [(~@ (list/map recur members))])
 
-        (^ [_ (#;Form (list [_ (#;Text "lux case")] inputS pathS))])
+        (^code ("lux case" (~ inputS) (~ pathS)))
         (` ("lux case" (~ (recur inputS))
             (~ (let [adjust' recur]
                  (loop [pathS pathS]
@@ -133,22 +133,25 @@
                      (["lux case alt"]
                       ["lux case seq"])
 
+                     (^code ("lux case bind" (~ [_ (#;Nat register)])))
+                     (` ("lux case bind" (~ (code;nat (n.+ offset register)))))
+
                      (^ [_ (#;Form (list [_ (#;Text "lux case exec")] bodyS))])
                      (` ("lux case exec" (~ (adjust' bodyS))))
                      
                      _
                      pathS))))))
 
-        (^ [_ (#;Form (list [_ (#;Text "lux function")] arity [_ (#;Tuple environment)] bodyS))])
+        (^code ("lux function" (~ arity) [(~@ environment)] (~ bodyS)))
         (` ("lux function" (~ arity)
-            (~ [_ (#;Tuple (list/map (function [_var]
-                                       (case _var
-                                         (^ [_ (#;Form (list [_ (#;Int var)]))])
-                                         (` ((~ (code;int (resolve-captured var)))))
+            [(~@ (list/map (function [_var]
+                             (case _var
+                               (^ [_ (#;Form (list [_ (#;Int var)]))])
+                               (` ((~ (code;int (resolve-captured var)))))
 
-                                         _
-                                         _var))
-                                     environment))])
+                               _
+                               _var))
+                           environment))]
             (~ (recur bodyS))))
 
         (^ [_ (#;Form (list& [_ (#;Text "lux call")] funcS argsS))])
@@ -163,10 +166,10 @@
         (^ [_ (#;Form (list [_ (#;Int var)]))])
         (if (variableL;captured? var)
           (` ((~ (code;int (resolve-captured var)))))
-          (` ((~ (code;int (|> outer-offset nat-to-int (i.+ var)))))))
+          (` ((~ (code;int (|> offset nat-to-int (i.+ var)))))))
 
         (^ [_ (#;Form (list [_ (#;Text "lux let")] [_ (#;Nat register)] inputS bodyS))])
-        (` ("lux let" (~ (code;nat (n.+ outer-offset register)))
+        (` ("lux let" (~ (code;nat (n.+ offset register)))
             (~ (recur inputS))
             (~ (recur bodyS))))
 
@@ -175,8 +178,8 @@
             (~ (recur thenS))
             (~ (recur elseS))))
 
-        (^ [_ (#;Form (list [_ (#;Text "lux loop")] [_ (#;Nat inner-offset)] [_ (#;Tuple initsS)] bodyS))])
-        (` ("lux loop" (~ (code;nat (n.+ outer-offset inner-offset)))
+        (^ [_ (#;Form (list [_ (#;Text "lux loop")] [_ (#;Nat loop-offset)] [_ (#;Tuple initsS)] bodyS))])
+        (` ("lux loop" (~ (code;nat (n.+ offset loop-offset)))
             [(~@ (list/map recur initsS))]
             (~ (recur bodyS))))
 

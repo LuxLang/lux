@@ -20,7 +20,7 @@
 
 (type: (Promise-State a)
   {#value (Maybe a)
-   #observers (List (-> a (IO Unit)))})
+   #observers (List (-> a (IO Top)))})
 
 (type: #export (Promise a)
   {#;doc "Represents values produced by asynchronous computations (unlike IO, which is synchronous)."}
@@ -74,8 +74,8 @@
             (wrap true))
           (resolve value promise))))))
 
-(def: (await f promise)
-  (All [a] (-> (-> a (IO Unit)) (Promise a) Unit))
+(def: #export (await f promise)
+  (All [a] (-> (-> a (IO Top)) (Promise a) Top))
   (let [old (io;run (atom;read promise))]
     (case (get@ #value old)
       (#;Some value)
@@ -90,9 +90,7 @@
 (struct: #export _ (F;Functor Promise)
   (def: (map f fa)
     (let [fb (promise ($ +1))]
-      (exec (await (function [a] (do Monad<IO>
-                                   [_ (resolve (f a) fb)]
-                                   (wrap [])))
+      (exec (await (function [a] (resolve (f a) fb))
                    fa)
         fb))))
 
@@ -106,9 +104,7 @@
   (def: (apply ff fa)
     (let [fb (promise ($ +1))]
       (exec (await (function [f]
-                     (io (await (function [a] (do Monad<IO>
-                                                [_ (resolve (f a) fb)]
-                                                (wrap [])))
+                     (io (await (function [a] (resolve (f a) fb))
                                 fa)))
                    ff)
         fb))
@@ -120,10 +116,7 @@
   (def: (join mma)
     (let [ma (promise ($ +0))]
       (exec (await (function [ma']
-                     (io (await (function [a']
-                                  (do Monad<IO>
-                                    [_ (resolve a' ma)]
-                                    (wrap [])))
+                     (io (await (function [a'] (resolve a' ma))
                                 ma')))
                    mma)
         ma))))
@@ -142,10 +135,7 @@
   (let [a|b (promise (Either ($ +0) ($ +1)))]
     (with-expansions
       [<sides> (do-template [<promise> <tag>]
-                 [(await (function [value]
-                           (do Monad<IO>
-                             [_ (resolve (<tag> value) a|b)]
-                             (wrap [])))
+                 [(await (function [value] (resolve (<tag> value) a|b))
                          <promise>)]
 
                  [left  #;Left]
@@ -158,19 +148,13 @@
   {#;doc "Homogeneous alternative combinator."}
   (All [a] (-> (Promise a) (Promise a) (Promise a)))
   (let [left||right (promise ($ +0))]
-    (with-expansions
-      [<sides> (do-template [<promise>]
-                 [(await [(function [value]
-                            (do Monad<IO>
-                              [_ (resolve value left||right)]
-                              (wrap [])))]
-                         <promise>)]
+    (`` (exec (~~ (do-template [<promise>]
+                    [(await (function [value] (resolve value left||right))
+                            <promise>)]
 
-                 [left]
-                 [right]
-                 )]
-      (exec <sides>
-        left||right))))
+                    [left]
+                    [right]))
+          left||right))))
 
 (def: #export (future computation)
   {#;doc "Runs an I/O computation on its own process and returns an Promise that will eventually host its result."}

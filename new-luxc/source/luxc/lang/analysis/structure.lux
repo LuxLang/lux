@@ -20,9 +20,12 @@
               (analysis ["&;" common]
                         ["&;" inference]))))
 
-(exception: #export Not-Variant-Type)
-(exception: #export Not-Tuple-Type)
+(exception: #export Invalid-Variant-Type)
+(exception: #export Invalid-Tuple-Type)
 (exception: #export Not-Quantified-Type)
+
+(exception: #export Cannot-Analyse-Variant)
+(exception: #export Cannot-Analyse-Tuple)
 
 (exception: #export Cannot-Infer-Numeric-Tag)
 (exception: #export Record-Keys-Must-Be-Tags)
@@ -35,9 +38,9 @@
   (do macro;Monad<Meta>
     [expectedT macro;expected-type]
     (&;with-stacked-errors
-      (function [_] (Not-Variant-Type (format " Type: " (%type expectedT) "\n"
-                                              "Value: " (%code  valueC) "\n"
-                                              "  Tag: " (%n tag))))
+      (function [_] (Cannot-Analyse-Variant (format "      Type: " (%type expectedT) "\n"
+                                                    "       Tag: " (%n tag) "\n"
+                                                    "Expression: " (%code  valueC))))
       (case expectedT
         (#;Sum _)
         (let [flat (type;flatten-variant expectedT)
@@ -70,9 +73,9 @@
             ## Cannot do inference when the tag is numeric.
             ## This is because there is no way of knowing how many
             ## cases the inferred sum type would have.
-            (&;throw Cannot-Infer-Numeric-Tag (format "  Tag: " (%n tag) "\n"
-                                                      "Value: " (%code  valueC) "\n"
-                                                      " Type: " (%type expectedT)))
+            (&;throw Cannot-Infer-Numeric-Tag (format "      Type: " (%type expectedT) "\n"
+                                                      "       Tag: " (%n tag) "\n"
+                                                      "Expression: " (%code  valueC)))
             ))
 
         (^template [<tag> <instancer>]
@@ -95,9 +98,9 @@
                 (analyse-sum analyse tag valueC))
 
               _
-              (&;throw Not-Variant-Type (format " Type: " (%type expectedT) "\n"
-                                                "  Tag: " (%n tag) "\n"
-                                                "Value: " (%code  valueC)))))
+              (&;throw Invalid-Variant-Type (format "      Type: " (%type expectedT) "\n"
+                                                    "       Tag: " (%n tag) "\n"
+                                                    "Expression: " (%code  valueC)))))
 
           _
           (case (type;apply (list inputT) funT)
@@ -109,9 +112,9 @@
               (analyse-sum analyse tag valueC))))
         
         _
-        (&;throw Not-Variant-Type (format " Type: " (%type expectedT) "\n"
-                                          "  Tag: " (%n tag) "\n"
-                                          "Value: " (%code  valueC)))))))
+        (&;throw Invalid-Variant-Type (format "      Type: " (%type expectedT) "\n"
+                                              "       Tag: " (%n tag) "\n"
+                                              "Expression: " (%code  valueC)))))))
 
 (def: (analyse-typed-product analyse membersC+)
   (-> &;Analyser (List Code) (Meta la;Analysis))
@@ -166,8 +169,8 @@
   (do macro;Monad<Meta>
     [expectedT macro;expected-type]
     (&;with-stacked-errors
-      (function [_] (Not-Tuple-Type (format " Type: " (%type expectedT) "\n"
-                                            "Value: " (%code (` [(~@ membersC)])))))
+      (function [_] (Cannot-Analyse-Tuple (format "      Type: " (%type expectedT) "\n"
+                                                  "Expression: " (%code (` [(~@ membersC)])))))
       (case expectedT
         (#;Product _)
         (analyse-typed-product analyse membersC)
@@ -215,8 +218,8 @@
                 (analyse-product analyse membersC))
 
               _
-              (&;throw Not-Tuple-Type (format " Type: " (%type expectedT) "\n"
-                                              "Value: " (%code (` [(~@ membersC)]))))))
+              (&;throw Invalid-Tuple-Type (format "      Type: " (%type expectedT) "\n"
+                                                  "Expression: " (%code (` [(~@ membersC)]))))))
 
           _
           (case (type;apply (list inputT) funT)
@@ -228,14 +231,14 @@
               (analyse-product analyse membersC))))
         
         _
-        (&;throw Not-Tuple-Type (format " Type: " (%type expectedT) "\n"
-                                        "Value: " (%code (` [(~@ membersC)]))))
+        (&;throw Invalid-Tuple-Type (format "      Type: " (%type expectedT) "\n"
+                                            "Expression: " (%code (` [(~@ membersC)]))))
         ))))
 
 (def: #export (analyse-tagged-sum analyse tag valueC)
   (-> &;Analyser Ident Code (Meta la;Analysis))
   (do macro;Monad<Meta>
-    [tag (macro;canonical tag)
+    [tag (macro;normalize tag)
      [idx group variantT] (macro;resolve-tag tag)
      expectedT macro;expected-type]
     (case expectedT
@@ -261,7 +264,7 @@
                (case key
                  [_ (#;Tag key)]
                  (do macro;Monad<Meta>
-                   [key (macro;canonical key)]
+                   [key (macro;normalize key)]
                    (wrap [key val]))
 
                  _
@@ -281,22 +284,26 @@
 
     (#;Cons [head-k head-v] _)
     (do macro;Monad<Meta>
-      [head-k (macro;canonical head-k)
+      [head-k (macro;normalize head-k)
        [_ tag-set recordT] (macro;resolve-tag head-k)
        #let [size-record (list;size record)
              size-ts (list;size tag-set)]
        _ (if (n.= size-ts size-record)
            (wrap [])
            (&;throw Record-Size-Mismatch
-                    (format "Expected: " (|> size-ts nat-to-int %i) "\n"
-                            "  Actual: " (|> size-record nat-to-int %i) "\n"
-                            "   Type: " (%type recordT))))
+                    (format "  Expected: " (|> size-ts nat-to-int %i) "\n"
+                            "    Actual: " (|> size-record nat-to-int %i) "\n"
+                            "      Type: " (%type recordT) "\n"
+                            "Expression: " (%code (|> record
+                                                      (list/map (function [[keyI valueC]]
+                                                                  [(code;tag keyI) valueC]))
+                                                      code;record)))))
        #let [tuple-range (list;n.range +0 (n.dec size-ts))
              tag->idx (dict;from-list ident;Hash<Ident> (list;zip2 tag-set tuple-range))]
        idx->val (monad;fold @
                             (function [[key val] idx->val]
                               (do @
-                                [key (macro;canonical key)]
+                                [key (macro;normalize key)]
                                 (case (dict;get key tag->idx)
                                   #;None
                                   (&;throw Tag-Does-Not-Belong-To-Record

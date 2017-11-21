@@ -156,18 +156,18 @@
     (|do [:let [(&/$Nil) ?values]]
       (<compiler> <value>)))
 
-  ^:private compile-nat-min-value &&lux/compile-nat  0
-  ^:private compile-nat-max-value &&lux/compile-nat -1
+  ^:private compile-nat-min &&lux/compile-nat  0
+  ^:private compile-nat-max &&lux/compile-nat -1
 
-  ^:private compile-int-min-value &&lux/compile-int Long/MIN_VALUE
-  ^:private compile-int-max-value &&lux/compile-int Long/MAX_VALUE
+  ^:private compile-int-min &&lux/compile-int Long/MIN_VALUE
+  ^:private compile-int-max &&lux/compile-int Long/MAX_VALUE
   
-  ^:private compile-deg-min-value &&lux/compile-deg  0
-  ^:private compile-deg-max-value &&lux/compile-deg -1
+  ^:private compile-deg-min &&lux/compile-deg  0
+  ^:private compile-deg-max &&lux/compile-deg -1
 
-  ^:private compile-frac-smallest-value &&lux/compile-frac Double/MIN_VALUE
-  ^:private compile-frac-min-value &&lux/compile-frac (* -1.0 Double/MAX_VALUE)
-  ^:private compile-frac-max-value &&lux/compile-frac Double/MAX_VALUE
+  ^:private compile-frac-smallest &&lux/compile-frac Double/MIN_VALUE
+  ^:private compile-frac-min &&lux/compile-frac (* -1.0 Double/MAX_VALUE)
+  ^:private compile-frac-max &&lux/compile-frac Double/MAX_VALUE
 
   ^:private compile-frac-not-a-number      &&lux/compile-frac "NaN" 
   ^:private compile-frac-positive-infinity &&lux/compile-frac "Infinity"
@@ -295,8 +295,8 @@
       (return (str "(" =text ")." <method> "()"))))
 
   ^:private compile-text-trim       "trim"
-  ^:private compile-text-upper-case "toUpperCase"
-  ^:private compile-text-lower-case "toLowerCase"
+  ^:private compile-text-upper "toUpperCase"
+  ^:private compile-text-lower "toLowerCase"
   )
 
 (defn ^:private compile-char-to-text [compile ?values special-args]
@@ -455,8 +455,8 @@
       "replace-all"          (compile-text-replace-all compile ?values special-args)
       "trim"                 (compile-text-trim compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
-      "upper-case"           (compile-text-upper-case compile ?values special-args)
-      "lower-case"           (compile-text-lower-case compile ?values special-args)
+      "upper"           (compile-text-upper compile ?values special-args)
+      "lower"           (compile-text-lower compile ?values special-args)
       "contains?"            (compile-text-contains? compile ?values special-args)
       )
     
@@ -487,8 +487,8 @@
       "%"         (compile-nat-rem compile ?values special-args)
       "="         (compile-nat-eq compile ?values special-args)
       "<"         (compile-nat-lt compile ?values special-args)
-      "max-value" (compile-nat-max-value compile ?values special-args)
-      "min-value" (compile-nat-min-value compile ?values special-args)
+      "max" (compile-nat-max compile ?values special-args)
+      "min" (compile-nat-min compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)
       "to-char"   (compile-nat-to-char compile ?values special-args)
       )
@@ -502,8 +502,8 @@
       "%"         (compile-int-rem compile ?values special-args)
       "="         (compile-int-eq compile ?values special-args)
       "<"         (compile-int-lt compile ?values special-args)
-      "max-value" (compile-int-max-value compile ?values special-args)
-      "min-value" (compile-int-min-value compile ?values special-args)
+      "max" (compile-int-max compile ?values special-args)
+      "min" (compile-int-min compile ?values special-args)
       "to-nat"    (compile-int-to-nat compile ?values special-args)
       "to-frac"   (compile-int-to-frac compile ?values special-args)
       )
@@ -517,8 +517,8 @@
       "%"         (compile-deg-rem compile ?values special-args)
       "="         (compile-deg-eq compile ?values special-args)
       "<"         (compile-deg-lt compile ?values special-args)
-      "max-value" (compile-deg-max-value compile ?values special-args)
-      "min-value" (compile-deg-min-value compile ?values special-args)
+      "max" (compile-deg-max compile ?values special-args)
+      "min" (compile-deg-min compile ?values special-args)
       "to-frac"   (compile-deg-to-frac compile ?values special-args)
       "scale"     (compile-deg-scale compile ?values special-args)
       "reciprocal" (compile-deg-reciprocal compile ?values special-args)
@@ -535,9 +535,9 @@
       "<"         (compile-frac-lt compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
-      "smallest-value" (compile-frac-smallest-value compile ?values special-args)
-      "max-value" (compile-frac-max-value compile ?values special-args)
-      "min-value" (compile-frac-min-value compile ?values special-args)
+      "smallest" (compile-frac-smallest compile ?values special-args)
+      "max" (compile-frac-max compile ?values special-args)
+      "min" (compile-frac-min compile ?values special-args)
       "not-a-number" (compile-frac-not-a-number compile ?values special-args)
       "positive-infinity" (compile-frac-positive-infinity compile ?values special-args)
       "negative-infinity" (compile-frac-negative-infinity compile ?values special-args)

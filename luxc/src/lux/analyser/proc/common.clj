@@ -121,8 +121,8 @@
                                            (&/|list =text)
                                            (&/|list)))))))
 
-  ^:private analyse-text-upper-case "upper-case"
-  ^:private analyse-text-lower-case "lower-case"
+  ^:private analyse-text-upper "upper"
+  ^:private analyse-text-lower "lower"
   )
 
 (defn ^:private analyse-text-char [analyse exo-type ?values]
@@ -260,18 +260,18 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
-  ^:private analyse-nat-min-value            &type/Nat  ["nat"  "min-value"]
-  ^:private analyse-nat-max-value            &type/Nat  ["nat"  "max-value"]
+  ^:private analyse-nat-min                  &type/Nat  ["nat"  "min"]
+  ^:private analyse-nat-max                  &type/Nat  ["nat"  "max"]
 
-  ^:private analyse-int-min-value            &type/Int  ["int"  "min-value"]
-  ^:private analyse-int-max-value            &type/Int  ["int"  "max-value"]
+  ^:private analyse-int-min                  &type/Int  ["int"  "min"]
+  ^:private analyse-int-max                  &type/Int  ["int"  "max"]
 
-  ^:private analyse-deg-min-value           &type/Deg ["deg" "min-value"]
-  ^:private analyse-deg-max-value           &type/Deg ["deg" "max-value"]
+  ^:private analyse-deg-min                 &type/Deg ["deg" "min"]
+  ^:private analyse-deg-max                 &type/Deg ["deg" "max"]
 
-  ^:private analyse-frac-smallest-value     &type/Frac  ["frac"  "smallest-value"]
-  ^:private analyse-frac-min-value          &type/Frac  ["frac"  "min-value"]
-  ^:private analyse-frac-max-value          &type/Frac  ["frac"  "max-value"]
+  ^:private analyse-frac-smallest           &type/Frac  ["frac"  "smallest"]
+  ^:private analyse-frac-min                &type/Frac  ["frac"  "min"]
+  ^:private analyse-frac-max                &type/Frac  ["frac"  "max"]
   ^:private analyse-frac-not-a-number       &type/Frac  ["frac"  "not-a-number"]
   ^:private analyse-frac-positive-infinity  &type/Frac  ["frac"  "positive-infinity"]
   ^:private analyse-frac-negative-infinity  &type/Frac  ["frac"  "negative-infinity"]
@@ -491,8 +491,8 @@
          "lux text hash"                 (analyse-text-hash analyse exo-type ?values)
          "lux text replace-all"          (analyse-text-replace-all analyse exo-type ?values)
          "lux text char"                 (analyse-text-char analyse exo-type ?values)
-         "lux text upper-case"           (analyse-text-upper-case analyse exo-type ?values)
-         "lux text lower-case"           (analyse-text-lower-case analyse exo-type ?values)
+         "lux text upper"           (analyse-text-upper analyse exo-type ?values)
+         "lux text lower"           (analyse-text-lower analyse exo-type ?values)
          "lux text contains?"            (analyse-text-contains? analyse exo-type ?values)
          
          "lux bit count"                (analyse-bit-count analyse exo-type ?values)
@@ -516,8 +516,8 @@
          "lux nat %" (analyse-nat-rem analyse exo-type ?values)
          "lux nat =" (analyse-nat-eq analyse exo-type ?values)
          "lux nat <" (analyse-nat-lt analyse exo-type ?values)
-         "lux nat min-value" (analyse-nat-min-value analyse exo-type ?values)
-         "lux nat max-value" (analyse-nat-max-value analyse exo-type ?values)
+         "lux nat min" (analyse-nat-min analyse exo-type ?values)
+         "lux nat max" (analyse-nat-max analyse exo-type ?values)
          "lux nat to-int" (analyse-nat-to-int analyse exo-type ?values)
          "lux nat to-char" (analyse-nat-to-char analyse exo-type ?values)
          
@@ -528,8 +528,8 @@
          "lux int %" (analyse-int-rem analyse exo-type ?values)
          "lux int =" (analyse-int-eq analyse exo-type ?values)
          "lux int <" (analyse-int-lt analyse exo-type ?values)
-         "lux int min-value" (analyse-int-min-value analyse exo-type ?values)
-         "lux int max-value" (analyse-int-max-value analyse exo-type ?values)
+         "lux int min" (analyse-int-min analyse exo-type ?values)
+         "lux int max" (analyse-int-max analyse exo-type ?values)
          "lux int to-nat" (analyse-int-to-nat analyse exo-type ?values)
          "lux int to-frac" (analyse-int-to-frac analyse exo-type ?values)
          
@@ -540,8 +540,8 @@
          "lux deg %" (analyse-deg-rem analyse exo-type ?values)
          "lux deg =" (analyse-deg-eq analyse exo-type ?values)
          "lux deg <" (analyse-deg-lt analyse exo-type ?values)
-         "lux deg min-value" (analyse-deg-min-value analyse exo-type ?values)
-         "lux deg max-value" (analyse-deg-max-value analyse exo-type ?values)
+         "lux deg min" (analyse-deg-min analyse exo-type ?values)
+         "lux deg max" (analyse-deg-max analyse exo-type ?values)
          "lux deg to-frac" (analyse-deg-to-frac analyse exo-type ?values)
          "lux deg scale" (analyse-deg-scale analyse exo-type ?values)
          "lux deg reciprocal" (analyse-deg-reciprocal analyse exo-type ?values)
@@ -555,9 +555,9 @@
          "lux frac <" (analyse-frac-lt analyse exo-type ?values)
          "lux frac encode" (analyse-frac-encode analyse exo-type ?values)
          "lux frac decode" (analyse-frac-decode analyse exo-type ?values)
-         "lux frac smallest-value" (analyse-frac-smallest-value analyse exo-type ?values)
-         "lux frac min-value" (analyse-frac-min-value analyse exo-type ?values)
-         "lux frac max-value" (analyse-frac-max-value analyse exo-type ?values)
+         "lux frac smallest" (analyse-frac-smallest analyse exo-type ?values)
+         "lux frac min" (analyse-frac-min analyse exo-type ?values)
+         "lux frac max" (analyse-frac-max analyse exo-type ?values)
          "lux frac not-a-number" (analyse-frac-not-a-number analyse exo-type ?values)
          "lux frac positive-infinity" (analyse-frac-positive-infinity analyse exo-type ?values)
          "lux frac negative-infinity" (analyse-frac-negative-infinity analyse exo-type ?values)

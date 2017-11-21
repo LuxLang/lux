@@ -16,7 +16,18 @@
               (translation [";T" common]
                            [";T" runtime]
                            [";T" reference])
-              [";L" variable #+ Variable])))
+              [";L" variable #+ Variable Register])))
+
+(def: (constant? register changeS)
+  (-> Register ls;Synthesis Bool)
+  (case changeS
+    (^multi (^code ((~ [_ (#;Int var)])))
+            (i.= (variableL;local register)
+                 var))
+    true
+
+    _
+    false))
 
 (def: #export (translate-recur translate argsS)
   (-> (-> ls;Synthesis (Meta $;Inst))
@@ -24,23 +35,30 @@
       (Meta $;Inst))
   (do macro;Monad<Meta>
     [[@begin offset] hostL;anchor
-     argsI (monad;map @ (function [[register argS]]
-                          (let [register' (|> register (n.+ offset))]
-                            (: (Meta $;Inst)
-                               (case argS
-                                 (^multi (^code ((~ [_ (#;Int var)])))
-                                         (i.= (variableL;local register')
-                                              var))
-                                 (wrap id)
-
-                                 _
-                                 (do @
-                                   [argI (translate argS)]
-                                   (wrap (|>. argI
-                                              ($i;ASTORE register'))))))))
-                      (list;zip2 (list;n.range +0 (n.dec (list;size argsS)))
-                                 argsS))]
-    (wrap (|>. ($i;fuse argsI)
+     #let [pairs (list;zip2 (list;n.range offset (|> (list;size argsS) n.dec (n.+ offset)))
+                            argsS)]
+     ## It may look weird that first I compile the values separately,
+     ## and then I compile the stores/allocations.
+     ## It must be done that way in order to avoid a potential bug.
+     ## Let's say that you'll recur with 2 expressions: X and Y.
+     ## If Y depends on the value of X, and you don't compile values
+     ## and stores separately, then by the time Y is evaluated, it
+     ## will refer to the new value of X, instead of the old value, as
+     ## must be the case.
+     valuesI+ (monad;map @ (function [[register argS]]
+                             (: (Meta $;Inst)
+                                (if (constant? register argS)
+                                  (wrap id)
+                                  (translate argS))))
+                         pairs)
+     #let [storesI+ (list/map (function [[register argS]]
+                                (: $;Inst
+                                   (if (constant? register argS)
+                                     id
+                                     ($i;ASTORE register))))
+                              (list;reverse pairs))]]
+    (wrap (|>. ($i;fuse valuesI+)
+               ($i;fuse storesI+)
                ($i;GOTO @begin)))))
 
 (def: #export (translate-loop translate offset initsS+ bodyS)
@@ -50,12 +68,12 @@
   (do macro;Monad<Meta>
     [@begin $i;make-label
      initsI+ (monad;map @ translate initsS+)
-     bodyI (hostL;with-anchor [@begin (n.inc offset)]
+     bodyI (hostL;with-anchor [@begin offset]
              (translate bodyS))
      #let [initializationI (|> (list;enumerate initsI+)
                                (list/map (function [[register initI]]
                                            (|>. initI
-                                                ($i;ASTORE (|> register n.inc (n.+ offset))))))
+                                                ($i;ASTORE (n.+ offset register)))))
                                $i;fuse)]]
     (wrap (|>. initializationI
                ($i;label @begin)
