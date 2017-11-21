@@ -2,16 +2,18 @@
   lux
   (lux (control [monad #+ do]
                 ["ex" exception #+ exception:])
-       (concurrency ["T" task])
+       (concurrency ["P" promise]
+                    ["T" task])
        (data ["e" error]
              [text "text/" Hash<Text>]
              text/format
-             (coll [dict]))
+             (coll [list]
+                   [dict]))
        [macro]
        (lang [syntax]
              (type ["tc" check]))
        [host]
-       [io]
+       [io #+ IO Process io]
        (world [file #+ File]))
   (luxc ["&" lang]
         ["&;" io]
@@ -26,7 +28,8 @@
                            [";T" statement]
                            [";T" common]
                            [";T" expression]
-                           [";T" eval])
+                           [";T" eval]
+                           [";T" imports])
               ["&;" eval])
         ))
 
@@ -36,6 +39,7 @@
 
 (exception: #export Macro-Expansion-Failed)
 (exception: #export Unrecognized-Statement)
+(exception: #export Invalid-Alias)
 
 (def: (process-annotations annsC)
   (-> Code (Meta [$;Inst Code]))
@@ -47,28 +51,84 @@
      annsV (evalT;eval annsI)]
     (wrap [annsI (:! Code annsV)])))
 
-(def: (translate code)
-  (-> Code (Meta Unit))
+(def: (switch-compiler new-compiler)
+  (-> Compiler (Meta Unit))
+  (function [old-compiler]
+    (#e;Success [new-compiler []])))
+
+(def: (ensure-valid-alias def-name annotations value)
+  (-> Text Code Code (Meta Unit))
+  (case [annotations value]
+    (^multi [[_ (#;Record pairs)] [_ (#;Symbol _)]]
+            (|> pairs list;size (n.= +1)))
+    (:: macro;Monad<Meta> wrap [])
+
+    _
+    (&;throw Invalid-Alias def-name)))
+
+(def: (translate translate-module code)
+  (-> (-> Text Compiler (Process Compiler)) Code (Meta Unit))
   (case code
+    (^code ((~ [_ (#;Symbol macro-name)]) (~@ args)))
+    (do macro;Monad<Meta>
+      [?macro (&;with-error-tracking
+                (macro;find-macro macro-name))]
+      (case ?macro
+        (#;Some macro)
+        (do @
+          [expansion (function [compiler]
+                       (case (macroL;expand macro args compiler)
+                         (#e;Success [compiler' output])
+                         (#e;Success [compiler' output])
+
+                         (#e;Error error)
+                         ((&;throw Macro-Expansion-Failed error) compiler)))
+           _ (monad;map @ (translate translate-module) expansion)]
+          (wrap []))
+
+        #;None
+        (&;throw Unrecognized-Statement (%code code))))
+    
     (^code ("lux def" (~ [_ (#;Symbol ["" def-name])]) (~ valueC) (~ annsC)))
     (hostL;with-context def-name
       (&;with-fresh-type-env
         (do macro;Monad<Meta>
-          [[annsI annsV] (process-annotations annsC)
-           [_ valueT valueA] (&;with-scope
-                               (if (macro;type? (:! Code annsV))
-                                 (do @
-                                   [valueA (&;with-type Type
-                                             (analyse valueC))]
-                                   (wrap [Type valueA]))
-                                 (commonA;with-unknown-type
-                                   (analyse valueC))))
-           valueT (&;with-type-env
-                    (tc;clean valueT))
-           valueI (expressionT;translate (expressionS;synthesize valueA))
-           _ (&;with-scope
-               (statementT;translate-def def-name valueT valueI annsI annsV))]
-          (wrap []))))
+          [[annsI annsV] (process-annotations annsC)]
+          (case (macro;get-symbol-ann (ident-for #;alias) annsV)
+            (#;Some real-def)
+            (do @
+              [_ (ensure-valid-alias def-name annsV valueC)
+               _ (&;with-scope
+                   (statementT;translate-def def-name Void id annsI annsV))]
+              (wrap []))
+
+            #;None
+            (do @
+              [[_ valueT valueA] (&;with-scope
+                                   (if (macro;type? (:! Code annsV))
+                                     (do @
+                                       [valueA (&;with-type Type
+                                                 (analyse valueC))]
+                                       (wrap [Type valueA]))
+                                     (commonA;with-unknown-type
+                                       (analyse valueC))))
+               valueT (&;with-type-env
+                        (tc;clean valueT))
+               valueI (expressionT;translate (expressionS;synthesize valueA))
+               _ (&;with-scope
+                   (statementT;translate-def def-name valueT valueI annsI annsV))]
+              (wrap []))))))
+
+    (^code ("lux module" (~ annsC)))
+    (do macro;Monad<Meta>
+      [[annsI annsV] (process-annotations annsC)
+       process (importsT;translate-imports translate-module annsV)]
+      (case (io;run process)
+        (#e;Success compiler')
+        (switch-compiler compiler')
+        
+        (#e;Error error)
+        (macro;fail error)))
 
     (^code ("lux program" (~ [_ (#;Symbol ["" program-args])]) (~ programC)))
     (do macro;Monad<Meta>
@@ -77,28 +137,6 @@
                         (analyse programC)))
        programI (expressionT;translate (expressionS;synthesize programA))]
       (statementT;translate-program program-args programI))
-
-    (^code ("lux module" (~ annsC)))
-    (do macro;Monad<Meta>
-      [[annsI annsV] (process-annotations annsC)]
-      (&;fail (%code annsV)))
-
-    (^code ((~ [_ (#;Symbol macro-name)]) (~@ args)))
-    (do macro;Monad<Meta>
-      [macro-name (macro;normalize macro-name)
-       [def-type def-anns def-value] (macro;find-def macro-name)]
-      (if (macro;macro? def-anns)
-        (do @
-          [expansion (function [compiler]
-                       (case (macroL;expand (:! Macro def-value) args compiler)
-                         (#e;Success [compiler' output])
-                         (#e;Success [compiler' output])
-
-                         (#e;Error error)
-                         ((&;throw Macro-Expansion-Failed error) compiler)))
-           _ (monad;map @ translate expansion)]
-          (wrap []))
-        (&;throw Unrecognized-Statement (%code code))))
 
     _
     (&;throw Unrecognized-Statement (%code code))))
@@ -126,10 +164,10 @@
      _ (moduleL;flag-compiled! module-name)]
     (wrap output)))
 
-(def: (parse current-module)
+(def: (read current-module)
   (-> Text (Meta Code))
   (function [compiler]
-    (case (syntax;parse current-module (get@ #;source compiler))
+    (case (syntax;read current-module (get@ #;source compiler))
       (#e;Error error)
       (#e;Error error)
 
@@ -138,11 +176,13 @@
                    output]))))
 
 (def: (translate-module source-dirs target-dir module-name compiler)
-  (-> (List File) File Text Compiler (T;Task Compiler))
-  (do T;Monad<Task>
-    [_ (&io;prepare-module target-dir module-name)
+  (-> (List File) File Text Compiler (Process Compiler))
+  (do io;Monad<Process>
+    [#let [_ (log! (format "{translate-module} " module-name))]
+     ## _ (&io;prepare-module target-dir module-name)
      [file-name file-content] (&io;read-module source-dirs module-name)
-     #let [module-hash (text/hash file-content)]]
+     #let [module-hash (text/hash file-content)
+           translate-module (translate-module source-dirs target-dir)]]
     (case (macro;run' compiler
                       (do macro;Monad<Meta>
                         [[_ artifacts _] (moduleL;with-module module-hash module-name
@@ -152,20 +192,21 @@
                                                                        file-content]
                                                (exhaust
                                                 (do @
-                                                  [code (parse module-name)
+                                                  [code (read module-name)
                                                    #let [[cursor _] code]]
                                                   (&;with-cursor cursor
-                                                    (translate code)))))))]
+                                                    (translate translate-module code)))))))]
                         (wrap artifacts)))
       (#e;Success [compiler artifacts])
       (do @
-        [_ (monad;map @ (function [[class-name class-bytecode]]
-                          (&io;write-file target-dir class-name class-bytecode))
-                      (dict;entries artifacts))]
+        [## _ (monad;map @ (function [[class-name class-bytecode]]
+         ##                  (&io;write-file target-dir class-name class-bytecode))
+         ##              (dict;entries artifacts))
+         ]
         (wrap compiler))
       
       (#e;Error error)
-      (T;fail error))))
+      (io;fail error))))
 
 (def: init-cursor Cursor ["" +1 +0])
 
@@ -177,7 +218,8 @@
 
 (def: #export init-info
   Info
-  {#;target  "JVM"
+  {#;target  (for {"JVM" "JVM"
+                   "JS" "JS"})
    #;version &;version
    #;mode    #;Build})
 
@@ -205,11 +247,11 @@
                     (#e;Success [compiler [runtime-bc function-bc]])
                     (do @
                       [_ (&io;prepare-target target)
-                       _ (&io;write-file target hostL;runtime-class runtime-bc)
-                       _ (&io;write-file target hostL;function-class function-bc)]
+                       _ (&io;write-file target (format hostL;runtime-class ".class") runtime-bc)
+                       _ (&io;write-file target (format hostL;function-class ".class") function-bc)]
                       (wrap compiler)))
                   (: (T;Task Compiler))
-                  (:: @ map (translate-module sources target prelude)) (:: @ join)
-                  (:: @ map (translate-module sources target program)) (:: @ join))
+                  (:: @ map (|>. (translate-module sources target prelude) P;future)) (:: @ join)
+                  (:: @ map (|>. (translate-module sources target program) P;future)) (:: @ join))
      #let [_ (log! "Compilation complete!")]]
     (wrap [])))

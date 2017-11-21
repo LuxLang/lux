@@ -1,8 +1,8 @@
 (;module: {#;doc "Functions for extracting information from the state of the compiler."}
   lux
-  (lux (control ["F" functor]
-                ["A" applicative]
-                ["M" monad #+ do Monad])
+  (lux (control [functor #+ Functor]
+                [applicative #+ Applicative]
+                [monad #+ do Monad])
        (data [number]
              [product]
              [ident "ident/" Codec<Text,Ident> Eq<Ident>]
@@ -15,30 +15,30 @@
 ## (type: (Meta a)
 ##   (-> Compiler (e;Error [Compiler a])))
 
-(struct: #export _ (F;Functor Meta)
+(struct: #export _ (Functor Meta)
   (def: (map f fa)
-    (function [state]
-      (case (fa state)
+    (function [compiler]
+      (case (fa compiler)
         (#e;Error msg)
         (#e;Error msg)
 
-        (#e;Success [state' a])
-        (#e;Success [state' (f a)])))))
+        (#e;Success [compiler' a])
+        (#e;Success [compiler' (f a)])))))
 
-(struct: #export _ (A;Applicative Meta)
+(struct: #export _ (Applicative Meta)
   (def: functor Functor<Meta>)
 
   (def: (wrap x)
-    (function [state]
-      (#e;Success [state x])))
+    (function [compiler]
+      (#e;Success [compiler x])))
 
   (def: (apply ff fa)
-    (function [state]
-      (case (ff state)
-        (#e;Success [state' f])
-        (case (fa state')
-          (#e;Success [state'' a])
-          (#e;Success [state'' (f a)])
+    (function [compiler]
+      (case (ff compiler)
+        (#e;Success [compiler' f])
+        (case (fa compiler')
+          (#e;Success [compiler'' a])
+          (#e;Success [compiler'' (f a)])
 
           (#e;Error msg)
           (#e;Error msg))
@@ -50,13 +50,13 @@
   (def: applicative Applicative<Meta>)
   
   (def: (join mma)
-    (function [state]
-      (case (mma state)
+    (function [compiler]
+      (case (mma compiler)
         (#e;Error msg)
         (#e;Error msg)
 
-        (#e;Success [state' ma])
-        (ma state')))))
+        (#e;Success [compiler' ma])
+        (ma compiler')))))
 
 (def: (get k plist)
   (All [a]
@@ -111,20 +111,20 @@
 
 (def: #export (find-module name)
   (-> Text (Meta Module))
-  (function [state]
-    (case (get name (get@ #;modules state))
+  (function [compiler]
+    (case (get name (get@ #;modules compiler))
       (#;Some module)
-      (#e;Success [state module])
+      (#e;Success [compiler module])
 
       _
       (#e;Error ($_ text/compose "Unknown module: " name)))))
 
 (def: #export current-module-name
   (Meta Text)
-  (function [state]
-    (case (get@ #;current-module state)
+  (function [compiler]
+    (case (get@ #;current-module compiler)
       (#;Some current-module)
-      (#e;Success [state current-module])
+      (#e;Success [compiler current-module])
 
       _
       (#e;Error "No current module.")
@@ -183,7 +183,7 @@
 (def: #export (get-doc anns)
   {#;doc "Looks-up a definition's documentation."}
   (-> Code (Maybe Text))
-  (get-text-ann ["lux" "doc"] anns))
+  (get-text-ann (ident-for #;doc) anns))
 
 (def: #export (flag-set? flag-name anns)
   {#;doc "Finds out whether an annotation-as-a-flag is set (has value 'true')."}
@@ -204,6 +204,15 @@
   [type-rec? #;type-rec? "a recursive type"]
   [sig?      #;sig?      "a signature"]
   )
+
+(def: #export (aliased? annotations)
+  (-> Code Bool)
+  (case (get-symbol-ann (ident-for #;alias) annotations)
+    (#;Some _)
+    true
+
+    #;None
+    false))
 
 (do-template [<name> <tag> <type>]
   [(def: (<name> input)
@@ -227,7 +236,7 @@
                     (do maybe;Monad<Maybe>
                       [_args (get-ann (ident-for <tag>) anns)
                        args (parse-tuple _args)]
-                      (M;map @ parse-text args))))]
+                      (monad;map @ parse-text args))))]
 
   [func-args     #;func-args "Looks up the arguments of a function."]
   [type-args     #;type-args "Looks up the arguments of a parameterized type."]
@@ -243,21 +252,12 @@
     (if (and (macro? def-anns)
              (or (export? def-anns) (text/= module this-module)))
       (#;Some (:! Macro def-value))
-      (case (get-symbol-ann ["lux" "alias"] def-anns)
+      (case (get-symbol-ann (ident-for #;alias) def-anns)
         (#;Some [r-module r-name])
         (find-macro' modules this-module r-module r-name)
 
         _
         #;None))))
-
-(def: #export (find-macro ident)
-  (-> Ident (Meta (Maybe Macro)))
-  (do Monad<Meta>
-    [this-module current-module-name]
-    (let [[module name] ident]
-      (: (Meta (Maybe Macro))
-         (function [state]
-           (#e;Success [state (find-macro' (get@ #;modules state) this-module module name)]))))))
 
 (def: #export (normalize ident)
   {#;doc "If given an identifier without a module prefix, gives it the current module's name as prefix.
@@ -273,6 +273,16 @@
     _
     (:: Monad<Meta> wrap ident)))
 
+(def: #export (find-macro ident)
+  (-> Ident (Meta (Maybe Macro)))
+  (do Monad<Meta>
+    [ident (normalize ident)
+     this-module current-module-name]
+    (let [[module name] ident]
+      (: (Meta (Maybe Macro))
+         (function [compiler]
+           (#e;Success [compiler (find-macro' (get@ #;modules compiler) this-module module name)]))))))
+
 (def: #export (expand-once syntax)
   {#;doc "Given code that requires applying a macro, does it once and returns the result.
 
@@ -281,8 +291,7 @@
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol name)] args]))]
     (do Monad<Meta>
-      [name' (normalize name)
-       ?macro (find-macro name')]
+      [?macro (find-macro name)]
       (case ?macro
         (#;Some macro)
         (macro args)
@@ -301,13 +310,12 @@
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol name)] args]))]
     (do Monad<Meta>
-      [name' (normalize name)
-       ?macro (find-macro name')]
+      [?macro (find-macro name)]
       (case ?macro
         (#;Some macro)
         (do Monad<Meta>
           [expansion (macro args)
-           expansion' (M;map Monad<Meta> expand expansion)]
+           expansion' (monad;map Monad<Meta> expand expansion)]
           (wrap (list/join expansion')))
         
         #;None
@@ -322,29 +330,28 @@
   (case syntax
     [_ (#;Form (#;Cons [[_ (#;Symbol name)] args]))]
     (do Monad<Meta>
-      [name' (normalize name)
-       ?macro (find-macro name')]
+      [?macro (find-macro name)]
       (case ?macro
         (#;Some macro)
         (do Monad<Meta>
           [expansion (macro args)
-           expansion' (M;map Monad<Meta> expand-all expansion)]
+           expansion' (monad;map Monad<Meta> expand-all expansion)]
           (wrap (list/join expansion')))
         
         #;None
         (do Monad<Meta>
-          [parts' (M;map Monad<Meta> expand-all (list& (code;symbol name) args))]
+          [parts' (monad;map Monad<Meta> expand-all (list& (code;symbol name) args))]
           (wrap (list (code;form (list/join parts')))))))
 
     [_ (#;Form (#;Cons [harg targs]))]
     (do Monad<Meta>
       [harg+ (expand-all harg)
-       targs+ (M;map Monad<Meta> expand-all targs)]
+       targs+ (monad;map Monad<Meta> expand-all targs)]
       (wrap (list (code;form (list/compose harg+ (list/join (: (List (List Code)) targs+)))))))
 
     [_ (#;Tuple members)]
     (do Monad<Meta>
-      [members' (M;map Monad<Meta> expand-all members)]
+      [members' (monad;map Monad<Meta> expand-all members)]
       (wrap (list (code;tuple (list/join members')))))
 
     _
@@ -355,9 +362,9 @@
 
           A prefix can be given (or just be empty text \"\") to better identify the code for debugging purposes."}
   (-> Text (Meta Code))
-  (function [state]
-    (#e;Success [(update@ #;seed n.inc state)
-                 (code;symbol ["" ($_ text/compose "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed state)))])])))
+  (function [compiler]
+    (#e;Success [(update@ #;seed n.inc compiler)
+                 (code;symbol ["" ($_ text/compose "__gensym__" prefix (:: number;Codec<Text,Nat> encode (get@ #;seed compiler)))])])))
 
 (def: (get-local-symbol ast)
   (-> Code (Meta Text))
@@ -381,7 +388,7 @@
   (case tokens
     (^ (list [_ (#;Tuple symbols)] body))
     (do Monad<Meta>
-      [symbol-names (M;map @ get-local-symbol symbols)
+      [symbol-names (monad;map @ get-local-symbol symbols)
        #let [symbol-defs (list/join (list/map (: (-> Text (List Code))
                                                  (function [name] (list (code;symbol ["" name]) (` (gensym (~ (code;text name)))))))
                                               symbol-names))]]
@@ -406,13 +413,13 @@
 
 (def: #export (module-exists? module)
   (-> Text (Meta Bool))
-  (function [state]
-    (#e;Success [state (case (get module (get@ #;modules state))
-                         (#;Some _)
-                         true
-                         
-                         #;None
-                         false)])))
+  (function [compiler]
+    (#e;Success [compiler (case (get module (get@ #;modules compiler))
+                            (#;Some _)
+                            true
+                            
+                            #;None
+                            false)])))
 
 (def: (try-both f x1 x2)
   (All [a b]
@@ -424,7 +431,7 @@
 (def: #export (find-var-type name)
   {#;doc "Looks-up the type of a local variable somewhere in the environment."}
   (-> Text (Meta Type))
-  (function [state]
+  (function [compiler]
     (let [test (: (-> [Text [Type Top]] Bool)
                   (|>. product;left (text/= name)))]
       (case (do maybe;Monad<Maybe>
@@ -433,7 +440,7 @@
                                                          (get@ [#;locals #;mappings] env)))
                                       (list;any? test (: (List [Text [Type Top]])
                                                          (get@ [#;captured #;mappings] env)))))
-                                (get@ #;scopes state))
+                                (get@ #;scopes compiler))
                [_ [type _]] (try-both (list;find test)
                                       (: (List [Text [Type Top]])
                                          (get@ [#;locals #;mappings] scope))
@@ -441,25 +448,60 @@
                                          (get@ [#;captured #;mappings] scope)))]
               (wrap type))
         (#;Some var-type)
-        (#e;Success [state var-type])
+        (#e;Success [compiler var-type])
 
         #;None
         (#e;Error ($_ text/compose "Unknown variable: " name))))))
 
+(def: #export (canonical name)
+  (-> Ident (Meta Ident))
+  (case name
+    ["" _name]
+    (do Monad<Meta>
+      [this-module current-module-name]
+      (wrap [this-module _name]))
+
+    [_module _name]
+    (do Monad<Meta>
+      [this-module-name current-module-name
+       this-module (find-module this-module-name)]
+      (case (list;find (|>. product;left (text/= _module))
+                       (get@ #;module-aliases this-module))
+        (#;Some [alias real])
+        (wrap [real _name])
+
+        _
+        (wrap name)))
+    ))
+
 (def: #export (find-def name)
   {#;doc "Looks-up a definition's whole data in the available modules (including the current one)."}
   (-> Ident (Meta Def))
-  (function [state]
-    (case (: (Maybe Def)
-             (do maybe;Monad<Maybe>
-               [#let [[v-prefix v-name] name]
-                (^slots [#;defs]) (get v-prefix (get@ #;modules state))]
-               (get v-name defs)))
-      (#;Some _anns)
-      (#e;Success [state _anns])
+  (do Monad<Meta>
+    [name (canonical name)]
+    (function [compiler]
+      (case (: (Maybe Def)
+               (do maybe;Monad<Maybe>
+                 [#let [[v-prefix v-name] name]
+                  (^slots [#;defs]) (get v-prefix (get@ #;modules compiler))]
+                 (get v-name defs)))
+        (#;Some definition)
+        (#e;Success [compiler definition])
 
-      _
-      (#e;Error ($_ text/compose "Unknown definition: " (ident/encode name))))))
+        _
+        (let [current-module (|> compiler (get@ #;current-module) (maybe;default "???"))]
+          (#e;Error ($_ text/compose
+                        "Unknown definition: " (ident/encode name) "\n"
+                        "    Current module: " current-module "\n"
+                        (case (get current-module (get@ #;modules compiler))
+                          (#;Some this-module)
+                          ($_ text/compose
+                              "           Imports: " (|> this-module (get@ #;imports) (text;join-with ", ")) "\n"
+                              "           Aliases: " (|> this-module (get@ #;module-aliases) (list/map (function [[alias real]] ($_ text/compose alias " => " real))) (text;join-with ", ")) "\n")
+
+                          _
+                          "")
+                        " All Known modules: " (|> compiler (get@ #;modules) (list/map product;left) (text;join-with ", ")) "\n")))))))
 
 (def: #export (find-def-type name)
   {#;doc "Looks-up a definition's type in the available modules (including the current one)."}
@@ -473,10 +515,13 @@
   (-> Ident (Meta Type))
   (do Monad<Meta>
     [#let [[_ _name] name]]
-    (either (find-var-type _name)
-            (do @
-              [name (normalize name)]
-              (find-def-type name)))))
+    (case name
+      ["" _name]
+      (either (find-var-type _name)
+              (find-def-type name))
+
+      _
+      (find-def-type name))))
 
 (def: #export (find-type-def name)
   {#;doc "Finds the value of a type definition (such as Int, Top or Compiler)."}
@@ -488,10 +533,10 @@
 (def: #export (defs module-name)
   {#;doc "The entire list of definitions in a module (including the unexported/private ones)."}
   (-> Text (Meta (List [Text Def])))
-  (function [state]
-    (case (get module-name (get@ #;modules state))
+  (function [compiler]
+    (case (get module-name (get@ #;modules compiler))
       #;None          (#e;Error ($_ text/compose "Unknown module: " module-name))
-      (#;Some module) (#e;Success [state (get@ #;defs module)])
+      (#;Some module) (#e;Success [compiler (get@ #;defs module)])
       )))
 
 (def: #export (exports module-name)
@@ -507,10 +552,10 @@
 (def: #export modules
   {#;doc "All the available modules (including the current one)."}
   (Meta (List [Text Module]))
-  (function [state]
-    (|> state
+  (function [compiler]
+    (|> compiler
         (get@ #;modules)
-        [state]
+        [compiler]
         #e;Success)))
 
 (def: #export (tags-of type-name)
@@ -529,16 +574,16 @@
 (def: #export cursor
   {#;doc "The cursor of the current expression being analyzed."}
   (Meta Cursor)
-  (function [state]
-    (#e;Success [state (get@ #;cursor state)])))
+  (function [compiler]
+    (#e;Success [compiler (get@ #;cursor compiler)])))
 
 (def: #export expected-type
   {#;doc "The expected type of the current expression being analyzed."}
   (Meta Type)
-  (function [state]
-    (case (get@ #;expected state)
+  (function [compiler]
+    (case (get@ #;expected compiler)
       (#;Some type)
-      (#e;Success [state type])
+      (#e;Success [compiler type])
 
       #;None
       (#e;Error "Not expecting any type."))))
@@ -583,13 +628,13 @@
 (def: #export locals
   {#;doc "All the local variables currently in scope, separated in different scopes."}
   (Meta (List (List [Text Type])))
-  (function [state]
-    (case (list;inits (get@ #;scopes state))
+  (function [compiler]
+    (case (list;inits (get@ #;scopes compiler))
       #;None
       (#e;Error "No local environment")
 
       (#;Some scopes)
-      (#e;Success [state
+      (#e;Success [compiler
                    (list/map (|>. (get@ [#;locals #;mappings])
                                   (list/map (function [[name [type _]]]
                                               [name type])))
@@ -599,8 +644,7 @@
   {#;doc "Given an aliased definition's name, returns the original definition being referenced."}
   (-> Ident (Meta Ident))
   (do Monad<Meta>
-    [def-name (normalize def-name)
-     [_ def-anns _] (find-def def-name)]
+    [[_ def-anns _] (find-def def-name)]
     (case (get-symbol-ann (ident-for #;alias) def-anns)
       (#;Some real-def-name)
       (wrap real-def-name)

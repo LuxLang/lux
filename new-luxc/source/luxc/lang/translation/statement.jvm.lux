@@ -36,48 +36,57 @@
   (-> Text Type $;Inst $;Inst Code (Meta Unit))
   (do macro;Monad<Meta>
     [current-module macro;current-module-name
-     #let [def-ident [current-module def-name]
-           normal-name (format (&;normalize-name def-name) (%n (text/hash def-name)))
-           bytecode-name (format current-module "/" normal-name)
-           class-name (format current-module "." normal-name)
-           bytecode ($d;class #$;V1.6
-                              #$;Public $;finalC
-                              bytecode-name
-                              (list) ["java.lang.Object" (list)]
-                              (list)
-                              (|>. ($d;field #$;Public ($;++F $;finalF $;staticF) commonT;value-field commonT;$Object)
-                                   ($d;method #$;Public $;staticM "<clinit>" ($t;method (list) #;None (list))
-                                              (|>. valueI
-                                                   ($i;PUTSTATIC bytecode-name commonT;value-field commonT;$Object)
-                                                   $i;RETURN))))]
-     _ (commonT;store-class class-name bytecode)
-     class (commonT;load-class class-name)
-     valueV (: (Meta Top)
-               (case (do e;Monad<Error>
-                       [field (Class.getField [commonT;value-field] class)]
-                       (Field.get [#;None] field))
-                 (#e;Success #;None)
-                 (&;throw Invalid-Definition-Value (%ident def-ident))
-                 
-                 (#e;Success (#;Some valueV))
-                 (wrap valueV)
-                 
-                 (#e;Error error)
-                 (&;throw Cannot-Evaluate-Definition
-                          (format "Definition: " (%ident def-ident) "\n"
-                                  "Error:\n"
-                                  error))))
-     _ (&module;define def-ident [valueT metaV valueV])
-     _ (if (macro;type? metaV)
-         (case (macro;declared-tags metaV)
-           #;Nil
-           (wrap [])
+     #let [def-ident [current-module def-name]]]
+    (case (macro;get-symbol-ann (ident-for #;alias) metaV)
+      (#;Some real-def)
+      (do @
+        [[realT realA realV] (macro;find-def real-def)
+         _ (&module;define def-ident [realT metaV realV])]
+        (wrap []))
 
-           tags
-           (&module;declare-tags tags (macro;export? metaV) (:! Type valueV)))
-         (wrap []))
-     #let [_ (log! (format "DEF " (%ident def-ident)))]]
-    (commonT;record-artifact (format bytecode-name ".class") bytecode)))
+      _
+      (do @
+        [#let [normal-name (format (&;normalize-name def-name) (%n (text/hash def-name)))
+               bytecode-name (format current-module "/" normal-name)
+               class-name (format (text;replace-all "/" "." current-module) "." normal-name)
+               bytecode ($d;class #$;V1.6
+                                  #$;Public $;finalC
+                                  bytecode-name
+                                  (list) ["java.lang.Object" (list)]
+                                  (list)
+                                  (|>. ($d;field #$;Public ($;++F $;finalF $;staticF) commonT;value-field commonT;$Object)
+                                       ($d;method #$;Public $;staticM "<clinit>" ($t;method (list) #;None (list))
+                                                  (|>. valueI
+                                                       ($i;PUTSTATIC bytecode-name commonT;value-field commonT;$Object)
+                                                       $i;RETURN))))]
+         _ (commonT;store-class class-name bytecode)
+         class (commonT;load-class class-name)
+         valueV (: (Meta Top)
+                   (case (do e;Monad<Error>
+                           [field (Class.getField [commonT;value-field] class)]
+                           (Field.get [#;None] field))
+                     (#e;Success #;None)
+                     (&;throw Invalid-Definition-Value (%ident def-ident))
+                     
+                     (#e;Success (#;Some valueV))
+                     (wrap valueV)
+                     
+                     (#e;Error error)
+                     (&;throw Cannot-Evaluate-Definition
+                              (format "Definition: " (%ident def-ident) "\n"
+                                      "Error:\n"
+                                      error))))
+         _ (&module;define def-ident [valueT metaV valueV])
+         _ (if (macro;type? metaV)
+             (case (macro;declared-tags metaV)
+               #;Nil
+               (wrap [])
+
+               tags
+               (&module;declare-tags tags (macro;export? metaV) (:! Type valueV)))
+             (wrap []))
+         #let [_ (log! (format "DEF " (%ident def-ident)))]]
+        (commonT;record-artifact (format bytecode-name ".class") bytecode)))))
 
 (def: #export (translate-program program-args programI)
   (-> Text $;Inst (Meta Unit))

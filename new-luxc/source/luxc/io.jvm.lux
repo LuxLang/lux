@@ -2,7 +2,7 @@
   lux
   (lux (control monad
                 ["ex" exception #+ exception:])
-       [io #- run]
+       [io #+ Process]
        (concurrency ["P" promise]
                     ["T" task])
        (data ["e" error]
@@ -21,24 +21,49 @@
 
 (exception: #export File-Not-Found)
 (exception: #export Module-Not-Found)
+(exception: #export Could-Not-Read-All-Data)
+
+(host;import #long java.io.File
+  (new [String])
+  (exists [] #io #try boolean)
+  (mkdir [] #io #try boolean)
+  (delete [] #io #try boolean)
+  (length [] #io #try long)
+  (listFiles [] #io #try (Array java.io.File))
+  (getAbsolutePath [] #io #try String)
+  (isFile [] #io #try boolean)
+  (isDirectory [] #io #try boolean))
+
+(host;import java.lang.AutoCloseable
+  (close [] #io #try void))
+
+(host;import java.io.InputStream
+  (read [(Array byte)] #io #try int))
+
+(host;import java.io.FileInputStream
+  (new [java.io.File] #io #try))
+
+(def: file-exists?
+  (-> File (Process Bool))
+  (|>. java.io.File.new (java.io.File.exists [])))
 
 (def: (find-source path dirs)
-  (-> Text (List File) (T;Task [Text File]))
+  (-> Text (List File) (Process [Text File]))
   (case dirs
     #;Nil
-    (T;throw File-Not-Found path)
+    (io;fail (File-Not-Found path))
 
     (#;Cons dir dirs')
-    (do T;Monad<Task>
+    (do io;Monad<Process>
       [#let [file (format dir "/" path)]
-       ? (file;exists? file)]
+       ? (file-exists? file)]
       (if ?
         (wrap [path file])
         (find-source path dirs')))))
 
 (def: (either left right)
-  (All [a] (-> (T;Task a) (T;Task a) (T;Task a)))
-  (do P;Monad<Promise>
+  (All [a] (-> (Process a) (Process a) (Process a)))
+  (do io;Monad<IO>
     [?output left]
     (case ?output
       (#e;Success output)
@@ -47,17 +72,30 @@
       (#e;Error error)
       right)))
 
+(def: #export (read-file file)
+  (-> File (Process Blob))
+  (do io;Monad<Process>
+    [#let [file' (java.io.File.new file)]
+     size (java.io.File.length [] file')
+     #let [data (blob;create (int-to-nat size))]
+     stream (FileInputStream.new [file'])
+     bytes-read (InputStream.read [data] stream)
+     _ (AutoCloseable.close [] stream)]
+    (if (i.= size bytes-read)
+      (wrap data)
+      (io;fail (Could-Not-Read-All-Data file)))))
+
 (def: #export (read-module dirs name)
-  (-> (List File) Text (T;Task [File Text]))
+  (-> (List File) Text (Process [File Text]))
   (let [host-path (format name host-extension lux-extension)
         lux-path (format name lux-extension)]
-    (do T;Monad<Task>
-      [[path file] (: (T;Task [Text File])
+    (do io;Monad<Process>
+      [[path file] (: (Process [Text File])
                       ($_ either
                           (find-source host-path dirs)
                           (find-source lux-path dirs)
-                          (T;throw Module-Not-Found name)))
-       blob (file;read file)]
+                          (io;fail (Module-Not-Found name))))
+       blob (read-file file)]
       (wrap [path (String.new blob)]))))
 
 (def: #export (write-module name descriptor)
@@ -68,11 +106,6 @@
   (-> File File)
   (format root-target "/" (for {"JVM" "jvm"
                                 "JS" "js"})))
-
-(def: (platform-file root-file)
-  (-> File File)
-  (format root-file (for {"JVM" ".class"
-                          "JS" ".js"})))
 
 (def: #export (prepare-target target-dir)
   (-> File (T;Task Unit))
@@ -89,6 +122,6 @@
 
 (def: #export (write-file target-dir file-name content)
   (-> File Text Blob (T;Task Unit))
-  (file;write content
-              (format (platform-target target-dir)
-                      "/" (platform-file file-name))))
+  (|> file-name
+      (format (platform-target target-dir) "/")
+      (file;write content)))

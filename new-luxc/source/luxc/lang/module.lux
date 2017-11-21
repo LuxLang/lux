@@ -1,7 +1,8 @@
 (;module:
   lux
   (lux (control [monad #+ do]
-                ["ex" exception #+ exception:])
+                ["ex" exception #+ exception:]
+                pipe)
        (data [text "text/" Eq<Text>]
              text/format
              ["e" error]
@@ -15,6 +16,9 @@
 (exception: #export Cannot-Declare-Tag-Twice)
 (exception: #export Cannot-Declare-Tags-For-Unnamed-Type)
 (exception: #export Cannot-Declare-Tags-For-Foreign-Type)
+(exception: #export Cannot-Define-More-Than-Once)
+(exception: #export Cannot-Define-In-Unknown-Module)
+(exception: #export Can-Only-Change-State-Of-Active-Module)
 
 (def: (new-module hash)
   (-> Nat Module)
@@ -26,6 +30,45 @@
    #;types              (list)
    #;module-annotations (' {})
    #;module-state       #;Active})
+
+(def: #export (set-annotations annotations)
+  (-> Code (Meta Unit))
+  (do macro;Monad<Meta>
+    [self macro;current-module-name]
+    (function [compiler]
+      (#e;Success [(update@ #;modules
+                            (&;pl-update self (set@ #;module-annotations annotations))
+                            compiler)
+                   []]))))
+
+(def: #export (import module)
+  (-> Text (Meta Unit))
+  (do macro;Monad<Meta>
+    [self macro;current-module-name]
+    (function [compiler]
+      (#e;Success [(update@ #;modules
+                            (&;pl-update self (update@ #;imports (|>. (#;Cons module))))
+                            compiler)
+                   []]))))
+
+(def: #export (alias alias module)
+  (-> Text Text (Meta Unit))
+  (do macro;Monad<Meta>
+    [self macro;current-module-name]
+    (function [compiler]
+      (#e;Success [(update@ #;modules
+                            (&;pl-update self (update@ #;module-aliases (: (-> (List [Text Text]) (List [Text Text]))
+                                                                           (|>. (#;Cons [alias module])))))
+                            compiler)
+                   []]))))
+
+(def: #export (exists? module)
+  (-> Text (Meta Bool))
+  (function [compiler]
+    (|> (get@ #;modules compiler)
+        (&;pl-get module)
+        (case> (#;Some _) true #;None false)
+        [compiler] #e;Success)))
 
 (def: #export (define (^@ full-name [module-name def-name])
                       definition)
@@ -45,10 +88,10 @@
                      []])
 
         (#;Some already-existing)
-        (#e;Error (format "Cannot re-define definiton: " (%ident full-name))))
+        ((&;throw Cannot-Define-More-Than-Once (%ident full-name)) compiler))
 
       #;None
-      (#e;Error (format "Cannot define in unknown module: " module-name)))))
+      ((&;throw Cannot-Define-In-Unknown-Module (%ident full-name)) compiler))))
 
 (def: #export (create hash name)
   (-> Nat Text (Meta Module))
@@ -64,11 +107,11 @@
   (do macro;Monad<Meta>
     [_ (create hash name)
      output (&;with-current-module name
-              (&scope;with-scope name action))
+              action)
      module (macro;find-module name)]
     (wrap [module output])))
 
-(do-template [<flagger> <asker> <tag>]
+(do-template [<flagger> <asker> <tag> <description>]
   [(def: #export (<flagger> module-name)
      (-> Text (Meta Unit))
      (function [compiler]
@@ -82,10 +125,13 @@
                                    (&;pl-put module-name (set@ #;module-state <tag> module))
                                    compiler)
                           []])
-             (#e;Error "Can only change the state of a currently-active module.")))
+             ((&;throw Can-Only-Change-State-Of-Active-Module
+                       (format "       Module: " module-name "\n"
+                               "Desired state: " <description>))
+              compiler)))
 
          #;None
-         (#e;Error (format "Module does not exist: " module-name)))))
+         ((&;throw Unknown-Module module-name) compiler))))
    (def: #export (<asker> module-name)
      (-> Text (Meta Bool))
      (function [compiler]
@@ -97,12 +143,12 @@
                         _     false)])
 
          #;None
-         (#e;Error (format "Module does not exist: " module-name)))
+         ((&;throw Unknown-Module module-name) compiler))
        ))]
 
-  [flag-active!   active?   #;Active]
-  [flag-compiled! compiled? #;Compiled]
-  [flag-cached!   cached?   #;Cached]
+  [flag-active!   active?   #;Active   "Active"]
+  [flag-compiled! compiled? #;Compiled "Compiled"]
+  [flag-cached!   cached?   #;Cached   "Cached"]
   )
 
 (do-template [<name> <tag> <type>]
@@ -114,7 +160,7 @@
          (#e;Success [compiler (get@ <tag> module)])
 
          #;None
-         (macro;run compiler (&;throw Unknown-Module module-name)))
+         ((&;throw Unknown-Module module-name) compiler))
        ))]
 
   [tags-by-module  #;tags        (List [Text [Nat (List Ident) Bool Type]])]
@@ -170,4 +216,4 @@
                                 compiler)
                        []]))
         #;None
-        (macro;run compiler (&;throw Unknown-Module current-module))))))
+        ((&;throw Unknown-Module current-module) compiler)))))
