@@ -415,7 +415,7 @@
   ^:private compile-frac-to-deg "java.lang.Double" "frac-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
-(defn ^:private compile-nat-to-char [compile ?values special-args]
+(defn ^:private compile-nat-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
@@ -667,19 +667,6 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(do-template [<name> <field>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Nil) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitFieldInsn Opcodes/GETSTATIC "java/lang/Math" <field> "D")
-                    &&/wrap-double)]]
-      (return nil)))
-
-  ^:private compile-math-e  "E"
-  ^:private compile-math-pi "PI"
-  )
-
 (do-template [<name> <method>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
@@ -749,7 +736,7 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL "java/util/concurrent/atomic/AtomicReference" "<init>" "(Ljava/lang/Object;)V"))]]
     (return nil)))
 
-(defn ^:private compile-atom-get [compile ?values special-args]
+(defn ^:private compile-atom-read [compile ?values special-args]
   (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?atom)
@@ -865,7 +852,7 @@
       "max" (compile-nat-max compile ?values special-args)
       "min" (compile-nat-min compile ?values special-args)
       "to-int"    (compile-nat-to-int compile ?values special-args)
-      "to-char"   (compile-nat-to-char compile ?values special-args)
+      "char"   (compile-nat-char compile ?values special-args)
       )
     
     "deg"
@@ -922,8 +909,6 @@
 
     "math"
     (case proc
-      "e" (compile-math-e compile ?values special-args)
-      "pi" (compile-math-pi compile ?values special-args)
       "cos" (compile-math-cos compile ?values special-args)
       "sin" (compile-math-sin compile ?values special-args)
       "tan" (compile-math-tan compile ?values special-args)
@@ -947,7 +932,7 @@
     "atom"
     (case proc
       "new" (compile-atom-new compile ?values special-args)
-      "get" (compile-atom-get compile ?values special-args)
+      "read" (compile-atom-read compile ?values special-args)
       "compare-and-swap" (compile-atom-compare-and-swap compile ?values special-args)
       )
 

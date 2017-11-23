@@ -35,6 +35,15 @@
   (format "   Type: " (%type type) "\n"
           "Pattern: " (%code pattern)))
 
+(def: (re-quantify envs baseT)
+  (-> (List (List Type)) Type Type)
+  (case envs
+    #;Nil
+    baseT
+
+    (#;Cons head tail)
+    (re-quantify tail (#;UnivQ head baseT))))
+
 ## Type-checking on the input value is done during the analysis of a
 ## "case" expression, to ensure that the patterns being used make
 ## sense for the type of the input value.
@@ -44,52 +53,74 @@
 ## type-check the input with respect to the patterns.
 (def: (simplify-case-type caseT)
   (-> Type (Meta Type))
-  (case caseT
-    (#;Var id)
-    (do macro;Monad<Meta>
-      [?caseT' (&;with-type-env
-                 (tc;read id))]
-      (case ?caseT'
-        (#;Some caseT')
-        (simplify-case-type caseT')
+  (loop [envs (: (List (List Type))
+                 (list))
+         caseT caseT]
+    (case caseT
+      (#;Var id)
+      (do macro;Monad<Meta>
+        [?caseT' (&;with-type-env
+                   (tc;read id))]
+        (case ?caseT'
+          (#;Some caseT')
+          (recur envs caseT')
+
+          _
+          (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
+
+      (#;Named name unnamedT)
+      (recur envs unnamedT)
+
+      (#;UnivQ env unquantifiedT)
+      (recur (#;Cons env envs) unquantifiedT)
+
+      ## (^template [<tag> <instancer>]
+      ##   (<tag> _)
+      ##   (do macro;Monad<Meta>
+      ##     [[_ instanceT] (&;with-type-env
+      ##                      <instancer>)]
+      ##     (recur (maybe;assume (type;apply (list instanceT) caseT)))))
+      ## ([#;UnivQ tc;var]
+      ##  [#;ExQ tc;existential])
+      
+      (#;ExQ _)
+      (do macro;Monad<Meta>
+        [[ex-id exT] (&;with-type-env
+                       tc;existential)]
+        (recur envs (maybe;assume (type;apply (list exT) caseT))))
+
+      (#;Apply inputT funcT)
+      (case funcT
+        (#;Var funcT-id)
+        (do macro;Monad<Meta>
+          [funcT' (&;with-type-env
+                    (do tc;Monad<Check>
+                      [?funct' (tc;read funcT-id)]
+                      (case ?funct'
+                        (#;Some funct')
+                        (wrap funct')
+
+                        _
+                        (tc;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT)))))]
+          (recur envs (#;Apply inputT funcT')))
 
         _
-        (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
+        (case (type;apply (list inputT) funcT)
+          (#;Some outputT)
+          (recur envs outputT)
 
-    (#;Named name unnamedT)
-    (simplify-case-type unnamedT)
+          #;None
+          (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
 
-    (^or (#;UnivQ _) (#;ExQ _))
-    (do macro;Monad<Meta>
-      [[ex-id exT] (&;with-type-env
-                     tc;existential)]
-      (simplify-case-type (maybe;assume (type;apply (list exT) caseT))))
-
-    (#;Apply inputT funcT)
-    (case funcT
-      (#;Var funcT-id)
-      (do macro;Monad<Meta>
-        [funcT' (&;with-type-env
-                  (do tc;Monad<Check>
-                    [?funct' (tc;read funcT-id)]
-                    (case ?funct'
-                      (#;Some funct')
-                      (wrap funct')
-
-                      _
-                      (tc;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT)))))]
-        (simplify-case-type (#;Apply inputT funcT')))
+      (#;Product _)
+      (|> caseT
+          type;flatten-tuple
+          (list/map (re-quantify envs))
+          type;tuple
+          (:: macro;Monad<Meta> wrap))
 
       _
-      (case (type;apply (list inputT) funcT)
-        (#;Some outputT)
-        (:: macro;Monad<Meta> wrap outputT)
-
-        #;None
-        (&;throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
-
-    _
-    (:: macro;Monad<Meta> wrap caseT)))
+      (:: macro;Monad<Meta> wrap (re-quantify envs caseT)))))
 
 ## This function handles several concerns at once, but it must be that
 ## way because those concerns are interleaved when doing

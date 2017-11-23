@@ -289,7 +289,7 @@
   ^:private analyse-nat-to-int   &type/Nat  &type/Int    ["nat" "to-int"]
   ^:private analyse-int-to-nat   &type/Int  &type/Nat    ["int" "to-nat"]
   
-  ^:private analyse-nat-to-char  &type/Nat  &type/Text   ["nat" "to-char"]
+  ^:private analyse-nat-char  &type/Nat  &type/Text   ["nat" "char"]
   
   ^:private analyse-int-to-frac  &type/Int  &type/Frac   ["int" "to-frac"]
   ^:private analyse-frac-to-int  &type/Frac &type/Int    ["frac" "to-int"]
@@ -365,18 +365,6 @@
 
 (do-template [<name> <proc>]
   (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Nil) ?values]
-          _ (&type/check exo-type &type/Frac)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["math" <proc>]) (&/|list) (&/|list)))))))
-
-  ^:private analyse-math-e  "e"
-  ^:private analyse-math-pi "pi"
-  )
-
-(do-template [<name> <proc>]
-  (defn <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
           =input (&&/analyse-1 analyse &type/Frac ?input)
           _ (&type/check exo-type &type/Frac)
@@ -426,7 +414,7 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["atom" "new"]) (&/|list =init) (&/|list)))))))))
 
-(defn ^:private analyse-atom-get [analyse exo-type ?values]
+(defn ^:private analyse-atom-read [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
       (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
@@ -434,7 +422,7 @@
             _ (&type/check exo-type $var)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["atom" "get"]) (&/|list =atom) (&/|list)))))))))
+                                   (&&/$proc (&/T ["atom" "read"]) (&/|list =atom) (&/|list)))))))))
 
 (defn ^:private analyse-atom-compare-and-swap [analyse exo-type ?values]
   (&type/with-var
@@ -519,7 +507,7 @@
          "lux nat min" (analyse-nat-min analyse exo-type ?values)
          "lux nat max" (analyse-nat-max analyse exo-type ?values)
          "lux nat to-int" (analyse-nat-to-int analyse exo-type ?values)
-         "lux nat to-char" (analyse-nat-to-char analyse exo-type ?values)
+         "lux nat char" (analyse-nat-char analyse exo-type ?values)
          
          "lux int +" (analyse-int-add analyse exo-type ?values)
          "lux int -" (analyse-int-sub analyse exo-type ?values)
@@ -564,8 +552,6 @@
          "lux frac to-deg" (analyse-frac-to-deg analyse exo-type ?values)
          "lux frac to-int" (analyse-frac-to-int analyse exo-type ?values)
          
-         "lux math e" (analyse-math-e analyse exo-type ?values)
-         "lux math pi" (analyse-math-pi analyse exo-type ?values)
          "lux math cos" (analyse-math-cos analyse exo-type ?values)
          "lux math sin" (analyse-math-sin analyse exo-type ?values)
          "lux math tan" (analyse-math-tan analyse exo-type ?values)
@@ -586,7 +572,7 @@
          "lux math pow" (analyse-math-pow analyse exo-type ?values)
          
          "lux atom new" (analyse-atom-new analyse exo-type ?values)
-         "lux atom get" (analyse-atom-get analyse exo-type ?values)
+         "lux atom read" (analyse-atom-read analyse exo-type ?values)
          "lux atom compare-and-swap" (analyse-atom-compare-and-swap analyse exo-type ?values)
          
          "lux process concurrency-level" (analyse-process-concurrency-level analyse exo-type ?values)
