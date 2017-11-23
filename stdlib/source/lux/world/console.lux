@@ -1,0 +1,74 @@
+(;module:
+  [lux #- open]
+  (lux (control [monad #+ do])
+       (data ["e" error]
+             [text])
+       (concurrency [promise]
+                    [task #+ Task])
+       (type object)
+       [io #+ IO Process io]
+       [host]))
+
+(interface: #export Console
+  (read-char [] (Task Text))
+  (read-line [] (Task Text))
+  (write [Text] (Task Unit))
+  (close [] (Task Unit)))
+
+(for {"JVM"
+      (as-is (host;import java.lang.AutoCloseable
+               (close [] #io #try void))
+             
+             (host;import java.io.InputStream)
+
+             (host;import java.io.Reader)
+
+             (host;import java.io.InputStreamReader
+               (new [InputStream]))
+             
+             (host;import java.io.BufferedReader
+               (new [Reader])
+               (read [] #io #try int)
+               (readLine [] #io #try String))
+
+             (host;import java.io.PrintStream
+               (print [String] #io #try void))
+
+             (host;import java.lang.System
+               (#static in java.io.InputStream)
+               (#static out java.io.PrintStream))
+
+             (class: JVM-Console Console
+               {#input BufferedReader
+                #output PrintStream}
+
+               (def: read-char
+                 (|>. get@Console
+                      (get@ #input)
+                      (BufferedReader.read [])
+                      (:: io;Functor<Process> map (|>. int-to-nat text;from-code))
+                      promise;future))
+               
+               (def: read-line
+                 (|>. get@Console
+                      (get@ #input)
+                      (BufferedReader.readLine [])
+                      promise;future))
+               
+               (def: (write message)
+                 (|>. get@Console
+                      (get@ #output)
+                      (PrintStream.print [message])
+                      promise;future))
+               
+               (def: (close self)
+                 (promise;future
+                  (do io;Monad<Process>
+                    [_ (AutoCloseable.close [] (|> self get@Console (get@ #input)))]
+                    (AutoCloseable.close [] (|> self get@Console (get@ #output)))))))
+
+             (def: #export open
+               (Process Console)
+               (io (#e;Success (new@JVM-Console {#input (|> System.in InputStreamReader.new BufferedReader.new)
+                                                 #output System.out})))))
+      })
