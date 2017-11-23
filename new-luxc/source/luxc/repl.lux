@@ -1,0 +1,316 @@
+(;module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                ["p" parser]
+                pipe)
+       (data [maybe]
+             ["e" error #+ Error]
+             [text "text/" Eq<Text>]
+             text/format
+             (format [xml #+ XML]
+                     [json #+ JSON])
+             (coll [array]
+                   [list "list/" Functor<List>]
+                   [dict]))
+       (time [instant #+ Instant]
+             [duration #+ Duration]
+             [date #+ Date])
+       [function #+ const]
+       [macro]
+       (macro [code]
+              [poly #+ Poly])
+       (lang [syntax #+ Aliases]
+             [type]
+             (type [check]))
+       (concurrency [promise]
+                    [task #+ Task])
+       [io]
+       (world [file #+ File]
+              [console #+ Console]))
+  (luxc [lang]
+        (lang [";L" module]
+              [";L" scope]
+              [";L" host]
+              [";L" translation]
+              [";L" eval]
+              (translation [";T" runtime]))))
+
+(exception: #export REPL-Initialization-Failed)
+(exception: #export REPL-Error)
+
+(def: repl-module "<REPL>")
+
+(def: no-aliases Aliases (dict;new text;Hash<Text>))
+
+(def: (initialize source-dirs target-dir console)
+  (-> (List File) File Console (Task Compiler))
+  (do promise;Monad<Promise>
+    [output (promise;future
+             (do io;Monad<IO>
+               [host hostL;init-host]
+               (case (macro;run' (translationL;init-compiler host)
+                                 (moduleL;with-module +0 repl-module
+                                   runtimeT;translate))
+                 (#e;Success [compiler _])
+                 (translationL;translate-module source-dirs target-dir translationL;prelude compiler)
+
+                 (#e;Error error)
+                 (wrap (#e;Error error)))))]
+    (case output
+      (#e;Success compiler)
+      (do task;Monad<Task>
+        [_ (console;write (format "\nWelcome to the REPL!\n"
+                                  "Type \"exit\" to leave.\n\n")
+                          console)]
+        (wrap compiler))
+      
+      (#e;Error message)
+      (task;throw REPL-Initialization-Failed message))))
+
+(def: (add-line line [where offset input])
+  (-> Text Source Source)
+  [where offset (format input "\n" line)])
+
+(type: Representation (-> Top Text))
+
+(def: (represent-together representations values)
+  (-> (List Representation) (List Top) (List Text))
+  (|> (list;zip2 representations values)
+      (list/map (function [[representation value]] (representation value)))))
+
+(def: primitive-representation
+  (Poly Representation)
+  (`` ($_ p;either
+          (do p;Monad<Parser>
+            [_ poly;unit]
+            (wrap (const "[]")))
+          
+          (~~ (do-template [<parser> <type> <formatter>]
+                [(do p;Monad<Parser>
+                   [_ <parser>]
+                   (wrap (|>. (:! <type>) <formatter>)))]
+
+                [poly;bool Bool %b]
+                [poly;nat Nat %n]
+                [poly;int Int %i]
+                [poly;deg Deg %d]
+                [poly;frac Frac %f]
+                [poly;text Text %t])))))
+
+(def: (special-representation representation)
+  (-> (Poly Representation) (Poly Representation))
+  (`` ($_ p;either
+          (~~ (do-template [<type> <formatter>]
+                [(do p;Monad<Parser>
+                   [_ (poly;this <type>)]
+                   (wrap (|>. (:! <type>) <formatter>)))]
+
+                [Type %type]
+                [Code %code]
+                [Instant %instant]
+                [Duration %duration]
+                [Date %date]
+                [JSON %json]
+                [XML %xml]
+                ))
+
+          (do p;Monad<Parser>
+            [[_ elemT] (poly;apply (p;seq (poly;this List) poly;any))
+             elemR (poly;local (list elemT) representation)]
+            (wrap (|>. (:! (List Top)) (%list elemR))))
+
+          (do p;Monad<Parser>
+            [[_ elemT] (poly;apply (p;seq (poly;this Maybe) poly;any))
+             elemR (poly;local (list elemT) representation)]
+            (wrap (|>. (:! (Maybe Top))
+                       (case> #;None
+                              "#;None"
+
+                              (#;Some elemV)
+                              (elemR elemV))))))))
+
+(def: (record-representation tags representation)
+  (-> (List Ident) (Poly Representation) (Poly Representation))
+  (do p;Monad<Parser>
+    [membersR+ (poly;tuple (p;many representation))
+     _ (p;assert "Number of tags does not match record type size."
+                 (n.= (list;size tags) (list;size membersR+)))]
+    (wrap (function [recordV]
+            (let [record-body (loop [pairs-left (list;zip2 tags membersR+)
+                                     recordV recordV]
+                                (case pairs-left
+                                  #;Nil
+                                  ""
+
+                                  (#;Cons [tag repr] #;Nil)
+                                  (format (%code (code;tag tag)) " " (repr recordV))
+
+                                  (#;Cons [tag repr] tail)
+                                  (let [[leftV rightV] (:! [Top Top] recordV)]
+                                    (format (%code (code;tag tag)) " " (repr leftV) " "
+                                            (recur tail rightV)))))]
+              (format "{" record-body "}"))))))
+
+(def: (variant-representation tags representation)
+  (-> (List Ident) (Poly Representation) (Poly Representation))
+  (do p;Monad<Parser>
+    [casesR+ (poly;variant (p;many representation))
+     #let [num-tags (list;size tags)]
+     _ (p;assert "Number of tags does not match variant type size."
+                 (n.= num-tags (list;size casesR+)))]
+    (wrap (function [variantV]
+            (loop [cases-left (list;zip3 tags
+                                         (list;n.range +0 (n.dec num-tags))
+                                         casesR+)
+                   variantV variantV]
+              (case cases-left
+                #;Nil
+                ""
+
+                (#;Cons [tag-name tag-idx repr] #;Nil)
+                (let [[_tag _last? _value] (:! [Nat Text Top] variantV)]
+                  (if (n.= tag-idx _tag)
+                    (format "(" (%code (code;tag tag-name)) " " (repr _value) ")")
+                    (undefined)))
+
+                (#;Cons [tag-name tag-idx repr] tail)
+                (let [[_tag _last? _value] (:! [Nat Text Top] variantV)]
+                  (if (n.= tag-idx _tag)
+                    (format "(" (%code (code;tag tag-name)) " " (repr _value) ")")
+                    (recur tail variantV)))))))))
+
+(def: (tagged-representation compiler representation)
+  (-> Compiler (Poly Representation) (Poly Representation))
+  (do p;Monad<Parser>
+    [[name anonymous] poly;named]
+    (case (macro;run compiler (macro;tags-of name))
+      (#e;Success ?tags)
+      (case ?tags
+        (#;Some tags)
+        (poly;local (list anonymous)
+                    (p;either (record-representation tags representation)
+                              (variant-representation tags representation)))
+        
+        #;None
+        representation)
+      
+      (#e;Error error)
+      (p;fail error))))
+
+(def: (tuple-representation representation)
+  (-> (Poly Representation) (Poly Representation))
+  (do p;Monad<Parser>
+    [membersR+ (poly;tuple (p;many representation))]
+    (wrap (function [tupleV]
+            (let [tuple-body (loop [representations membersR+
+                                    tupleV tupleV]
+                               (case representations
+                                 #;Nil
+                                 ""
+                                 
+                                 (#;Cons lastR #;Nil)
+                                 (lastR tupleV)
+                                 
+                                 (#;Cons headR tailR)
+                                 (let [[leftV rightV] (:! [Top Top] tupleV)]
+                                   (format (headR leftV) " " (recur tailR rightV)))))]
+              (format "[" tuple-body "]"))))))
+
+(def: (representation compiler)
+  (-> Compiler (Poly Representation))
+  (p;rec
+   (function [representation]
+     ($_ p;either
+         primitive-representation
+         (special-representation representation)
+         (tagged-representation compiler representation)
+         (tuple-representation representation)
+
+         (do p;Monad<Parser>
+           [[funcT inputsT+] (poly;apply (p;seq poly;any (p;many poly;any)))]
+           (case (type;apply inputsT+ funcT)
+             (#;Some outputT)
+             (poly;local (list outputT) representation)
+
+             #;None
+             (p;fail "")))
+
+         (do p;Monad<Parser>
+           [[name anonymous] poly;named]
+           (poly;local (list anonymous) representation))
+
+         (p;fail "")
+         ))))
+
+(def: (represent compiler type value)
+  (-> Compiler Type Top Text)
+  (case (poly;run type (representation compiler))
+    (#e;Success representation)
+    (representation value)
+
+    (#e;Error error)
+    ". . . cannot represent value . . ."))
+
+(def: (repl-translate source-dirs target-dir code)
+  (-> (List File) File Code (Meta [Type Top]))
+  (function [compiler]
+    (case ((translationL;translate (translationL;translate-module source-dirs target-dir)
+                                   no-aliases
+                                   code)
+           compiler)
+      (#e;Success [compiler' aliases'])
+      (#e;Success [compiler' [Void []]])
+
+      (#e;Error error)
+      (if (ex;match? translationL;Unrecognized-Statement error)
+        ((do macro;Monad<Meta>
+           [[var-id varT] (lang;with-type-env check;var)
+            exprV (scopeL;with-scope repl-module
+                    (evalL;eval varT code))
+            ?exprT (lang;with-type-env (check;read var-id))]
+           (wrap [(maybe;assume ?exprT) exprV]))
+         compiler)
+        (#e;Error error)))))
+
+(def: fresh-source Source [[repl-module +1 +0] +0 ""])
+
+(def: #export (run source-dirs target-dir)
+  (-> (List File) File (Task Unit))
+  (do task;Monad<Task>
+    [console (promise;future console;open)
+     compiler (initialize source-dirs target-dir console)]
+    (loop [compiler compiler
+           source fresh-source
+           multi-line? false]
+      (do @
+        [_ (if multi-line?
+             (console;write "  " console)
+             (console;write "> " console))
+         line (console;read-line console)]
+        (if (text/= "exit" line)
+          (console;write "Till next time..." console)
+          (case (do e;Monad<Error>
+                  [[source' exprC] (syntax;read repl-module no-aliases (add-line line source))]
+                  (macro;run' compiler
+                              (lang;with-current-module repl-module
+                                (do macro;Monad<Meta>
+                                  [[exprT exprV] (repl-translate source-dirs target-dir exprC)
+                                   ## [var-id varT] (lang;with-type-env check;var)
+                                   ## exprV (evalL;eval varT exprC)
+                                   ## ?exprT (lang;with-type-env (check;read var-id))
+                                   ]
+                                  (wrap [source' exprT exprV])))))
+            (#e;Success [compiler' [source' exprT exprV]])
+            (do @
+              [_ (console;write (format " Type: " (type;to-text exprT) "\n"
+                                        "Value: " (represent compiler' exprT exprV) "\n\n")
+                                console)]
+              (recur compiler' source' false))
+
+            (#e;Error error)
+            (if (ex;match? syntax;End-Of-File error)
+              (recur compiler source true)
+              (exec (log! (REPL-Error error))
+                (recur compiler fresh-source false))))))
+      )))
