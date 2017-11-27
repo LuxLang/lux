@@ -350,8 +350,8 @@ This function also returns nil meaning don't specify the indentation."
               ((or (eq method 'defun)
                    (and (null method)
                         (> (length function) 2)
-                        (string-match "\\`\\(?:\\S +/\\)?\\(\\w+:\\|\\(\\w*;\\)?with-\\)"
-                                      function)))
+                        (or (string-match "with-" function)
+                            (string-match ":\\'" function))))
                (lisp-indent-defform state indent-point))
               ((integerp method)
                (lisp-indent-specform method state
