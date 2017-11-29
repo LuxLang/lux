@@ -96,7 +96,7 @@
   (let [parts (.split _def-entry &&core/datum-separator)]
     (case (alength parts)
       2 (let [[_name _alias] parts
-              [_ __module __name] (re-find #"^(.*);(.*)$" _alias)
+              [_ __module __name] (re-find #"^(.*)\.(.*)$" _alias)
               def-anns (make-record (&/|list (&/T [(make-tag &a-meta/alias-tag)
                                                    (make-symbol (&/T [__module __name]))])))]
           (|do [def-type (&a-module/def-type __module __name)

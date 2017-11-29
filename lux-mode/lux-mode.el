@@ -214,7 +214,7 @@ Called by `imenu--generic-function'."
       (,(concat
          "("
          (regexp-opt
-          '(";module:"
+          '(".module:"
             "def:" "type:" "macro:" "syntax:" "program:"
             "sig:" "struct:" "context:" "template:"
             "class:" "interface:"
@@ -261,9 +261,9 @@ Called by `imenu--generic-function'."
                                         ; Deg literals
       ("\\<\\(\\.[0-9_]+\\)\\>" 0 font-lock-constant-face)
                                         ; Tags
-      ("#;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
-      ("#;;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
-      ("#[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+\\(;[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+\\)?" 0 font-lock-type-face)
+      ("#\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
+      ("#\\.\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
+      ("#[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]+\\(\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]+\\)?" 0 font-lock-type-face)
       ))
   "Default expressions to highlight in Lux mode.")
 
@@ -342,7 +342,7 @@ This function also returns nil meaning don't specify the indentation."
              (method nil)
              (function-tail (first
                              (last
-                              (split-string (substring-no-properties function) ";")))))
+                              (split-string (substring-no-properties function) "\\.")))))
         (setq method (get (intern-soft function-tail) 'lux-indent-function))
         (cond ((member (char-after open-paren) '(?\[ ?\{))
                (goto-char open-paren)

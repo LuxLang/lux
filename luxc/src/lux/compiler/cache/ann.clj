@@ -8,7 +8,6 @@
 (def ^:private stop (->> 7 char str))
 (def ^:private cons-signal (->> 5 char str))
 (def ^:private nil-signal (->> 6 char str))
-(def ^:private ident-separator ";")
 
 (defn ^:private serialize-seq [serialize params]
   (str (&/fold (fn [so-far param]
@@ -19,7 +18,7 @@
 
 (defn ^:private serialize-ident [ident]
   (|let [[module name] ident]
-    (str module ident-separator name)))
+    (str module &/+name-separator+ name)))
 
 (defn serialize
   "(-> Code Text)"
@@ -89,7 +88,7 @@
   (defn <name> [^String input]
     (when (.startsWith input <marker>)
       (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
-            [_module _name] (.split ident* ident-separator 2)]
+            [_module _name] (.split ident* "\\." 2)]
         [(&/T [dummy-cursor (<tag> (&/T [_module _name]))]) input*])))
 
   ^:private deserialize-symbol "@" &/$Symbol

@@ -219,7 +219,7 @@
 ;; [Exports]
 (def ^:const value-field "_value")
 (def ^:const module-class-name "_")
-(def ^:const +name-separator+ ";")
+(def ^:const +name-separator+ ".")
 
 (def ^:const ^String version "0.6.0")
 
@@ -1217,12 +1217,12 @@
     [_ ($Tag ?module ?tag)]
     (if (.equals "" ?module)
       (str "#" ?tag)
-      (str "#" ?module ";" ?tag))
+      (str "#" ?module +name-separator+ ?tag))
 
     [_ ($Symbol ?module ?name)]
     (if (.equals "" ?module)
       ?name
-      (str ?module ";" ?name))
+      (str ?module +name-separator+ ?name))
 
     [_ ($Tuple ?elems)]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
@@ -1245,7 +1245,7 @@
   (|let [[?module ?name] ident]
     (if (= "" ?module)
       ?name
-      (str ?module ";" ?name))))
+      (str ?module +name-separator+ ?name))))
 
 (defn fold2% [f init xs ys]
   (|case [xs ys]

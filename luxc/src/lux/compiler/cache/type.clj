@@ -9,7 +9,6 @@
 (def ^:private stop (->> 7 char str))
 (def ^:private cons-signal (->> 5 char str))
 (def ^:private nil-signal (->> 6 char str))
-(def ^:private ident-separator ";")
 
 (defn ^:private serialize-list [serialize-type params]
   (str (&/fold (fn [so-far param]
@@ -61,7 +60,7 @@
       (str "%" (serialize-type left) (serialize-type right))
 
       (&/$Named [module name] type*)
-      (str "@" module ident-separator name stop (serialize-type type*))
+      (str "@" module &/+name-separator+ name stop (serialize-type type*))
 
       _
       (assert false (prn 'serialize-type (&type/show-type type)))
@@ -118,7 +117,7 @@
 (defn ^:private deserialize-named [^String input]
   (when (.startsWith input "@")
     (let [[^String module+name ^String input*] (.split (.substring input 1) stop 2)
-          [module name] (.split module+name ident-separator 2)]
+          [module name] (.split module+name "\\." 2)]
       (when-let [[type* ^String input*] (deserialize-type input*)]
         [(&/$Named (&/T [module name]) type*) input*]))))
 

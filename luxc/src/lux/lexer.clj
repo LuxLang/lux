@@ -98,7 +98,7 @@
     (return (&/T [meta ($Text token)]))))
 
 (def +ident-re+
-  #"^([^0-9\[\]\{\}\(\)\s\"#;][^\[\]\{\}\(\)\s\"#;]*)")
+  #"^([^0-9\[\]\{\}\(\)\s\"#.][^\[\]\{\}\(\)\s\"#.]*)")
 
 ;; [Lexers]
 (def ^:private lex-white-space
@@ -144,10 +144,12 @@
   lex-frac $Frac #"^-?(0\.[0-9_]+|[1-9][0-9_]*\.[0-9_]+)(e-?[1-9][0-9_]*)?"
   )
 
+(def +same-module-mark+ (str &/+name-separator+ &/+name-separator+))
+
 (def ^:private lex-ident
   (&/try-all-% "[Reader Error]"
                (&/|list (|do [[meta _ token] (&reader/read-regex +ident-re+)
-                              [_ _ got-it?] (&reader/read-text? ";")]
+                              [_ _ got-it?] (&reader/read-text? &/+name-separator+)]
                           (|case got-it?
                             (&/$Some _)
                             (|do [[_ _ local-token] (&reader/read-regex +ident-re+)
@@ -159,11 +161,11 @@
 
                             (&/$None)
                             (return (&/T [meta (&/T ["" token])]))))
-                        (|do [[meta _ _] (&reader/read-text ";;")
+                        (|do [[meta _ _] (&reader/read-text +same-module-mark+)
                               [_ _ token] (&reader/read-regex +ident-re+)
                               module-name &/get-module-name]
                           (return (&/T [meta (&/T [module-name token])])))
-                        (|do [[meta _ _] (&reader/read-text ";")
+                        (|do [[meta _ _] (&reader/read-text &/+name-separator+)
                               [_ _ token] (&reader/read-regex +ident-re+)]
                           (return (&/T [meta (&/T ["lux" token])])))
                         )))

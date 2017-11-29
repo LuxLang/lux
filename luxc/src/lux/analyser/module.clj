@@ -122,7 +122,7 @@
                nil)
       
       _
-      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " module ";" name))
+      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
        state))))
 
 (defn def-type
@@ -133,7 +133,7 @@
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|let [[?type ?meta ?value] $def]
           (return* state ?type))
-        ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (str module ";" name)))
+        ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (str module &/+name-separator+ name)))
          state))
       ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
        state))))
@@ -156,7 +156,8 @@
                                  ?value]))
 
             _
-            ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))
+            ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))
+                                   "\nMETA: " (&/show-ast ?meta)))
              state)))
         ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T [module name]))))
          state))
@@ -398,7 +399,7 @@
                                      [_ ?def-meta _] _def-data]
                                 (|case (&meta/meta-get &meta/alias-tag ?def-meta)
                                   (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
-                                  (&/T [k (str ?r-module ";" ?r-name) _def-data])
+                                  (&/T [k (str ?r-module &/+name-separator+ ?r-name) _def-data])
                                   
                                   _
                                   (&/T [k "" _def-data])
@@ -409,7 +410,7 @@
     (|case (&meta/meta-get <tag> meta)
       (&/$Some [_ (&/$Bool true)])
       (&/try-all% (&/|list (&type/check <type> type)
-                           (&/fail-with-loc (str "[Analyser Error] Cannot tag as lux;" <desc> "? if it's not a " <desc> ": " (str module ";" name)))))
+                           (&/fail-with-loc (str "[Analyser Error] Cannot tag as lux;" <desc> "? if it's not a " <desc> ": " (str module &/+name-separator+ name)))))
 
       _
       (return nil)))

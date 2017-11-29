@@ -324,7 +324,7 @@
               _ (&/without-repl-closure
                  (&a-module/define module-name ?name def-type def-meta def-value))]
           (return nil))
-        (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " module-name ";" ?name)))
+        (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " (str module-name &/+name-separator+ ?name))))
 
       (&/$Some _)
       (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an Ident.")
@@ -371,7 +371,7 @@
 
                 [_ (&/$None)]
                 (return nil))
-            :let [_ (println 'DEF (str module-name ";" ?name))]]
+            :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
         (return nil))
       ))
   )
