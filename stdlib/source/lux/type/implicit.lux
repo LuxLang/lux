@@ -1,12 +1,12 @@
 (;module:
   lux
-  (lux (control ["M" monad #+ do Monad]
+  (lux (control [monad #+ do Monad]
                 [eq]
                 ["p" parser])
-       (data [text "Text/" Eq<Text>]
+       (data [text "text/" Eq<Text>]
              text/format
              [number]
-             (coll [list "List/" Monad<List> Fold<List>]
+             (coll [list "list/" Monad<List> Fold<List>]
                    [dict])
              [bool]
              [product]
@@ -84,9 +84,9 @@
                   (do Monad<Meta>
                     [this-module-name macro;current-module-name
                      imp-mods (macro;imported-modules this-module-name)
-                     tag-lists (M;map @ macro;tag-lists imp-mods)
-                     #let [tag-lists (|> tag-lists List/join (List/map product;left) List/join)
-                           candidates (list;filter (. (Text/= simple-name) product;right)
+                     tag-lists (monad;map @ macro;tag-lists imp-mods)
+                     #let [tag-lists (|> tag-lists list/join (list/map product;left) list/join)
+                           candidates (list;filter (|>> product;right (text/= simple-name))
                                                    tag-lists)]]
                     (case candidates
                       #;Nil
@@ -113,21 +113,21 @@
   (|> defs
       (list;filter (function [[name [def-type def-anns def-value]]]
                      (macro;struct? def-anns)))
-      (List/map (function [[name [def-type def-anns def-value]]]
+      (list/map (function [[name [def-type def-anns def-value]]]
                   [[this-module-name name] def-type]))))
 
 (def: local-env
   (Meta (List [Ident Type]))
   (do Monad<Meta>
     [local-batches macro;locals
-     #let [total-locals (List/fold (function [[name type] table]
+     #let [total-locals (list/fold (function [[name type] table]
                                      (dict;put~ name type table))
                                    (: (dict;Dict Text Type)
                                       (dict;new text;Hash<Text>))
-                                   (List/join local-batches))]]
+                                   (list/join local-batches))]]
     (wrap (|> total-locals
               dict;entries
-              (List/map (function [[name type]] [["" name] type]))))))
+              (list/map (function [[name type]] [["" name] type]))))))
 
 (def: local-structs
   (Meta (List [Ident Type]))
@@ -141,12 +141,12 @@
   (do Monad<Meta>
     [this-module-name macro;current-module-name
      imp-mods (macro;imported-modules this-module-name)
-     export-batches (M;map @ (function [imp-mod]
-                               (do @
-                                 [exports (macro;exports imp-mod)]
-                                 (wrap (prepare-defs imp-mod exports))))
-                           imp-mods)]
-    (wrap (List/join export-batches))))
+     export-batches (monad;map @ (function [imp-mod]
+                                   (do @
+                                     [exports (macro;exports imp-mod)]
+                                     (wrap (prepare-defs imp-mod exports))))
+                               imp-mods)]
+    (wrap (list/join export-batches))))
 
 (def: (apply-function-type func arg)
   (-> Type Type (Check Type))
@@ -184,11 +184,11 @@
 (def: (check-apply member-type input-types output-type)
   (-> Type (List Type) Type (Check []))
   (do Monad<Check>
-    [member-type' (M;fold Monad<Check>
-                          (function [input member]
-                            (apply-function-type member input))
-                          member-type
-                          input-types)]
+    [member-type' (monad;fold Monad<Check>
+                              (function [input member]
+                                (apply-function-type member input))
+                              member-type
+                              input-types)]
     (tc;check output-type member-type')))
 
 (type: #rec Instance
@@ -202,21 +202,21 @@
   (do Monad<Meta>
     [compiler macro;get-compiler]
     (case (|> alts
-              (List/map (function [[alt-name alt-type]]
+              (list/map (function [[alt-name alt-type]]
                           (case (tc;run context
                                         (do Monad<Check>
                                           [[tvars alt-type] (concrete-type alt-type)
                                            #let [[deps alt-type] (type;flatten-function alt-type)]
                                            _ (tc;check dep alt-type)
                                            context' tc;get-context
-                                           =deps (M;map @ (provision compiler context') deps)]
+                                           =deps (monad;map @ (provision compiler context') deps)]
                                           (wrap =deps)))
                             (#;Left error)
                             (list)
 
                             (#;Right =deps)
                             (list [alt-name =deps]))))
-              List/join)
+              list/join)
       #;Nil
       (macro;fail (format "No candidates for provisioning: " (%type dep)))
 
@@ -242,7 +242,7 @@
       (:: Monad<Check> wrap winner)
 
       _
-      (tc;fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list (. %ident product;left) candidates))))
+      (tc;fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list (|>> product;left %ident) candidates))))
     ))
 
 (def: (test-alternatives sig-type member-idx input-types output-type alts)
@@ -251,7 +251,7 @@
     [compiler macro;get-compiler
      context macro;type-context]
     (case (|> alts
-              (List/map (function [[alt-name alt-type]]
+              (list/map (function [[alt-name alt-type]]
                           (case (tc;run context
                                         (do Monad<Check>
                                           [[tvars alt-type] (concrete-type alt-type)
@@ -260,14 +260,14 @@
                                            member-type (find-member-type member-idx alt-type)
                                            _ (check-apply member-type input-types output-type)
                                            context' tc;get-context
-                                           =deps (M;map @ (provision compiler context') deps)]
+                                           =deps (monad;map @ (provision compiler context') deps)]
                                           (wrap =deps)))
                             (#;Left error)
                             (list)
 
                             (#;Right =deps)
                             (list [alt-name =deps]))))
-              List/join)
+              list/join)
       #;Nil
       (macro;fail (format "No alternatives for " (%type (type;function input-types output-type))))
 
@@ -302,7 +302,7 @@
     (code;symbol constructor)
 
     _
-    (` ((~ (code;symbol constructor)) (~@ (List/map instance$ dependencies))))))
+    (` ((~ (code;symbol constructor)) (~@ (list/map instance$ dependencies))))))
 
 (syntax: #export (::: [member s;symbol]
                    [args (p;alt (p;seq (p;some s;symbol) s;end!)
@@ -334,7 +334,7 @@
     (#;Left [args _])
     (do @
       [[member-idx sig-type] (resolve-member member)
-       input-types (M;map @ resolve-type args)
+       input-types (monad;map @ resolve-type args)
        output-type macro;expected-type
        chosen-ones (find-alternatives sig-type member-idx input-types output-type)]
       (case chosen-ones
@@ -344,20 +344,20 @@
         (#;Cons chosen #;Nil)
         (wrap (list (` (:: (~ (instance$ chosen))
                            (~ (code;local-symbol (product;right member)))
-                           (~@ (List/map code;symbol args))))))
+                           (~@ (list/map code;symbol args))))))
 
         _
         (macro;fail (format "Too many options available: "
                             (|> chosen-ones
-                                (List/map (. %ident product;left))
+                                (list/map (|>> product;left %ident))
                                 (text;join-with ", "))
                             " --- for type: " (%type sig-type)))))
 
     (#;Right [args _])
     (do @
-      [labels (M;seq @ (list;repeat (list;size args)
-                                    (macro;gensym "")))
-       #let [retry (` (let [(~@ (|> (list;zip2 labels args) (List/map join-pair) List/join))]
+      [labels (monad;seq @ (list;repeat (list;size args)
+                                        (macro;gensym "")))
+       #let [retry (` (let [(~@ (|> (list;zip2 labels args) (list/map join-pair) list/join))]
                         (;;::: (~ (code;symbol member)) (~@ labels))))]]
       (wrap (list retry)))
     ))
