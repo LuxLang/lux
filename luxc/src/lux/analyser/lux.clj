@@ -536,7 +536,7 @@
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)
         _ (&/assert! (not ?)
-                     (str "[Analyser Error] Cannot re-define " (str module-name ";" ?name)))
+                     (str "[Analyser Error] Cannot re-define " (str module-name &/+name-separator+ ?name)))
         =value (&/without-repl-closure
                 (&/with-scope ?name
                   (&&/analyse-1+ analyse ?value)))
