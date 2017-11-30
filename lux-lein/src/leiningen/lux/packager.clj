@@ -126,88 +126,90 @@
 (defn ^:private package-jvm
   "(-> Text (List Text) Null)"
   [project module resources-dirs]
-  (let [output-package-name (get project :jar-name &utils/output-package)
-        output-dir (&utils/prepare-path (get-in project [:lux :target] &utils/default-jvm-output-dir))
-        output-package (str output-dir java.io.File/separator output-package-name)
-        !all-jar-files (atom {})
-        includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
-                                         (get project :dependencies)))
-        project* (-> project
-                     (update-in [:dependencies] (fn [_deps]
-                                                  ;; Skip the last two,
-                                                  ;; because they are:
-                                                  ;; tools.nrepl-0.2.12.jar and
-                                                  ;; clojure-complete-0.2.4.jar
-                                                  ;; and they belong to Leiningen.
-                                                  (take (- (count _deps) 2) _deps))))
-        deps (->> project*
-                  (classpath/resolve-managed-dependencies :dependencies :managed-dependencies)
-                  (map #(.getAbsolutePath ^File %)))]
-    (do (.delete (new File output-package))
-      (with-open [out (new JarOutputStream
-                           (->> output-package (new File) (new FileOutputStream))
-                           (manifest project module includes-android?))]
-        (do (doseq [$group (.listFiles (new File output-dir))]
-              (write-module! $group out output-dir))
-          (when (not (get-in project [:lux :android]))
-            (write-resources! out resources-dirs))
-          (doseq [^String file-path deps]
-            (add-jar! (new File file-path) project !all-jar-files))
-          (doseq [[_ [entry-data entry]] @!all-jar-files]
-            (doto out
-              (.putNextEntry (doto entry (.setCompressedSize -1)))
-              (.write entry-data 0 (alength entry-data))
-              (.flush)
-              (.closeEntry)))
-          nil))
-      (when (get-in project [:lux :android])
-        (let [output-dir-context (new File (get-in project [:lux :target] &utils/default-jvm-output-dir))
-              output-dex "classes.dex"
-              _ (do (.delete (new File output-dex))
-                  (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)
-                                      output-dir-context
-                                      "[DX BEGIN]"
-                                      "[DX END]"))
-              manifest-path (get-in project [:lux :android :manifest] default-manifest-file)
-              sdk-path (get-in project [:lux :android :sdk])
-              android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
-              _ (assert (.exists (new File android-path))
-                        (str "Can't find Android JAR: " android-path))
-              output-apk-unaligned-name (string/replace output-package-name #"\.jar$" ".apk.unaligned")
-              output-apk-unaligned-path (str output-dir java.io.File/separator output-apk-unaligned-name)
-              output-apk-path (string/replace output-package #"\.jar$" ".apk")
-              current-working-dir (.getCanonicalPath (new File "."))
-              _ (do (.delete (new File output-apk-unaligned-path))
-                  (&utils/run-process (str "aapt package -f -M " manifest-path " -I " android-path " -F " output-apk-unaligned-path
-                                           (apply str " " (interleave (repeat (count resources-dirs)
-                                                                              "-A ")
-                                                                      (filter #(.exists (new File %))
-                                                                              resources-dirs)))
-                                           (apply str " " (interleave (repeat (count resources-dirs)
-                                                                              "-S ")
-                                                                      (->> (get-in project [:lux :android :resources] ["android-resources"])
-                                                                           (map (partial str current-working-dir java.io.File/separator))
-                                                                           (filter #(.exists (new File %)))))))
-                                      nil
-                                      "[AAPT PACKAGE BEGIN]"
-                                      "[AAPT PACKAGE END]")
-                  (&utils/run-process (str "aapt add -f " output-apk-unaligned-name " " output-dex)
-                                      output-dir-context
-                                      "[AAPT ADD BEGIN]"
-                                      "[AAPT ADD END]")
-                  (when-let [path (get-in project [:lux :android :keystore :path])]
-                    (when-let [alias (get-in project [:lux :android :keystore :alias])]
-                      (when-let [password (get-in project [:lux :android :keystore :password])]
-                        (&utils/run-process (str "jarsigner -storepass " password " -keystore " path " " output-apk-unaligned-name " " alias)
-                                            output-dir-context
-                                            "[JARSIGNER BEGIN]"
-                                            "[JARSIGNER END]"))))
-                  (do (.delete (new File output-apk-path))
-                    (&utils/run-process (str "zipalign 4 " output-apk-unaligned-path " " output-apk-path)
+  (do (println "[JVM PACKAGING BEGAN]")
+    (let [output-package-name (get project :jar-name &utils/output-package)
+          output-dir (&utils/prepare-path (get-in project [:lux :target] &utils/default-jvm-output-dir))
+          output-package (str output-dir java.io.File/separator output-package-name)
+          !all-jar-files (atom {})
+          includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
+                                           (get project :dependencies)))
+          project* (-> project
+                       (update-in [:dependencies] (fn [_deps]
+                                                    ;; Skip the last two,
+                                                    ;; because they are:
+                                                    ;; tools.nrepl-0.2.12.jar and
+                                                    ;; clojure-complete-0.2.4.jar
+                                                    ;; and they belong to Leiningen.
+                                                    (take (- (count _deps) 2) _deps))))
+          deps (->> project*
+                    (classpath/resolve-managed-dependencies :dependencies :managed-dependencies)
+                    (map #(.getAbsolutePath ^File %)))]
+      (do (.delete (new File output-package))
+        (with-open [out (new JarOutputStream
+                             (->> output-package (new File) (new FileOutputStream))
+                             (manifest project module includes-android?))]
+          (do (doseq [$group (.listFiles (new File output-dir))]
+                (write-module! $group out output-dir))
+            (when (not (get-in project [:lux :android]))
+              (write-resources! out resources-dirs))
+            (doseq [^String file-path deps]
+              (add-jar! (new File file-path) project !all-jar-files))
+            (doseq [[_ [entry-data entry]] @!all-jar-files]
+              (doto out
+                (.putNextEntry (doto entry (.setCompressedSize -1)))
+                (.write entry-data 0 (alength entry-data))
+                (.flush)
+                (.closeEntry)))
+            nil))
+        (when (get-in project [:lux :android])
+          (let [output-dir-context (new File (get-in project [:lux :target] &utils/default-jvm-output-dir))
+                output-dex "classes.dex"
+                _ (do (.delete (new File output-dex))
+                    (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)
+                                        output-dir-context
+                                        "[ANDROID DX BEGAN]"
+                                        "[ANDROID DX ENDED]"))
+                manifest-path (get-in project [:lux :android :manifest] default-manifest-file)
+                sdk-path (get-in project [:lux :android :sdk])
+                android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
+                _ (assert (.exists (new File android-path))
+                          (str "Cannot find Android JAR: " android-path))
+                output-apk-unaligned-name (string/replace output-package-name #"\.jar$" ".apk.unaligned")
+                output-apk-unaligned-path (str output-dir java.io.File/separator output-apk-unaligned-name)
+                output-apk-path (string/replace output-package #"\.jar$" ".apk")
+                current-working-dir (.getCanonicalPath (new File "."))
+                _ (do (.delete (new File output-apk-unaligned-path))
+                    (&utils/run-process (str "aapt package -f -M " manifest-path " -I " android-path " -F " output-apk-unaligned-path
+                                             (apply str " " (interleave (repeat (count resources-dirs)
+                                                                                "-A ")
+                                                                        (filter #(.exists (new File %))
+                                                                                resources-dirs)))
+                                             (apply str " " (interleave (repeat (count resources-dirs)
+                                                                                "-S ")
+                                                                        (->> (get-in project [:lux :android :resources] ["android-resources"])
+                                                                             (map (partial str current-working-dir java.io.File/separator))
+                                                                             (filter #(.exists (new File %)))))))
                                         nil
-                                        "[ZIPALIGN BEGIN]"
-                                        "[ZIPALIGN END]")))]
-          nil)))))
+                                        "[ANDROID AAPT-PACKAGE BEGAN]"
+                                        "[ANDROID AAPT-PACKAGE ENDED]")
+                    (&utils/run-process (str "aapt add -f " output-apk-unaligned-name " " output-dex)
+                                        output-dir-context
+                                        "[ANDROID AAPT-ADD BEGAN]"
+                                        "[ANDROID AAPT-ADD ENDED]")
+                    (when-let [path (get-in project [:lux :android :keystore :path])]
+                      (when-let [alias (get-in project [:lux :android :keystore :alias])]
+                        (when-let [password (get-in project [:lux :android :keystore :password])]
+                          (&utils/run-process (str "jarsigner -storepass " password " -keystore " path " " output-apk-unaligned-name " " alias)
+                                              output-dir-context
+                                              "[ANDROID JARSIGNER BEGAN]"
+                                              "[ANDROID JARSIGNER ENDED]"))))
+                    (do (.delete (new File output-apk-path))
+                      (&utils/run-process (str "zipalign 4 " output-apk-unaligned-path " " output-apk-path)
+                                          nil
+                                          "[ANDROID ZIPALIGN BEGAN]"
+                                          "[ANDROID ZIPALIGN ENDED]")))]
+            nil))))
+    (println "[JVM PACKAGING ENDED]")))
 
 (defn package
   "(-> Text Text (List Text) Null)"

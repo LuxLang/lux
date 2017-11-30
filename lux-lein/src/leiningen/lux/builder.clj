@@ -10,15 +10,15 @@
     (do (when-let [jvm-module (get-in program-modules [:jvm])]
           (when (&utils/run-process (&utils/compile-path project "jvm" jvm-module (get project :source-paths (list)))
                                     nil
-                                    "[BUILD BEGIN]"
-                                    "[BUILD END]")
+                                    "[JVM COMPILATION BEGAN]"
+                                    "[JVM COMPILATION ENDED]")
             (&packager/package project "jvm" jvm-module (get project :resource-paths (list)))
             true))
       (when-let [js-module (get-in program-modules [:js])]
         (when (&utils/run-process (&utils/compile-path project "js" js-module (get project :source-paths (list)))
                                   nil
-                                  "[BUILD BEGIN]"
-                                  "[BUILD END]")
+                                  "[JS COMPILATION BEGAN]"
+                                  "[JS COMPILATION ENDED]")
           (&packager/package project "js" js-module (get project :resource-paths (list)))
           true))
       (when (not (or (get-in program-modules [:jvm])

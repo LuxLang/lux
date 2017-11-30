@@ -11,8 +11,8 @@
     (do (when-let [jvm-module (get-in tests-modules [:jvm])]
           (when (&utils/run-process (&utils/compile-path project "jvm" jvm-module (concat (:test-paths project) (:source-paths project)))
                                     nil
-                                    "[BUILD BEGIN]"
-                                    "[BUILD END]")
+                                    "[JVM COMPILATION BEGAN]"
+                                    "[JVM COMPILATION ENDED]")
             (let [java-cmd (get project :java-cmd "java")
                   jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
                   output-package (str (get-in project [:lux :target] &utils/default-jvm-output-dir) "/"
@@ -20,21 +20,21 @@
               (do (&packager/package project "jvm" jvm-module (get project :resource-paths (list)))
                 (&utils/run-process (str java-cmd " " jvm-opts " -jar " output-package)
                                     nil
-                                    "[TEST BEGIN]"
-                                    "[TEST END]")
+                                    "[JVM TESTING BEGAN]"
+                                    "[JVM TESTING ENDED]")
                 true))))
       (when-let [js-module (get-in tests-modules [:js])]
         (when (&utils/run-process (&utils/compile-path project "js" js-module (concat (:test-paths project) (:source-paths project)))
                                   nil
-                                  "[BUILD BEGIN]"
-                                  "[BUILD END]")
+                                  "[JS COMPILATION BEGAN]"
+                                  "[JS COMPILATION ENDED]")
           (let [output-package (str (get-in project [:lux :target] &utils/default-js-output-dir) "/"
                                     "program.js")]
             (do (&packager/package project "js" js-module (get project :resource-paths (list)))
               (&utils/run-process (str "node " output-package)
                                   nil
-                                  "[TEST BEGIN]"
-                                  "[TEST END]")
+                                  "[JS TESTING BEGAN]"
+                                  "[JS TESTING ENDED]")
               true))))
       (when (not (or (get-in tests-modules [:jvm])
                      (get-in tests-modules [:js])))
