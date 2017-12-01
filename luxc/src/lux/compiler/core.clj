@@ -4,7 +4,7 @@
             [clojure.java.io :as io]
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array
-            (lux [base :as & :refer [|let |do return* return fail*]])
+            (lux [base :as & :refer [|case |let |do return* return fail*]])
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler.cache [type :as &&&type]
@@ -44,7 +44,7 @@
 
 (defn generate-module-descriptor [file-hash]
   (|do [module-name &/get-module-name
-        module-anns (&a-module/get-anns module-name)
+        ?module-anns (&a-module/get-anns module-name)
         defs &a-module/defs
         imports &a-module/imports
         tag-groups &a-module/tag-groups
@@ -75,7 +75,12 @@
                                               (Long/toUnsignedString file-hash)
                                               import-entries
                                               tag-entries
-                                              (&&&ann/serialize module-anns)
+                                              (|case ?module-anns
+                                                (&/$Some module-anns)
+                                                (&&&ann/serialize module-anns)
+
+                                                (&/$None _)
+                                                "...")
                                               def-entries)
                                      (&/|interpose section-separator)
                                      (&/fold str ""))]]

@@ -42,7 +42,7 @@
         ;; "lux;types"
         (&/|table)
         ;; module-annotations
-        (&/T [(&/T ["" 0 0]) (&/$Record (&/|list))])
+        &/$None
         ;; "module-state"
         $Active]
        ))
@@ -222,7 +222,7 @@
                   (&/update$ &/$modules
                              (fn [ms]
                                (&/|update module-name
-                                          #(&/set$ $module-annotations anns %)
+                                          #(&/set$ $module-annotations (&/$Some anns) %)
                                           ms))))
              nil)))
 

@@ -112,10 +112,15 @@
   (|do [_ (delete module)]
     (return false)))
 
-(defn ^:private install-module [load-def-value module module-hash imports tag-groups module-anns def-entries]
+(defn ^:private install-module [load-def-value module module-hash imports tag-groups ?module-anns def-entries]
   (|do [_ (&a-module/create-module module module-hash)
         _ (&a-module/flag-cached-module module)
-        _ (&a-module/set-anns module-anns module)
+        _ (|case ?module-anns
+            (&/$Some module-anns)
+            (&a-module/set-anns module-anns module)
+
+            (&/$None _)
+            (return nil))
         _ (&a-module/set-imports imports)
         _ (&/map% (partial process-def-entry load-def-value module)
                   def-entries)
@@ -144,14 +149,17 @@
                        (contains? cache-table* _module)))
                    imports)
       (let [tag-groups (parse-tag-groups _tags-section)
-            [module-anns _] (&&&ann/deserialize _module-anns-section)
+            [?module-anns _] (if (= "..." _module-anns-section)
+                               [&/$None nil]
+                               (let [[module-anns _] (&&&ann/deserialize _module-anns-section)]
+                                 [(&/$Some module-anns) _]))
             def-entries (let [def-entries (vec (.split ^String _defs-section &&core/entry-separator))]
                           (if (= [""] def-entries)
                             &/$Nil
                             (&/->list def-entries)))]
         (|do [_ (install-all-defs-in-module module-name)
               _ (install-module load-def-value module-name module-hash
-                                imports tag-groups module-anns def-entries)
+                                imports tag-groups ?module-anns def-entries)
               =module (&/find-module module-name)]
           (return (&/T [true (assoc cache-table* module-name =module)]))))
       (return (&/T [false cache-table*])))))
