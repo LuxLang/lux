@@ -16,14 +16,15 @@
   ;; "-server -Xms2048m -Xmx2048m -XX:+OptimizeStringConcat"
   )
 
+(defn sanitize-path [^String path]
+  (.replace path "/" java.io.File/separator))
+
 (defn prepare-path [path]
   (let [is-windows? (and (.startsWith path "/")
-                         (= "\\" java.io.File/separator))
-        path (if is-windows?
-               (.substring path 1)
-               path)
-        path (.replace path "/" java.io.File/separator)]
-    path))
+                         (= "\\" java.io.File/separator))]
+    (sanitize-path (if is-windows?
+                     (.substring path 1)
+                     path))))
 
 (def ^:private stdlib-id ["com.github.luxlang" "stdlib"])
 
@@ -33,24 +34,24 @@
        (map #(.getFile ^java.net.URL %))
        (filter #(.endsWith ^String % ".jar"))))
 
-(do-template [<name> <signal>]
+(do-template [<name> <path>]
   (defn <name> [jar-paths]
     {:post [(not (nil? %))]}
     (some (fn [^:private path]
-            (if (.contains path <signal>)
+            (if (.contains path <path>)
               path
               nil))
           jar-paths))
 
-  ^:private find-compiler-path "com/github/luxlang/luxc-jvm"
-  ^:private find-stdlib-path   "com/github/luxlang/stdlib"
+  ^:private find-compiler-path (sanitize-path "com/github/luxlang/luxc-jvm")
+  ^:private find-stdlib-path   (sanitize-path "com/github/luxlang/stdlib")
   )
 
 (defn ^:private filter-deps [jar-paths]
   (filter (fn [^:private path]
-            (or (.contains path "org/ow2/asm/asm-all")
-                (.contains path "org/clojure/core.match")
-                (.contains path "org/clojure/clojure")))
+            (or (.contains path (sanitize-path "org/ow2/asm/asm-all"))
+                (.contains path (sanitize-path "org/clojure/core.match"))
+                (.contains path (sanitize-path "org/clojure/clojure"))))
           jar-paths))
 
 (defn ^:private java-command [project]
@@ -93,8 +94,8 @@
                           (concat deps-paths)
                           (list* compiler-path)
                           (interpose java.io.File/pathSeparator)
-                          (reduce str ""))
-          class-path (.replace class-path "/" java.io.File/separator)]
+                          (reduce str "")
+                          sanitize-path)]
       (str (java-command project) " -cp " class-path
            " " (lux-command project <mode> source-paths))))
 
