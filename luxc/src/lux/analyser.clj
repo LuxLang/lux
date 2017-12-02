@@ -162,6 +162,13 @@
             (&/with-cursor cursor
               (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
 
+          "lux in-module"
+          (|let [(&/$Cons [_ (&/$Text ?module)]
+                          (&/$Cons ?expr (&/$Nil))) parameters]
+            (&/with-cursor cursor
+              (&/with-module ?module
+                (analyse exo-type ?expr))))
+
           ;; else
           (&/with-analysis-meta cursor exo-type
             (cond (.startsWith ^String ?procedure "jvm")
