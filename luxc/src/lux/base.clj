@@ -1437,6 +1437,16 @@
       ($Left msg)
       ($Left msg))))
 
+(defn with-module [name body]
+  (fn [state]
+    (|case (body (set$ $current-module ($Some name) state))
+      ($Right [state* output])
+      ($Right (T [(set$ $current-module (get$ $current-module state) state*)
+                  output]))
+
+      ($Left msg)
+      ($Left msg))))
+
 (defn |eitherL [left right]
   (fn [compiler]
     (|case (run-state left compiler)

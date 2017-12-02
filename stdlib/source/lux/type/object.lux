@@ -1,15 +1,15 @@
 (.module:
   lux
-  (lux (control ["M" monad #+ do Monad]
+  (lux (control [monad #+ do Monad]
                 ["p" parser "p/" Monad<Parser>])
        (data [text]
              text/format
              [product]
              [maybe]
-             [ident #+ "Ident/" Eq<Ident>]
-             (coll [list "L/" Functor<List> Fold<List> Monoid<List>]
+             [ident #+ "ident/" Eq<Ident>]
+             (coll [list "list/" Functor<List> Fold<List> Monoid<List>]
                    [set #+ Set]))
-       [macro #+ Monad<Meta> "Macro/" Monad<Meta>]
+       [macro #+ Monad<Meta> "macro/" Monad<Meta>]
        (macro [code]
               ["s" syntax #+ syntax:]
               (syntax ["cs" common]
@@ -66,7 +66,7 @@
     (|> (list.size ancestors)
         n/dec
         (list.n/range +0)
-        (L/map (|>> %n (format "ancestor") code.local-symbol)))))
+        (list/map (|>> %n (format "ancestor") code.local-symbol)))))
 
 ## [Methods]
 (type: Method
@@ -86,32 +86,32 @@
 
 (def: (declarationM g!self (^open))
   (-> Code Method Code)
-  (let [g!type-vars (L/map code.local-symbol type-vars)
+  (let [g!type-vars (list/map code.local-symbol type-vars)
         g!method (code.local-symbol name)]
-    (` (: (All [(~@ g!type-vars)]
-            (-> (~@ inputs) (~ g!self) (~ output)))
+    (` (: (All [(~+ g!type-vars)]
+            (-> (~+ inputs) (~ g!self) (~ output)))
           (~ g!method)))))
 
 (def: (definition export [interface parameters] g!self-object g!ext g!states (^open))
-  (-> (Maybe cs.Export) Declaration Code Code (List Code) Method Code)
+  (-> Bool Declaration Code Code (List Code) Method Code)
   (let [g!method (code.local-symbol name)
-        g!parameters (L/map code.local-symbol parameters)
-        g!type-vars (L/map code.local-symbol type-vars)
+        g!parameters (list/map code.local-symbol parameters)
+        g!type-vars (list/map code.local-symbol type-vars)
         g!_temp (code.symbol ["" "_temp"])
         g!_object (code.symbol ["" "_object"])
         g!_behavior (code.symbol ["" "_behavior"])
         g!_state (code.symbol ["" "_state"])
         g!_extension (code.symbol ["" "_extension"])
-        g!_args (L/map (|>> product.left nat-to-int %i (format "_") code.local-symbol)
-                       (list.enumerate inputs))
-        g!destructuring (L/fold (function [_ g!bottom] (` [(~ g!_temp) (~ g!_temp) (~ g!bottom)]))
-                                (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)])
-                                (maybe.default g!states (list.tail g!states)))]
-    (` (def: (~@ (csw.export export)) ((~ g!method) (~@ g!_args) (~ g!_object))
-         (All [(~@ g!parameters) (~ g!ext) (~@ g!states) (~@ g!type-vars)]
-           (-> (~@ inputs) (~ g!self-object) (~ output)))
+        g!_args (list/map (|>> product.left nat-to-int %i (format "_") code.local-symbol)
+                          (list.enumerate inputs))
+        g!destructuring (list/fold (function [_ g!bottom] (` [(~ g!_temp) (~ g!_temp) (~ g!bottom)]))
+                                   (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)])
+                                   (maybe.default g!states (list.tail g!states)))]
+    (` (def: (~+ (csw.export export)) ((~ g!method) (~+ g!_args) (~ g!_object))
+         (All [(~+ g!parameters) (~ g!ext) (~+ g!states) (~+ g!type-vars)]
+           (-> (~+ inputs) (~ g!self-object) (~ output)))
          (let [(~ g!destructuring) (~ g!_object)]
-           (:: (~ g!_behavior) (~ g!method) (~@ g!_args) (~ g!_object)))))))
+           (:: (~ g!_behavior) (~ g!method) (~+ g!_args) (~ g!_object)))))))
 
 ## [Inheritance]
 (type: Reference
@@ -121,7 +121,7 @@
 
 (def: (no-parent? parent)
   (-> Ident Bool)
-  (Ident/= no-parent parent))
+  (ident/= no-parent parent))
 
 (def: (with-interface parent interface)
   (-> Ident Ident cs.Annotations cs.Annotations)
@@ -147,7 +147,7 @@
        (case [(macro.get-tag-ann (ident-for <name-tag>) annotations)
               (macro.get-tag-ann (ident-for <parent-tag>) annotations)]
          [(#.Some real-name) (#.Some parent)]
-         (if (Ident/= no-parent parent)
+         (if (ident/= no-parent parent)
            (wrap [real-name (list)])
            (do @
              [[_ ancestors] (<name> parent)]
@@ -170,7 +170,7 @@
 
       (#.Function inputT outputT)
       (let [[stateT+ objectT] (type.flatten-function currentT)]
-        (Macro/wrap [depth stateT+]))
+        (macro/wrap [depth stateT+]))
 
       _
       (macro.fail (format "Cannot extract inheritance from type: " (type.to-text newT))))))
@@ -184,11 +184,11 @@
     size
     (|> (n/dec size)
         (list.n/range +0)
-        (L/map (|>> (n/* +2) n/inc code.nat (~) #.Bound (`)))
+        (list/map (|>> (n/* +2) n/inc code.nat (~) #.Bound (`)))
         (list.zip2 (list.reverse mappings))
-        (L/fold (function [[mappingC boundC] genericC]
-                  (code.replace boundC mappingC genericC))
-                typeC))))
+        (list/fold (function [[mappingC boundC] genericC]
+                     (code.replace boundC mappingC genericC))
+                   typeC))))
 
 (def: referenceS
   (s.Syntax Reference)
@@ -211,12 +211,12 @@
 ## Utils
 (def: (nest ancestors bottom)
   (-> (List Code) Code Code)
-  (L/fold (function [[level _] g!bottom]
-            (let [g!_behavior' (code.local-symbol (format "_behavior" (%n level)))
-                  g!_state' (code.local-symbol (format "_state" (%n level)))]
-              (` [(~ g!_behavior') (~ g!_state') (~ g!bottom)])))
-          bottom
-          (list.enumerate ancestors)))
+  (list/fold (function [[level _] g!bottom]
+               (let [g!_behavior' (code.local-symbol (format "_behavior" (%n level)))
+                     g!_state' (code.local-symbol (format "_state" (%n level)))]
+                 (` [(~ g!_behavior') (~ g!_state') (~ g!bottom)])))
+             bottom
+             (list.enumerate ancestors)))
 
 ## Names
 (do-template [<name> <category>]
@@ -242,7 +242,7 @@
   )
 
 (def: (getterN export interface g!parameters g!ext g!child ancestors)
-  (-> (Maybe cs.Export) Text (List Code) Code Code (List Ident)
+  (-> Bool Text (List Code) Code Code (List Ident)
       Code)
   (let [g!get (code.local-symbol (getN interface))
         g!interface (code.local-symbol interface)
@@ -251,17 +251,17 @@
         g!_state (' _state)
         g!_extension (' _extension)
         g!ancestors (ancestor-inputs ancestors)
-        g!object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+        g!object (` ((~ g!interface) (~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)))
         g!tear-down (nest g!ancestors
                           (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)]))]
-    (` (def: (~@ (csw.export export)) ((~ g!get) (~ g!_object))
-         (All [(~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)]
+    (` (def: (~+ (csw.export export)) ((~ g!get) (~ g!_object))
+         (All [(~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)]
            (-> (~ g!object) (~ g!child)))
          (let [(~ g!tear-down) (~ g!_object)]
            (~ g!_state))))))
 
 (def: (setterN export interface g!parameters g!ext g!child ancestors)
-  (-> (Maybe cs.Export) Text (List Code) Code Code (List Ident)
+  (-> Bool Text (List Code) Code Code (List Ident)
       Code)
   (let [g!set (code.local-symbol (setN interface))
         g!interface (code.local-symbol interface)
@@ -271,20 +271,20 @@
         g!_extension (' _extension)
         g!_input (' _input)
         g!ancestors (ancestor-inputs ancestors)
-        g!object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+        g!object (` ((~ g!interface) (~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)))
         g!tear-down (nest g!ancestors
                           (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)]))
         g!build-up (nest g!ancestors
                          (` [(~ g!_behavior) (~ g!_input) (~ g!_extension)]))]
-    (` (def: (~@ (csw.export export))
+    (` (def: (~+ (csw.export export))
          ((~ g!set) (~ g!_input) (~ g!_object))
-         (All [(~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)]
+         (All [(~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)]
            (-> (~ g!child) (~ g!object) (~ g!object)))
          (let [(~ g!tear-down) (~ g!_object)]
            (~ g!build-up))))))
 
 (def: (updaterN export interface g!parameters g!ext g!child ancestors)
-  (-> (Maybe cs.Export) Text (List Code) Code Code (List Ident)
+  (-> Bool Text (List Code) Code Code (List Ident)
       Code)
   (let [g!update (code.local-symbol (updateN interface))
         g!interface (code.local-symbol interface)
@@ -294,14 +294,14 @@
         g!_extension (' _extension)
         g!_change (' _change)
         g!ancestors (ancestor-inputs ancestors)
-        g!object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+        g!object (` ((~ g!interface) (~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)))
         g!tear-down (nest g!ancestors
                           (` [(~ g!_behavior) (~ g!_state) (~ g!_extension)]))
         g!build-up (nest g!ancestors
                          (` [(~ g!_behavior) ((~ g!_change) (~ g!_state)) (~ g!_extension)]))]
-    (` (def: (~@ (csw.export export))
+    (` (def: (~+ (csw.export export))
          ((~ g!update) (~ g!_change) (~ g!_object))
-         (All [(~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)]
+         (All [(~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)]
            (-> (-> (~ g!child) (~ g!child))
                (-> (~ g!object) (~ g!object))))
          (let [(~ g!tear-down) (~ g!_object)]
@@ -313,34 +313,34 @@
   (case type
     (#.Primitive name params)
     (do Monad<Meta>
-      [paramsC+ (M.map @ type-to-code params)]
+      [paramsC+ (monad.map @ type-to-code params)]
       (wrap (` (.primitive (~ (code.symbol ["" name]))
-                           (~@ paramsC+)))))
+                           (~+ paramsC+)))))
 
     #.Void
-    (Macro/wrap (` (.|)))
+    (macro/wrap (` (.|)))
     
     #.Unit
-    (Macro/wrap (` (.&)))
+    (macro/wrap (` (.&)))
 
     (^template [<tag> <macro> <flatten>]
       (<tag> _)
       (do Monad<Meta>
-        [partsC+ (M.map @ type-to-code (<flatten> type))]
-        (wrap (` (<macro> (~@ partsC+))))))
+        [partsC+ (monad.map @ type-to-code (<flatten> type))]
+        (wrap (` (<macro> (~+ partsC+))))))
     ([#.Sum     .| type.flatten-variant]
      [#.Product .& type.flatten-tuple])
 
     (#.Function input output)
     (do Monad<Meta>
       [#let [[insT+ outT] (type.flatten-function type)]
-       insC+ (M.map @ type-to-code insT+)
+       insC+ (monad.map @ type-to-code insT+)
        outC (type-to-code outT)]
-      (wrap (` (.-> (~@ insC+) (~ outC)))))
+      (wrap (` (.-> (~+ insC+) (~ outC)))))
 
     (^template [<tag>]
       (<tag> idx)
-      (Macro/wrap (` (<tag> (~ (code.nat idx))))))
+      (macro/wrap (` (<tag> (~ (code.nat idx))))))
     ([#.Bound]
      [#.Var]
      [#.Ex])
@@ -349,11 +349,11 @@
     (do Monad<Meta>
       [#let [[funcT argsT+] (type.flatten-application type)]
        funcC (type-to-code funcT)
-       argsC+ (M.map @ type-to-code argsT+)]
-      (wrap (` ((~ funcC) (~@ argsC+)))))
+       argsC+ (monad.map @ type-to-code argsT+)]
+      (wrap (` ((~ funcC) (~+ argsC+)))))
 
     (#.Named name unnamedT)
-    (Macro/wrap (code.symbol name))
+    (macro/wrap (code.symbol name))
 
     _
     (macro.fail (format "Cannot convert type to code: " (type.to-text type)))))
@@ -378,34 +378,34 @@
                                           (wrap [parent (list& parent ancestors) mappings]))))
        #let [g!signature (code.local-symbol (signatureN interface))
              g!interface (code.local-symbol interface)
-             g!parameters (L/map code.local-symbol parameters)
+             g!parameters (list/map code.local-symbol parameters)
              g!self-ref (if (list.empty? g!parameters)
                           (list g!interface)
                           (list))
              g!interface-def (if (no-parent? parent)
-                               (let [g!recur (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~ g!child)))]
-                                 (` (Ex (~@ g!self-ref) [(~ g!ext) (~ g!child)]
-                                      [((~ g!signature) (~@ g!parameters) (~ g!recur))
+                               (let [g!recur (` ((~ g!interface) (~+ g!parameters) (~ g!ext) (~ g!child)))]
+                                 (` (Ex (~+ g!self-ref) [(~ g!ext) (~ g!child)]
+                                      [((~ g!signature) (~+ g!parameters) (~ g!recur))
                                        (~ g!child)
                                        (~ g!ext)])))
                                (let [g!parent (code.symbol parent)
                                      g!ancestors (ancestor-inputs ancestors)
-                                     g!recur (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))]
-                                 (` (Ex (~@ g!self-ref) [(~ g!ext) (~@ g!ancestors) (~ g!child)]
-                                      ((~ g!parent) (~@ mappings)
-                                       [((~ g!signature) (~@ g!parameters) (~ g!recur))
+                                     g!recur (` ((~ g!interface) (~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)))]
+                                 (` (Ex (~+ g!self-ref) [(~ g!ext) (~+ g!ancestors) (~ g!child)]
+                                      ((~ g!parent) (~+ mappings)
+                                       [((~ g!signature) (~+ g!parameters) (~ g!recur))
                                         (~ g!child)
                                         (~ g!ext)]
-                                       (~@ g!ancestors))))))]]
-      (wrap (list& (` (sig: (~@ (csw.export export))
-                        ((~ g!signature) (~@ g!parameters) (~ g!self-class))
-                        (~@ (let [de-alias (code.replace (code.local-symbol alias) g!self-class)]
-                              (L/map (|>> (update@ #inputs (L/map de-alias))
-                                          (update@ #output de-alias)
-                                          (declarationM g!self-class))
-                                     methods)))))
+                                       (~+ g!ancestors))))))]]
+      (wrap (list& (` (sig: (~+ (csw.export export))
+                        ((~ g!signature) (~+ g!parameters) (~ g!self-class))
+                        (~+ (let [de-alias (code.replace (code.local-symbol alias) g!self-class)]
+                              (list/map (|>> (update@ #inputs (list/map de-alias))
+                                             (update@ #output de-alias)
+                                             (declarationM g!self-class))
+                                        methods)))))
                    
-                   (` (type: (~@ (csw.export export)) ((~ g!interface) (~@ g!parameters))
+                   (` (type: (~+ (csw.export export)) ((~ g!interface) (~+ g!parameters))
                         (~ (|> annotations
                                (with-interface parent [module interface])
                                csw.annotations))
@@ -416,13 +416,13 @@
                    (updaterN export interface g!parameters g!ext g!child ancestors)
 
                    (let [g!ancestors (ancestor-inputs ancestors)
-                         g!states (L/compose g!ancestors (list g!child))
-                         g!self-object (` ((~ g!interface) (~@ g!parameters) (~ g!ext) (~@ g!ancestors) (~ g!child)))
+                         g!states (list/compose g!ancestors (list g!child))
+                         g!self-object (` ((~ g!interface) (~+ g!parameters) (~ g!ext) (~+ g!ancestors) (~ g!child)))
                          de-alias (code.replace (code.symbol ["" alias]) g!self-object)]
-                     (L/map (|>> (update@ #inputs (L/map de-alias))
-                                 (update@ #output de-alias)
-                                 (definition export decl g!self-object g!ext g!states))
-                            methods))))
+                     (list/map (|>> (update@ #inputs (list/map de-alias))
+                                    (update@ #output de-alias)
+                                    (definition export decl g!self-object g!ext g!states))
+                               methods))))
       )))
 
 (syntax: #export (class: [export csr.export]
@@ -451,9 +451,9 @@
                           (do @
                             [newT (macro.find-def-type (product.both id newN parent))
                              [depth rawT+] (extract newT)
-                             codeT+ (M.map @ type-to-code rawT+)]
-                            (wrap (L/map (specialize parent-mappings) codeT+)))))
-       #let [g!parameters (L/map code.local-symbol parameters)
+                             codeT+ (monad.map @ type-to-code rawT+)]
+                            (wrap (list/map (specialize parent-mappings) codeT+)))))
+       #let [g!parameters (list/map code.local-symbol parameters)
 
              g!state (code.local-symbol (stateN instance))
              g!struct (code.local-symbol (structN instance))
@@ -464,51 +464,51 @@
 
              g!parent-structs (if (no-parent? parent)
                                 (list)
-                                (L/map (|>> (product.both id structN) code.symbol) (list& parent ancestors)))]
-       g!parent-inits (M.map @ (function [_] (macro.gensym "parent-init"))
-                             g!parent-structs)
-       #let [g!full-init (L/fold (function [[parent-struct parent-state] child]
-                                   (` [(~ parent-struct) (~ parent-state) (~ child)]))
-                                 (` [(~ g!struct) (~ g!init) []])
-                                 (list.zip2 g!parent-structs g!parent-inits))
+                                (list/map (|>> (product.both id structN) code.symbol) (list& parent ancestors)))]
+       g!parent-inits (monad.map @ (function [_] (macro.gensym "parent-init"))
+                                 g!parent-structs)
+       #let [g!full-init (list/fold (function [[parent-struct parent-state] child]
+                                      (` [(~ parent-struct) (~ parent-state) (~ child)]))
+                                    (` [(~ g!struct) (~ g!init) []])
+                                    (list.zip2 g!parent-structs g!parent-inits))
              g!new (code.local-symbol (newN instance))
-             g!recur (` ((~ g!class) (~@ g!parameters) (~ g!extension)))
+             g!recur (` ((~ g!class) (~+ g!parameters) (~ g!extension)))
              g!rec (if (list.empty? g!parameters)
                      (list (' #rec))
                      (list))]]
-      (wrap (list (` (type: (~@ (csw.export export))
-                       ((~ g!state) (~@ g!parameters))
+      (wrap (list (` (type: (~+ (csw.export export))
+                       ((~ g!state) (~+ g!parameters))
                        (~ state-type)))
 
-                  (` (type: (~@ (csw.export export)) (~@ g!rec) ((~ g!class) (~@ g!parameters))
+                  (` (type: (~+ (csw.export export)) (~+ g!rec) ((~ g!class) (~+ g!parameters))
                        (~ (|> annotations
                               (with-class interface parent [module instance])
                               csw.annotations))
                        (Ex [(~ g!extension)]
                          (~ (if (no-parent? parent)
-                              (` ((~ g!interface) (~@ interface-mappings)
+                              (` ((~ g!interface) (~+ interface-mappings)
                                   (~ g!extension)
-                                  ((~ g!state) (~@ g!parameters))))
+                                  ((~ g!state) (~+ g!parameters))))
                               (let [g!parent (code.symbol parent)]
-                                (` ((~ g!parent) (~@ parent-mappings)
-                                    [((~ g!signature) (~@ interface-mappings) (~ g!recur))
-                                     ((~ g!state) (~@ g!parameters))
+                                (` ((~ g!parent) (~+ parent-mappings)
+                                    [((~ g!signature) (~+ interface-mappings) (~ g!recur))
+                                     ((~ g!state) (~+ g!parameters))
                                      (~ g!extension)]))))))))
 
-                  (` (struct: (~@ (csw.export export)) (~ g!struct)
-                       (All [(~@ g!parameters) (~ g!extension)]
-                         ((~ g!signature) (~@ interface-mappings)
-                          ((~ g!interface) (~@ interface-mappings)
+                  (` (struct: (~+ (csw.export export)) (~ g!struct)
+                       (All [(~+ g!parameters) (~ g!extension)]
+                         ((~ g!signature) (~+ interface-mappings)
+                          ((~ g!interface) (~+ interface-mappings)
                            (~ g!extension)
-                           (~@ g!inheritance)
-                           ((~ g!state) (~@ g!parameters)))))
-                       (~@ impls)))
+                           (~+ g!inheritance)
+                           ((~ g!state) (~+ g!parameters)))))
+                       (~+ impls)))
 
-                  (` (def: (~@ (csw.export export)) ((~ g!new) (~@ g!parent-inits) (~ g!init))
-                       (All [(~@ g!parameters)]
-                         (-> (~@ g!inheritance)
-                             ((~ g!state) (~@ g!parameters))
-                             ((~ g!class) (~@ g!parameters))))
+                  (` (def: (~+ (csw.export export)) ((~ g!new) (~+ g!parent-inits) (~ g!init))
+                       (All [(~+ g!parameters)]
+                         (-> (~+ g!inheritance)
+                             ((~ g!state) (~+ g!parameters))
+                             ((~ g!class) (~+ g!parameters))))
                        (~ g!full-init)))
                   ))
       )))

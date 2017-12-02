@@ -226,6 +226,29 @@
                                           ms))))
              nil)))
 
+(defn find-def! [module name]
+  (|do [current-module &/get-module-name]
+    (fn [state]
+      (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+        (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+          (|let [[?type ?meta ?value] $def]
+            (if (.equals ^Object current-module module)
+              (|case (&meta/meta-get &meta/alias-tag ?meta)
+                (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
+                ((find-def! ?r-module ?r-name)
+                 state)
+
+                _
+                (return* state (&/T [(&/T [module name]) $def])))
+              (return* state (&/T [(&/T [module name]) $def]))))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def!] Definition does not exist: " (str module &/+name-separator+ name)
+                                 " at module: " current-module))
+           state))
+        ((&/fail-with-loc (str "[Analyser Error @ find-def!] Module does not exist: " module
+                               " at module: " current-module))
+         state))
+      )))
+
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
@@ -248,13 +271,17 @@
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
-                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use unexported definition: " (str module &/+name-separator+ name)))
+                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use unexported definition: " (str module &/+name-separator+ name)
+                                         " at module: " current-module))
                    state))))
-            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)))
+            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
+                                   " at module: " current-module))
              state))
-          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module
+                                 " at module: " current-module))
            state))
-        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module))
+        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module
+                               " at module: " current-module))
          state))
       )))
 
@@ -270,7 +297,7 @@
       (&/fail-with-loc (str "[Analyser Error] Not a type definition: " (&/adt->text def-data))))))
 
 (defn defined? [module name]
-  (&/try-all% (&/|list (|do [_ (find-def module name)]
+  (&/try-all% (&/|list (|do [_ (find-def! module name)]
                          (return true))
                        (return false))))
 
