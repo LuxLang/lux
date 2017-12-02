@@ -5,7 +5,7 @@
               [code])
        (control [monad #+ do Monad]
                 ["p" parser])
-       (concurrency [promise #+ Promise Monad<Promise>])
+       (concurrency [promise #+ Promise])
        (data (coll [list "list/" Monad<List> Fold<List>])
              [product]
              [maybe]
@@ -50,15 +50,15 @@
 (def: #export (fail message)
   (All [a] (-> Text Test))
   (|> [failure (format "  [Error] " message)]
-      (:: Monad<Promise> wrap)
+      (:: promise.Monad<Promise> wrap)
       (:: r.Monad<Random> wrap)))
 
 (def: #export (assert message condition)
   {#.doc "Check that a condition is true, and fail with the given message otherwise."}
   (-> Text Bool (Promise [Counters Text]))
   (if condition
-    (:: Monad<Promise> wrap [success (format "[Success] " message)])
-    (:: Monad<Promise> wrap [failure (format "  [Error] " message)])))
+    (:: promise.Monad<Promise> wrap [success (format "[Success] " message)])
+    (:: promise.Monad<Promise> wrap [failure (format "  [Error] " message)])))
 
 (def: #export (test message condition)
   {#.doc "Check that a condition is true, and fail with the given message otherwise."}
@@ -67,7 +67,7 @@
 
 (def: (run' tests)
   (-> (List [Text (IO Test) Text]) (Promise Counters))
-  (do Monad<Promise>
+  (do promise.Monad<Promise>
     [test-runs (|> tests
                    (list/map (: (-> [Text (IO Test) Text] (Promise Counters))
                                 (function [[module test description]]
@@ -111,7 +111,7 @@
           [seed r.nat]
           (function [prng]
             (let [[prng' instance] (r.run (r.pcg-32 [pcg-32-magic-inc seed]) test)]
-              [prng' (do Monad<Promise>
+              [prng' (do promise.Monad<Promise>
                        [[counters documentation] instance]
                        (if (failed? counters)
                          (wrap [counters (format "Failed with this seed: " (%n seed) "\n" documentation)])
@@ -185,13 +185,16 @@
   (with-gensyms [g!context g!test g!error]
     (wrap (list (` (def: #export (~ g!context)
                      {#..test ((~! code.text) (~ description))}
-                     (IO Test)
-                     (io (case ("lux try" [(io (do (~! r.Monad<Random>) [] (~ test)))])
-                           (#.Right (~ g!test))
-                           (~ g!test)
+                     (~! (IO Test))
+                     ((~! io) (case ("lux try" ((~! io) ((~! do)
+                                                         (~! r.Monad<Random>)
+                                                         []
+                                                         (~ test))))
+                                (#.Right (~ g!test))
+                                (~ g!test)
 
-                           (#.Left (~ g!error))
-                           (..fail (~ g!error))))))))))
+                                (#.Left (~ g!error))
+                                (..fail (~ g!error))))))))))
 
 (def: (exported-tests module-name)
   (-> Text (Meta (List [Text Text Text])))
@@ -225,30 +228,31 @@
                               tests)
              num-tests (list.size tests+)
              groups (list.split-all promise.concurrency-level tests+)]]
-      (wrap (list (` (: (IO Unit)
-                        (io (exec (do Monad<Promise>
-                                    [(~' #let) [(~ g!total-successes) +0
-                                                (~ g!total-failures) +0]
-                                     (~+ (list/join (list/map (function [group]
-                                                                (list (` [(~ g!successes) (~ g!failures)]) (` ((~! run') (list (~+ group))))
-                                                                      (' #let) (` [(~ g!total-successes) (n/+ (~ g!successes) (~ g!total-successes))
-                                                                                   (~ g!total-failures) (n/+ (~ g!failures) (~ g!total-failures))])))
-                                                              groups)))]
-                                    (exec (let [(~ g!text/compose) (:: (~! text.Monoid<Text>) (~' compose))]
-                                            (log! ($_ (~ g!text/compose)
-                                                      "Test-suite finished."
-                                                      "\n"
-                                                      ((~! %i) (nat-to-int (~ g!total-successes)))
-                                                      " out of "
-                                                      ((~! %i) (nat-to-int (n/+ (~ g!total-failures)
-                                                                                (~ g!total-successes))))
-                                                      " tests passed."
-                                                      "\n"
-                                                      ((~! %i) (nat-to-int (~ g!total-failures))) " tests failed.")))
-                                      (promise.future (if (n/> +0 (~ g!total-failures))
-                                                        (~! ..die)
-                                                        (~! ..exit)))))
-                              [])))))))))
+      (wrap (list (` (: (~! (IO Unit))
+                        ((~! io) (exec ((~! do) (~! promise.Monad<Promise>)
+                                        [(~' #let) [(~ g!total-successes) +0
+                                                    (~ g!total-failures) +0]
+                                         (~+ (list/join (list/map (function [group]
+                                                                    (list (` [(~ g!successes) (~ g!failures)]) (` ((~! run') (list (~+ group))))
+                                                                          (' #let) (` [(~ g!total-successes) (n/+ (~ g!successes) (~ g!total-successes))
+                                                                                       (~ g!total-failures) (n/+ (~ g!failures) (~ g!total-failures))])))
+                                                                  groups)))]
+                                        (exec (let [(~ g!text/compose) (:: (~! text.Monoid<Text>) (~' compose))]
+                                                (log! ($_ (~ g!text/compose)
+                                                          "Test-suite finished."
+                                                          "\n"
+                                                          ((~! %i) (nat-to-int (~ g!total-successes)))
+                                                          " out of "
+                                                          ((~! %i) (nat-to-int (n/+ (~ g!total-failures)
+                                                                                    (~ g!total-successes))))
+                                                          " tests passed."
+                                                          "\n"
+                                                          ((~! %i) (nat-to-int (~ g!total-failures))) " tests failed.")))
+                                          ((~! promise.future)
+                                           (if (n/> +0 (~ g!total-failures))
+                                             (~! ..die)
+                                             (~! ..exit)))))
+                                   [])))))))))
 
 (def: #export (seq left right)
   {#.doc "Sequencing combinator."}
@@ -256,7 +260,7 @@
   (do r.Monad<Random>
     [left left
      right right]
-    (wrap (do Monad<Promise>
+    (wrap (do promise.Monad<Promise>
             [[l-counter l-documentation] left
              [r-counter r-documentation] right]
             (wrap [(add-counters l-counter r-counter)
