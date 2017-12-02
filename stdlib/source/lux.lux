@@ -1933,9 +1933,6 @@
                                                                   (untemplate-text subst)
                                                                   independent)))))))
 
-           [true [_ (#Form (#Cons [[_ (#Symbol ["" "~@"])] (#Cons [ident #Nil])]))]]
-           (return (wrap-meta (form$ (list (tag$ ["lux" "Symbol"]) ident))))
-
            [true [_ (#Form (#Cons [[_ (#Symbol ["" "~'"])] (#Cons [keep-quoted #Nil])]))]]
            (untemplate false subst keep-quoted)
 
@@ -2722,7 +2719,7 @@
 
 (def:''' (gensym prefix state)
          #Nil
-         (-> Text ($' Meta Ident))
+         (-> Text ($' Meta Code))
          ("lux case" state
           {{#info info #source source #current-module _ #modules modules
             #scopes   scopes   #type-context   types   #host host
@@ -2734,7 +2731,7 @@
                     #seed   (n/+ +1 seed) #expected expected
                     #cursor cursor
                     #scope-type-vars scope-type-vars}
-                   ["" ($_ text/compose "__gensym__" prefix (nat/encode seed))])}))
+                   (symbol$ ["" ($_ text/compose "__gensym__" prefix (nat/encode seed))]))}))
 
 (macro:' #export (Rec tokens)
          (list [(tag$ ["lux" "doc"])
@@ -3039,18 +3036,19 @@
                     _
                     #None))
            (#Some g!name head tail body)
-           (let [g!blank ["" ""]
+           (let [g!blank (symbol$ ["" ""])
+                 g!name (symbol$ g!name)
                  body+ (list/fold (: (-> Code Code Code)
                                      (function' [arg body']
                                                 (if (symbol? arg)
-                                                  (` ("lux function" (~@ g!blank) (~ arg) (~ body')))
-                                                  (` ("lux function" (~@ g!blank) (~@ g!blank)
-                                                      (case (~@ g!blank) (~ arg) (~ body')))))))
+                                                  (` ("lux function" (~ g!blank) (~ arg) (~ body')))
+                                                  (` ("lux function" (~ g!blank) (~ g!blank)
+                                                      (case (~ g!blank) (~ arg) (~ body')))))))
                                   body
                                   (list/reverse tail))]
              (return (list (if (symbol? head)
-                             (` ("lux function" (~@ g!name) (~ head) (~ body+)))
-                             (` ("lux function" (~@ g!name) (~@ g!blank) (case (~@ g!blank) (~ head) (~ body+))))))))
+                             (` ("lux function" (~ g!name) (~ head) (~ body+)))
+                             (` ("lux function" (~ g!name) (~ g!blank) (case (~ g!blank) (~ head) (~ body+))))))))
 
            #None
            (fail "Wrong syntax for function")))
@@ -4400,12 +4398,12 @@
     (^ (list& [_ (#Form (list))] body branches))
     (do Monad<Meta>
       [g!temp (gensym "temp")]
-      (wrap (list& (symbol$ g!temp) (` (..^open (~@ g!temp) "" (~ body))) branches)))
+      (wrap (list& g!temp (` (..^open (~ g!temp) "" (~ body))) branches)))
 
     (^ (list& [_ (#Form (list [_ (#Text prefix)]))] body branches))
     (do Monad<Meta>
       [g!temp (gensym "temp")]
-      (wrap (list& (symbol$ g!temp) (` (..^open (~@ g!temp) (~ (text$ prefix)) (~ body))) branches)))
+      (wrap (list& g!temp (` (..^open (~ g!temp) (~ (text$ prefix)) (~ body))) branches)))
 
     (^ (list [_ (#Symbol name)] [_ (#Text prefix)] body))
     (do Monad<Meta>
@@ -4502,11 +4500,11 @@
         (let [pattern (record$ (list/map (: (-> [Ident [Nat Type]] [Code Code])
                                             (function [[[r-prefix r-name] [r-idx r-type]]]
                                               [(tag$ [r-prefix r-name])
-                                               (symbol$ (if (n/= idx r-idx)
-                                                          g!output
-                                                          g!_))]))
+                                               (if (n/= idx r-idx)
+                                                 g!output
+                                                 g!_)]))
                                          (zip2 tags (enumerate members))))]
-          (return (list (` ("lux case" (~ record) {(~ pattern) (~@ g!output)})))))
+          (return (list (` ("lux case" (~ record) {(~ pattern) (~ g!output)})))))
 
         _
         (fail "get@ can only use records.")))
@@ -4521,7 +4519,7 @@
     (^ (list selector))
     (do Monad<Meta>
       [g!record (gensym "record")]
-      (wrap (list (` (function [(~@ g!record)] (..get@ (~ selector) (~@ g!record)))))))
+      (wrap (list (` (function [(~ g!record)] (..get@ (~ selector) (~ g!record)))))))
     
     _
     (fail "Wrong syntax for get@")))
@@ -4590,7 +4588,7 @@
                              (list/map int/encode <arg>))))"}
   (do Monad<Meta>
     [g!arg (gensym "arg")]
-    (return (list (` (function [(~@ g!arg)] (|> (~@ g!arg) (~+ tokens))))))))
+    (return (list (` (function [(~ g!arg)] (|> (~ g!arg) (~+ tokens))))))))
 
 (macro: #export (<<| tokens)
   {#.doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
@@ -4602,7 +4600,7 @@
                              (list/map int/encode <arg>))))"}
   (do Monad<Meta>
     [g!arg (gensym "arg")]
-    (return (list (` (function [(~@ g!arg)] (<| (~+ tokens) (~@ g!arg))))))))
+    (return (list (` (function [(~ g!arg)] (<| (~+ tokens) (~ g!arg))))))))
 
 (def: (imported-by? import-name module-name)
   (-> Text Text (Meta Bool))
@@ -4817,7 +4815,7 @@
                                   (function [[r-slot-name [r-idx r-type]]]
                                     (do Monad<Meta>
                                       [g!slot (gensym "")]
-                                      (return [r-slot-name r-idx (symbol$ g!slot)]))))
+                                      (return [r-slot-name r-idx g!slot]))))
                                (zip2 tags (enumerate members)))]
           (let [pattern (record$ (list/map (: (-> [Ident Nat Code] [Code Code])
                                               (function [[r-slot-name r-idx r-var]]
@@ -4844,20 +4842,19 @@
       _
       (do Monad<Meta>
         [bindings (monad/map Monad<Meta>
-                             (: (-> Code (Meta Ident))
+                             (: (-> Code (Meta Code))
                                 (function [_] (gensym "temp")))
                              slots)
          #let [pairs (zip2 slots bindings)
-               update-expr (list/fold (: (-> [Code Ident] Code Code)
+               update-expr (list/fold (: (-> [Code Code] Code Code)
                                          (function [[s b] v]
-                                           (` (..set@ (~ s) (~ v) (~@ b)))))
+                                           (` (..set@ (~ s) (~ v) (~ b)))))
                                       value
                                       (list/reverse pairs))
-               [_ accesses'] (list/fold (: (-> [Code Ident] [Code (List (List Code))] [Code (List (List Code))])
+               [_ accesses'] (list/fold (: (-> [Code Code] [Code (List (List Code))] [Code (List (List Code))])
                                            (function [[new-slot new-binding] [old-record accesses']]
-                                             (let [new-binding (symbol$ new-binding)]
-                                               [(` (get@ (~ new-slot) (~ new-binding)))
-                                                (#Cons (list new-binding old-record) accesses')])))
+                                             [(` (get@ (~ new-slot) (~ new-binding)))
+                                              (#Cons (list new-binding old-record) accesses')]))
                                         [record (: (List (List Code)) #Nil)]
                                         pairs)
                accesses (list/join (list/reverse accesses'))]]
@@ -4867,13 +4864,13 @@
     (^ (list selector value))
     (do Monad<Meta>
       [g!record (gensym "record")]
-      (wrap (list (` (function [(~@ g!record)] (..set@ (~ selector) (~ value) (~@ g!record)))))))
+      (wrap (list (` (function [(~ g!record)] (..set@ (~ selector) (~ value) (~ g!record)))))))
 
     (^ (list selector))
     (do Monad<Meta>
       [g!value (gensym "value")
        g!record (gensym "record")]
-      (wrap (list (` (function [(~@ g!value) (~@ g!record)] (..set@ (~ selector) (~@ g!value) (~@ g!record)))))))
+      (wrap (list (` (function [(~ g!value) (~ g!record)] (..set@ (~ selector) (~ g!value) (~ g!record)))))))
 
     _
     (fail "Wrong syntax for set@")))
@@ -4906,7 +4903,7 @@
                                   (function [[r-slot-name [r-idx r-type]]]
                                     (do Monad<Meta>
                                       [g!slot (gensym "")]
-                                      (return [r-slot-name r-idx (symbol$ g!slot)]))))
+                                      (return [r-slot-name r-idx g!slot]))))
                                (zip2 tags (enumerate members)))]
           (let [pattern (record$ (list/map (: (-> [Ident Nat Code] [Code Code])
                                               (function [[r-slot-name r-idx r-var]]
@@ -4934,20 +4931,20 @@
       (do Monad<Meta>
         [g!record (gensym "record")
          g!temp (gensym "temp")]
-        (wrap (list (` (let [(~@ g!record) (~ record)
-                             (~@ g!temp) (get@ [(~+ slots)] (~@ g!record))]
-                         (set@ [(~+ slots)] ((~ fun) (~@ g!temp)) (~@ g!record))))))))
+        (wrap (list (` (let [(~ g!record) (~ record)
+                             (~ g!temp) (get@ [(~+ slots)] (~ g!record))]
+                         (set@ [(~+ slots)] ((~ fun) (~ g!temp)) (~ g!record))))))))
 
     (^ (list selector fun))
     (do Monad<Meta>
       [g!record (gensym "record")]
-      (wrap (list (` (function [(~@ g!record)] (..update@ (~ selector) (~ fun) (~@ g!record)))))))
+      (wrap (list (` (function [(~ g!record)] (..update@ (~ selector) (~ fun) (~ g!record)))))))
 
     (^ (list selector))
     (do Monad<Meta>
       [g!fun (gensym "fun")
        g!record (gensym "record")]
-      (wrap (list (` (function [(~@ g!fun) (~@ g!record)] (..update@ (~ selector) (~@ g!fun) (~@ g!record)))))))
+      (wrap (list (` (function [(~ g!fun) (~ g!record)] (..update@ (~ selector) (~ g!fun) (~ g!record)))))))
     
     _
     (fail "Wrong syntax for update@")))
@@ -5291,10 +5288,9 @@
                             (~+ inits))))))
         (do Monad<Meta>
           [aliases (monad/map Monad<Meta>
-                              (: (-> Code (Meta Ident))
+                              (: (-> Code (Meta Code))
                                  (function [_] (gensym "")))
-                              inits)
-           #let [aliases (list/map symbol$ aliases)]]
+                              inits)]
           (return (list (` (let [(~+ (interleave aliases inits))]
                              (.loop [(~+ (interleave vars aliases))]
                                (~ body)))))))))
@@ -5335,7 +5331,7 @@
                                              (let [tag (tag$ [module name])]
                                                (case (get name slot-pairings)
                                                  (#Some binding) [tag binding]
-                                                 #None           [tag (symbol$ g!_)]))))
+                                                 #None           [tag g!_]))))
                                         tags))]]
       (return (list& pattern body branches)))
     
@@ -5551,13 +5547,13 @@
       (wrap [init extras']))))
 
 (def: (multi-level-case$ g!_ [[init-pattern levels] body])
-  (-> Ident [Multi-Level-Case Code] (List Code))
+  (-> Code [Multi-Level-Case Code] (List Code))
   (let [inner-pattern-body (list/fold (function [[calculation pattern] success]
                                         (` (case (~ calculation)
                                              (~ pattern)
                                              (~ success)
 
-                                             (~@ g!_)
+                                             (~ g!_)
                                              #.None)))
                                       (` (#.Some (~ body)))
                                       (: (List [Code Code]) (list/reverse levels)))]
@@ -5588,18 +5584,18 @@
       [mlc (multi-level-case^ levels)
        expected get-expected-type
        g!temp (gensym "temp")]
-      (let [output (list (symbol$ g!temp)
+      (let [output (list g!temp
                          (` ("lux case" ("lux check" (#.Apply (~ (type-to-code expected)) Maybe)
-                                         (case (~@ g!temp)
+                                         (case (~ g!temp)
                                            (~+ (multi-level-case$ g!temp [mlc body]))
                                            
-                                           (~@ g!temp)
+                                           (~ g!temp)
                                            #.None))
-                             {(#Some (~@ g!temp))
-                              (~@ g!temp)
+                             {(#Some (~ g!temp))
+                              (~ g!temp)
 
                               #None
-                              (case (~@ g!temp)
+                              (case (~ g!temp)
                                 (~+ next-branches))})))]
         (wrap output)))
     
@@ -5695,9 +5691,9 @@
                            (to-list set))))}
   (case tokens
     (^ (list& [_meta (#Form (list [_ (#Symbol ["" name])] pattern))] body branches))
-    (let [g!whole ["" name]]
-      (return (list& (symbol$ g!whole)
-                     (` (case (~@ g!whole) (~ pattern) (~ body)))
+    (let [g!whole (symbol$ ["" name])]
+      (return (list& g!whole
+                     (` (case (~ g!whole) (~ pattern) (~ body)))
                      branches)))
     
     _
@@ -5710,9 +5706,9 @@
                 (foo value)))}
   (case tokens
     (^ (list& [_meta (#Form (list [_ (#Symbol ["" name])] [_ (#Tuple steps)]))] body branches))
-    (let [g!name ["" name]]
-      (return (list& (symbol$ g!name)
-                     (` (let [(~@ g!name) (|> (~@ g!name) (~+ steps))]
+    (let [g!name (symbol$ ["" name])]
+      (return (list& g!name
+                     (` (let [(~ g!name) (|> (~ g!name) (~+ steps))]
                           (~ body)))
                      branches)))
     
@@ -5831,14 +5827,14 @@
                                [arg (` ((~' ~) (~ (symbol$ ["" arg]))))])
                              args)]]
     (wrap (list (` (macro: (~+ (export export?))
-                     ((~ (symbol$ ["" name])) (~@ g!tokens) (~@ g!compiler))
+                     ((~ (symbol$ ["" name])) (~ g!tokens) (~ g!compiler))
                      (~ anns)
-                     (case (~@ g!tokens)
+                     (case (~ g!tokens)
                        (^ (list (~+ (list/map (|>> [""] symbol$) args))))
-                       (#.Right [(~@ g!compiler)
+                       (#.Right [(~ g!compiler)
                                  (list (` (~ (replace-syntax rep-env input-template))))])
 
-                       (~@ g!_)
+                       (~ g!_)
                        (#.Left (~ (text$ (text/compose "Wrong syntax for " name))))
                        )))))
     ))
@@ -5923,7 +5919,7 @@
     (^ [ann (#Form (list [_ (#Symbol ["" "~~"])] expansion))])
     (do Monad<Meta>
       [g!expansion (gensym "g!expansion")]
-      (wrap [(list [(symbol$ g!expansion) expansion]) (symbol$ g!expansion)]))
+      (wrap [(list [g!expansion expansion]) g!expansion]))
 
     (^template [<tag>]
       [ann (<tag> parts)]
@@ -5985,7 +5981,7 @@
       [_ (<tag> value)]
       (do Monad<Meta>
         [g!meta (gensym "g!meta")]
-        (wrap (` [(~@ g!meta) (<tag> (~ (<gen> value)))]))))
+        (wrap (` [(~ g!meta) (<tag> (~ (<gen> value)))]))))
     ([#Bool "Bool" bool$]
      [#Nat "Nat" nat$]
      [#Int "Int" int$]
@@ -6005,7 +6001,7 @@
                               (wrap (` [(~ =key) (~ =value)]))))
                           fields)
        g!meta (gensym "g!meta")]
-      (wrap (` [(~@ g!meta) (#.Record (~ (untemplate-list =fields)))])))
+      (wrap (` [(~ g!meta) (#.Record (~ (untemplate-list =fields)))])))
 
     [_ (#Form (#Cons [[_ (#Symbol ["" "~"])] (#Cons [unquoted #Nil])]))]
     (return unquoted)
@@ -6021,13 +6017,13 @@
         (do Monad<Meta>
           [=inits (monad/map Monad<Meta> untemplate-pattern (list/reverse inits))
            g!meta (gensym "g!meta")]
-          (wrap (` [(~@ g!meta) (<tag> (~ (untemplate-list& spliced =inits)))])))
+          (wrap (` [(~ g!meta) (<tag> (~ (untemplate-list& spliced =inits)))])))
 
         _
         (do Monad<Meta>
           [=elems (monad/map Monad<Meta> untemplate-pattern elems)
            g!meta (gensym "g!meta")]
-          (wrap (` [(~@ g!meta) (<tag> (~ (untemplate-list =elems)))])))))
+          (wrap (` [(~ g!meta) (<tag> (~ (untemplate-list =elems)))])))))
     ([#Tuple] [#Form])
     ))
 
