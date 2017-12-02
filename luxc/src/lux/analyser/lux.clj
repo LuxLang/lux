@@ -365,7 +365,7 @@
 (defn analyse-apply [analyse cursor exo-type macro-caller =fn ?args]
   (|case =fn
     [_ (&&/$def ?module ?name)]
-    (|do [[real-name [?type ?meta ?value]] (&&module/find-def ?module ?name)]
+    (|do [[real-name [?type ?meta ?value]] (&&module/find-def! ?module ?name)]
       (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
         (&/$Some _)
         (|do [macro-expansion (fn [state]
@@ -377,7 +377,7 @@
                                   ((&/fail-with-loc error) state)))
               ;; module-name &/get-module-name
               ;; :let [[r-prefix r-name] real-name
-              ;;       _ (when (= "refer" r-name)
+              ;;       _ (when (= "syntax:" r-name)
               ;;           (->> (&/|map &/show-ast macro-expansion)
               ;;                (&/|interpose "\n")
               ;;                (&/fold str "")

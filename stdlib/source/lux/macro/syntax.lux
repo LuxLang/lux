@@ -194,11 +194,6 @@
       (wrap [real value]))))
 
 ## [Syntax]
-(def: #hidden text/join-with text.join-with)
-
-(def: #hidden _run_ p.run)
-(def: #hidden _Monad<Parser>_ p.Monad<Parser>)
-
 (macro: #export (syntax: tokens)
   {#.doc (doc "A more advanced way to define macros than \"macro:\"."
               "The inputs to the macro can be parsed in complex ways through the use of syntax parsers."
@@ -216,16 +211,13 @@
                                                  (with-brackets (spaced (list/map constructor-arg$ constructor-args)))
                                                  (with-brackets (spaced (list/map (method-def$ id) methods))))))]
                   (wrap (list (` ((~ (code.text def-code)))))))))}
-  (let [[exported? tokens] (: [(Maybe (Either Unit Unit)) (List Code)]
+  (let [[exported? tokens] (: [Bool (List Code)]
                               (case tokens
-                                (^ (list& [_ (#.Tag ["" "hidden"])] tokens'))
-                                [(#.Some #.Left) tokens']
-
                                 (^ (list& [_ (#.Tag ["" "export"])] tokens'))
-                                [(#.Some #.Right) tokens']
+                                [true tokens']
 
                                 _
-                                [#.None tokens]))
+                                [false tokens]))
         ?parts (: (Maybe [Text (List Code) Code Code])
                   (case tokens
                     (^ (list [_ (#.Form (list& [_ (#.Symbol ["" name])] args))]
@@ -241,7 +233,7 @@
                     #.None))]
     (case ?parts
       (#.Some [name args meta body])
-      (with-gensyms [g!tokens g!body g!msg]
+      (with-gensyms [g!text/join-with g!tokens g!body g!msg]
         (do macro.Monad<Meta>
           [vars+parsers (monad.map @
                                    (: (-> Code (Meta [Code Code]))
@@ -258,29 +250,25 @@
                                    args)
            #let [g!state ["" "*compiler*"]
                  error-msg (code.text (text/compose "Wrong syntax for " name))
-                 export-ast (: (List Code) (case exported?
-                                             (#.Some #.Left)
-                                             (list (' #hidden))
-
-                                             (#.Some #.Right)
-                                             (list (' #export))
-
-                                             _
-                                             (list)))]]
+                 export-ast (: (List Code)
+                               (if exported?
+                                 (list (' #export))
+                                 (list)))]]
           (wrap (list (` (macro: (~+ export-ast) ((~ (code.symbol ["" name])) (~@ g!tokens) (~@ g!state))
                            (~ meta)
                            ("lux case" (..run (~@ g!tokens)
                                               (: (Syntax (Meta (List Code)))
-                                                 (do .._Monad<Parser>_
+                                                 (do (~! p.Monad<Parser>)
                                                    [(~+ (join-pairs vars+parsers))]
-                                                   ((~' wrap) (do macro.Monad<Meta>
+                                                   ((~' wrap) (do (~! macro.Monad<Meta>)
                                                                 []
                                                                 (~ body))))))
                             {(#E.Success (~@ g!body))
                              ((~@ g!body) (~@ g!state))
 
                              (#E.Error (~@ g!msg))
-                             (#E.Error (text/join-with ": " (list (~ error-msg) (~@ g!msg))))})))))))
+                             (let [(~@ g!text/join-with) (~! text.join-with)]
+                               (#E.Error ((~@ g!text/join-with) ": " (list (~ error-msg) (~@ g!msg)))))})))))))
       
       _
       (macro.fail "Wrong syntax for syntax:"))))

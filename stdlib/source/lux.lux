@@ -898,11 +898,6 @@
   (flag-meta "export?"))
  (record$ #Nil))
 
-("lux def" hidden?-meta
- ("lux check" Code
-  (flag-meta "hidden?"))
- (record$ #Nil))
-
 ("lux def" macro?-meta
  ("lux check" Code
   (flag-meta "macro?"))
@@ -913,14 +908,6 @@
   (function'' [tail]
               (form$ (#Cons (tag$ ["lux" "Cons"])
                             (#Cons export?-meta
-                                   (#Cons tail #Nil))))))
- (record$ #Nil))
-
-("lux def" with-hidden-meta
- ("lux check" (#Function Code Code)
-  (function'' [tail]
-              (form$ (#Cons (tag$ ["lux" "Cons"])
-                            (#Cons hidden?-meta
                                    (#Cons tail #Nil))))))
  (record$ #Nil))
 
@@ -1549,9 +1536,7 @@
            ys}))
 
 (def:''' #export (splice-helper xs ys)
-         (#Cons [(tag$ ["lux" "hidden?"])
-                 (bool$ true)]
-                #Nil)
+         #Nil
          (-> ($' List Code) ($' List Code) ($' List Code))
          ("lux case" xs
           {(#Cons x xs')
@@ -1842,9 +1827,9 @@
                  #None
                  (#Left ($_ text/compose "Unknown module: " module " @ " (ident/encode ident)))})))
 
-(def:''' (splice replace? untemplate subst elems)
+(def:''' (splice replace? untemplate elems)
          #Nil
-         (-> Bool (-> Code ($' Meta Code)) Text ($' List Code) ($' Meta Code))
+         (-> Bool (-> Code ($' Meta Code)) ($' List Code) ($' Meta Code))
          ("lux case" replace?
           {true
            ("lux case" (list/reverse elems)
@@ -1855,9 +1840,8 @@
              (do Monad<Meta>
                [lastO ("lux case" lastI
                        {[_ (#Form (#Cons [[_ (#Symbol ["" "~+"])] (#Cons [spliced #Nil])]))]
-                        (wrap (if (text/= "" subst)
-                                spliced
-                                (form$ (list (text$ "lux in-module") (text$ subst) spliced))))
+                        (let' [[[_module-name _ _] _] spliced]
+                              (wrap spliced))
 
                         _
                         (do Monad<Meta>
@@ -1867,11 +1851,10 @@
                            (function' [leftI rightO]
                                       ("lux case" leftI
                                        {[_ (#Form (#Cons [[_ (#Symbol ["" "~+"])] (#Cons [spliced #Nil])]))]
-                                        (wrap (form$ (list (symbol$ ["lux" "splice-helper"])
-                                                           (if (text/= "" subst)
-                                                             spliced
-                                                             (form$ (list (text$ "lux in-module") (text$ subst) spliced)))
-                                                           rightO)))
+                                        (let' [[[_module-name _ _] _] spliced]
+                                              (wrap (form$ (list (symbol$ ["lux" "splice-helper"])
+                                                                 spliced
+                                                                 rightO))))
 
                                         _
                                         (do Monad<Meta>
@@ -1883,6 +1866,11 @@
            (do Monad<Meta>
              [=elems (monad/map Monad<Meta> untemplate elems)]
              (wrap (untemplate-list =elems)))}))
+
+(def:''' (untemplate-text value)
+         #Nil
+         (-> Text Code)
+         (wrap-meta (form$ (list (tag$ ["lux" "Text"]) (text$ value)))))
 
 (def:''' (untemplate replace? subst token)
          #Nil
@@ -1935,9 +1923,15 @@
            (return (wrap-meta (form$ (list (tag$ ["lux" "Symbol"]) (tuple$ (list (text$ module) (text$ name)))))))
 
            [true [_ (#Form (#Cons [[_ (#Symbol ["" "~"])] (#Cons [unquoted #Nil])]))]]
-           (return (if (text/= "" subst)
-                     unquoted
-                     (form$ (list (text$ "lux in-module") (text$ subst) unquoted))))
+           (return unquoted)
+
+           [true [_ (#Form (#Cons [[_ (#Symbol ["" "~!"])] (#Cons [dependent #Nil])]))]]
+           (do Monad<Meta>
+             [independent (untemplate replace? subst dependent)]
+             (wrap (wrap-meta (form$ (list (tag$ ["lux" "Form"])
+                                           (untemplate-list (list (untemplate-text "lux in-module")
+                                                                  (untemplate-text subst)
+                                                                  independent)))))))
 
            [true [_ (#Form (#Cons [[_ (#Symbol ["" "~@"])] (#Cons [ident #Nil])]))]]
            (return (wrap-meta (form$ (list (tag$ ["lux" "Symbol"]) ident))))
@@ -1947,13 +1941,13 @@
 
            [_ [meta (#Form elems)]]
            (do Monad<Meta>
-             [output (splice replace? (untemplate replace? subst) subst elems)
+             [output (splice replace? (untemplate replace? subst) elems)
               #let [[_ output'] (wrap-meta (form$ (list (tag$ ["lux" "Form"]) output)))]]
              (wrap [meta output']))
 
            [_ [meta (#Tuple elems)]]
            (do Monad<Meta>
-             [output (splice replace? (untemplate replace? subst) subst elems)
+             [output (splice replace? (untemplate replace? subst) elems)
               #let [[_ output'] (wrap-meta (form$ (list (tag$ ["lux" "Tuple"]) output)))]]
              (wrap [meta output']))
 
@@ -2015,7 +2009,9 @@
            (do Monad<Meta>
              [current-module current-module-name
               =template (untemplate true current-module template)]
-             (wrap (list (form$ (list (text$ "lux check") (symbol$ ["lux" "Code"]) =template)))))
+             (wrap (list (form$ (list (text$ "lux check")
+                                      (symbol$ ["lux" "Code"])
+                                      =template)))))
 
            _
            (fail "Wrong syntax for `")}))
@@ -3128,36 +3124,20 @@
        (` {#.type-args [(~+ (list/map (function [arg] (text$ (code-to-text arg)))
                                       args))]}))
 
-(def:' Export-Level
-       Type
-       ($' Either
-           Unit ## Exported
-           Unit ## Hidden
-           ))
-
-(def:' (export-level^ tokens)
-       (-> (List Code) [(Maybe Export-Level) (List Code)])
+(def:' (export^ tokens)
+       (-> (List Code) [Bool (List Code)])
        (case tokens
          (#Cons [_ (#Tag [_ "export"])] tokens')
-         [(#Some (#Left [])) tokens']
-
-         (#Cons [_ (#Tag [_ "hidden"])] tokens')
-         [(#Some (#Right [])) tokens']
+         [true tokens']
 
          _
-         [#None tokens]))
+         [false tokens]))
 
-(def:' (export-level ?el)
-       (-> (Maybe Export-Level) (List Code))
-       (case ?el
-         #None
-         (list)
-
-         (#Some (#Left []))
+(def:' (export ?)
+       (-> Bool (List Code))
+       (if ?
          (list (' #export))
-
-         (#Some (#Right []))
-         (list (' #hidden))))
+         (list)))
 
 (macro:' #export (def: tokens)
          (list [(tag$ ["lux" "doc"])
@@ -3170,7 +3150,7 @@
                         (def: branching-exponent
                           Int
                           5)")])
-         (let [[export? tokens'] (export-level^ tokens)
+         (let [[export? tokens'] (export^ tokens)
                parts (: (Maybe [Code (List Code) (Maybe Code) Code (List [Code Code])])
                         (case tokens'
                           (^ (list [_ (#Form (#Cons name args))] [_ (#Record meta-kvs)] type body))
@@ -3218,18 +3198,9 @@
                                  (~ body)
                                  [(~ cursor-code)
                                   (#Record (~ (with-func-args args
-                                                (case export?
-                                                  #None
-                                                  =meta
-
-                                                  (#Some (#Left []))
+                                                (if export?
                                                   (with-export-meta =meta)
-
-                                                  (#Some (#Right []))
-                                                  (|> =meta
-                                                      with-export-meta
-                                                      with-hidden-meta)
-                                                  ))))])))))
+                                                  =meta))))])))))
              
              #None
              (fail "Wrong syntax for def:"))))
@@ -3265,7 +3236,7 @@
 
                             _
                             (fail \"Wrong syntax for ident-for\")))")])
-         (let [[exported? tokens] (export-level^ tokens)
+         (let [[exported? tokens] (export^ tokens)
                name+args+meta+body?? (: (Maybe [Ident (List Code) Code Code])
                                         (case tokens
                                           (^ (list [_ (#Form (list& [_ (#Symbol name)] args))] body))
@@ -3288,7 +3259,7 @@
                    def-sig (case args
                              #Nil name
                              _     (` ((~ name) (~+ args))))]
-               (return (list (` (..def: (~+ (export-level exported?))
+               (return (list (` (..def: (~+ (export exported?))
                                   (~ def-sig)
                                   (~ (meta-code-merge (` {#.macro? true})
                                                       meta))
@@ -3313,7 +3284,7 @@
                >)
             (: (-> a a Bool)
                >=))"}
-  (let [[exported? tokens'] (export-level^ tokens)
+  (let [[exported? tokens'] (export^ tokens)
         ?parts (: (Maybe [Ident (List Code) Code (List Code)])
                   (case tokens'
                     (^ (list& [_ (#Form (list& [_ (#Symbol name)] args))] [meta-rec-cursor (#Record meta-rec-parts)] sigs))
@@ -3360,7 +3331,7 @@
 
                        _
                        (` ((~ def-name) (~+ args))))]]
-        (return (list (` (..type: (~+ (export-level exported?)) (~ usage) (~ sig-meta) (~ sig-type))))))
+        (return (list (` (..type: (~+ (export exported?)) (~ usage) (~ sig-meta) (~ sig-type))))))
 
       #None
       (fail "Wrong syntax for sig:"))))
@@ -3723,7 +3694,7 @@
             (def: (lux.>= test subject)
               (or (lux.> test subject)
                   (lux.= test subject))))"}
-  (let [[exported? tokens'] (export-level^ tokens)
+  (let [[exported? tokens'] (export^ tokens)
         ?parts (: (Maybe [Code (List Code) Code Code (List Code)])
                   (case tokens'
                     (^ (list& [_ (#Form (list& name args))] [meta-rec-cursor (#Record meta-rec-parts)] type defs))
@@ -3775,7 +3746,7 @@
 
                       _
                       (` ((~ name) (~+ args))))]
-          (return (list (` (..def: (~+ (export-level exported?)) (~ usage)
+          (return (list (` (..def: (~+ (export exported?)) (~ usage)
                              (~ (meta-code-merge (` {#.struct? true})
                                                  meta))
                              (~ type)
@@ -3799,7 +3770,7 @@
           (type: (List a)
             #Nil
             (#Cons a (List a)))"}
-  (let [[exported? tokens'] (export-level^ tokens)
+  (let [[exported? tokens'] (export^ tokens)
         [rec? tokens'] (case tokens'
                          (#Cons [_ (#Tag [_ "rec"])] tokens')
                          [true tokens']
@@ -3860,7 +3831,7 @@
                            (#Some (` (All (~ type-name) [(~+ args)] (~ type)))))))]
           (case type'
             (#Some type'')
-            (return (list (` (..def: (~+ (export-level exported?)) (~ type-name)
+            (return (list (` (..def: (~+ (export exported?)) (~ type-name)
                                (~ ($_ meta-code-merge (with-type-args args)
                                       (if rec? (' {#.type-rec? true}) (' {}))
                                       type-meta
@@ -4198,9 +4169,8 @@
       (let [to-alias (list/map (: (-> [Text Def]
                                       (List Text))
                                   (function [[name [def-type def-meta def-value]]]
-                                    (case [(get-meta ["lux" "export?"] def-meta)
-                                           (get-meta ["lux" "hidden?"] def-meta)]
-                                      [(#Some [_ (#Bool true)]) #None]
+                                    (case (get-meta ["lux" "export?"] def-meta)
+                                      (#Some [_ (#Bool true)])
                                       (list name)
 
                                       _
@@ -4420,8 +4390,23 @@
     ($_ text/compose prefix "." name)
     ))
 
-(macro: #hidden (^open' tokens)
+(macro: #export (^open tokens)
+  {#.doc "## Same as the \"open\" macro, but meant to be used as a pattern-matching macro for generating local bindings.
+          ## Can optionally take a \"prefix\" text for the generated local bindings.
+          (def: #export (range (^open) from to)
+            (All [a] (-> (Enum a) a a (List a)))
+            (range' <= succ from to))"}
   (case tokens
+    (^ (list& [_ (#Form (list))] body branches))
+    (do Monad<Meta>
+      [g!temp (gensym "temp")]
+      (wrap (list& (symbol$ g!temp) (` (..^open (~@ g!temp) "" (~ body))) branches)))
+
+    (^ (list& [_ (#Form (list [_ (#Text prefix)]))] body branches))
+    (do Monad<Meta>
+      [g!temp (gensym "temp")]
+      (wrap (list& (symbol$ g!temp) (` (..^open (~@ g!temp) (~ (text$ prefix)) (~ body))) branches)))
+
     (^ (list [_ (#Symbol name)] [_ (#Text prefix)] body))
     (do Monad<Meta>
       [init-type (find-type name)
@@ -4456,24 +4441,6 @@
                                (wrap (` ("lux case" (~ (symbol$ source)) {(~ pattern) (~ enhanced-target)})))))))
                       name tags&members body)]
           (wrap (list full-body)))))
-
-    _
-    (fail "Wrong syntax for ^open")))
-
-(macro: #export (^open tokens)
-  {#.doc "## Same as the \"open\" macro, but meant to be used as a pattern-matching macro for generating local bindings.
-          ## Can optionally take a \"prefix\" text for the generated local bindings.
-          (def: #export (range (^open) from to)
-            (All [a] (-> (Enum a) a a (List a)))
-            (range' <= succ from to))"}
-  (case tokens
-    (^ (list& [_ (#Form (list [_ (#Text prefix)]))] body branches))
-    (do Monad<Meta>
-      [g!temp (gensym "temp")]
-      (return (list& (symbol$ g!temp) (` (^open' (~@ g!temp) (~ (text$ prefix)) (~ body))) branches)))
-
-    (^ (list& [_ (#Form (list))] body branches))
-    (return (list& (` (..^open "")) body branches))
 
     _
     (fail "Wrong syntax for ^open")))
@@ -4721,7 +4688,7 @@
     (wrap (list/compose defs openings))
     ))
 
-(macro: #hidden (refer tokens)
+(macro: #export (refer tokens)
   (case tokens
     (^ (list& [_ (#Text module-name)] options))
     (do Monad<Meta>
@@ -5793,36 +5760,6 @@
     _
     (fail "Wrong syntax for type-of")))
 
-(type: #hidden Export-Level'
-  #Export
-  #Hidden)
-
-(def: (parse-export-level tokens)
-  (-> (List Code) (Meta [(Maybe Export-Level') (List Code)]))
-  (case tokens
-    (^ (list& [_ (#Tag ["" "export"])] tokens'))
-    (return [(#Some #Export) tokens'])
-
-    (^ (list& [_ (#Tag ["" "hidden"])] tokens'))
-    (return [(#Some #Hidden) tokens'])
-
-    _
-    (return [#None tokens])
-    ))
-
-(def: (gen-export-level ?export-level)
-  (-> (Maybe Export-Level') (List Code))
-  (case ?export-level
-    #None
-    (list)
-
-    (#Some #Export)
-    (list (' #export))
-    
-    (#Some #Hidden)
-    (list (' #hidden))
-    ))
-
 (def: (parse-complex-declaration tokens)
   (-> (List Code) (Meta [[Text (List Text)] (List Code)]))
   (case tokens
@@ -5879,8 +5816,7 @@
               (template: (square x)
                 (i/* x x)))}
   (do Monad<Meta>
-    [?export-level|tokens (parse-export-level tokens)
-     #let [[?export-level tokens] ?export-level|tokens]
+    [#let [[export? tokens] (export^ tokens)]
      name+args|tokens (parse-complex-declaration tokens)
      #let [[[name args] tokens] name+args|tokens]
      anns|tokens (parse-anns tokens)
@@ -5894,7 +5830,7 @@
      #let [rep-env (list/map (function [arg]
                                [arg (` ((~' ~) (~ (symbol$ ["" arg]))))])
                              args)]]
-    (wrap (list (` (macro: (~+ (gen-export-level ?export-level))
+    (wrap (list (` (macro: (~+ (export export?))
                      ((~ (symbol$ ["" name])) (~@ g!tokens) (~@ g!compiler))
                      (~ anns)
                      (case (~@ g!tokens)

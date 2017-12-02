@@ -163,8 +163,7 @@
               (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
 
           "lux in-module"
-          (|let [(&/$Cons [_ (&/$Text ?module)]
-                          (&/$Cons ?expr (&/$Nil))) parameters]
+          (|let [(&/$Cons [_ (&/$Text ?module)] (&/$Cons ?expr (&/$Nil))) parameters]
             (&/with-cursor cursor
               (&/with-module ?module
                 (analyse exo-type ?expr))))

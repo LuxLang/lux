@@ -135,18 +135,15 @@
                             imports (if (= [""] imports)
                                       &/$Nil
                                       (&/->list imports))]
-                        (&/|map #(.split ^String % &&core/datum-separator 2) imports))]
-        cache-table* (&/fold% (fn [cache-table* _import]
-                                (|do [:let [[_module _hash] _import]
-                                      [file-name file-content] (&&io/read-file source-dirs _module)
+                        (&/|map #(first (vec (.split ^String % &&core/datum-separator 2))) imports))]
+        cache-table* (&/fold% (fn [cache-table* _module]
+                                (|do [[file-name file-content] (&&io/read-file source-dirs _module)
                                       output (pre-load! source-dirs cache-table* _module (hash file-content)
                                                         load-def-value install-all-defs-in-module uninstall-all-defs-in-module)]
                                   (return output)))
                               cache-table
                               imports)]
-    (if (&/|every? (fn [_import]
-                     (|let [[_module _hash] _import]
-                       (contains? cache-table* _module)))
+    (if (&/|every? (fn [_module] (contains? cache-table* _module))
                    imports)
       (let [tag-groups (parse-tag-groups _tags-section)
             [?module-anns _] (if (= "..." _module-anns-section)
