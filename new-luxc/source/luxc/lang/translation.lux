@@ -40,6 +40,7 @@
 (exception: #export Macro-Expansion-Failed)
 (exception: #export Unrecognized-Statement)
 (exception: #export Invalid-Alias)
+(exception: #export Invalid-Macro)
 
 (def: (process-annotations annsC)
   (-> Code (Meta [$.Inst Code]))
@@ -72,37 +73,6 @@
 (def: #export (translate translate-module aliases code)
   (-> (-> Text Compiler (Process Compiler)) Aliases Code (Meta Aliases))
   (case code
-    (^code ((~ [_ (#.Symbol macro-name)]) (~+ args)))
-    (do macro.Monad<Meta>
-      [?macro (&.with-error-tracking
-                (macro.find-macro macro-name))]
-      (case ?macro
-        (#.Some macro)
-        (do @
-          [expansion (: (Meta (List Code))
-                        (function [compiler]
-                          (case (macroL.expand macro args compiler)
-                            (#e.Error error)
-                            ((&.throw Macro-Expansion-Failed error) compiler)
-
-                            output
-                            output)))
-           expansion-aliases (monad.map @ (translate translate-module aliases) expansion)]
-          (if (dict.empty? aliases)
-            (loop [expansion-aliases expansion-aliases]
-              (case expansion-aliases
-                #.Nil
-                (wrap aliases)
-
-                (#.Cons head tail)
-                (if (dict.empty? head)
-                  (recur tail)
-                  (wrap head))))
-            (wrap aliases)))
-
-        #.None
-        (&.throw Unrecognized-Statement (%code code))))
-    
     (^code ("lux def" (~ [_ (#.Symbol ["" def-name])]) (~ valueC) (~ annsC)))
     (hostL.with-context def-name
       (&.with-fresh-type-env
@@ -158,6 +128,39 @@
        programI (expressionT.translate (expressionS.synthesize programA))
        _ (statementT.translate-program program-args programI)]
       (wrap aliases))
+
+    (^code ((~ macroC) (~+ argsC+)))
+    (do macro.Monad<Meta>
+      [[_ macroA] (&.with-scope
+                    (&.with-type Macro
+                      (analyse macroC)))
+       [_macroT _macroM _macroV] (case macroA
+                                   [_ (#.Symbol macro-name)]
+                                   (&.with-error-tracking
+                                     (macro.find-def macro-name))
+
+                                   _
+                                   (&.throw Invalid-Macro (%code code)))
+       expansion (: (Meta (List Code))
+                    (function [compiler]
+                      (case (macroL.expand (:! Macro _macroV) argsC+ compiler)
+                        (#e.Error error)
+                        ((&.throw Macro-Expansion-Failed error) compiler)
+
+                        output
+                        output)))
+       expansion-aliases (monad.map @ (translate translate-module aliases) expansion)]
+      (wrap (if (dict.empty? aliases)
+              (loop [expansion-aliases expansion-aliases]
+                (case expansion-aliases
+                  #.Nil
+                  aliases
+
+                  (#.Cons head tail)
+                  (if (dict.empty? head)
+                    (recur tail)
+                    head)))
+              aliases)))
 
     _
     (&.throw Unrecognized-Statement (%code code))))
