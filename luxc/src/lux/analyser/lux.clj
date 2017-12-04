@@ -428,8 +428,7 @@
     (&/fold% (fn [_func _inf-var]
                (|do [:let [$inf-var (&/$Var _inf-var)]
                      =inf-var (&type/resolve-type $inf-var)
-                     _func* (clean-func-inference $inf-var $output =inf-var _func)
-                     _ (&type/delete-var _inf-var)]
+                     _func* (clean-func-inference $inf-var $output =inf-var _func)]
                  (return _func*)))
              =func
              (unravel-inf-appt =input))
@@ -438,8 +437,7 @@
     (&/fold% (fn [_func _inf-var]
                (|do [:let [$inf-var (&/$Var _inf-var)]
                      =inf-var (&type/resolve-type $inf-var)
-                     _func* (clean-func-inference $inf-var $output =inf-var _func)
-                     _ (&type/delete-var _inf-var)]
+                     _func* (clean-func-inference $inf-var $output =inf-var _func)]
                  (return _func*)))
              =func
              (&/|reverse (&type/flatten-prod =input)))
@@ -545,11 +543,6 @@
         _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
         _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
         _ (compile-def ?name (optimize =value) ==meta)
-        ;; TODO: Make the call to &type/reset-mappings unnecessary.
-        ;; It should not be necessary to reset the mappings of the
-        ;; type-vars, because those mappings should not stay around
-        ;; after being cleaned-up.
-        ;; I must figure out why they're staying around.
         _ &type/reset-mappings]
     (return &/$Nil)))
 

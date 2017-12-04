@@ -242,7 +242,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id &/$None %)
-                                                              ts))
+                                                             ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -253,7 +253,7 @@
 (def reset-mappings
   (fn [state]
     (return* (&/update$ &/$type-context #(->> %
-                                              ;; (&/set$ &/$var-counter 0)
+                                              (&/set$ &/$var-counter 0)
                                               (&/set$ &/$var-bindings (&/|table)))
                         state)
              nil)))
@@ -279,45 +279,9 @@
                   (&/get$ &/$ex-counter)
                   &/$Ex))))
 
-(declare clean*)
-(defn delete-var [id]
-  (|do [? (bound? id)
-        _ (if ?
-            (return nil)
-            (|do [ex existential]
-              (set-var id ex)))]
-    (fn [state]
-      ((|do [mappings* (&/map% (fn [binding]
-                                 (|let [[?id ?type] binding]
-                                   (if (= id ?id)
-                                     (return binding)
-                                     (|case ?type
-                                       (&/$None)
-                                       (return binding)
-
-                                       (&/$Some ?type*)
-                                       (|case ?type*
-                                         (&/$Var ?id*)
-                                         (if (= id ?id*)
-                                           (return (&/T [?id &/$None]))
-                                           (return binding))
-
-                                         _
-                                         (|do [?type** (clean* id ?type*)]
-                                           (return (&/T [?id (&/$Some ?type**)]))))
-                                       ))))
-                               (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings)))]
-         (fn [state]
-           (return* (&/update$ &/$type-context #(&/set$ &/$var-bindings (&/|remove id mappings*) %)
-                               state)
-                    nil)))
-       state))))
-
 (defn with-var [k]
-  (|do [id create-var
-        output (k (&/$Var id))
-        _ (delete-var id)]
-    (return output)))
+  (|do [id create-var]
+    (k (&/$Var id))))
 
 (defn clean* [?tid type]
   (|case type

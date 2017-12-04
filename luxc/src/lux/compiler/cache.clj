@@ -229,7 +229,7 @@
     (return nil)))
 
 (defn ^:private inject-module
-  "(-> (Module Compiler) (-> Compiler (Lux Null)))"
+  "(-> Module Compiler (Lux Null))"
   [module-name module]
   (fn [compiler]
     (return* (&/update$ &/$modules

@@ -1,16 +1,10 @@
 (.module:
   lux
-  (lux (data (coll [list #* "" Functor<List>])
-             number
-             text/format)
-       [io #- run]
-       function
-       (control ["F" functor]
-                ["A" applicative]
-                ["M" monad #+ do Monad]
-                ["p" parser])
-       [macro]
-       (macro ["s" syntax #+ syntax: Syntax])
+  (lux [io #+ IO io]
+       [function]
+       (control [functor #+ Functor]
+                [applicative #+ Applicative]
+                [monad #+ do Monad])
        (concurrency [atom #+ Atom atom])))
 
 (def: #export concurrency-level
@@ -31,14 +25,14 @@
          #observers (list)}))
 
 (def: #export (poll promise)
-  {#.doc "Polls a Promise's value."}
+  {#.doc "Polls a promise's value."}
   (All [a] (-> (Promise a) (Maybe a)))
   (|> (atom.read promise)
       io.run
       (get@ #value)))
 
 (def: #export (resolved? promise)
-  {#.doc "Checks whether a Promise's value has already been resolved."}
+  {#.doc "Checks whether a promise's value has already been resolved."}
   (All [a] (-> (Promise a) Bool))
   (case (poll promise)
     #.None
@@ -48,9 +42,9 @@
     true))
 
 (def: #export (resolve value promise)
-  {#.doc "Sets an Promise's value if it has not been done yet."}
+  {#.doc "Sets an promise's value if it has not been done yet."}
   (All [a] (-> a (Promise a) (IO Bool)))
-  (do Monad<IO>
+  (do io.Monad<IO>
     [old (atom.read promise)]
     (case (get@ #value old)
       (#.Some _)
@@ -62,8 +56,8 @@
          succeeded? (atom.compare-and-swap old new promise)]
         (if succeeded?
           (do @
-            [_ (M.map @ (function [f] (f value))
-                      (get@ #observers old))]
+            [_ (monad.map @ (function [f] (f value))
+                          (get@ #observers old))]
             (wrap true))
           (resolve value promise))))))
 
@@ -80,16 +74,14 @@
           []
           (await f promise))))))
 
-(struct: #export _ (F.Functor Promise)
+(struct: #export _ (Functor Promise)
   (def: (map f fa)
-    (let [fb (: (Promise ($ +1)) (promise #.None))
-          ## fb (promise' #.None)
-          ]
+    (let [fb (promise #.None)]
       (exec (await (function [a] (resolve (f a) fb))
                    fa)
         fb))))
 
-(struct: #export _ (A.Applicative Promise)
+(struct: #export _ (Applicative Promise)
   (def: functor Functor<Promise>)
 
   (def: (wrap a)
@@ -97,9 +89,7 @@
            #observers (list)}))
 
   (def: (apply ff fa)
-    (let [fb (: (Promise ($ +1)) (promise #.None))
-          ## fb (promise' #.None)
-          ]
+    (let [fb (promise #.None)]
       (exec (await (function [f]
                      (io (await (function [a] (resolve (f a) fb))
                                 fa)))
@@ -111,9 +101,7 @@
   (def: applicative Applicative<Promise>)
 
   (def: (join mma)
-    (let [ma (: (Promise ($ +0)) (promise #.None))
-          ## ma (promise' #.None)
-          ]
+    (let [ma (promise #.None)]
       (exec (await (function [ma']
                      (io (await (function [a'] (resolve a' ma))
                                 ma')))
@@ -131,9 +119,7 @@
 (def: #export (alt left right)
   {#.doc "Heterogeneous alternative combinator."}
   (All [a b] (-> (Promise a) (Promise b) (Promise (| a b))))
-  (let [a|b (: (Promise (| ($ +0) ($ +1))) (promise #.None))
-        ## a|b (promise' #.None)
-        ]
+  (let [a|b (promise #.None)]
     (with-expansions
       [<sides> (do-template [<promise> <tag>]
                  [(await (function [value] (resolve (<tag> value) a|b))
@@ -148,9 +134,7 @@
 (def: #export (either left right)
   {#.doc "Homogeneous alternative combinator."}
   (All [a] (-> (Promise a) (Promise a) (Promise a)))
-  (let [left||right (: (Promise ($ +0)) (promise #.None))
-        ## left||right (promise' #.None)
-        ]
+  (let [left||right (promise #.None)]
     (`` (exec (~~ (do-template [<promise>]
                     [(await (function [value] (resolve value left||right))
                             <promise>)]
@@ -162,26 +146,24 @@
 (def: #export (future computation)
   {#.doc "Runs an I/O computation on its own process and returns an Promise that will eventually host its result."}
   (All [a] (-> (IO a) (Promise a)))
-  (let [!out (: (Promise ($ +0)) (promise #.None))
-        ## !out (promise' #.None)
-        ]
+  (let [!out (promise #.None)]
     (exec ("lux process future" (io (io.run (resolve (io.run computation)
                                                      !out))))
       !out)))
 
 (def: #export (wait time)
-  {#.doc "Returns a Promise that will be resolved after the specified amount of milliseconds."}
+  {#.doc "Returns a promise that will be resolved after the specified amount of milliseconds."}
   (-> Nat (Promise Unit))
   (let [!out (: (Promise Unit) (promise #.None))]
     (exec ("lux process schedule" time (resolve [] !out))
       !out)))
 
 (def: #export (time-out time promise)
-  {#.doc "Wait for a Promise to be resolved within the specified amount of milliseconds."}
+  {#.doc "Wait for a promise to be resolved within the specified amount of milliseconds."}
   (All [a] (-> Nat (Promise a) (Promise (Maybe a))))
   (alt (wait time) promise))
 
 (def: #export (delay time value)
   {#.doc "Delivers a value after a certain period has passed."}
   (All [a] (-> Nat a (Promise a)))
-  (:: Functor<Promise> map (const value) (wait time)))
+  (:: Functor<Promise> map (function.const value) (wait time)))
