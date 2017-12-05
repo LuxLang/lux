@@ -16,20 +16,13 @@
   (close [] (Task Unit)))
 
 (for {"JVM"
-      (as-is (host.import java/lang/AutoCloseable
-               (close [] #io #try void))
-             
-             (host.import java/io/InputStream)
+      (as-is (host.import java/io/InputStream
+               (read [] #io #try int)
+               (available [] #io #try int)
+               (mark [int] #io #try void)
+               (reset [] #io #try void))
 
              (host.import java/io/Reader)
-
-             (host.import java/io/InputStreamReader
-               (new [InputStream]))
-             
-             (host.import java/io/BufferedReader
-               (new [Reader])
-               (read [] #io #try int)
-               (readLine [] #io #try String))
 
              (host.import java/io/PrintStream
                (print [String] #io #try void))
@@ -38,22 +31,59 @@
                (#static in java/io/InputStream)
                (#static out java/io/PrintStream))
 
+             (host.import java/lang/Appendable
+               (append [CharSequence] Appendable))
+
+             (host.import java/lang/String)
+
+             (host.import java/lang/StringBuffer
+               (new [String])
+               (toString [] String))
+
              (class: JVM-Console Console
-               {#input BufferedReader
+               {#input InputStream
                 #output PrintStream}
 
                (def: read-char
                  (|>> get@Console
                       (get@ #input)
-                      (BufferedReader::read [])
+                      (InputStream::read [])
                       (:: io.Functor<Process> map (|>> int-to-nat text.from-code))
                       promise.future))
                
-               (def: read-line
-                 (|>> get@Console
-                      (get@ #input)
-                      (BufferedReader::readLine [])
-                      promise.future))
+               (def: (read-line console)
+                 (let [input (|> console get@Console (get@ #input))
+                       buffer (StringBuffer::new [""])]
+                   (promise.future
+                    (loop [_ []]
+                      (do io.Monad<Process>
+                        [char (<| (:: @ map (|>> int-to-nat text.from-code))
+                                  (InputStream::read [] input))]
+                        (case char
+                          "\n"
+                          (wrap (StringBuffer::toString [] buffer))
+                          
+                          "\r"
+                          (do @
+                            [available (InputStream::available [] input)]
+                            (if (i/> 0 available)
+                              (do @
+                                [_ (InputStream::mark [10] input)
+                                 next (<| (:: @ map (|>> int-to-nat text.from-code))
+                                          (InputStream::read [] input))]
+                                (case next
+                                  "\n"
+                                  (wrap (StringBuffer::toString [] buffer))
+                                  
+                                  _
+                                  (do @
+                                    [_ (InputStream::reset [] input)]
+                                    (wrap (StringBuffer::toString [] buffer)))))
+                              (wrap (StringBuffer::toString [] buffer))))
+                          
+                          _
+                          (exec (Appendable::append [(:! String char)] buffer)
+                            (recur []))))))))
                
                (def: (write message)
                  (|>> get@Console
@@ -62,13 +92,10 @@
                       promise.future))
                
                (def: (close self)
-                 (promise.future
-                  (do io.Monad<Process>
-                    [_ (AutoCloseable::close [] (|> self get@Console (get@ #input)))]
-                    (AutoCloseable::close [] (|> self get@Console (get@ #output)))))))
+                 (task.return [])))
 
              (def: #export open
                (Process Console)
-               (io (#e.Success (new@JVM-Console {#input (|> System::in InputStreamReader::new BufferedReader::new)
+               (io (#e.Success (new@JVM-Console {#input System::in
                                                  #output System::out})))))
       })
