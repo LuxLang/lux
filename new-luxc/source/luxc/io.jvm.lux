@@ -3,8 +3,6 @@
   (lux (control monad
                 ["ex" exception #+ exception:])
        [io #+ Process]
-       (concurrency ["P" promise]
-                    ["T" task])
        (data ["e" error]
              [text "text/" Eq<Text>]
              text/format)
@@ -21,46 +19,24 @@
 
 (exception: #export File-Not-Found)
 (exception: #export Module-Not-Found)
-(exception: #export Could-Not-Read-All-Data)
 
-(host.import #long java/io/File
-  (new [String])
-  (exists [] #io #try boolean)
-  (mkdir [] #io #try boolean)
-  (delete [] #io #try boolean)
-  (length [] #io #try long)
-  (listFiles [] #io #try (Array java/io/File))
-  (getAbsolutePath [] #io #try String)
-  (isFile [] #io #try boolean)
-  (isDirectory [] #io #try boolean)
-  (#static separator String))
+(def: sanitize
+  (-> Text Text)
+  (text.replace-all "/" file.separator))
 
-(host.import java/lang/AutoCloseable
-  (close [] #io #try void))
-
-(host.import java/io/InputStream
-  (read [(Array byte)] #io #try int))
-
-(host.import java/io/FileInputStream
-  (new [java/io/File] #io #try))
-
-(def: file-exists?
-  (-> File (Process Bool))
-  (|>> java/io/File::new (java/io/File::exists [])))
-
-(def: (find-source path dirs)
-  (-> Text (List File) (Process [Text File]))
+(def: (find-source dirs path)
+  (-> (List File) Text (Process [Text File]))
   (case dirs
     #.Nil
     (io.fail (File-Not-Found path))
 
     (#.Cons dir dirs')
     (do io.Monad<Process>
-      [#let [file (format dir java/io/File::separator path)]
-       ? (file-exists? file)]
+      [#let [file (format dir file.separator path)]
+       ? (file.exists? file)]
       (if ?
         (wrap [path file])
-        (find-source path dirs')))))
+        (find-source dirs' path)))))
 
 (def: (either left right)
   (All [a] (-> (Process a) (Process a) (Process a)))
@@ -73,58 +49,38 @@
       (#e.Error error)
       right)))
 
-(def: #export (read-file file)
-  (-> File (Process Blob))
-  (do io.Monad<Process>
-    [#let [file' (java/io/File::new file)]
-     size (java/io/File::length [] file')
-     #let [data (blob.create (int-to-nat size))]
-     stream (FileInputStream::new [file'])
-     bytes-read (InputStream::read [data] stream)
-     _ (AutoCloseable::close [] stream)]
-    (if (i/= size bytes-read)
-      (wrap data)
-      (io.fail (Could-Not-Read-All-Data file)))))
-
 (def: #export (read-module dirs name)
   (-> (List File) Text (Process [File Text]))
-  (let [host-path (format name host-extension lux-extension)
-        lux-path (format name lux-extension)]
-    (do io.Monad<Process>
-      [[path file] (: (Process [Text File])
-                      ($_ either
-                          (find-source host-path dirs)
-                          (find-source lux-path dirs)
-                          (io.fail (Module-Not-Found name))))
-       blob (read-file file)]
-      (wrap [path (String::new blob)]))))
-
-(def: #export (write-module name descriptor)
-  (-> Text Text (T.Task Unit))
-  (T.fail "'write-module' is undefined."))
+  (do io.Monad<Process>
+    [[path file] (: (Process [Text File])
+                    ($_ either
+                        (find-source dirs (format name host-extension lux-extension))
+                        (find-source dirs (format name lux-extension))
+                        (io.fail (Module-Not-Found name))))
+     blob (file.read file)]
+    (wrap [path (String::new blob)])))
 
 (def: (platform-target root-target)
   (-> File File)
-  (format root-target
-          java/io/File::separator
-          (for {"JVM" "jvm"
-                "JS" "js"})))
+  (format root-target "/" (for {"JVM" "jvm"
+                                "JS" "js"})))
 
 (def: #export (prepare-target target-dir)
-  (-> File (T.Task Unit))
-  (do T.Monad<Task>
-    [_ (file.make-dir target-dir)
-     _ (file.make-dir (platform-target target-dir))]
-    (wrap [])))
+  (-> File (Process Bool))
+  (do io.Monad<Process>
+    [_ (file.make-dir (sanitize target-dir))]
+    (file.make-dir (sanitize (platform-target target-dir)))))
 
 (def: #export (prepare-module target-dir module-name)
-  (-> File Text (T.Task Unit))
-  (do T.Monad<Task>
-    [_ (file.make-dir (format (platform-target target-dir) java/io/File::separator module-name))]
-    (wrap [])))
+  (-> File Text (Process Bool))
+  (|> module-name
+      (format (platform-target target-dir) "/")
+      sanitize
+      file.make-dir))
 
-(def: #export (write-file target-dir file-name content)
-  (-> File Text Blob (T.Task Unit))
-  (|> file-name
-      (format (platform-target target-dir) java/io/File::separator)
+(def: #export (write target name content)
+  (-> File Text Blob (Process Unit))
+  (|> name
+      (format (platform-target target) "/")
+      sanitize
       (file.write content)))

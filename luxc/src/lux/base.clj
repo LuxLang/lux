@@ -158,6 +158,7 @@
    "expected"
    "seed"
    "scope-type-vars"
+   "extensions"
    "host"])
 
 ;; Compiler
@@ -834,6 +835,8 @@
       0
       ;; scope-type-vars
       $Nil
+      ;; extensions
+      nil
       ;; "lux;host"
       host-data]
      ))

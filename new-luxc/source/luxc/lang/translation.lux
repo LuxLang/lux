@@ -20,17 +20,24 @@
         (lang [".L" module]
               [".L" host]
               [".L" macro]
+              [".L" extension]
+              (extension [".E" analysis]
+                         [".E" synthesis]
+                         [".E" translation]
+                         [".E" statement])
               (host ["$" jvm])
               (analysis [".A" expression]
                         [".A" common])
               (synthesis [".S" expression])
               (translation [".T" runtime]
                            [".T" statement]
-                           [".T" common]
+                           [".T" common #+ Artifacts]
                            [".T" expression]
                            [".T" eval]
                            [".T" imports])
-              ["&." eval])
+              ["&." eval]
+              ## [".L" cache]
+              )
         ))
 
 (def: analyse
@@ -39,7 +46,6 @@
 
 (exception: #export Macro-Expansion-Failed)
 (exception: #export Unrecognized-Statement)
-(exception: #export Invalid-Alias)
 (exception: #export Invalid-Macro)
 
 (def: (process-annotations annsC)
@@ -60,55 +66,9 @@
        (wrap (|> this (get@ #.module-aliases) (dict.from-list text.Hash<Text>) (: Aliases))))
      new-compiler)))
 
-(def: (ensure-valid-alias def-name annotations value)
-  (-> Text Code Code (Meta Unit))
-  (case [annotations value]
-    (^multi [[_ (#.Record pairs)] [_ (#.Symbol _)]]
-            (|> pairs list.size (n/= +1)))
-    (:: macro.Monad<Meta> wrap [])
-
-    _
-    (&.throw Invalid-Alias def-name)))
-
 (def: #export (translate translate-module aliases code)
   (-> (-> Text Compiler (Process Compiler)) Aliases Code (Meta Aliases))
   (case code
-    (^code ("lux def" (~ [_ (#.Symbol ["" def-name])]) (~ valueC) (~ annsC)))
-    (hostL.with-context def-name
-      (&.with-fresh-type-env
-        (do macro.Monad<Meta>
-          [[annsI annsV] (process-annotations annsC)]
-          (case (macro.get-symbol-ann (ident-for #.alias) annsV)
-            (#.Some real-def)
-            (do @
-              [_ (ensure-valid-alias def-name annsV valueC)
-               _ (&.with-scope
-                   (statementT.translate-def def-name Void id annsI annsV))]
-              (wrap aliases))
-
-            #.None
-            (do @
-              [[_ valueT valueA] (&.with-scope
-                                   (if (macro.type? (:! Code annsV))
-                                     (do @
-                                       [valueA (&.with-type Type
-                                                 (analyse valueC))]
-                                       (wrap [Type valueA]))
-                                     (commonA.with-unknown-type
-                                       (analyse valueC))))
-               valueT (&.with-type-env
-                        (tc.clean valueT))
-               ## #let [_ (if (or (text/= "string~" def-name))
-               ##           (log! (format "{" def-name "}\n"
-               ##                         "     TYPE: " (%type valueT) "\n"
-               ##                         " ANALYSIS: " (%code valueA) "\n"
-               ##                         "SYNTHESIS: " (%code (expressionS.synthesize valueA))))
-               ##           [])]
-               valueI (expressionT.translate (expressionS.synthesize valueA))
-               _ (&.with-scope
-                   (statementT.translate-def def-name valueT valueI annsI annsV))]
-              (wrap aliases))))))
-
     (^code ("lux module" (~ annsC)))
     (do macro.Monad<Meta>
       [[annsI annsV] (process-annotations annsC)
@@ -120,15 +80,12 @@
         (#e.Error error)
         (macro.fail error)))
 
-    (^code ("lux program" (~ [_ (#.Symbol ["" program-args])]) (~ programC)))
+    (^code ((~ [_ (#.Text statement)]) (~+ argsC+)))
     (do macro.Monad<Meta>
-      [[_ programA] (&.with-scope
-                      (&.with-type (type (io.IO Unit))
-                        (analyse programC)))
-       programI (expressionT.translate (expressionS.synthesize programA))
-       _ (statementT.translate-program program-args programI)]
+      [statement (extensionL.find-statement statement)
+       _ (statement argsC+)]
       (wrap aliases))
-
+    
     (^code ((~ macroC) (~+ argsC+)))
     (do macro.Monad<Meta>
       [[_ macroA] (&.with-scope
@@ -199,6 +156,22 @@
       (#e.Success [(set@ #.source source' compiler)
                    output]))))
 
+(def: (write-module target-dir module-name module artifacts)
+  (-> File Text Module Artifacts (Process Unit))
+  (do io.Monad<Process>
+    [_ (monad.map @ (function [[name content]]
+                      (&io.write target-dir
+                                 (format module-name "/" name (for {"JVM" ".class"
+                                                                    "JS" ".js"}))
+                                 content))
+                  (dict.entries artifacts))]
+    (wrap [])
+    ## (&io.write (format module-dir "/" cacheL.descriptor-name)
+    ##            (text-to-blob (%code (cacheL.describe module))))
+    ))
+
+(def: no-aliases Aliases (dict.new text.Hash<Text>))
+
 (def: #export (translate-module source-dirs target-dir module-name compiler)
   (-> (List File) File Text Compiler (Process Compiler))
   (do io.Monad<Process>
@@ -208,26 +181,23 @@
            translate-module (translate-module source-dirs target-dir)]]
     (case (macro.run' compiler
                       (do macro.Monad<Meta>
-                        [[_ artifacts _] (moduleL.with-module module-hash module-name
-                                           (commonT.with-artifacts
-                                             (with-active-compilation [module-name
-                                                                       file-name
-                                                                       file-content]
-                                               (forgive-eof
-                                                (loop [aliases (: Aliases
-                                                                  (dict.new text.Hash<Text>))]
-                                                  (do @
-                                                    [code (read module-name aliases)
-                                                     #let [[cursor _] code]
-                                                     aliases' (&.with-cursor cursor
-                                                                (translate translate-module aliases code))]
-                                                    (forgive-eof (recur aliases'))))))))]
-                        (wrap artifacts)))
-      (#e.Success [compiler artifacts])
+                        [[module artifacts _] (moduleL.with-module module-hash module-name
+                                                (commonT.with-artifacts
+                                                  (with-active-compilation [module-name
+                                                                            file-name
+                                                                            file-content]
+                                                    (forgive-eof
+                                                     (loop [aliases no-aliases]
+                                                       (do @
+                                                         [code (read module-name aliases)
+                                                          #let [[cursor _] code]
+                                                          aliases' (&.with-cursor cursor
+                                                                     (translate translate-module aliases code))]
+                                                         (forgive-eof (recur aliases'))))))))]
+                        (wrap [module artifacts])))
+      (#e.Success [compiler [module artifacts]])
       (do @
-        [## _ (monad.map @ (function [[class-name class-bytecode]]
-         ##                  (&io.write-file target-dir class-name class-bytecode))
-         ##              (dict.entries artifacts))
+        [## _ (write-module target-dir module-name module artifacts)
          ]
         (wrap compiler))
       
@@ -253,7 +223,7 @@
   (-> commonT.Host Compiler)
   {#.info            init-info
    #.source          [init-cursor +0 ""]
-   #.cursor          init-cursor
+   #.cursor          .dummy-cursor
    #.current-module  #.None
    #.modules         (list)
    #.scopes          (list)
@@ -261,23 +231,35 @@
    #.expected        #.None
    #.seed            +0
    #.scope-type-vars (list)
+   #.extensions      (:! Void extensionL.fresh)
    #.host            (:! Void host)})
 
-(def: #export (translate-program sources target program)
-  (-> (List File) File Text (T.Task Unit))
-  (do T.Monad<Task>
-    [compiler (|> (case (runtimeT.translate (init-compiler (io.run hostL.init-host)))
-                    (#e.Error error)
-                    (T.fail error)
+(def: (initialize sources target)
+  (-> (List File) File (Process Compiler))
+  (do io.Monad<Process>
+    [compiler (: (Process Compiler)
+                 (case (runtimeT.translate (init-compiler (io.run hostL.init-host)))
+                   (#e.Error error)
+                   (io.fail error)
 
-                    (#e.Success [compiler [runtime-bc function-bc]])
-                    (do @
-                      [_ (&io.prepare-target target)
-                       _ (&io.write-file target (format hostL.runtime-class ".class") runtime-bc)
-                       _ (&io.write-file target (format hostL.function-class ".class") function-bc)]
-                      (wrap compiler)))
-                  (: (T.Task Compiler))
-                  (:: @ map (|>> (translate-module sources target prelude) P.future)) (:: @ join)
-                  (:: @ map (|>> (translate-module sources target program) P.future)) (:: @ join))
+                   (#e.Success [compiler [runtime-bc function-bc]])
+                   (do @
+                     [_ (&io.prepare-target target)
+                      _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
+                      _ (&io.write target (format hostL.function-class ".class") function-bc)]
+                     (wrap (set@ #.extensions
+                                 (:! Void
+                                     {#extensionL.analysis analysisE.defaults
+                                      #extensionL.synthesis synthesisE.defaults
+                                      #extensionL.translation translationE.defaults
+                                      #extensionL.statement statementE.defaults})
+                                 compiler)))))]
+    (translate-module sources target prelude compiler)))
+
+(def: #export (translate-program sources target program)
+  (-> (List File) File Text (Process Unit))
+  (do io.Monad<Process>
+    [compiler (initialize sources target)
+     _ (translate-module sources target program compiler)
      #let [_ (log! "Compilation complete!")]]
     (wrap [])))

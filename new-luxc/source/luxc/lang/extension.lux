@@ -1,0 +1,84 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data ["e" error]
+             [text]
+             (coll [dict #+ Dict]))
+       [macro])
+  [//])
+
+(exception: #export Unknown-Analysis)
+(exception: #export Unknown-Synthesis)
+(exception: #export Unknown-Translation)
+(exception: #export Unknown-Statement)
+
+(exception: #export Cannot-Define-Analysis-More-Than-Once)
+(exception: #export Cannot-Define-Synthesis-More-Than-Once)
+(exception: #export Cannot-Define-Translation-More-Than-Once)
+(exception: #export Cannot-Define-Statement-More-Than-Once)
+
+(type: #export Expression
+  (-> (List Code) (Meta Code)))
+
+(type: #export Statement
+  (-> (List Code) (Meta Unit)))
+
+(type: #export Extensions
+  {#analysis (Dict Text Expression)
+   #synthesis (Dict Text Expression)
+   #translation (Dict Text Expression)
+   #statement (Dict Text Statement)})
+
+(def: #export fresh
+  Extensions
+  {#analysis (dict.new text.Hash<Text>)
+   #synthesis (dict.new text.Hash<Text>)
+   #translation (dict.new text.Hash<Text>)
+   #statement (dict.new text.Hash<Text>)})
+
+(def: get
+  (Meta Extensions)
+  (function [compiler]
+    (#e.Success [compiler
+                 (|> compiler (get@ #.extensions) (:! Extensions))])))
+
+(def: (set extensions)
+  (-> Extensions (Meta Unit))
+  (function [compiler]
+    (#e.Success [(set@ #.extensions (:! Void extensions) compiler)
+                 []])))
+
+(do-template [<name> <type> <category> <exception>]
+  [(def: #export (<name> name)
+     (-> Text (Meta <type>))
+     (do macro.Monad<Meta>
+       [extensions ..get]
+       (case (dict.get name (get@ <category> extensions))
+         (#.Some extension)
+         (wrap extension)
+
+         #.None
+         (//.throw <exception> name))))]
+
+  [find-analysis    Expression #analysis    Unknown-Analysis]
+  [find-synthesis   Expression #synthesis   Unknown-Synthesis]
+  [find-translation Expression #translation Unknown-Translation]
+  [find-statement   Statement  #statement   Unknown-Statement]
+  )
+
+(do-template [<name> <type> <category> <exception>]
+  [(def: #export (<name> name extension)
+     (-> Text <type> (Meta Unit))
+     (do macro.Monad<Meta>
+       [extensions ..get
+        _ (//.assert <exception> name
+                     (not (dict.contains? name (get@ <category> extensions))))
+        _ (..set (update@ <category> (dict.put name extension) extensions))]
+       (wrap [])))]
+
+  [install-analysis    Expression #analysis    Cannot-Define-Analysis-More-Than-Once]
+  [install-synthesis   Expression #synthesis   Cannot-Define-Synthesis-More-Than-Once]
+  [install-translation Expression #translation Cannot-Define-Translation-More-Than-Once]
+  [install-statement   Statement  #statement   Cannot-Define-Statement-More-Than-Once]
+  )
