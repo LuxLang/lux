@@ -518,33 +518,33 @@
                     <wrap>)]]
       (return nil)))
 
-  ^:private compile-jvm-d2f Opcodes/D2F &&/unwrap-double &&/wrap-float
-  ^:private compile-jvm-d2i Opcodes/D2I &&/unwrap-double &&/wrap-int
-  ^:private compile-jvm-d2l Opcodes/D2L &&/unwrap-double &&/wrap-long
+  ^:private compile-jvm-double-to-float Opcodes/D2F &&/unwrap-double &&/wrap-float
+  ^:private compile-jvm-double-to-int Opcodes/D2I &&/unwrap-double &&/wrap-int
+  ^:private compile-jvm-double-to-long Opcodes/D2L &&/unwrap-double &&/wrap-long
 
-  ^:private compile-jvm-f2d Opcodes/F2D &&/unwrap-float &&/wrap-double
-  ^:private compile-jvm-f2i Opcodes/F2I &&/unwrap-float &&/wrap-int
-  ^:private compile-jvm-f2l Opcodes/F2L &&/unwrap-float &&/wrap-long
+  ^:private compile-jvm-float-to-double Opcodes/F2D &&/unwrap-float &&/wrap-double
+  ^:private compile-jvm-float-to-int Opcodes/F2I &&/unwrap-float &&/wrap-int
+  ^:private compile-jvm-float-to-long Opcodes/F2L &&/unwrap-float &&/wrap-long
 
-  ^:private compile-jvm-i2b Opcodes/I2B &&/unwrap-int &&/wrap-byte
-  ^:private compile-jvm-i2c Opcodes/I2C &&/unwrap-int &&/wrap-char
-  ^:private compile-jvm-i2d Opcodes/I2D &&/unwrap-int &&/wrap-double
-  ^:private compile-jvm-i2f Opcodes/I2F &&/unwrap-int &&/wrap-float
-  ^:private compile-jvm-i2l Opcodes/I2L &&/unwrap-int &&/wrap-long
-  ^:private compile-jvm-i2s Opcodes/I2S &&/unwrap-int &&/wrap-short
+  ^:private compile-jvm-int-to-byte Opcodes/I2B &&/unwrap-int &&/wrap-byte
+  ^:private compile-jvm-int-to-char Opcodes/I2C &&/unwrap-int &&/wrap-char
+  ^:private compile-jvm-int-to-double Opcodes/I2D &&/unwrap-int &&/wrap-double
+  ^:private compile-jvm-int-to-float Opcodes/I2F &&/unwrap-int &&/wrap-float
+  ^:private compile-jvm-int-to-long Opcodes/I2L &&/unwrap-int &&/wrap-long
+  ^:private compile-jvm-int-to-short Opcodes/I2S &&/unwrap-int &&/wrap-short
 
-  ^:private compile-jvm-l2d Opcodes/L2D &&/unwrap-long &&/wrap-double
-  ^:private compile-jvm-l2f Opcodes/L2F &&/unwrap-long &&/wrap-float
-  ^:private compile-jvm-l2i Opcodes/L2I &&/unwrap-long &&/wrap-int
+  ^:private compile-jvm-long-to-double Opcodes/L2D &&/unwrap-long &&/wrap-double
+  ^:private compile-jvm-long-to-float Opcodes/L2F &&/unwrap-long &&/wrap-float
+  ^:private compile-jvm-long-to-int Opcodes/L2I &&/unwrap-long &&/wrap-int
 
-  ^:private compile-jvm-c2b Opcodes/I2B &&/unwrap-char &&/wrap-byte
-  ^:private compile-jvm-c2s Opcodes/I2S &&/unwrap-char &&/wrap-short
-  ^:private compile-jvm-c2i Opcodes/NOP &&/unwrap-char &&/wrap-int
-  ^:private compile-jvm-c2l Opcodes/I2L &&/unwrap-char &&/wrap-long
+  ^:private compile-jvm-char-to-byte Opcodes/I2B &&/unwrap-char &&/wrap-byte
+  ^:private compile-jvm-char-to-short Opcodes/I2S &&/unwrap-char &&/wrap-short
+  ^:private compile-jvm-char-to-int Opcodes/NOP &&/unwrap-char &&/wrap-int
+  ^:private compile-jvm-char-to-long Opcodes/I2L &&/unwrap-char &&/wrap-long
 
-  ^:private compile-jvm-s2l Opcodes/I2L &&/unwrap-short &&/wrap-long
+  ^:private compile-jvm-short-to-long Opcodes/I2L &&/unwrap-short &&/wrap-long
   
-  ^:private compile-jvm-b2l Opcodes/I2L &&/unwrap-byte &&/wrap-long
+  ^:private compile-jvm-byte-to-long Opcodes/I2L &&/unwrap-byte &&/wrap-long
   )
 
 (do-template [<name> <op> <wrap>]
@@ -559,8 +559,8 @@
                     <wrap>)]]
       (return nil)))
 
-  ^:private compile-jvm-l2s Opcodes/I2S &&/wrap-short
-  ^:private compile-jvm-l2b Opcodes/I2B &&/wrap-byte
+  ^:private compile-jvm-long-to-short Opcodes/I2S &&/wrap-short
+  ^:private compile-jvm-long-to-byte Opcodes/I2B &&/wrap-byte
   )
 
 (do-template [<name> <op> <unwrap-left> <unwrap-right> <wrap>]
@@ -814,14 +814,14 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(defn ^:private compile-jvm-null [compile ?values special-args]
+(defn ^:private compile-jvm-object-null [compile ?values special-args]
   (|do [:let [;; (&/$Nil) ?values
               (&/$Nil) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
-(defn ^:private compile-jvm-null? [compile ?values special-args]
+(defn ^:private compile-jvm-object-null? [compile ?values special-args]
   (|do [:let [(&/$Cons ?object (&/$Nil)) ?values
               ;; (&/$Nil) special-args
               ]
@@ -838,7 +838,7 @@
                   (.visitLabel $end))]]
     (return nil)))
 
-(defn compile-jvm-synchronized [compile ?values special-args]
+(defn compile-jvm-object-synchronized [compile ?values special-args]
   (|do [:let [(&/$Cons ?monitor (&/$Cons ?expr (&/$Nil))) ?values
               ;; (&/$Nil) special-args
               ]
@@ -971,7 +971,7 @@
                   (.visitMethodInsn Opcodes/INVOKESPECIAL class* "<init>" init-sig))]]
     (return nil)))
 
-(defn ^:private compile-jvm-load-class [compile ?values special-args]
+(defn ^:private compile-jvm-object-class [compile ?values special-args]
   (|do [:let [(&/$Cons _class-name (&/$Cons ?output-type (&/$Nil))) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
@@ -993,8 +993,8 @@
 
 (defn compile-proc [compile proc-name ?values special-args]
   (case proc-name
-    "synchronized"    (compile-jvm-synchronized compile ?values special-args)
-    "load-class"      (compile-jvm-load-class compile ?values special-args)
+    "object synchronized"    (compile-jvm-object-synchronized compile ?values special-args)
+    "object class"      (compile-jvm-object-class compile ?values special-args)
     "instanceof"      (compile-jvm-instanceof compile ?values special-args)
     "new"             (compile-jvm-new compile ?values special-args)
     "invokestatic"    (compile-jvm-invokestatic compile ?values special-args)
@@ -1006,8 +1006,8 @@
     "putstatic"       (compile-jvm-putstatic compile ?values special-args)
     "putfield"        (compile-jvm-putfield compile ?values special-args)
     "throw"           (compile-jvm-throw compile ?values special-args)
-    "null?"           (compile-jvm-null? compile ?values special-args)
-    "null"            (compile-jvm-null compile ?values special-args)
+    "object null?"           (compile-jvm-object-null? compile ?values special-args)
+    "object null"            (compile-jvm-object-null compile ?values special-args)
     "anewarray"       (compile-jvm-anewarray compile ?values special-args)
     "aaload"          (compile-jvm-aaload compile ?values special-args)
     "aastore"         (compile-jvm-aastore compile ?values special-args)
@@ -1083,28 +1083,28 @@
     "lshl"            (compile-jvm-lshl compile ?values special-args)
     "lshr"            (compile-jvm-lshr compile ?values special-args)
     "lushr"           (compile-jvm-lushr compile ?values special-args)
-    "d2f"             (compile-jvm-d2f compile ?values special-args)
-    "d2i"             (compile-jvm-d2i compile ?values special-args)
-    "d2l"             (compile-jvm-d2l compile ?values special-args)
-    "f2d"             (compile-jvm-f2d compile ?values special-args)
-    "f2i"             (compile-jvm-f2i compile ?values special-args)
-    "f2l"             (compile-jvm-f2l compile ?values special-args)
-    "i2b"             (compile-jvm-i2b compile ?values special-args)
-    "i2c"             (compile-jvm-i2c compile ?values special-args)
-    "i2d"             (compile-jvm-i2d compile ?values special-args)
-    "i2f"             (compile-jvm-i2f compile ?values special-args)
-    "i2l"             (compile-jvm-i2l compile ?values special-args)
-    "i2s"             (compile-jvm-i2s compile ?values special-args)
-    "l2d"             (compile-jvm-l2d compile ?values special-args)
-    "l2f"             (compile-jvm-l2f compile ?values special-args)
-    "l2i"             (compile-jvm-l2i compile ?values special-args)
-    "l2s"             (compile-jvm-l2s compile ?values special-args)
-    "l2b"             (compile-jvm-l2b compile ?values special-args)
-    "c2b"             (compile-jvm-c2b compile ?values special-args)
-    "c2s"             (compile-jvm-c2s compile ?values special-args)
-    "c2i"             (compile-jvm-c2i compile ?values special-args)
-    "c2l"             (compile-jvm-c2l compile ?values special-args)
-    "s2l"             (compile-jvm-s2l compile ?values special-args)
-    "b2l"             (compile-jvm-b2l compile ?values special-args)
+    "double-to-float"             (compile-jvm-double-to-float compile ?values special-args)
+    "double-to-int"             (compile-jvm-double-to-int compile ?values special-args)
+    "double-to-long"             (compile-jvm-double-to-long compile ?values special-args)
+    "float-to-double"             (compile-jvm-float-to-double compile ?values special-args)
+    "float-to-int"             (compile-jvm-float-to-int compile ?values special-args)
+    "float-to-long"             (compile-jvm-float-to-long compile ?values special-args)
+    "int-to-byte"             (compile-jvm-int-to-byte compile ?values special-args)
+    "int-to-char"             (compile-jvm-int-to-char compile ?values special-args)
+    "int-to-double"             (compile-jvm-int-to-double compile ?values special-args)
+    "int-to-float"             (compile-jvm-int-to-float compile ?values special-args)
+    "int-to-long"             (compile-jvm-int-to-long compile ?values special-args)
+    "int-to-short"             (compile-jvm-int-to-short compile ?values special-args)
+    "long-to-double"             (compile-jvm-long-to-double compile ?values special-args)
+    "long-to-float"             (compile-jvm-long-to-float compile ?values special-args)
+    "long-to-int"             (compile-jvm-long-to-int compile ?values special-args)
+    "long-to-short"             (compile-jvm-long-to-short compile ?values special-args)
+    "long-to-byte"             (compile-jvm-long-to-byte compile ?values special-args)
+    "char-to-byte"             (compile-jvm-char-to-byte compile ?values special-args)
+    "char-to-short"             (compile-jvm-char-to-short compile ?values special-args)
+    "char-to-int"             (compile-jvm-char-to-int compile ?values special-args)
+    "char-to-long"             (compile-jvm-char-to-long compile ?values special-args)
+    "short-to-long"             (compile-jvm-short-to-long compile ?values special-args)
+    "byte-to-long"             (compile-jvm-byte-to-long compile ?values special-args)
     ;; else
     (&/fail-with-loc (str "[Compiler Error] Unknown host procedure: " ["jvm" proc-name]))))

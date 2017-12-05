@@ -391,35 +391,35 @@
             _cursor &/cursor]
         (return (&/|list (&&/|meta output-type _cursor (&&/$proc (&/T ["jvm" <proc>]) (&/|list =value) (&/|list))))))))
 
-  ^:private analyse-jvm-d2f "d2f" "java.lang.Double"    "java.lang.Float"
-  ^:private analyse-jvm-d2i "d2i" "java.lang.Double"    "java.lang.Integer"
-  ^:private analyse-jvm-d2l "d2l" "java.lang.Double"    "java.lang.Long"
+  ^:private analyse-jvm-double-to-float "double-to-float" "java.lang.Double"    "java.lang.Float"
+  ^:private analyse-jvm-double-to-int "double-to-int" "java.lang.Double"    "java.lang.Integer"
+  ^:private analyse-jvm-double-to-long "double-to-long" "java.lang.Double"    "java.lang.Long"
 
-  ^:private analyse-jvm-f2d "f2d" "java.lang.Float"     "java.lang.Double"
-  ^:private analyse-jvm-f2i "f2i" "java.lang.Float"     "java.lang.Integer"
-  ^:private analyse-jvm-f2l "f2l" "java.lang.Float"     "java.lang.Long"
+  ^:private analyse-jvm-float-to-double "float-to-double" "java.lang.Float"     "java.lang.Double"
+  ^:private analyse-jvm-float-to-int "float-to-int" "java.lang.Float"     "java.lang.Integer"
+  ^:private analyse-jvm-float-to-long "float-to-long" "java.lang.Float"     "java.lang.Long"
 
-  ^:private analyse-jvm-i2b "i2b" "java.lang.Integer"   "java.lang.Byte"
-  ^:private analyse-jvm-i2c "i2c" "java.lang.Integer"   "java.lang.Character"
-  ^:private analyse-jvm-i2d "i2d" "java.lang.Integer"   "java.lang.Double"
-  ^:private analyse-jvm-i2f "i2f" "java.lang.Integer"   "java.lang.Float"
-  ^:private analyse-jvm-i2l "i2l" "java.lang.Integer"   "java.lang.Long"
-  ^:private analyse-jvm-i2s "i2s" "java.lang.Integer"   "java.lang.Short"
+  ^:private analyse-jvm-int-to-byte "int-to-byte" "java.lang.Integer"   "java.lang.Byte"
+  ^:private analyse-jvm-int-to-char "int-to-char" "java.lang.Integer"   "java.lang.Character"
+  ^:private analyse-jvm-int-to-double "int-to-double" "java.lang.Integer"   "java.lang.Double"
+  ^:private analyse-jvm-int-to-float "int-to-float" "java.lang.Integer"   "java.lang.Float"
+  ^:private analyse-jvm-int-to-long "int-to-long" "java.lang.Integer"   "java.lang.Long"
+  ^:private analyse-jvm-int-to-short "int-to-short" "java.lang.Integer"   "java.lang.Short"
 
-  ^:private analyse-jvm-l2d "l2d" "java.lang.Long"      "java.lang.Double"
-  ^:private analyse-jvm-l2f "l2f" "java.lang.Long"      "java.lang.Float"
-  ^:private analyse-jvm-l2i "l2i" "java.lang.Long"      "java.lang.Integer"
-  ^:private analyse-jvm-l2s "l2s" "java.lang.Long"      "java.lang.Short"
-  ^:private analyse-jvm-l2b "l2b" "java.lang.Long"      "java.lang.Byte"
+  ^:private analyse-jvm-long-to-double "long-to-double" "java.lang.Long"      "java.lang.Double"
+  ^:private analyse-jvm-long-to-float "long-to-float" "java.lang.Long"      "java.lang.Float"
+  ^:private analyse-jvm-long-to-int "long-to-int" "java.lang.Long"      "java.lang.Integer"
+  ^:private analyse-jvm-long-to-short "long-to-short" "java.lang.Long"      "java.lang.Short"
+  ^:private analyse-jvm-long-to-byte "long-to-byte" "java.lang.Long"      "java.lang.Byte"
 
-  ^:private analyse-jvm-c2b "c2b" "java.lang.Character" "java.lang.Byte"
-  ^:private analyse-jvm-c2s "c2s" "java.lang.Character" "java.lang.Short"
-  ^:private analyse-jvm-c2i "c2i" "java.lang.Character" "java.lang.Integer"
-  ^:private analyse-jvm-c2l "c2l" "java.lang.Character" "java.lang.Long"
+  ^:private analyse-jvm-char-to-byte "char-to-byte" "java.lang.Character" "java.lang.Byte"
+  ^:private analyse-jvm-char-to-short "char-to-short" "java.lang.Character" "java.lang.Short"
+  ^:private analyse-jvm-char-to-int "char-to-int" "java.lang.Character" "java.lang.Integer"
+  ^:private analyse-jvm-char-to-long "char-to-long" "java.lang.Character" "java.lang.Long"
 
-  ^:private analyse-jvm-s2l "s2l" "java.lang.Short"     "java.lang.Long"
+  ^:private analyse-jvm-short-to-long "short-to-long" "java.lang.Short"     "java.lang.Long"
 
-  ^:private analyse-jvm-b2l "b2l" "java.lang.Byte"      "java.lang.Long"
+  ^:private analyse-jvm-byte-to-long "byte-to-long" "java.lang.Byte"      "java.lang.Long"
   )
 
 (do-template [<name> <proc> <v1-class> <v2-class> <to-class>]
@@ -602,7 +602,7 @@
                                (&&/$proc (&/T ["jvm" "arraylength"]) (&/|list =array) (&/|list))
                                )))))
 
-(defn ^:private analyse-jvm-null? [analyse exo-type ?values]
+(defn ^:private analyse-jvm-object-null? [analyse exo-type ?values]
   (|do [:let [(&/$Cons object (&/$Nil)) ?values]
         =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
@@ -610,24 +610,24 @@
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["jvm" "null?"]) (&/|list =object) (&/|list)))))))
+                               (&&/$proc (&/T ["jvm" "object null?"]) (&/|list =object) (&/|list)))))))
 
-(defn ^:private analyse-jvm-null [analyse exo-type ?values]
+(defn ^:private analyse-jvm-object-null [analyse exo-type ?values]
   (|do [:let [(&/$Nil) ?values]
         :let [output-type (&/$Primitive &host-type/null-data-tag &/$Nil)]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["jvm" "null"]) (&/|list) (&/|list)))))))
+                               (&&/$proc (&/T ["jvm" "object null"]) (&/|list) (&/|list)))))))
 
-(defn analyse-jvm-synchronized [analyse exo-type ?values]
+(defn analyse-jvm-object-synchronized [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?monitor (&/$Cons ?expr (&/$Nil))) ?values]
         =monitor (&&/analyse-1+ analyse ?monitor)
         _ (ensure-object (&&/expr-type* =monitor))
         =expr (&&/analyse-1 analyse exo-type ?expr)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["jvm" "synchronized"]) (&/|list =monitor =expr) (&/|list)))))))
+                               (&&/$proc (&/T ["jvm" "object synchronized"]) (&/|list =monitor =expr) (&/|list)))))))
 
 (defn ^:private analyse-jvm-throw [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values]
@@ -804,7 +804,7 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "instanceof"]) (&/|list =object) (&/|list class)))))))
 
-(defn ^:private analyse-jvm-load-class [analyse exo-type ?values]
+(defn ^:private analyse-jvm-object-class [analyse exo-type ?values]
   (|do [:let [(&/$Cons [_ (&/$Text _class-name)] (&/$Nil)) ?values]
         ^ClassLoader class-loader &/loader
         _ (try (do (.loadClass class-loader _class-name)
@@ -815,7 +815,7 @@
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta output-type _cursor
-                               (&&/$proc (&/T ["jvm" "load-class"]) (&/|list) (&/|list _class-name output-type)))))))
+                               (&&/$proc (&/T ["jvm" "object class"]) (&/|list) (&/|list _class-name output-type)))))))
 
 (defn ^:private analyse-jvm-interface [analyse compile-interface interface-decl supers =anns =methods]
   (|do [module &/get-module-name
@@ -900,11 +900,11 @@
 (defn analyse-host [analyse exo-type compilers proc ?values]
   (|let [[_ _ _ compile-class compile-interface] compilers]
     (try (case proc
-           "jvm synchronized" (analyse-jvm-synchronized analyse exo-type ?values)
-           "jvm load-class"   (analyse-jvm-load-class analyse exo-type ?values)
+           "jvm object synchronized" (analyse-jvm-object-synchronized analyse exo-type ?values)
+           "jvm object class"   (analyse-jvm-object-class analyse exo-type ?values)
            "jvm throw"        (analyse-jvm-throw analyse exo-type ?values)
-           "jvm null?"        (analyse-jvm-null? analyse exo-type ?values)
-           "jvm null"         (analyse-jvm-null analyse exo-type ?values)
+           "jvm object null?"        (analyse-jvm-object-null? analyse exo-type ?values)
+           "jvm object null"         (analyse-jvm-object-null analyse exo-type ?values)
            "jvm anewarray"    (analyse-jvm-anewarray analyse exo-type ?values)
            "jvm aaload"       (analyse-jvm-aaload analyse exo-type ?values)
            "jvm aastore"      (analyse-jvm-aastore analyse exo-type ?values)
@@ -980,29 +980,29 @@
            "jvm lshl"         (analyse-jvm-lshl analyse exo-type ?values)
            "jvm lshr"         (analyse-jvm-lshr analyse exo-type ?values)
            "jvm lushr"        (analyse-jvm-lushr analyse exo-type ?values)
-           "jvm d2f"          (analyse-jvm-d2f analyse exo-type ?values)
-           "jvm d2i"          (analyse-jvm-d2i analyse exo-type ?values)
-           "jvm d2l"          (analyse-jvm-d2l analyse exo-type ?values)
-           "jvm f2d"          (analyse-jvm-f2d analyse exo-type ?values)
-           "jvm f2i"          (analyse-jvm-f2i analyse exo-type ?values)
-           "jvm f2l"          (analyse-jvm-f2l analyse exo-type ?values)
-           "jvm i2b"          (analyse-jvm-i2b analyse exo-type ?values)
-           "jvm i2c"          (analyse-jvm-i2c analyse exo-type ?values)
-           "jvm i2d"          (analyse-jvm-i2d analyse exo-type ?values)
-           "jvm i2f"          (analyse-jvm-i2f analyse exo-type ?values)
-           "jvm i2l"          (analyse-jvm-i2l analyse exo-type ?values)
-           "jvm i2s"          (analyse-jvm-i2s analyse exo-type ?values)
-           "jvm l2d"          (analyse-jvm-l2d analyse exo-type ?values)
-           "jvm l2f"          (analyse-jvm-l2f analyse exo-type ?values)
-           "jvm l2i"          (analyse-jvm-l2i analyse exo-type ?values)
-           "jvm l2s"          (analyse-jvm-l2s analyse exo-type ?values)
-           "jvm l2b"          (analyse-jvm-l2b analyse exo-type ?values)
-           "jvm c2b"          (analyse-jvm-c2b analyse exo-type ?values)
-           "jvm c2s"          (analyse-jvm-c2s analyse exo-type ?values)
-           "jvm c2i"          (analyse-jvm-c2i analyse exo-type ?values)
-           "jvm c2l"          (analyse-jvm-c2l analyse exo-type ?values)
-           "jvm b2l"          (analyse-jvm-b2l analyse exo-type ?values)
-           "jvm s2l"          (analyse-jvm-s2l analyse exo-type ?values)
+           "jvm convert double-to-float"          (analyse-jvm-double-to-float analyse exo-type ?values)
+           "jvm convert double-to-int"          (analyse-jvm-double-to-int analyse exo-type ?values)
+           "jvm convert double-to-long"          (analyse-jvm-double-to-long analyse exo-type ?values)
+           "jvm convert float-to-double"          (analyse-jvm-float-to-double analyse exo-type ?values)
+           "jvm convert float-to-int"          (analyse-jvm-float-to-int analyse exo-type ?values)
+           "jvm convert float-to-long"          (analyse-jvm-float-to-long analyse exo-type ?values)
+           "jvm convert int-to-byte"          (analyse-jvm-int-to-byte analyse exo-type ?values)
+           "jvm convert int-to-char"          (analyse-jvm-int-to-char analyse exo-type ?values)
+           "jvm convert int-to-double"          (analyse-jvm-int-to-double analyse exo-type ?values)
+           "jvm convert int-to-float"          (analyse-jvm-int-to-float analyse exo-type ?values)
+           "jvm convert int-to-long"          (analyse-jvm-int-to-long analyse exo-type ?values)
+           "jvm convert int-to-short"          (analyse-jvm-int-to-short analyse exo-type ?values)
+           "jvm convert long-to-double"          (analyse-jvm-long-to-double analyse exo-type ?values)
+           "jvm convert long-to-float"          (analyse-jvm-long-to-float analyse exo-type ?values)
+           "jvm convert long-to-int"          (analyse-jvm-long-to-int analyse exo-type ?values)
+           "jvm convert long-to-short"          (analyse-jvm-long-to-short analyse exo-type ?values)
+           "jvm convert long-to-byte"          (analyse-jvm-long-to-byte analyse exo-type ?values)
+           "jvm convert char-to-byte"          (analyse-jvm-char-to-byte analyse exo-type ?values)
+           "jvm convert char-to-short"          (analyse-jvm-char-to-short analyse exo-type ?values)
+           "jvm convert char-to-int"          (analyse-jvm-char-to-int analyse exo-type ?values)
+           "jvm convert char-to-long"          (analyse-jvm-char-to-long analyse exo-type ?values)
+           "jvm convert byte-to-long"          (analyse-jvm-byte-to-long analyse exo-type ?values)
+           "jvm convert short-to-long"          (analyse-jvm-short-to-long analyse exo-type ?values)
            ;; else
            (->> (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " ["jvm" proc]))
                 (if-let [[_ _def-code] (re-find #"^jvm interface:(.*)$" proc)]
