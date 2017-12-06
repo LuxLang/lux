@@ -1,0 +1,147 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["p" parser "parser/" Monad<Parser>]
+                ["ex" exception #+ exception:])
+       (data [product]
+             ["e" error #+ Error]
+             [text "text/" Eq<Text>]
+             text/format
+             (coll [list "list/" Functor<List>]))
+       (macro [code]
+              ["s" syntax #+ Syntax]))
+  [///lang])
+
+(exception: #export Invalid-Lux-Version)
+
+(def: (write-type type)
+  (-> Type Code)
+  (case type
+    (#.Primitive name params)
+    (` ("Primitive"
+        (~ (code.text name))
+        (~+ (list/map write-type params))))
+    
+    #.Void
+    (` "Void")
+    
+    #.Unit
+    (` "Unit")
+
+    (^template [<tag> <description>]
+      (<tag> left right)
+      (` (<description> (~ (write-type left)) (~ (write-type right)))))
+    ([#.Sum "Sum"]
+     [#.Product "Product"]
+     [#.Function "Function"]
+     [#.Apply "Apply"])
+    
+    (^template [<tag> <description>]
+      (<tag> id)
+      (` (<description> (~ (code.nat id)))))
+    ([#.Bound "Bound"]
+     [#.Var "Var"]
+     [#.Ex "Ex"])
+
+    (^template [<tag> <description>]
+      (<tag> env body)
+      (` (<description> (~ (code.tuple (list/map write-type env)))
+                        (~ (write-type body)))))
+    ([#.UnivQ "UnivQ"]
+     [#.ExQ "ExQ"])
+    
+    (#.Named name anonymous)
+    (` ("Named" (~ (code.symbol name)) (~ (write-type anonymous))))))
+
+(def: read-type
+  (Syntax Type)
+  (let [tagged (: (All [a] (-> Text (Syntax a) (Syntax a)))
+                  (function [tag syntax]
+                    (s.form (p.after (s.this (code.text tag)) syntax))))
+        binary (: (-> Text (Syntax Type) (Syntax [Type Type]))
+                  (function [tag read-type]
+                    (tagged tag (p.seq read-type read-type))))
+        indexed (: (-> Text (Syntax Nat))
+                   (function [tag]
+                     (tagged tag s.nat)))
+        quantified (: (-> Text (Syntax Type) (Syntax [(List Type) Type]))
+                      (function [tag read-type]
+                        (tagged tag (p.seq (s.tuple (p.some read-type))
+                                           read-type))))]
+    (p.rec
+     (function [read-type]
+       ($_ p.alt
+           (tagged "Primitive" (p.seq s.text (p.some read-type)))
+           (s.this (` "Void"))
+           (s.this (` "Unit"))
+           (binary "Sum" read-type)
+           (binary "Product" read-type)
+           (binary "Function" read-type)
+           (indexed "Bound")
+           (indexed "Var")
+           (indexed "Ex")
+           (quantified "UnivQ" read-type)
+           (quantified "ExQ" read-type)
+           (binary "Apply" read-type)
+           (tagged "Named" (p.seq s.symbol read-type))
+           )))))
+
+(def: (write-definition [type annotations value])
+  (-> Definition Code)
+  (` {"type" (~ (write-type type))
+      "annotations" (~ annotations)}))
+
+(def: read-definition
+  (Syntax Definition)
+  (s.record ($_ p.seq
+                (p.after (s.this (` "type")) read-type)
+                (p.after (s.this (` "annotations")) s.any)
+                (parser/wrap []))))
+
+(def: (write-aliases aliases)
+  (-> (List [Text Text]) Code)
+  (|> aliases (list/map (product.both code.text code.text)) code.record))
+
+(def: read-aliases
+  (Syntax (List [Text Text]))
+  (s.record (p.some (p.seq s.text s.text))))
+
+(def: #export (write lux-file module)
+  (-> Text Module Code)
+  (` {"lux version" (~ (code.text ///lang.version))
+      "lux file" (~ (code.text lux-file))
+      "hash" (~ (code.nat (get@ #.module-hash module)))
+      "aliases" (~ (write-aliases (get@ #.module-aliases module)))
+      "definitions" (~ (code.record (list/map (product.both code.text write-definition)
+                                              (get@ #.definitions module))))
+      "imports" (~ (code.tuple (list/map code.text (get@ #.imports module))))
+      "annotations" (~ (case (get@ #.module-annotations module)
+                         #.None
+                         (' "None")
+
+                         (#.Some annotations)
+                         (` ("Some" (~ annotations)))))
+      }))
+
+(def: #export (read description)
+  (-> Code (Error [Text Module]))
+  (<| (s.run (list description))
+      (s.record (do p.Monad<Parser>
+                  [lux-version (p.after (s.this (` "lux version")) s.text)
+                   _ (p.assert (Invalid-Lux-Version
+                                (format "Expected: " ///lang.version "\n"
+                                        "  Actual: " lux-version "\n"))
+                               (text/= ///lang.version lux-version))]
+                  ($_ p.seq
+                      (p.after (s.this (` "lux file")) s.text)
+                      ($_ p.seq
+                          (p.after (s.this (` "hash")) s.nat)
+                          (p.after (s.this (` "aliases")) read-aliases)
+                          (p.after (s.this (` "definitions")) (s.record (p.some (p.seq s.text read-definition))))
+                          (p.after (s.this (` "imports")) (s.tuple (p.some s.text)))
+                          (parser/wrap (list))
+                          (parser/wrap (list))
+                          (p.after (s.this (` "annotations")) (p.alt (s.this (` "None"))
+                                                                     (s.form (p.after (s.this (` "Some"))
+                                                                                      s.any))))
+                          (parser/wrap #.Cached)))))))

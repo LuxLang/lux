@@ -1,0 +1,210 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data [product]
+             [maybe]
+             ["e" error #+ Error]
+             [bool "bool/" Eq<Bool>]
+             [text "text/" Hash<Text>]
+             text/format
+             (coll [list "list/" Fold<List>]
+                   [dict #+ Dict]
+                   [set #+ Set]))
+       (lang [syntax #+ Aliases])
+       [io #+ Process "process/" Monad<Process>]
+       (concurrency [atom #+ Atom atom])
+       (world [file #+ File]
+              [blob #+ Blob]))
+  [///io]
+  [//description]
+  [//influences]
+  [//])
+
+(exception: #export Invalid-Lux-Version)
+(exception: #export Module-Is-Not-Cached)
+(exception: #export Cannot-Pre-Load-Cache-More-Than-Once)
+(exception: #export Cannot-Delete-Cached-File)
+(exception: #export Cannot-Load-Definition)
+
+(def: cache
+  (Atom //.Cache)
+  (atom //.empty))
+
+(def: #export (load name)
+  (-> Text (Process Module))
+  (do io.Monad<IO>
+    [cache (atom.read cache)]
+    (case (dict.get name cache)
+      (#.Some module)
+      (process/wrap module)
+      
+      #.None
+      (io.throw Module-Is-Not-Cached name))))
+
+(def: #export (cached target-dir)
+  (-> File (Process (List File)))
+  (do io.Monad<Process>
+    [roots (file.files target-dir)
+     root-modules (monad.map @ (: (-> File (Process (List File)))
+                                  (function recur [file]
+                                    (do @
+                                      [is-dir? (file.directory? file)]
+                                      (if is-dir?
+                                        (do @
+                                          [subs (file.files file)
+                                           cached-subs (monad.map @ recur subs)]
+                                          (wrap (list& (maybe.assume (///io.module target-dir file))
+                                                       (list.concat cached-subs))))
+                                        (wrap (list))))))
+                             roots)]
+    (wrap (list.concat root-modules))))
+
+(def: (delete file)
+  (-> File (Process Unit))
+  (do io.Monad<Process>
+    [deleted? (file.delete file)]
+    (if deleted?
+      (wrap [])
+      (io.throw Cannot-Delete-Cached-File file))))
+
+(def: (un-install target-dir module-name)
+  (-> File Text (Process Unit))
+  (do io.Monad<Process>
+    [#let [module-dir (///io.file target-dir module-name)]
+     files (file.files module-dir)
+     can-delete-module-dir? (<| (:: @ map (list.every? (bool/= true)))
+                                (monad.map @ (function [file]
+                                               (do @
+                                                 [? (file.directory? file)]
+                                                 (if ?
+                                                   (wrap false)
+                                                   (do @
+                                                     [_ (delete file)]
+                                                     (wrap true)))))
+                                           files))]
+    (if can-delete-module-dir?
+      (delete module-dir)
+      (wrap []))))
+
+(def: no-aliases Aliases (dict.new text.Hash<Text>))
+
+(def: (source description)
+  (-> Text Source)
+  [["" +1 +0] +0 description])
+
+(def: (load-module source-dirs target-dir module-name)
+  (-> (List File) File Text (Process (List [Text Module])))
+  (do io.Monad<Process>
+    [#let [_ (log! (format "load-module #0: " module-name))]
+     description (file.read (///io.file target-dir (format module-name "/" //.descriptor-name)))
+     #let [_ (log! (format "load-module #1: " module-name))]]
+    (case (do e.Monad<Error>
+            [#let [_ (log! (format "load-module #1 #0: " module-name))]
+             [_ description] (syntax.read "" no-aliases (source (///io.blob-to-text description)))
+             #let [_ (log! (format "load-module #1 #1: " module-name))]]
+            (//description.read description))
+      (#e.Success [lux-file module])
+      (do @
+        [#let [_ (log! (format "load-module #2: " module-name " " lux-file))]
+         [file-name current-source-code] (///io.read source-dirs module-name)
+         #let [_ (log! (format "load-module #3: " module-name " " file-name))]]
+        (if (and (text/= lux-file file-name)
+                 (n/= (get@ #.module-hash module)
+                      (text/hash current-source-code)))
+          (wrap (list [module-name module]))
+          (do @
+            [_ (un-install target-dir module-name)]
+            (wrap (list)))))
+      
+      (#e.Error error)
+      (do @
+        [#let [_ (log! "load-module #2 ERROR")]
+         _ (un-install target-dir module-name)]
+        (wrap (list))))))
+
+(type: Loader (-> Ident Blob (Error Top)))
+
+(def: (install target-dir load-def module-name module)
+  (-> File Loader Text Module (Process Module))
+  (do io.Monad<Process>
+    [definitions (monad.map @ (: (-> [Text Definition] (Process [Text Definition]))
+                                 (function [[def-name [def-type def-annotations _]]]
+                                   (do @
+                                     [def-blob (file.read (///io.file target-dir (format module-name "/" def-name)))
+                                      #let [def-ident [module-name def-name]]]
+                                     (case (load-def def-ident def-blob)
+                                       (#e.Success def-value)
+                                       (wrap [def-name [def-type def-annotations def-value]])
+                                       
+                                       (#e.Error error)
+                                       (io.throw Cannot-Load-Definition
+                                                 (format "Definition: " (%ident def-ident) "\n"
+                                                         "     Error:\n" error "\n"))))))
+                            (get@ #.definitions module))]
+    (wrap (set@ #.definitions definitions module))))
+
+(def: (pre-load' source-dirs target-dir load-def)
+  (-> (List File) File Loader (Process //.Cache))
+  (do io.Monad<Process>
+    [#let [_ (log! "pre-load' #0")]
+     cached (cached target-dir)
+     #let [_ (log! (format "pre-load' #1 " (%list %t cached)))]
+     candidate-cache (|> cached
+                         (monad.map @ (load-module source-dirs target-dir))
+                         (:: @ map (|>> list.concat
+                                        (dict.from-list text.Hash<Text>))))
+     #let [_ (log! "pre-load' #2")]
+     #let [candidate-entries (dict.entries candidate-cache)
+           raw-influences (list/fold (function [[candidate-name candidate-module] influences]
+                                       (list/fold (//influences.track candidate-name)
+                                                  influences
+                                                  (get@ #.imports candidate-module)))
+                                     //influences.empty
+                                     candidate-entries)
+           pruned-influences (list/fold (function [[candidate-name candidate-module] influences]
+                                          (if (list.every? (function [module-name]
+                                                             (dict.contains? module-name candidate-cache))
+                                                           (get@ #.imports candidate-module))
+                                            influences
+                                            (//influences.untrack candidate-name influences)))
+                                        raw-influences
+                                        candidate-entries)
+           valid-cache (list/fold (function [candidate cache]
+                                    (if (dict.contains? candidate pruned-influences)
+                                      cache
+                                      (dict.remove candidate cache)))
+                                  candidate-cache
+                                  (dict.keys candidate-cache))]
+     #let [_ (log! "pre-load' #3")]]
+    (|> (dict.entries valid-cache)
+        (monad.map @ (function [[module-name module]]
+                       (do @
+                         [#let [_ (log! (format " PRE INSTALL: " module-name))]
+                          loaded-module (install target-dir load-def module-name module)
+                          #let [_ (log! (format "POST INSTALL: " module-name))]]
+                         (wrap [module-name loaded-module]))))
+        (:: @ map (dict.from-list text.Hash<Text>)))))
+
+(def: (set-cache cache)
+  (-> //.Cache (Process Unit))
+  (do io.Monad<IO>
+    [swapped? (atom.compare-and-swap //.empty cache ..cache)]
+    (if swapped?
+      (wrap (#e.Success []))
+      (io.throw Cannot-Pre-Load-Cache-More-Than-Once ""))))
+
+(def: #export (pre-load source-dirs target-dir load-def)
+  (-> (List File) File Loader (Process Unit))
+  (do io.Monad<Process>
+    [loaded-cache (pre-load' source-dirs (///io.platform-target target-dir) load-def)]
+    (set-cache loaded-cache)))
+
+(def: #export (clean target-dir wanted-modules)
+  (-> File (Set Text) (Process Unit))
+  (do io.Monad<Process>
+    [cached (cached target-dir)
+     _ (|> cached
+           (list.filter (bool.complement (set.member? wanted-modules)))
+           (monad.map @ (un-install target-dir)))]
+    (wrap [])))

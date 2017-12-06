@@ -19,6 +19,7 @@
 
 (exception: #export File-Not-Found)
 (exception: #export Module-Not-Found)
+(exception: #export Cannot-Prepare-Module)
 
 (def: sanitize
   (-> Text Text)
@@ -49,7 +50,11 @@
       (#e.Error error)
       right)))
 
-(def: #export (read-module dirs name)
+(def: #export blob-to-text
+  (-> Blob Text)
+  (|>> [] String::new))
+
+(def: #export (read dirs name)
   (-> (List File) Text (Process [File Text]))
   (do io.Monad<Process>
     [[path file] (: (Process [Text File])
@@ -58,9 +63,9 @@
                         (find-source dirs (format name lux-extension))
                         (io.fail (Module-Not-Found name))))
      blob (file.read file)]
-    (wrap [path (String::new blob)])))
+    (wrap [path (blob-to-text blob)])))
 
-(def: (platform-target root-target)
+(def: #export (platform-target root-target)
   (-> File File)
   (format root-target "/" (for {"JVM" "jvm"
                                 "JS" "js"})))
@@ -72,11 +77,16 @@
     (file.make-dir (sanitize (platform-target target-dir)))))
 
 (def: #export (prepare-module target-dir module-name)
-  (-> File Text (Process Bool))
-  (|> module-name
-      (format (platform-target target-dir) "/")
-      sanitize
-      file.make-dir))
+  (-> File Text (Process Unit))
+  (do io.Monad<Process>
+    [made-dir? (|> module-name
+                   (format (platform-target target-dir) "/")
+                   sanitize
+                   file.make-dir)]
+    (if made-dir?
+      (wrap [])
+      (io.fail (Cannot-Prepare-Module (format "Module: " module-name "\n"
+                                              "Target: " target-dir "\n"))))))
 
 (def: #export (write target name content)
   (-> File Text Blob (Process Unit))
@@ -84,3 +94,19 @@
       (format (platform-target target) "/")
       sanitize
       (file.write content)))
+
+(def: #export (module target-dir module-dir)
+  (-> File File (Maybe Text))
+  (case (text.split-with target-dir module-dir)
+    (#.Some ["" post])
+    (let [raw (text.replace-all file.separator "/" post)]
+      (if (text.starts-with? "/" raw)
+        (text.clip' +1 raw)
+        (#.Some raw)))
+    
+    _
+    #.None))
+
+(def: #export (file target-dir file-name)
+  (-> File Text File)
+  (format target-dir file.separator (sanitize file-name)))

@@ -1,16 +1,19 @@
 (.module:
-  [lux #- function]
-  (lux (control ["ex" exception #+ exception:])
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
        [io]
        (concurrency [atom #+ Atom atom])
-       (data ["e" error]
-             [text]
+       (data ["e" error #+ Error]
+             [text "text/" Hash<Text>]
              text/format
              (coll [dict #+ Dict]))
+       [macro]
        [host]
        (world [blob #+ Blob]
               [file #+ File]))
-  (luxc (lang [".L" variable #+ Register]
+  (luxc [lang]
+        (lang [".L" variable #+ Register]
               (host ["$" jvm]
                     (jvm ["$t" type]
                          ["$d" def]
@@ -23,7 +26,11 @@
 
 (host.import java/lang/Object)
 
-(host.import (java/lang/Class a))
+(host.import java/lang/reflect/Field
+  (get [#? Object] #try #? Object))
+
+(host.import (java/lang/Class c)
+  (getField [String] #try Field))
 
 (host.import java/lang/ClassLoader
   (loadClass [String] (Class Object)))
@@ -41,14 +48,16 @@
    #context [Text Nat]
    #anchor (Maybe [Label Register])})
 
-(exception: Unknown-Class)
-(exception: Class-Already-Stored)
-(exception: No-Function-Being-Compiled)
-(exception: Cannot-Overwrite-Artifact)
+(exception: #export Unknown-Class)
+(exception: #export Class-Already-Stored)
+(exception: #export No-Function-Being-Compiled)
+(exception: #export Cannot-Overwrite-Artifact)
+(exception: #export Cannot-Load-Definition)
+(exception: #export Invalid-Definition-Value)
 
 (def: #export (with-artifacts action)
   (All [a] (-> (Meta a) (Meta [Artifacts a])))
-  (.function [compiler]
+  (function [compiler]
     (case (action (update@ #.host
                            (|>> (:! Host)
                                 (set@ #artifacts (dict.new text.Hash<Text>))
@@ -68,7 +77,7 @@
 
 (def: #export (record-artifact name content)
   (-> Text Blob (Meta Unit))
-  (.function [compiler]
+  (function [compiler]
     (if (|> compiler (get@ #.host) (:! Host) (get@ #artifacts) (dict.contains? name))
       (ex.throw Cannot-Overwrite-Artifact name)
       (#e.Success [(update@ #.host
@@ -80,7 +89,7 @@
 
 (def: #export (store-class name byte-code)
   (-> Text Bytecode (Meta Unit))
-  (.function [compiler]
+  (function [compiler]
     (let [store (|> (get@ #.host compiler)
                     (:! Host)
                     (get@ #store))]
@@ -91,7 +100,7 @@
 
 (def: #export (load-class name)
   (-> Text (Meta (Class Object)))
-  (.function [compiler]
+  (function [compiler]
     (let [host (:! Host (get@ #.host compiler))
           store (|> host (get@ #store) atom.read io.run)]
       (if (dict.contains? name store)
@@ -100,3 +109,28 @@
 
 (def: #export value-field Text "_value")
 (def: #export $Object $.Type ($t.class "java.lang.Object" (list)))
+
+(def: #export (load-definition compiler)
+  (-> Compiler
+      (-> Ident Blob (Error Top)))
+  (function [(^@ def-ident [def-module def-name]) def-bytecode]
+    (let [normal-name (format (lang.normalize-name def-name) (%n (text/hash def-name)))
+          class-name (format (text.replace-all "/" "." def-module) "." normal-name)]
+      (<| (macro.run compiler)
+          (do macro.Monad<Meta>
+            [_ (..store-class class-name def-bytecode)
+             class (..load-class class-name)]
+            (case (do e.Monad<Error>
+                    [field (Class::getField [..value-field] class)]
+                    (Field::get [#.None] field))
+              (#e.Success (#.Some def-value))
+              (wrap def-value)
+
+              (#e.Success #.None)
+              (lang.throw Invalid-Definition-Value (%ident def-ident))
+              
+              (#e.Error error)
+              (lang.throw Cannot-Load-Definition
+                          (format "Definition: " (%ident def-ident) "\n"
+                                  "Error:\n"
+                                  error))))))))

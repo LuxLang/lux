@@ -4,7 +4,8 @@
                 ["ex" exception #+ exception:])
        (concurrency ["P" promise]
                     ["T" task])
-       (data ["e" error]
+       (data [product]
+             ["e" error]
              [text "text/" Hash<Text>]
              text/format
              (coll [list "list/" Functor<List>]
@@ -14,9 +15,13 @@
              (type ["tc" check]))
        [host]
        [io #+ IO Process io]
-       (world [file #+ File]))
+       (world [blob #+ Blob]
+              [file #+ File]))
   (luxc ["&" lang]
         ["&." io]
+        [cache]
+        [cache/description]
+        [cache/io]
         (lang [".L" module]
               [".L" host]
               [".L" macro]
@@ -35,9 +40,7 @@
                            [".T" expression]
                            [".T" eval]
                            [".T" imports])
-              ["&." eval]
-              ## [".L" cache]
-              )
+              ["&." eval])
         ))
 
 (def: analyse
@@ -156,27 +159,30 @@
       (#e.Success [(set@ #.source source' compiler)
                    output]))))
 
-(def: (write-module target-dir module-name module artifacts)
-  (-> File Text Module Artifacts (Process Unit))
+(for {"JVM" (as-is (host.import java/lang/String
+                     (getBytes [String] #try (Array byte)))
+
+                   (def: text-to-blob
+                     (-> Text Blob)
+                     (|>> (:! String)
+                          (String::getBytes ["UTF-8"])
+                          e.assume)))})
+
+(def: (write-module target-dir file-name module-name module artifacts)
+  (-> File Text Text Module Artifacts (Process Unit))
   (do io.Monad<Process>
-    [_ (monad.map @ (function [[name content]]
-                      (&io.write target-dir
-                                 (format module-name "/" name (for {"JVM" ".class"
-                                                                    "JS" ".js"}))
-                                 content))
+    [_ (monad.map @ (product.uncurry (&io.write target-dir))
                   (dict.entries artifacts))]
-    (wrap [])
-    ## (&io.write (format module-dir "/" cacheL.descriptor-name)
-    ##            (text-to-blob (%code (cacheL.describe module))))
-    ))
+    (&io.write target-dir
+               (format module-name "/" cache.descriptor-name)
+               (text-to-blob (%code (cache/description.write file-name module))))))
 
 (def: no-aliases Aliases (dict.new text.Hash<Text>))
 
 (def: #export (translate-module source-dirs target-dir module-name compiler)
   (-> (List File) File Text Compiler (Process Compiler))
   (do io.Monad<Process>
-    [## _ (&io.prepare-module target-dir module-name)
-     [file-name file-content] (&io.read-module source-dirs module-name)
+    [[file-name file-content] (&io.read source-dirs module-name)
      #let [module-hash (text/hash file-content)
            translate-module (translate-module source-dirs target-dir)]]
     (case (macro.run' compiler
@@ -197,8 +203,8 @@
                         (wrap [module artifacts])))
       (#e.Success [compiler [module artifacts]])
       (do @
-        [## _ (write-module target-dir module-name module artifacts)
-         ]
+        [_ (&io.prepare-module target-dir module-name)
+         _ (write-module target-dir file-name module-name module artifacts)]
         (wrap compiler))
       
       (#e.Error error)
@@ -246,7 +252,8 @@
                    (do @
                      [_ (&io.prepare-target target)
                       _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
-                      _ (&io.write target (format hostL.function-class ".class") function-bc)]
+                      _ (&io.write target (format hostL.function-class ".class") function-bc)
+                      _ (cache/io.pre-load sources target (commonT.load-definition compiler))]
                      (wrap (set@ #.extensions
                                  (:! Void
                                      {#extensionL.analysis analysisE.defaults
@@ -261,5 +268,6 @@
   (do io.Monad<Process>
     [compiler (initialize sources target)
      _ (translate-module sources target program compiler)
+     ## _ (cache/io.clean target ...)
      #let [_ (log! "Compilation complete!")]]
     (wrap [])))
