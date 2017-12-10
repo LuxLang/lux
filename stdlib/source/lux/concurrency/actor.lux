@@ -4,36 +4,49 @@
                 ["p" parser]
                 ["ex" exception #+ exception:])
        [io #- run "io/" Monad<IO>]
-       (data text/format
-             (coll [list "list/" Monoid<List> Monad<List> Fold<List>])
-             [product])
+       (data [product]
+             ["e" error]
+             text/format
+             (coll [list "list/" Monoid<List> Monad<List> Fold<List>]))
        [macro #+ with-gensyms Monad<Meta>]
        (macro [code]
               ["s" syntax #+ syntax: Syntax]
               (syntax ["cs" common]
                       (common ["csr" reader]
                               ["csw" writer])))
-       (type abstract)
-       (lang [type]))
-  (// ["A" atom]
-      ["P" promise "P/" Monad<Promise>]
-      ["T" task]
-      [stm #+ Monad<STM>]
-      [frp]))
+       (type abstract))
+  (// [atom #+ Atom atom]
+      [promise #+ Promise promise "promise/" Monad<Promise>]
+      [task #+ Task]))
 
 (exception: #export Poisoned)
-(exception: #export Killed)
 (exception: #export Dead)
 
 ## [Types]
 (with-expansions
-  [<Message> (as-is (-> s (Actor s) (T.Task s)))
-   <Obituary> (as-is [Text s (List <Message>)])]
+  [<Message> (as-is (-> s (Actor s) (Task s)))
+   <Obituary> (as-is [Text s (List <Message>)])
+   <Mailbox> (as-is (Rec Mailbox (Promise [<Message> Mailbox])))]
+
+  (def: (obituary mailbox)
+    (All [a] (-> (Rec Mailbox (Promise [a Mailbox])) (List a)))
+    (case (promise.poll mailbox)
+      (#.Some [head tail])
+      (#.Cons head (obituary tail))
+      
+      #.None
+      #.Nil))
+  
   (abstract: #export (Actor s)
     {#.doc "An actor, defined as all the necessities it requires."}
-    {#mailbox (stm.Var <Message>)
-     #kill-switch (P.Promise Unit)
-     #obituary (P.Promise <Obituary>)}
+    {#mailbox (Atom <Mailbox>)
+     #obituary (Promise <Obituary>)}
+
+    ## TODO: Delete after new-luxc becomes the new standard compiler.
+    (def: (actor mailbox obituary)
+      (All [s] (-> (Atom <Mailbox>) (Promise <Obituary>) (Actor s)))
+      (@abstract {#mailbox mailbox
+                  #obituary obituary}))
 
     (type: #export (Message s)
       <Message>)
@@ -43,60 +56,36 @@
 
     (type: #export (Behavior s)
       {#.doc "An actor's behavior when messages are received."}
-      {#handle (-> (Message s) s (Actor s) (T.Task s))
-       #end (-> Text s (P.Promise Unit))})
+      {#handle (-> (Message s) s (Actor s) (Task s))
+       #end (-> Text s (Promise Unit))})
 
     (def: #export (spawn behavior init)
       {#.doc "Given a behavior and initial state, spawns an actor and returns it."}
       (All [s] (-> (Behavior s) s (IO (Actor s))))
       (io (let [[handle end] behavior
-                self (@abstract {#mailbox (stm.var (:! Message []))
-                                 #kill-switch (P.promise #.None)
-                                 #obituary (P.promise #.None)})
-                mailbox-channel (io.run (stm.follow (get@ #mailbox (@repr self))))
-                |mailbox| (stm.var mailbox-channel)
-                _ (P/map (function [_]
-                           (io.run (do Monad<IO>
-                                     [mb (stm.read! |mailbox|)]
-                                     (frp.close mb))))
-                         (get@ #kill-switch (@repr self)))
+                self (actor (atom (promise #.None))
+                            (promise #.None))
                 process (loop [state init
-                               messages mailbox-channel]
-                          (do P.Monad<Promise>
-                            [?messages+ messages]
-                            (case ?messages+
-                              ## No kill-switch so far, so I may proceed...
-                              (#.Some [message messages'])
-                              (do P.Monad<Promise>
-                                [#let [_ (io.run (stm.write! messages' |mailbox|))]
-                                 ?state' (handle message state self)]
-                                (case ?state'
-                                  (#.Left error)
-                                  (do @
-                                    [#let [_ (io.run (do Monad<IO>
-                                                       [_ (P.resolve [] (get@ #kill-switch (@repr self)))]
-                                                       (frp.close messages')))]
-                                     _ (end error state)
-                                     remaining-messages (frp.consume messages')]
-                                    (wrap [error state (#.Cons message remaining-messages)]))
+                               |mailbox| (io.run (atom.read (get@ #mailbox (@repr self))))]
+                          (do promise.Monad<Promise>
+                            [[head tail] |mailbox|
+                             ?state' (handle head state self)]
+                            (case ?state'
+                              (#e.Error error)
+                              (do @
+                                [_ (end error state)]
+                                (exec (io.run (promise.resolve [error state (#.Cons head (obituary tail))]
+                                                               (get@ #obituary (@repr self))))
+                                  (wrap [])))
 
-                                  (#.Right state')
-                                  (recur state' messages')))
-
-                              ## Otherwise, clean-up and return current state.
-                              #.None
-                              (do P.Monad<Promise>
-                                [#let [_ (io.run (frp.close messages))
-                                       death-message (Killed "")]
-                                 _ (end death-message state)]
-                                (wrap [death-message state (list)])))))]
+                              (#e.Success state')
+                              (recur state' tail))))]
             self)))
 
     (def: #export (alive? actor)
       (All [s] (-> (Actor s) Bool))
-      (case [(P.poll (get@ #kill-switch (@repr actor)))
-             (P.poll (get@ #obituary (@repr actor)))]
-        [#.None #.None]
+      (case (promise.poll (get@ #obituary (@repr actor)))
+        #.None
         true
 
         _
@@ -106,27 +95,33 @@
       {#.doc "Communicate with an actor through message passing."}
       (All [s] (-> (Message s) (Actor s) (IO Bool)))
       (if (alive? actor)
-        (do Monad<IO>
-          [_ (stm.write! message (get@ #mailbox (@repr actor)))]
-          (wrap true))
-        (io/wrap false)))
-
-    (def: #export (kill actor)
-      {#.doc "Immediately kills the given actor (if it is not already dead)."}
-      (All [s] (-> (Actor s) (io.IO Bool)))
-      (if (alive? actor)
-        (|> actor @repr (get@ #kill-switch) (P.resolve []))
+        (let [entry [message (promise #.None)]]
+          (do Monad<IO>
+            [|mailbox| (atom.read (get@ #mailbox (@repr actor)))]
+            (loop [|mailbox| |mailbox|]
+              (case (promise.poll |mailbox|)
+                #.None
+                (do @
+                  [resolved? (promise.resolve entry |mailbox|)]
+                  (if resolved?
+                    (do @
+                      [_ (atom.write (product.right entry) (get@ #mailbox (@repr actor)))]
+                      (wrap true))
+                    (recur |mailbox|)))
+                
+                (#.Some [_ |mailbox|'])
+                (recur |mailbox|')))))
         (io/wrap false)))
     ))
 
 ## [Values]
-(def: #export (default-handle message state self)
-  (All [s] (-> (Message s) s (Actor s) (T.Task s)))
+(def: (default-handle message state self)
+  (All [s] (-> (Message s) s (Actor s) (Task s)))
   (message state self))
 
-(def: #export (default-end cause state)
-  (All [s] (-> Text s (P.Promise Unit)))
-  (P/wrap []))
+(def: (default-end cause state)
+  (All [s] (-> Text s (Promise Unit)))
+  (promise/wrap []))
 
 (def: #export default-behavior
   (All [s] (Behavior s))
@@ -138,7 +133,7 @@
           but allows the actor to handle previous messages."}
   (All [s] (-> (Actor s) (IO Bool)))
   (send (function [state self]
-          (T.throw Poisoned ""))
+          (task.throw Poisoned ""))
         actor))
 
 ## [Syntax]
@@ -206,16 +201,16 @@
                 Nat
                 
                 ((stop cause state)
-                 (:: P.Monad<Promise> wrap
-                     (log! (if (ex.match? ..Killed cause)
-                             (format "Counter was killed: " (%n state))
+                 (:: promise.Monad<Promise> wrap
+                     (log! (if (ex.match? ..Poisoned cause)
+                             (format "Counter was poisoned: " (%n state))
                              cause)))))
               
               (actor: #export (Stack a)
                 (List a)
                 
                 ((handle message state self)
-                 (do T.Monad<Task>
+                 (do task.Monad<Task>
                    [#let [_ (log! "BEFORE")]
                     output (message state self)
                     #let [_ (log! "AFTER")]]
@@ -240,23 +235,23 @@
                          (..Behavior ((~ g!type) (~+ g!vars))))
                        {#..handle (~ (case ?handle
                                        #.None
-                                       (` ..default-handle)
+                                       (` (~! ..default-handle))
 
                                        (#.Some [[messageN stateN selfN] bodyC])
                                        (` (function [(~ (code.local-symbol messageN))
                                                      (~ (code.local-symbol stateN))
                                                      (~ (code.local-symbol selfN))]
-                                            (do T.Monad<Task>
+                                            (do task.Monad<Task>
                                               []
                                               (~ bodyC))))))
                         #..end (~ (case ?stop
                                     #.None
-                                    (` ..default-end)
+                                    (` (~! ..default-end))
 
                                     (#.Some [[causeN stateN] bodyC])
                                     (` (function [(~ (code.local-symbol causeN))
                                                   (~ (code.local-symbol stateN))]
-                                         (do P.Monad<Promise>
+                                         (do promise.Monad<Promise>
                                            []
                                            (~ bodyC))))))}))
                   (` (def: (~+ (csw.export export)) ((~ g!new) (~ g!init))
@@ -300,16 +295,18 @@
               (message: #export Counter
                 (count! [increment Nat] state self Nat)
                 (let [state' (n/+ increment state)]
-                  (T.return [state' state'])))
+                  (task.return [state' state'])))
 
               (message: #export (Stack a)
                 (push [value a] state self (List a))
                 (let [state' (#.Cons value state)]
-                  (T.return [state' state']))))}
+                  (task.return [state' state']))))}
   (with-gensyms [g!return g!error g!task g!sent?]
     (do @
-      [actor-name (resolve-actor actor-name)
-       #let [g!type (code.symbol (product.both id state-name actor-name))
+      [current-module macro.current-module-name
+       actor-name (resolve-actor actor-name)
+       #let [message-name [current-module (get@ #name signature)]
+             g!type (code.symbol (product.both id state-name actor-name))
              g!message (code.local-symbol (get@ #name signature))
              g!actor-vars (list/map code.local-symbol actor-vars)
              actorC (` ((~ (code.symbol actor-name)) (~+ g!actor-vars)))
@@ -338,28 +335,30 @@
                        (~ (|> annotations
                               (with-message actor-name)
                               csw.annotations))
-                       (All [(~+ g!all-vars)] (-> (~+ g!inputsT) (~ actorC) (T.Task (~ (get@ #output signature)))))
-                       (let [(~ g!task) (T.task (~ g!outputT))]
+                       (All [(~+ g!all-vars)] (-> (~+ g!inputsT) (~ actorC) (Task (~ (get@ #output signature)))))
+                       (let [(~ g!task) (task.task (~ g!outputT))]
                          (io.run (do io.Monad<IO>
                                    [(~ g!sent?) (..send (function [(~ g!state) (~ g!self)]
-                                                          (do P.Monad<Promise>
-                                                            [(~ g!return) (: (T.Task [((~ g!type) (~+ g!actor-refs))
-                                                                                      (~ g!outputT)])
-                                                                             (do T.Monad<Task>
+                                                          (do promise.Monad<Promise>
+                                                            [(~ g!return) (: (Task [((~ g!type) (~+ g!actor-refs))
+                                                                                    (~ g!outputT)])
+                                                                             (do task.Monad<Task>
                                                                                []
                                                                                (~ body)))]
                                                             (case (~ g!return)
                                                               (#.Right [(~ g!state) (~ g!return)])
-                                                              (exec (io.run (P.resolve (#.Right (~ g!return)) (~ g!task)))
-                                                                (T.return (~ g!state)))
+                                                              (exec (io.run (promise.resolve (#.Right (~ g!return)) (~ g!task)))
+                                                                (task.return (~ g!state)))
                                                               
                                                               (#.Left (~ g!error))
-                                                              (exec (io.run (P.resolve (#.Left (~ g!error)) (~ g!task)))
-                                                                (T.fail (~ g!error))))
+                                                              (exec (io.run (promise.resolve (#.Left (~ g!error)) (~ g!task)))
+                                                                (task.fail (~ g!error))))
                                                             ))
                                                         (~ g!self))]
                                    (if (~ g!sent?)
                                      ((~' wrap) (~ g!task))
-                                     ((~' wrap) (T.throw ..Dead ""))))))))
+                                     ((~' wrap) (<| (task.throw ..Dead)
+                                                    (~ (code.text (format "  Actor: " (%ident actor-name) "\n"
+                                                                          "Message: " (%ident message-name) "\n")))))))))))
                   ))
       )))

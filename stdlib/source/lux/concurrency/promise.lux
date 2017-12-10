@@ -5,31 +5,27 @@
        (control [functor #+ Functor]
                 [applicative #+ Applicative]
                 [monad #+ do Monad])
+       (data [product])
        (concurrency [atom #+ Atom atom])))
 
 (def: #export concurrency-level
   Nat
   ("lux process concurrency-level"))
 
-(type: (Promise-State a)
-  {#value (Maybe a)
-   #observers (List (-> a (IO Top)))})
-
 (type: #export (Promise a)
   {#.doc "Represents values produced by asynchronous computations (unlike IO, which is synchronous)."}
-  (Atom (Promise-State a)))
+  (Atom [(Maybe a) (List (-> a (IO Top)))]))
 
 (def: #export (promise ?value)
   (All [a] (-> (Maybe a) (Promise a)))
-  (atom {#value ?value
-         #observers (list)}))
+  (atom [?value (list)]))
 
 (def: #export (poll promise)
   {#.doc "Polls a promise's value."}
   (All [a] (-> (Promise a) (Maybe a)))
   (|> (atom.read promise)
       io.run
-      (get@ #value)))
+      product.left))
 
 (def: #export (resolved? promise)
   {#.doc "Checks whether a promise's value has already been resolved."}
@@ -45,31 +41,31 @@
   {#.doc "Sets an promise's value if it has not been done yet."}
   (All [a] (-> a (Promise a) (IO Bool)))
   (do io.Monad<IO>
-    [old (atom.read promise)]
-    (case (get@ #value old)
+    [(^@ old [_value _observers]) (atom.read promise)]
+    (case _value
       (#.Some _)
       (wrap false)
 
       #.None
       (do @
-        [#let [new (set@ #value (#.Some value) old)]
+        [#let [new [(#.Some value) _observers]]
          succeeded? (atom.compare-and-swap old new promise)]
         (if succeeded?
           (do @
             [_ (monad.map @ (function [f] (f value))
-                          (get@ #observers old))]
+                          _observers)]
             (wrap true))
           (resolve value promise))))))
 
 (def: #export (await f promise)
   (All [a] (-> (-> a (IO Top)) (Promise a) Top))
-  (let [old (io.run (atom.read promise))]
-    (case (get@ #value old)
+  (let [(^@ old [_value _observers]) (io.run (atom.read promise))]
+    (case _value
       (#.Some value)
       (io.run (f value))
 
       #.None
-      (let [new (update@ #observers (|>> (#.Cons f)) old)]
+      (let [new [_value (#.Cons f _observers)]]
         (if (io.run (atom.compare-and-swap old new promise))
           []
           (await f promise))))))
@@ -85,8 +81,7 @@
   (def: functor Functor<Promise>)
 
   (def: (wrap a)
-    (atom {#value (#.Some a)
-           #observers (list)}))
+    (atom [(#.Some a) (list)]))
 
   (def: (apply ff fa)
     (let [fb (promise #.None)]
