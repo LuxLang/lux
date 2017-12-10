@@ -6,26 +6,61 @@
                 [applicative #+ Applicative]
                 [monad #+ do Monad])
        (data [product])
-       (concurrency [atom #+ Atom atom])))
+       (concurrency [atom #+ Atom atom])
+       (type abstract)))
 
 (def: #export concurrency-level
   Nat
   ("lux process concurrency-level"))
 
-(type: #export (Promise a)
+(abstract: #export (Promise a)
   {#.doc "Represents values produced by asynchronous computations (unlike IO, which is synchronous)."}
-  (Atom [(Maybe a) (List (-> a (IO Top)))]))
+  (Atom [(Maybe a) (List (-> a (IO Top)))])
 
-(def: #export (promise ?value)
-  (All [a] (-> (Maybe a) (Promise a)))
-  (atom [?value (list)]))
+  (def: #export (promise ?value)
+    (All [a] (-> (Maybe a) (Promise a)))
+    (@abstraction (atom [?value (list)])))
 
-(def: #export (poll promise)
-  {#.doc "Polls a promise's value."}
-  (All [a] (-> (Promise a) (Maybe a)))
-  (|> (atom.read promise)
-      io.run
-      product.left))
+  (def: #export (poll (^@representation promise))
+    {#.doc "Polls a promise's value."}
+    (All [a] (-> (Promise a) (Maybe a)))
+    (|> (atom.read promise)
+        io.run
+        product.left))
+
+  (def: #export (resolve value (^@representation promise))
+    {#.doc "Sets an promise's value if it has not been done yet."}
+    (All [a] (-> a (Promise a) (IO Bool)))
+    (do io.Monad<IO>
+      [(^@ old [_value _observers]) (atom.read promise)]
+      (case _value
+        (#.Some _)
+        (wrap false)
+
+        #.None
+        (do @
+          [#let [new [(#.Some value) #.None]]
+           succeeded? (atom.compare-and-swap old new promise)]
+          (if succeeded?
+            (do @
+              [_ (monad.map @ (function [f] (f value))
+                            _observers)]
+              (wrap true))
+            (resolve value (@abstraction promise)))))))
+
+  (def: #export (await f (^@representation promise))
+    (All [a] (-> (-> a (IO Top)) (Promise a) Top))
+    (let [(^@ old [_value _observers]) (io.run (atom.read promise))]
+      (case _value
+        (#.Some value)
+        (io.run (f value))
+
+        #.None
+        (let [new [_value (#.Cons f _observers)]]
+          (if (io.run (atom.compare-and-swap old new promise))
+            []
+            (await f (@abstraction promise)))))))
+  )
 
 (def: #export (resolved? promise)
   {#.doc "Checks whether a promise's value has already been resolved."}
@@ -36,39 +71,6 @@
 
     (#.Some _)
     true))
-
-(def: #export (resolve value promise)
-  {#.doc "Sets an promise's value if it has not been done yet."}
-  (All [a] (-> a (Promise a) (IO Bool)))
-  (do io.Monad<IO>
-    [(^@ old [_value _observers]) (atom.read promise)]
-    (case _value
-      (#.Some _)
-      (wrap false)
-
-      #.None
-      (do @
-        [#let [new [(#.Some value) _observers]]
-         succeeded? (atom.compare-and-swap old new promise)]
-        (if succeeded?
-          (do @
-            [_ (monad.map @ (function [f] (f value))
-                          _observers)]
-            (wrap true))
-          (resolve value promise))))))
-
-(def: #export (await f promise)
-  (All [a] (-> (-> a (IO Top)) (Promise a) Top))
-  (let [(^@ old [_value _observers]) (io.run (atom.read promise))]
-    (case _value
-      (#.Some value)
-      (io.run (f value))
-
-      #.None
-      (let [new [_value (#.Cons f _observers)]]
-        (if (io.run (atom.compare-and-swap old new promise))
-          []
-          (await f promise))))))
 
 (struct: #export _ (Functor Promise)
   (def: (map f fa)
@@ -81,7 +83,7 @@
   (def: functor Functor<Promise>)
 
   (def: (wrap a)
-    (atom [(#.Some a) (list)]))
+    (promise (#.Some a)))
 
   (def: (apply ff fa)
     (let [fb (promise #.None)]
