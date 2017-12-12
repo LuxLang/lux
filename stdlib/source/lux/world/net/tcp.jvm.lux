@@ -1,13 +1,13 @@
 (.module:
   lux
   (lux (control monad)
-       (concurrency ["P" promise]
-                    ["T" task]
+       (concurrency [promise #+ Promise promise]
+                    [task #+ Task]
                     [frp])
        (data ["e" error])
        (type abstract)
        (world [blob #+ Blob])
-       [io]
+       [io #+ Process]
        [host])
   [//])
 
@@ -42,90 +42,74 @@
    #out OutputStream}
   
   (def: #export (read data offset length self)
-    (let [in (get@ #in (@representation self))]
-      (P.future
-       (do (e.ErrorT io.Monad<IO>)
-         [bytes-read (InputStream::read [data (nat-to-int offset) (nat-to-int length)]
-                                        in)]
-         (wrap (int-to-nat bytes-read))))))
+    (-> Blob Nat Nat TCP (Task Nat))
+    (promise.future
+     (do io.Monad<Process>
+       [bytes-read (InputStream::read [data (nat-to-int offset) (nat-to-int length)]
+                                      (get@ #in (@representation self)))]
+       (wrap (int-to-nat bytes-read)))))
   
   (def: #export (write data offset length self)
+    (-> Blob Nat Nat TCP (Task Unit))
     (let [out (get@ #out (@representation self))]
-      (P.future
-       (do (e.ErrorT io.Monad<IO>)
+      (promise.future
+       (do io.Monad<Process>
          [_ (OutputStream::write [data (nat-to-int offset) (nat-to-int length)]
                                  out)]
          (Flushable::flush [] out)))))
 
   (def: #export (close self)
+    (-> TCP (Task Unit))
     (let [(^open) (@representation self)]
-      (P.future
-       (do (e.ErrorT io.Monad<IO>)
+      (promise.future
+       (do io.Monad<Process>
          [_ (AutoCloseable::close [] in)
           _ (AutoCloseable::close [] out)]
          (AutoCloseable::close [] socket)))))
 
   (def: (tcp-client socket)
-    (-> Socket (io.IO (e.Error TCP)))
-    (do (e.ErrorT io.Monad<IO>)
+    (-> Socket (Process TCP))
+    (do io.Monad<Process>
       [input (Socket::getInputStream [] socket)
        output (Socket::getOutputStream [] socket)]
       (wrap (@abstraction {#socket socket
                            #in input
                            #out output}))))
-
-  (def: #export (client address port)
-    (-> //.Address //.Port (T.Task TCP))
-    (P.future
-     (do (e.ErrorT io.Monad<IO>)
-       [socket (Socket::new [address (nat-to-int port)])]
-       (tcp-client socket))))
-
-  (def: (await-server-release client-channel server)
-    (-> (frp.Channel TCP) ServerSocket (P.Promise Unit))
-    (do P.Monad<Promise>
-      [outcome client-channel]
-      (case outcome
-        ## Channel has been closed.
-        ## Must close associated server.
-        #.None
-        (P.future
-         (do io.Monad<IO>
-           [_ (AutoCloseable::close [] server)]
-           (wrap [])))
-
-        ## A client was generated.
-        ## Nothing to be done...
-        (#.Some _)
-        (wrap []))))
-
-  (def: #export (server port)
-    (-> //.Port (T.Task (frp.Channel TCP)))
-    (P.future
-     (do (e.ErrorT io.Monad<IO>)
-       [server (ServerSocket::new [(nat-to-int port)])
-        #let [output (: (frp.Channel TCP)
-                        (frp.channel))
-              _ (: (P.Promise Bool)
-                   (P.future
-                    (loop [tail output]
-                      (do io.Monad<IO>
-                        [?client (do (e.ErrorT io.Monad<IO>)
-                                   [socket (ServerSocket::accept [] server)]
-                                   (tcp-client socket))]
-                        (case ?client
-                          (#e.Error error)
-                          (frp.close tail)
-                          
-                          (#e.Success client)
-                          (do @
-                            [?tail' (frp.write client tail)]
-                            (case ?tail'
-                              #.None
-                              (wrap true)
-                              
-                              (#.Some tail')
-                              (exec (await-server-release tail' server)
-                                (recur tail')))))))))]]
-       (wrap output))))
   )
+
+(def: #export (client address port)
+  (-> //.Address //.Port (Task TCP))
+  (promise.future
+   (do io.Monad<Process>
+     [socket (Socket::new [address (nat-to-int port)])]
+     (tcp-client socket))))
+
+(def: #export (server port)
+  (-> //.Port (Task [(Promise Unit)
+                     (frp.Channel TCP)]))
+  (promise.future
+   (do (e.ErrorT io.Monad<IO>)
+     [server (ServerSocket::new [(nat-to-int port)])
+      #let [signal (: (Promise Unit)
+                      (promise #.None))
+            _ (promise.await (function [_]
+                               (AutoCloseable::close [] server))
+                             signal)
+            output (: (frp.Channel TCP)
+                      (frp.channel []))
+            _ (: (Promise Unit)
+                 (promise.future
+                  (loop [_ []]
+                    (do io.Monad<IO>
+                      [?client (do (e.ErrorT io.Monad<IO>)
+                                 [socket (ServerSocket::accept [] server)]
+                                 (tcp-client socket))]
+                      (case ?client
+                        (#e.Error error)
+                        (wrap [])
+                        
+                        (#e.Success client)
+                        (do @
+                          [_ (frp.publish output client)]
+                          (recur [])))))))]]
+     (wrap [signal output]))))

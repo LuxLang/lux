@@ -1,310 +1,127 @@
 (.module:
   lux
-  (lux (control ["F" functor]
-                ["A" applicative]
-                ["M" monad #+ do Monad]
-                [eq #+ Eq]
-                ["p" parser])
-       [io #- run]
-       (data (coll [list "L/" Monoid<List>])
-             text/format)
-       [macro]
-       (macro ["s" syntax #+ syntax: Syntax]))
-  (// ["&" promise]))
+  (lux (control [functor #+ Functor]
+                [applicative #+ Applicative]
+                [monad #+ do Monad])
+       [io #+ IO io]
+       (data (coll [list "list/" Monoid<List>]))
+       (type abstract))
+  (// [atom #+ Atom atom]
+      [promise #+ Promise]))
 
 ## [Types]
-(type: #export (Channel a)
-  {#.doc "An asynchronous channel of values which may be closed.
+(abstract: #export (Channel a)
+  {#.doc "An asynchronous channel to distribute values."}
+  (Atom (List (-> a (IO Top))))
 
-          Reading from a channel does not remove the read piece of data, as it can still be accessed if you have an earlier node of the channel."}
-  (&.Promise (Maybe [a (Channel a)])))
+  (def: #export (channel _)
+    (All [a] (-> Top (Channel a)))
+    (@abstraction (atom (list))))
 
-## [Syntax]
-(syntax: #export (channel)
-  {#.doc (doc "Makes an uninitialized Channel."
-              (channel))}
-  (wrap (list (` (&.promise #.None)))))
+  (def: #export (listen listener (^@representation channel))
+    (All [a] (-> (-> a (IO Top)) (Channel a) (IO Unit)))
+    (atom.update (|>> (#.Cons listener)) channel))
+
+  (def: #export (publish (^@representation channel) value)
+    {#.doc "Publish to a channel."}
+    (All [a] (-> (Channel a) a (IO Unit)))
+    (do io.Monad<IO>
+      [listeners (atom.read channel)
+       _ (monad.map @ (function [listener] (listener value)) listeners)]
+      (wrap [])))
+  )
 
 ## [Values]
-(def: #export (filter p xs)
+(def: #export (filter predicate input)
   (All [a] (-> (-> a Bool) (Channel a) (Channel a)))
-  (do &.Monad<Promise>
-    [?x+xs xs]
-    (case ?x+xs
-      #.None           (wrap #.None)
-      (#.Some [x xs']) (if (p x)
-                         (wrap (#.Some [x (filter p xs')]))
-                         (filter p xs')))))
-
-(def: #export (write value target)
-  {#.doc "Write to a channel, so long as it's still open."}
-  (All [a] (-> a (Channel a) (IO (Maybe (Channel a)))))
-  (case (&.poll target)
-    (^template [<case> <channel-to-write>]
-      <case>
-      (do Monad<IO>
-        [#let [new-tail (channel)]
-         done? (&.resolve (#.Some [value new-tail]) <channel-to-write>)]
-        (if done?
-          (wrap (#.Some new-tail))
-          (write value <channel-to-write>))))
-    ([#.None                      target]
-     [(#.Some (#.Some [_ target'])) target'])
-
-    _
-    (:: Monad<IO> wrap #.None)
-    ))
-
-(def: #export (close target)
-  (All [a] (-> (Channel a) (IO Bool)))
-  (case (&.poll target)
-    (^template [<case> <channel-to-write>]
-      <case>
-      (do Monad<IO>
-        [done? (&.resolve #.None <channel-to-write>)]
-        (if done?
-          (wrap true)
-          (close <channel-to-write>))))
-    ([#.None                        target]
-     [(#.Some (#.Some [_ target'])) target'])
-
-    _
-    (:: Monad<IO> wrap false)
-    ))
-
-(def: (pipe' input output)
-  (All [a] (-> (Channel a) (Channel a) (&.Promise Unit)))
-  (do &.Monad<Promise>
-    [?x+xs input]
-    (case ?x+xs
-      #.None              (wrap [])
-      (#.Some [x input']) (case (io.run (write x output))
-                            #.None
-                            (wrap [])
-
-                            (#.Some output')
-                            (pipe' input' output')))))
-
-(def: #export (pipe input output)
-  {#.doc "Copy/pipe the contents of a channel on to another."}
-  (All [a] (-> (Channel a) (Channel a) (&.Promise Unit)))
-  (do &.Monad<Promise>
-    [_ (pipe' input output)]
-    (exec (io.run (close output))
-      (wrap []))))
-
-(def: #export (merge xss)
-  {#.doc "Fuse all the elements in a list of channels by piping them onto a new output channel."}
-  (All [a] (-> (List (Channel a)) (Channel a)))
-  (let [output (channel)]
-    (exec (do &.Monad<Promise>
-            [_ (M.map @ (function [input] (pipe' input output)) xss)]
-            (exec (io.run (close output))
-              (wrap [])))
+  (let [output (channel [])]
+    (exec (io.run (listen (function [value]
+                            (if (predicate value)
+                              (publish output value)
+                              (io [])))
+                          input))
       output)))
 
-(def: #export (fold f init xs)
-  {#.doc "Asynchronous fold over channels."}
-  (All [a b] (-> (-> b a (&.Promise a)) a (Channel b) (&.Promise a)))
-  (do &.Monad<Promise>
-    [?x+xs xs]
-    (case ?x+xs
-      #.None           (wrap init)
-      (#.Some [x xs']) (do @
-                         [init' (f x init)]
-                         (fold f init' xs')))))
+(def: #export (pipe output input)
+  {#.doc "Copy/pipe the contents of a channel on to another."}
+  (All [a] (-> (Channel a) (Channel a) (IO Unit)))
+  (listen (publish output)
+          input))
 
-(def: #export (folds f init xs)
-  {#.doc "A channel of folds."}
-  (All [a b] (-> (-> b a (&.Promise a)) a (Channel b) (Channel a)))
-  (do &.Monad<Promise>
-    [?x+xs xs]
-    (case ?x+xs
-      #.None           (wrap (#.Some [init (wrap #.None)]))
-      (#.Some [x xs']) (do @
-                         [init' (f x init)]
-                         (folds f init' xs')))))
+(def: #export (merge inputs)
+  {#.doc "Fuse all the elements in a list of channels by piping them onto a new output channel."}
+  (All [a] (-> (List (Channel a)) (IO (Channel a))))
+  (let [output (channel [])]
+    (do io.Monad<IO>
+      [_ (monad.map @ (pipe output) inputs)]
+      (wrap output))))
 
-(def: (distinct' eq last-one xs)
-  (All [a] (-> (Eq a) a (Channel a) (Channel a)))
-  (let [(^open) eq]
-    (do &.Monad<Promise>
-      [?x+xs xs]
-      (case ?x+xs
-        #.None           (wrap #.None)
-        (#.Some [x xs']) (if (= x last-one)
-                           (distinct' eq last-one xs')
-                           (wrap (#.Some [x (distinct' eq x xs')])))))))
-
-(def: #export (distinct eq xs)
-  {#.doc "Multiple consecutive equal values in the input channel will just be single value in the output channel."}
-  (All [a] (-> (Eq a) (Channel a) (Channel a)))
-  (let [(^open) eq]
-    (do &.Monad<Promise>
-      [?x+xs xs]
-      (case ?x+xs
-        #.None           (wrap #.None)
-        (#.Some [x xs']) (wrap (#.Some [x (distinct' eq x xs')]))))))
-
-(def: #export (consume xs)
-  {#.doc "Reads the entirety of a channel's contents and returns them as a list."}
-  (All [a] (-> (Channel a) (&.Promise (List a))))
-  (do &.Monad<Promise>
-    [?x+xs' xs]
-    (case ?x+xs'
-      #.None
-      (wrap #.Nil)
-
-      (#.Some [x xs'])
-      (do @
-        [=xs (consume xs')]
-        (wrap (#.Cons x =xs))))))
-
-(def: #export (once p)
-  (All [a] (-> (&.Promise a) (Channel a)))
-  (do &.Monad<Promise>
-    [x p]
-    (wrap (#.Some [x (wrap #.None)]))))
+(def: #export (from-promise promise)
+  (All [a] (-> (Promise a) (Channel a)))
+  (let [output (channel [])]
+    (exec (promise.await (publish output) promise)
+      output)))
 
 (def: #export (poll time action)
-  (All [a] (-> Nat (IO (Maybe a)) (Channel a)))
-  (do &.Monad<Promise>
-    [?output (&.future action)]
-    (case ?output
-      #.None
-      (wrap #.None)
-      
-      (#.Some head)
-      (do @
-        [_ (&.wait time)]
-        (wrap (#.Some [head (poll time action)]))))))
+  (All [a] (-> Nat (IO a) (Channel a)))
+  (let [output (channel [])]
+    (exec (io.run
+           (loop [_ []]
+             (do io.Monad<IO>
+               [value action
+                _ (publish output value)]
+               (wrap (promise.await recur (promise.wait time))))))
+      output)))
 
-(def: #export (periodic time value)
-  (All [a] (-> Nat a (Channel a)))
-  (do &.Monad<Promise>
-    []
-    (wrap (#.Some [value (do @
-                           [_ (&.wait time)]
-                           (periodic time value))]))))
-
-(def: #export (sequential time xs)
-  (All [a] (-> Nat (List a) (Channel a)))
-  (do &.Monad<Promise>
-    []
-    (case xs
-      #.Nil
-      (wrap #.None)
-
-      (#.Cons x xs')
-      (wrap (#.Some [x (do @
-                         [_ (&.wait time)]
-                         (sequential time xs'))])))))
-
-(def: #export (cycle time values)
-  (All [a] (-> Nat (List a) (Channel a)))
-  (do &.Monad<Promise>
-    []
-    (case values
-      #.Nil
-      (wrap #.None)
-
-      _
-      (loop [xs values]
-        (case xs
-          #.Nil
-          (recur values)
-
-          (#.Cons x xs')
-          (wrap (#.Some [x (do @
-                             [_ (&.wait time)]
-                             (recur xs'))])))))))
-
-## Utils
-(def: (tail xs)
-  (All [a] (-> (List a) (List a)))
-  (case xs
-    #.Nil
-    #.Nil
-
-    (#.Cons _ xs')
-    xs'))
-
-(def: #export (sliding-window max inputs)
-  (All [a] (-> Nat (Channel a) (Channel (List a))))
-  (let [(^open) &.Monad<Promise>]
-    (folds (function [input window]
-             (let [window' (L/compose window (list input))]
-               (wrap (if (n/<= max (list.size window'))
-                       window'
-                       (tail window')))))
-           (list)
-           inputs)))
+(def: #export (periodic time)
+  (All [a] (-> Nat (Channel a)))
+  (let [output (channel [])]
+    (exec (io.run
+           (loop [_ []]
+             (do io.Monad<IO>
+               [_ (publish output [])]
+               (wrap (promise.await recur (promise.wait time))))))
+      output)))
 
 (def: #export (iterate f init)
-  (All [a] (-> (-> a (&.Promise (Maybe a))) a (Channel a)))
-  (do &.Monad<Promise>
-    []
-    (wrap (#.Some [init (do @
-                          [?next (f init)]
-                          (case ?next
-                            #.None
-                            (wrap #.None)
-
-                            (#.Some init')
-                            (iterate f init')))]))))
-
-(def: #export (sample time inputs)
-  (All [a] (-> Nat (Channel a) (Channel a)))
-  (do &.Monad<Promise>
-    [?h+t inputs]
-    (case ?h+t
-      #.None
-      (wrap #.None)
-
-      (#.Some [value inputs'])
-      (do @
-        [_ (&.wait time)
-         #let [next-inputs (loop [last-resolved-node inputs']
-                             (case (&.poll last-resolved-node)
-                               (^multi (#.Some (#.Some [_ next-node]))
-                                       (&.resolved? next-node))
-                               (recur next-node)
-
-                               _
-                               last-resolved-node))]]
-        (wrap (#.Some [value (sample time next-inputs)]))))))
+  (All [a] (-> (-> a (Promise a)) a (Channel a)))
+  (let [output (channel [])]
+    (exec (io.run
+           (loop [zero init]
+             (do io.Monad<IO>
+               [_ (publish output zero)]
+               (wrap (promise.await recur (f zero))))))
+      output)))
 
 ## [Structures]
-(struct: #export _ (F.Functor Channel)
-  (def: (map f xs)
-    (:: &.Functor<Promise> map
-        (function [?x+xs]
-          (case ?x+xs
-            #.None           #.None
-            (#.Some [x xs']) (#.Some [(f x) (map f xs')])))
-        xs)))
+(struct: #export _ (Functor Channel)
+  (def: (map f input)
+    (let [output (channel [])]
+      (exec (io.run (listen (|>> f (publish output))
+                            input))
+        output))))
 
-(struct: #export _ (A.Applicative Channel)
+(struct: #export _ (Applicative Channel)
   (def: functor Functor<Channel>)
 
   (def: (wrap a)
-    (let [(^open) &.Monad<Promise>]
-      (wrap (#.Some [a (wrap #.None)]))))
+    (let [output (channel [])]
+      (exec (io.run (publish output a))
+        output)))
 
   (def: (apply ff fa)
-    (let [fb (channel)]
-      (exec (let [(^open) Functor<Channel>]
-              (map (function [f] (pipe (map f fa) fb))
-                   ff))
-        fb))))
+    (let [output (channel [])]
+      (exec (io.run (listen (function [f]
+                              (listen (|>> f (publish output))
+                                      fa))
+                            ff))
+        output))))
 
 (struct: #export _ (Monad Channel)
   (def: applicative Applicative<Channel>)
 
   (def: (join mma)
-    (let [output (channel)]
-      (exec (let [(^open) Functor<Channel>]
-              (map (function [ma]
-                     (pipe ma output))
-                   mma))
+    (let [output (channel [])]
+      (exec (io.run (listen (listen (publish output))
+                            mma))
         output))))

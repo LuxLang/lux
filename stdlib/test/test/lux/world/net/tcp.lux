@@ -5,7 +5,7 @@
                 ["ex" exception #+ exception:])
        (concurrency ["P" promise]
                     ["T" task]
-                    [frp])
+                    [frp "frp/" Functor<Channel>])
        (data ["E" error]
              [text]
              text/format)
@@ -24,45 +24,39 @@
           (|>> (n/% +1000)
                (n/+ +8000)))))
 
-(exception: Empty-Channel)
-
-(def: (head channel)
-  (All [a] (-> (frp.Channel a) (T.Task a)))
-  (do P.Monad<Promise>
-    [head+tail channel]
-    (case head+tail
-      (#.Some [head tail])
-      (wrap (ex.return head))
-
-      #.None
-      (wrap (ex.throw Empty-Channel "")))))
-
 (context: "TCP networking."
   (do @
     [port ..port
      size (|> r.nat (:: @ map (|>> (n/% +100) (n/max +10))))
      from (_blob.blob size)
      to (_blob.blob size)
-     #let [temp (blob.create size)]]
+     #let [temp-from (blob.create size)
+           temp-to (blob.create size)]]
     ($_ seq
         (wrap (do P.Monad<Promise>
                 [result (do T.Monad<Task>
-                          [server (@.server port)
+                          [[server-close server] (@.server port)
+                           #let [from-worked? (: (T.Task Bool)
+                                                 (P.promise #.Nil))
+                                 _ (frp/map (function [socket]
+                                              (do @
+                                                [bytes-from (@.read temp-from +0 size socket)
+                                                 #let [_ (io.run (P.resolve (#E.Success (and (n/= size bytes-from)
+                                                                                             (:: blob.Eq<Blob> = from temp-from)))
+                                                                            from-worked?))]]
+                                                (@.write to +0 size socket)))
+                                            server)]
+                           
                            client (@.client localhost port)
-                           ####################
                            _ (@.write from +0 size client)
-                           socket (head server)
-                           bytes-from (@.read temp +0 size socket)
-                           #let [from-worked? (and (n/= size bytes-from)
-                                                   (:: blob.Eq<Blob> = from temp))]
+                           from-worked? from-worked?
                            ####################
-                           _ (@.write to +0 size socket)
-                           bytes-to (@.read temp +0 size client)
+                           bytes-to (@.read temp-to +0 size client)
                            #let [to-worked? (and (n/= size bytes-to)
-                                                 (:: blob.Eq<Blob> = to temp))]
+                                                 (:: blob.Eq<Blob> = to temp-to))]
                            ####################
                            _ (@.close client)
-                           _ (T.from-promise (P.future (frp.close server)))]
+                           _ (T.from-promise (P.future (P.resolve [] server-close)))]
                           (wrap (and from-worked?
                                      to-worked?)))]
                 (assert "Can communicate between client and server."

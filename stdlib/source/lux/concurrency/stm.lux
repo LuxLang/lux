@@ -6,10 +6,7 @@
        [io #+ IO io]
        (data [product]
              [maybe]
-             [number "nat/" Codec<Text,Nat>]
-             [text]
-             (coll [list "list/" Functor<List> Fold<List>]
-                   [dict #+ Dict]))
+             (coll [list "list/" Functor<List> Fold<List>]))
        (concurrency [atom #+ Atom atom]
                     [promise #+ Promise promise]
                     [frp "frp/" Functor<Channel>])
@@ -17,12 +14,12 @@
 
 (abstract: #export (Var a)
   {#.doc "A mutable cell containing a value, and observers that will be alerted of any change to it."}
-  (Atom [a (Dict Text (-> a (IO Unit)))])
+  (Atom [a (List (-> a (IO Unit)))])
 
   (def: #export (var value)
     {#.doc "Creates a new STM var, with a default value."}
     (All [a] (-> a (Var a)))
-    (@abstraction (atom.atom [value (dict.new text.Hash<Text>)])))
+    (@abstraction (atom.atom [value (list)])))
 
   (def: read!!
     (All [a] (-> (Var a) a))
@@ -42,43 +39,21 @@
        succeeded? (atom.compare-and-swap old [new-value _observers] var)]
       (if succeeded?
         (do @
-          [_ (|> _observers
-                 dict.values
-                 (monad.map @ (function [f] (f new-value))))]
+          [_ (monad.map @ (function [f] (f new-value)) _observers)]
           (wrap []))
         (write! new-value (@abstraction var)))))
 
   (def: #export (follow (^@representation target))
     {#.doc "Creates a channel that will receive all changes to the value of the given var."}
     (All [a] (-> (Var a) (IO (frp.Channel a))))
-    (let [head (: (frp.Channel ($ +0)) (frp.channel))
-          ## head (frp.channel)
-          channel-var (var head)
-          observer (function [label value]
-                     (case (io.run (|> channel-var read!! (frp.write value)))
-                       #.None
-                       ## By closing the output Channel, the
-                       ## observer becomes obsolete.
-                       (atom.update (function [[value observers]]
-                                      [value (dict.remove label observers)])
-                                    target)
-
-                       (#.Some tail')
-                       (write! tail' channel-var)))]
+    (let [channel (: (frp.Channel ($ +0)) (frp.channel []))
+          ## channel (frp.channel)
+          ]
       (do io.Monad<IO>
         [_ (atom.update (function [[value observers]]
-                          (let [label (nat/encode (list/fold (function [key base]
-                                                               (case (nat/decode key)
-                                                                 (#.Left _)
-                                                                 base
-
-                                                                 (#.Right key-num)
-                                                                 (n/max key-num base)))
-                                                             +0
-                                                             (dict.keys observers)))]
-                            [value (dict.put label (observer label) observers)]))
+                          [value (#.Cons (frp.publish channel) observers)])
                         target)]
-        (wrap head))))
+        (wrap channel))))
   )
 
 (type: (Tx-Frame a)
