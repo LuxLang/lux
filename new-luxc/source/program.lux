@@ -1,49 +1,57 @@
 (.module:
   lux
-  (lux (control monad
+  (lux (control [monad #+ do]
                 ["p" parser])
-       (concurrency ["P" promise]
-                    ["T" task])
+       (concurrency [promise #+ Promise]
+                    [task #+ Task])
        (data ["e" error]
              text/format)
        [io #- run]
-       [cli #+ program: CLI])
+       (time [instant])
+       [cli #+ program: CLI]
+       (world [file #+ File]))
   (luxc [repl]
         (lang [".L" translation])))
 
-## (type: Compilation
-##   {#program &.Path
-##    #target &.Path})
+(type: Build
+  {#build-sources (List File)
+   #build-target File
+   #build-program Text})
 
-## (def: (marker tokens)
-##   (-> (List Text) (CLI Unit))
-##   (cli.after (cli.option tokens)
-##              (:: Monad<CLI> wrap [])))
+(type: REPL
+  {#repl-sources (List File)
+   #repl-target File})
 
-## (def: (tagged tags)
-##   (-> (List Text) (CLI Text))
-##   (cli.after (cli.option tags)
-##              cli.any))
+(def: (param [short long])
+  (-> [Text Text] (CLI Text))
+  (cli.somewhere (p.after (p.either (cli.this short) (cli.this long))
+                          cli.any)))
 
-## (def: compilation^
-##   (CLI Compilation)
-##   ($_ cli.seq
-##       (tagged (list "-p" "--program"))
-##       (tagged (list "-t" "--target"))))
+(def: build
+  (CLI Build)
+  ($_ p.seq
+      (p.some (param ["-s" "--source"]))
+      (param ["-t" "--target"])
+      (param ["-p" "--program"])))
 
-## (program: ([command (cli.opt compilation^)]
-##            [sources (cli.some (tagged (list "-s" "--source")))])
-##   (case command
-##     #.None
-##     (io (log! "No REPL for you!"))
+(def: repl
+  (CLI REPL)
+  ($_ p.seq
+      (p.some (param ["-s" "--source"]))
+      (param ["-t" "--target"])))
 
-##     (#.Some [program target])
-##     (exec (&compiler.compile-program program target sources)
-##       (io []))))
+(type: Service
+  (#Build Build)
+  (#REPL REPL))
+
+(def: service
+  (CLI Service)
+  (p.alt (p.after (cli.this "build") build)
+         (p.after (cli.this "repl") repl)))
 
 (def: (or-crash! failure-describer action)
-  (All [a] (-> Text (T.Task a) (P.Promise a)))
-  (do P.Monad<Promise>
+  (All [a] (-> Text (Task a) (Promise a)))
+  (do promise.Monad<Promise>
     [?output action]
     (case ?output
       (#e.Error error)
@@ -55,4 +63,20 @@
       (#e.Success output)
       (wrap output))))
 
-
+(program: ([service ..service])
+  (exec
+    (case service
+      (#Build [sources target program])
+      (<| (or-crash! "Compilation failed:")
+          (promise.future
+           (do io.Monad<Process>
+             [#let [start (io.run instant.now)]
+              result (translationL.translate-program sources target program)
+              #let [end (io.run instant.now)
+                    _ (log! (format "\n" "Elapsed time: " (%duration (instant.span start end))))]]
+             (wrap result))))
+      
+      (#REPL [sources target])
+      (<| (or-crash! "REPL failed:")
+          (repl.run sources target)))
+    (io [])))
