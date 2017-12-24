@@ -427,6 +427,34 @@
     #.None     (f x2)
     (#.Some y) (#.Some y)))
 
+(def: (find-type-var idx bindings)
+  (-> Nat (List [Nat (Maybe Type)]) (Maybe Type))
+  (case bindings
+    #.Nil
+    #.None
+    
+    (#.Cons [var bound] bindings')
+    (if (n/= idx var)
+      bound
+      (find-type-var idx bindings'))))
+
+(def: (clean-type type)
+  (-> Type (Meta Type))
+  (case type
+    (#.Var var)
+    (function [compiler]
+      (case (|> compiler
+                (get@ [#.type-context #.var-bindings])
+                (find-type-var var))
+        (^or #.None (#.Some (#.Var _)))
+        (#e.Success [compiler type])
+
+        (#.Some type')
+        (#e.Success [compiler type'])))
+
+    _
+    (:: Monad<Meta> wrap type)))
+
 (def: #export (find-var-type name)
   {#.doc "Looks-up the type of a local variable somewhere in the environment."}
   (-> Text (Meta Type))
@@ -447,7 +475,7 @@
                                          (get@ [#.captured #.mappings] scope)))]
               (wrap type))
         (#.Some var-type)
-        (#e.Success [compiler var-type])
+        ((clean-type var-type) compiler)
 
         #.None
         (#e.Error ($_ text/compose "Unknown variable: " name))))))
@@ -486,7 +514,7 @@
   (-> Ident (Meta Type))
   (do Monad<Meta>
     [[def-type def-data def-value] (find-def name)]
-    (wrap def-type)))
+    (clean-type def-type)))
 
 (def: #export (find-type name)
   {#.doc "Looks-up the type of either a local variable or a definition."}
