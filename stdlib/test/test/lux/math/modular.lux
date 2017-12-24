@@ -1,0 +1,146 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (data [product]
+             [bool "bool/" Eq<Bool>]
+             ["e" error]
+             text/format)
+       (math ["r" random]
+             ["/" modular])
+       (lang [type "type/" Eq<Type>]))
+  lux/test)
+
+(def: %3 (/.modulus 3))
+(def: Mod3 Type (type-of %3))
+
+(def: modulusR
+  (r.Random Int)
+  (|> r.int
+      (:: r.Monad<Random> map (i/% 1000))
+      (r.filter (|>> (i/= 0) not))))
+
+(def: valueR
+  (r.Random Int)
+  (|> r.int (:: r.Monad<Random> map (i/% 1000))))
+
+(def: (modR modulus)
+  (All [m] (-> (/.Modulus m) (r.Random [Int (/.Mod m)])))
+  (do r.Monad<Random>
+    [raw valueR]
+    (wrap [raw (/.mod modulus raw)])))
+
+(def: value
+  (All [m] (-> (/.Mod m) Int))
+  (|>> /.un-mod product.left))
+
+(def: (comparison m/? i/?)
+  (All [m]
+    (-> (-> (/.Mod m) (/.Mod m) Bool)
+        (-> Int Int Bool)
+        (-> (/.Mod m) (/.Mod m) Bool)))
+  (function [param subject]
+    (bool/= (m/? param subject)
+            (i/? (value param)
+                 (value subject)))))
+
+(def: (arithmetic modulus m/! i/!)
+  (All [m]
+    (-> (/.Modulus m)
+        (-> (/.Mod m) (/.Mod m) (/.Mod m))
+        (-> Int Int Int)
+        (-> (/.Mod m) (/.Mod m) Bool)))
+  (function [param subject]
+    (|> (i/! (value param)
+             (value subject))
+        (/.mod modulus)
+        (/.m/= (m/! param subject)))))
+
+(context: "Modular arithmetic."
+  (<| (times +100)
+      (do @
+        [_normalM modulusR
+         _alternativeM (|> modulusR (r.filter (|>> (i/= _normalM) not)))
+         #let [normalM (|> _normalM /.from-int e.assume)
+               alternativeM (|> _alternativeM /.from-int e.assume)]
+         [_param param] (modR normalM)
+         [_subject subject] (modR normalM)
+         #let [copyM (|> normalM /.to-int /.from-int e.assume)]]
+        ($_ seq
+            (test "Every modulus has a unique type, even if the numeric value is the same as another."
+                  (and (type/= (type-of normalM)
+                               (type-of normalM))
+                       (not (type/= (type-of normalM)
+                                    (type-of alternativeM)))
+                       (not (type/= (type-of normalM)
+                                    (type-of copyM)))))
+            
+            (test "Can extract the original integer from the modulus."
+                  (i/= _normalM
+                       (/.to-int normalM)))
+            
+            (test "Can compare mod'ed values."
+                  (and (/.m/= subject subject)
+                       ((comparison /.m/= i/=) param subject)
+                       ((comparison /.m/< i/<) param subject)
+                       ((comparison /.m/<= i/<=) param subject)
+                       ((comparison /.m/> i/>) param subject)
+                       ((comparison /.m/>= i/>=) param subject)))
+            
+            (test "Mod'ed values are ordered."
+                  (and (bool/= (/.m/< param subject)
+                               (not (/.m/>= param subject)))
+                       (bool/= (/.m/> param subject)
+                               (not (/.m/<= param subject)))
+                       (bool/= (/.m/= param subject)
+                               (not (or (/.m/< param subject)
+                                        (/.m/> param subject))))))
+            
+            (test "Can do arithmetic."
+                  (and ((arithmetic normalM /.m/+ i/+) param subject)
+                       ((arithmetic normalM /.m/- i/-) param subject)
+                       ((arithmetic normalM /.m/* i/*) param subject)))
+
+            (test "Can sometimes find multiplicative inverse."
+                  (case (/.inverse subject)
+                    (#.Some subject^-1)
+                    (|> subject
+                        (/.m/* subject^-1)
+                        (/.m/= (/.mod normalM 1)))
+                    
+                    #.None
+                    true))
+
+            (test "Can encode/decode to text."
+                  (let [(^open "mod/") (/.Codec<Text,Mod> normalM)]
+                    (case (|> subject mod/encode mod/decode)
+                      (#e.Success output)
+                      (/.m/= subject output)
+
+                      (#e.Error error)
+                      false)))
+
+            (test "Can equalize 2 moduli if they are equal."
+                  (case (/.equalize (/.mod normalM _subject)
+                                    (/.mod copyM _param))
+                    (#e.Success paramC)
+                    (/.m/= param paramC)
+
+                    (#e.Error error)
+                    false))
+
+            (test "Cannot equalize 2 moduli if they are the different."
+                  (case (/.equalize (/.mod normalM _subject)
+                                    (/.mod alternativeM _param))
+                    (#e.Success paramA)
+                    false
+
+                    (#e.Error error)
+                    true))
+
+            (test "All numbers are congruent to themselves."
+                  (/.congruent? normalM _subject _subject))
+
+            (test "If 2 numbers are congruent under a modulus, then they must also be equal under the same modulus."
+                  (bool/= (/.congruent? normalM _param _subject)
+                          (/.m/= param subject)))
+            ))))
