@@ -423,10 +423,10 @@
     (&/$Primitive name params)
     (|case params
       (&/$Nil)
-      (str "(primitive " name ")")
+      (str "(primitive " (pr-str name) ")")
 
       _
-      (str "(primitive " name " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+      (str "(primitive " (pr-str name) " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
     (&/$Void)
     "Void"

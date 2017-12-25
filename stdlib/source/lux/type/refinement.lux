@@ -1,0 +1,72 @@
+(.module:
+  [lux #- Ref type]
+  (lux (control [predicate #+ Pred]
+                [monad #+ do]
+                ["p" parser])
+       (data ["e" error #+ Error])
+       (lang [type "type/" Eq<Type>])
+       (type abstract)
+       [macro]
+       (macro ["s" syntax #+ syntax:]
+              [poly])))
+
+(abstract: #export (Ref t r)
+  {#.doc "A refinement 'r' on type 't' based on a predicate."}
+  
+  {#value t
+   #predicate (Pred t)}
+
+  (def: #export (refinement predicate)
+    (All [t]
+      (Ex [r]
+        (-> (Pred t) (-> t (Maybe (Ref t r))))))
+    (function [un-refined]
+      (if (predicate un-refined)
+        (#.Some (@abstraction {#value un-refined
+                               #predicate predicate}))
+        #.None)))
+
+  (do-template [<name> <output> <slot>]
+    [(def: #export (<name> refined)
+       (All [t r] (-> (Ref t r) <output>))
+       (|> refined @representation (get@ <slot>)))]
+
+    [un-refine t        #value]
+    [predicate (Pred t) #predicate]
+    )
+
+  (def: #export (lift transform)
+    (All [t r]
+      (-> (-> t t)
+          (-> (Ref t r) (Maybe (Ref t r)))))
+    (function [refined]
+      (let [[value predicate] (@representation refined)
+            value' (transform value)]
+        (if (predicate value')
+          (#.Some (@abstraction {#value value'
+                                 #predicate predicate}))
+          #.None))))
+  )
+
+(def: (refinement-type constructor-type)
+  (-> Type (Error Type))
+  (<| (poly.run constructor-type)
+      (do p.Monad<Parser>
+        [[un-refinedT outputT] (poly.function poly.any poly.any)
+         refined-ex (<| (poly.local (list outputT))
+                        poly.apply (p.after (poly.this .Maybe))
+                        poly.apply (p.after (poly.this ..Ref))
+                        (p.after (poly.this un-refinedT))
+                        poly.existential)]
+        (wrap (.type (..Ref un-refinedT (#.Ex refined-ex)))))))
+
+(syntax: #export (type [refinement s.symbol])
+  (do @
+    [constructorT (macro.find-type refinement)
+     refinementT (case (refinement-type constructorT)
+                   (#e.Success refinementT)
+                   (wrap refinementT)
+
+                   (#e.Error error)
+                   (p.fail error))]
+    (wrap (list (type.to-code refinementT)))))

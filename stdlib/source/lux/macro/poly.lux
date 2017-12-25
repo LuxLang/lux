@@ -2,7 +2,8 @@
   [lux #- function]
   (lux (control [monad #+ do Monad]
                 [eq]
-                ["p" parser])
+                ["p" parser]
+                ["ex" exception #+ exception:])
        [function]
        (data [text "text/" Monoid<Text>]
              (coll [list "list/" Fold<List> Monad<List> Monoid<List>]
@@ -260,8 +261,8 @@
     (case headT
       (#.Bound idx)
       (case (dict.get (adjusted-idx env idx) env)
-        (#.Some [poly-type poly-ast])
-        (wrap poly-ast)
+        (#.Some [poly-type poly-code])
+        (wrap poly-code)
 
         #.None
         (p.fail ($_ text/compose "Unknown bound type: " (type.to-text headT))))
@@ -284,6 +285,19 @@
 
       _
       (p.fail ($_ text/compose "Not a bound type: " (type.to-text headT))))))
+
+(exception: #export Not-Existential-Type)
+
+(def: #export existential
+  (Poly Nat)
+  (do p.Monad<Parser>
+    [headT any]
+    (case headT
+      (#.Ex ex-id)
+      (wrap ex-id)
+
+      _
+      (p.fail (Not-Existential-Type (type.to-text headT))))))
 
 (def: #export named
   (Poly [Ident Type])
@@ -407,12 +421,12 @@
                       (~ impl)))))))
 
 ## [Derivers]
-(def: #export (to-ast env type)
+(def: #export (to-code env type)
   (-> Env Type Code)
   (case type
     (#.Primitive name params)
     (` (#.Primitive (~ (code.text name))
-                    (list (~+ (list/map (to-ast env) params)))))
+                    (list (~+ (list/map (to-code env) params)))))
 
     (^template [<tag>]
       <tag>
@@ -427,24 +441,24 @@
     (#.Bound idx)
     (let [idx (adjusted-idx env idx)]
       (if (n/= +0 idx)
-        (|> (dict.get idx env) maybe.assume product.left (to-ast env))
+        (|> (dict.get idx env) maybe.assume product.left (to-code env))
         (` (.$ (~ (code.nat (n/dec idx)))))))
 
     (#.Apply #.Void (#.Bound idx))
     (let [idx (adjusted-idx env idx)]
       (if (n/= +0 idx)
-        (|> (dict.get idx env) maybe.assume product.left (to-ast env))
+        (|> (dict.get idx env) maybe.assume product.left (to-code env))
         (undefined)))
     
     (^template [<tag>]
       (<tag> left right)
-      (` (<tag> (~ (to-ast env left))
-                (~ (to-ast env right)))))
+      (` (<tag> (~ (to-code env left))
+                (~ (to-code env right)))))
     ([#.Function] [#.Apply])
 
     (^template [<tag> <macro> <flattener>]
       (<tag> left right)
-      (` (<macro> (~+ (list/map (to-ast env) (<flattener> type))))))
+      (` (<macro> (~+ (list/map (to-code env) (<flattener> type))))))
     ([#.Sum  | type.flatten-variant]
      [#.Product & type.flatten-tuple])
 
@@ -453,7 +467,7 @@
 
     (^template [<tag>]
       (<tag> scope body)
-      (` (<tag> (list (~+ (list/map (to-ast env) scope)))
-                (~ (to-ast env body)))))
+      (` (<tag> (list (~+ (list/map (to-code env) scope)))
+                (~ (to-code env body)))))
     ([#.UnivQ] [#.ExQ])
     ))
