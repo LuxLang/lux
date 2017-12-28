@@ -1,0 +1,68 @@
+(.module:
+  [lux #- type]
+  (lux (control [monad #+ do]
+                ["p" parser])
+       (data ["e" error #+ Error])
+       (lang [type])
+       (type abstract)
+       [macro]
+       (macro ["s" syntax #+ syntax:]
+              [poly])))
+
+(abstract: #export (Class t c q)
+  {}
+
+  (-> t c)
+
+  (def: #export class
+    (All [t c]
+      (Ex [q]
+        (-> (-> t c) (Class t c q))))
+    (|>> @abstraction))
+
+  (def: expose
+    (All [t c q] (-> (Class t c q) (-> t c)))
+    (|>> @representation))
+  )
+
+(abstract: #export (Quotient t c q)
+  {}
+
+  {#value t
+   #label c}
+
+  (def: #export (quotient class value)
+    (All [t c q]
+      (-> (Class t c q) t
+          (Quotient t c q)))
+    (@abstraction {#value value
+                   #label ((expose class) value)}))
+
+  (do-template [<name> <output> <slot>]
+    [(def: #export <name>
+       (All [t c q] (-> (Quotient t c q) <output>))
+       (|>> @representation (get@ <slot>)))]
+
+    [value t #value]
+    [label c #label]
+    )
+  )
+
+(def: (quotient-type constructor-type)
+  (-> Type (Error Type))
+  (<| (poly.run constructor-type)
+      (do p.Monad<Parser>
+        [[valueT classT quotient-ex] (<| poly.apply (p.after (poly.this ..Class))
+                                         ($_ p.seq poly.any poly.any poly.existential))]
+        (wrap (.type (..Quotient valueT classT (~ (#.Ex quotient-ex))))))))
+
+(syntax: #export (type [quotient s.symbol])
+  (do @
+    [constructorT (macro.find-type quotient)
+     quotientT (case (quotient-type constructorT)
+                 (#e.Success quotientT)
+                 (wrap quotientT)
+
+                 (#e.Error error)
+                 (p.fail error))]
+    (wrap (list (type.to-code quotientT)))))
