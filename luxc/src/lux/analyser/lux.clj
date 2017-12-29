@@ -337,9 +337,22 @@
                   ))))
 
           (&/$ExQ _)
-          (|do [$var &type/existential
-                type* (&type/apply-type ?fun-type* $var)]
-            (analyse-apply* analyse exo-type type* ?args))
+          (&type/with-var
+            (fn [$var]
+              (|do [type* (&type/apply-type ?fun-type* $var)
+                    [=output-t =args] (analyse-apply* analyse exo-type type* ?args)
+                    ==args (&/map% (partial &&/clean-analysis $var) =args)]
+                (|case $var
+                  (&/$Var ?id)
+                  (|do [? (&type/bound? ?id)
+                        type** (if ?
+                                 (&type/clean $var =output-t)
+                                 (|do [idT &type/existential
+                                       _ (&type/set-var ?id idT)]
+                                   (&type/clean $var =output-t)))
+                        _ (&type/clean $var exo-type)]
+                    (return (&/T [type** ==args])))
+                  ))))
 
           (&/$Function ?input-t ?output-t)
           (|do [[=output-t =args] (analyse-apply* analyse exo-type ?output-t ?args*)
