@@ -1,8 +1,9 @@
 (.module: {#.doc "Composable extensions to the piping macros (|> and <|) that enhance them with various abilities."}
   lux
-  (lux (control ["M" monad #+ do Monad]
+  (lux (control [monad #+ do]
                 ["p" parser])
-       (data (coll [list #+ Monad<List> "L/" Fold<List> Monad<List>]))
+       (data ["e" error]
+             (coll [list #+ "list/" Fold<List> Monad<List>]))
        [macro #+ with-gensyms]
        (macro ["s" syntax #+ syntax: Syntax]
               [code])
@@ -11,7 +12,7 @@
 ## [Syntax]
 (def: body^
   (Syntax (List Code))
-  (s.tuple (p.many s.any)))
+  (s.tuple (p.some s.any)))
 
 (syntax: #export (new> [tokens (p.at-least +2 s.any)])
   {#.doc (doc "Ignores the piped argument, and begins a new pipe."
@@ -33,12 +34,18 @@
   (wrap (list (` (let [(~ binding) (~ prev)]
                    (~ body))))))
 
-(syntax: #export (cond> [branches (p.many (p.seq body^ body^))]
-                        [?else (p.maybe body^)]
-                        prev)
+(def: _reverse_
+  (Syntax Unit)
+  (function [tokens]
+    (#e.Success [(list.reverse tokens) []])))
+
+(syntax: #export (cond> [_ _reverse_]
+                        prev
+                        [else body^]
+                        [_ _reverse_]
+                        [branches (p.many (p.seq body^ body^))])
   {#.doc (doc "Branching for pipes."
               "Both the tests and the bodies are piped-code, and must be given inside a tuple."
-              "If a last else-pipe is not given, the piped-argument will be used instead."
               (|> 5
                   (cond> [i/even?] [(i/* 2)]
                          [i/odd?] [(i/* 3)]
@@ -46,16 +53,11 @@
   (with-gensyms [g!temp]
     (wrap (list (` (with-expansions
                      [(~ g!temp) (~ prev)]
-                     (cond (~+ (do Monad<List>
+                     (cond (~+ (do list.Monad<List>
                                  [[test then] branches]
                                  (list (` (|> (~ g!temp) (~+ test)))
                                        (` (|> (~ g!temp) (~+ then))))))
-                           (~ (case ?else
-                                (#.Some else)
-                                (` (|> (~ g!temp) (~+ else)))
-
-                                _
-                                g!temp)))))))))
+                           (|> (~ g!temp) (~+ else)))))))))
 
 (syntax: #export (loop> [test body^] [then body^] prev)
   {#.doc (doc "Loops for pipes."
@@ -80,13 +82,13 @@
   (with-gensyms [g!temp]
     (case (list.reverse steps)
       (^ (list& last-step prev-steps))
-      (let [step-bindings (do Monad<List>
+      (let [step-bindings (do list.Monad<List>
                             [step (list.reverse prev-steps)]
                             (list g!temp (` (|> (~ g!temp) (~+ step)))))]
-        (wrap (list (` (do (~ monad)
-                         [(~ g!temp) (~ prev)
-                          (~+ step-bindings)]
-                         (|> (~ g!temp) (~+ last-step)))))))
+        (wrap (list (` ((~! do) (~ monad)
+                        [(~ g!temp) (~ prev)
+                         (~+ step-bindings)]
+                        (|> (~ g!temp) (~+ last-step)))))))
 
       _
       (wrap (list prev)))))
@@ -112,8 +114,8 @@
               "Will become: [50 2 \"5\"]")}
   (with-gensyms [g!temp]
     (wrap (list (` (let [(~ g!temp) (~ prev)]
-                     [(~+ (L/map (function [body] (` (|> (~ g!temp) (~+ body))))
-                                 paths))]))))))
+                     [(~+ (list/map (function [body] (` (|> (~ g!temp) (~+ body))))
+                                    paths))]))))))
 
 (syntax: #export (case> [branches (p.many (p.seq s.any s.any))] prev)
   {#.doc (doc "Pattern-matching for pipes."
@@ -131,5 +133,5 @@
                          9 "nine"
                          _ "???")))}
   (wrap (list (` (case (~ prev)
-                   (~+ (L/join (L/map (function [[pattern body]] (list pattern body))
-                                      branches))))))))
+                   (~+ (list/join (list/map (function [[pattern body]] (list pattern body))
+                                            branches))))))))

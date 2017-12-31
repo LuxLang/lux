@@ -1,0 +1,165 @@
+(.module:
+  [lux #- not and or]
+  (lux (control [eq #+ Eq]
+                pipe)
+       (data [maybe]
+             [bit]
+             (coll [array "array/" Fold<Array>])
+             text/format)))
+
+(type: #export Chunk Nat)
+
+(def: #export chunk-size bit.width)
+
+(type: #export Bits
+  (Array Chunk))
+
+(def: empty-chunk Chunk +0)
+
+(def: (n//% param subject)
+  (-> Nat Nat [Nat Nat])
+  [(n// param subject)
+   (n/% param subject)])
+
+(def: #export empty
+  Bits
+  (array.new +0))
+
+(def: #export (size bits)
+  (-> Bits Nat)
+  (array/fold (function [chunk total]
+                (n/+ total (bit.count chunk)))
+              +0
+              bits))
+
+(def: #export (capacity bits)
+  (-> Bits Nat)
+  (|> bits array.size (n/* chunk-size)))
+
+(def: #export (empty? bits)
+  (-> Bits Bool)
+  (n/= +0 (size bits)))
+
+(def: #export (get index bits)
+  (-> Nat Bits Bool)
+  (let [[chunk-index bit-index] (n//% chunk-size index)]
+    (.and (n/< (array.size bits) chunk-index)
+          (|> (array.read chunk-index bits)
+              (maybe.default empty-chunk)
+              (bit.set? bit-index)))))
+
+(def: (chunk idx bits)
+  (-> Nat Bits Chunk)
+  (if (n/< (array.size bits) idx)
+    (|> bits (array.read idx) (maybe.default empty-chunk))
+    empty-chunk))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> index input)
+     (-> Nat Bits Bits)
+     (let [[chunk-index bit-index] (n//% chunk-size index)]
+       (loop [size|output (n/max (n/inc chunk-index)
+                                 (array.size input))
+              output ..empty]
+         (let [idx|output (n/dec size|output)]
+           (if (n/> +0 size|output)
+             (case (|> (chunk idx|output input)
+                       (cond> [(new> (n/= chunk-index idx|output))]
+                              [(<op> bit-index)]
+
+                              ## else
+                              []))
+               +0
+               ## TODO: Remove 'no-op' once new-luxc is the official compiler.
+               (let [no-op (recur (n/dec size|output) output)]
+                 no-op)
+               
+               chunk
+               (|> (if (is ..empty output)
+                     (: Bits (array.new size|output))
+                     output)
+                   (array.write idx|output chunk)
+                   (recur (n/dec size|output))))
+             output)))))]
+
+  [set   bit.set]
+  [clear bit.clear]
+  [flip  bit.flip]
+  )
+
+(def: #export (intersects? reference sample)
+  (-> Bits Bits Bool)
+  (let [chunks (n/min (array.size reference)
+                      (array.size sample))]
+    (loop [idx +0]
+      (if (n/< chunks idx)
+        (.or (|> (chunk idx sample)
+                 (bit.and (chunk idx reference))
+                 (n/= empty-chunk)
+                 .not)
+             (recur (n/inc idx)))
+        false))))
+
+(def: #export (not input)
+  (-> Bits Bits)
+  (case (array.size input)
+    +0
+    ..empty
+
+    size|output
+    (loop [size|output size|output
+           output ..empty]
+      (let [idx (n/dec size|output)]
+        (case (bit.not (chunk idx input))
+          +0
+          (recur (n/dec size|output) output)
+
+          chunk
+          (if (n/> +0 size|output)
+            (|> (if (is ..empty output)
+                  (: Bits (array.new size|output))
+                  output)
+                (array.write idx chunk)
+                (recur (n/dec size|output)))
+            output))))))
+
+(do-template [<name> <op>]
+  [(def: #export (<name> param subject)
+     (-> Bits Bits Bits)
+     (case (n/max (array.size param)
+                  (array.size subject))
+       +0
+       ..empty
+
+       size|output
+       (loop [size|output size|output
+              output ..empty]
+         (let [idx (n/dec size|output)]
+           (if (n/> +0 size|output)
+             (case (<op> (chunk idx param) (chunk idx subject))
+               +0
+               (recur (n/dec size|output) output)
+
+               chunk
+               (|> (if (is ..empty output)
+                     (: Bits (array.new size|output))
+                     output)
+                   (array.write idx chunk)
+                   (recur (n/dec size|output))))
+             output)))))]
+
+  [and bit.and]
+  [or  bit.or]
+  [xor bit.xor]
+  )
+
+(struct: #export _ (Eq Bits)
+  (def: (= reference sample)
+    (let [size|= (n/max (array.size reference)
+                        (array.size sample))]
+      (loop [idx +0]
+        (if (n/< size|= idx)
+          (.and (n/= (chunk idx reference)
+                     (chunk idx sample))
+                (recur (n/inc idx)))
+          true)))))
