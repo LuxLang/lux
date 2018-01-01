@@ -759,6 +759,47 @@
                   &&/wrap-boolean)]]
     (return nil)))
 
+(defn ^:private compile-box-new [compile ?values special-args]
+  (|do [:let [(&/$Cons initS (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [_ (doto *writer*
+                  (.visitLdcInsn (int 1))
+                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/DUP)
+                  (.visitLdcInsn (int 0)))]
+        _ (compile initS)
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/AASTORE))]]
+    (return nil)))
+
+(defn ^:private compile-box-read [compile ?values special-args]
+  (|do [:let [(&/$Cons boxS (&/$Nil)) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile boxS)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                  (.visitLdcInsn (int 0))
+                  (.visitInsn Opcodes/AALOAD))]]
+    (return nil)))
+
+(defn ^:private compile-box-write [compile ?values special-args]
+  (|do [:let [(&/$Cons valueS (&/$Cons boxS (&/$Nil))) ?values
+              ;; (&/$Nil) special-args
+              ]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile boxS)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                  (.visitLdcInsn (int 0)))]
+        _ (compile valueS)
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/AASTORE)
+                  (.visitLdcInsn &/unit-tag))]]
+    (return nil)))
+
 (defn ^:private compile-process-concurrency-level [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -927,6 +968,13 @@
       "round" (compile-math-round compile ?values special-args)
       "atan2" (compile-math-atan2 compile ?values special-args)
       "pow" (compile-math-pow compile ?values special-args)
+      )
+
+    "box"
+    (case proc
+      "new" (compile-box-new compile ?values special-args)
+      "read" (compile-box-read compile ?values special-args)
+      "write" (compile-box-write compile ?values special-args)
       )
 
     "atom"
