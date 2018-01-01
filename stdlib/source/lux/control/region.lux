@@ -1,0 +1,145 @@
+(.module:
+  lux
+  (lux (control [functor #+ Functor]
+                [applicative #+ Applicative]
+                [monad #+ Monad do]
+                ["ex" exception #+ Exception exception:])
+       (data ["e" error #+ Error]
+             text/format
+             (coll [list "list/" Fold<List>]))))
+
+(type: (Cleaner r m)
+  (-> r (m (Error Unit))))
+
+(type: #export (Region r m a)
+  (-> [r (List (Cleaner r m))]
+      (m [(List (Cleaner r m))
+          (Error a)])))
+
+(exception: #export Clean-Up-Error)
+
+(def: separator
+  Text
+  (format "\n"
+          "-----------------------------------------\n"
+          "-----------------------------------------\n"
+          "-----------------------------------------\n"
+          "\n"))
+
+(def: (combine-outcomes clean-up output)
+  (All [a] (-> (Error Unit) (Error a) (Error a)))
+  (case clean-up
+    (#e.Success _)
+    output
+
+    (#e.Error error|clean-up)
+    (ex.throw Clean-Up-Error
+              (format error|clean-up
+                      (case output
+                        (#e.Success _)
+                        ""
+
+                        (#e.Error error|output)
+                        (format separator
+                                error|output))))))
+
+(def: #export (run Monad<m> computation)
+  (All [m a]
+    (-> (Monad m) (All [r] (Region r m a))
+        (m (Error a))))
+  (do Monad<m>
+    [[cleaners output] (computation [[] (list)])
+     results (monad.map @ (function [cleaner] (cleaner []))
+                        cleaners)]
+    (wrap (list/fold combine-outcomes output results))))
+
+(def: #export (acquire Monad<m> cleaner value)
+  (All [m a] (-> (Monad m) (-> a (m (Error Unit))) a
+                 (All [r] (Region r m a))))
+  (function [[region cleaners]]
+    (:: Monad<m> wrap [(#.Cons (function [region] (cleaner value))
+                               cleaners)
+                       (#e.Success value)])))
+
+(struct: #export (Functor<Region> Functor<m>)
+  (All [m]
+    (-> (Functor m)
+        (All [r] (Functor (Region r m)))))
+
+  (def: (map f)
+    (function [fa]
+      (function [region+cleaners]
+        (:: Functor<m> map
+            (function [[cleaners' temp]]
+              [cleaners' (case temp
+                           (#e.Success value)
+                           (#e.Success (f value))
+
+                           (#e.Error error)
+                           (#e.Error error))])
+            (fa region+cleaners))))))
+
+(struct: #export (Applicative<Region> Monad<m>)
+  (All [m]
+    (-> (Monad m)
+        (All [r] (Applicative (Region r m)))))
+
+  (def: functor
+    (Functor<Region> (get@ [#monad.applicative #applicative.functor]
+                           Monad<m>)))
+
+  (def: (wrap value)
+    (function [[region cleaners]]
+      (:: Monad<m> wrap [cleaners (#e.Success value)])))
+
+  (def: (apply ff fa)
+    (function [[region cleaners]]
+      (do Monad<m>
+        [[cleaners ef] (ff [region cleaners])
+         [cleaners ea] (fa [region cleaners])]
+        (case [ef ea]
+          [(#e.Success f) (#e.Success a)]
+          (wrap [cleaners (#e.Success (f a))])
+
+          (^or [(#e.Error error) _] [_ (#e.Error error)])
+          (wrap [cleaners (#e.Error error)]))))))
+
+(struct: #export (Monad<Region> Monad<m>)
+  (All [m]
+    (-> (Monad m)
+        (All [r] (Monad (Region r m)))))
+
+  (def: applicative (Applicative<Region> Monad<m>))
+
+  (def: (join ffa)
+    (function [[region cleaners]]
+      (do Monad<m>
+        [[cleaners efa] (ffa [region cleaners])]
+        (case efa
+          (#e.Success fa)
+          (fa [region cleaners])
+
+          (#e.Error error)
+          (wrap [cleaners (#e.Error error)]))))))
+
+(def: #export (fail Monad<m> error)
+  (All [m a]
+    (-> (Monad m) Text
+        (All [r] (Region r m a))))
+  (function [[region cleaners]]
+    (:: Monad<m> wrap [cleaners (#e.Error error)])))
+
+(def: #export (throw Monad<m> exception message)
+  (All [m a]
+    (-> (Monad m) Exception Text
+        (All [r] (Region r m a))))
+  (fail Monad<m> (exception message)))
+
+(def: #export (lift Monad<m> operation)
+  (All [m a]
+    (-> (Monad m) (m a)
+        (All [r] (Region r m a))))
+  (function [[region cleaners]]
+    (do Monad<m>
+      [output operation]
+      (wrap [cleaners (#e.Success output)]))))

@@ -1,0 +1,100 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["/" region]
+                [thread #+ Thread]
+                ["ex" exception #+ exception:])
+       (data ["e" error #+ Error]
+             (coll [list])
+             text/format)
+       ["r" math/random])
+  lux/test)
+
+(exception: Oops)
+
+(do-template [<name> <success> <error>]
+  [(def: (<name> result)
+     (All [a] (-> (Error a) Bool))
+     (case result
+       (#e.Success _) <success>
+       (#e.Error _)   <error>))]
+
+  [success? true  false]
+  [error?   false true]
+  )
+
+(context: "Regions."
+  (<| (times +100)
+      (do @
+        [expected-clean-ups (|> r.nat (:: @ map (n/% +100)))]
+        ($_ seq
+            (test "Clean-up functions are always run when region execution is done."
+                  (thread.run
+                   (do thread.Monad<Thread>
+                     [clean-up-counter (thread.box +0)
+                      #let [@@ @
+                            count-clean-up (function [value]
+                                             (do @
+                                               [_ (thread.update n/inc clean-up-counter)]
+                                               (wrap (#e.Success []))))]
+                      outcome (/.run @
+                                     (do (/.Monad<Region> @)
+                                       [_ (monad.map @ (/.acquire @@ count-clean-up)
+                                                     (list.n/range +1 expected-clean-ups))]
+                                       (wrap [])))
+                      actual-clean-ups (thread.read clean-up-counter)]
+                     (wrap (and (success? outcome)
+                                (n/= expected-clean-ups
+                                     actual-clean-ups))))))
+            (test "Can clean-up despite errors."
+                  (thread.run
+                   (do thread.Monad<Thread>
+                     [clean-up-counter (thread.box +0)
+                      #let [@@ @
+                            count-clean-up (function [value]
+                                             (do @
+                                               [_ (thread.update n/inc clean-up-counter)]
+                                               (wrap (#e.Success []))))]
+                      outcome (/.run @
+                                     (do (/.Monad<Region> @)
+                                       [_ (monad.map @ (/.acquire @@ count-clean-up)
+                                                     (list.n/range +1 expected-clean-ups))
+                                        _ (/.throw @@ Oops "")]
+                                       (wrap [])))
+                      actual-clean-ups (thread.read clean-up-counter)]
+                     (wrap (and (error? outcome)
+                                (n/= expected-clean-ups
+                                     actual-clean-ups))))))
+            (test "Errors can propagate from the cleaners."
+                  (thread.run
+                   (do thread.Monad<Thread>
+                     [clean-up-counter (thread.box +0)
+                      #let [@@ @
+                            count-clean-up (function [value]
+                                             (do @
+                                               [_ (thread.update n/inc clean-up-counter)]
+                                               (wrap (: (Error Unit) (ex.throw Oops "")))))]
+                      outcome (/.run @
+                                     (do (/.Monad<Region> @)
+                                       [_ (monad.map @ (/.acquire @@ count-clean-up)
+                                                     (list.n/range +1 expected-clean-ups))]
+                                       (wrap [])))
+                      actual-clean-ups (thread.read clean-up-counter)]
+                     (wrap (and (or (n/= +0 expected-clean-ups)
+                                    (error? outcome))
+                                (n/= expected-clean-ups
+                                     actual-clean-ups))))))
+            (test "Can lift operations."
+                  (thread.run
+                   (do thread.Monad<Thread>
+                     [clean-up-counter (thread.box +0)
+                      #let [@@ @]
+                      outcome (/.run @
+                                     (do (/.Monad<Region> @)
+                                       [_ (/.lift @@ (thread.write expected-clean-ups clean-up-counter))]
+                                       (wrap [])))
+                      actual-clean-ups (thread.read clean-up-counter)]
+                     (wrap (and (success? outcome)
+                                (n/= expected-clean-ups
+                                     actual-clean-ups))))))
+            ))))
