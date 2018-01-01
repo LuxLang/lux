@@ -436,6 +436,41 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["atom" "compare-and-swap"]) (&/|list =atom =old =new) (&/|list)))))))))
 
+(defn ^:private analyse-box-new [analyse exo-type ?values]
+  (&type/with-var
+    (fn [$var]
+      (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
+            =init (&&/analyse-1 analyse $var ?init)
+            _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Box (&/$Bound 1) $var)))
+            _cursor &/cursor]
+        (return (&/|list (&&/|meta exo-type _cursor
+                                   (&&/$proc (&/T ["box" "new"]) (&/|list =init) (&/|list)))))))))
+
+(defn ^:private analyse-box-read [analyse exo-type ?values]
+  (&type/with-var
+    (fn [threadT]
+      (&type/with-var
+        (fn [valueT]
+          (|do [:let [(&/$Cons boxC (&/$Nil)) ?values]
+                boxA (&&/analyse-1 analyse (&type/Box threadT valueT) boxC)
+                _ (&type/check exo-type valueT)
+                _cursor &/cursor]
+            (return (&/|list (&&/|meta exo-type _cursor
+                                       (&&/$proc (&/T ["box" "read"]) (&/|list boxA) (&/|list)))))))))))
+
+(defn ^:private analyse-box-write [analyse exo-type ?values]
+  (&type/with-var
+    (fn [threadT]
+      (&type/with-var
+        (fn [valueT]
+          (|do [:let [(&/$Cons valueC (&/$Cons boxC (&/$Nil))) ?values]
+                boxA (&&/analyse-1 analyse (&type/Box threadT valueT) boxC)
+                valueA (&&/analyse-1 analyse valueT valueC)
+                _ (&type/check exo-type &/$Unit)
+                _cursor &/cursor]
+            (return (&/|list (&&/|meta exo-type _cursor
+                                       (&&/$proc (&/T ["box" "write"]) (&/|list valueA boxA) (&/|list)))))))))))
+
 (defn ^:private analyse-process-concurrency-level [analyse exo-type ?values]
   (|do [:let [(&/$Nil) ?values]
         _ (&type/check exo-type &type/Nat)
@@ -465,6 +500,10 @@
          "lux is"                   (analyse-lux-is analyse exo-type ?values)
          "lux try"                  (analyse-lux-try analyse exo-type ?values)
 
+         "lux box new"                 (analyse-box-new analyse exo-type ?values)
+         "lux box read"                (analyse-box-read analyse exo-type ?values)
+         "lux box write"               (analyse-box-write analyse exo-type ?values)
+         
          "lux io log"                  (analyse-io-log analyse exo-type ?values)
          "lux io error"                (analyse-io-error analyse exo-type ?values)
          "lux io exit"                 (analyse-io-exit analyse exo-type ?values)

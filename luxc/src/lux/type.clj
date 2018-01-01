@@ -32,11 +32,18 @@
 (def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
 
 (do-template [<name> <tag>]
-  (defn <name> [elem-type]
-    (&/$Primitive <tag> (&/|list elem-type)))
+  (defn <name> [elemT]
+    (&/$Primitive <tag> (&/|list elemT)))
 
   Array "#Array"
   Atom  "#Atom"
+  )
+
+(do-template [<name> <tag>]
+  (defn <name> [threadT elemT]
+    (&/$Primitive <tag> (&/|list threadT elemT)))
+
+  Box  "#Box"
   )
 
 (def Bottom
