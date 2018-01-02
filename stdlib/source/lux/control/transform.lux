@@ -20,9 +20,8 @@
   [cs (-> cv cs (Result cs))])
 
 (type: #export (Step v s)
-  (#Yield s v)
-  (#Skip s)
-  #Done)
+  (#Continue s (Maybe v))
+  #Stop)
 
 (type: #export (Transform pv cv ts)
   [ts (-> pv ts (Step cv ts))])
@@ -37,22 +36,19 @@
     [[init|prev init|next]
      (function [input [state|prev state|next]]
        (case (step|prev input state|prev)
-         (#Yield state|prev' temp)
+         (#Continue state|prev' (#.Some temp))
          (case (step|next temp state|next)
-           (#Yield state|next' output)
-           (#Yield [state|prev' state|next'] output)
+           (#Continue state|next' ?output)
+           (#Continue [state|prev' state|next'] ?output)
 
-           (#Skip state|next')
-           (#Skip [state|prev' state|next'])
-           
-           #Done
-           #Done)
+           #Stop
+           #Stop)
 
-         (#Skip state|prev')
-         (#Skip [state|prev' state|next])
+         (#Continue state|prev' #.None)
+         (#Continue [state|prev' state|next] #.None)
          
-         #Done
-         #Done))]))
+         #Stop
+         #Stop))]))
 
 (def: #export (each left right)
   (All [a l r ls rs]
@@ -64,19 +60,19 @@
      (function [input [state|left state|right]]
        (case [(step|left input state|left)
               (step|right input state|right)]
-         [(#Yield state|left' output|left)
-          (#Yield state|right' output|right)]
-         (#Yield [state|left' state|right']
-                 [output|left output|right])
+         [(#Continue state|left' (#.Some output|left))
+          (#Continue state|right' (#.Some output|right))]
+         (#Continue [state|left' state|right']
+                    (#.Some [output|left output|right]))
 
-         (^or [#Done _] [_ #Done])
-         #Done
+         (^or [#Stop _] [_ #Stop])
+         #Stop
 
-         [(#Skip state|left') _]
-         (#Skip [state|left' state|right])
+         [(#Continue state|left' #.None) _]
+         (#Continue [state|left' state|right] #.None)
 
-         [_ (#Skip state|right')]
-         (#Skip [state|left state|right'])))]))
+         [_ (#Continue state|right' #.None)]
+         (#Continue [state|left state|right'] #.None)))]))
 
 (def: #export (either left right)
   (All [a b ls rs]
@@ -87,22 +83,22 @@
     [[init|left init|right]
      (function [input [state|left state|right]]
        (case (step|left input state|left)
-         (#Yield state|left' output)
-         (#Yield [state|left' state|right] output)
+         (#Continue state|left' (#.Some output))
+         (#Continue [state|left' state|right] (#.Some output))
 
          (^template [<case> <left-state> <done>]
            <case>
            (case (step|right input state|right)
-             (#Yield state|right' output)
-             (#Yield [<left-state> state|right'] output)
+             (#Continue state|right' (#.Some output))
+             (#Continue [<left-state> state|right'] (#.Some output))
 
-             (#Skip state|right')
-             (#Skip [<left-state> state|right'])
+             (#Continue state|right' #.None)
+             (#Continue [<left-state> state|right'] #.None)
              
-             #Done
+             #Stop
              <done>))
-         ([(#Skip state|left') state|left' (#Skip [state|left' state|right])]
-          [#Done state|left #Done])
+         ([(#Continue state|left' #.None) state|left' (#Continue [state|left' state|right] #.None)]
+          [#Stop state|left #Stop])
          ))]))
 
 (def: #export (run transform producer consumer)
@@ -122,7 +118,7 @@
       (let [output (case (produce state|producer)
                      (#.Some [production state|producer'])
                      (case (step production state|transform)
-                       (#Yield state|transform' temp)
+                       (#Continue state|transform' (#.Some temp))
                        (case (consume temp state|consumer)
                          (#Partial state|consumer')
                          (recur state|transform' state|producer' state|consumer')
@@ -130,10 +126,10 @@
                          (#Total output)
                          output)
                        
-                       (#Skip state|transform')
+                       (#Continue state|transform' #.None)
                        (recur state|transform' state|producer' state|consumer)
                        
-                       #Done
+                       #Stop
                        state|consumer)
                      
                      #.None
@@ -164,67 +160,57 @@
   (All [a b] (-> (-> a b) (Transform a b Unit)))
   [[]
    (function [input state]
-     (#Yield state (f input)))])
+     (#Continue state (#.Some (f input))))])
 
 (def: #export (map-indexed f)
   (All [a b] (-> (-> Nat a b) (Transform a b Nat)))
   [+0
    (function [input index]
-     (#Yield (n/inc index) (f index input)))])
+     (#Continue (n/inc index) (#.Some (f index input))))])
 
 (def: #export (filter pred)
   (All [a] (-> (-> a Bool) (Transform a a Unit)))
   [[]
    (function [input state]
-     (if (pred input)
-       (#Yield state input)
-       (#Skip state)))])
+     (#Continue state (if (pred input)
+                        (#.Some input)
+                        #.None)))])
 
 (def: #export (keep f)
   (All [a b] (-> (-> a (Maybe b)) (Transform a b Unit)))
   [[]
    (function [input state]
-     (case (f input)
-       (#.Some output)
-       (#Yield state output)
-
-       #.None
-       (#Skip state)))])
+     (#Continue state (f input)))])
 
 (def: #export (keep-indexed f)
   (All [a b] (-> (-> Nat a (Maybe b)) (Transform a b Nat)))
   [+0
    (function [input index]
-     (case (f index input)
-       (#.Some output)
-       (#Yield (n/inc index) output)
-
-       #.None
-       (#Skip (n/inc index))))])
+     (#Continue (n/inc index) (f index input)))])
 
 (def: #export (take amount)
   (All [a] (-> Nat (Transform a a Nat)))
   [amount
    (function [input remaining]
      (if (n/= +0 remaining)
-       #Done
-       (#Yield (n/dec remaining) input)))])
+       #Stop
+       (#Continue (n/dec remaining) (#.Some input))))])
 
 (def: #export (drop amount)
   (All [a] (-> Nat (Transform a a Nat)))
   [amount
    (function [input remaining]
      (if (n/= +0 remaining)
-       (#Yield remaining input)
-       (#Skip (n/dec remaining))))])
+       (#Continue remaining (#.Some input))
+       (#Continue (n/dec remaining) #.None)))])
 
 (def: #export (take-while pred)
   (All [a] (-> (-> a Bool) (Transform a a Unit)))
   [[]
    (function [input state]
      (if (pred input)
-       (#Yield state input)
-       #Done))])
+       (#Continue state (#.Some input))
+       #Stop))])
 
 (def: #export (drop-while pred)
   (All [a] (-> (-> a Bool) (Transform a a Bool)))
@@ -232,8 +218,8 @@
    (function [input dropping?]
      (if (and dropping?
               (pred input))
-       (#Skip true)
-       (#Yield false input)))])
+       (#Continue true #.None)
+       (#Continue false (#.Some input))))])
 
 (def: #export (take-nth nth)
   (All [a] (-> Nat (Transform a a Nat)))
@@ -241,8 +227,8 @@
    (function [input seen]
      (let [mod (n/% nth (n/inc seen))]
        (if (n/= +0 mod)
-         (#Yield mod input)
-         (#Skip mod))))])
+         (#Continue mod (#.Some input))
+         (#Continue mod #.None))))])
 
 (def: #export (drop-nth nth)
   (All [a] (-> Nat (Transform a a Nat)))
@@ -250,16 +236,16 @@
    (function [input seen]
      (let [mod (n/% nth (n/inc seen))]
        (if (n/= +0 mod)
-         (#Skip mod)
-         (#Yield mod input))))])
+         (#Continue mod #.None)
+         (#Continue mod (#.Some input)))))])
 
 (def: #export (distinct Hash<a>)
   (All [a] (-> (Hash a) (Transform a a (Set a))))
   [(set.new Hash<a>)
    (function [input seen]
      (if (set.member? seen input)
-       (#Skip seen)
-       (#Yield (set.add input seen) input)))])
+       (#Continue seen #.None)
+       (#Continue (set.add input seen) (#.Some input))))])
 
 (def: #export (de-duplicate Eq<a>)
   (All [a] (-> (Eq a) (Transform a a (Maybe a))))
@@ -267,10 +253,10 @@
    (function [input last]
      (case last
        (^multi (#.Some last') (:: Eq<a> = last' input))
-       (#Skip last)
+       (#Continue last #.None)
 
        _
-       (#Yield (#.Some input) input)))])
+       (#Continue (#.Some input) (#.Some input))))])
 
 (def: #export (random probability prng)
   (All [a] (-> Deg PRNG (Transform a a PRNG)))
@@ -278,8 +264,8 @@
    (function [input prng]
      (let [[prng' chance] (r.run prng r.deg)]
        (if (d/< probability chance)
-         (#Yield prng' input)
-         (#Skip prng'))))])
+         (#Continue prng' (#.Some input))
+         (#Continue prng' #.None))))])
 
 (def: #export (replace dict)
   (All [a] (-> (Dict a a) (Transform a a Unit)))
@@ -288,4 +274,5 @@
      (|> dict
          (dict.get input)
          (maybe.default input)
-         (#Yield state)))])
+         #.Some
+         (#Continue state)))])
