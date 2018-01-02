@@ -1,0 +1,291 @@
+(.module:
+  lux
+  (lux (control [eq #+ Eq]
+                [hash #+ Hash])
+       (data [maybe]
+             (coll [list]
+                   [set #+ Set]
+                   [dict #+ Dict]))
+       (math ["r" random #+ PRNG])))
+
+## [Types]
+(type: #export (Producer pv ps)
+  [ps (-> ps (Maybe [pv ps]))])
+
+(type: #export (Result r)
+  (#Partial r)
+  (#Total r))
+
+(type: #export (Consumer cv cs)
+  [cs (-> cv cs (Result cs))])
+
+(type: #export (Step v s)
+  (#Yield s v)
+  (#Skip s)
+  #Done)
+
+(type: #export (Transform pv cv ts)
+  [ts (-> pv ts (Step cv ts))])
+
+## [Primitives]
+(def: #export (compose prev next)
+  (All [a b c ps ns]
+    (-> (Transform a b ps) (Transform b c ns)
+        (Transform a c [ps ns])))
+  (let [[init|prev step|prev] prev
+        [init|next step|next] next]
+    [[init|prev init|next]
+     (function [input [state|prev state|next]]
+       (case (step|prev input state|prev)
+         (#Yield state|prev' temp)
+         (case (step|next temp state|next)
+           (#Yield state|next' output)
+           (#Yield [state|prev' state|next'] output)
+
+           (#Skip state|next')
+           (#Skip [state|prev' state|next'])
+           
+           #Done
+           #Done)
+
+         (#Skip state|prev')
+         (#Skip [state|prev' state|next])
+         
+         #Done
+         #Done))]))
+
+(def: #export (each left right)
+  (All [a l r ls rs]
+    (-> (Transform a l ls) (Transform a r rs)
+        (Transform a (& l r) [ls rs])))
+  (let [[init|left step|left] left
+        [init|right step|right] right]
+    [[init|left init|right]
+     (function [input [state|left state|right]]
+       (case [(step|left input state|left)
+              (step|right input state|right)]
+         [(#Yield state|left' output|left)
+          (#Yield state|right' output|right)]
+         (#Yield [state|left' state|right']
+                 [output|left output|right])
+
+         (^or [#Done _] [_ #Done])
+         #Done
+
+         [(#Skip state|left') _]
+         (#Skip [state|left' state|right])
+
+         [_ (#Skip state|right')]
+         (#Skip [state|left state|right'])))]))
+
+(def: #export (either left right)
+  (All [a b ls rs]
+    (-> (Transform a b ls) (Transform a b rs)
+        (Transform a b [ls rs])))
+  (let [[init|left step|left] left
+        [init|right step|right] right]
+    [[init|left init|right]
+     (function [input [state|left state|right]]
+       (case (step|left input state|left)
+         (#Yield state|left' output)
+         (#Yield [state|left' state|right] output)
+
+         (^template [<case> <left-state> <done>]
+           <case>
+           (case (step|right input state|right)
+             (#Yield state|right' output)
+             (#Yield [<left-state> state|right'] output)
+
+             (#Skip state|right')
+             (#Skip [<left-state> state|right'])
+             
+             #Done
+             <done>))
+         ([(#Skip state|left') state|left' (#Skip [state|left' state|right])]
+          [#Done state|left #Done])
+         ))]))
+
+(def: #export (run transform producer consumer)
+  (All [ts pv ps cv cs]
+    (-> (Transform pv cv ts)
+        (Producer pv ps)
+        (Consumer cv cs)
+        cs))
+  (let [[init|transform step] transform
+        [init|producer produce] producer
+        [init|consumer consume] consumer]
+    (loop [state|transform init|transform
+           state|producer init|producer
+           state|consumer init|consumer]
+      ## TODO: Delete 'output' let-binding once new-luxc is the
+      ## standard compiler.
+      (let [output (case (produce state|producer)
+                     (#.Some [production state|producer'])
+                     (case (step production state|transform)
+                       (#Yield state|transform' temp)
+                       (case (consume temp state|consumer)
+                         (#Partial state|consumer')
+                         (recur state|transform' state|producer' state|consumer')
+                         
+                         (#Total output)
+                         output)
+                       
+                       (#Skip state|transform')
+                       (recur state|transform' state|producer' state|consumer)
+                       
+                       #Done
+                       state|consumer)
+                     
+                     #.None
+                     state|consumer)]
+        output))))
+
+## [Producers]
+(def: #export (list-producer source)
+  (All [a] (-> (List a) (Producer a (List a))))
+  [source
+   (function [full]
+     (case full
+       (#.Cons head tail)
+       (#.Some head tail)
+
+       #.Nil
+       #.None))])
+
+## [Consumers]
+(def: #export (list-consumer sink)
+  (All [a] (-> (List a) (Consumer a (List a))))
+  [sink
+   (function [head tail]
+     (#Partial (#.Cons head tail)))])
+
+## [Transforms]
+(def: #export (map f)
+  (All [a b] (-> (-> a b) (Transform a b Unit)))
+  [[]
+   (function [input state]
+     (#Yield state (f input)))])
+
+(def: #export (map-indexed f)
+  (All [a b] (-> (-> Nat a b) (Transform a b Nat)))
+  [+0
+   (function [input index]
+     (#Yield (n/inc index) (f index input)))])
+
+(def: #export (filter pred)
+  (All [a] (-> (-> a Bool) (Transform a a Unit)))
+  [[]
+   (function [input state]
+     (if (pred input)
+       (#Yield state input)
+       (#Skip state)))])
+
+(def: #export (keep f)
+  (All [a b] (-> (-> a (Maybe b)) (Transform a b Unit)))
+  [[]
+   (function [input state]
+     (case (f input)
+       (#.Some output)
+       (#Yield state output)
+
+       #.None
+       (#Skip state)))])
+
+(def: #export (keep-indexed f)
+  (All [a b] (-> (-> Nat a (Maybe b)) (Transform a b Nat)))
+  [+0
+   (function [input index]
+     (case (f index input)
+       (#.Some output)
+       (#Yield (n/inc index) output)
+
+       #.None
+       (#Skip (n/inc index))))])
+
+(def: #export (take amount)
+  (All [a] (-> Nat (Transform a a Nat)))
+  [amount
+   (function [input remaining]
+     (if (n/= +0 remaining)
+       #Done
+       (#Yield (n/dec remaining) input)))])
+
+(def: #export (drop amount)
+  (All [a] (-> Nat (Transform a a Nat)))
+  [amount
+   (function [input remaining]
+     (if (n/= +0 remaining)
+       (#Yield remaining input)
+       (#Skip (n/dec remaining))))])
+
+(def: #export (take-while pred)
+  (All [a] (-> (-> a Bool) (Transform a a Unit)))
+  [[]
+   (function [input state]
+     (if (pred input)
+       (#Yield state input)
+       #Done))])
+
+(def: #export (drop-while pred)
+  (All [a] (-> (-> a Bool) (Transform a a Bool)))
+  [true
+   (function [input dropping?]
+     (if (and dropping?
+              (pred input))
+       (#Skip true)
+       (#Yield false input)))])
+
+(def: #export (take-nth nth)
+  (All [a] (-> Nat (Transform a a Nat)))
+  [+0
+   (function [input seen]
+     (let [mod (n/% nth (n/inc seen))]
+       (if (n/= +0 mod)
+         (#Yield mod input)
+         (#Skip mod))))])
+
+(def: #export (drop-nth nth)
+  (All [a] (-> Nat (Transform a a Nat)))
+  [+0
+   (function [input seen]
+     (let [mod (n/% nth (n/inc seen))]
+       (if (n/= +0 mod)
+         (#Skip mod)
+         (#Yield mod input))))])
+
+(def: #export (distinct Hash<a>)
+  (All [a] (-> (Hash a) (Transform a a (Set a))))
+  [(set.new Hash<a>)
+   (function [input seen]
+     (if (set.member? seen input)
+       (#Skip seen)
+       (#Yield (set.add input seen) input)))])
+
+(def: #export (de-duplicate Eq<a>)
+  (All [a] (-> (Eq a) (Transform a a (Maybe a))))
+  [#.None
+   (function [input last]
+     (case last
+       (^multi (#.Some last') (:: Eq<a> = last' input))
+       (#Skip last)
+
+       _
+       (#Yield (#.Some input) input)))])
+
+(def: #export (random probability prng)
+  (All [a] (-> Deg PRNG (Transform a a PRNG)))
+  [prng
+   (function [input prng]
+     (let [[prng' chance] (r.run prng r.deg)]
+       (if (d/< probability chance)
+         (#Yield prng' input)
+         (#Skip prng'))))])
+
+(def: #export (replace dict)
+  (All [a] (-> (Dict a a) (Transform a a Unit)))
+  [[]
+   (function [input state]
+     (|> dict
+         (dict.get input)
+         (maybe.default input)
+         (#Yield state)))])
