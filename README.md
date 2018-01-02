@@ -183,4 +183,4 @@ Writing libraries in Lux will also help a lot in making this a more practical la
 
 Communication is done over Gitter and the Google group.
 
-##### Copyright (c) 2014-2017 Eduardo Julian. All rights reserved.
+##### Copyright (c) 2014-2018 Eduardo Julian. All rights reserved.
