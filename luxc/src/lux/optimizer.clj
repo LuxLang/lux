@@ -669,7 +669,7 @@
         (|case var-kind
           (&/$Local 0)
           (&/T [meta ($apply body
-                             (&/|list [meta ($var (&/$Local 1))]))])
+                             (&/|list (&/T [meta ($var (&/$Local 1))])))])
           
           (&/$Local idx)
           (&/T [meta ($var (&/$Local (inc idx)))]))
