@@ -1,30 +1,27 @@
 (.module:
   lux
   (lux (control [eq #+ Eq]
-                [hash #+ Hash])
-       (data [maybe]
+                [hash #+ Hash]
+                [functor #+ Functor]
+                [applicative #+ Applicative]
+                [monad #+ Monad]
+                [comonad #+ CoMonad])
+       (data [product]
+             [maybe]
              (coll [set #+ Set]
                    [dict #+ Dict]))
+       [macro]
        (math ["r" random #+ PRNG])))
 
 ## [Types]
-(type: #export (Producer pv ps)
-  [ps (-> ps (Maybe [pv ps]))])
+(type: #export (Producer p)
+  (-> Unit (Maybe [p (Producer p)])))
 
-(type: #export (Result r)
-  (#Partial r)
-  (#Total r))
+(type: #export (Consumer in out)
+  [out (-> in (Maybe (Consumer in out)))])
 
-(type: #export (Consumer cv cs)
-  [cs (-> cv cs (Result cs))])
-
-## TODO: Replace with Maybe once new-luxc becomes the standard compiler.
-(type: #export (Step v t)
-  (#Continue t (Maybe v))
-  #Stop)
-
-(type: #export (Transform pv cv)
-  (-> pv (Step cv (Transform pv cv))))
+(type: #export (Transform in out)
+  (-> in (Maybe [(Maybe out) (Transform in out)])))
 
 ## [Primitives]
 (def: #export (compose prev next)
@@ -32,19 +29,19 @@
     (-> (Transform a b) (Transform b c) (Transform a c)))
   (function [input]
     (case (prev input)
-      (#Continue prev' (#.Some temp))
+      (#.Some [(#.Some temp) prev'])
       (case (next temp)
-        (#Continue next' ?output)
-        (#Continue (compose prev' next') ?output)
+        (#.Some [?output next'])
+        (#.Some [?output (compose prev' next')])
 
-        #Stop
-        #Stop)
+        #.None
+        #.None)
 
-      (#Continue prev' #.None)
-      (#Continue (compose prev' next) #.None)
+      (#.Some [#.None prev'])
+      (#.Some [#.None (compose prev' next)])
       
-      #Stop
-      #Stop)))
+      #.None
+      #.None)))
 
 (def: #export (each left right)
   (All [a l r]
@@ -52,148 +49,148 @@
   (function [input]
     (case [(left input)
            (right input)]
-      [(#Continue left' ?output|left)
-       (#Continue right' ?output|right)]
+      [(#.Some [?output|left left'])
+       (#.Some [?output|right right'])]
       (case [?output|left ?output|right]
         [(#.Some output|left) (#.Some output|right)]
-        (#Continue (each left' right')
-                   (#.Some [output|left output|right]))
+        (#.Some [(#.Some [output|left output|right])
+                 (each left' right')])
 
         _
-        (#Continue (each left' right')
-                   #.None))
+        (#.Some [#.None (each left' right')]))
 
       _
-      #Stop)))
+      #.None)))
 
 (def: #export (either left right)
   (All [a b]
     (-> (Transform a b) (Transform a b) (Transform a b)))
   (function [input]
     (case (left input)
-      (#Continue left' (#.Some output))
-      (#Continue (either left' right) (#.Some output))
+      (#.Some [(#.Some output) left'])
+      (#.Some [(#.Some output) (either left' right)])
 
       (^template [<case> <left-state> <done>]
         <case>
         (case (right input)
-          (#Continue right' (#.Some output))
-          (#Continue (either <left-state> right') (#.Some output))
+          (#.Some [(#.Some output) right'])
+          (#.Some [(#.Some output) (either <left-state> right')])
 
-          (#Continue right' #.None)
-          (#Continue (either <left-state> right') #.None)
+          (#.Some [#.None right'])
+          (#.Some [#.None (either <left-state> right')])
           
-          #Stop
+          #.None
           <done>))
-      ([(#Continue left' #.None) left' (#Continue (either left' right) #.None)]
-       [#Stop left #Stop])
+      ([(#.Some [#.None left']) left' (#.Some [#.None (either left' right)])]
+       [#.None left #.None])
       )))
 
 (def: #export (run transform producer consumer)
-  (All [pv ps cv cs]
-    (-> (Transform pv cv)
-        (Producer pv ps)
+  (All [p cv cs]
+    (-> (Transform p cv)
+        (Producer p)
         (Consumer cv cs)
         cs))
-  (let [[init|producer produce] producer
-        [init|consumer consume] consumer]
-    (loop [transform transform
-           state|producer init|producer
-           state|consumer init|consumer]
-      ## TODO: Delete 'output' let-binding once new-luxc is the
-      ## standard compiler.
-      (let [output (case (produce state|producer)
-                     (#.Some [production state|producer'])
-                     (case (transform production)
-                       (#Continue transform' (#.Some temp))
-                       (case (consume temp state|consumer)
-                         (#Partial state|consumer')
-                         (recur transform' state|producer' state|consumer')
-                         
-                         (#Total output)
-                         output)
+  (loop [transform transform
+         producer producer
+         (^@ current-consumer [current-output consume]) consumer]
+    ## TODO: Delete 'output' let-binding once new-luxc is the
+    ## standard compiler.
+    (let [output (case (producer [])
+                   (#.Some [production producer'])
+                   (case (transform production)
+                     (#.Some [(#.Some temp) transform'])
+                     (case (consume temp)
+                       (#.Some consumer')
+                       (recur transform' producer' consumer')
                        
-                       (#Continue transform' #.None)
-                       (recur transform' state|producer' state|consumer)
-                       
-                       #Stop
-                       state|consumer)
+                       #.None
+                       current-output)
+                     
+                     (#.Some [#.None transform'])
+                     (recur transform' producer' current-consumer)
                      
                      #.None
-                     state|consumer)]
-        output))))
+                     current-output)
+                   
+                   #.None
+                   current-output)]
+      output)))
 
 ## [Producers]
 (def: #export (list-producer source)
-  (All [a] (-> (List a) (Producer a (List a))))
-  [source
-   (function [full]
-     (case full
-       (#.Cons head tail)
-       (#.Some head tail)
+  (All [a] (-> (List a) (Producer a)))
+  (loop [remaining source]
+    (function [_]
+      (case remaining
+        (#.Cons head tail)
+        (#.Some [head (recur tail)])
 
-       #.Nil
-       #.None))])
+        #.Nil
+        #.None))))
 
 ## [Consumers]
 (def: #export (list-consumer sink)
   (All [a] (-> (List a) (Consumer a (List a))))
   [sink
-   (function [head tail]
-     (#Partial (#.Cons head tail)))])
+   (loop [tail sink]
+     (function [head]
+       (let [partial (#.Cons head tail)]
+         (#.Some [partial (recur partial)]))))])
 
 ## [Transforms]
 (def: #export (map f)
   (All [a b] (-> (-> a b) (Transform a b)))
   (function self [input]
-    (#Continue self (#.Some (f input)))))
+    (#.Some [(#.Some (f input)) self])))
 
 (def: #export (map-indexed f)
   (All [a b] (-> (-> Nat a b) (Transform a b)))
   (loop [index +0]
     (function [input]
-      (#Continue (recur (n/inc index)) (#.Some (f index input))))))
+      (#.Some [(#.Some (f index input)) (recur (n/inc index))]))))
 
 (def: #export (filter pred)
   (All [a] (-> (-> a Bool) (Transform a a)))
   (function self [input]
-    (#Continue self (if (pred input)
-                      (#.Some input)
-                      #.None))))
+    (#.Some [(if (pred input)
+               (#.Some input)
+               #.None)
+             self])))
 
 (def: #export (keep f)
   (All [a b] (-> (-> a (Maybe b)) (Transform a b)))
   (function self [input]
-    (#Continue self (f input))))
+    (#.Some [(f input) self])))
 
 (def: #export (keep-indexed f)
   (All [a b] (-> (-> Nat a (Maybe b)) (Transform a b)))
   (loop [index +0]
     (function [input]
-      (#Continue (recur (n/inc index)) (f index input)))))
+      (#.Some [(f index input) (recur (n/inc index))]))))
 
 (def: #export (take amount)
   (All [a] (-> Nat (Transform a a)))
   (loop [remaining amount]
     (function [input]
       (if (n/= +0 remaining)
-        #Stop
-        (#Continue (recur (n/dec remaining)) (#.Some input))))))
+        #.None
+        (#.Some [(#.Some input) (recur (n/dec remaining))])))))
 
 (def: #export (drop amount)
   (All [a] (-> Nat (Transform a a)))
   (loop [remaining amount]
     (function [input]
       (if (n/= +0 remaining)
-        (#Continue (recur remaining) (#.Some input))
-        (#Continue (recur (n/dec remaining)) #.None)))))
+        (#.Some [(#.Some input) (recur remaining)])
+        (#.Some [#.None (recur (n/dec remaining))])))))
 
 (def: #export (take-while pred)
   (All [a] (-> (-> a Bool) (Transform a a)))
   (function self [input]
     (if (pred input)
-      (#Continue self (#.Some input))
-      #Stop)))
+      (#.Some [(#.Some input) self])
+      #.None)))
 
 (def: #export (drop-while pred)
   (All [a] (-> (-> a Bool) (Transform a a)))
@@ -201,8 +198,8 @@
     (function [input]
       (if (and dropping?
                (pred input))
-        (#Continue (recur true) #.None)
-        (#Continue (recur false) (#.Some input))))))
+        (#.Some [#.None (recur true)])
+        (#.Some [(#.Some input) (recur false)])))))
 
 (def: #export (take-nth nth)
   (All [a] (-> Nat (Transform a a)))
@@ -210,8 +207,8 @@
     (function [input]
       (let [mod (n/% nth (n/inc seen))]
         (if (n/= +0 mod)
-          (#Continue (recur mod) (#.Some input))
-          (#Continue (recur mod) #.None))))))
+          (#.Some [(#.Some input) (recur mod)])
+          (#.Some [#.None (recur mod)]))))))
 
 (def: #export (drop-nth nth)
   (All [a] (-> Nat (Transform a a)))
@@ -219,16 +216,16 @@
     (function [input]
       (let [mod (n/% nth (n/inc seen))]
         (if (n/= +0 mod)
-          (#Continue (recur mod) #.None)
-          (#Continue (recur mod) (#.Some input)))))))
+          (#.Some [#.None (recur mod)])
+          (#.Some [(#.Some input) (recur mod)]))))))
 
 (def: #export (distinct Hash<a>)
   (All [a] (-> (Hash a) (Transform a a)))
   (loop [seen (set.new Hash<a>)]
     (function [input]
       (if (set.member? seen input)
-        (#Continue (recur seen) #.None)
-        (#Continue (recur (set.add input seen)) (#.Some input))))))
+        (#.Some [#.None (recur seen)])
+        (#.Some [(#.Some input) (recur (set.add input seen))])))))
 
 ## TODO: Remove whenever feasible.
 (def: helper|de-duplicate
@@ -240,10 +237,10 @@
     (function [input]
       (case last
         (^multi (#.Some last') (:: Eq<a> = last' input))
-        (#Continue (recur last) #.None)
+        (#.Some [#.None (recur last)])
 
         _
-        (#Continue (recur (#.Some input)) (#.Some input))))))
+        (#.Some [(#.Some input) (recur (#.Some input))])))))
 
 (def: #export (random probability prng)
   (All [a] (-> Deg PRNG (Transform a a)))
@@ -251,14 +248,218 @@
     (function [input]
       (let [[prng' chance] (r.run prng r.deg)]
         (if (d/< probability chance)
-          (#Continue (recur prng') (#.Some input))
-          (#Continue (recur prng') #.None))))))
+          (#.Some [(#.Some input) (recur prng')])
+          (#.Some [#.None (recur prng')]))))))
 
 (def: #export (replace dict)
   (All [a] (-> (Dict a a) (Transform a a)))
   (function self [input]
-    (|> dict
-        (dict.get input)
-        (maybe.default input)
-        #.Some
-        (#Continue self))))
+    (#.Some [(|> dict
+                 (dict.get input)
+                 (maybe.default input)
+                 #.Some)
+             self])))
+
+(struct: #export _ (Functor Producer)
+  (def: (map f)
+    (function recur [fa]
+      (function [tick]
+        (case (fa tick)
+          #.None
+          #.None
+          
+          (#.Some [value fa'])
+          (#.Some [(f value) (recur fa')]))))))
+
+(struct: #export _ (Applicative Producer)
+  (def: functor Functor<Producer>)
+
+  (def: (wrap value)
+    (function [tick]
+      (#.Some [value (function [_] #.None)])))
+  
+  (def: (apply ff fa)
+    (function [tick]
+      (case [(ff tick) (fa tick)]
+        [(#.Some [f ff']) (#.Some [a fa'])]
+        (#.Some [(f a) (apply ff' fa')])
+
+        _
+        #.None))))
+
+## TODO: Remove whenever feasible.
+(def: helper|producer/join
+  (All [a] (-> (Producer (Producer a)) (Maybe (Producer a))))
+  (function [_] #.None))
+(struct: #export _ (Monad Producer)
+  (def: applicative Applicative<Producer>)
+
+  (def: (join ffa)
+    (loop [?current (helper|producer/join ffa)
+           factory ffa]
+      (function [tick]
+        (case ?current
+          (#.Some current)
+          (case (current tick)
+            #.None
+            ((recur #.None factory) tick)
+
+            (#.Some [production current'])
+            (#.Some [production (recur (#.Some current') factory)]))
+
+          #.None
+          (case (factory tick)
+            (#.Some [next factory'])
+            ((recur (#.Some next) factory') tick)
+            
+            _
+            #.None))))))
+
+(struct: #export Functor<Transform>
+  (All [in] (Functor (Transform in)))
+
+  (def: (map f)
+    (function recur [fa]
+      (function [input]
+        (case (fa input)
+          (#.Some [?output fa'])
+          (#.Some [(:: maybe.Functor<Maybe> map f ?output)
+                   (recur fa')])
+          
+          #.None
+          #.None)))))
+
+(struct: #export Applicative<Transform>
+  (All [in] (Applicative (Transform in)))
+  
+  (def: functor Functor<Transform>)
+
+  (def: (wrap value)
+    (function [input]
+      (#.Some [(#.Some value)
+               (function [_] #.None)])))
+
+  (def: (apply ff fa)
+    ## TODO: Replace the code below with this commented snippet, once
+    ## new-luxc becomes the standard Lux compiler.
+    ## (compose (each ff fa)
+    ##          (map (function [[f a]] (f a))))
+    (loop [ff&fa (each ff fa)]
+      (function [input]
+        (case (ff&fa input)
+          (#.Some [?f&a ff&fa'])
+          (#.Some [(:: maybe.Functor<Maybe> map (function [[f a]] (f a)) ?f&a)
+                   (recur ff&fa')])
+          
+          #.None
+          #.None)))
+    ))
+
+## TODO: Remove whenever feasible.
+(def: helper|transform/join
+  (All [in out]
+    (-> (Transform in (Transform in out))
+        (Maybe (Transform in out))))
+  (function [_] #.None))
+(struct: #export Monad<Transform>
+  (All [in] (Monad (Transform in)))
+
+  (def: applicative Applicative<Transform>)
+
+  (def: (join ffa)
+    (loop [?current (helper|transform/join ffa)
+           factory ffa]
+      (function [input]
+        (case ?current
+          (#.Some current)
+          (case (current input)
+            #.None
+            ((recur #.None factory) input)
+
+            (#.Some [?output current'])
+            (#.Some [?output
+                     (recur (#.Some current') factory)]))
+
+          #.None
+          (case (factory input)
+            (#.Some [?next factory'])
+            ((recur ?next factory') input)
+            
+            #.None
+            #.None))))))
+
+## (type: #export (Consumer in out)
+##   [out (-> in (Either out
+##                       (Consumer in out)))])
+
+(struct: #export Functor<Consumer>
+  (All [in] (Functor (Consumer in)))
+
+  (def: (map f)
+    (function recur [[a fa]]
+      [(f a)
+       (function [input]
+         (case (fa input)
+           #.None
+           #.None
+           
+           (#.Some next)
+           (#.Some (recur next))))])))
+
+(struct: #export Applicative<Consumer>
+  (All [in] (Applicative (Consumer in)))
+  
+  (def: functor Functor<Consumer>)
+
+  (def: (wrap value)
+    [value (function [input] #.None)])
+
+  (def: (apply [f ff] [a fa])
+    (let [partial (f a)]
+      [partial
+       (function [input]
+         (case [(ff input) (fa input)]
+           [(#.Some ff+') (#.Some fa+')]
+           (#.Some (apply ff+' fa+'))
+
+           _
+           #.None))])))
+
+(struct: #export Monad<Consumer>
+  (All [in] (Monad (Consumer in)))
+
+  (def: applicative Applicative<Consumer>)
+
+  (def: (join [current factory])
+    (let [[output|current consumer|current] current]
+      [output|current
+       (function [input]
+         (case (consumer|current input)
+           #.None
+           (case (factory input)
+             (#.Some next+factory')
+             (#.Some (join next+factory'))
+             
+             #.None
+             #.None)
+
+           (#.Some current')
+           (#.Some (join [current' factory]))))])))
+
+(struct: #export CoMonad<Consumer>
+  (All [in] (CoMonad (Consumer in)))
+
+  (def: functor Functor<Consumer>)
+
+  (def: (unwrap [output step])
+    output)
+
+  (def: (split consumer)
+    [consumer (function [input]
+                (let [[output step] consumer]
+                  (case (step input)
+                    #.None
+                    #.None
+
+                    (#.Some next)
+                    (#.Some (split next)))))]))
