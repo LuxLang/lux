@@ -17,8 +17,10 @@
                          ["$i" inst]))
               ["&." scope]
               ["&." module]
+              [".L" host]
               (translation [".T" eval]
-                           [".T" common]))))
+                           [".T" common]
+                           [".T" runtime]))))
 
 (exception: #export Invalid-Definition-Value)
 (exception: #export Cannot-Evaluate-Definition)
@@ -85,6 +87,73 @@
          #let [_ (log! (format "DEF " (%ident def-ident)))]]
         (commonT.record-artifact (format bytecode-name ".class") bytecode)))))
 
-(def: #export (translate-program program-args programI)
-  (-> Text $.Inst (Meta Unit))
-  (&.fail "\"lux program\" is unimplemented."))
+(def: #export (translate-program programI)
+  (-> $.Inst (Meta Unit))
+  (let [nilI runtimeT.noneI
+        num-inputsI (|>> ($i.ALOAD +0) $i.ARRAYLENGTH)
+        decI (|>> ($i.int 1) $i.ISUB)
+        headI (|>> $i.DUP
+                   ($i.ALOAD +0)
+                   $i.SWAP
+                   $i.AALOAD
+                   $i.SWAP
+                   $i.DUP_X2
+                   $i.POP)
+        pairI (|>> ($i.int 2)
+                   ($i.ANEWARRAY "java.lang.Object")
+                   $i.DUP_X1
+                   $i.SWAP
+                   ($i.int 0)
+                   $i.SWAP
+                   $i.AASTORE
+                   $i.DUP_X1
+                   $i.SWAP
+                   ($i.int 1)
+                   $i.SWAP
+                   $i.AASTORE)
+        consI (|>> ($i.int 1)
+                   ($i.string "")
+                   $i.DUP2_X1
+                   $i.POP2
+                   runtimeT.variantI)
+        prepare-input-listI (<| $i.with-label (function [@loop])
+                                $i.with-label (function [@end])
+                                (|>> nilI
+                                     num-inputsI
+                                     ($i.label @loop)
+                                     decI
+                                     $i.DUP
+                                     ($i.IFLT @end)
+                                     headI
+                                     pairI
+                                     consI
+                                     $i.SWAP
+                                     ($i.GOTO @loop)
+                                     ($i.label @end)
+                                     $i.POP
+                                     ($i.ASTORE +0)))
+        run-ioI (|>> ($i.CHECKCAST hostL.function-class)
+                     $i.NULL
+                     ($i.INVOKEVIRTUAL hostL.function-class runtimeT.apply-method (runtimeT.apply-signature +1) false))
+        main-type ($t.method (list ($t.array +1 ($t.class "java.lang.String" (list))))
+                             #.None
+                             (list))]
+    (do macro.Monad<Meta>
+      [current-module macro.current-module-name
+       #let [normal-name "_"
+             bytecode-name (format current-module "/" normal-name)
+             class-name (text.replace-all "/" "." bytecode-name)
+             bytecode ($d.class #$.V1_6
+                                #$.Public $.finalC
+                                bytecode-name
+                                (list) ["java.lang.Object" (list)]
+                                (list)
+                                (|>> ($d.method #$.Public $.staticM "main" main-type
+                                                (|>> prepare-input-listI
+                                                     programI
+                                                     run-ioI
+                                                     $i.POP
+                                                     $i.RETURN))))]
+       #let [_ (log! (format "PROGRAM " current-module))]
+       _ (commonT.store-class class-name bytecode)]
+      (commonT.record-artifact (format bytecode-name ".class") bytecode))))
