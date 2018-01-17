@@ -1,0 +1,187 @@
+(.module:
+  lux
+  (lux (control ["p" parser]
+                ["ex" exception #+ exception:]
+                [monad #+ Monad do]
+                (monad [indexed #+ IxMonad]))
+       (data [maybe]
+             [product]
+             [number]
+             text/format
+             (coll [dict #+ Dict]
+                   [set]
+                   [sequence #+ Sequence]
+                   [list "list/" Functor<List> Fold<List>]))
+       (concurrency [promise #+ Promise])
+       [macro]
+       (macro ["s" syntax #+ Syntax syntax:])
+       (type abstract)
+       [io #+ IO]))
+
+(type: #export (Procedure monad input output value)
+  (-> input (monad [output value])))
+
+(type: #export (Linear monad value)
+  (All [keys]
+    (Procedure monad keys keys value)))
+
+(type: #export (Affine monad permissions value)
+  (All [keys]
+    (Procedure monad keys [permissions keys] value)))
+
+(type: #export (Relevant monad permissions value)
+  (All [keys]
+    (Procedure monad [permissions keys] keys value)))
+
+(struct: (IxMonad<Procedure> Monad<m>)
+  (All [m] (-> (Monad m) (IxMonad (Procedure m))))
+  
+  (def: (wrap value)
+    (function [keys]
+      (:: Monad<m> wrap [keys value])))
+
+  (def: (bind f input)
+    (function [keysI]
+      (do Monad<m>
+        [[keysT value] (input keysI)]
+        ((f value) keysT)))))
+
+(do-template [<name> <m> <monad> <execute>]
+  [(def: #export <name>
+     (IxMonad (Procedure <m>))
+     (IxMonad<Procedure> <monad>))
+
+   (def: #export (<execute> procedure)
+     (All [v] (-> (Linear <m> v) (<m> v)))
+     (do <monad>
+       [[_ output] (procedure [])]
+       (wrap output)))]
+
+  [IxMonad<Sync>  IO      io.Monad<IO>           sync]
+  [IxMonad<Async> Promise promise.Monad<Promise> async]
+  )
+
+(abstract: #export Ordered {} [])
+
+(abstract: #export Commutative {} [])
+
+(abstract: #export (Key mode key) {}
+  []
+
+  (do-template [<name> <mode>]
+    [(def: <name>
+       (Ex [k] (-> [] (Key <mode> k)))
+       (|>> @abstraction))]
+
+    [ordered-key     Ordered]
+    [commutative-key Commutative]
+    ))
+
+(type: #export OK (Key Ordered))
+(type: #export CK (Key Commutative))
+
+(abstract: #export (Res key value)
+  {#.doc "A value locked by a key."}
+  value
+
+  (do-template [<name> <m> <monad> <mode> <key>]
+    [(def: #export (<name> value)
+       (All [v] (Ex [k] (-> v (Affine <m> (Key <mode> k) (Res k v)))))
+       (function [keys]
+         (:: <monad> wrap [[(<key> []) keys] (@abstraction value)])))]
+
+    [ordered      IO      io.Monad<IO>           Ordered     ordered-key]
+    [ordered!     Promise promise.Monad<Promise> Ordered     ordered-key]
+    [commutative  IO      io.Monad<IO>           Commutative commutative-key]
+    [commutative! Promise promise.Monad<Promise> Commutative commutative-key])
+
+  (do-template [<name> <m> <monad>]
+    [(def: #export (<name> resource)
+       (All [v k m]
+         (-> (Res k v) (Relevant <m> (Key m k) v)))
+       (function [[key keys]]
+         (:: <monad> wrap [keys (@representation resource)])))]
+
+    [read  IO      io.Monad<IO>]
+    [read! Promise promise.Monad<Promise>]))
+
+(exception: #export Index-Cannot-Be-Repeated)
+(exception: #export Amount-Cannot-Be-Zero)
+
+(def: indices
+  (Syntax (List Nat))
+  (s.tuple (loop [seen (set.new number.Hash<Nat>)]
+             (do p.Monad<Parser>
+               [done? s.end?]
+               (if done?
+                 (wrap (list))
+                 (do @
+                   [head s.nat
+                    _ (p.assert (Index-Cannot-Be-Repeated (%n head))
+                                (not (set.member? seen head)))
+                    tail (recur (set.add head seen))]
+                   (wrap (list& head tail))))))))
+
+(def: (no-op Monad<m>)
+  (All [m] (-> (Monad m) (Linear m Unit)))
+  (function [context] (:: Monad<m> wrap [context []])))
+
+(do-template [<name> <m> <monad>]
+  [(syntax: #export (<name> [swaps ..indices])
+     (macro.with-gensyms [g!context]
+       (case swaps
+         #.Nil
+         (wrap (list (` ((~! no-op) <monad>))))
+
+         (#.Cons head tail)
+         (do macro.Monad<Meta>
+           [#let [max-idx (list/fold n/max head tail)]
+            g!inputs (<| (monad.seq @) (list.repeat (n/inc max-idx)) (macro.gensym "input"))
+            #let [g!outputs (|> (monad.fold maybe.Monad<Maybe>
+                                            (function [from to]
+                                              (do maybe.Monad<Maybe>
+                                                [input (list.nth from g!inputs)]
+                                                (wrap (sequence.add input to))))
+                                            (: (Sequence Code) sequence.empty)
+                                            swaps)
+                                maybe.assume
+                                sequence.to-list)
+                  g!inputsT+ (list/map (|>> (~) ..CK (`)) g!inputs)
+                  g!outputsT+ (list/map (|>> (~) ..CK (`)) g!outputs)]]
+           (wrap (list (` (: (All [(~+ g!inputs) (~ g!context)]
+                               (Procedure (~! <m>)
+                                          [(~+ g!inputsT+) (~ g!context)]
+                                          [(~+ g!outputsT+) (~ g!context)]
+                                          Unit))
+                             (function [[(~+ g!inputs) (~ g!context)]]
+                               (:: (~! <monad>) (~' wrap) [[(~+ g!outputs) (~ g!context)] []]))))))))))]
+
+  [exchange  IO      io.Monad<IO>]
+  [exchange! Promise promise.Monad<Promise>])
+
+(def: amount
+  (Syntax Nat)
+  (do p.Monad<Parser>
+    [raw s.nat
+     _ (p.assert (Amount-Cannot-Be-Zero "")
+                 (n/> +0 raw))]
+    (wrap raw)))
+
+(do-template [<name> <m> <monad> <from> <to>]
+  [(syntax: #export (<name> [amount amount])
+     (macro.with-gensyms [g!context]
+       (do macro.Monad<Meta>
+         [g!keys (<| (monad.seq @) (list.repeat amount) (macro.gensym "keys"))]
+         (wrap (list (` (: (All [(~+ g!keys) (~ g!context)]
+                             (Procedure (~! <m>)
+                                        [<from> (~ g!context)]
+                                        [<to> (~ g!context)]
+                                        Unit))
+                           (function [[<from> (~ g!context)]]
+                             (:: (~! <monad>) (~' wrap) [[<to> (~ g!context)] []])))))))))]
+
+  [group     IO      io.Monad<IO>           (~+ g!keys)   [(~+ g!keys)]]
+  [group!    Promise promise.Monad<Promise> (~+ g!keys)   [(~+ g!keys)]]
+  [un-group  IO      io.Monad<IO>           [(~+ g!keys)] (~+ g!keys)]
+  [un-group! Promise promise.Monad<Promise> [(~+ g!keys)] (~+ g!keys)]
+  )
