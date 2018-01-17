@@ -1,0 +1,61 @@
+(.module:
+  lux
+  (lux (control [monad]
+                ["p" parser])
+       (data (coll [list "list/" Functor<List> Fold<List>]))
+       [macro]
+       (macro ["s" syntax #+ Syntax syntax:])))
+
+(sig: #export (IxMonad m)
+  (: (All [p a]
+       (-> a (m p p a)))
+     wrap)
+
+  (: (All [ii it io vi vo]
+       (-> (-> vi (m it io vo))
+           (m ii it vi)
+           (m ii io vo)))
+     bind))
+
+(type: Binding [Code Code])
+
+(def: binding
+  (Syntax Binding)
+  (p.seq s.any s.any))
+
+(type: Context
+  (#Let (List Binding))
+  (#Bind Binding))
+
+(def: context
+  (Syntax Context)
+  (p.alt (p.after (s.this (' #let))
+                  (s.tuple (p.some binding)))
+         binding))
+
+(def: (pair-list [binding value])
+  (All [a] (-> [a a] (List a)))
+  (list binding value))
+
+(syntax: #export (do monad
+                   [context (s.tuple (p.some context))]
+                   expression)
+  (macro.with-gensyms [g!bind]
+    (wrap (list (` (let [(~' @) (~ monad)
+                         {#..wrap (~' wrap)
+                          #..bind (~ g!bind)} (~' @)]
+                     (~ (list/fold (function [context next]
+                                     (case context
+                                       (#Let bindings)
+                                       (` (let [(~+ (|> bindings
+                                                        (list/map pair-list)
+                                                        list.concat))]
+                                            (~ next)))
+                                       
+                                       (#Bind [binding value])
+                                       (` ((~ g!bind)
+                                           (.function [(~ binding)]
+                                             (~ next))
+                                           (~ value)))))
+                                   expression
+                                   (list.reverse context)))))))))
