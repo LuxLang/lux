@@ -1,0 +1,73 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                ["p" parser]))
+  (luxc ["&" lang]
+        (lang ["ls" synthesis]))
+  [//]
+  (// [".T" runtime]
+      [".T" primitive]
+      [".T" structure]
+      [".T" reference]
+      [".T" function]
+      [".T" loop]
+      [".T" case]))
+
+(exception: #export Unrecognized-Synthesis)
+
+(def: #export (translate synthesis)
+  (-> ls.Synthesis (Meta //.Expression))
+  (case synthesis
+    (^code [])
+    (wrap runtimeT.unit)
+
+    (^code [(~ singleton)])
+    (translate singleton)
+
+    (^template [<tag> <generator>]
+      [_ (<tag> value)]
+      (<generator> value))
+    ([#.Bool primitiveT.translate-bool]
+     [#.Nat  primitiveT.translate-nat]
+     [#.Int  primitiveT.translate-int]
+     [#.Deg  primitiveT.translate-deg]
+     [#.Frac primitiveT.translate-frac]
+     [#.Text primitiveT.translate-text])
+
+    (^code ((~ [_ (#.Nat tag)]) (~ [_ (#.Bool last?)]) (~ valueS)))
+    (structureT.translate-variant translate tag last? valueS)
+
+    (^code [(~+ members)])
+    (structureT.translate-tuple translate members)
+
+    (^ [_ (#.Form (list [_ (#.Int var)]))])
+    (if (variableL.captured? var)
+      (referenceT.translate-captured var)
+      (referenceT.translate-local var))
+
+    [_ (#.Symbol definition)]
+    (referenceT.translate-definition definition)
+
+    (^code ("lux let" (~ [_ (#.Nat register)]) (~ inputS) (~ exprS)))
+    (caseT.translate-let translate register inputS exprS)
+
+    (^code ("lux case" (~ inputS) (~ pathPS)))
+    (caseT.translate-case translate inputS pathPS)
+
+    (^multi (^code ("lux function" (~ [_ (#.Nat arity)]) [(~+ environment)] (~ bodyS)))
+            [(s.run environment (p.some s.int)) (#e.Success environment)])
+    (functionT.translate-function translate environment arity bodyS)
+
+    (^code ("lux call" (~ functionS) (~+ argsS)))
+    (functionT.translate-apply translate functionS argsS)
+
+    (^code ((~ [_ (#.Text procedure)]) (~+ argsS)))
+    (procedureT.translate-procedure translate procedure argsS)
+    ## (do macro.Monad<Meta>
+    ##   [translation (extensionL.find-translation procedure)]
+    ##   (translation argsS))
+
+    _
+    (&.throw Unrecognized-Synthesis (%code synthesis))
+    ))

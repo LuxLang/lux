@@ -2,52 +2,47 @@
   lux
   (lux (data text/format)
        (macro [code]
-              ["s" syntax #+ syntax:])))
-
-(type: #export JS Text)
-
-(type: Expression JS)
-
-(type: Statement JS)
+              ["s" syntax #+ syntax:]))
+  [//])
 
 (def: prefix Text "LuxRuntime")
 
-(def: #export unit Expression (%t "\u0000"))
+(def: #export unit //.Expression (%t "\u0000"))
 
 (def: (flag value)
-  (-> Bool JS)
+  (-> Bool //.JS)
   (if value
     (%t "")
     "null"))
 
 (def: #export (variant tag last? value)
-  (-> Nat Bool Expression Expression)
+  (-> Nat Bool //.Expression //.Expression)
   (format "[" (%i (nat-to-int tag)) "," (flag last?) "," value "]"))
 
 (def: none
-  Expression
+  //.Expression
   (variant +0 false unit))
 
 (def: some
-  (-> Expression Expression)
+  (-> //.Expression //.Expression)
   (variant +1 true))
 
 (def: left
-  (-> Expression Expression)
+  (-> //.Expression //.Expression)
   (variant +0 false))
 
 (def: right
-  (-> Expression Expression)
+  (-> //.Expression //.Expression)
   (variant +1 true))
 
-(type: Runtime JS)
+(type: Runtime //.JS)
 
 (def: (runtime-name name)
   (-> Text Text)
   (format prefix "$" name))
 
 (def: (feature name definition)
-  (-> Text (-> Text Expression) Statement)
+  (-> Text (-> Text //.Expression) //.Statement)
   (format "var " name " = " (definition name) ";\n"))
 
 (syntax: (runtime-implementation-name [runtime-name s.local-symbol])
@@ -55,7 +50,7 @@
 
 (template: (runtime: <lux-name> <js-name> <js-definition>)
   (def: #export <lux-name> Text (runtime-name <js-name>))
-  (`` (def: (~~ (runtime-implementation-name <lux-name>))
+  (`` (def: ((~' ~~) (runtime-implementation-name <lux-name>))
         Runtime
         (feature <lux-name>
                  (function [(~' @)]
@@ -146,9 +141,81 @@
           __product//right
           __sum//get))
 
+(runtime: int//new "makeI64"
+  (format "(function " @ "(high,low) {"
+          "return { H: (high|0), L: (low|0)};"
+          "})"))
+
+(runtime: int//2^16 "TWO_PWR_16"
+  "(1 << 16)")
+
+(runtime: int//2^32 "TWO_PWR_32"
+  (format "(" int//2^16 " * " int//2^16 ")"))
+
+(runtime: int//2^64 "TWO_PWR_64"
+  (format "(" int//2^32 " * " int//2^32 ")"))
+
+(runtime: int//2^63 "TWO_PWR_63"
+  (format "(" int//2^64 " / 2)"))
+
+(runtime: int//unsigned-low "getLowBitsUnsigned"
+  (format "(function " @ "(i64) {"
+          "return (i64.L >= 0) ? i64.L : (" int//2^32 " + i64.L);"
+          "})"))
+
+(runtime: int//to-number "toNumberI64"
+  (format "(function " @ "(i64) {"
+          "return (i64.H * " int//2^32 ") + " @ "(i64);"
+          "})"))
+
+(runtime: int//zero "ZERO"
+  "{ H: (0|0), L: (0|0)}")
+
+(runtime: int//min "MIN_VALUE_I64"
+  "{ H: (0x80000000|0), L: (0|0)}")
+
+(runtime: int//max "MAX_VALUE_I64"
+  "{ H: (0x7FFFFFFF|0), L: (0xFFFFFFFF|0)}")
+
+(runtime: int//one "ONE"
+  "{ H: (0|0), L: (1|0)}")
+
+(runtime: int//= "eqI64"
+  (format "(function " @ "(l,r) {"
+          "return (l.H === r.H) && (l.L === r.L);"
+          "})"))
+
+(runtime: int//+ "addI64"
+  (format "(function " @ "(l,r) {"
+          "var l48 = l.H >>> 16;"
+          "var l32 = l.H & 0xFFFF;"
+          "var l16 = l.L >>> 16;"
+          "var l00 = l.L & 0xFFFF;"
+
+          "var r48 = r.H >>> 16;"
+          "var r32 = r.H & 0xFFFF;"
+          "var r16 = r.L >>> 16;"
+          "var r00 = r.L & 0xFFFF;"
+
+          "var x48 = 0, x32 = 0, x16 = 0, x00 = 0;"
+          "x00 += l00 + r00;"
+          "x16 += x00 >>> 16;"
+          "x00 &= 0xFFFF;"
+          "x16 += l16 + r16;"
+          "x32 += x16 >>> 16;"
+          "x16 &= 0xFFFF;"
+          "x32 += l32 + r32;"
+          "x48 += x32 >>> 16;"
+          "x32 &= 0xFFFF;"
+          "x48 += l48 + r48;"
+          "x48 &= 0xFFFF;"
+
+          "return " int//new "((x48 << 16) | x32, (x16 << 16) | x00);"
+          "})"))
+
 (template: (bit-operation: <lux-name> <js-name> <op>)
   (runtime: <lux-name> <js-name>
-    (format "(function " @ "(input,mask) {"
+    (format "(function " (~' @) "(input,mask) {"
             "return " int//new "(input.H " <op> " mask.H, input.L " <op> " mask.L);"
             "})")))
 
@@ -159,6 +226,35 @@
 (runtime: bit//not "notI64"
   (format "(function " @ "(i64) {"
           "return " int//new "(~i64.H,~i64.L);"
+          "})"))
+
+(runtime: int//negate "negateI64"
+  (format "(function " @ "(i64) {"
+          (format "if(" int//= "(" int//min ",i64)) {"
+                  "return " int//min ";"
+                  "}")
+          (format "else {"
+                  "return " int//+ "(" bit//not "(i64)," int//one ");"
+                  "}")
+          "})"))
+
+(runtime: int//from-number "fromNumberI64"
+  (format "(function " @ "(num) {"
+          (format "if(isNaN(num)) {"
+                  "return " int//zero ";"
+                  "}")
+          (format "else if(num <= -" int//2^63 ") {"
+                  "return " int//min ";"
+                  "}")
+          (format "else if((num + 1) >= " int//2^63 ") {"
+                  "return " int//max ";"
+                  "}")
+          (format "else if(num < 0) {"
+                  "return  " int//negate "(" @ "(-num));"
+                  "}")
+          (format "else {"
+                  "return " int//new "((num / " int//2^32 "), (num % " int//2^32 "));"
+                  "}")
           "})"))
 
 (runtime: bit//count "countI64"
@@ -240,107 +336,6 @@
           __bit//shift-left
           __bit//signed-shift-right
           __bit//shift-right))
-
-(runtime: int//2^16 "TWO_PWR_16"
-  "(1 << 16)")
-
-(runtime: int//2^32 "TWO_PWR_32"
-  (format "(" int//2^16 " * " int//2^16 ")"))
-
-(runtime: int//2^64 "TWO_PWR_64"
-  (format "(" int//2^32 " * " int//2^32 ")"))
-
-(runtime: int//2^63 "TWO_PWR_63"
-  (format "(" int//2^64 " / 2)"))
-
-(runtime: int//unsigned-low "getLowBitsUnsigned"
-  (format "(function " @ "(i64) {"
-          "return (i64.L >= 0) ? i64.L : (" int//2^32 " + i64.L);"
-          "})"))
-
-(runtime: int//to-number "toNumberI64"
-  (format "(function " @ "(i64) {"
-          "return (i64.H * " int//2^32 ") + " @ "(i64);"
-          "})"))
-
-(runtime: int//zero "ZERO"
-  "{ H: (0|0), L: (0|0)}")
-
-(runtime: int//new "makeI64"
-  (format "(function " @ "(high,low) {"
-          "return { H: (high|0), L: (low|0)};"
-          "})"))
-
-(runtime: int//min "MIN_VALUE_I64"
-  "{ H: (0x80000000|0), L: (0|0)}")
-
-(runtime: int//max "MAX_VALUE_I64"
-  "{ H: (0x7FFFFFFF|0), L: (0xFFFFFFFF|0)}")
-
-(runtime: int//one "ONE"
-  "{ H: (0|0), L: (1|0)}")
-
-(runtime: int//= "eqI64"
-  (format "(function " @ "(l,r) {"
-          "return (l.H === r.H) && (l.L === r.L);"
-          "})"))
-
-(runtime: int//+ "addI64"
-  (format "(function " @ "(l,r) {"
-          "var l48 = l.H >>> 16;"
-          "var l32 = l.H & 0xFFFF;"
-          "var l16 = l.L >>> 16;"
-          "var l00 = l.L & 0xFFFF;"
-
-          "var r48 = r.H >>> 16;"
-          "var r32 = r.H & 0xFFFF;"
-          "var r16 = r.L >>> 16;"
-          "var r00 = r.L & 0xFFFF;"
-
-          "var x48 = 0, x32 = 0, x16 = 0, x00 = 0;"
-          "x00 += l00 + r00;"
-          "x16 += x00 >>> 16;"
-          "x00 &= 0xFFFF;"
-          "x16 += l16 + r16;"
-          "x32 += x16 >>> 16;"
-          "x16 &= 0xFFFF;"
-          "x32 += l32 + r32;"
-          "x48 += x32 >>> 16;"
-          "x32 &= 0xFFFF;"
-          "x48 += l48 + r48;"
-          "x48 &= 0xFFFF;"
-
-          "return " int//new "((x48 << 16) | x32, (x16 << 16) | x00);"
-          "})"))
-
-(runtime: int//negate "negateI64"
-  (format "(function " @ "(i64) {"
-          (format "if(" int//= "(" int//min ",i64)) {"
-                  "return " int//min ";"
-                  "}")
-          (format "else {"
-                  "return " int//+ "(" bit//not "(i64)," int//one ");"
-                  "}")
-          "})"))
-
-(runtime: int//from-number "fromNumberI64"
-  (format "(function " @ "(num) {"
-          (format "if(isNaN(num)) {"
-                  "return " int//zero ";"
-                  "}")
-          (format "else if(num <= -" int//2^63 ") {"
-                  "return " int//min ";"
-                  "}")
-          (format "else if((num + 1) >= " int//2^63 ") {"
-                  "return " int//max ";"
-                  "}")
-          (format "else if(num < 0) {"
-                  "return  " int//negate "(" @ "(-num));"
-                  "}")
-          (format "else {"
-                  "return " int//new "((num / " int//2^32 "), (num % " int//2^32 "));"
-                  "}")
-          "})"))
 
 (runtime: int//- "subI64"
   (format "(function " @ "(l,r) {"
@@ -1037,12 +1032,6 @@
           __array//put
           __array//remove))
 
-(runtime: io//log "log"
-  (format "(function " @ "(message) {"
-          "console.log(message);"
-          (format "return " &&/unit ";")
-          "})"))
-
 (runtime: io//error "error"
   (format "(function " @ "(message) {"
           "throw new Error(message);"
@@ -1050,8 +1039,35 @@
 
 (def: runtime//io
   Runtime
-  (format __io//log
-          __io//error))
+  (format __io//error))
+
+(def: #export atom-field Text "V")
+
+(runtime: atom//compare-and-swap "atomCompareAndSwap"
+  (format "(function " @ "(atom,old,new) {"
+          "if(atom." atom-field " === old) {"
+          "atom." atom-field " = new;"
+          "return true;"
+          "}"
+          "else {"
+          "return false;"
+          "}"
+          "})"))
+
+(def: runtime//atom
+  Runtime
+  (format __atom//compare-and-swap))
+
+(runtime: js//get "jsGetField"
+  (format "(function " @ "(object, field) {"
+          "var temp = object[field];"
+          (format "if(temp !== undefined) {"
+                  (format "return " (some "temp") ";")
+                  "}"
+                  "else {"
+                  (format "return " none ";")
+                  "}")
+          "})"))
 
 (runtime: js//set "jsSetField"
   (format "(function " @ "(object, field, input) {"
@@ -1072,7 +1088,8 @@
 
 (def: runtime//js
   Runtime
-  (format __js//set
+  (format __js//get
+          __js//set
           __js//delete
           __js//call))
 
@@ -1087,10 +1104,11 @@
           runtime//text
           runtime//array
           runtime//io
+          runtime//atom
           runtime//js))
 
 (def: #export artifact Text (format prefix ".js"))
 
-(def: #export generate
-  (Meta Unit)
-  (&&/save-js! artifact runtime))
+## (def: #export generate
+##   (Meta Unit)
+##   (&&/save-js! artifact runtime))

@@ -1,0 +1,633 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (data ["e" error]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List>]
+                   [dict #+ Dict]))
+       [macro #+ with-gensyms]
+       (macro [code]
+              ["s" syntax #+ syntax:]))
+  (luxc ["&" lang]
+        (lang ["la" analysis]
+              ["ls" synthesis]))
+  [///]
+  (/// [".T" runtime]
+       [".T" case]
+       [".T" function]
+       [".T" loop]))
+
+## [Types]
+(type: #export Translator
+  (-> ls.Synthesis (Meta ///.Expression)))
+
+(type: #export Proc
+  (-> Translator (List ls.Synthesis) (Meta ///.Expression)))
+
+(type: #export Bundle
+  (Dict Text Proc))
+
+(syntax: (Vector [size s.nat] elemT)
+  (wrap (list (` [(~+ (list.repeat size elemT))]))))
+
+(type: #export Nullary (-> (Vector +0 ///.Expression) ///.Expression))
+(type: #export Unary   (-> (Vector +1 ///.Expression) ///.Expression))
+(type: #export Binary  (-> (Vector +2 ///.Expression) ///.Expression))
+(type: #export Trinary (-> (Vector +3 ///.Expression) ///.Expression))
+(type: #export Variadic (-> (List ///.Expression) ///.Expression))
+
+## [Utils]
+(def: #export (install name unnamed)
+  (-> Text (-> Text Proc)
+      (-> Bundle Bundle))
+  (dict.put name (unnamed name)))
+
+(def: #export (prefix prefix bundle)
+  (-> Text Bundle Bundle)
+  (|> bundle
+      dict.entries
+      (list/map (function [[key val]] [(format prefix " " key) val]))
+      (dict.from-list text.Hash<Text>)))
+
+(def: (wrong-arity proc expected actual)
+  (-> Text Nat Nat Text)
+  (format "Wrong number of arguments for " (%t proc) "\n"
+          "Expected: " (|> expected nat-to-int %i) "\n"
+          "  Actual: " (|> actual nat-to-int %i)))
+
+(syntax: (arity: [name s.local-symbol] [arity s.nat])
+  (with-gensyms [g!proc g!name g!translate g!inputs]
+    (do @
+      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
+      (wrap (list (` (def: #export ((~ (code.local-symbol name)) (~ g!proc))
+                       (-> (-> (..Vector (~ (code.nat arity)) ///.Expression) ///.Expression)
+                           (-> Text ..Proc))
+                       (function [(~ g!name)]
+                         (function [(~ g!translate) (~ g!inputs)]
+                           (case (~ g!inputs)
+                             (^ (list (~+ g!input+)))
+                             (do macro.Monad<Meta>
+                               [(~+ (|> g!input+
+                                        (list/map (function [g!input]
+                                                    (list g!input (` ((~ g!translate) (~ g!input))))))
+                                        list.concat))]
+                               ((~' wrap) ((~ g!proc) [(~+ g!input+)])))
+
+                             (~' _)
+                             (macro.fail (wrong-arity (~ g!name) +1 (list.size (~ g!inputs))))))))))))))
+
+(arity: nullary +0)
+(arity: unary +1)
+(arity: binary +2)
+(arity: trinary +3)
+
+(def: #export (variadic proc)
+  (-> Variadic (-> Text Proc))
+  (function [proc-name]
+    (function [translate inputsS]
+      (do macro.Monad<Meta>
+        [inputsI (monad.map @ translate inputsS)]
+        (wrap (proc inputsI))))))
+
+(def: (self-contained content)
+  (-> //.Expression //.Expression)
+  (format "(" content ")"))
+
+(def: (void action)
+  (-> //.Expression //.Expression)
+  (format "(" action "," runtimeT.unit ")"))
+
+## [Procedures]
+## [[Lux]]
+(def: (lux//is [leftJS rightJS])
+  Binary
+  (self-contained (format leftJS " === " rightJS)))
+
+(def: (lux//if [testJS thenJS elseJS])
+  Trinary
+  (caseT.translate-if testJS thenJS elseJS))
+
+(def: (lux//try riskyJS)
+  Unary
+  (format runtimeT.lux//try "(" riskyJS ")"))
+
+(def: (lux//noop valueJS)
+  Unary
+  valueJS)
+
+(exception: #export Wrong-Syntax)
+(def: #export (wrong-syntax procedure args)
+  (-> Text (List ls.Synthesis) Text)
+  (format "Procedure: " procedure "\n"
+          "Arguments: " (%code (code.tuple args))))
+
+(def: lux//loop
+  (-> Text Proc)
+  (function [proc-name]
+    (function [translate inputsS]
+      (case (s.run inputsS ($_ p.seq s.nat (s.tuple (p.many s.any)) s.any))
+        (#e.Success [offset initsS+ bodyS])
+        (loopT.translate-loop translate offset initsS+ bodyS)
+
+        (#e.Error error)
+        (&.throw Wrong-Syntax (wrong-syntax proc-name inputsS)))
+      )))
+
+(def: lux//recur
+  (-> Text Proc)
+  (function [proc-name]
+    (function [translate inputsS]
+      (loopT.translate-recur translate inputsS))))
+
+## [[Bits]]
+(do-template [<name> <op>]
+  [(def: (<name> [subjectJS paramJS])
+     Binary
+     (format <op> "(" subjectJS "," paramJS ")"))]
+
+  [bit//and                  runtimeT.bit//and]
+  [bit//or                   runtimeT.bit//or]
+  [bit//xor                  runtimeT.bit//xor]
+  [bit//shift-left           runtimeT.bit//shift-left]
+  [bit//shift-right          runtimeT.bit//shift-right]
+  [bit//unsigned-shift-right runtimeT.bit//unsigned-shift-right]
+  )
+
+(def: (bit//count subjectJS)
+  Unary
+  (format runtimeT.bit//count "(" subjectJS ")"))
+
+## [[Arrays]]
+(def: (array//new sizeJS)
+  Unary
+  (self-contained (format "new Array(" runtimeT.int//to-number "(" sizeJS ")" ")")))
+
+(def: (array//get [arrayJS idxJS])
+  Binary
+  (format runtimeT.array//get "(" arrayJS "," idxJS ")"))
+
+(def: (array//put [arrayJS idxJS elemJS])
+  Trinary
+  (format runtimeT.array//put "(" arrayJS "," idxJS "," elemJS ")"))
+
+(def: (array//remove [arrayJS idxJS])
+  Binary
+  (format runtimeT.array//remove "(" arrayJS "," idxJS ")"))
+
+(def: (array//size arrayJS)
+  Unary
+  (format arrayJS ".length"))
+
+## [[Numbers]]
+(do-template [<name> <encode> <type>]
+  [(def: (<name> _)
+     Nullary
+     (<encode> <const>))]
+
+  [nat//min                 0                           js-int]
+  [nat//max                -1                           js-int]
+
+  [int//min                Long::MIN_VALUE              js-int]
+  [int//max                Long::MAX_VALUE              js-int]
+  
+  [frac//smallest          Double::MIN_VALUE            js-frac]
+  [frac//min               (f/* -1.0 Double::MAX_VALUE) js-frac]
+  [frac//max               Double::MAX_VALUE            js-frac]
+  [frac//not-a-number      Double::NaN                  js-frac]
+  [frac//positive-infinity Double::POSITIVE_INFINITY    js-frac]
+  [frac//negative-infinity Double::NEGATIVE_INFINITY    js-frac]
+
+  [deg//min                 0                           js-int]
+  [deg//max                -1                           js-int]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectJS paramJS])
+     Binary
+     (format <op> "(" subjectJS "," paramJS ")"))]
+
+  [int//add        runtimeT.int//+]
+  [int//sub        runtimeT.int//-]
+  [int//mul        runtimeT.int//*]
+  [int//div        runtimeT.int///]
+  [int//rem        runtimeT.int//%]
+  
+  [nat//add        runtimeT.int//+]
+  [nat//sub        runtimeT.int//-]
+  [nat//mul        runtimeT.int//*]
+  [nat//div        runtimeT.nat///]
+  [nat//rem        runtimeT.nat//%]
+
+  [deg//add        runtimeT.int//+]
+  [deg//sub        runtimeT.int//-]
+  [deg//mul        runtimeT.deg//*]
+  [deg//div        runtimeT.deg///]
+  [deg//rem        runtimeT.int//-]
+  [deg//scale      runtimeT.int//*]
+  [deg//reciprocal runtimeT.int///]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectJS paramJS])
+     Binary
+     (self-contained (format subjectJS " " <op> " " paramJS)))]
+
+  [frac//add "+"]
+  [frac//sub "-"]
+  [frac//mul "*"]
+  [frac//div "/"]
+  [frac//rem "%"]
+  [frac//=   "=="]
+  [frac//<   "<"]
+  [text//=   "=="]
+  [text//<   "<"]
+  )
+
+(do-template [<name> <cmp>]
+  [(def: (<name> [subjectJS paramJS])
+     Binary
+     (format <cmp> "(" subjectJS "," paramJS ")"))]
+
+  [nat//= runtimeT.int//=]
+  [nat//< runtimeT.nat//<]
+  [int//= runtimeT.int//=]
+  [int//< runtimeT.int//<]
+  [deg//= runtimeT.int//=]
+  [deg//< runtimeT.nat//<]
+  )
+
+(do-template [<name>]
+  [(def: (<name> inputJS)
+     Unary
+     inputJS)]
+
+  [nat//to-int]
+  [int//to-nat]
+  )
+
+(def: (frac//encode inputJS)
+  Unary
+  (format (self-contained inputJS) ".toString()"))
+
+(def: (frac//decode inputJS)
+  Unary
+  (format "parseFloat(" inputJS ")"))
+
+(do-template [<name> <transform>]
+  [(def: (<name> inputJS)
+     Unary
+     (<transform> "(" inputJS ")"))]
+
+  [int//to-frac runtimeT.int//to-number]
+  [frac//to-int runtimeT.int//from-number]
+  [frac//to-deg runtimeT.deg//from-frac]
+  [deg//to-frac runtimeT.deg//to-frac]
+  [text//hash   runtimeT.text//hash]
+  )
+
+(def: (nat//char inputJS)
+  Unary
+  (format "String.fromCharCode" "(" (int//to-frac inputJS) ")"))
+
+## [[Text]]
+(do-template [<name> <op>]
+  [(def: (<name> inputJS)
+     Unary
+     (format inputJS <op>))]
+
+  [text//size  ".length"]
+  [text//trim  ".trim()"]
+  [text//upper ".toUpperCase()"]
+  [text//lower ".toLowerCase()"]
+  )
+
+(do-template [<name> <method>]
+  [(def: (<name> [subjectJS paramJS])
+     Binary
+     (format subjectJS "." <method> "(" paramJS ")"))]
+
+  [text//concat    "concat"]
+  [text//contains? "includes"]
+  )
+
+(def: (text//char [subjectJS paramJS])
+  Binary
+  (format runtimeT.text//char "(" subjectJS "," paramJS ")"))
+
+(do-template [<name> <runtime>]
+  [(def: (<name> [subjectJS paramJS extraJS])
+     Trinary
+     (format <runtime> "(" subjectJS "," paramJS "," extraJS ")"))]
+
+  [text//clip        runtimeT.text//clip]
+  [text//replace-all runtimeT.text//replace-all]
+  )
+
+(def: (text//replace-once [subjectJS paramJS extraJS])
+  Trinary
+  (format subjectJS "." <method> "(" paramJS "," extraJS ")"))
+
+(do-template [<name> <method>]
+  [(def: (<name> [textJS partJS startJS])
+     Trinary
+     (format <method> "(" textJS "," partJS "," startJS ")"))]
+
+  [text//index      runtimeT.text//index]
+  [text//last-index runtimeT.text//last-index]
+  )
+
+## [[Math]]
+(do-template [<name> <method>]
+  [(def: (<name> inputJS)
+     Unary
+     (format "Math." <method> "(" inputJS ")"))]
+
+  [math//cos "cos"]
+  [math//sin "sin"]
+  [math//tan "tan"]
+  [math//acos "acos"]
+  [math//asin "asin"]
+  [math//atan "atan"]
+  [math//cosh "cosh"]
+  [math//sinh "sinh"]
+  [math//tanh "tanh"]
+  [math//exp "exp"]
+  [math//log "log"]
+  [math//root2 "sqrt"]
+  [math//root3 "cbrt"]
+  [math//ceil "ceil"]
+  [math//floor "floor"]
+  [math//round "round"]
+  )
+
+(do-template [<name> <method>]
+  [(def: (<name> [inputJS paramJS])
+     Binary
+     (format "Math." <method> "(" inputJS "," paramJS ")"))]
+
+  [math//atan2 "atan2"]
+  [math//pow   "pow"]
+  )
+
+## [[IO]]
+(def: (io//log messageJS)
+  Unary
+  (void (format "console.log(" messageJS ")")))
+
+(def: (io//error messageJS)
+  Unary
+  (format runtimeT.io//error "(" messageJS ")"))
+
+(def: (io//exit codeJS)
+  Unary
+  (format "(process && process.exit && process.exit(" (int//to-frac codeJS) "))"))
+
+(def: (io//current-time [])
+  Nullary
+  (frac//to-int "(new Date()).getTime()"))
+
+## [[Atoms]]
+(def: (atom//new initJS)
+  Unary
+  (format "{" runtimeT.atom-field ":" initJS "}"))
+
+(def: (atom//read atomJS)
+  Unary
+  (format atomJS "." runtimeT.atom-field))
+
+(def: (atom//compare-and-swap [atomJS oldJS newJS])
+  Trinary
+  (format atom//compare-and-swap "(" atomJS "," oldJS "," newJS ")"))
+
+## [[Box]]
+(def: (box//new initJS)
+  Unary
+  (format "[" initJS "]"))
+
+(def: (box//read boxJS)
+  Unary
+  (format "[" boxJS "][0]"))
+
+(def: (box//write [valueJS boxJS])
+  Binary
+  (void (format (box//read boxJS) " = " valueJS)))
+
+## [[Processes]]
+(def: (process//concurrency-level [])
+  Nullary
+  (frac//to-int "1"))
+
+(def: (process//future procedureJS)
+  Unary
+  (format "setTimeout("
+          "function() {" procedureJS "(null)" "}"
+          ",0)"))
+
+(def: (process//schedule [milli-secondsJS procedureJS])
+  Binary
+  (format "setTimeout("
+          "function() {" procedureJS "(null)" "}"
+          "," (int//to-frac milli-secondsJS) ")"))
+
+## [Bundles]
+(def: lux-procs
+  Bundle
+  (|> (dict.new text.Hash<Text>)
+      (install "noop" (unary lux//noop))
+      (install "is" (binary lux//is))
+      (install "try" (unary lux//try))
+      (install "if" (trinary lux//if))
+      (install "loop" lux//loop)
+      (install "recur" lux//recur)
+      ))
+
+(def: bit-procs
+  Bundle
+  (<| (prefix "bit")
+      (|> (dict.new text.Hash<Text>)
+          (install "count" (unary bit//count))
+          (install "and" (binary bit//and))
+          (install "or" (binary bit//or))
+          (install "xor" (binary bit//xor))
+          (install "shift-left" (binary bit//shift-left))
+          (install "unsigned-shift-right" (binary bit//unsigned-shift-right))
+          (install "shift-right" (binary bit//shift-right))
+          )))
+
+(def: nat-procs
+  Bundle
+  (<| (prefix "nat")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary nat//add))
+          (install "-" (binary nat//sub))
+          (install "*" (binary nat//mul))
+          (install "/" (binary nat//div))
+          (install "%" (binary nat//rem))
+          (install "=" (binary nat//eq))
+          (install "<" (binary nat//lt))
+          (install "min" (nullary nat//min))
+          (install "max" (nullary nat//max))
+          (install "to-int" (unary nat//to-int))
+          (install "char" (unary nat//char)))))
+
+(def: int-procs
+  Bundle
+  (<| (prefix "int")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary int//add))
+          (install "-" (binary int//sub))
+          (install "*" (binary int//mul))
+          (install "/" (binary int//div))
+          (install "%" (binary int//rem))
+          (install "=" (binary int//eq))
+          (install "<" (binary int//lt))
+          (install "min" (nullary int//min))
+          (install "max" (nullary int//max))
+          (install "to-nat" (unary int//to-nat))
+          (install "to-frac" (unary int//to-frac)))))
+
+(def: deg-procs
+  Bundle
+  (<| (prefix "deg")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary deg//add))
+          (install "-" (binary deg//sub))
+          (install "*" (binary deg//mul))
+          (install "/" (binary deg//div))
+          (install "%" (binary deg//rem))
+          (install "=" (binary deg//eq))
+          (install "<" (binary deg//lt))
+          (install "scale" (binary deg//scale))
+          (install "reciprocal" (binary deg//reciprocal))
+          (install "min" (nullary deg//min))
+          (install "max" (nullary deg//max))
+          (install "to-frac" (unary deg//to-frac)))))
+
+(def: frac-procs
+  Bundle
+  (<| (prefix "frac")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary frac//add))
+          (install "-" (binary frac//sub))
+          (install "*" (binary frac//mul))
+          (install "/" (binary frac//div))
+          (install "%" (binary frac//rem))
+          (install "=" (binary frac//eq))
+          (install "<" (binary frac//lt))
+          (install "smallest" (nullary frac//smallest))
+          (install "min" (nullary frac//min))
+          (install "max" (nullary frac//max))
+          (install "not-a-number" (nullary frac//not-a-number))
+          (install "positive-infinity" (nullary frac//positive-infinity))
+          (install "negative-infinity" (nullary frac//negative-infinity))
+          (install "to-deg" (unary frac//to-deg))
+          (install "to-int" (unary frac//to-int))
+          (install "encode" (unary frac//encode))
+          (install "decode" (unary frac//decode)))))
+
+(def: text-procs
+  Bundle
+  (<| (prefix "text")
+      (|> (dict.new text.Hash<Text>)
+          (install "=" (binary text//eq))
+          (install "<" (binary text//lt))
+          (install "concat" (binary text//concat))
+          (install "index" (trinary text//index))
+          (install "size" (unary text//size))
+          (install "hash" (unary text//hash))
+          (install "replace-once" (trinary text//replace-once))
+          (install "replace-all" (trinary text//replace-all))
+          (install "char" (binary text//char))
+          (install "clip" (trinary text//clip))
+          (install "upper" (unary text//upper))
+          (install "lower" (unary text//lower))
+          )))
+
+(def: array-procs
+  Bundle
+  (<| (prefix "array")
+      (|> (dict.new text.Hash<Text>)
+          (install "new" (unary array//new))
+          (install "get" (binary array//get))
+          (install "put" (trinary array//put))
+          (install "remove" (binary array//remove))
+          (install "size" (unary array//size))
+          )))
+
+(def: math-procs
+  Bundle
+  (<| (prefix "math")
+      (|> (dict.new text.Hash<Text>)
+          (install "cos" (unary math//cos))
+          (install "sin" (unary math//sin))
+          (install "tan" (unary math//tan))
+          (install "acos" (unary math//acos))
+          (install "asin" (unary math//asin))
+          (install "atan" (unary math//atan))
+          (install "cosh" (unary math//cosh))
+          (install "sinh" (unary math//sinh))
+          (install "tanh" (unary math//tanh))
+          (install "exp" (unary math//exp))
+          (install "log" (unary math//log))
+          (install "root2" (unary math//root2))
+          (install "root3" (unary math//root3))
+          (install "ceil" (unary math//ceil))
+          (install "floor" (unary math//floor))
+          (install "round" (unary math//round))
+          (install "atan2" (binary math//atan2))
+          (install "pow" (binary math//pow))
+          )))
+
+(def: io-procs
+  Bundle
+  (<| (prefix "io")
+      (|> (dict.new text.Hash<Text>)
+          (install "log" (unary io//log))
+          (install "error" (unary io//error))
+          (install "exit" (unary io//exit))
+          (install "current-time" (nullary io//current-time)))))
+
+(def: atom-procs
+  Bundle
+  (<| (prefix "atom")
+      (|> (dict.new text.Hash<Text>)
+          (install "new" (unary atom//new))
+          (install "read" (unary atom//read))
+          (install "compare-and-swap" (trinary atom//compare-and-swap)))))
+
+(def: box-procs
+  Bundle
+  (<| (prefix "box")
+      (|> (dict.new text.Hash<Text>)
+          (install "new" (unary box//new))
+          (install "read" (unary box//read))
+          (install "write" (binary box//write)))))
+
+(def: process-procs
+  Bundle
+  (<| (prefix "process")
+      (|> (dict.new text.Hash<Text>)
+          (install "concurrency-level" (nullary process//concurrency-level))
+          (install "future" (unary process//future))
+          (install "schedule" (binary process//schedule))
+          )))
+
+(def: #export procedures
+  Bundle
+  (<| (prefix "lux")
+      (|> (dict.new text.Hash<Text>)
+          (dict.merge lux-procs)
+          (dict.merge bit-procs)
+          (dict.merge nat-procs)
+          (dict.merge int-procs)
+          (dict.merge deg-procs)
+          (dict.merge frac-procs)
+          (dict.merge text-procs)
+          (dict.merge array-procs)
+          (dict.merge math-procs)
+          (dict.merge io-procs)
+          (dict.merge atom-procs)
+          (dict.merge box-procs)
+          (dict.merge process-procs)
+          )))

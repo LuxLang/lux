@@ -1,0 +1,75 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (data [text]
+             text/format
+             (coll [list "list/" Functor<List>]))
+       [macro])
+  (luxc ["&" lang]
+        (lang ["ls" synthesis]
+              [".L" variable #+ Variable]))
+  [//]
+  (// [".T" reference]
+      [".T" loop]))
+
+(def: #export (translate-apply translate functionS argsS+)
+  (-> (-> ls.Synthesis (Meta //.Expression)) ls.Synthesis (List ls.Synthesis) (Meta //.Expression))
+  (do macro.Monad<Meta>
+    [functionJS (translate functionS)
+     argsJS+ (monad.map @ translate argsS+)]
+    (wrap (format functionJS "(" (text.join-with "," argsJS+) ")"))))
+
+(def: (input-declaration register)
+  (format "var " (referenceT.variable (n/inc register)) " = arguments[" (|> register nat-to-int %i) "];"))
+
+(def: (with-closure inits function)
+  (-> (List //.Expression) //.Expression //.Expression)
+  (let [closure (case inits
+                  #.Nil
+                  (list)
+
+                  _
+                  (|> (list.n/range +0 (n/dec (list.size inits)))
+                      (list/map referenceT.closure)))]
+    (format "(function(" (text.join-with "," closure) ") {"
+            "return " function
+            ";})(" (text.join-with "," inits) ")")))
+
+(def: #export (translate-function translate env arity bodyS)
+  (-> (-> ls.Synthesis (Meta //.Expression))
+      (List Variable) ls.Arity ls.Synthesis
+      (Meta //.Expression))
+  (do macro.Monad<Meta>
+    [[function-name bodyJS] (hostL.with-sub-context
+                              (translate bodyS))
+     closureJS+ (monad.map @ translate env)
+     #let [args-initsJS+ (|> (list.n/range +0 (n/dec arity))
+                             (list/map input-declaration)
+                             (text.join-with ""))
+           selfJS (format "var " (referenceT.variable +0) " = " function-name ";")
+           loop-startJs (format "var " loopT.loop-name " = " function-name ";")
+           arityJS (|> arity nat-to-int %i)]]
+    (wrap (<| (with-closure closureJS+)
+              (format "(function " function-name "() {"
+                      "\"use strict\";"
+                      "var num_args = arguments.length;"
+                      "if(num_args == " arity ") {"
+                      selfJS
+                      loop-startJs
+                      args-initsJS+
+                      (format "while(true) {"
+                              "return " bodyJS ";"
+                              "}")
+                      "}"
+                      "else if(num_args > " arityJS ") {"
+                      "return " function-name ".apply(null, [].slice.call(arguments,0," arityJS "))"
+                      ".apply(null, [].slice.call(arguments," arityJS "));"
+                      "}"
+                      ## Less than arity
+                      "else {"
+                      "var curried = [].slice.call(arguments);"
+                      "return function() { "
+                      "return " function-name ".apply(null, curried.concat([].slice.call(arguments)));"
+                      " };"
+                      "}"
+                      "})")))))
