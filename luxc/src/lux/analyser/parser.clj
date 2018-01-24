@@ -102,7 +102,7 @@
                            (return (&/$GenericClass class-name =params))))
 
                        (with-parens
-                         (|do [_ (&reader/read-text "Array")
+                         (|do [_ (&reader/read-text "#Array")
                                _ _space_
                                =param parse-gclass]
                            (return (&/$GenericArray =param))))
