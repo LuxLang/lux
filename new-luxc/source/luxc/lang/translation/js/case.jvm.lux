@@ -1,9 +1,12 @@
 (.module:
   lux
-  (lux (control [monad #+ do])
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
        (data text/format
-             (coll [list "list/" Fold<List>])))
-  (luxc (lang ["ls" synthesis]))
+             (coll [list "list/" Fold<List>]))
+       [macro #+ "meta/" Monad<Meta>])
+  (luxc [lang]
+        (lang ["ls" synthesis]))
   [//]
   (// [".T" runtime]
       [".T" primitive]
@@ -25,20 +28,16 @@
       (Meta //.Expression))
   (do macro.Monad<Meta>
     [valueJS (translate valueS)]
-    (wrap (list/fold (function [source [idx tail?]]
+    (wrap (list/fold (function [[idx tail?] source]
                        (let [method (if tail? runtimeT.product//right runtimeT.product//left)]
-                         (format method "(" source "," idx ")")))
+                         (format method "(" source "," (|> idx nat-to-int %i) ")")))
                      (format "(" valueJS ")")
                      path))))
 
-(def: #export (translate-if translate testS thenS elseS)
-  (-> (-> ls.Synthesis (Meta //.Expression)) ls.Synthesis ls.Synthesis ls.Synthesis
-      (Meta //.Expression))
-  (do macro.Monad<Meta>
-    [testJS (translate testS)
-     thenJS (translate thenS)
-     elseJS (translate elseS)]
-    (wrap (format "(" testJS " ? " thenJS " : " elseJS ")"))))
+(def: #export (translate-if testJS thenJS elseJS)
+  (-> //.Expression //.Expression //.Expression
+      //.Expression)
+  (format "(" testJS " ? " thenJS " : " elseJS ")"))
 
 (def: savepoint
   //.Expression
@@ -76,6 +75,8 @@
   //.Statement
   (format "throw " pm-error ";"))
 
+(exception: #export Unrecognized-Path)
+
 (def: (translate-pattern-matching' translate path)
   (-> (-> ls.Synthesis (Meta //.Expression)) Code (Meta //.Expression))
   (case path
@@ -85,10 +86,10 @@
       (wrap (format "return " bodyJS ";")))
 
     (^code ("lux case pop"))
-    (wrap pop-cursor)
+    (meta/wrap pop-cursor)
 
     (^code ("lux case bind" (~ [_ (#.Nat register)])))
-    (wrap (format "var " (referenceT.variable register) " = " peek-cursor ";"))
+    (meta/wrap (format "var " (referenceT.variable register) " = " peek-cursor ";"))
 
     (^template [<tag> <translate>]
       [_ (<tag> value)]
@@ -100,27 +101,27 @@
      [#.Deg primitiveT.translate-deg])
 
     (^template [<tag> <format>]
-      (<tag> value)
-      (wrap (format "if(" peek-cursor " !== " (<format> value) ") { " fail-pattern-matching " }")))
+      [_ (<tag> value)]
+      (meta/wrap (format "if(" peek-cursor " !== " (<format> value) ") { " fail-pattern-matching " }")))
     ([#.Bool %b]
      [#.Frac %f]
      [#.Text %t])
 
     (^template [<pm> <getter>]
       (^code (<pm> (~ [_ (#.Nat idx)])))
-      (wrap (push-cursor (format <getter> "(" peek-cursor "," (|> idx nat-to-int %i) ")"))))
+      (meta/wrap (push-cursor (format <getter> "(" peek-cursor "," (|> idx nat-to-int %i) ")"))))
     (["lux case tuple left" runtimeT.product//left]
      ["lux case tuple right" runtimeT.product//right])
 
     (^template [<pm> <flag>]
       (^code (<pm> (~ [_ (#.Nat idx)])))
-      (wrap (format "temp = " runtimeT.sum//get "(" peek-cursor "," (|> idx nat-to-int %i) "," <flag> ");"
-                    "if(temp !== null) {"
-                    (push-cursor "temp")
-                    "}"
-                    "else {"
-                    fail-pattern-matching
-                    "}")))
+      (meta/wrap (format "temp = " runtimeT.sum//get "(" peek-cursor "," (|> idx nat-to-int %i) "," <flag> ");"
+                         "if(temp !== null) {"
+                         (push-cursor "temp")
+                         "}"
+                         "else {"
+                         fail-pattern-matching
+                         "}")))
     (["lux case variant left" "null"]
      ["lux case variant right" "\"\""])
 
@@ -147,6 +148,9 @@
                     "throw ex;"
                     "}"
                     "}")))
+
+    _
+    (lang.throw Unrecognized-Path (%code path))
     ))
 
 (def: report-pattern-matching-error

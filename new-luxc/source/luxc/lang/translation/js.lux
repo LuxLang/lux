@@ -10,10 +10,11 @@
              text/format
              (coll [array]))
        [macro]
-       [io #+ Process]
+       [io #+ IO Process io]
        [host #+ class: interface: object]
        (world [file #+ File]))
   (luxc [lang]
+        (lang [".L" variable #+ Register])
         [".C" io]))
 
 (type: #export JS Text)
@@ -27,10 +28,6 @@
 
 (host.import java/lang/String
   (getBytes [String] #try (Array byte)))
-
-(host.import java/lang/Number
-  (doubleValue [] double)
-  (longValue [] Long))
 
 (host.import java/lang/Integer
   (longValue [] Long))
@@ -56,36 +53,30 @@
 
 (host.import jdk/nashorn/api/scripting/NashornScriptEngine)
 
-(host.import jdk/nashorn/api/scripting/JSObject
-  (isArray [] boolean)
-  (isFunction [] boolean)
-  (getMember [String] #? Object)
-  (hasMember [String] boolean))
+(host.import jdk/nashorn/api/scripting/JSObject)
 
 (host.import jdk/nashorn/api/scripting/AbstractJSObject)
-
-(host.import jdk/nashorn/api/scripting/ScriptObjectMirror
-  (size [] int))
-
-(host.import jdk/nashorn/internal/runtime/Undefined)
 
 (host.import java/util/Arrays
   (#static [t] copyOfRange [(Array t) int int] (Array t)))
 
-(type: #export Host
-  {## #artifacts Artifacts
-   ## #context [Text Nat]
+(type: #export Anchor [Text Register])
 
+(type: #export Host
+  {#context [Text Nat]
+   #anchor (Maybe Anchor)
    #interpreter ScriptEngine
    #module-buffer (Maybe StringBuilder)
    #program-buffer StringBuilder
    })
 
-(def: #export (init _)
-  (-> Top Host)
-  {#interpreter (ScriptEngineFactory::getScriptEngine [] (NashornScriptEngineFactory::new []))
-   #module-buffer #.None
-   #program-buffer (StringBuilder::new [])})
+(def: #export init
+  (IO Host)
+  (io {#context ["" +0]
+       #anchor #.None
+       #interpreter (ScriptEngineFactory::getScriptEngine [] (NashornScriptEngineFactory::new []))
+       #module-buffer #.None
+       #program-buffer (StringBuilder::new [])}))
 
 (def: #export module-js-name Text "module.js")
 
@@ -101,7 +92,66 @@
 
 (exception: #export No-Active-Module-Buffer)
 (exception: #export Cannot-Execute)
-(exception: #export Cannot-Evaluate)
+
+(def: #export (with-sub-context expr)
+  (All [a] (-> (Meta a) (Meta [Text a])))
+  (function [compiler]
+    (let [old (:! Host (get@ #.host compiler))
+          [old-name old-sub] (get@ #context old)
+          new-name (format old-name "$" (%i (nat-to-int old-sub)))]
+      (case (expr (set@ #.host
+                        (:! Void (set@ #context [new-name +0] old))
+                        compiler))
+        (#e.Success [compiler' output])
+        (#e.Success [(update@ #.host
+                              (|>> (:! Host)
+                                   (set@ #context [old-name (n/inc old-sub)])
+                                   (:! Void))
+                              compiler')
+                     [new-name output]])
+
+        (#e.Error error)
+        (#e.Error error)))))
+
+(def: #export context
+  (Meta Text)
+  (function [compiler]
+    (#e.Success [compiler
+                 (|> (get@ #.host compiler)
+                     (:! Host)
+                     (get@ #context)
+                     (let> [name sub]
+                           name))])))
+
+(def: #export (with-anchor anchor expr)
+  (All [a] (-> Anchor (Meta a) (Meta a)))
+  (function [compiler]
+    (let [old (:! Host (get@ #.host compiler))]
+      (case (expr (set@ #.host
+                        (:! Void (set@ #anchor (#.Some anchor) old))
+                        compiler))
+        (#e.Success [compiler' output])
+        (#e.Success [(update@ #.host
+                              (|>> (:! Host)
+                                   (set@ #anchor (get@ #anchor old))
+                                   (:! Void))
+                              compiler')
+                     output])
+
+        (#e.Error error)
+        (#e.Error error)))))
+
+(exception: #export No-Anchor)
+
+(def: #export anchor
+  (Meta Anchor)
+  (function [compiler]
+    (case (|> compiler (get@ #.host) (:! Host) (get@ #anchor))
+      (#.Some anchor)
+      (#e.Success [compiler anchor])
+
+      #.None
+      ((lang.throw No-Anchor "") compiler))))
 
 (def: #export module-buffer
   (Meta StringBuilder)
@@ -157,8 +207,8 @@
 
 (exception: #export Unknown-Member)
 
-(def: int-high-field Text "H")
-(def: int-low-field Text "L")
+(def: #export int-high-field Text "H")
+(def: #export int-low-field Text "L")
 
 (def: jvm-int
   (-> Nat Integer)
@@ -168,14 +218,13 @@
   Nat
   (|> +1 (bit.shift-left +32) n/dec))
 
-(def: high (-> Nat Nat) (bit.shift-right +32))
-(def: low (-> Nat Nat) (bit.and low-mask))
+(def: #export high (-> Nat Nat) (bit.shift-right +32))
+(def: #export low (-> Nat Nat) (bit.and low-mask))
 
 (interface: IntValue
   (getValue [] Long))
 
-(host.import luxc/lang/translation/js/IntValue
-  (getValue [] Long))
+(host.import luxc/lang/translation/js/IntValue)
 
 (def: (js-int value)
   (-> Int JSObject)
@@ -198,8 +247,7 @@
 (interface: StructureValue
   (getValue [] (Array Object)))
 
-(host.import luxc/lang/translation/js/StructureValue
-  (getValue [] (Array Object)))
+(host.import luxc/lang/translation/js/StructureValue)
 
 (def: (js-structure value)
   (-> (Array Object) JSObject)
@@ -255,125 +303,6 @@
 ##     (lux-obj object)
 ##     obj))
 
-(def: (int js-object)
-  (-> ScriptObjectMirror (Maybe Int))
-  (case [(JSObject::getMember [int-high-field] js-object)
-         (JSObject::getMember [int-low-field] js-object)]
-    (^multi [(#.Some high) (#.Some low)]
-            (and (host.instance? Number high)
-                 (host.instance? Number low))
-            [[(Number::longValue [] (:! Number high))
-              (Number::longValue [] (:! Number low))]
-             [high low]])
-    (#.Some (nat-to-int (n/+ (|> high (:! Int) int-to-nat (bit.shift-left +32))
-                             (|> low (:! Int) int-to-nat))))
-
-    _
-    #.None))
-
-(def: (extend-array by input)
-  (All [a] (-> Nat (Array a) (Array a)))
-  (let [size (array.size input)]
-    (|> (array.new (n/+ by size))
-        (array.copy size +0 input +0))))
-
-(def: (array element-parser js-object)
-  (-> (-> Object (Error Top)) ScriptObjectMirror (Maybe (Array Object)))
-  (if (JSObject::isArray [] js-object)
-    (let [init-num-keys (int-to-nat (ScriptObjectMirror::size [] js-object))]
-      (loop [num-keys init-num-keys
-             idx +0
-             output (: (Array Object)
-                       (array.new init-num-keys))]
-        (if (n/< num-keys idx)
-          (let [idx-key (|> idx nat-to-int %i)]
-            (case (JSObject::getMember idx-key js-object)
-              (#.Some member)
-              (case (element-parser member)
-                (#e.Success parsed-member)
-                (recur num-keys
-                       (n/inc idx)
-                       (array.write idx (:! Object parsed-member) output))
-
-                (#e.Error error)
-                #.None)
-              
-              #.None
-              (recur (n/inc num-keys)
-                     (n/inc idx)
-                     (extend-array +1 output))))
-          (#.Some output))))
-    #.None))
-
-(exception: #export Unknown-Kind-Of-JS-Object)
-(exception: #export Null-Has-No-Lux-Representation)
-
-(def: (lux-object js-object)
-  (-> Object (Error Top))
-  (`` (cond (host.null? js-object)
-            (ex.throw Null-Has-No-Lux-Representation "")
-            
-            (host.instance? Integer js-object)
-            (ex.return (Integer::longValue [] (:! Integer js-object)))
-
-            (or (host.instance? java/lang/Boolean js-object)
-                (host.instance? java/lang/String js-object))
-            (ex.return js-object)
-
-            (host.instance? Number js-object)
-            (ex.return (Number::doubleValue [] (:! Number js-object)))
-
-            (~~ (do-template [<interface> <method>]
-                  [(host.instance? <interface> js-object)
-                   (ex.return (<method> [] (:! <interface> js-object)))]
-                  
-                  [StructureValue StructureValue::getValue]
-                  [IntValue IntValue::getValue]))
-            
-            (host.instance? ScriptObjectMirror js-object)
-            (let [js-object (:! ScriptObjectMirror js-object)]
-              (case (int js-object)
-                (#.Some value)
-                (ex.return value)
-
-                #.None
-                (case (array lux-object js-object)
-                  (#.Some value)
-                  (ex.return value)
-
-                  #.None
-                  ## (JSObject::isFunction [] js-object)
-                  ## js-object
-
-                  ## else
-                  (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
-            
-            ## else
-            (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
-
-(def: #export (eval code)
-  (-> Expression (Meta Top))
-  (function [compiler]
-    (case (|> compiler
-              (:! Host)
-              (get@ #interpreter)
-              (ScriptEngine::eval [code]))
-      (#e.Error error)
-      ((lang.fail (Cannot-Evaluate error)) compiler)
-      
-      (#e.Success output)
-      (case output
-        #.None
-        (#e.Success [compiler []])
-
-        (#.Some output)
-        (case (lux-object output)
-          (#e.Success parsed-output)
-          (#e.Success [compiler parsed-output])
-
-          (#e.Error error)
-          (#e.Error error))))))
-
 (def: #export unit Text "\u0000")
 
 (def: (module-name module)
@@ -382,17 +311,20 @@
       (text.replace-all "/" "$")
       (text.replace-all "-" "_")))
 
-(def: (definition-name [module name])
+(def: #export (definition-name [module name])
   (-> Ident Text)
   (format (module-name module) "$" (lang.normalize-name name)))
 
+(def: #export (save-js code)
+  (-> JS (Meta Unit))
+  (do macro.Monad<Meta>
+    [module-buffer module-buffer
+     #let [_ (AbstractStringBuilder::append [code] module-buffer)]]
+    (execute code)))
+
 (def: #export (save-definition name code)
   (-> Ident Expression (Meta Unit))
-  (do macro.Monad<Meta>
-    [#let [js-definition (format "var " (definition-name name) " = " code ";\n")]
-     module-buffer module-buffer
-     #let [_ (AbstractStringBuilder::append [js-definition] module-buffer)]]
-    (execute js-definition)))
+  (save-js (format "var " (definition-name name) " = " code ";\n")))
 
 (def: #export (save-module! target)
   (-> File (Meta (Process Unit)))

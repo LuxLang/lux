@@ -36,12 +36,13 @@
                         [".A" common])
               (synthesis [".S" expression])
               ["&." eval]))
-  (/ (jvm [".T" runtime]
-          [".T" statement]
-          [".T" common #+ Artifacts]
-          [".T" expression]
-          [".T" eval]
-          [".T" imports])))
+  (/ [js]
+     (js [".T" runtime]
+         [".T" statement]
+         ## [".T" common #+ Artifacts]
+         [".T" expression]
+         [".T" eval]
+         [".T" imports])))
 
 (def: analyse
   (&.Analyser)
@@ -52,7 +53,9 @@
 (exception: #export Invalid-Macro)
 
 (def: (process-annotations annsC)
-  (-> Code (Meta [$.Inst Code]))
+  (-> Code (Meta [js.Expression
+                  ## $.Inst
+                  Code]))
   (do macro.Monad<Meta>
     [[_ annsA] (&.with-scope
                  (&.with-type Code
@@ -168,14 +171,14 @@
                           (String::getBytes ["UTF-8"])
                           e.assume)))})
 
-(def: (write-module target-dir file-name module-name module artifacts)
-  (-> File Text Text Module Artifacts (Process Unit))
-  (do io.Monad<Process>
-    [_ (monad.map @ (product.uncurry (&io.write target-dir))
-                  (dict.entries artifacts))]
-    (&io.write target-dir
-               (format module-name "/" cache.descriptor-name)
-               (text-to-blob (%code (cache/description.write file-name module))))))
+## (def: (write-module target-dir file-name module-name module artifacts)
+##   (-> File Text Text Module Artifacts (Process Unit))
+##   (do io.Monad<Process>
+##     [_ (monad.map @ (product.uncurry (&io.write target-dir))
+##                   (dict.entries artifacts))]
+##     (&io.write target-dir
+##                (format module-name "/" cache.descriptor-name)
+##                (text-to-blob (%code (cache/description.write file-name module))))))
 
 (def: no-aliases Aliases (dict.new text.Hash<Text>))
 
@@ -187,21 +190,20 @@
            translate-module (translate-module source-dirs target-dir)]]
     (case (macro.run' compiler
                       (do macro.Monad<Meta>
-                        [[module artifacts _] (moduleL.with-module module-hash module-name
-                                                (commonT.with-artifacts
-                                                  (with-active-compilation [module-name
-                                                                            file-name
-                                                                            file-content]
-                                                    (forgive-eof
-                                                     (loop [aliases no-aliases]
-                                                       (do @
-                                                         [code (read module-name aliases)
-                                                          #let [[cursor _] code]
-                                                          aliases' (&.with-cursor cursor
-                                                                     (translate translate-module aliases code))]
-                                                         (forgive-eof (recur aliases'))))))))]
-                        (wrap [module artifacts])))
-      (#e.Success [compiler [module artifacts]])
+                        [[module _] (moduleL.with-module module-hash module-name
+                                      (with-active-compilation [module-name
+                                                                file-name
+                                                                file-content]
+                                        (forgive-eof
+                                         (loop [aliases no-aliases]
+                                           (do @
+                                             [code (read module-name aliases)
+                                              #let [[cursor _] code]
+                                              aliases' (&.with-cursor cursor
+                                                         (translate translate-module aliases code))]
+                                             (forgive-eof (recur aliases')))))))]
+                        (wrap module)))
+      (#e.Success [compiler module])
       (do @
         [## _ (&io.prepare-module target-dir module-name)
          ## _ (write-module target-dir file-name module-name module artifacts)
@@ -209,30 +211,73 @@
         (wrap compiler))
       
       (#e.Error error)
-      (io.fail error))))
+      (io.fail error))
+    ## (case (macro.run' compiler
+    ##                   (do macro.Monad<Meta>
+    ##                     [[module artifacts _] (moduleL.with-module module-hash module-name
+    ##                                             (commonT.with-artifacts
+    ##                                               (with-active-compilation [module-name
+    ##                                                                         file-name
+    ##                                                                         file-content]
+    ##                                                 (forgive-eof
+    ##                                                  (loop [aliases no-aliases]
+    ##                                                    (do @
+    ##                                                      [code (read module-name aliases)
+    ##                                                       #let [[cursor _] code]
+    ##                                                       aliases' (&.with-cursor cursor
+    ##                                                                  (translate translate-module aliases code))]
+    ##                                                      (forgive-eof (recur aliases'))))))))]
+    ##                     (wrap [module artifacts])))
+    ##   (#e.Success [compiler [module artifacts]])
+    ##   (do @
+    ##     [## _ (&io.prepare-module target-dir module-name)
+    ##      ## _ (write-module target-dir file-name module-name module artifacts)
+    ##      ]
+    ##     (wrap compiler))
+    
+    ##   (#e.Error error)
+    ##   (io.fail error))
+    ))
 
 (def: (initialize sources target)
   (-> (List File) File (Process Compiler))
   (do io.Monad<Process>
-    [compiler (: (Process Compiler)
-                 (case (runtimeT.translate (initL.compiler (io.run hostL.init-host)))
-                   (#e.Error error)
-                   (io.fail error)
+    [compiler (case (runtimeT.translate (initL.compiler (io.run js.init))
+                                        ## (initL.compiler (io.run hostL.init-host))
+                                        )
+                (#e.Success [compiler disk-write])
+                (do @
+                  [_ (&io.prepare-target target)
+                   _ disk-write
+                   ## _ (cache/io.pre-load sources target (commonT.load-definition compiler))
+                   ]
+                  (wrap (|> compiler
+                            (set@ [#.info #.mode] #.Build)
+                            (set@ #.extensions
+                                  (:! Void
+                                      {#extensionL.analysis analysisE.defaults
+                                       #extensionL.synthesis synthesisE.defaults
+                                       #extensionL.translation translationE.defaults
+                                       #extensionL.statement statementE.defaults})))))
+                
+                ## (#e.Success [compiler [runtime-bc function-bc]])
+                ## (do @
+                ##   [_ (&io.prepare-target target)
+                ##    ## _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
+                ##    ## _ (&io.write target (format hostL.function-class ".class") function-bc)
+                ##    ## _ (cache/io.pre-load sources target (commonT.load-definition compiler))
+                ##    ]
+                ##   (wrap (|> compiler
+                ##             (set@ [#.info #.mode] #.Build)
+                ##             (set@ #.extensions
+                ##                   (:! Void
+                ##                       {#extensionL.analysis analysisE.defaults
+                ##                        #extensionL.synthesis synthesisE.defaults
+                ##                        #extensionL.translation translationE.defaults
+                ##                        #extensionL.statement statementE.defaults})))))
 
-                   (#e.Success [compiler [runtime-bc function-bc]])
-                   (do @
-                     [_ (&io.prepare-target target)
-                      _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
-                      _ (&io.write target (format hostL.function-class ".class") function-bc)
-                      _ (cache/io.pre-load sources target (commonT.load-definition compiler))]
-                     (wrap (|> compiler
-                               (set@ [#.info #.mode] #.Build)
-                               (set@ #.extensions
-                                     (:! Void
-                                         {#extensionL.analysis analysisE.defaults
-                                          #extensionL.synthesis synthesisE.defaults
-                                          #extensionL.translation translationE.defaults
-                                          #extensionL.statement statementE.defaults})))))))]
+                (#e.Error error)
+                (io.fail error))]
     (translate-module sources target prelude compiler)))
 
 (def: #export (translate-program sources target program)

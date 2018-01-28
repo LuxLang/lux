@@ -2,9 +2,15 @@
   lux
   (lux (control [monad #+ do]
                 ["ex" exception #+ exception:]
-                ["p" parser]))
+                ["p" parser])
+       (data ["e" error]
+             text/format)
+       [macro]
+       (macro ["s" syntax]))
   (luxc ["&" lang]
-        (lang ["ls" synthesis]))
+        (lang [".L" variable #+ Variable Register]
+              [".L" extension]
+              ["ls" synthesis]))
   [//]
   (// [".T" runtime]
       [".T" primitive]
@@ -12,15 +18,17 @@
       [".T" reference]
       [".T" function]
       [".T" loop]
-      [".T" case]))
+      [".T" case]
+      [".T" procedure]))
 
+(exception: #export Invalid-Function-Syntax)
 (exception: #export Unrecognized-Synthesis)
 
 (def: #export (translate synthesis)
   (-> ls.Synthesis (Meta //.Expression))
   (case synthesis
     (^code [])
-    (wrap runtimeT.unit)
+    (:: macro.Monad<Meta> wrap runtimeT.unit)
 
     (^code [(~ singleton)])
     (translate singleton)
@@ -42,22 +50,24 @@
     (structureT.translate-tuple translate members)
 
     (^ [_ (#.Form (list [_ (#.Int var)]))])
-    (if (variableL.captured? var)
-      (referenceT.translate-captured var)
-      (referenceT.translate-local var))
+    (referenceT.translate-variable var)
 
     [_ (#.Symbol definition)]
     (referenceT.translate-definition definition)
 
     (^code ("lux let" (~ [_ (#.Nat register)]) (~ inputS) (~ exprS)))
-    (caseT.translate-let translate register inputS exprS)
+    (caseT.translate-let translate inputS register exprS)
 
     (^code ("lux case" (~ inputS) (~ pathPS)))
     (caseT.translate-case translate inputS pathPS)
 
-    (^multi (^code ("lux function" (~ [_ (#.Nat arity)]) [(~+ environment)] (~ bodyS)))
-            [(s.run environment (p.some s.int)) (#e.Success environment)])
-    (functionT.translate-function translate environment arity bodyS)
+    (^code ("lux function" (~ [_ (#.Nat arity)]) [(~+ environment)] (~ bodyS)))
+    (case (s.run environment (p.some s.int))
+      (#e.Success environment)
+      (functionT.translate-function translate environment arity bodyS)
+
+      _
+      (&.throw Invalid-Function-Syntax (%code synthesis)))
 
     (^code ("lux call" (~ functionS) (~+ argsS)))
     (functionT.translate-apply translate functionS argsS)

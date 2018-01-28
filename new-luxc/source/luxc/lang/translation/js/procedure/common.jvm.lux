@@ -1,6 +1,8 @@
 (.module:
   lux
-  (lux (control [monad #+ do])
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                ["p" parser])
        (data ["e" error]
              [text]
              text/format
@@ -8,7 +10,8 @@
                    [dict #+ Dict]))
        [macro #+ with-gensyms]
        (macro [code]
-              ["s" syntax #+ syntax:]))
+              ["s" syntax #+ syntax:])
+       [host])
   (luxc ["&" lang]
         (lang ["la" analysis]
               ["ls" synthesis]))
@@ -91,11 +94,11 @@
         (wrap (proc inputsI))))))
 
 (def: (self-contained content)
-  (-> //.Expression //.Expression)
+  (-> ///.Expression ///.Expression)
   (format "(" content ")"))
 
 (def: (void action)
-  (-> //.Expression //.Expression)
+  (-> ///.Expression ///.Expression)
   (format "(" action "," runtimeT.unit ")"))
 
 ## [Procedures]
@@ -150,8 +153,8 @@
   [bit//or                   runtimeT.bit//or]
   [bit//xor                  runtimeT.bit//xor]
   [bit//shift-left           runtimeT.bit//shift-left]
-  [bit//shift-right          runtimeT.bit//shift-right]
-  [bit//unsigned-shift-right runtimeT.bit//unsigned-shift-right]
+  [bit//shift-right          runtimeT.bit//signed-shift-right]
+  [bit//unsigned-shift-right runtimeT.bit//shift-right]
   )
 
 (def: (bit//count subjectJS)
@@ -180,26 +183,37 @@
   (format arrayJS ".length"))
 
 ## [[Numbers]]
-(do-template [<name> <encode> <type>]
+(host.import java/lang/Long
+  (#static MIN_VALUE Long)
+  (#static MAX_VALUE Long))
+
+(host.import java/lang/Double
+  (#static MIN_VALUE Double)
+  (#static MAX_VALUE Double)
+  (#static NaN Double)
+  (#static POSITIVE_INFINITY Double)
+  (#static NEGATIVE_INFINITY Double))
+
+(do-template [<name> <const> <encode>]
   [(def: (<name> _)
      Nullary
      (<encode> <const>))]
 
-  [nat//min                 0                           js-int]
-  [nat//max                -1                           js-int]
+  [nat//min                 0                           runtimeT.int-constant]
+  [nat//max                -1                           runtimeT.int-constant]
 
-  [int//min                Long::MIN_VALUE              js-int]
-  [int//max                Long::MAX_VALUE              js-int]
+  [int//min                Long::MIN_VALUE              runtimeT.int-constant]
+  [int//max                Long::MAX_VALUE              runtimeT.int-constant]
   
-  [frac//smallest          Double::MIN_VALUE            js-frac]
-  [frac//min               (f/* -1.0 Double::MAX_VALUE) js-frac]
-  [frac//max               Double::MAX_VALUE            js-frac]
-  [frac//not-a-number      Double::NaN                  js-frac]
-  [frac//positive-infinity Double::POSITIVE_INFINITY    js-frac]
-  [frac//negative-infinity Double::NEGATIVE_INFINITY    js-frac]
+  [frac//smallest          Double::MIN_VALUE            runtimeT.frac-constant]
+  [frac//min               (f/* -1.0 Double::MAX_VALUE) runtimeT.frac-constant]
+  [frac//max               Double::MAX_VALUE            runtimeT.frac-constant]
+  [frac//not-a-number      Double::NaN                  runtimeT.frac-constant]
+  [frac//positive-infinity Double::POSITIVE_INFINITY    runtimeT.frac-constant]
+  [frac//negative-infinity Double::NEGATIVE_INFINITY    runtimeT.frac-constant]
 
-  [deg//min                 0                           js-int]
-  [deg//max                -1                           js-int]
+  [deg//min                 0                           runtimeT.int-constant]
+  [deg//max                -1                           runtimeT.int-constant]
   )
 
 (do-template [<name> <op>]
@@ -238,9 +252,10 @@
   [frac//mul "*"]
   [frac//div "/"]
   [frac//rem "%"]
-  [frac//=   "=="]
+  [frac//=   "==="]
   [frac//<   "<"]
-  [text//=   "=="]
+
+  [text//=   "==="]
   [text//<   "<"]
   )
 
@@ -277,7 +292,7 @@
 (do-template [<name> <transform>]
   [(def: (<name> inputJS)
      Unary
-     (<transform> "(" inputJS ")"))]
+     (format <transform> "(" inputJS ")"))]
 
   [int//to-frac runtimeT.int//to-number]
   [frac//to-int runtimeT.int//from-number]
@@ -326,7 +341,7 @@
 
 (def: (text//replace-once [subjectJS paramJS extraJS])
   Trinary
-  (format subjectJS "." <method> "(" paramJS "," extraJS ")"))
+  (format subjectJS ".replace(" paramJS "," extraJS ")"))
 
 (do-template [<name> <method>]
   [(def: (<name> [textJS partJS startJS])
@@ -398,7 +413,7 @@
 
 (def: (atom//compare-and-swap [atomJS oldJS newJS])
   Trinary
-  (format atom//compare-and-swap "(" atomJS "," oldJS "," newJS ")"))
+  (format runtimeT.atom//compare-and-swap "(" atomJS "," oldJS "," newJS ")"))
 
 ## [[Box]]
 (def: (box//new initJS)
@@ -407,7 +422,7 @@
 
 (def: (box//read boxJS)
   Unary
-  (format "[" boxJS "][0]"))
+  (format "(" boxJS ")[0]"))
 
 (def: (box//write [valueJS boxJS])
   Binary
@@ -464,8 +479,8 @@
           (install "*" (binary nat//mul))
           (install "/" (binary nat//div))
           (install "%" (binary nat//rem))
-          (install "=" (binary nat//eq))
-          (install "<" (binary nat//lt))
+          (install "=" (binary nat//=))
+          (install "<" (binary nat//<))
           (install "min" (nullary nat//min))
           (install "max" (nullary nat//max))
           (install "to-int" (unary nat//to-int))
@@ -480,8 +495,8 @@
           (install "*" (binary int//mul))
           (install "/" (binary int//div))
           (install "%" (binary int//rem))
-          (install "=" (binary int//eq))
-          (install "<" (binary int//lt))
+          (install "=" (binary int//=))
+          (install "<" (binary int//<))
           (install "min" (nullary int//min))
           (install "max" (nullary int//max))
           (install "to-nat" (unary int//to-nat))
@@ -496,8 +511,8 @@
           (install "*" (binary deg//mul))
           (install "/" (binary deg//div))
           (install "%" (binary deg//rem))
-          (install "=" (binary deg//eq))
-          (install "<" (binary deg//lt))
+          (install "=" (binary deg//=))
+          (install "<" (binary deg//<))
           (install "scale" (binary deg//scale))
           (install "reciprocal" (binary deg//reciprocal))
           (install "min" (nullary deg//min))
@@ -513,8 +528,8 @@
           (install "*" (binary frac//mul))
           (install "/" (binary frac//div))
           (install "%" (binary frac//rem))
-          (install "=" (binary frac//eq))
-          (install "<" (binary frac//lt))
+          (install "=" (binary frac//=))
+          (install "<" (binary frac//<))
           (install "smallest" (nullary frac//smallest))
           (install "min" (nullary frac//min))
           (install "max" (nullary frac//max))
@@ -530,8 +545,8 @@
   Bundle
   (<| (prefix "text")
       (|> (dict.new text.Hash<Text>)
-          (install "=" (binary text//eq))
-          (install "<" (binary text//lt))
+          (install "=" (binary text//=))
+          (install "<" (binary text//<))
           (install "concat" (binary text//concat))
           (install "index" (trinary text//index))
           (install "size" (unary text//size))
@@ -616,8 +631,7 @@
 (def: #export procedures
   Bundle
   (<| (prefix "lux")
-      (|> (dict.new text.Hash<Text>)
-          (dict.merge lux-procs)
+      (|> lux-procs
           (dict.merge bit-procs)
           (dict.merge nat-procs)
           (dict.merge int-procs)

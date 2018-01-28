@@ -1,0 +1,164 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:])
+       (data [bit]
+             ["e" error #+ Error]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang])
+  [//])
+
+(host.import java/lang/Object
+  (toString [] String))
+
+(host.import java/lang/Number
+  (doubleValue [] double)
+  (longValue [] Long))
+
+(host.import java/lang/Integer
+  (longValue [] Long))
+
+(host.import javax/script/ScriptEngine
+  (eval [String] #try #? Object))
+
+(host.import jdk/nashorn/api/scripting/JSObject
+  (isArray [] boolean)
+  (isFunction [] boolean)
+  (getMember [String] #? Object)
+  (hasMember [String] boolean))
+
+(host.import jdk/nashorn/api/scripting/AbstractJSObject)
+
+(host.import jdk/nashorn/api/scripting/ScriptObjectMirror
+  (size [] int))
+
+(host.import jdk/nashorn/internal/runtime/Undefined)
+
+(host.import luxc/lang/translation/js/IntValue
+  (getValue [] Long))
+
+(host.import luxc/lang/translation/js/StructureValue
+  (getValue [] (Array Object)))
+
+(def: (int js-object)
+  (-> ScriptObjectMirror (Maybe Int))
+  (case [(JSObject::getMember [//.int-high-field] js-object)
+         (JSObject::getMember [//.int-low-field] js-object)]
+    (^multi [(#.Some high) (#.Some low)]
+            (and (host.instance? Number high)
+                 (host.instance? Number low))
+            [[(Number::longValue [] (:! Number high))
+              (Number::longValue [] (:! Number low))]
+             [high low]])
+    (#.Some (nat-to-int (n/+ (|> high (:! Int) int-to-nat (bit.shift-left +32))
+                             (|> low (:! Int) int-to-nat))))
+
+    _
+    #.None))
+
+(def: (extend-array by input)
+  (All [a] (-> Nat (Array a) (Array a)))
+  (let [size (array.size input)]
+    (|> (array.new (n/+ by size))
+        (array.copy size +0 input +0))))
+
+(def: (array element-parser js-object)
+  (-> (-> Object (Error Top)) ScriptObjectMirror (Maybe (Array Object)))
+  (if (JSObject::isArray [] js-object)
+    (let [init-num-keys (int-to-nat (ScriptObjectMirror::size [] js-object))]
+      (loop [num-keys init-num-keys
+             idx +0
+             output (: (Array Object)
+                       (array.new init-num-keys))]
+        (if (n/< num-keys idx)
+          (let [idx-key (|> idx nat-to-int %i)]
+            (case (JSObject::getMember idx-key js-object)
+              (#.Some member)
+              (case (element-parser member)
+                (#e.Success parsed-member)
+                (recur num-keys
+                       (n/inc idx)
+                       (array.write idx (:! Object parsed-member) output))
+
+                (#e.Error error)
+                #.None)
+              
+              #.None
+              (recur (n/inc num-keys)
+                     (n/inc idx)
+                     (extend-array +1 output))))
+          (#.Some output))))
+    #.None))
+
+(exception: #export Unknown-Kind-Of-JS-Object)
+(exception: #export Null-Has-No-Lux-Representation)
+
+(def: (lux-object js-object)
+  (-> Object (Error Top))
+  (`` (cond (host.null? js-object)
+            (ex.throw Null-Has-No-Lux-Representation "")
+            
+            (host.instance? Integer js-object)
+            (ex.return (Integer::longValue [] (:! Integer js-object)))
+
+            (or (host.instance? java/lang/Boolean js-object)
+                (host.instance? java/lang/String js-object))
+            (ex.return js-object)
+
+            (host.instance? Number js-object)
+            (ex.return (Number::doubleValue [] (:! Number js-object)))
+
+            (~~ (do-template [<interface> <method>]
+                  [(host.instance? <interface> js-object)
+                   (ex.return (<method> [] (:! <interface> js-object)))]
+                  
+                  [StructureValue StructureValue::getValue]
+                  [IntValue IntValue::getValue]))
+            
+            (host.instance? ScriptObjectMirror js-object)
+            (let [js-object (:! ScriptObjectMirror js-object)]
+              (case (int js-object)
+                (#.Some value)
+                (ex.return value)
+
+                #.None
+                (case (array lux-object js-object)
+                  (#.Some value)
+                  (ex.return value)
+
+                  #.None
+                  ## (JSObject::isFunction [] js-object)
+                  ## js-object
+
+                  ## else
+                  (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
+            
+            ## else
+            (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
+
+(exception: #export Cannot-Evaluate)
+
+(def: #export (eval code)
+  (-> //.Expression (Meta Top))
+  (function [compiler]
+    (case (|> compiler
+              (get@ #.host)
+              (:! //.Host)
+              (get@ #//.interpreter)
+              (ScriptEngine::eval [code]))
+      (#e.Error error)
+      ((lang.throw Cannot-Evaluate error) compiler)
+      
+      (#e.Success output)
+      (case output
+        #.None
+        (#e.Success [compiler []])
+
+        (#.Some output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (#e.Success [compiler parsed-output])
+
+          (#e.Error error)
+          ((lang.throw Cannot-Evaluate error) compiler))))))
