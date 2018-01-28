@@ -40,6 +40,10 @@
   (|do [[_ _ =name] (&reader/read-regex #"^([a-zA-Z0-9_\.]+)")]
     (return =name)))
 
+(def ^:private parse-name?
+  (|do [[_ _ =name] (&reader/read-regex? #"^([a-zA-Z0-9_\.]+)")]
+    (return =name)))
+
 (def ^:private parse-ident
   (|do [[_ _ =name] (&reader/read-regex &lexer/+ident-re+)]
     (return =name)))
@@ -164,12 +168,17 @@
       (return (&/T [=arg-name =gclass])))))
 
 (def ^:private parse-gvars
-  (|do [=head parse-name
-        [_ _ ?] (&reader/read-text? " ")]
-    (if ?
-      (|do [=tail parse-gvars]
-        (return (&/$Cons =head =tail)))
-      (return (&/|list =head)))))
+  (|do [?=head parse-name?]
+    (|case ?=head
+      (&/$Some =head)
+      (|do [[_ _ ?] (&reader/read-text? " ")]
+        (if ?
+          (|do [=tail parse-gvars]
+            (return (&/$Cons =head =tail)))
+          (return (&/|list =head))))
+
+      (&/$None)
+      (return (&/|list)))))
 
 (def ^:private parse-method-decl
   (with-parens

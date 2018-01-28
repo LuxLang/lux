@@ -63,6 +63,20 @@
                   (&/T [(&/T [file-name line-num column-num*]) line]))))
         ($No (str "[Reader Error] Pattern failed: " regex))))))
 
+(defn read-regex? [regex]
+  "(-> Regex (Reader (Maybe Text)))"
+  (with-line
+    (fn [file-name line-num column-num ^String line]
+      (if-let [^String match (re-find! regex column-num line)]
+        (let [match-length (.length match)
+              column-num* (+ column-num match-length)]
+          (if (= column-num* (.length line))
+            ($Done (&/T [(&/T [file-name line-num column-num]) true (&/$Some match)]))
+            ($Yes (&/T [(&/T [file-name line-num column-num]) false (&/$Some match)])
+                  (&/T [(&/T [file-name line-num column-num*]) line]))))
+        ($Yes (&/T [(&/T [file-name line-num column-num]) false &/$None])
+              (&/T [(&/T [file-name line-num column-num]) line]))))))
+
 (defn read-regex+ [regex]
   (with-lines
     (fn [reader]
