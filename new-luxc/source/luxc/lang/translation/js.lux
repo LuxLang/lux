@@ -1,7 +1,8 @@
 (.module:
   lux
   (lux (control ["ex" exception #+ exception:]
-                pipe)
+                pipe
+                [monad #+ do])
        (data [bit]
              [maybe]
              ["e" error #+ Error]
@@ -10,7 +11,7 @@
              (coll [array]))
        [macro]
        [io #+ Process]
-       [host #+ class: object]
+       [host #+ class: interface: object]
        (world [file #+ File]))
   (luxc [lang]
         [".C" io]))
@@ -28,7 +29,8 @@
   (getBytes [String] #try (Array byte)))
 
 (host.import java/lang/Number
-  (doubleValue [] double))
+  (doubleValue [] double)
+  (longValue [] Long))
 
 (host.import java/lang/Integer
   (longValue [] Long))
@@ -62,7 +64,8 @@
 
 (host.import jdk/nashorn/api/scripting/AbstractJSObject)
 
-(host.import jdk/nashorn/api/scripting/ScriptObjectMirror)
+(host.import jdk/nashorn/api/scripting/ScriptObjectMirror
+  (size [] int))
 
 (host.import jdk/nashorn/internal/runtime/Undefined)
 
@@ -168,78 +171,83 @@
 (def: high (-> Nat Nat) (bit.shift-right +32))
 (def: low (-> Nat Nat) (bit.and low-mask))
 
-(class: #final LuxInt AbstractJSObject []
-  ## Fields
-  (#public value Long)
-  ## Methods
-  (#public [] (new [value Long]) []
-           (exec (:= ::value value)
-             []))
-  (AbstractJSObject [] (getMember [member String]) Object
-                    (cond (text/= int-high-field member)
-                          (|> ::value int-to-nat high jvm-int)
-                          
-                          (text/= int-low-field member)
-                          (|> ::value int-to-nat low jvm-int)
-                          
-                          ## else
-                          (error! (Unknown-Member (format "     member = " member "\n"
-                                                          "object(int) = " (%i ::value) "\n"))))))
+(interface: IntValue
+  (getValue [] Long))
 
-(host.import luxc/lang/translation/js/LuxInt
-  (value Long)
-  (new [Long]))
+(host.import luxc/lang/translation/js/IntValue
+  (getValue [] Long))
 
-(class: #final LuxArray AbstractJSObject []
-  ## Fields
-  (#public structure (Array Object))
-  ## Methods
-  (#public [] (new [structure (Array Object)]) []
-           (exec (:= ::structure structure)
-             []))
-  (AbstractJSObject [] (isArray) boolean
-                    true)
-  (AbstractJSObject [] (getMember [member String]) Object
-                    (cond (text/= "toString" member)
-                          (:! Object
-                              (::toString ::structure))
-                          
-                          (text/= "length" member)
-                          (jvm-int (array.size ::structure))
-                          
-                          (text/= "slice" member)
-                          (let [js-object (: (-> Object JSObject)
-                                             (|>> (cond> [(host.instance? (Array Object))]
-                                                         [(:! (Array Object)) [] ::new!]
+(def: (js-int value)
+  (-> Int JSObject)
+  (object [] AbstractJSObject [IntValue]
+    []
+    ## Methods
+    (IntValue (getValue) Long
+              (:! Long value))
+    (AbstractJSObject (getMember [member String]) Object
+                      (cond (text/= int-high-field member)
+                            (|> value int-to-nat high jvm-int)
+                            
+                            (text/= int-low-field member)
+                            (|> value int-to-nat low jvm-int)
+                            
+                            ## else
+                            (error! (Unknown-Member (format "     member = " member "\n"
+                                                            "object(int) = " (%i value) "\n")))))))
 
-                                                         [(host.instance? Long)]
-                                                         [(:! Long) [] LuxInt::new]
+(interface: StructureValue
+  (getValue [] (Array Object)))
 
-                                                         ## else
-                                                         [(:! JSObject)])))]
+(host.import luxc/lang/translation/js/StructureValue
+  (getValue [] (Array Object)))
+
+(def: (js-structure value)
+  (-> (Array Object) JSObject)
+  (object [] AbstractJSObject [StructureValue]
+    []
+    ## Methods
+    (StructureValue (getValue) (Array Object)
+                    (:! (Array Object) value))
+    (AbstractJSObject (isArray) boolean
+                      true)
+    (AbstractJSObject (getMember [member String]) Object
+                      (cond (text/= "toString" member)
                             (:! Object
-                                (::slice js-object ::structure)))
-                          
-                          ## else
-                          (error! (Unknown-Member (format "           member = " (:! Text member) "\n"
-                                                          "object(structure) = " (Object::toString [] (:! Object ::structure)) "\n")))))
-  (AbstractJSObject [] (getSlot [idx int]) Object
-                    (|> ::structure
-                        (array.read (|> idx (Integer::longValue []) (:! Nat)))
-                        maybe.assume
-                        (cond> [(host.instance? (Array Object))]
-                               [(:! (Array Object)) [] ::new!]
+                                (::toString value))
+                            
+                            (text/= "length" member)
+                            (jvm-int (array.size value))
+                            
+                            (text/= "slice" member)
+                            (let [js-object (: (-> Object JSObject)
+                                               (|>> (cond> [(host.instance? (Array Object))]
+                                                           [(:! (Array Object)) js-structure]
 
-                               [(host.instance? Long)]
-                               [(:! Long) [] LuxInt::new]
+                                                           [(host.instance? Long)]
+                                                           [(:! Int) js-int]
 
-                               ## else
-                               [(:! JSObject)])))
-  )
+                                                           ## else
+                                                           [(:! JSObject)])))]
+                              (:! Object
+                                  (::slice js-object value)))
+                            
+                            ## else
+                            (error! (Unknown-Member (format "           member = " (:! Text member) "\n"
+                                                            "object(structure) = " (Object::toString [] (:! Object value)) "\n")))))
+    (AbstractJSObject (getSlot [idx int]) Object
+                      (|> value
+                          (array.read (|> idx (Integer::longValue []) (:! Nat)))
+                          maybe.assume
+                          (cond> [(host.instance? (Array Object))]
+                                 [(:! (Array Object)) js-structure]
 
-(host.import luxc/lang/translation/js/LuxArray
-  (structure (Array Object))
-  (new [(Array Object)]))
+                                 [(host.instance? Long)]
+                                 [(:! Int) js-int]
+
+                                 ## else
+                                 [(:! JSObject)])
+                          (:! Object)))
+    ))
 
 ## (def: (wrap-lux-object object)
 ##   (-> Top JSObject)
@@ -248,16 +256,17 @@
 ##     obj))
 
 (def: (int js-object)
-  (-> JSObject (Maybe Int))
+  (-> ScriptObjectMirror (Maybe Int))
   (case [(JSObject::getMember [int-high-field] js-object)
          (JSObject::getMember [int-low-field] js-object)]
     (^multi [(#.Some high) (#.Some low)]
             (and (host.instance? Number high)
                  (host.instance? Number low))
-            [[(Number::longValue [] high) (Number::longValue [] low)]
+            [[(Number::longValue [] (:! Number high))
+              (Number::longValue [] (:! Number low))]
              [high low]])
-    (#.Some (nat-to-int (n/+ (-> high (:! Int) int-to-nat (bit.shift-left +32))
-                             (-> low (:! Int) int-to-nat))))
+    (#.Some (nat-to-int (n/+ (|> high (:! Int) int-to-nat (bit.shift-left +32))
+                             (|> low (:! Int) int-to-nat))))
 
     _
     #.None))
@@ -268,26 +277,32 @@
     (|> (array.new (n/+ by size))
         (array.copy size +0 input +0))))
 
-(def: (array js-object)
-  (-> ScriptObjectMirror (Maybe (Array Object)))
+(def: (array element-parser js-object)
+  (-> (-> Object (Error Top)) ScriptObjectMirror (Maybe (Array Object)))
   (if (JSObject::isArray [] js-object)
-    (#.Some (loop [num-keys (ScriptObjectMirror::size js-object)
-                   idx +0
-                   output (: (Array Object)
-                             (array.new num-keys))]
-              (if (n/< num-keys idx)
-                (let [idx-key (|> idx nat-to-int %i)]
-                  (case (JSObject::getMember idx-key js-object)
-                    (#.Some member)
-                    (recur num-keys
-                           (n/inc idx)
-                           (array.write idx output member))
-                    
-                    #.None
-                    (recur (n/inc num-keys)
-                           (n/inc idx)
-                           (extend-array +1 output))))
-                output)))
+    (let [init-num-keys (int-to-nat (ScriptObjectMirror::size [] js-object))]
+      (loop [num-keys init-num-keys
+             idx +0
+             output (: (Array Object)
+                       (array.new init-num-keys))]
+        (if (n/< num-keys idx)
+          (let [idx-key (|> idx nat-to-int %i)]
+            (case (JSObject::getMember idx-key js-object)
+              (#.Some member)
+              (case (element-parser member)
+                (#e.Success parsed-member)
+                (recur num-keys
+                       (n/inc idx)
+                       (array.write idx (:! Object parsed-member) output))
+
+                (#e.Error error)
+                #.None)
+              
+              #.None
+              (recur (n/inc num-keys)
+                     (n/inc idx)
+                     (extend-array +1 output))))
+          (#.Some output))))
     #.None))
 
 (exception: #export Unknown-Kind-Of-JS-Object)
@@ -295,45 +310,46 @@
 
 (def: (lux-object js-object)
   (-> Object (Error Top))
-  (cond (host.null? js-object)
-        (ex.throw Null-Has-No-Lux-Representation "")
-        
-        (host.instance? java.lang.Integer js-object)
-        (ex.return (Integer::longValue [] js-object))
+  (`` (cond (host.null? js-object)
+            (ex.throw Null-Has-No-Lux-Representation "")
+            
+            (host.instance? Integer js-object)
+            (ex.return (Integer::longValue [] (:! Integer js-object)))
 
-        (or (host.instance? java.lang.Boolean js-object)
-            (host.instance? java.lang.String js-object))
-        (ex.return js-object)
+            (or (host.instance? java/lang/Boolean js-object)
+                (host.instance? java/lang/String js-object))
+            (ex.return js-object)
 
-        (host.instance? java.lang.Number js-object)
-        (ex.return (Number::doubleValue [] (:! java.lang.Number js-object)))
+            (host.instance? Number js-object)
+            (ex.return (Number::doubleValue [] (:! Number js-object)))
 
-        (host.instance? LuxArray js-object)
-        (ex.return (LuxArray::structure [] (:! LuxArray js-object)))
+            (~~ (do-template [<interface> <method>]
+                  [(host.instance? <interface> js-object)
+                   (ex.return (<method> [] (:! <interface> js-object)))]
+                  
+                  [StructureValue StructureValue::getValue]
+                  [IntValue IntValue::getValue]))
+            
+            (host.instance? ScriptObjectMirror js-object)
+            (let [js-object (:! ScriptObjectMirror js-object)]
+              (case (int js-object)
+                (#.Some value)
+                (ex.return value)
 
-        (host.instance? LuxInt js-object)
-        (ex.return (LuxInt::value [] (:! LuxInt js-object)))
+                #.None
+                (case (array lux-object js-object)
+                  (#.Some value)
+                  (ex.return value)
 
-        (host.instance? JSObject js-object)
-        (let [js-object (:! JSObject js-object)]
-          (case (int js-object)
-            (#.Some value)
-            (ex.return value)
+                  #.None
+                  ## (JSObject::isFunction [] js-object)
+                  ## js-object
 
-            #.None
-            (case (array lux-object js-object)
-              (#.Some value)
-              (ex.return value)
-
-              #.None
-              ## (JSObject::isFunction [] js-object)
-              ## js-object
-
-              ## else
-              (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
-        
-        ## else
-        (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object)))))
+                  ## else
+                  (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
+            
+            ## else
+            (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
 
 (def: #export (eval code)
   (-> Expression (Meta Top))
@@ -346,31 +362,36 @@
       ((lang.fail (Cannot-Evaluate error)) compiler)
       
       (#e.Success output)
-      (#e.Success [compiler (case output
-                              #.None
-                              []
+      (case output
+        #.None
+        (#e.Success [compiler []])
 
-                              (#.Some output)
-                              (js-to-lux output))]))))
+        (#.Some output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (#e.Success [compiler parsed-output])
+
+          (#e.Error error)
+          (#e.Error error))))))
 
 (def: #export unit Text "\u0000")
 
 (def: (module-name module)
   (-> Text Text)
-  (-> module
+  (|> module
       (text.replace-all "/" "$")
       (text.replace-all "-" "_")))
 
 (def: (definition-name [module name])
   (-> Ident Text)
-  (format (module-name module) "$" (&host/def-name name)))
+  (format (module-name module) "$" (lang.normalize-name name)))
 
 (def: #export (save-definition name code)
   (-> Ident Expression (Meta Unit))
   (do macro.Monad<Meta>
     [#let [js-definition (format "var " (definition-name name) " = " code ";\n")]
      module-buffer module-buffer
-     #let [_ (StringBuilder::append [js-definition] module-buffer)]]
+     #let [_ (AbstractStringBuilder::append [js-definition] module-buffer)]]
     (execute js-definition)))
 
 (def: #export (save-module! target)
@@ -379,10 +400,10 @@
     [module macro.current-module-name
      module-buffer module-buffer
      program-buffer program-buffer
-     #let [_ (StringBuilder::append [(format module-buffer "\n")] program-buffer)]]
+     #let [module-code (StringBuilder::toString [] module-buffer)
+           _ (AbstractStringBuilder::append [(format module-code "\n")] program-buffer)]]
     (wrap (ioC.write target
                      (format module "/" module-js-name)
-                     (|> module-buffer
-                         (StringBuilder::toString [])
+                     (|> module-code
                          (String::getBytes ["UTF-8"])
                          e.assume)))))
