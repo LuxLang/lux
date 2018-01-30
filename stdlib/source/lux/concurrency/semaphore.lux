@@ -1,0 +1,147 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (concurrency [atom #+ Atom]
+                    [promise #+ Promise])
+       [io #+ IO]
+       (type abstract
+             [refinement])))
+
+(type: State
+  {#open-positions Nat
+   #waiting-list (List (Promise Unit))})
+
+(abstract: #export Semaphore
+  {#.doc "A tool for controlling access to resources by multiple concurrent processes."}
+
+  (Atom State)
+
+  (def: #export (semaphore init-open-positions)
+    (-> Nat Semaphore)
+    (@abstraction (atom.atom {#open-positions init-open-positions
+                              #waiting-list (list)})))
+
+  (def: #export (wait semaphore)
+    (Ex [k] (-> Semaphore (Promise Unit)))
+    (let [semaphore (@representation semaphore)]
+      (io.run
+       (loop [signal (: (Promise Unit)
+                        (promise.promise #.None))]
+         (do io.Monad<IO>
+           [state (atom.read semaphore)
+            #let [[ready? state'] (: [Bool State]
+                                     (case (get@ #open-positions state)
+                                       +0 [false (update@ #waiting-list (|>> (#.Cons signal))
+                                                          state)]
+                                       _ [true (update@ #open-positions n/dec
+                                                        state)]))]
+            success? (atom.compare-and-swap state state' semaphore)
+            _ (if ready?
+                (promise.resolve [] signal)
+                (wrap false))]
+           (if success?
+             (wrap signal)
+             (recur signal)))))))
+
+  (def: #export (signal semaphore)
+    (Ex [k] (-> Semaphore (Promise Unit)))
+    (let [semaphore (@representation semaphore)]
+      (promise.future
+       (loop [_ []]
+         (do io.Monad<IO>
+           [state (atom.read semaphore)
+            #let [[?signal state'] (: [(Maybe (Promise Unit)) State]
+                                      (case (get@ #waiting-list state)
+                                        #.Nil
+                                        [#.None (update@ #open-positions n/inc state)]
+                                        
+                                        (#.Cons head tail)
+                                        [(#.Some head) (set@ #waiting-list tail state)]))]
+            success? (atom.compare-and-swap state state' semaphore)]
+           (if success?
+             (do @
+               [_ (case ?signal
+                    #.None
+                    (wrap true)
+
+                    (#.Some signal)
+                    (promise.resolve [] signal))]
+               (wrap []))
+             (recur [])))))))
+  )
+
+(abstract: #export Mutex
+  {#.doc "A mutual-exclusion lock that can only be acquired by one process at a time."}
+
+  Semaphore
+
+  (def: #export (mutex _)
+    (-> Top Mutex)
+    (@abstraction (semaphore +1)))
+
+  (def: (acquire mutex)
+    (-> Mutex (Promise Unit))
+    (wait (@representation mutex)))
+
+  (def: (release mutex)
+    (-> Mutex (Promise Unit))
+    (signal (@representation mutex)))
+
+  (def: #export (synchronize mutex procedure)
+    (All [a] (-> Mutex (IO (Promise a)) (Promise a)))
+    (do promise.Monad<Promise>
+      [_ (acquire mutex)
+       output (io.run procedure)
+       _ (release mutex)]
+      (wrap output)))
+  )
+
+(def: #export limit (refinement.refinement (n/> +0)))
+(type: #export Limit (~ (refinement.type limit)))
+
+(abstract: #export Barrier
+  {#.doc "A barrier that blocks all processes from proceeding until a given number of processes are parked at the barrier."}
+
+  {#limit Limit
+   #count (Atom Nat)
+   #start-turnstile Semaphore
+   #end-turnstile Semaphore}
+
+  (def: #export (barrier limit)
+    (-> Limit Barrier)
+    (@abstraction {#limit limit
+                   #count (atom.atom +0)
+                   #start-turnstile (semaphore +0)
+                   #end-turnstile (semaphore +0)}))
+
+  (def: (un-block times turnstile)
+    (-> Nat Semaphore (Promise Top))
+    (loop [step +0]
+      (if (n/< times step)
+        (do promise.Monad<Promise>
+          [_ (signal turnstile)]
+          (recur (n/inc step)))
+        (:: promise.Monad<Promise> wrap []))))
+
+  (do-template [<phase> <update> <goal> <turnstile>]
+    [(def: (<phase> (^@representation barrier))
+       (-> Barrier (Promise Unit))
+       (do promise.Monad<Promise>
+         [#let [limit (refinement.un-refine (get@ #limit barrier))
+                goal <goal>
+                count (io.run (atom.update <update> (get@ #count barrier)))]
+          _ (if (n/= goal count)
+              (un-block limit (get@ <turnstile> barrier))
+              (wrap []))]
+         (wait (get@ <turnstile> barrier))))]
+
+    [start n/inc limit #start-turnstile]
+    [end   n/dec +0    #end-turnstile]
+    )
+
+  (def: #export (block barrier)
+    (-> Barrier (Promise Unit))
+    (do promise.Monad<Promise>
+      [_ (start barrier)]
+      (end barrier)))
+  )
